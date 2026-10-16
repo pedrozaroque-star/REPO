@@ -373,7 +373,36 @@ export default function BasecampProject({ project, navigateTo, saveProjects, pro
         }
 
         fetchProjectDetails()
-    }, [project.id, project.db_id])
+
+        if (!project.db_id) return
+        const channel = supabase
+            .channel(`bc_project_dashboard_${project.db_id}`)
+            .on(
+                'postgres_changes',
+                { event: '*', schema: 'public', table: 'bc_todos', filter: `project_id=eq.${project.db_id}` },
+                () => fetchProjectDetails()
+            )
+            .on(
+                'postgres_changes',
+                { event: '*', schema: 'public', table: 'bc_messages', filter: `project_id=eq.${project.db_id}` },
+                () => fetchProjectDetails()
+            )
+            .on(
+                'postgres_changes',
+                { event: '*', schema: 'public', table: 'bc_comments', filter: `project_id=eq.${project.db_id}` },
+                () => fetchProjectDetails()
+            )
+            .on(
+                'postgres_changes',
+                { event: '*', schema: 'public', table: 'bc_documents', filter: `project_id=eq.${project.db_id}` },
+                () => fetchProjectDetails()
+            )
+            .subscribe()
+
+        return () => {
+            supabase.removeChannel(channel)
+        }
+    }, [project.id, project.db_id, supabase])
 
     // ───── Handlers ─────
     const handleUpdateNeedle = (e: React.FormEvent) => {

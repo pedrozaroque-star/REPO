@@ -46,9 +46,21 @@ interface BasecampHomeProps {
     navigateTo: (params: { project?: string; tool?: string; section?: string }) => void
     userName: string
     onOpenSearch?: () => void
+    onSync?: () => Promise<any>
+    isBackgroundSyncing?: boolean
+    lastSyncedAt?: string | null
 }
 
-export default function BasecampHome({ projects, saveProjects, navigateTo, userName, onOpenSearch }: BasecampHomeProps) {
+export default function BasecampHome({
+    projects,
+    saveProjects,
+    navigateTo,
+    userName,
+    onOpenSearch,
+    onSync,
+    isBackgroundSyncing = false,
+    lastSyncedAt = null,
+}: BasecampHomeProps) {
     const { t } = useLanguage()
 
     // Estado del modal de crear proyecto
@@ -63,6 +75,15 @@ export default function BasecampHome({ projects, saveProjects, navigateTo, userN
     // Estado de sincronización con Basecamp
     const [isSyncing, setIsSyncing] = useState(false)
     const [syncStatus, setSyncStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
+
+    const effectiveSyncing = isSyncing || isBackgroundSyncing
+
+    const getSyncRelativeLabel = () => {
+        if (!lastSyncedAt) return t('basecamp.auto_sync_live')
+        const diffMins = Math.max(0, Math.floor((Date.now() - new Date(lastSyncedAt).getTime()) / 60000))
+        if (diffMins < 1) return t('basecamp.synced_just_now')
+        return `${t('basecamp.synced_mins_ago')} ${diffMins} ${t('basecamp.mins_ago_suffix')}`
+    }
 
     const handleCreateProject = async (e: React.FormEvent) => {
         e.preventDefault()
@@ -106,12 +127,21 @@ export default function BasecampHome({ projects, saveProjects, navigateTo, userN
         setShowCreateModal(false)
     }
 
-    // Sincronizar desde Basecamp original → Supabase (ONE-WAY, lectura solamente)
+    // Sincronizar desde Basecamp original → Supabase sin recargar la página completa
     const handleSyncBasecamp = async () => {
-        if (isSyncing) return
+        if (effectiveSyncing) return
         setIsSyncing(true)
         setSyncStatus(null)
         try {
+            if (onSync) {
+                await onSync()
+                setSyncStatus({
+                    type: 'success',
+                    message: t('basecamp.synced_just_now')
+                })
+                setTimeout(() => setSyncStatus(null), 4000)
+                return
+            }
             const res = await fetch('/api/basecamp/sync', { method: 'POST' })
             const data = await res.json()
             if (res.ok && data.status !== 'failed') {
@@ -120,8 +150,7 @@ export default function BasecampHome({ projects, saveProjects, navigateTo, userN
                     type: 'success',
                     message: `${t('basecamp.sync_complete_prefix')}${count}${t('basecamp.sync_records_updated')}`
                 })
-                // Reload page after 2 seconds to show fresh data
-                setTimeout(() => window.location.reload(), 2000)
+                setTimeout(() => setSyncStatus(null), 4000)
             } else {
                 setSyncStatus({
                     type: 'error',
@@ -255,11 +284,19 @@ export default function BasecampHome({ projects, saveProjects, navigateTo, userN
 
     return (
         <div className="flex-1 flex flex-col items-center w-full max-w-5xl mx-auto py-4">
-            {/* Header: Center top selector */}
-            <div className="flex items-center gap-1 text-slate-655 dark:text-slate-350 font-extrabold text-sm mb-4 cursor-pointer hover:opacity-85">
-                <span className="w-2.5 h-2.5 rounded-full bg-green-500 inline-block mr-0.5" />
-                <span>Basecamp</span>
-                <ChevronDown size={14} className="mt-0.5 text-slate-400" />
+            {/* Header: Center top selector + Live Auto-Sync Badge */}
+            <div className="flex items-center gap-2 text-slate-655 dark:text-slate-350 font-extrabold text-sm mb-4">
+                <div className="flex items-center gap-1 cursor-pointer hover:opacity-85">
+                    <span className={`w-2.5 h-2.5 rounded-full inline-block mr-0.5 ${effectiveSyncing ? 'bg-blue-500 animate-ping' : 'bg-green-500 animate-pulse'}`} />
+                    <span>Basecamp</span>
+                    <ChevronDown size={14} className="mt-0.5 text-slate-400" />
+                </div>
+                <span
+                    className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-50/80 dark:bg-emerald-950/30 border border-emerald-200/70 dark:border-emerald-800/60 text-[11px] font-semibold text-emerald-700 dark:text-emerald-300"
+                    title={t('basecamp.auto_sync_tooltip')}
+                >
+                    <span>{effectiveSyncing ? t('basecamp.syncing_in_progress') : getSyncRelativeLabel()}</span>
+                </span>
             </div>
 
             {/* Centered Tacos Gavilan Logo */}
@@ -295,19 +332,19 @@ export default function BasecampHome({ projects, saveProjects, navigateTo, userN
                 
                 <button
                     onClick={handleSyncBasecamp}
-                    disabled={isSyncing}
+                    disabled={effectiveSyncing}
                     className={`flex items-center gap-2 px-4 py-2 border rounded-xl font-bold text-xs shadow-sm transition-all animate-in fade-in slide-in-from-bottom-2 duration-600 ${
-                        isSyncing
+                        effectiveSyncing
                             ? 'bg-blue-50 dark:bg-blue-950/30 border-blue-300 dark:border-blue-800 text-blue-600 dark:text-blue-300 cursor-wait'
                             : 'bg-white dark:bg-slate-855 hover:bg-blue-50 dark:hover:bg-blue-950/20 border-slate-250 dark:border-slate-700 text-slate-700 dark:text-slate-200'
                     }`}
                 >
-                    {isSyncing ? (
+                    {effectiveSyncing ? (
                         <Loader2 size={14} className="text-blue-500 animate-spin" />
                     ) : (
                         <RefreshCw size={14} className="text-blue-500" />
                     )}
-                    <span>{isSyncing ? t('basecamp.syncing_in_progress') : t('basecamp.sync_with_basecamp')}</span>
+                    <span>{effectiveSyncing ? t('basecamp.syncing_in_progress') : t('basecamp.sync_with_basecamp')}</span>
                 </button>
             </div>
 

@@ -27,14 +27,6 @@ export const dynamic = 'force-dynamic'
 
 export async function GET() {
   try {
-    const clientId = process.env.BASECAMP_CLIENT_ID
-    if (!clientId) {
-      return NextResponse.json(
-        { error: 'Basecamp Client ID not configured. Set BASECAMP_CLIENT_ID in .env.local' },
-        { status: 500 }
-      )
-    }
-
     const authUrl = await getAuthorizationUrl()
     console.log('🔐 [Basecamp Auth] Redirecting to Basecamp authorization...')
 

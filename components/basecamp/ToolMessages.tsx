@@ -20,7 +20,7 @@
 
 'use client'
 
-import React, { useState, useEffect, useMemo } from 'react'
+import React, { useState, useEffect, useMemo, useCallback } from 'react'
 import { useLanguage } from '@/lib/i18n'
 import { Mail, Plus, ArrowLeft, MessageSquare, Trash2, Tag, Calendar, User, Loader2, FileText } from 'lucide-react'
 import { getSupabaseWithAuth } from '@/lib/supabase'
@@ -211,9 +211,9 @@ export default function ToolMessages({ project, currentUserName }: ToolMessagesP
     const [sortOrder, setSortOrder] = useState<'newest' | 'oldest'>('newest')
 
     // Fetch message board and messages from Supabase
-    const fetchBoardAndMessages = async () => {
+    const fetchBoardAndMessages = useCallback(async (opts?: { silent?: boolean }) => {
         if (!project.db_id) return
-        setLoading(true)
+        if (!opts?.silent) setLoading(true)
         try {
             // 1. Get all Message Board containers for the project
             const { data: dbBoards, error: boardErr } = await supabase
@@ -263,16 +263,20 @@ export default function ToolMessages({ project, currentUserName }: ToolMessagesP
 
                 if (msgErr) throw msgErr
                 setMessages(dbMessages || [])
+                setSelectedMessage((prev: any) => {
+                    if (!prev) return null
+                    return (dbMessages || []).find((m: any) => m.id === prev.id) || prev
+                })
             }
         } catch (err: any) {
             console.error('❌ [ToolMessages Fetch] Error:', err.message)
         } finally {
             setLoading(false)
         }
-    }
+    }, [project.db_id, project.id, supabase])
 
     // Fetch comments for selected message
-    const fetchSelectedMessageComments = async (msgId: string) => {
+    const fetchSelectedMessageComments = useCallback(async (msgId: string) => {
         setCommentsLoading(true)
         try {
             const { data: comments, error } = await supabase
@@ -289,13 +293,43 @@ export default function ToolMessages({ project, currentUserName }: ToolMessagesP
         } finally {
             setCommentsLoading(false)
         }
-    }
+    }, [supabase])
 
     useEffect(() => {
         fetchBoardAndMessages()
         setSelectedMessage(null)
         setSelectedMessageComments([])
-    }, [project.id, project.db_id])
+    }, [project.id, project.db_id, fetchBoardAndMessages])
+
+    // Supabase Realtime subscription for live updates to bc_messages and bc_comments
+    useEffect(() => {
+        if (!project.db_id) return
+        const channel = supabase
+            .channel(`bc_messages_live_${project.db_id}`)
+            .on(
+                'postgres_changes',
+                { event: '*', schema: 'public', table: 'bc_messages', filter: `project_id=eq.${project.db_id}` },
+                () => {
+                    fetchBoardAndMessages({ silent: true })
+                }
+            )
+            .on(
+                'postgres_changes',
+                { event: '*', schema: 'public', table: 'bc_comments', filter: `project_id=eq.${project.db_id}` },
+                (payload: any) => {
+                    fetchBoardAndMessages({ silent: true })
+                    const parentId = payload.new?.parent_id || payload.old?.parent_id
+                    if (selectedMessage?.id && parentId === selectedMessage.id) {
+                        fetchSelectedMessageComments(selectedMessage.id)
+                    }
+                }
+            )
+            .subscribe()
+
+        return () => {
+            supabase.removeChannel(channel)
+        }
+    }, [project.db_id, selectedMessage?.id, fetchBoardAndMessages, fetchSelectedMessageComments, supabase])
 
     // Close lightbox on Escape key
     useEffect(() => {
@@ -317,7 +351,7 @@ export default function ToolMessages({ project, currentUserName }: ToolMessagesP
         } else {
             setSelectedMessageComments([])
         }
-    }, [selectedMessage?.id])
+    }, [selectedMessage?.id, fetchSelectedMessageComments])
 
     // Publish Message
     const handlePublishMessage = async (e: React.FormEvent) => {

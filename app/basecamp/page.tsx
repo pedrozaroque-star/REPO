@@ -67,6 +67,9 @@ function BasecampWorkspace() {
     const [isAuthorized, setIsAuthorized] = useState<boolean | null>(null)
     const [loading, setLoading] = useState(true)
     const [syncing, setSyncing] = useState(false)
+    const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null)
+    const [nowTick, setNowTick] = useState<number>(() => Date.now())
+    const syncingRef = useRef(false)
     const [searchQuery, setSearchQuery] = useState('')
     const [showSearchModal, setShowSearchModal] = useState(false)
     const [searchResults, setSearchResults] = useState<any[]>([])
@@ -83,14 +86,18 @@ function BasecampWorkspace() {
     const currentUserName = user?.name || 'Carlos Roque'
 
     // 1. Fetch authorization status and projects
-    const checkAuthAndLoadProjects = async () => {
-        setLoading(true)
+    const checkAuthAndLoadProjects = useCallback(async (opts?: { silent?: boolean }) => {
+        if (!opts?.silent) setLoading(true)
         try {
             // Check status via API (uses service_role internally)
             const statusRes = await fetch('/api/basecamp/status')
             if (!statusRes.ok) throw new Error('Failed to get status')
-            const { authorized } = await statusRes.json()
+            const statusData = await statusRes.json()
+            const { authorized, last_synced_at, is_stale, is_running } = statusData
             setIsAuthorized(authorized)
+            if (last_synced_at) {
+                setLastSyncedAt(last_synced_at)
+            }
 
             if (authorized) {
                 // Use authenticated Supabase client (JWT token adds 'authenticated' role for RLS)
@@ -152,17 +159,25 @@ function BasecampWorkspace() {
 
                     setUnreadHeyCount(count || 0)
                 }
+
+                // Stale-While-Revalidate: If last sync was > 3 minutes ago, trigger silent background sync automatically
+                if (is_stale && !is_running && !syncingRef.current) {
+                    console.log('⚡ [Basecamp Auto-Sync] Data is stale (> 3m), triggering silent background sync...')
+                    setTimeout(() => {
+                        handleSync({ silent: true })
+                    }, 300)
+                }
             }
         } catch (err: any) {
             console.error('Error loading Basecamp workspace:', err.message)
         } finally {
-            setLoading(false)
+            if (!opts?.silent) setLoading(false)
         }
-    }
+    }, [user?.email])
 
     useEffect(() => {
         checkAuthAndLoadProjects()
-    }, [user])
+    }, [checkAuthAndLoadProjects])
 
     const saveProjects = async (updated: any[]) => {
         const supabase = getSupabaseWithAuth()
@@ -191,34 +206,108 @@ function BasecampWorkspace() {
         setProjects(updated)
     }
 
-    // Trigger full manual sync
-    const handleSync = async () => {
+    // Trigger manual or silent background sync
+    const handleSync = useCallback(async (opts?: { silent?: boolean; projectId?: string }) => {
+        if (syncingRef.current) return
+        syncingRef.current = true
         setSyncing(true)
         try {
-            console.log('🔄 Triggering sync...')
-            const res = await fetch('/api/basecamp/sync', { method: 'POST' })
+            const payload = opts?.projectId ? { projectId: Number(opts.projectId) } : { full: false }
+            const res = await fetch('/api/basecamp/sync', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+            })
             const data = await res.json().catch(() => ({}))
             
             if (res.status === 409) {
-                // A sync was already running in the background — not a failure, just wait and refresh data
-                console.log('⏳ Sync is already running in background, refreshing local data...')
+                // A sync was already running in the background — wait briefly and refresh local data
                 await new Promise(r => setTimeout(r, 2000))
-                await checkAuthAndLoadProjects()
+                await checkAuthAndLoadProjects({ silent: true })
                 return
             }
 
             if (!res.ok || data.status === 'failed') {
                 throw new Error(data.error || 'Sync endpoint returned error')
             }
-            console.log('✅ Sync completed!')
-            await checkAuthAndLoadProjects()
+            if (data.synced_at) {
+                setLastSyncedAt(data.synced_at)
+            } else {
+                setLastSyncedAt(new Date().toISOString())
+            }
+            setNowTick(Date.now())
+            await checkAuthAndLoadProjects({ silent: true })
         } catch (err: any) {
             console.error('Sync failed:', err.message)
-            alert('Error al sincronizar: ' + err.message)
+            if (!opts?.silent) {
+                alert('Error al sincronizar: ' + err.message)
+            }
         } finally {
+            syncingRef.current = false
             setSyncing(false)
         }
-    }
+    }, [checkAuthAndLoadProjects])
+
+    // Background Auto-Sync Heartbeat (every 3 minutes) + Tab Focus / Visibility Revalidation + Realtime Listener
+    useEffect(() => {
+        if (!isAuthorized) return
+
+        // 1. Update relative time ticker every 30s & run background sync every 3 minutes
+        const tickInterval = setInterval(() => {
+            setNowTick(Date.now())
+        }, 30_000)
+
+        const syncInterval = setInterval(() => {
+            if (document.visibilityState === 'visible' && !syncingRef.current) {
+                handleSync({ silent: true, projectId: projectId || undefined })
+            }
+        }, 3 * 60 * 1000)
+
+        // 2. Sync when user returns to browser tab if last sync was > 2 minutes ago
+        const handleVisibilityOrFocus = () => {
+            if (document.visibilityState === 'visible' && !syncingRef.current) {
+                const ageMs = lastSyncedAt ? Date.now() - new Date(lastSyncedAt).getTime() : Infinity
+                if (ageMs > 2 * 60 * 1000) {
+                    handleSync({ silent: true, projectId: projectId || undefined })
+                }
+            }
+        }
+        window.addEventListener('focus', handleVisibilityOrFocus)
+        document.addEventListener('visibilitychange', handleVisibilityOrFocus)
+
+        // 3. Realtime subscription on bc_sync_log and bc_projects
+        const supabase = getSupabaseWithAuth()
+        const channel = supabase
+            .channel('basecamp-workspace-live')
+            .on(
+                'postgres_changes',
+                { event: '*', schema: 'public', table: 'bc_sync_log' },
+                (payload: any) => {
+                    const row = payload.new as any
+                    if (row?.status === 'completed' || row?.status === 'completed_with_errors') {
+                        setLastSyncedAt(row.completed_at || new Date().toISOString())
+                        setNowTick(Date.now())
+                        checkAuthAndLoadProjects({ silent: true })
+                    }
+                }
+            )
+            .on(
+                'postgres_changes',
+                { event: '*', schema: 'public', table: 'bc_projects' },
+                () => {
+                    checkAuthAndLoadProjects({ silent: true })
+                }
+            )
+            .subscribe()
+
+        return () => {
+            clearInterval(tickInterval)
+            clearInterval(syncInterval)
+            window.removeEventListener('focus', handleVisibilityOrFocus)
+            document.removeEventListener('visibilitychange', handleVisibilityOrFocus)
+            supabase.removeChannel(channel)
+        }
+    }, [isAuthorized, projectId, lastSyncedAt, handleSync, checkAuthAndLoadProjects])
 
     const navigateTo = (params: { project?: string; tool?: string; section?: string; ping?: string; tab?: string; todoId?: string }) => {
         const query = new URLSearchParams()
@@ -482,7 +571,7 @@ function BasecampWorkspace() {
                         {t('basecamp.initial_sync_desc')}
                     </p>
                     <button
-                        onClick={handleSync}
+                        onClick={() => handleSync()}
                         className="inline-flex items-center justify-center gap-2 w-full py-3 px-4 rounded-xl bg-[#1D7DB5] hover:bg-[#155D8A] text-white font-extrabold text-sm shadow-md transition-all animate-pulse"
                     >
                         <RefreshCw size={16} />
@@ -513,6 +602,13 @@ function BasecampWorkspace() {
         )
     }
 
+    const getSyncRelativeLabel = () => {
+        if (!lastSyncedAt) return t('basecamp.auto_sync_live')
+        const diffMins = Math.max(0, Math.floor((Date.now() - new Date(lastSyncedAt).getTime()) / 60000))
+        if (diffMins < 1) return t('basecamp.synced_just_now')
+        return `${t('basecamp.synced_mins_ago')} ${diffMins} ${t('basecamp.mins_ago_suffix')}`
+    }
+
     const renderBasecampHeader = () => {
         return (
             <header className="w-full bg-[#fcfaf6] dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 py-2.5 px-3 sm:px-6 flex items-center justify-between gap-3 rounded-t-2xl shadow-sm">
@@ -535,7 +631,15 @@ function BasecampWorkspace() {
                     )}
                 </div>
 
-                <div className="flex items-center justify-end gap-1 overflow-x-auto no-scrollbar py-0.5 flex-1">
+                <div className="flex items-center justify-end gap-1.5 overflow-x-auto no-scrollbar py-0.5 flex-1">
+                    <div
+                        className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-50/80 dark:bg-emerald-950/30 border border-emerald-200/70 dark:border-emerald-800/60 text-[11px] font-semibold text-emerald-700 dark:text-emerald-300 shrink-0"
+                        title={t('basecamp.auto_sync_tooltip')}
+                    >
+                        <span className={`w-1.5 h-1.5 rounded-full ${syncing ? 'bg-blue-500 animate-ping' : 'bg-emerald-500 animate-pulse'}`} />
+                        <span>{syncing ? t('basecamp.syncing_in_progress') : getSyncRelativeLabel()}</span>
+                    </div>
+
                     <button
                         onClick={() => setShowSearchModal(true)}
                         className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-xs font-bold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-all shrink-0"
@@ -545,7 +649,7 @@ function BasecampWorkspace() {
                     </button>
 
                     <button
-                        onClick={handleSync}
+                        onClick={() => handleSync({ projectId: projectId || undefined })}
                         disabled={syncing}
                         className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold transition-all border shrink-0 ${
                             syncing
@@ -646,7 +750,18 @@ function BasecampWorkspace() {
             return <BasecampProject project={currentProject} navigateTo={navigateTo} saveProjects={saveProjects} projects={projects} currentUserName={currentUserName} onOpenSearch={() => setShowSearchModal(true)} />
         }
 
-        return <BasecampHome projects={projects} saveProjects={saveProjects} navigateTo={navigateTo} userName={currentUserName} onOpenSearch={() => setShowSearchModal(true)} />
+        return (
+            <BasecampHome
+                projects={projects}
+                saveProjects={saveProjects}
+                navigateTo={navigateTo}
+                userName={currentUserName}
+                onOpenSearch={() => setShowSearchModal(true)}
+                onSync={() => handleSync()}
+                isBackgroundSyncing={syncing}
+                lastSyncedAt={lastSyncedAt}
+            />
+        )
     }
 
     const isHome = !projectId && !toolId && !section && !pingUser

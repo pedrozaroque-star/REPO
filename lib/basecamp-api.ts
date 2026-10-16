@@ -31,6 +31,7 @@
  */
 
 import { createClient } from '@supabase/supabase-js'
+import crypto from 'crypto'
 
 // ============================================================================
 // CONFIGURATION
@@ -39,9 +40,6 @@ import { createClient } from '@supabase/supabase-js'
 const BASECAMP_ACCOUNT_ID = process.env.BASECAMP_ACCOUNT_ID || '5052386'
 const BASECAMP_API_BASE = `https://3.basecampapi.com/${BASECAMP_ACCOUNT_ID}`
 const BASECAMP_AUTH_BASE = 'https://launchpad.37signals.com'
-const BASECAMP_CLIENT_ID = process.env.BASECAMP_CLIENT_ID || ''
-const BASECAMP_CLIENT_SECRET = process.env.BASECAMP_CLIENT_SECRET || ''
-const BASECAMP_REDIRECT_URI = process.env.BASECAMP_REDIRECT_URI || 'http://localhost:3000/api/basecamp/callback'
 const BASECAMP_USER_AGENT = process.env.BASECAMP_USER_AGENT || 'SM-TEG-Sync (carlos@tacosgavilan.com)'
 
 // Rate limiting: Basecamp allows 50 req/10s (conservative) – we enforce internally
@@ -412,31 +410,137 @@ async function waitForRateLimit(): Promise<void> {
 }
 
 // ============================================================================
-// OAUTH2 — Authorization Flow
+// OAUTH2 — Authorization Flow & Encrypted Credential Fallback
 // ============================================================================
+
+const OAUTH_CONFIG_SERVICE_NAME = 'basecamp_oauth_app'
+
+function getEncryptionKey(): Buffer {
+  const secret = process.env.SUPABASE_SERVICE_ROLE_KEY || 'teg-fallback-key'
+  return crypto.createHash('sha256').update(secret).digest()
+}
+
+export function encryptOAuthConfig(payload: { clientId: string; clientSecret: string; redirectUri: string }): string {
+  const iv = crypto.randomBytes(12)
+  const cipher = crypto.createCipheriv('aes-256-gcm', getEncryptionKey(), iv)
+  const json = JSON.stringify(payload)
+  const encrypted = Buffer.concat([cipher.update(json, 'utf8'), cipher.final()])
+  const authTag = cipher.getAuthTag()
+  return `aes256gcm:${iv.toString('hex')}:${authTag.toString('hex')}:${encrypted.toString('hex')}`
+}
+
+export function decryptOAuthConfig(tokenStr: string): { clientId: string; clientSecret: string; redirectUri: string } | null {
+  try {
+    if (!tokenStr || !tokenStr.startsWith('aes256gcm:')) return null
+    const parts = tokenStr.split(':')
+    if (parts.length !== 4) return null
+    const iv = Buffer.from(parts[1], 'hex')
+    const authTag = Buffer.from(parts[2], 'hex')
+    const encrypted = Buffer.from(parts[3], 'hex')
+    const decipher = crypto.createDecipheriv('aes-256-gcm', getEncryptionKey(), iv)
+    decipher.setAuthTag(authTag)
+    const decrypted = Buffer.concat([decipher.update(encrypted), decipher.final()]).toString('utf8')
+    return JSON.parse(decrypted)
+  } catch (err: any) {
+    console.warn('⚠️ [Basecamp] Failed to decrypt stored OAuth config:', err.message)
+    return null
+  }
+}
+
+/**
+ * Resuelve las credenciales OAuth2 (client_id, client_secret, redirect_uri)
+ * priorizando variables de entorno y usando como respaldo seguro el registro
+ * cifrado con AES-256-GCM en la tabla `integrations` de Supabase.
+ * Esto previene que el Cron de Vercel falle con "Missing client_id query parameter".
+ */
+export async function getOAuthConfig(): Promise<{ clientId: string; clientSecret: string; redirectUri: string }> {
+  const envClientId = (process.env.BASECAMP_CLIENT_ID || '').trim()
+  const envClientSecret = (process.env.BASECAMP_CLIENT_SECRET || '').trim()
+  const envRedirectUri = (process.env.BASECAMP_REDIRECT_URI || 'http://localhost:3000/api/basecamp/callback').trim()
+
+  const supabase = getServiceClient()
+
+  if (envClientId && envClientSecret) {
+    // Ensure encrypted backup exists in Supabase for serverless cron environments
+    try {
+      const { data: existing } = await supabase
+        .from('integrations')
+        .select('id, access_token')
+        .eq('service_name', OAUTH_CONFIG_SERVICE_NAME)
+        .maybeSingle()
+
+      const existingDecrypted = existing?.access_token ? decryptOAuthConfig(existing.access_token) : null
+      if (!existingDecrypted || existingDecrypted.clientId !== envClientId || existingDecrypted.clientSecret !== envClientSecret) {
+        const encryptedPayload = encryptOAuthConfig({
+          clientId: envClientId,
+          clientSecret: envClientSecret,
+          redirectUri: envRedirectUri,
+        })
+        if (existing?.id) {
+          await supabase
+            .from('integrations')
+            .update({ access_token: encryptedPayload, updated_at: new Date().toISOString() })
+            .eq('id', existing.id)
+        } else {
+          await supabase.from('integrations').insert({
+            service_name: OAUTH_CONFIG_SERVICE_NAME,
+            realm_id: BASECAMP_ACCOUNT_ID,
+            access_token: encryptedPayload,
+            refresh_token: 'encrypted_aes256gcm',
+            token_type: 'EncryptedConfig',
+            expires_at: new Date(Date.now() + 10 * 365 * 24 * 3600 * 1000).toISOString(),
+          })
+        }
+      }
+    } catch (backupErr: any) {
+      console.warn('⚠️ [Basecamp] Non-fatal error backing up OAuth config:', backupErr.message)
+    }
+
+    return { clientId: envClientId, clientSecret: envClientSecret, redirectUri: envRedirectUri }
+  }
+
+  // Fallback: Read encrypted config from Supabase `integrations` table
+  const { data: backupRow } = await supabase
+    .from('integrations')
+    .select('access_token')
+    .eq('service_name', OAUTH_CONFIG_SERVICE_NAME)
+    .maybeSingle()
+
+  if (backupRow?.access_token) {
+    const decrypted = decryptOAuthConfig(backupRow.access_token)
+    if (decrypted?.clientId && decrypted?.clientSecret) {
+      return {
+        clientId: decrypted.clientId,
+        clientSecret: decrypted.clientSecret,
+        redirectUri: envRedirectUri || decrypted.redirectUri || 'http://localhost:3000/api/basecamp/callback',
+      }
+    }
+  }
+
+  throw new Error('Basecamp OAuth credentials (BASECAMP_CLIENT_ID / BASECAMP_CLIENT_SECRET) are not configured in environment or database fallback.')
+}
 
 /**
  * Genera la URL de autorización de Basecamp OAuth2.
  * Redirige al usuario a 37signals Launchpad para autorizar la app.
  */
 export async function getAuthorizationUrl(): Promise<string> {
-  if (!BASECAMP_CLIENT_ID) {
-    throw new Error('BASECAMP_CLIENT_ID is not configured')
-  }
+  const { clientId, redirectUri } = await getOAuthConfig()
   const params = new URLSearchParams({
     type: 'web_server',
-    client_id: BASECAMP_CLIENT_ID,
-    redirect_uri: BASECAMP_REDIRECT_URI,
+    client_id: clientId,
+    redirect_uri: redirectUri,
   })
   return `${BASECAMP_AUTH_BASE}/authorization/new?${params.toString()}`
 }
 
 export async function exchangeCodeForToken(code: string): Promise<TokenResponse> {
+  const { clientId, clientSecret, redirectUri } = await getOAuthConfig()
   const params = new URLSearchParams({
     type: 'web_server',
-    client_id: BASECAMP_CLIENT_ID,
-    redirect_uri: BASECAMP_REDIRECT_URI,
-    client_secret: BASECAMP_CLIENT_SECRET,
+    client_id: clientId,
+    redirect_uri: redirectUri,
+    client_secret: clientSecret,
     code,
   })
 
@@ -460,11 +564,12 @@ export async function exchangeCodeForToken(code: string): Promise<TokenResponse>
  * Basecamp access_tokens expiran cada ~2 semanas.
  */
 export async function refreshAccessToken(refreshToken: string): Promise<TokenResponse> {
+  const { clientId, clientSecret, redirectUri } = await getOAuthConfig()
   const params = new URLSearchParams({
     type: 'refresh',
-    client_id: BASECAMP_CLIENT_ID,
-    redirect_uri: BASECAMP_REDIRECT_URI,
-    client_secret: BASECAMP_CLIENT_SECRET,
+    client_id: clientId,
+    redirect_uri: redirectUri,
+    client_secret: clientSecret,
     refresh_token: refreshToken,
   })
 
@@ -994,3 +1099,78 @@ export function extractDockId(dockUrl: string): number {
   const parts = dockUrl.replace('.json', '').split('/')
   return parseInt(parts[parts.length - 1], 10)
 }
+
+// ============================================================================
+// WEBHOOKS — Real-Time Push Notifications from Basecamp 3
+// ============================================================================
+
+export interface BasecampWebhook {
+  id: number
+  active: boolean
+  created_at: string
+  updated_at: string
+  payload_url: string
+  types: string[]
+  url: string
+  app_url: string
+}
+
+/** Obtiene los webhooks registrados en un proyecto de Basecamp */
+export async function fetchProjectWebhooks(projectId: number): Promise<BasecampWebhook[]> {
+  return basecampFetch<BasecampWebhook[]>(`/buckets/${projectId}/webhooks.json`)
+}
+
+/**
+ * Asegura que exista un webhook activo apuntando a nuestro endpoint en el proyecto de Basecamp.
+ * Basecamp exige HTTPS en `payload_url`.
+ */
+export async function ensureProjectWebhook(projectId: number, payloadUrl: string): Promise<BasecampWebhook | null> {
+  if (!payloadUrl.startsWith('https://')) {
+    return null
+  }
+
+  try {
+    const existing = await fetchProjectWebhooks(projectId)
+    const match = existing.find((w) => w.payload_url === payloadUrl)
+    if (match && match.active) {
+      return match
+    }
+
+    const desiredTypes = [
+      'Todo',
+      'Todolist',
+      'Comment',
+      'Message',
+      'Document',
+      'Upload',
+      'Campfire::Line',
+      'Question::Answer',
+      'Schedule::Entry',
+    ]
+
+    if (match && !match.active) {
+      return await basecampFetch<BasecampWebhook>(`/buckets/${projectId}/webhooks/${match.id}.json`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          payload_url: payloadUrl,
+          types: desiredTypes,
+          active: true,
+        }),
+        noPaginate: true,
+      })
+    }
+
+    return await basecampFetch<BasecampWebhook>(`/buckets/${projectId}/webhooks.json`, {
+      method: 'POST',
+      body: JSON.stringify({
+        payload_url: payloadUrl,
+        types: desiredTypes,
+      }),
+      noPaginate: true,
+    })
+  } catch (err: any) {
+    console.warn(`⚠️ [Basecamp Webhook] Could not register webhook for project ${projectId}:`, err.message)
+    return null
+  }
+}
+

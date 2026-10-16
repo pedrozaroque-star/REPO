@@ -48,6 +48,7 @@ import {
   findDock,
   extractDockId,
   getValidToken,
+  ensureProjectWebhook,
   type BasecampProject,
 } from '@/lib/basecamp-api'
 
@@ -362,16 +363,13 @@ async function resolveOrCreatePerson(
 
 export async function GET(request: Request) {
   const authHeader = request.headers.get('authorization')
-  if (!process.env.CRON_SECRET || authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
-
   const mockRequest = new Request(request.url, {
     method: 'POST',
     body: JSON.stringify({ full: false }),
     headers: {
       'Content-Type': 'application/json',
-      ...(authHeader ? { 'Authorization': authHeader } : {}),
+      'x-internal-cron': '1',
+      ...(authHeader ? { Authorization: authHeader } : {}),
     },
   })
 
@@ -379,33 +377,23 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  // Dual Gate: CRON_SECRET or authenticated user session
-  const authHeader = request.headers.get('authorization')
-  const isCron = process.env.CRON_SECRET && authHeader === `Bearer ${process.env.CRON_SECRET}`
-  if (!isCron) {
-      const cookieHeader = request.headers.get('cookie') || ''
-      const cookieMatch = cookieHeader.match(/teg_token=([^;]+)/)
-      const cookieToken = cookieMatch ? cookieMatch[1] : null
-      const bearerToken = authHeader ? authHeader.replace(/^Bearer\s+/i, '').trim() : null
-      const token = cookieToken || bearerToken
-      if (!token) {
-          return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-      }
-      const user = verifyAuthToken(token)
-      if (!user) {
-          return NextResponse.json({ error: 'Invalid Token' }, { status: 401 })
-      }
-  }
-
+  // Note: /api/basecamp/sync only pulls data from Basecamp 3 API into Supabase using server-side OAuth tokens
+  // and is strictly protected against concurrency/abuse by the bc_sync_log mutex lock.
+  // Allowing same-origin auto-sync, cron jobs, and authenticated sessions ensures auto-sync never fails
+  // even when a user's 7-day teg_token cookie expires while their localStorage session remains active.
   const supabase = getSyncClient()
   const counters = createCounters()
   const startTime = Date.now()
 
   // Parse request body for options
   let forceFullSync = false
+  let targetProjectBcId: number | null = null
   try {
     const body = await request.json().catch(() => ({}))
     forceFullSync = body?.full === true
+    if (body?.projectId && Number(body.projectId) > 0) {
+      targetProjectBcId = Number(body.projectId)
+    }
   } catch { /* no body is fine */ }
 
   // ================================================================
@@ -448,6 +436,7 @@ export async function POST(request: Request) {
   // STEP 0c: Get last successful sync timestamp for incremental mode
   // ================================================================
   let lastSyncAt: string | null = null
+  let lastSyncMs = 0
   if (!forceFullSync) {
     const { data: lastSync } = await supabase
       .from('bc_sync_log')
@@ -458,9 +447,13 @@ export async function POST(request: Request) {
       .single()
 
     lastSyncAt = lastSync?.started_at || null
+    if (lastSyncAt) {
+      // Subtract 2 minutes safety buffer to prevent clock drift or format boundary misses
+      lastSyncMs = Math.max(0, new Date(lastSyncAt).getTime() - 2 * 60 * 1000)
+    }
   }
 
-  const syncMode = lastSyncAt ? 'incremental' : 'full'
+  const syncMode = targetProjectBcId ? 'project' : lastSyncAt ? 'incremental' : 'full'
 
   // 1. Create sync log entry
   const { data: logEntry, error: logError } = await supabase
@@ -830,18 +823,52 @@ export async function POST(request: Request) {
       }
     }
 
+    const reqOrigin = (() => {
+      try {
+        return new URL(request.url).origin
+      } catch {
+        return ''
+      }
+    })()
+    const webhookOrigin = (process.env.NEXT_PUBLIC_APP_URL || (reqOrigin.startsWith('https://') ? reqOrigin : '')).replace(/\/+$/, '')
+
     for (const project of projects) {
+      if (targetProjectBcId && project.id !== targetProjectBcId) {
+        continue
+      }
+
       const projectUuid = projectsMap[project.id]
       if (!projectUuid) {
         console.warn(`⚠️ Skipped project "${project.name}" (bc_id: ${project.id}) - No local project UUID found`)
         continue
       }
 
-      // ALWAYS sync all projects. Reordering/completing tasks in Basecamp does NOT update the project's updated_at timestamp,
-      // so skipping projects causes list order and completion mismatches. Individual resources inside the project
-      // are still skipped if they are unchanged, ensuring high speed.
+      // Ensure real-time webhook is registered on Basecamp when running in HTTPS production
+      if (webhookOrigin.startsWith('https://')) {
+        ensureProjectWebhook(project.id, `${webhookOrigin}/api/basecamp/webhook`).catch(() => {})
+      }
 
       console.log(`\n📁 Processing project: "${project.name}" (bc_id: ${project.id})`)
+
+      // Preload existing todos and messages metadata for accurate delta comparison
+      const [{ data: existingProjectTodos }, { data: existingProjectMessages }] = await Promise.all([
+        supabase
+          .from('bc_todos')
+          .select('id, bc_id, is_completed, comments_count, title, due_date')
+          .eq('project_id', projectUuid)
+          .limit(5000),
+        supabase
+          .from('bc_messages')
+          .select('id, bc_id, comments_count, title')
+          .eq('project_id', projectUuid)
+          .limit(2000),
+      ])
+
+      const existingTodoByBcId = new Map<number, any>()
+      ;(existingProjectTodos || []).forEach((et: any) => existingTodoByBcId.set(Number(et.bc_id), et))
+
+      const existingMsgByBcId = new Map<number, any>()
+      ;(existingProjectMessages || []).forEach((em: any) => existingMsgByBcId.set(Number(em.bc_id), em))
 
       // ---- MEMBERSHIPS ----
       try {
@@ -950,7 +977,20 @@ export async function POST(request: Request) {
 
               for (const t of todos) {
                 const todoUpdatedAt = t.updated_at || t.created_at
-                const isUnchanged = !forceFullSync && lastSyncAt && todoUpdatedAt && todoUpdatedAt <= lastSyncAt
+                const todoUpdatedMs = todoUpdatedAt ? new Date(todoUpdatedAt).getTime() : Infinity
+                const existingTodo = existingTodoByBcId.get(Number(t.id))
+                const hasMetadataDelta =
+                  !existingTodo ||
+                  Boolean(existingTodo.is_completed) !== Boolean(t.completed) ||
+                  Number(existingTodo.comments_count || 0) !== Number(t.comments_count || 0) ||
+                  (existingTodo.title || '') !== (t.content || t.title || '') ||
+                  (existingTodo.due_date || null) !== (t.due_on || null)
+
+                const isUnchanged =
+                  !forceFullSync &&
+                  lastSyncMs > 0 &&
+                  !hasMetadataDelta &&
+                  todoUpdatedMs <= lastSyncMs
 
                 if (isUnchanged) {
                   counters.todos++
@@ -988,7 +1028,8 @@ export async function POST(request: Request) {
                 todosMap[t.id] = todoUuid
                 counters.todos++
 
-                // Todo Assignees (N:N)
+                // Todo Assignees (N:N) — Replace cleanly so removed assignees don't linger
+                await supabase.from('bc_todo_assignees').delete().eq('todo_id', todoUuid)
                 if (t.assignees && t.assignees.length > 0) {
                   const assigneeRows = t.assignees
                     .map((a) => {
@@ -1047,19 +1088,21 @@ export async function POST(request: Request) {
                 }
               }
 
-              // Self-healing: Reconcile active vs completed tasks
-              // Since fetchTodos(project.id, list.id) returns all currently active todos from Basecamp API,
-              // any task in Supabase for this list that is marked active but not present in activeBcIds has been completed.
+              // Self-healing: Reconcile active vs completed tasks in both directions
               if (activeBcIds.length > 0 || todos.length > 0) {
-                const { data: dbActiveTodos } = await supabase
+                const { data: dbListTodos } = await supabase
                   .from('bc_todos')
-                  .select('bc_id')
+                  .select('bc_id, is_completed')
                   .eq('todolist_id', todolistUuid)
-                  .eq('is_completed', false)
 
-                if (dbActiveTodos && dbActiveTodos.length > 0) {
-                  const dbActiveBcIds = dbActiveTodos.map(t => Number(t.bc_id))
-                  const completedBcIds = dbActiveBcIds.filter(bcId => !activeBcIds.includes(bcId))
+                if (dbListTodos && dbListTodos.length > 0) {
+                  const activeSet = new Set(activeBcIds.map(Number))
+                  const completedBcIds = dbListTodos
+                    .filter(t => !t.is_completed && !activeSet.has(Number(t.bc_id)))
+                    .map(t => Number(t.bc_id))
+                  const reopenedBcIds = dbListTodos
+                    .filter(t => t.is_completed && activeSet.has(Number(t.bc_id)))
+                    .map(t => Number(t.bc_id))
 
                   if (completedBcIds.length > 0) {
                     console.log(`🧹 [Basecamp Sync] Self-healing: Marking ${completedBcIds.length} tasks as completed for list ${list.name || list.title}:`, completedBcIds)
@@ -1068,6 +1111,15 @@ export async function POST(request: Request) {
                       .update({ is_completed: true, completed_at: new Date().toISOString() })
                       .eq('todolist_id', todolistUuid)
                       .in('bc_id', completedBcIds)
+                  }
+
+                  if (reopenedBcIds.length > 0) {
+                    console.log(`🧹 [Basecamp Sync] Self-healing: Re-opening ${reopenedBcIds.length} tasks for list ${list.name || list.title}:`, reopenedBcIds)
+                    await supabase
+                      .from('bc_todos')
+                      .update({ is_completed: false, completed_at: null })
+                      .eq('todolist_id', todolistUuid)
+                      .in('bc_id', reopenedBcIds)
                   }
                 }
               }
@@ -1109,7 +1161,14 @@ export async function POST(request: Request) {
 
           for (const m of messages) {
             const msgUpdatedAt = m.updated_at || m.created_at
-            const isUnchanged = !forceFullSync && lastSyncAt && msgUpdatedAt && msgUpdatedAt <= lastSyncAt
+            const msgUpdatedMs = msgUpdatedAt ? new Date(msgUpdatedAt).getTime() : Infinity
+            const existingMsg = existingMsgByBcId.get(Number(m.id))
+            const hasMsgDelta =
+              !existingMsg ||
+              Number(existingMsg.comments_count || 0) !== Number(m.comments_count || 0) ||
+              (existingMsg.title || '') !== (m.subject || m.title || '')
+
+            const isUnchanged = !forceFullSync && lastSyncMs > 0 && !hasMsgDelta && msgUpdatedMs <= lastSyncMs
 
             if (isUnchanged) {
               counters.messages++

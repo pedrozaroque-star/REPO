@@ -526,9 +526,9 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
 
     // 1. Fetch todo lists and tasks from Supabase (optimized with parallel queries)
     // 1. Fetch todo lists and tasks from Supabase (optimized with parallel queries)
-    const fetchLists = useCallback(async () => {
+    const fetchLists = useCallback(async (opts?: { silent?: boolean }) => {
         if (!project.db_id) return
-        setLoading(true)
+        if (!opts?.silent) setLoading(true)
         try {
             // Run parallel queries including an explicit selected todo query to bypass database pagination limits
             const [listsResult, activeTodosResult, completedTodosResult, selectedTodoResult] = await Promise.all([
@@ -652,8 +652,8 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
         }
     }, [project.db_id, project.id, selectedTodoId])
 
-    // Fetch comments specifically for the active selected task
-    const fetchTaskComments = useCallback(async (taskId: string) => {
+    // Fetch comments specifically for the active selected task + live on-demand hydration from Basecamp API
+    const fetchTaskComments = useCallback(async (taskId: string, taskBcId?: number | string) => {
         if (!taskId) return
         setCommentsLoading(true)
         try {
@@ -680,20 +680,83 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
         } finally {
             setCommentsLoading(false)
         }
-    }, [])
+
+        // Background live hydration directly from Basecamp 3 API so opening a To-do never shows stale comments/status
+        if (taskBcId && project.id) {
+            fetch(`/api/basecamp/todo-detail?projectId=${project.id}&todoId=${taskBcId}`)
+                .then(r => (r.ok ? r.json() : null))
+                .then(liveData => {
+                    if (!liveData) return
+                    if (Array.isArray(liveData.comments)) {
+                        setTaskComments(prev => {
+                            if (liveData.comments.length !== prev.length) {
+                                return liveData.comments
+                            }
+                            return prev
+                        })
+                    }
+                    if (typeof liveData.todo?.completed === 'boolean') {
+                        setSelectedTask((prev: any) => {
+                            if (!prev || String(prev.bc_id) !== String(taskBcId)) return prev
+                            const liveCount = liveData.todo.comments_count ?? prev.comments_count
+                            if (prev.is_completed !== liveData.todo.completed || prev.comments_count !== liveCount) {
+                                fetchLists({ silent: true })
+                                return {
+                                    ...prev,
+                                    is_completed: liveData.todo.completed,
+                                    comments_count: liveCount,
+                                }
+                            }
+                            return prev
+                        })
+                    }
+                })
+                .catch(() => {})
+        }
+    }, [project.id, fetchLists])
 
     // Load comments on demand whenever selectedTask changes
     useEffect(() => {
         if (selectedTask?.id) {
-            fetchTaskComments(selectedTask.id)
+            fetchTaskComments(selectedTask.id, selectedTask.bc_id)
         } else {
             setTaskComments([])
         }
-    }, [selectedTask?.id, fetchTaskComments])
+    }, [selectedTask?.id, selectedTask?.bc_id, fetchTaskComments])
 
     useEffect(() => {
         fetchLists()
     }, [fetchLists])
+
+    // Supabase Realtime subscription for live updates to bc_todos and bc_comments in this project
+    useEffect(() => {
+        if (!project.db_id) return
+        const channel = supabase
+            .channel(`bc_todos_live_${project.db_id}`)
+            .on(
+                'postgres_changes',
+                { event: '*', schema: 'public', table: 'bc_todos', filter: `project_id=eq.${project.db_id}` },
+                () => {
+                    fetchLists({ silent: true })
+                }
+            )
+            .on(
+                'postgres_changes',
+                { event: '*', schema: 'public', table: 'bc_comments', filter: `project_id=eq.${project.db_id}` },
+                (payload: any) => {
+                    fetchLists({ silent: true })
+                    const parentId = payload.new?.parent_id || payload.old?.parent_id
+                    if (selectedTask?.id && parentId === selectedTask.id) {
+                        fetchTaskComments(selectedTask.id)
+                    }
+                }
+            )
+            .subscribe()
+
+        return () => {
+            supabase.removeChannel(channel)
+        }
+    }, [project.db_id, selectedTask?.id, fetchLists, fetchTaskComments])
 
     useEffect(() => {
         if (selectedTodoId && lists.length > 0) {
