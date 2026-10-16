@@ -3,13 +3,14 @@
  * @description Política de Privacidad pública oficial de Tacos Gavilan App (`/app/privacy`).
  *
  * @businessRules
- * - Describe con exactitud qué datos guarda Tacos Gavilan App:
+ * - Describe con exactitud qué datos guarda y procesa Tacos Gavilan App:
  *   1) Preferencias locales en el dispositivo (`gavilan_selected_store_id`, modalidad Pickup/Delivery, idioma e historial de últimas tiendas abiertas).
  *   2) Cuenta opcional de teléfono verificada por SMS OTP (`app_users`, `app_sessions`) cuando el usuario inicia sesión.
- *   3) Cero permisos de ubicación GPS, cámara o micrófono.
- *   4) El flujo de pedido en línea es provisto por Toast Online Ordering (`https://order.online`) dentro de un WebView nativo en iOS/Android o pestaña externa segura en Web.
- *   5) Los pagos y datos de tarjeta son procesados por Toast y sus proveedores de pago certificados PCI-DSS, nunca almacenados por Tacos Gavilan App.
- *   6) Instrucciones y enlaces directos para eliminación de cuenta dentro de la app y vía web (`/app/delete-account`).
+ *   3) Permiso opcional de ubicación en primer plano (`When In Use`: `NSLocationWhenInUseUsageDescription`, `ACCESS_FINE_LOCATION`, `ACCESS_COARSE_LOCATION`) solicitado únicamente cuando el cliente toca "Cerca de mí / Near Me" para calcular en memoria local (`userCoords`) la distancia Haversine en millas hacia las 15 sucursales. Nunca se envía al backend, nunca se persiste en disco ni en servidor, nunca se vende y nunca se usa para publicidad o rastreo.
+ *   4) Sin permisos de ubicación en segundo plano, cámara, micrófono ni agenda de contactos.
+ *   5) El flujo de pedido en línea es provisto por Toast Online Ordering (`https://order.online`) dentro de un WebView nativo en iOS/Android o pestaña externa segura en Web.
+ *   6) Los pagos y datos de tarjeta son procesados por Toast y sus proveedores de pago certificados PCI-DSS, nunca almacenados por Tacos Gavilan App.
+ *   7) Instrucciones y enlaces directos para eliminación de cuenta dentro de la app y vía web (`/app/delete-account`).
  *
  * @dataFlow
  * - Enlazada desde `app/(tabs)/account.tsx` en `gavilan-app`, App Store Connect y Google Play Console Data Safety.
@@ -72,6 +73,12 @@ export default function MobilePrivacyPolicyPage(): React.JSX.Element {
               <p className="text-emerald-900 leading-relaxed">
                 {t('mobile_legal.privacy_s2_item3_desc')}
               </p>
+            </div>
+            <div className="p-4 rounded-xl bg-slate-50 border border-slate-200">
+              <div className="font-bold text-slate-900 mb-1">
+                {t('mobile_legal.privacy_s2_item4_title')}
+              </div>
+              <p className="leading-relaxed">{t('mobile_legal.privacy_s2_item4_desc')}</p>
             </div>
           </div>
         </section>

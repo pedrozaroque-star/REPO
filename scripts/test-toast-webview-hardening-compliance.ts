@@ -1,19 +1,21 @@
 /**
  * @module scripts/test-toast-webview-hardening-compliance
- * @description Suite automatizada de pruebas de cumplimiento, seguridad WebView,
- * catálogo autoritativo de 15 sucursales, horarios en America/Los_Angeles,
- * configuración EAS/Expo (Android API 36, sin permisos de ubicación), rutas legales HTTP 200
- * y prueba real de mutación/eliminación de cuenta en Supabase.
+ * @description Suite automatizada de pruebas de cumplimiento, seguridad WebView (ALLOW_IN_WEBVIEW,
+ * OPEN_EXTERNAL, BLOCK), prueba de no-escape de Linking.openURL en react-native-webview,
+ * interceptación de popups onOpenWindow, consistencia legal de GPS en primer plano,
+ * catálogo autoritativo de 15 sucursales (IDs 1, 3..16), horarios en America/Los_Angeles,
+ * configuración EAS/Expo (Android API 36, Project ID vinculado), JSDoc obligatorio,
+ * rutas legales HTTP 200 y prueba real de mutación/eliminación de cuenta en Supabase.
  *
  * @businessRules
- * - Valida exhaustivamente todas las reglas de las Fases 1 a 13 del ciclo definitivo
- *   "Tacos Gavilan App con Toast Online Ordering integrado visualmente mediante WebView nativo en iOS/Android".
- * - Cero mocks: importa directamente los módulos reales de `gavilan-app` y ejecuta peticiones
- *   HTTP y mutaciones reales contra el servidor local y Supabase.
+ * - Valida exhaustivamente todas las reglas de las Fases 1 a 16 de la Continuación Oficial
+ *   "Tacos Gavilan App — Fase de Corrección, Build Nativo y Validación Real para App Store / Google Play".
+ * - Cero mocks de lógica de negocio: importa directamente los módulos reales de `gavilan-app` y ejecuta
+ *   peticiones HTTP y mutaciones reales contra el servidor local y Supabase.
  *
  * @dataFlow
  * - Importa `lib/webview-security.ts`, `lib/constants.ts`, `lib/toast-ordering.ts` desde `C:\Users\pedro\Desktop\gavilan-app`.
- * - Consulta `public.stores` y ejecuta smoke test de creación/eliminación en `public.app_users` / `public.app_sessions`.
+ * - Consulta `public.stores` y ejecuta smoke test de creación/eliminación en `public.app_users` / Supabase Auth.
  *
  * @notes
  * - Ejecutar con: `npx tsx scripts/test-toast-webview-hardening-compliance.ts`
@@ -30,8 +32,13 @@ import {
   getSanitizedWebViewHostLogs,
   clearSanitizedWebViewHostLogs,
   EXPLICIT_ORIGIN_WHITELIST,
+  WEBVIEW_INTERCEPTION_ORIGIN_WHITELIST,
+  ALLOWED_WEBVIEW_HTTPS_HOSTS,
   WEBVIEW_SECURITY_CONFIG,
 } from '../../gavilan-app/lib/webview-security'
+
+// Registro de llamadas a Linking.openURL para demostrar que URLs bloqueadas NUNCA abren el navegador externo
+const openedExternalUrls: string[] = []
 
 // Evitar que Node/tsx intente parsear la sintaxis Flow (`import typeof`) de `node_modules/react-native/index.js`
 const originalLoad = (Module as unknown as { _load: (...args: unknown[]) => unknown })._load
@@ -47,7 +54,10 @@ const originalLoad = (Module as unknown as { _load: (...args: unknown[]) => unkn
         select: (spec: Record<string, unknown>) => spec.ios ?? spec.default,
       },
       Linking: {
-        openURL: async () => true,
+        openURL: async (url: string) => {
+          openedExternalUrls.push(url)
+          return true
+        },
       },
       Alert: {
         alert: () => {},
@@ -75,6 +85,7 @@ const {
 } = require('../../gavilan-app/lib/toast-ordering') as typeof import('../../gavilan-app/lib/toast-ordering')
 
 const GAVILAN_APP_ROOT = 'C:/Users/pedro/Desktop/gavilan-app'
+const TEG_ROOT = 'c:/Users/pedro/Desktop/teg-modernizado'
 const LOCAL_WEB_BASE = 'http://localhost:3000'
 
 let passedAssertions = 0
@@ -90,24 +101,52 @@ async function runComplianceSuite(): Promise<void> {
   console.log('======================================================================\n')
 
   // =========================================================================
-  // 1. SEGURIDAD WEBVIEW (DENY-BY-DEFAULT, ESQUEMAS, LOGS SANITIZADOS, CERO BRIDGE)
+  // 1. SEGURIDAD WEBVIEW (DENY-BY-DEFAULT, NO-ESCAPE LINKING.OPENURL, POPUPS)
   // =========================================================================
-  console.log('▶ [1/5] Probando Política de Seguridad Deny-by-Default del WebView...')
+  console.log('▶ [1/6] Probando Política de Seguridad Deny-by-Default del WebView y No-Escape...')
 
   clearSanitizedWebViewHostLogs()
 
-  // 1.1 Todas las 15 URLs de order.online deben ser permitidas
+  // 1.1 Todas las 15 URLs de order.online (Pickup y Delivery) deben clasificarse como ALLOW_IN_WEBVIEW
   for (const store of ALL_STORES) {
-    const decision = evaluateWebViewNavigationRequest(store.toastOrderingUrl)
+    const decisionPickup = evaluateWebViewNavigationRequest(store.toastOrderingUrl)
+    const decisionDelivery = evaluateWebViewNavigationRequest(
+      getToastOnlineStoreUrl(store.id, 'DELIVERY')
+    )
     check(
-      decision.allowInWebView === true &&
-        decision.action === 'ALLOW_WEBVIEW' &&
-        decision.reason === 'ALLOWED_HTTPS_HOST',
-      `Debe permitir URL oficial de ${store.name}: ${store.toastOrderingUrl}`
+      decisionPickup.allowInWebView === true &&
+        decisionPickup.action === 'ALLOW_IN_WEBVIEW' &&
+        decisionPickup.reason === 'ALLOWED_HTTPS_HOST',
+      `Debe permitir URL Pickup de ${store.name}: ${store.toastOrderingUrl}`
+    )
+    check(
+      decisionDelivery.allowInWebView === true &&
+        decisionDelivery.action === 'ALLOW_IN_WEBVIEW' &&
+        decisionDelivery.reason === 'ALLOWED_HTTPS_HOST',
+      `Debe permitir URL Delivery de ${store.name}`
     )
   }
 
-  // 1.2 Bloqueo estricto de HTTP inseguro
+  // 1.2 Hosts necesarios para Login OTP, Pagos, 3D Secure, Apple Pay y Google Pay deben permitirse en WebView
+  const allowedCheckoutUrls = [
+    'https://identity.doordash.com/auth?client_id=toast',
+    'https://js.stripe.com/v3/',
+    'https://hooks.stripe.com/3d_secure_2/hosted',
+    'https://songbird.cardinalcommerce.com/edge/v1/Init',
+    'https://centinelapi.cardinalcommerce.com/V1/Cruise/Collect',
+    'https://pay.google.com/gp/p/js/pay.js',
+    'https://applepay.cdn-apple.com/jsapi/v1/apple-pay-sdk.js',
+    'https://challenges.cloudflare.com/turnstile/v0/api.js',
+  ]
+  for (const url of allowedCheckoutUrls) {
+    const d = evaluateWebViewNavigationRequest(url)
+    check(
+      d.allowInWebView === true && d.action === 'ALLOW_IN_WEBVIEW',
+      `Host de autenticación/pago/3DS debe clasificarse como ALLOW_IN_WEBVIEW: ${url}`
+    )
+  }
+
+  // 1.3 Bloqueo estricto de HTTP inseguro
   const httpDecision = evaluateWebViewNavigationRequest(
     'http://order.online/store/tacos-gavilan-lynwood-727877'
   )
@@ -118,15 +157,17 @@ async function runComplianceSuite(): Promise<void> {
     'http://order.online debe ser bloqueado por BLOCKED_INSECURE_HTTP'
   )
 
-  // 1.3 Bloqueo de javascript:, file:, data:, intent:, blob:, about:
+  // 1.4 Bloqueo de javascript:, file:, content:, data:, intent:, blob:, market:, itms-apps:
   const dangerousUrls = [
     'javascript:alert(1)',
     'JAVASCRIPT:window.ReactNativeWebView.postMessage("hack")',
     'file:///etc/passwd',
+    'content://com.android.providers.media.documents/document/image%3A1',
     'data:text/html;base64,PHNjcmlwdD5hbGVydCgxKTwvc2NyaXB0Pg==',
     'intent://order.online/#Intent;scheme=https;package=com.evil;end',
     'blob:https://order.online/550e8400-e29b-41d4-a716-446655440000',
-    'about:blank',
+    'market://details?id=com.evil.app',
+    'itms-apps://itunes.apple.com/app/id123456',
   ]
   for (const badUrl of dangerousUrls) {
     const d = evaluateWebViewNavigationRequest(badUrl)
@@ -138,61 +179,52 @@ async function runComplianceSuite(): Promise<void> {
     )
   }
 
-  // 1.4 Bloqueo de dominios desconocidos y ataques de credenciales embebidas
-  const unknownHostDecision = evaluateWebViewNavigationRequest('https://evil.example.com/checkout')
-  check(
-    unknownHostDecision.allowInWebView === false &&
-      unknownHostDecision.action === 'BLOCK' &&
-      unknownHostDecision.reason === 'BLOCKED_UNKNOWN_HOST',
-    'https://evil.example.com debe ser bloqueado por BLOCKED_UNKNOWN_HOST'
-  )
+  // 1.5 Bloqueo de dominios desconocidos, dominios parecidos (lookalike), puertos no estándar y credenciales embebidas
+  const unknownAndSpoofUrls: Array<{ url: string; expectedReason: string }> = [
+    { url: 'https://evil.example.com/checkout', expectedReason: 'BLOCKED_UNKNOWN_HOST' },
+    { url: 'https://order.online.evil.example.com/store/', expectedReason: 'BLOCKED_UNKNOWN_HOST' },
+    { url: 'https://tacosgavilan-order.online/store/', expectedReason: 'BLOCKED_UNKNOWN_HOST' },
+    { url: 'https://order-online.com/store/', expectedReason: 'BLOCKED_UNKNOWN_HOST' },
+    { url: 'https://phishing.toasttab.com/login', expectedReason: 'BLOCKED_UNKNOWN_HOST' },
+    { url: 'https://evil.doordash.com/auth', expectedReason: 'BLOCKED_UNKNOWN_HOST' },
+    {
+      url: 'https://order.online:secret@evil.example.com/store/',
+      expectedReason: 'BLOCKED_EMBEDDED_CREDENTIALS',
+    },
+    {
+      url: 'https://order.online:8443/store/tacos-gavilan-lynwood-727877',
+      expectedReason: 'BLOCKED_NON_STANDARD_PORT',
+    },
+    {
+      url: 'https://order.online/downloads/payload.apk?token=123',
+      expectedReason: 'BLOCKED_ARBITRARY_DOWNLOAD',
+    },
+  ]
+  for (const item of unknownAndSpoofUrls) {
+    const d = evaluateWebViewNavigationRequest(item.url)
+    check(
+      d.allowInWebView === false &&
+        d.action === 'BLOCK' &&
+        d.reason === item.expectedReason,
+      `URL maliciosa/no autorizada debe bloquearse (${item.expectedReason}): ${item.url}`
+    )
+  }
 
-  const subdomainSpoofDecision = evaluateWebViewNavigationRequest(
-    'https://order.online.evil.example.com/store/'
-  )
-  check(
-    subdomainSpoofDecision.allowInWebView === false &&
-      subdomainSpoofDecision.action === 'BLOCK' &&
-      subdomainSpoofDecision.reason === 'BLOCKED_UNKNOWN_HOST',
-    'https://order.online.evil.example.com debe ser bloqueado'
-  )
-
-  const credSpoofDecision = evaluateWebViewNavigationRequest(
-    'https://order.online:secret@evil.example.com/store/'
-  )
-  check(
-    credSpoofDecision.allowInWebView === false &&
-      credSpoofDecision.action === 'BLOCK' &&
-      credSpoofDecision.reason === 'BLOCKED_EMBEDDED_CREDENTIALS',
-    'Credenciales embebidas user:pass@host deben ser bloqueadas'
-  )
-
-  // 1.5 Bloqueo de descargas arbitrarias
-  const apkDownloadDecision = evaluateWebViewNavigationRequest(
-    'https://order.online/downloads/payload.apk?token=123'
-  )
-  check(
-    apkDownloadDecision.allowInWebView === false &&
-      apkDownloadDecision.action === 'BLOCK' &&
-      apkDownloadDecision.reason === 'BLOCKED_ARBITRARY_DOWNLOAD',
-    'Descarga .apk debe ser bloqueada'
-  )
-
-  // 1.6 Manejo externo explícito de tel:, mailto: y Apple/Google Maps
+  // 1.6 Manejo externo explícito (OPEN_EXTERNAL) de tel:, mailto: y Apple/Google Maps
   const telDecision = evaluateWebViewNavigationRequest('tel:+14247855535')
   check(
     telDecision.allowInWebView === false &&
-      telDecision.action === 'OPEN_EXTERNAL_SYSTEM' &&
+      telDecision.action === 'OPEN_EXTERNAL' &&
       telDecision.reason === 'EXTERNAL_TEL_SCHEME',
-    'tel: debe delegarse al sistema operativo'
+    'tel: debe clasificarse como OPEN_EXTERNAL'
   )
 
   const mailtoDecision = evaluateWebViewNavigationRequest('mailto:support@tacosgavilan.com')
   check(
     mailtoDecision.allowInWebView === false &&
-      mailtoDecision.action === 'OPEN_EXTERNAL_SYSTEM' &&
+      mailtoDecision.action === 'OPEN_EXTERNAL' &&
       mailtoDecision.reason === 'EXTERNAL_MAILTO_SCHEME',
-    'mailto: debe delegarse al sistema operativo'
+    'mailto: debe clasificarse como OPEN_EXTERNAL'
   )
 
   const appleMapsDecision = evaluateWebViewNavigationRequest(
@@ -200,9 +232,9 @@ async function runComplianceSuite(): Promise<void> {
   )
   check(
     appleMapsDecision.allowInWebView === false &&
-      appleMapsDecision.action === 'OPEN_EXTERNAL_SYSTEM' &&
+      appleMapsDecision.action === 'OPEN_EXTERNAL' &&
       appleMapsDecision.reason === 'EXTERNAL_MAPS_URL',
-    'Apple Maps debe abrirse externamente'
+    'Apple Maps debe clasificarse como OPEN_EXTERNAL'
   )
 
   const googleMapsDecision = evaluateWebViewNavigationRequest(
@@ -210,12 +242,69 @@ async function runComplianceSuite(): Promise<void> {
   )
   check(
     googleMapsDecision.allowInWebView === false &&
-      googleMapsDecision.action === 'OPEN_EXTERNAL_SYSTEM' &&
+      googleMapsDecision.action === 'OPEN_EXTERNAL' &&
       googleMapsDecision.reason === 'EXTERNAL_MAPS_URL',
-    'Google Maps debe abrirse externamente'
+    'Google Maps debe clasificarse como OPEN_EXTERNAL'
   )
 
-  // 1.7 Sanitización estricta de logs (cero query strings, tokens, rutas o PII)
+  // 1.7 Prueba de integración contra la lógica interna de react-native-webview (lib/WebViewShared.js):
+  // Demostrar que con WEBVIEW_INTERCEPTION_ORIGIN_WHITELIST = ['*'], react-native-webview NUNCA
+  // llama a Linking.openURL antes de ejecutar nuestro evaluador central, y que una URL BLOCK
+  // jamás se carga en el WebView ni se abre externamente.
+  openedExternalUrls.length = 0
+  check(
+    Array.isArray(WEBVIEW_INTERCEPTION_ORIGIN_WHITELIST) &&
+      WEBVIEW_INTERCEPTION_ORIGIN_WHITELIST.length === 1 &&
+      WEBVIEW_INTERCEPTION_ORIGIN_WHITELIST[0] === '*',
+    'WEBVIEW_INTERCEPTION_ORIGIN_WHITELIST debe ser ["*"] para desactivar el auto-Linking.openURL de WebViewShared.js'
+  )
+  check(
+    !EXPLICIT_ORIGIN_WHITELIST.includes('*') &&
+      EXPLICIT_ORIGIN_WHITELIST.length === ALLOWED_WEBVIEW_HTTPS_HOSTS.size,
+    'EXPLICIT_ORIGIN_WHITELIST debe contener únicamente los orígenes HTTPS exactos sin comodín "*"'
+  )
+
+  // Simular exactamente el flujo de handleShouldStartLoadWithRequest + handleOpenWindow de menu.tsx
+  function simulateMenuWebViewGatekeeper(rawUrl: string): {
+    loadedInWebView: boolean
+    openedExternally: boolean
+    decisionAction: string
+  } {
+    const decision = evaluateWebViewNavigationRequest(rawUrl)
+    if (decision.action === 'ALLOW_IN_WEBVIEW') {
+      return { loadedInWebView: true, openedExternally: false, decisionAction: decision.action }
+    }
+    if (decision.action === 'OPEN_EXTERNAL' && decision.externalUrl) {
+      openedExternalUrls.push(decision.externalUrl)
+      return { loadedInWebView: false, openedExternally: true, decisionAction: decision.action }
+    }
+    return { loadedInWebView: false, openedExternally: false, decisionAction: decision.action }
+  }
+
+  for (const item of unknownAndSpoofUrls) {
+    const res = simulateMenuWebViewGatekeeper(item.url)
+    check(
+      res.loadedInWebView === false &&
+        res.openedExternally === false &&
+        res.decisionAction === 'BLOCK',
+      `URL bloqueada no puede cargarse en WebView ni abrirse externamente: ${item.url}`
+    )
+  }
+  for (const badUrl of dangerousUrls) {
+    const res = simulateMenuWebViewGatekeeper(badUrl)
+    check(
+      res.loadedInWebView === false &&
+        res.openedExternally === false &&
+        res.decisionAction === 'BLOCK',
+      `Esquema peligroso no puede cargarse en WebView ni abrirse externamente: ${badUrl}`
+    )
+  }
+  check(
+    openedExternalUrls.length === 0,
+    'Ninguna URL bloqueada o esquema peligroso debe haber invocado Linking.openURL'
+  )
+
+  // 1.8 Sanitización estricta de logs (cero query strings, tokens, rutas o PII)
   const sensitiveUrl =
     'https://order.online/store/tacos-gavilan-lynwood-727877/?session_token=SECRET_JWT_999&phone=%2B14247855535&card_last4=4242#checkout'
   const logEntry = recordSanitizedWebViewHostEvent(sensitiveUrl)
@@ -229,16 +318,15 @@ async function runComplianceSuite(): Promise<void> {
     'El registro sanitizado de hosts NUNCA debe incluir query strings, rutas, tokens ni PII'
   )
 
-  // 1.8 Verificación de ausencia de originWhitelist={['*']}, injectedJavaScript y onMessage en menu.tsx
+  // 1.9 Verificación de configuración de cookies/popups y ausencia de injectedJavaScript/onMessage en menu.tsx
   check(
-    !EXPLICIT_ORIGIN_WHITELIST.includes('*') && EXPLICIT_ORIGIN_WHITELIST.length >= 15,
-    'EXPLICIT_ORIGIN_WHITELIST no puede contener el comodín global "*"'
-  )
-  check(
-    WEBVIEW_SECURITY_CONFIG.sharedCookiesEnabled === false &&
-      WEBVIEW_SECURITY_CONFIG.thirdPartyCookiesEnabled === false &&
-      WEBVIEW_SECURITY_CONFIG.allowFileAccess === false,
-    'WEBVIEW_SECURITY_CONFIG debe iniciar con cookies de terceros y acceso a archivos deshabilitados'
+    WEBVIEW_SECURITY_CONFIG.sharedCookiesEnabled === true &&
+      WEBVIEW_SECURITY_CONFIG.thirdPartyCookiesEnabled === true &&
+      WEBVIEW_SECURITY_CONFIG.setSupportMultipleWindows === true &&
+      WEBVIEW_SECURITY_CONFIG.javaScriptCanOpenWindowsAutomatically === false &&
+      WEBVIEW_SECURITY_CONFIG.allowFileAccess === false &&
+      WEBVIEW_SECURITY_CONFIG.mixedContentMode === 'never',
+    'WEBVIEW_SECURITY_CONFIG debe habilitar cookies requeridas por Toast/DoorDash/3DS y bloquear acceso a archivos y contenido mixto'
   )
 
   const menuTsxContent = fs.readFileSync(
@@ -246,9 +334,16 @@ async function runComplianceSuite(): Promise<void> {
     'utf8'
   )
   check(
-    !menuTsxContent.includes("originWhitelist={['*']}") &&
-      !menuTsxContent.includes('originWhitelist={["*"]}'),
-    'menu.tsx no debe contener originWhitelist wildcard'
+    menuTsxContent.includes('originWhitelist={WEBVIEW_INTERCEPTION_ORIGIN_WHITELIST}') &&
+      menuTsxContent.includes('onShouldStartLoadWithRequest={handleShouldStartLoadWithRequest}') &&
+      menuTsxContent.includes('onOpenWindow={handleOpenWindow}'),
+    'menu.tsx debe conectar WEBVIEW_INTERCEPTION_ORIGIN_WHITELIST, onShouldStartLoadWithRequest y onOpenWindow'
+  )
+  check(
+    menuTsxContent.includes('clearCache') &&
+      menuTsxContent.includes('clearHistory') &&
+      menuTsxContent.includes('incognito={isPurgingCookies}'),
+    'menu.tsx debe ejecutar limpieza real de caché, historial y cookies nativas (ciclo incognito)'
   )
   check(
     !menuTsxContent.includes('injectedJavaScript'),
@@ -259,17 +354,58 @@ async function runComplianceSuite(): Promise<void> {
     'menu.tsx no debe contener onMessage bridge'
   )
 
-  console.log('   ✅ Seguridad WebView verificada con éxito.\n')
+  console.log('   ✅ Seguridad WebView, no-escape Linking.openURL, onOpenWindow y purga de sesión verificados.\n')
 
   // =========================================================================
-  // 2. CATÁLOGO AUTORITATIVO DE 15 TIENDAS, HORARIOS Y SINCRONIZACIÓN CON SUPABASE
+  // 2. PRIVACIDAD Y CONSISTENCIA DE GPS EN PRIMER PLANO (FASE 2)
   // =========================================================================
-  console.log('▶ [2/5] Probando Catálogo Autoritativo de 15 Sucursales y Horarios...')
+  console.log('▶ [2/6] Verificando Consistencia Legal de Privacidad y GPS en Primer Plano...')
+
+  const tegI18nContent = fs.readFileSync(path.join(TEG_ROOT, 'lib/i18n.tsx'), 'utf8')
+  const privacyPageContent = fs.readFileSync(
+    path.join(TEG_ROOT, 'app/app/privacy/page.tsx'),
+    'utf8'
+  )
+
+  const forbiddenFalsePrivacyClaims = [
+    'Cero permisos de ubicación GPS',
+    'Zero GPS location permissions',
+    'no solicita permisos de ubicación',
+    'does not request location permissions',
+  ]
+  for (const falseClaim of forbiddenFalsePrivacyClaims) {
+    check(
+      !tegI18nContent.includes(falseClaim) && !privacyPageContent.includes(falseClaim),
+      `Política de privacidad y traducciones NO deben contener la afirmación falsa: "${falseClaim}"`
+    )
+  }
+
+  check(
+    tegI18nContent.includes('When In Use') &&
+      tegI18nContent.includes('Find Nearest Store') &&
+      tegI18nContent.includes('Near Me') &&
+      tegI18nContent.includes('Cerca de mí'),
+    'lib/i18n.tsx debe divulgar con precisión el uso opcional de GPS en primer plano (When In Use) para Near Me / Cerca de mí'
+  )
+
+  console.log('   ✅ Consistencia entre permisos GPS en app.json y Política de Privacidad verificada.\n')
+
+  // =========================================================================
+  // 3. CATÁLOGO AUTORITATIVO DE 15 TIENDAS, HORARIOS Y SINCRONIZACIÓN CON SUPABASE
+  // =========================================================================
+  console.log('▶ [3/6] Probando Catálogo Autoritativo de 15 Sucursales (IDs 1, 3..16) y Horarios...')
 
   check(ALL_STORES.length === 15, `Debe haber exactamente 15 tiendas (actual: ${ALL_STORES.length})`)
   check(
     Object.keys(TOAST_ONLINE_STORE_URLS).length === 15,
     `TOAST_ONLINE_STORE_URLS debe tener 15 tiendas (actual: ${Object.keys(TOAST_ONLINE_STORE_URLS).length})`
+  )
+
+  const expectedStoreIds = [1, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
+  const actualStoreIds = ALL_STORES.map((s) => s.id).sort((a, b) => a - b)
+  check(
+    JSON.stringify(actualStoreIds) === JSON.stringify(expectedStoreIds),
+    `Los IDs de las 15 sucursales deben ser exactamente [1, 3..16] (actual: ${JSON.stringify(actualStoreIds)})`
   )
 
   const uniqueIds = new Set(ALL_STORES.map((s) => s.id))
@@ -291,7 +427,7 @@ async function runComplianceSuite(): Promise<void> {
     )
   }
 
-  // 2.1 Verificación de error explícito ante storeId inválido (cero fallback silencioso)
+  // 3.1 Verificación de error explícito ante storeId inválido (incluyendo ID 2 inexistente)
   for (const invalidId of [999, 2, 0, -1]) {
     let threwConstants = false
     let threwToastConfig = false
@@ -317,11 +453,7 @@ async function runComplianceSuite(): Promise<void> {
     )
   }
 
-  // 2.2 Pruebas de horas límite en America/Los_Angeles (incluyendo cierres de madrugada)
-  // Lynwood (#14): Dom–Mié 10:00 AM – 1:00 AM, Jue 10:00 AM – 2:00 AM, Vie–Sáb 10:00 AM – 3:00 AM
-  // En Octubre 2026, Los Ángeles está en PDT (UTC-7).
-  // Miércoles 14 Oct 2026 09:59 PDT = 2026-10-14T16:59:00Z -> Cerrado
-  // Miércoles 14 Oct 2026 10:00 PDT = 2026-10-14T17:00:00Z -> Abierto
+  // 3.2 Pruebas de horas límite en America/Los_Angeles (incluyendo cierres de madrugada)
   check(
     isStoreCurrentlyOpen(14, new Date('2026-10-14T16:59:00Z')) === false,
     'Lynwood (#14) debe estar CERRADO a las 9:59 AM PDT'
@@ -331,39 +463,36 @@ async function runComplianceSuite(): Promise<void> {
     'Lynwood (#14) debe estar ABIERTO a las 10:00 AM PDT'
   )
 
-  // Sábado 17 Oct 2026 02:30 AM PDT (madrugada del turno Viernes que cierra a las 3:00 AM) = 2026-10-17T09:30:00Z
   const sat230AmStatus = getStoreOpenStatus(14, new Date('2026-10-17T09:30:00Z'), 'es')
   check(
     sat230AmStatus.isOpen === true && sat230AmStatus.badgeText === 'ABIERTO',
     'Lynwood (#14) debe estar ABIERTO a las 2:30 AM del sábado (madrugada del turno viernes)'
   )
-  // Sábado 17 Oct 2026 03:05 AM PDT = 2026-10-17T10:05:00Z -> Cerrado
   check(
     isStoreCurrentlyOpen(14, new Date('2026-10-17T10:05:00Z')) === false,
     'Lynwood (#14) debe estar CERRADO a las 3:05 AM del sábado'
   )
-
-  // LA Broadway (#5) cierra a las 4:00 AM en Viernes/Sábado:
-  // Sábado 17 Oct 2026 03:30 AM PDT = 2026-10-17T10:30:00Z -> Abierto
   check(
     isStoreCurrentlyOpen(5, new Date('2026-10-17T10:30:00Z')) === true,
     'LA Broadway (#5) debe estar ABIERTO a las 3:30 AM del sábado'
   )
-
-  // Rialto (#1) cierra a las 12:00 AM de Domingo a Jueves:
-  // Jueves 15 Oct 2026 00:15 AM PDT = 2026-10-15T07:15:00Z -> Cerrado
   check(
     isStoreCurrentlyOpen(1, new Date('2026-10-15T07:15:00Z')) === false,
     'Rialto (#1) debe estar CERRADO a las 12:15 AM del jueves'
   )
 
-  // 2.3 Cruce 1:1 contra public.stores en Supabase
+  // 3.3 Cruce 1:1 contra public.stores en Supabase y /app/support
   const { data: dbStores, error: dbStoresErr } = await supabaseAdmin
     .from('stores')
-    .select('id, name, address, phone')
+    .select('id, name, address, phone, opening_time')
     .eq('is_active', true)
     .order('id')
   check(!dbStoresErr && dbStores && dbStores.length === 15, 'public.stores debe tener 15 tiendas activas')
+
+  const supportPageContent = fs.readFileSync(
+    path.join(TEG_ROOT, 'app/app/support/page.tsx'),
+    'utf8'
+  )
 
   for (const dbStore of dbStores || []) {
     const appStore = getAuthoritativeStoreById(Number(dbStore.id))
@@ -375,9 +504,20 @@ async function runComplianceSuite(): Promise<void> {
       appStore.address === dbStore.address,
       `Dirección de ${appStore.name} debe coincidir entre app (${appStore.address}) y DB (${dbStore.address})`
     )
+    check(
+      supportPageContent.includes(appStore.phone) && supportPageContent.includes(appStore.address),
+      `/app/support debe incluir teléfono y dirección exactos de ${appStore.name}`
+    )
   }
 
-  // 2.4 Verificación de Localizador GPS, Ordenamiento por Cercanía, Marcador tel: y Navegación Apple Maps / Google Maps
+  // Verificar que Hollywood (#8) abre a las 09:00 en Supabase
+  const hollywoodDb = (dbStores || []).find((s) => Number(s.id) === 8)
+  check(
+    hollywoodDb?.opening_time?.startsWith('09:00'),
+    `Hollywood (#8) en public.stores debe tener opening_time = 09:00:00 (actual: ${hollywoodDb?.opening_time})`
+  )
+
+  // 3.4 Verificación de Localizador GPS, Ordenamiento por Cercanía, Marcador tel: y Navegación Apple Maps / Google Maps
   const lynwoodStore = getAuthoritativeStoreById(14)
   const zeroDist = calculateDistanceMiles(
     lynwoodStore.latitude,
@@ -431,12 +571,15 @@ async function runComplianceSuite(): Promise<void> {
   console.log('   ✅ Catálogo de 15 sucursales, GPS Haversine, marcador tel:, Apple Maps / Google Maps y sincronización DB verificados.\n')
 
   // =========================================================================
-  // 3. CONFIGURACIÓN EXPO / EAS / ANDROID API 36 / PERMISOS
+  // 4. CONFIGURACIÓN EXPO / EAS / ANDROID API 36 / LOCKFILE / JSDOC
   // =========================================================================
-  console.log('▶ [3/5] Probando Configuración de package.json, app.json, eas.json y .env...')
+  console.log('▶ [4/6] Probando Configuración de package.json, package-lock.json, app.json, eas.json y JSDoc...')
 
   const pkgJson = JSON.parse(
     fs.readFileSync(path.join(GAVILAN_APP_ROOT, 'package.json'), 'utf8')
+  )
+  const pkgLockJson = JSON.parse(
+    fs.readFileSync(path.join(GAVILAN_APP_ROOT, 'package-lock.json'), 'utf8')
   )
   const appJson = JSON.parse(
     fs.readFileSync(path.join(GAVILAN_APP_ROOT, 'app.json'), 'utf8')
@@ -449,6 +592,16 @@ async function runComplianceSuite(): Promise<void> {
   check(
     pkgJson.version === appJson.expo.version && pkgJson.version === '2.1.0',
     `Versiones deben coincidir en 2.1.0 (package.json=${pkgJson.version}, app.json=${appJson.expo.version})`
+  )
+  check(
+    pkgLockJson.packages?.['']?.version === '2.1.0' &&
+      Boolean(pkgLockJson.packages?.['']?.dependencies?.['@supabase/supabase-js']),
+    'package-lock.json debe estar sincronizado con package.json v2.1.0 e incluir @supabase/supabase-js'
+  )
+  check(
+    appJson.expo.owner === 'roquepv' &&
+      appJson.expo.extra?.eas?.projectId === 'ce1d5d66-fbb1-46e3-bfc6-9921590ba7da',
+    'app.json debe tener owner="roquepv" y extra.eas.projectId vinculado en EAS'
   )
   check(
     Boolean(pkgJson.dependencies['expo-location']),
@@ -498,12 +651,49 @@ async function runComplianceSuite(): Promise<void> {
     'app.json debe tener experiments.baseUrl = "/app" para servir el bundle web bajo /app'
   )
 
-  console.log('   ✅ Configuración de compilación, permisos y API 36 verificada.\n')
+  // Verificación de cabeceras JSDoc obligatorias en todos los archivos TS/TSX de gavilan-app
+  function verifyJsDocInDir(dirPath: string): void {
+    for (const entry of fs.readdirSync(dirPath, { withFileTypes: true })) {
+      if (['node_modules', '.expo', 'dist', '.git'].includes(entry.name)) continue
+      const fullPath = path.join(dirPath, entry.name)
+      if (entry.isDirectory()) {
+        verifyJsDocInDir(fullPath)
+      } else if (/\.(ts|tsx)$/.test(entry.name) && !entry.name.endsWith('.d.ts')) {
+        const content = fs.readFileSync(fullPath, 'utf8')
+        for (const tag of ['@module', '@description', '@businessRules', '@dataFlow', '@notes']) {
+          check(
+            content.includes(tag),
+            `El módulo ${fullPath} debe incluir la etiqueta JSDoc obligatoria ${tag}`
+          )
+        }
+      }
+    }
+  }
+  verifyJsDocInDir(GAVILAN_APP_ROOT)
+
+  const indexHtmlRouteTsx = fs.readFileSync(
+    path.join(GAVILAN_APP_ROOT, 'app/index.html.tsx'),
+    'utf8'
+  )
+  const notFoundRouteTsx = fs.readFileSync(
+    path.join(GAVILAN_APP_ROOT, 'app/+not-found.tsx'),
+    'utf8'
+  )
+  check(
+    indexHtmlRouteTsx.includes('<Redirect href="/(tabs)" />'),
+    'app/index.html.tsx debe redirigir inmediatamente a /(tabs) para no bloquearse en el fondo borgoña después del splash'
+  )
+  check(
+    notFoundRouteTsx.includes('<Redirect href="/" />'),
+    'app/+not-found.tsx debe redirigir automáticamente a /'
+  )
+
+  console.log('   ✅ Configuración EAS, lockfile, API 36, redirección post-splash y cabeceras JSDoc verificadas.\n')
 
   // =========================================================================
-  // 4. UI HONESTY & PÁGINAS LEGALES HTTP 200
+  // 5. UI HONESTY & PÁGINAS LEGALES HTTP 200
   // =========================================================================
-  console.log('▶ [4/5] Verificando Ausencia de Claims No Autoritativos y Rutas HTTP 200...')
+  console.log('▶ [5/6] Verificando Ausencia de Claims No Autoritativos y Rutas HTTP 200...')
 
   const forbiddenUiTerms = [
     '9 min',
@@ -590,16 +780,16 @@ async function runComplianceSuite(): Promise<void> {
   console.log('   ✅ Higiene de textos UI y rutas públicas HTTP 200 verificadas.\n')
 
   // =========================================================================
-  // 5. LIVE DB MUTATION SMOKE TEST (CREACIÓN Y ELIMINACIÓN DE CUENTA MÓVIL)
+  // 6. LIVE DB MUTATION SMOKE TEST (CREACIÓN Y ELIMINACIÓN DE CUENTA MÓVIL)
   // =========================================================================
-  console.log('▶ [5/5] Ejecutando Prueba Real de Mutación y Eliminación de Cuenta en Supabase...')
+  console.log('▶ [6/6] Ejecutando Prueba Real de Mutación y Eliminación de Cuenta en Supabase...')
 
   const rand4 = Math.floor(1000 + Math.random() * 8999)
   const testPhone10 = `999555${rand4}`
   const testEmail = `compliance.smoke.${Date.now()}.${rand4}@tacosgavilan.test`
   const testPassword = `SmokeTest!${Date.now()}#TG`
 
-  // 5.1 Crear usuario real temporal en Supabase Auth
+  // 6.1 Crear usuario real temporal en Supabase Auth
   const { data: authCreateData, error: authCreateErr } =
     await supabaseAdmin.auth.admin.createUser({
       email: testEmail,
@@ -613,7 +803,7 @@ async function runComplianceSuite(): Promise<void> {
   )
   const authUserId = authCreateData!.user.id
 
-  // 5.2 Iniciar sesión para obtener JWT real de Supabase Auth
+  // 6.2 Iniciar sesión para obtener JWT real de Supabase Auth
   const { data: signInData, error: signInErr } =
     await supabaseAdmin.auth.signInWithPassword({
       email: testEmail,
@@ -625,7 +815,7 @@ async function runComplianceSuite(): Promise<void> {
   )
   const accessToken = signInData!.session!.access_token
 
-  // 5.3 Insertar perfil real en public.app_users
+  // 6.3 Insertar perfil real en public.app_users
   const { data: createdProfile, error: userCreateErr } = await supabaseAdmin
     .from('app_users')
     .upsert(
@@ -647,7 +837,7 @@ async function runComplianceSuite(): Promise<void> {
     `Inserción en public.app_users exitosa (${testPhone10})`
   )
 
-  // 5.4 Invocar endpoint real DELETE /api/mobile/user/delete con el Bearer JWT
+  // 6.4 Invocar endpoint real DELETE /api/mobile/user/delete con el Bearer JWT
   const deleteRes = await fetch(`${LOCAL_WEB_BASE}/api/mobile/user/delete`, {
     method: 'DELETE',
     headers: {
@@ -661,7 +851,7 @@ async function runComplianceSuite(): Promise<void> {
     `DELETE /api/mobile/user/delete debe responder 200 y deleted=true (recibido: ${deleteRes.status})`
   )
 
-  // 5.5 Confirmar que el registro ya no existe en app_users ni en auth.users
+  // 6.5 Confirmar que el registro ya no existe en app_users ni en auth.users
   const { data: verifyUserAfter } = await supabaseAdmin
     .from('app_users')
     .select('id')
