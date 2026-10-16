@@ -107,20 +107,20 @@ const SECTION_THEMES: Record<string, {
     sectionBorder: string
 }> = {
     analisis: {
-        headerIconBg: 'bg-orange-500/10 dark:bg-orange-500/20 border-orange-500/20',
-        headerIconColor: 'text-orange-600 dark:text-orange-400',
-        borderHover: 'hover:border-orange-400/80 dark:hover:border-orange-500/70 hover:shadow-orange-500/5',
-        badgeBg: 'bg-orange-50 dark:bg-orange-950/60 text-orange-700 dark:text-orange-300 border-orange-200/80 dark:border-orange-800/70',
-        pillActive: 'bg-orange-600 text-white border-orange-600 shadow-xs',
-        sectionBorder: 'border-t-2 border-t-orange-500/80',
+        headerIconBg: 'bg-rose-500/10 dark:bg-rose-500/20 border-rose-500/20',
+        headerIconColor: 'text-rose-600 dark:text-rose-400',
+        borderHover: 'hover:border-rose-400/80 dark:hover:border-rose-500/70 hover:shadow-rose-500/5',
+        badgeBg: 'bg-rose-50 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border-rose-200/80 dark:border-rose-800/70',
+        pillActive: 'bg-rose-600 text-white border-rose-600 shadow-xs',
+        sectionBorder: 'border-t-2 border-t-rose-500/80',
     },
     finanzas: {
-        headerIconBg: 'bg-amber-500/10 dark:bg-amber-500/20 border-amber-500/20',
-        headerIconColor: 'text-amber-600 dark:text-amber-400',
-        borderHover: 'hover:border-amber-400/80 dark:hover:border-amber-500/70 hover:shadow-amber-500/5',
-        badgeBg: 'bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border-amber-200/80 dark:border-amber-800/70',
-        pillActive: 'bg-amber-600 text-white border-amber-600 shadow-xs',
-        sectionBorder: 'border-t-2 border-t-amber-500/80',
+        headerIconBg: 'bg-emerald-500/10 dark:bg-emerald-500/20 border-emerald-500/20',
+        headerIconColor: 'text-emerald-600 dark:text-emerald-400',
+        borderHover: 'hover:border-emerald-400/80 dark:hover:border-emerald-500/70 hover:shadow-emerald-500/5',
+        badgeBg: 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border-emerald-200/80 dark:border-emerald-800/70',
+        pillActive: 'bg-emerald-600 text-white border-emerald-600 shadow-xs',
+        sectionBorder: 'border-t-2 border-t-emerald-500/80',
     },
     operaciones: {
         headerIconBg: 'bg-blue-500/10 dark:bg-blue-500/20 border-blue-500/20',
@@ -147,12 +147,12 @@ const SECTION_THEMES: Record<string, {
         sectionBorder: 'border-t-2 border-t-cyan-500/80',
     },
     gestion: {
-        headerIconBg: 'bg-emerald-500/10 dark:bg-emerald-500/20 border-emerald-500/20',
-        headerIconColor: 'text-emerald-600 dark:text-emerald-400',
-        borderHover: 'hover:border-emerald-400/80 dark:hover:border-emerald-500/70 hover:shadow-emerald-500/5',
-        badgeBg: 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border-emerald-200/80 dark:border-emerald-800/70',
-        pillActive: 'bg-emerald-600 text-white border-emerald-600 shadow-xs',
-        sectionBorder: 'border-t-2 border-t-emerald-500/80',
+        headerIconBg: 'bg-amber-500/10 dark:bg-amber-500/20 border-amber-500/20',
+        headerIconColor: 'text-amber-600 dark:text-amber-400',
+        borderHover: 'hover:border-amber-400/80 dark:hover:border-amber-500/70 hover:shadow-amber-500/5',
+        badgeBg: 'bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border-amber-200/80 dark:border-amber-800/70',
+        pillActive: 'bg-amber-600 text-white border-amber-600 shadow-xs',
+        sectionBorder: 'border-t-2 border-t-amber-500/80',
     },
 }
 

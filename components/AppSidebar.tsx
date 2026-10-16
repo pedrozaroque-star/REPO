@@ -111,19 +111,19 @@ const GROUP_COLORS: Record<string, { icon: string; activeBg: string; activeBorde
         activeBorder: 'border-l-blue-500',
     },
     finanzas: {
-        icon: 'text-amber-600 dark:text-amber-400',
-        activeBg: 'bg-amber-50 dark:bg-amber-950/40',
-        activeBorder: 'border-l-amber-500',
-    },
-    gestion: {
         icon: 'text-emerald-600 dark:text-emerald-400',
         activeBg: 'bg-emerald-50 dark:bg-emerald-950/40',
         activeBorder: 'border-l-emerald-500',
     },
+    gestion: {
+        icon: 'text-amber-600 dark:text-amber-400',
+        activeBg: 'bg-amber-50 dark:bg-amber-950/40',
+        activeBorder: 'border-l-amber-500',
+    },
     analisis: {
-        icon: 'text-orange-600 dark:text-orange-400',
-        activeBg: 'bg-orange-50 dark:bg-orange-950/40',
-        activeBorder: 'border-l-orange-500',
+        icon: 'text-rose-600 dark:text-rose-400',
+        activeBg: 'bg-rose-50 dark:bg-rose-950/40',
+        activeBorder: 'border-l-rose-500',
     },
     inventario: {
         icon: 'text-purple-600 dark:text-purple-400',
