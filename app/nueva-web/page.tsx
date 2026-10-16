@@ -68,13 +68,25 @@ interface StoreAnalyticsRow {
     webPhoneClicks: number
     webDirectionsClicks: number
     webStoreViews: number
+    matchedWebOrdersCount: number
+    matchedWebOrdersSales: number
+    storefrontOrdersCount: number
+    storefrontOrdersSales: number
     toastDirectSales: number
-    doordashSales: number
-    uberSales: number
-    grubhubSales: number
-    totalDigitalSales: number
+}
+
+interface MatchedOrderRow {
+    orderGuid: string
+    orderCode: string
+    storeId: number
+    storeName: string
+    customerMasked: string
     netSales: number
-    orderCount: number
+    openedDate: string
+    clickAt: string
+    buttonSource: string
+    matchType: 'exact_store' | 'session_store' | 'general_selector'
+    minutesAfterClick: number
 }
 
 interface TopPageRow {
@@ -110,13 +122,11 @@ interface AnalyticsPayload {
         totalPhoneClicks: number
         totalDirectionsClicks: number
         generalSelectorClicks: number
+        matchedWebOrdersCount: number
+        matchedWebOrdersSales: number
+        storefrontOrdersCount: number
+        storefrontOrdersSales: number
         toastDirectSales: number
-        uberSales: number
-        doordashSales: number
-        grubhubSales: number
-        totalDigitalSales: number
-        totalNetSales: number
-        totalOrdersCount: number
         totalFeedbackCount: number
     }
     deviceBreakdown: {
@@ -130,6 +140,7 @@ interface AnalyticsPayload {
     }
     topPages: TopPageRow[]
     storeBreakdown: StoreAnalyticsRow[]
+    matchedOrders: MatchedOrderRow[]
     recentEvents: RecentEventRow[]
     feedback: any[]
 }
@@ -173,7 +184,7 @@ export default function NuevaWebPage() {
     const [iframeLoading, setIframeLoading] = useState<boolean>(true)
     const [refreshKey, setRefreshKey] = useState<number>(0)
 
-    const previewUrl = `/api/web-preview?v=${refreshKey}`
+    const previewUrl = `/api/web-preview/index.html?v=${refreshKey}`
 
     const fetchAnalyticsData = useCallback(async (selectedRange: DateRangeKey) => {
         setLoadingAnalytics(true)
@@ -212,13 +223,11 @@ export default function NuevaWebPage() {
         totalPhoneClicks: 0,
         totalDirectionsClicks: 0,
         generalSelectorClicks: 0,
+        matchedWebOrdersCount: 0,
+        matchedWebOrdersSales: 0,
+        storefrontOrdersCount: 0,
+        storefrontOrdersSales: 0,
         toastDirectSales: 0,
-        uberSales: 0,
-        doordashSales: 0,
-        grubhubSales: 0,
-        totalDigitalSales: 0,
-        totalNetSales: 0,
-        totalOrdersCount: 0,
         totalFeedbackCount: 0
     }
 
@@ -240,12 +249,6 @@ export default function NuevaWebPage() {
     const esPct = totalLangCount > 0 ? Math.round(((analytics?.langBreakdown.es || 0) / totalLangCount) * 100) : 0
     const enPct = totalLangCount > 0 ? Math.round(((analytics?.langBreakdown.en || 0) / totalLangCount) * 100) : 0
 
-    const getViewportWidth = () => {
-        if (viewport === 'mobile') return 'max-w-[412px]'
-        if (viewport === 'tablet') return 'max-w-[820px]'
-        return 'w-full'
-    }
-
     return (
         <div
             className={`flex flex-col bg-transparent text-slate-900 dark:text-white font-sans transition-all duration-300 ${
@@ -255,85 +258,84 @@ export default function NuevaWebPage() {
             }`}
         >
             {/* Top Executive Header */}
-            <header className="flex flex-wrap items-center justify-between gap-3 px-4 md:px-6 py-4 bg-white/80 dark:bg-slate-900/80 backdrop-blur-md sticky top-0 z-30 border-b border-slate-200 dark:border-slate-800 shadow-[0_1px_3px_rgba(0,0,0,0.04)] shrink-0">
-                <div className="flex items-center gap-3">
+            <header className="w-full flex flex-wrap xl:flex-nowrap items-center justify-between gap-4 px-4 md:px-6 py-4 bg-white/90 dark:bg-slate-900/90 backdrop-blur-md sticky top-0 z-30 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm shrink-0">
+                <div className="flex items-center gap-3 min-w-0 flex-1">
                     {!isFullscreen && (
                         <button
                             onClick={() => router.push('/dashboard')}
-                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-bold transition-colors border border-slate-200 dark:border-slate-700"
+                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-bold transition-colors border border-slate-200 dark:border-slate-700 shrink-0"
                         >
                             <ArrowLeft className="w-3.5 h-3.5" />
                             <span>{t('new_website.back_to_teg')}</span>
                         </button>
                     )}
 
-                    <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-red-600 to-amber-500 flex items-center justify-center shadow-md shadow-red-500/20">
+                    <div className="flex items-center gap-3 min-w-0">
+                        <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-red-600 to-amber-500 flex items-center justify-center shadow-md shadow-red-500/20 shrink-0">
                             <Globe className="w-5 h-5 text-white" />
                         </div>
-                        <div>
+                        <div className="min-w-0">
                             <div className="flex items-center gap-2.5 flex-wrap">
-                                <h1 className="text-base sm:text-xl font-black tracking-tight text-slate-900 dark:text-white">
+                                <h1 className="text-base sm:text-xl font-black tracking-tight text-slate-900 dark:text-white truncate">
                                     {t('new_website.exec_title')}
                                 </h1>
-                                <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800">
+                                <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800 shrink-0">
                                     <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
                                     tacosgavilan.com
                                 </span>
                             </div>
-                            <p className="text-xs font-medium text-slate-500 dark:text-slate-400 hidden sm:block mt-0.5">
+                            <p className="text-xs font-medium text-slate-500 dark:text-slate-400 hidden sm:block mt-0.5 truncate">
                                 {t('new_website.exec_subtitle')}
                             </p>
                         </div>
                     </div>
                 </div>
 
-                {/* Main 3 Clean Tabs */}
-                <div className="flex items-center bg-slate-100 dark:bg-slate-800 p-1 rounded-xl border border-slate-200 dark:border-slate-700">
-                    <button
-                        onClick={() => setActiveTab('analytics')}
-                        className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all ${
-                            activeTab === 'analytics'
-                                ? 'bg-white dark:bg-slate-900 text-red-600 dark:text-amber-400 shadow-sm border border-slate-200/80 dark:border-slate-700'
-                                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-                        }`}
-                    >
-                        <TrendingUp className="w-3.5 h-3.5" />
-                        <span>{t('new_website.tab_analytics')}</span>
-                    </button>
+                {/* Right Controls: 3 Clean Tabs + Direct Action Button */}
+                <div className="flex flex-wrap items-center gap-2.5 shrink-0">
+                    <div className="flex items-center bg-slate-100 dark:bg-slate-800 p-1 rounded-xl border border-slate-200 dark:border-slate-700">
+                        <button
+                            onClick={() => setActiveTab('analytics')}
+                            className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                                activeTab === 'analytics'
+                                    ? 'bg-white dark:bg-slate-900 text-red-600 dark:text-amber-400 shadow-sm border border-slate-200/80 dark:border-slate-700'
+                                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                            }`}
+                        >
+                            <TrendingUp className="w-3.5 h-3.5" />
+                            <span>{t('new_website.tab_analytics')}</span>
+                        </button>
 
-                    <button
-                        onClick={() => setActiveTab('messages')}
-                        className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all ${
-                            activeTab === 'messages'
-                                ? 'bg-white dark:bg-slate-900 text-red-600 dark:text-amber-400 shadow-sm border border-slate-200/80 dark:border-slate-700'
-                                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-                        }`}
-                    >
-                        <Inbox className="w-3.5 h-3.5" />
-                        <span>{t('new_website.tab_messages')}</span>
-                        {summary.totalFeedbackCount > 0 && (
-                            <span className="px-1.5 py-0.5 rounded-full text-[10px] font-black bg-amber-100 dark:bg-amber-900/40 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-700">
-                                {summary.totalFeedbackCount}
-                            </span>
-                        )}
-                    </button>
+                        <button
+                            onClick={() => setActiveTab('messages')}
+                            className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                                activeTab === 'messages'
+                                    ? 'bg-white dark:bg-slate-900 text-red-600 dark:text-amber-400 shadow-sm border border-slate-200/80 dark:border-slate-700'
+                                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                            }`}
+                        >
+                            <Inbox className="w-3.5 h-3.5" />
+                            <span>{t('new_website.tab_messages')}</span>
+                            {summary.totalFeedbackCount > 0 && (
+                                <span className="px-1.5 py-0.5 rounded-full text-[10px] font-black bg-amber-100 dark:bg-amber-900/40 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-700">
+                                    {summary.totalFeedbackCount}
+                                </span>
+                            )}
+                        </button>
 
-                    <button
-                        onClick={() => setActiveTab('live_site')}
-                        className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all ${
-                            activeTab === 'live_site'
-                                ? 'bg-white dark:bg-slate-900 text-red-600 dark:text-amber-400 shadow-sm border border-slate-200/80 dark:border-slate-700'
-                                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-                        }`}
-                    >
-                        <Monitor className="w-3.5 h-3.5" />
-                        <span>{t('new_website.tab_live_site')}</span>
-                    </button>
-                </div>
+                        <button
+                            onClick={() => setActiveTab('live_site')}
+                            className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                                activeTab === 'live_site'
+                                    ? 'bg-white dark:bg-slate-900 text-red-600 dark:text-amber-400 shadow-sm border border-slate-200/80 dark:border-slate-700'
+                                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                            }`}
+                        >
+                            <Monitor className="w-3.5 h-3.5" />
+                            <span>{t('new_website.tab_live_site')}</span>
+                        </button>
+                    </div>
 
-                {/* Direct Action Button to Live Public Website */}
-                <div className="flex items-center gap-2">
                     <a
                         href="https://tacosgavilan.com"
                         target="_blank"
@@ -350,7 +352,7 @@ export default function NuevaWebPage() {
                 TAB 1: VISITAS Y ÓRDENES (EXECUTIVE TRAFFIC & ORDERS DASHBOARD)
                ===================================================================== */}
             {activeTab === 'analytics' && (
-                <div className="flex-1 overflow-y-auto p-4 sm:p-6 max-w-7xl w-full mx-auto space-y-6">
+                <div className="flex-1 overflow-y-auto py-5 w-full space-y-6">
                     {/* Period Selector & Refresh Bar */}
                     <div className="flex flex-wrap items-center justify-between gap-3 bg-white dark:bg-slate-900 p-3.5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
                         <div className="flex flex-wrap items-center gap-2">
@@ -443,33 +445,40 @@ export default function NuevaWebPage() {
                             </div>
                         </div>
 
-                        {/* KPI 3: Phone Calls & Map Directions (100% from tacosgavilan.com) */}
-                        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-sm">
+                        {/* KPI 3: Completed Orders Matched to Website Clicks (Opción 2: 30-Min Window) */}
+                        <div className="bg-white dark:bg-slate-900 border border-emerald-200 dark:border-emerald-800/80 rounded-2xl p-5 shadow-sm">
                             <div className="flex items-center justify-between mb-3">
                                 <span className="text-xs font-black uppercase tracking-wider text-emerald-600 dark:text-emerald-400">
-                                    {t('new_website.kpi_digital_sales_title')}
+                                    {t('new_website.kpi_matched_orders_title')}
                                 </span>
                                 <div className="w-9 h-9 rounded-xl bg-emerald-50 dark:bg-emerald-900/30 border border-emerald-200 dark:border-emerald-800 flex items-center justify-center">
-                                    <Navigation className="w-4.5 h-4.5 text-emerald-600 dark:text-emerald-400" />
+                                    <DollarSign className="w-4.5 h-4.5 text-emerald-600 dark:text-emerald-400" />
                                 </div>
                             </div>
-                            <div className="text-3xl font-black text-emerald-600 dark:text-emerald-400 tracking-tight">
-                                {(summary.totalPhoneClicks + summary.totalDirectionsClicks).toLocaleString()}
+                            <div className="flex items-baseline gap-2.5 flex-wrap">
+                                <div className="text-3xl font-black text-emerald-600 dark:text-emerald-400 tracking-tight">
+                                    ${formatCurrency(summary.matchedWebOrdersSales)}
+                                </div>
+                                <span className="px-2 py-0.5 rounded-lg text-[11px] font-black bg-emerald-100 dark:bg-emerald-900/40 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700">
+                                    {t('new_website.kpi_matched_orders_count_badge', {
+                                        count: summary.matchedWebOrdersCount
+                                    })}
+                                </span>
                             </div>
                             <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 font-medium">
-                                {t('new_website.kpi_digital_sales_sub')}
+                                {t('new_website.kpi_matched_orders_sub')}
                             </p>
                             <div className="mt-3 pt-2.5 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs">
-                                <span className="text-emerald-700 dark:text-emerald-400 font-bold">
-                                    {t('new_website.kpi_toast_direct_sub', {
-                                        phones: summary.totalPhoneClicks,
-                                        dirs: summary.totalDirectionsClicks
+                                <span className="text-slate-600 dark:text-slate-300 font-bold">
+                                    {t('new_website.kpi_storefront_total_sub', {
+                                        count: summary.storefrontOrdersCount,
+                                        sales: formatCurrency(summary.storefrontOrdersSales)
                                     })}
                                 </span>
                             </div>
                         </div>
 
-                        {/* KPI 4: Customer Messages & Catering Leads */}
+                        {/* KPI 4: Customer Messages, Calls & Directions */}
                         <div
                             onClick={() => setActiveTab('messages')}
                             className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:border-purple-400 dark:hover:border-purple-500 rounded-2xl p-5 shadow-sm cursor-pointer transition-all"
@@ -489,9 +498,119 @@ export default function NuevaWebPage() {
                                 {t('new_website.kpi_messages_sub')}
                             </p>
                             <div className="mt-3 pt-2.5 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs text-purple-600 dark:text-purple-400 font-bold">
-                                <span>{t('new_website.tab_messages')} →</span>
+                                <span>
+                                    {t('new_website.kpi_toast_direct_sub', {
+                                        phones: summary.totalPhoneClicks,
+                                        dirs: summary.totalDirectionsClicks
+                                    })}
+                                </span>
+                                <span>→</span>
                             </div>
                         </div>
+                    </div>
+
+                    {/* Matched Web Orders Log (Opción 2: Time-Window Correlation <= 30m) */}
+                    <div className="bg-white dark:bg-slate-900 border border-emerald-200 dark:border-emerald-800/70 rounded-2xl overflow-hidden shadow-sm">
+                        <div className="p-5 bg-gradient-to-r from-emerald-50/80 via-white to-white dark:from-emerald-950/30 dark:via-slate-900 dark:to-slate-900 border-b border-emerald-100 dark:border-slate-800 flex flex-wrap items-center justify-between gap-3">
+                            <div>
+                                <h2 className="text-base font-black text-slate-900 dark:text-white flex items-center gap-2">
+                                    <ShoppingBag className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
+                                    <span>{t('new_website.matched_orders_log_title')}</span>
+                                </h2>
+                                <p className="text-xs text-slate-600 dark:text-slate-400 mt-0.5 font-medium">
+                                    {t('new_website.matched_orders_log_subtitle')}
+                                </p>
+                            </div>
+                            <div className="flex items-center gap-2 bg-emerald-100/80 dark:bg-emerald-900/40 px-3.5 py-2 rounded-xl border border-emerald-300 dark:border-emerald-700">
+                                <span className="text-xs font-black text-emerald-800 dark:text-emerald-300">
+                                    {summary.matchedWebOrdersCount} {t('new_website.orders_short_unit')} • ${formatCurrency(summary.matchedWebOrdersSales)}
+                                </span>
+                            </div>
+                        </div>
+
+                        {(analytics?.matchedOrders || []).length === 0 ? (
+                            <div className="p-6 text-center text-xs font-medium text-slate-500 dark:text-slate-400">
+                                {t('new_website.matched_orders_empty')}
+                            </div>
+                        ) : (
+                            <div className="overflow-x-auto">
+                                <table className="w-full text-left border-collapse">
+                                    <thead>
+                                        <tr className="bg-slate-50 dark:bg-slate-800/70 border-b border-slate-200 dark:border-slate-800 text-[11px] font-black uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                                            <th className="py-3 px-4">{t('new_website.matched_col_order')}</th>
+                                            <th className="py-3 px-3">{t('new_website.matched_col_store')}</th>
+                                            <th className="py-3 px-3 text-center">{t('new_website.matched_col_click_time')}</th>
+                                            <th className="py-3 px-3 text-center">{t('new_website.matched_col_order_time')}</th>
+                                            <th className="py-3 px-3 text-center">{t('new_website.matched_col_delay')}</th>
+                                            <th className="py-3 px-3 text-center">{t('new_website.matched_col_attribution')}</th>
+                                            <th className="py-3 px-4 text-right text-emerald-700 dark:text-emerald-400">{t('new_website.matched_col_net_sales')}</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-xs">
+                                        {(analytics?.matchedOrders || []).map(mo => {
+                                            const clickTimeStr = new Date(mo.clickAt).toLocaleTimeString(language === 'es' ? 'es-MX' : 'en-US', {
+                                                hour: '2-digit',
+                                                minute: '2-digit',
+                                                second: '2-digit',
+                                                timeZone: 'America/Los_Angeles'
+                                            })
+                                            const orderTimeStr = new Date(mo.openedDate).toLocaleTimeString(language === 'es' ? 'es-MX' : 'en-US', {
+                                                hour: '2-digit',
+                                                minute: '2-digit',
+                                                second: '2-digit',
+                                                timeZone: 'America/Los_Angeles'
+                                            })
+                                            const matchBadge =
+                                                mo.matchType === 'exact_store'
+                                                    ? {
+                                                          label: t('new_website.match_type_exact'),
+                                                          cls: 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-800 dark:text-emerald-300 border-emerald-300 dark:border-emerald-700'
+                                                      }
+                                                    : mo.matchType === 'session_store'
+                                                    ? {
+                                                          label: t('new_website.match_type_session'),
+                                                          cls: 'bg-blue-100 dark:bg-blue-900/40 text-blue-800 dark:text-blue-300 border-blue-300 dark:border-blue-700'
+                                                      }
+                                                    : {
+                                                          label: t('new_website.match_type_general'),
+                                                          cls: 'bg-amber-100 dark:bg-amber-900/40 text-amber-800 dark:text-amber-300 border-amber-300 dark:border-amber-700'
+                                                      }
+
+                                            return (
+                                                <tr key={mo.orderGuid} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition-colors">
+                                                    <td className="py-3 px-4">
+                                                        <div className="font-mono font-black text-slate-900 dark:text-white">{mo.orderCode}</div>
+                                                        <div className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">{mo.customerMasked}</div>
+                                                    </td>
+                                                    <td className="py-3 px-3 font-black text-slate-800 dark:text-slate-200">
+                                                        {mo.storeName}
+                                                    </td>
+                                                    <td className="py-3 px-3 text-center font-mono text-slate-600 dark:text-slate-300">
+                                                        {clickTimeStr}
+                                                    </td>
+                                                    <td className="py-3 px-3 text-center font-mono text-slate-900 dark:text-white font-bold">
+                                                        {orderTimeStr}
+                                                    </td>
+                                                    <td className="py-3 px-3 text-center">
+                                                        <span className="px-2 py-0.5 rounded-md font-mono font-bold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
+                                                            +{mo.minutesAfterClick} min
+                                                        </span>
+                                                    </td>
+                                                    <td className="py-3 px-3 text-center">
+                                                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold border ${matchBadge.cls}`}>
+                                                            {matchBadge.label}
+                                                        </span>
+                                                    </td>
+                                                    <td className="py-3 px-4 text-right font-mono font-black text-sm text-emerald-700 dark:text-emerald-400">
+                                                        ${formatCurrency(mo.netSales)}
+                                                    </td>
+                                                </tr>
+                                            )
+                                        })}
+                                    </tbody>
+                                </table>
+                            </div>
+                        )}
                     </div>
 
                     {/* General Selector Banner */}
@@ -519,7 +638,7 @@ export default function NuevaWebPage() {
                         </div>
                     </div>
 
-                    {/* 15 Stores Breakdown Table (100% Originated on tacosgavilan.com) */}
+                    {/* 15 Stores Breakdown Table (100% Originated on tacosgavilan.com + order.online SF Match) */}
                     <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden shadow-sm">
                         <div className="p-5 border-b border-slate-100 dark:border-slate-800 flex flex-wrap items-center justify-between gap-3">
                             <div>
@@ -540,16 +659,14 @@ export default function NuevaWebPage() {
                                         <th className="py-3.5 px-4">{t('new_website.col_store_name')}</th>
                                         <th className="py-3.5 px-3 text-center">{t('new_website.col_web_views')}</th>
                                         <th className="py-3.5 px-3 text-center text-amber-700 dark:text-amber-400">{t('new_website.col_order_clicks')}</th>
+                                        <th className="py-3.5 px-3 text-center text-emerald-700 dark:text-emerald-400">{t('new_website.col_matched_web_orders')}</th>
+                                        <th className="py-3.5 px-3 text-center">{t('new_website.col_storefront_total')}</th>
                                         <th className="py-3.5 px-3 text-center">{t('new_website.col_calls_maps')}</th>
-                                        <th className="py-3.5 px-3 text-center">{t('new_website.col_toast_direct')}</th>
-                                        <th className="py-3.5 px-4 text-center text-slate-900 dark:text-white">{t('new_website.col_delivery_apps')}</th>
                                         <th className="py-3.5 px-4 text-center">{t('new_website.col_open_order')}</th>
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-xs">
                                     {(analytics?.storeBreakdown || []).map(st => {
-                                        const totalWebActions =
-                                            st.webStoreViews + st.webOrderClicks + st.webPhoneClicks + st.webDirectionsClicks
                                         return (
                                             <tr key={st.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition-colors">
                                                 <td className="py-3.5 px-4">
@@ -572,20 +689,37 @@ export default function NuevaWebPage() {
                                                         {st.webOrderClicks.toLocaleString()}
                                                     </span>
                                                 </td>
-                                                <td className="py-3.5 px-3 text-center text-slate-600 dark:text-slate-300 font-semibold">
-                                                    <span className="inline-flex items-center gap-1 text-xs">
-                                                        <Phone className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
-                                                        <span>{st.webPhoneClicks.toLocaleString()}</span>
-                                                    </span>
+                                                <td className="py-3.5 px-3 text-center">
+                                                    {st.matchedWebOrdersCount > 0 ? (
+                                                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg font-mono font-black text-xs bg-emerald-100 dark:bg-emerald-900/40 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700">
+                                                            <span>{st.matchedWebOrdersCount} {t('new_website.orders_short_unit')}</span>
+                                                            <span>•</span>
+                                                            <span>${formatCurrency(st.matchedWebOrdersSales)}</span>
+                                                        </span>
+                                                    ) : (
+                                                        <span className="text-slate-400 dark:text-slate-600 font-mono">0 • $0.00</span>
+                                                    )}
+                                                </td>
+                                                <td className="py-3.5 px-3 text-center font-mono">
+                                                    {st.storefrontOrdersCount > 0 ? (
+                                                        <span className="font-bold text-slate-800 dark:text-slate-200">
+                                                            {st.storefrontOrdersCount} {t('new_website.orders_short_unit')} • ${formatCurrency(st.storefrontOrdersSales)}
+                                                        </span>
+                                                    ) : (
+                                                        <span className="text-slate-400 dark:text-slate-600">0 • $0.00</span>
+                                                    )}
                                                 </td>
                                                 <td className="py-3.5 px-3 text-center text-slate-600 dark:text-slate-300 font-semibold">
-                                                    <span className="inline-flex items-center gap-1 text-xs">
-                                                        <Navigation className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-                                                        <span>{st.webDirectionsClicks.toLocaleString()}</span>
-                                                    </span>
-                                                </td>
-                                                <td className="py-3.5 px-4 text-center font-mono font-black text-sm text-slate-900 dark:text-white">
-                                                    {totalWebActions.toLocaleString()}
+                                                    <div className="inline-flex items-center gap-3">
+                                                        <span className="inline-flex items-center gap-1 text-xs">
+                                                            <Phone className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+                                                            <span>{st.webPhoneClicks.toLocaleString()}</span>
+                                                        </span>
+                                                        <span className="inline-flex items-center gap-1 text-xs">
+                                                            <Navigation className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                                                            <span>{st.webDirectionsClicks.toLocaleString()}</span>
+                                                        </span>
+                                                    </div>
                                                 </td>
                                                 <td className="py-3.5 px-4 text-center">
                                                     <a
@@ -794,7 +928,7 @@ export default function NuevaWebPage() {
                 TAB 2: MENSAJES DE CLIENTES (GUEST INQUIRIES & CATERING LEADS)
                ===================================================================== */}
             {activeTab === 'messages' && (
-                <div className="flex-1 overflow-y-auto p-4 sm:p-6 max-w-7xl w-full mx-auto space-y-6">
+                <div className="flex-1 overflow-y-auto py-5 w-full space-y-6">
                     <div className="flex flex-wrap items-center justify-between gap-4 bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
                         <div>
                             <h2 className="text-lg font-black text-slate-900 dark:text-white flex items-center gap-2">
@@ -906,9 +1040,9 @@ export default function NuevaWebPage() {
                 TAB 3: VER SITIO WEB EN VIVO (CLEAN INTERACTIVE PREVIEW)
                ===================================================================== */}
             {activeTab === 'live_site' && (
-                <div className="flex-1 flex flex-col overflow-hidden">
+                <div className="flex-1 flex flex-col overflow-hidden py-5 w-full space-y-4">
                     {/* Sub-toolbar with Device Switcher & Brochure Download */}
-                    <div className="flex flex-wrap items-center justify-between gap-3 px-4 md:px-6 py-2.5 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800">
+                    <div className="flex flex-wrap items-center justify-between gap-3 px-4 md:px-6 py-3 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
                         <div className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl border border-slate-200 dark:border-slate-700">
                             <button
                                 onClick={() => setViewport('desktop')}
@@ -974,10 +1108,16 @@ export default function NuevaWebPage() {
                         </div>
                     </div>
 
-                    {/* Iframe Viewport Container */}
-                    <div className="relative flex-1 flex items-center justify-center bg-slate-100 dark:bg-slate-950 overflow-hidden p-0 sm:p-4">
+                    {/* Iframe Viewport & Hardware Device Simulator Stage */}
+                    <div
+                        className={`relative flex-1 flex flex-col items-center justify-center w-full transition-all duration-300 ${
+                            viewport !== 'desktop'
+                                ? 'bg-slate-200/70 dark:bg-slate-900/70 rounded-2xl border border-slate-200 dark:border-slate-800 py-6 px-3 sm:px-6 shadow-inner overflow-x-auto'
+                                : 'bg-transparent overflow-hidden'
+                        }`}
+                    >
                         {iframeLoading && (
-                            <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-white/90 dark:bg-slate-950/90 backdrop-blur-sm">
+                            <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-white/90 dark:bg-slate-950/90 backdrop-blur-sm rounded-2xl">
                                 <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-red-600 to-amber-500 flex items-center justify-center shadow-xl shadow-red-600/30 animate-bounce mb-3">
                                     <Globe className="w-6 h-6 text-white" />
                                 </div>
@@ -985,24 +1125,129 @@ export default function NuevaWebPage() {
                             </div>
                         )}
 
+                        {/* Active Device Dimension Badge when in Tablet or Mobile Simulator */}
+                        {viewport !== 'desktop' && (
+                            <div className="mb-3 inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-800 shadow-sm text-[11px] font-bold text-slate-700 dark:text-slate-300">
+                                {viewport === 'tablet' ? (
+                                    <>
+                                        <Tablet className="w-3.5 h-3.5 text-red-600 dark:text-amber-400" />
+                                        <span>iPad Air · 768 × 1024 px</span>
+                                    </>
+                                ) : (
+                                    <>
+                                        <Smartphone className="w-3.5 h-3.5 text-red-600 dark:text-amber-400" />
+                                        <span>iPhone 15 Pro · 390 × 844 px</span>
+                                    </>
+                                )}
+                            </div>
+                        )}
+
+                        {/* Unified Hardware Frame + Single Persistent Iframe (Zero Reload on Device Switch) */}
                         <div
-                            className={`relative h-full transition-all duration-300 ease-out bg-white shadow-xl overflow-hidden ${getViewportWidth()} ${
-                                viewport !== 'desktop'
-                                    ? 'rounded-[28px] border-[6px] border-slate-800 shadow-slate-400/40 dark:shadow-black/80 my-auto max-h-[92vh]'
-                                    : 'w-full h-full rounded-none sm:rounded-2xl border border-slate-200 dark:border-slate-800'
+                            className={`relative transition-all duration-300 ease-out flex flex-col items-center shrink-0 ${
+                                viewport === 'desktop'
+                                    ? 'w-full'
+                                    : viewport === 'tablet'
+                                    ? 'bg-slate-900 p-3.5 rounded-[38px] border-[3px] border-slate-700 shadow-[0_25px_60px_-15px_rgba(0,0,0,0.55)]'
+                                    : 'bg-slate-950 p-3 rounded-[50px] border-[3px] border-slate-700 shadow-[0_25px_60px_-15px_rgba(0,0,0,0.6)]'
                             }`}
-                            style={{
-                                height: isFullscreen ? 'calc(100vh - 105px)' : 'calc(100vh - 165px)'
-                            }}
                         >
-                            <iframe
-                                key={refreshKey}
-                                ref={iframeRef}
-                                src={previewUrl}
-                                title="Tacos Gavilan Official Website"
-                                className="w-full h-full border-0 bg-white"
-                                onLoad={() => setIframeLoading(false)}
-                            />
+                            {/* Hardware Side Buttons for Tablet */}
+                            {viewport === 'tablet' && (
+                                <>
+                                    <div className="absolute -right-[5px] top-16 w-[3px] h-12 bg-slate-600 rounded-r-md" />
+                                    <div className="absolute -right-[5px] top-32 w-[3px] h-12 bg-slate-600 rounded-r-md" />
+                                    <div className="w-full flex items-center justify-center pb-2">
+                                        <div className="w-2.5 h-2.5 rounded-full bg-slate-800 border border-slate-600 flex items-center justify-center">
+                                            <div className="w-1 h-1 rounded-full bg-blue-500/60" />
+                                        </div>
+                                    </div>
+                                </>
+                            )}
+
+                            {/* Hardware Side Buttons for Mobile (iPhone 15 Pro) */}
+                            {viewport === 'mobile' && (
+                                <>
+                                    <div className="absolute -left-[5px] top-24 w-[3px] h-7 bg-slate-600 rounded-l-md" />
+                                    <div className="absolute -left-[5px] top-36 w-[3px] h-12 bg-slate-600 rounded-l-md" />
+                                    <div className="absolute -left-[5px] top-52 w-[3px] h-12 bg-slate-600 rounded-l-md" />
+                                    <div className="absolute -right-[5px] top-40 w-[3px] h-16 bg-slate-600 rounded-r-md" />
+                                </>
+                            )}
+
+                            {/* Inner Screen Container with Guaranteed Exact Pixel Width */}
+                            <div
+                                className={`relative overflow-hidden bg-slate-950 flex flex-col transition-all duration-300 ease-out ${
+                                    viewport === 'desktop'
+                                        ? 'w-full rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xl'
+                                        : viewport === 'tablet'
+                                        ? 'rounded-[22px] border border-slate-800'
+                                        : 'rounded-[38px] border border-slate-800'
+                                }`}
+                                style={{
+                                    width: viewport === 'desktop' ? '100%' : viewport === 'tablet' ? '768px' : '390px',
+                                    height:
+                                        viewport === 'desktop'
+                                            ? isFullscreen
+                                                ? 'calc(100vh - 105px)'
+                                                : 'calc(100vh - 165px)'
+                                            : viewport === 'tablet'
+                                            ? isFullscreen
+                                                ? 'calc(100vh - 190px)'
+                                                : '820px'
+                                            : isFullscreen
+                                            ? 'calc(100vh - 180px)'
+                                            : '780px',
+                                    minHeight: viewport === 'desktop' ? '680px' : undefined
+                                }}
+                            >
+                                {/* iPadOS Top Status Bar */}
+                                {viewport === 'tablet' && (
+                                    <div className="h-6 bg-black text-white px-5 flex items-center justify-between text-[11px] font-semibold select-none shrink-0 border-b border-white/5">
+                                        <span>9:41 AM &nbsp;·&nbsp; Fri Oct 16</span>
+                                        <div className="flex items-center gap-2 text-[10px] text-white/90">
+                                            <span>5G</span>
+                                            <span>Wi-Fi</span>
+                                            <span>100%</span>
+                                            <div className="w-5 h-2.5 rounded-sm border border-white/80 p-0.5 flex items-center">
+                                                <div className="w-full h-full bg-emerald-400 rounded-[1px]" />
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* iOS Top Status Bar + Dynamic Island */}
+                                {viewport === 'mobile' && (
+                                    <div className="h-9 bg-black text-white px-6 flex items-center justify-between text-xs font-bold select-none shrink-0 border-b border-white/5">
+                                        <span className="tracking-tight">9:41</span>
+                                        <div className="w-24 h-5 bg-zinc-900 border border-zinc-800 rounded-full flex items-center justify-end px-2">
+                                            <div className="w-2 h-2 rounded-full bg-indigo-950 border border-indigo-500/40" />
+                                        </div>
+                                        <div className="flex items-center gap-1.5 text-[10px] font-semibold">
+                                            <span>5G</span>
+                                            <div className="w-5 h-2.5 rounded-sm border border-white/80 p-0.5 flex items-center">
+                                                <div className="w-full h-full bg-emerald-400 rounded-[1px]" />
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+
+                                <iframe
+                                    key={refreshKey}
+                                    ref={iframeRef}
+                                    src={previewUrl}
+                                    title="Tacos Gavilan Official Website"
+                                    className="w-full flex-1 border-0 bg-slate-950"
+                                    onLoad={() => setIframeLoading(false)}
+                                />
+                            </div>
+
+                            {/* Bottom Home Indicator Pill for Tablet & Mobile */}
+                            {viewport !== 'desktop' && (
+                                <div className="pt-2.5 pb-0.5 flex items-center justify-center w-full">
+                                    <div className="w-32 h-1 rounded-full bg-slate-600" />
+                                </div>
+                            )}
                         </div>
                     </div>
                 </div>

@@ -841,7 +841,7 @@ document.addEventListener('DOMContentLoaded', () => {
             'fiesta.btn':              'Explore Fiesta Platters',
             'fiesta.heroTitle':        'Our Famous <span>Fiesta Platter</span>',
             'fiesta.heroLead':         'Authentic Mexican taquiza catering made simple! Same-day ordering is available for pickup at all 15 locations. Order as little as 1 hour in advance for group sizes from 15 to 40 people.',
-            'fiesta.orderToastBtn':    'Order Online on Toast',
+            'fiesta.orderToastBtn':    'Order Online',
             'fiesta.packagesTitle':    'Catering Packages by Group Size',
             'fiesta.packagesSubtitle': 'Each package includes your choice of meats, Mexican rice, refried pinto beans, Agua Fresca, corn or flour tortillas, red & green salsas, condiments, and utensils.',
             'fiesta.pkg15Title':       '15 – 20 People',
@@ -852,7 +852,7 @@ document.addEventListener('DOMContentLoaded', () => {
             'fiesta.pkg25Desc':        '10 lbs Meat · 3/4 Tray Rice & Beans · 5 Gallons Agua Fresca',
             'fiesta.pkg30Title':       '30 – 40 People',
             'fiesta.pkg30Desc':        '12 lbs Meat · Full Tray Rice & Beans · 6 Gallons Agua Fresca',
-            'fiesta.orderBtn':         'Order on Toast',
+            'fiesta.orderBtn':         'Order Online',
             'fiesta.whatsIncludedTitle': 'What\'s Included in Every Fiesta Platter',
             'fiesta.incMeatsTitle':    'Meat of Choice (6 to 12 lbs)',
             'fiesta.incMeatsDesc':     'Choose from Carne Asada, Pollo (Chicken), or Al Pastor freshly grilled to order.',
@@ -899,7 +899,7 @@ document.addEventListener('DOMContentLoaded', () => {
             'fiesta.step3Title':       'Select Your Nearest Store',
             'fiesta.step3Desc':        'Pick from any of our 15 Southern California locations for fast pickup.',
             'fiesta.step4Title':       'Place Order Online',
-            'fiesta.step4Desc':        'Order directly through Toast order.online with as little as 1 hour advance notice.',
+            'fiesta.step4Desc':        'Order directly online with as little as 1 hour advance notice.',
             'fiesta.step5Title':       'Pickup Hot & Fresh',
             'fiesta.step5Desc':        'Arrive at your chosen location, pick up your packaged trays, and enjoy the party!',
 
@@ -1054,7 +1054,7 @@ document.addEventListener('DOMContentLoaded', () => {
             'privacy.title':        'Privacy Policy & California Privacy Notice (CCPA/CPRA)',
             'privacy.intro':        'Effective March 19, 2019 · Last updated October 16, 2026. Tacos Gavilan, LLC and its affiliated operating entities ("Tacos Gavilan") explain here what this website collects, how it is protected, and how California residents can exercise their privacy rights.',
             'privacy.h1':           '1. Information We Collect & Location Data',
-            'privacy.p1':           'Our hosting and security infrastructure (Vercel, Supabase) processes technical request data (IP address, browser User Agent, timestamp, language preference). If you use the optional "Find Me" store locator button, your browser processes your location in real time to calculate distances to our 15 locations without storing or selling your GPS coordinates on our servers. Online orders and payments are processed independently on Toast POS (order.online) and delivery platforms; we never collect payment card numbers on this site.',
+            'privacy.p1':           'Our hosting and security infrastructure (Vercel, Supabase) processes technical request data (IP address, browser User Agent, timestamp, language preference). If you use the optional "Find Me" store locator button, your browser processes your location in real time to calculate distances to our 15 locations without storing or selling your GPS coordinates on our servers. Online orders and payments are processed independently through our online ordering platform; we never collect payment card numbers on this site.',
             'privacy.formFieldsH':  '2. Contact, Newsletter & Career Inquiries',
             'privacy.formFieldsP':  'When you submit our contact form, newsletter signup, or employment inquiry, we collect your name, email address, phone number, selected restaurant location, topic, and message solely to respond to your inquiry, provide guest support, and prevent automated spam abuse.',
             'privacy.retentionH':   '3. Data Retention, Security & Children\'s Privacy',
@@ -1067,7 +1067,7 @@ document.addEventListener('DOMContentLoaded', () => {
             'terms.title': 'Terms of Use & Conditions',
             'terms.intro': 'Effective March 19, 2019 · Last updated October 16, 2026. By accessing or using https://tacosgavilan.com, operated by Tacos Gavilan, LLC and its affiliated operating entities ("Tacos Gavilan"), you agree to be bound by these Terms of Use.',
             'terms.h1':    '1. Online Ordering, Pricing, Allergens & Third-Party Links',
-            'terms.p1':    'Online food orders and payments are processed through Toast POS (order.online) and authorized delivery marketplaces (DoorDash, Uber Eats, Grubhub, Postmates). Menu offerings, Fiesta Platter packages, prices, and hours may vary by location. Food is prepared in kitchens handling wheat, dairy, eggs, soy, and meats; guests with allergies should consult restaurant management before ordering.',
+            'terms.p1':    'Online food orders and payments are processed through our official online ordering platform and authorized third-party delivery services. Menu offerings, Fiesta Platter packages, prices, and hours may vary by location. Food is prepared in kitchens handling wheat, dairy, eggs, soy, and meats; guests with allergies should consult restaurant management before ordering.',
             'terms.h2':    '2. Intellectual Property & Acceptable Use',
             'terms.p2':    'All content, trademarks ("Tacos Gavilan", "Ya está."), logos, food photography, and trade dress are the exclusive property of Tacos Gavilan and its licensors. Unauthorized reproduction, scraping, or automated abuse is strictly prohibited.',
             'terms.h3':    '3. Disclaimer ("AS IS"), Limitation of Liability, Indemnification & Governing Law',
@@ -1258,7 +1258,7 @@ document.addEventListener('DOMContentLoaded', () => {
             'fiesta.btn':              'Ver Charolas para Fiestas',
             'fiesta.heroTitle':        'Nuestras Famosas <span>Charolas para Fiesta</span>',
             'fiesta.heroLead':         '¡Auténtica taquiza mexicana fácil y rápida! Disponible para recoger el mismo día en nuestras 15 sucursales. Ordena con solo 1 hora de anticipación para grupos de 15 a 40 personas.',
-            'fiesta.orderToastBtn':    'Ordenar en Línea por Toast',
+            'fiesta.orderToastBtn':    'Ordenar en Línea',
             'fiesta.packagesTitle':    'Paquetes de Banquete por Tamaño de Grupo',
             'fiesta.packagesSubtitle': 'Cada paquete incluye tu elección de carnes, arroz mexicano, frijoles pintos refritos, Agua Fresca, tortillas de maíz o harina, salsas roja y verde, condimentos y utensilios.',
             'fiesta.pkg15Title':       '15 a 20 Personas',
@@ -1269,7 +1269,7 @@ document.addEventListener('DOMContentLoaded', () => {
             'fiesta.pkg25Desc':        '10 lbs de Carne · 3/4 Charola Arroz y Frijol · 5 Galones de Agua Fresca',
             'fiesta.pkg30Title':       '30 a 40 Personas',
             'fiesta.pkg30Desc':        '12 lbs de Carne · Charola Completa Arroz y Frijol · 6 Galones de Agua Fresca',
-            'fiesta.orderBtn':         'Ordenar por Toast',
+            'fiesta.orderBtn':         'Ordenar en Línea',
             'fiesta.whatsIncludedTitle': 'Qué Incluye Cada Charola Fiesta Platter',
             'fiesta.incMeatsTitle':    'Carne a Elegir (6 a 12 lbs)',
             'fiesta.incMeatsDesc':     'Elige entre Carne Asada, Pollo o Al Pastor recién asada al momento.',
@@ -1316,7 +1316,7 @@ document.addEventListener('DOMContentLoaded', () => {
             'fiesta.step3Title':       'Selecciona tu Sucursal Más Cercana',
             'fiesta.step3Desc':        'Elige cualquiera de nuestras 15 sucursales del Sur de California para recoger rápidamente.',
             'fiesta.step4Title':       'Realiza tu Pedido en Línea',
-            'fiesta.step4Desc':        'Ordena directamente por Toast order.online con tan solo 1 hora de anticipación.',
+            'fiesta.step4Desc':        'Ordena directamente en línea con tan solo 1 hora de anticipación.',
             'fiesta.step5Title':       'Recoge Caliente y Fresco',
             'fiesta.step5Desc':        'Llega a tu sucursal seleccionada, recoge tus charolas empaquetadas ¡y a disfrutar la fiesta!',
 
@@ -1471,7 +1471,7 @@ document.addEventListener('DOMContentLoaded', () => {
             'privacy.title':        'Política de Privacidad y Aviso de California (CCPA/CPRA)',
             'privacy.intro':        'Vigente desde el 19 de marzo de 2019 · Última actualización: 16 de octubre de 2026. Tacos Gavilan, LLC y sus entidades operativas afiliadas ("Tacos Gavilan") explican aquí qué datos recopila este sitio web, cómo se protegen y cómo los residentes de California pueden ejercer sus derechos de privacidad.',
             'privacy.h1':           '1. Información que Recopilamos y Datos de Ubicación',
-            'privacy.p1':           'Nuestra infraestructura de alojamiento y seguridad (Vercel, Supabase) procesa datos técnicos de solicitudes (dirección IP, User Agent, fecha/hora y preferencia de idioma). Si utilizas el botón opcional "Ubicarme" en el mapa interactivo, tu navegador calcula la distancia hacia nuestras 15 sucursales en tiempo real sin almacenar ni vender tus coordenadas GPS en nuestros servidores. Los pedidos y pagos en línea se procesan directamente en Toast POS (order.online) y plataformas de entrega; nunca recopilamos números de tarjetas de pago en este sitio.',
+            'privacy.p1':           'Nuestra infraestructura de alojamiento y seguridad (Vercel, Supabase) procesa datos técnicos de solicitudes (dirección IP, User Agent, fecha/hora y preferencia de idioma). Si utilizas el botón opcional "Ubicarme" en el mapa interactivo, tu navegador calcula la distancia hacia nuestras 15 sucursales en tiempo real sin almacenar ni vender tus coordenadas GPS en nuestros servidores. Los pedidos y pagos en línea se procesan directamente en nuestra plataforma de pedidos en línea; nunca recopilamos números de tarjetas de pago en este sitio.',
             'privacy.formFieldsH':  '2. Formularios de Contacto, Boletín y Empleo',
             'privacy.formFieldsP':  'Al enviar nuestro formulario de contacto, suscripción o solicitud de empleo, recopilamos tu nombre, correo electrónico, teléfono, sucursal seleccionada, motivo y mensaje únicamente para responder tu consulta, brindar atención al cliente y prevenir abusos de spam automatizado.',
             'privacy.retentionH':   '3. Retención de Datos, Seguridad y Privacidad de Menores',
@@ -1484,7 +1484,7 @@ document.addEventListener('DOMContentLoaded', () => {
             'terms.title': 'Términos y Condiciones de Uso',
             'terms.intro': 'Vigente desde el 19 de marzo de 2019 · Última actualización: 16 de octubre de 2026. Al acceder y navegar en https://tacosgavilan.com, operado por Tacos Gavilan, LLC y sus entidades operativas afiliadas ("Tacos Gavilan"), aceptas quedar legalmente sujeto a estos Términos de Uso.',
             'terms.h1':    '1. Pedidos en Línea, Precios, Alérgenos y Enlaces a Terceros',
-            'terms.p1':    'Los pedidos de comida en línea y pagos se procesan mediante Toast POS (order.online) y plataformas autorizadas de entrega (DoorDash, Uber Eats, Grubhub, Postmates). Los platillos, paquetes Fiesta Platter, precios y horarios pueden variar por sucursal. Los alimentos se preparan en cocinas que manejan trigo, lácteos, huevo, soya y carnes; si presentas alergias alimentarias, consulta a la gerencia antes de ordenar.',
+            'terms.p1':    'Los pedidos de comida en línea y pagos se procesan mediante nuestra plataforma oficial de pedidos en línea y servicios externos autorizados de entrega. Los platillos, paquetes Fiesta Platter, precios y horarios pueden variar por sucursal. Los alimentos se preparan en cocinas que manejan trigo, lácteos, huevo, soya y carnes; si presentas alergias alimentarias, consulta a la gerencia antes de ordenar.',
             'terms.h2':    '2. Propiedad Intelectual y Uso Aceptable',
             'terms.p2':    'Todos los contenidos, marcas registradas ("Tacos Gavilan", "Ya está."), logotipos, fotografías de alimentos e imagen comercial son propiedad exclusiva de Tacos Gavilan y sus licenciantes. Queda estrictamente prohibida su reproducción no autorizada, extracción automatizada (scraping) o abuso del sistema.',
             'terms.h3':    '3. Exención de Garantías ("TAL CUAL"), Limitación de Responsabilidad, Indemnización y Ley Aplicable',
@@ -3021,7 +3021,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const dirUrl = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(loc.address)}`;
         const tagText = isEs ? 'Tacos Gavilan · Detalles de Sucursal' : 'Tacos Gavilan · Store Details';
         const hoursTitle = isEs ? 'Horarios' : 'Hours';
-        const orderBtnText = isEs ? 'Ordenar en Toast (Recoger o Entrega)' : 'Order Pickup or Delivery on Toast';
+        const orderBtnText = isEs ? 'Ordenar en Línea' : 'Order Online';
         const dirBtnText = isEs ? 'Cómo llegar en Google Maps' : 'Get Directions in Google Maps';
         const closeLabel = isEs ? 'Cerrar detalles de sucursal' : 'Close store details';
 

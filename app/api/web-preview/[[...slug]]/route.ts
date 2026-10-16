@@ -912,6 +912,51 @@ export async function GET(
     try {
         const ext = path.extname(finalPath).toLowerCase()
         const mimeType = MIME_TYPES[ext] || 'application/octet-stream'
+
+        if (ext === '.html' || ext === '.htm') {
+            let html = await fs.promises.readFile(finalPath, 'utf8')
+            const relDir = path.relative(baseDir, path.dirname(finalPath)).replace(/\\/g, '/')
+            const baseHref = `/api/web-preview/${relDir ? `${relDir}/` : ''}`
+
+            // If accessed without .html in the URL path, inject <base> so relative assets resolve properly
+            if (!url.pathname.endsWith('.html') && !url.pathname.endsWith('.htm')) {
+                html = html.replace(/<head([^>]*)>/i, `<head$1>\n    <base href="${baseHref}">`)
+            }
+
+            // Rewrite root-relative asset and page paths (href="/..." or src="/...") to /api/web-preview/...
+            html = html.replace(/\b(href|src)=["']\/(?!\/|api\/web-preview\/)([^"']*)["']/gi, (_match, attr, rest) => {
+                const cleaned = rest.endsWith('/') ? `${rest}index.html` : rest
+                return `${attr}="/api/web-preview/${cleaned}"`
+            })
+
+            // Rewrite relative directory links (e.g., href="blog/", href="locations/") so Next.js trailing-slash redirect doesn't break relative base
+            html = html.replace(/\bhref=["']((?!https?:\/\/|mailto:|tel:|#|\/)[^"']*\/)["']/gi, (_match, relLink) => {
+                return `href="${relLink}index.html"`
+            })
+
+            return new Response(html, {
+                headers: {
+                    'Content-Type': mimeType,
+                    'Cache-Control': 'no-cache, no-store, must-revalidate, max-age=0',
+                    'Pragma': 'no-cache',
+                    'Expires': '0',
+                }
+            })
+        }
+
+        if (ext === '.js') {
+            let jsContent = await fs.promises.readFile(finalPath, 'utf8')
+            jsContent = jsContent.replace(/(['"])\/img\//g, '$1/api/web-preview/img/')
+            return new Response(jsContent, {
+                headers: {
+                    'Content-Type': mimeType,
+                    'Cache-Control': 'no-cache, no-store, must-revalidate, max-age=0',
+                    'Pragma': 'no-cache',
+                    'Expires': '0',
+                }
+            })
+        }
+
         const fileBuffer = await fs.promises.readFile(finalPath)
 
         return new Response(fileBuffer, {

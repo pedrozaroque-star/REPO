@@ -382,14 +382,14 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
                         : 'Abre en nueva pestaña: Consulta y vista previa de la app móvil de pedidos para clientes'
                 },
                 {
-                    name: t('items.new_website') || (language === 'en' ? 'New Website' : 'Nueva Web'),
-                    plainName: 'Nueva Web',
+                    name: t('items.new_website') || (language === 'en' ? 'Website' : 'Sitio Web'),
+                    plainName: language === 'en' ? 'Website' : 'Sitio Web',
                     path: '/nueva-web',
                     icon: <Globe size={20} />,
                     roles: ['asistente', 'manager', 'supervisor', 'admin'],
                     tooltip: language === 'en'
-                        ? 'Tacos Gavilan new website design preview and live testing (file:///C:/Users/pedro/Desktop/tacosgavilan-web/index.html)'
-                        : 'Vista previa y pruebas en vivo del nuevo diseño web de Tacos Gavilan (file:///C:/Users/pedro/Desktop/tacosgavilan-web/index.html)'
+                        ? 'Tacos Gavilan official website traffic, order conversions, and live preview (tacosgavilan.com)'
+                        : 'Tráfico, conversiones de órdenes y vista en vivo del Sitio Web oficial de Tacos Gavilan (tacosgavilan.com)'
                 },
                 {
                     name: t('items.gavilan_pos') || 'Gavilan POS',
