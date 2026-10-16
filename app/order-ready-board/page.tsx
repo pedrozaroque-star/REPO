@@ -1,20 +1,20 @@
 /**
  * @module app/order-ready-board/page
- * @description Customer-facing Order Ready Board and Voice Announcer for Tacos Gavilan.
- * Displays live orders in "In Progress" and "Ready for Pickup", and plays an audio chime (Web Audio API) plus a natural high-fidelity neural voice (Gemini Neural TTS via /api/order-ready/tts with 5 selectable voices: 3 female [Kore, Aoede, Zephyr] and 2 male [Puck, Orus]) in English, Spanish or Bilingual.
+ * @description Customer-facing Order Status Board ("Entregadas" & "En Preparación") and Voice Announcer for Tacos Gavilan.
+ * Displays live orders in "En Preparación" ("In Progress") and "Entregadas" ("Delivered"), and plays an audio chime (Web Audio API) plus a natural high-fidelity neural voice (Gemini Neural TTS via /api/order-ready/tts with 5 selectable voices: 3 female [Kore, Aoede, Zephyr] and 2 male [Puck, Orus]) in English and Spanish.
  * 
  * @businessRules
  * - **Tacos Gavilan Official Branding**: Presenta el nombre canónico y la identidad visual de la marca para displays en sucursal.
- * - **Separación de Estados**:
- *   - 'IN_PROGRESS': Órdenes en cocina recibidas pero aún no despachadas.
- *   - 'READY': Órdenes marcadas con doble tap en KDS Expediter o por API.
+ * - **Separación de Estados (Nuevo Procedimiento Operativo)**:
+ *   - 'IN_PROGRESS' ("En Preparación" / "In Progress"): Órdenes enviadas a cocina desde caja. Mientras están en preparación, el entregador toca la orden en la tableta del Preparador (`/inventory/preparador`) para llamar al cliente por el altavoz al mostrador.
+ *   - 'READY' ("Entregadas" / "Delivered"): Órdenes que ya fueron entregadas al cliente y cerradas con doble tap (bump) en el Toast KDS Expediter. Al pasar a 'READY' desde el KDS entran en silencio a la columna "Entregadas".
  * - **Motor de Audio (Ding-Dong Chime) y Catálogo de 5 Voces Neuronales**:
  *   - Sintetizador armónico de campana (Ding-Dong) con Web Audio API de baja latencia antes del llamado + Locutor(a) de alta fidelidad bilingüe secuencial (Inglés: "Order #141 is ready," + Español: "orden #141 ya está.").
  *   - 5 Voces Neuronales Gemini TTS de alta fidelidad (3 Femeninas: Kore, Aoede, Zephyr; 2 Masculinas: Puck, Orus) con persistencia en LocalStorage (`teg_order_ready_voice`).
  *   - Campanilla Ding-Dong configurable (ON/OFF) con persistencia en LocalStorage.
- *   - Text-to-Speech (TTS) configurable en Español, Inglés o Bilingüe.
- *   - Cola de audio ordenada por HORA REAL DE CIERRE (`ready_at`, el momento del doble tap en el KDS): si se cierran varias órdenes casi al mismo tiempo se anuncian en el orden en que se cerraron, sin superponerse. Un Set de ids evita anunciar dos veces la misma orden.
- *   - Precarga inteligente de audio: los clips de las órdenes en preparación se precargan en segundo plano para que el anuncio al momento de doble tap sea instantáneo. Si la red o TTS falla, se usa la voz del navegador como respaldo automático respetando el género seleccionado.
+ *   - Text-to-Speech (TTS) siempre bilingüe (Inglés + Español).
+ *   - Cola de audio ordenada por timestamp de llamado (`_sortAt` / `ready_at`), sin superponerse.
+ *   - Precarga inteligente de audio: los clips de las órdenes en preparación se precargan en segundo plano para que el anuncio al tocar en la tableta sea instantáneo. Si la red o TTS falla, se usa la voz del navegador como respaldo automático respetando el género seleccionado (con prohibición absoluta de Microsoft Raúl).
  *   - Alcance Exclusivo de Canales:
  *     * Operación exclusiva para Comedor ('FOR_HERE') y Para Llevar ('TOGO').
  *     * Drive-Thru y plataformas de delivery quedan completamente excluidos del tablero y anuncios.
@@ -29,17 +29,17 @@
  *   - Aislamiento estricto por `business_date`: la ventana de consulta nunca busca órdenes antes de las 6:00 AM del día en curso (`Math.max(now - 45m, businessDayStartMs)`), evitando que la apertura de la mañana reciba o anuncie órdenes residuales del turno nocturno anterior.
  *   - Centinela automático en vivo: al dar las 6:00 AM en punto, el tablero detecta el cambio de día laboral, vacía la memoria de órdenes anunciadas y refresca el estado en limpio.
  * - **Idempotencia ante Recall de Cocina en KDS y Supresión de Avalancha Inicial**:
- *   - Al abrir el módulo, recargar la página o cambiar de sucursal, todas las órdenes preexistentes en "Listo para recoger" se renderizan en pantalla en SILENCIO total. Solo se activan el Ding-Dong y la voz para órdenes recién completadas capturadas en vivo mientras el módulo está abierto (o al pulsar "Llamar" manualmente).
- *   - Cuando los cocineros hacen "Recall" en el KDS Expediter para revisar órdenes ya despachadas y luego hacen doble tap para cerrarlas nuevamente, el sistema no vuelve a reproducir la campanilla ni la voz gracias a la cuádruple barrera de idempotencia (Set de IDs en memoria, supresión de backlog inicial por tienda, persistencia `announced: true` en Supabase y aislamiento por `business_date`).
- * - **Gestión de Vida Útil**: Las órdenes en 'READY' se retiran visualmente tras 20 minutos (limpieza automática de pantalla para mantener el tablero ordenado y legible, configurable en 15, 20 o 30 min, 20 min por defecto).
+ *   - Al abrir el módulo, recargar la página o cambiar de sucursal, todas las órdenes preexistentes se renderizan en pantalla en SILENCIO total. Solo se activan el Ding-Dong y la voz cuando el preparador toca una orden en vivo en la tableta (o al pulsar "Llamar" manualmente).
+ *   - Cuando los cocineros hacen doble tap (bump) en el KDS Expediter, la orden pasa en silencio a la columna "Entregadas" (`status = 'READY'`).
+ * - **Gestión de Vida Útil**: Las órdenes en 'READY' ("Entregadas") se retiran visualmente tras 20 minutos (limpieza automática de pantalla para mantener el tablero ordenado y legible, configurable en 15, 20 o 30 min, 20 min por defecto).
  * - **Anuncios Personalizados al Comedor y Reproducción Periódica**:
  *   - Caja de texto para redactar anuncios libres a comensales (hasta 500 caracteres) con contador de caracteres y botón de limpieza.
  *   - Plantillas rápidas oficiales de Tacos Gavilan: Ticket en mano, Barra de salsas, Aguas frescas y Bienvenida.
  *   - Reproducción inmediata ("Reproducir Ahora") o automática periódica (intervalos de 3, 5, 10, 15, 20, 30, 60 min o campo numérico libre).
  *   - Audio neuronal Gemini TTS vía `/api/order-ready/announcement-tts` con caché permanente en Supabase Storage y fallback seguro al sintetizador del navegador con bloqueo absoluto anti-Raul.
- *   - Prioridad de órdenes: los llamados de pedidos listos tienen prioridad absoluta; el anuncio espera a que concluyan para no interrumpir el flujo.
+ *   - Prioridad de órdenes: los llamados de pedidos tienen prioridad absoluta; el anuncio espera a que concluyan para no interrumpir el flujo.
  * - **Impulso de Llamada desde Tableta de Preparador (Entregador de Cocina)**:
- *   - La tableta de preparación (`/inventory/preparador`) en la pestaña "ÓRDENES" permite al entregador tocar una orden lista con el dedo.
+ *   - La tableta de preparación (`/inventory/preparador`) en la pestaña "ÓRDENES" permite al entregador tocar una orden en preparación con el dedo para llamar al cliente al mostrador.
  *   - El tablero del Manager recibe el impulso instantáneo vía Supabase Realtime (evento `call_order`) y reproduce la campanilla Ding-Dong + locutor natural, destacando la tarjeta en la pantalla con un badge ámbar pulsante ("Llamada desde Preparador").
  * - **Resiliencia de Red (Offline Mode)**: Detección proactiva de conectividad de red con aviso visual y caída suave a audio en caché/síntesis local si se corta la conexión a internet.
  * 
@@ -1161,7 +1161,7 @@ function OrderReadyBoardContent() {
   const speakOrder = useCallback(
     async (order: OrderItem, repeats: number = 1, voiceOverride?: VoiceId): Promise<void> => {
       const voice = voiceOverride || selectedVoice
-      const isNumeric = /^\d{1,4}$/.test(order.order_number)
+      const isNumeric = /^\d{1,6}$/.test(order.order_number)
       if (!isNumeric) return speakOrderBrowser(order, voice)
 
       const num = String(parseInt(order.order_number, 10))
@@ -1222,7 +1222,7 @@ function OrderReadyBoardContent() {
 
         try {
           // Descargar los clips mientras suena la campanilla (si ya están precargados es inmediato)
-          if (/^\d{1,4}$/.test(nextOrder.order_number)) {
+          if (/^\d{1,6}$/.test(nextOrder.order_number)) {
             const num = String(parseInt(nextOrder.order_number, 10))
             clipLangs().forEach((l) => { void getClipUrl(l, num, selectedVoice) })
           }
@@ -1249,16 +1249,27 @@ function OrderReadyBoardContent() {
             } catch (e) {
               console.warn('Error marking announced:', e)
             }
+          }
 
-            // 4. Programar UN solo recordatorio si la orden sigue en "Listo para recoger".
+          // 4. Programar UN solo recordatorio si tras llamar la orden desde la tableta sigue en "En Preparación" (aún no pasa a "Entregadas").
+          if (!nextOrder._manualReplay && !nextOrder._reminder) {
             const currentDelaySec = reminderSecondsRef.current
-            if (currentDelaySec > 0 && !remindedOrderIdsRef.current.has(nextOrder.id)) {
-              remindedOrderIdsRef.current.add(nextOrder.id)
+            const reminderKey = `${String(nextOrder.store_code || selectedStore).toUpperCase()}:${nextOrder.order_number}`
+            if (currentDelaySec > 0 && !remindedOrderIdsRef.current.has(reminderKey)) {
+              remindedOrderIdsRef.current.add(reminderKey)
               const orderId = nextOrder.id
+              const orderNumStr = String(nextOrder.order_number)
               const timer = setTimeout(() => {
                 reminderTimersRef.current.delete(timer)
                 if (reminderSecondsRef.current <= 0) return
-                if (!readyIdsRef.current.has(orderId)) return
+                const alreadyDelivered =
+                  readyIdsRef.current.has(orderId) ||
+                  readyOrdersRef.current.some((o) => o.id === orderId || String(o.order_number) === orderNumStr)
+                if (alreadyDelivered) return
+                const stillInProgress = inProgressOrdersRef.current.some(
+                  (o) => o.id === orderId || String(o.order_number) === orderNumStr
+                )
+                if (!stillInProgress) return
                 const latest = nextOrder
                 enqueueReminderRef.current?.({ ...latest, _reminder: true, _sortAt: Date.now() })
               }, currentDelaySec * 1000)
@@ -1663,7 +1674,7 @@ function OrderReadyBoardContent() {
     ;(async () => {
       try {
         for (const o of targets) {
-          if (!/^\d{1,4}$/.test(o.order_number)) continue
+          if (!/^\d{1,6}$/.test(o.order_number)) continue
           const num = String(parseInt(o.order_number, 10))
           for (const l of langs) await getClipUrl(l, num, selectedVoice)
         }
@@ -2332,9 +2343,9 @@ function OrderReadyBoardContent() {
 
       {/* Banner de locutor activo (cuando habla la voz) */}
       {activeSpeech && (
-        <div className="bg-gradient-to-r from-emerald-500/20 via-teal-500/30 to-emerald-500/20 border-b border-emerald-500/40 px-4 py-2 flex items-center justify-center gap-3 text-emerald-300 font-semibold text-sm animate-pulse">
-          <Volume2 className="w-4 h-4 animate-ping text-emerald-400" />
-          <span>🗣️ {activeSpeech}</span>
+        <div className="bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-700 border-b border-emerald-800 px-4 py-2.5 flex items-center justify-center gap-3 text-white font-extrabold text-sm sm:text-base tracking-wide shadow-md">
+          <Volume2 className="w-5 h-5 animate-bounce text-amber-300 shrink-0" />
+          <span className="drop-shadow-sm">🗣️ {activeSpeech}</span>
         </div>
       )}
 
@@ -3272,6 +3283,7 @@ function OrderReadyBoardContent() {
                     const sosClass = getSosBadgeClasses(sosColor)
                     const sentTimeStr = formatTimeOnly(order.created_at)
                     const isInProgressTabletCalled = tabletCalledOrderId === order.id || tabletCalledOrderNum === String(order.order_number)
+                    const isOrderReplaying = replayingId === order.id || replayingOrderNum === String(order.order_number)
 
                     return (
                       <div
@@ -3351,20 +3363,35 @@ function OrderReadyBoardContent() {
                             )}
                           </div>
 
-                          {/* Botón Ver Ticket */}
-                          <button
-                            type="button"
-                            onClick={() => handleOrderClick(order)}
-                            title={t('orderReadyBoard.view_ticket')}
-                            className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold transition active:scale-95 cursor-pointer shadow-sm border ${
-                              isDark
-                                ? 'bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border-slate-700'
-                                : 'bg-white hover:bg-slate-100 text-slate-700 hover:text-slate-900 border-slate-300'
-                            }`}
-                          >
-                            <Receipt className="w-3.5 h-3.5 text-amber-500" />
-                            <span>{t('orderReadyBoard.view_ticket')}</span>
-                          </button>
+                          {/* Botones de Acción: Llamar por voz y Ver Ticket */}
+                          <div className="flex items-center gap-1.5 mt-1">
+                            <button
+                              type="button"
+                              onClick={() => handleReplayVoice(order)}
+                              disabled={isOrderReplaying}
+                              title={t('orderReadyBoard.replay_tooltip').replace('{order}', order.order_number)}
+                              className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white shadow-sm border border-emerald-400/40 transition active:scale-95 disabled:opacity-50 cursor-pointer"
+                            >
+                              <Volume2 className={`w-3.5 h-3.5 ${isOrderReplaying ? 'animate-bounce text-amber-300' : ''}`} />
+                              <span>
+                                {isOrderReplaying ? t('orderReadyBoard.replaying') : t('orderReadyBoard.replay_voice')}
+                              </span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => handleOrderClick(order)}
+                              title={t('orderReadyBoard.view_ticket')}
+                              className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold transition active:scale-95 cursor-pointer shadow-sm border ${
+                                isDark
+                                  ? 'bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border-slate-700'
+                                  : 'bg-white hover:bg-slate-100 text-slate-700 hover:text-slate-900 border-slate-300'
+                              }`}
+                            >
+                              <Receipt className="w-3.5 h-3.5 text-amber-500" />
+                              <span className="hidden md:inline">{t('orderReadyBoard.view_ticket')}</span>
+                            </button>
+                          </div>
                         </div>
                       </div>
                     )

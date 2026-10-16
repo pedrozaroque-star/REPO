@@ -26,7 +26,7 @@ export async function GET(request: Request) {
   const voice = (searchParams.get('voice') || 'Kore') as VoiceId
 
   if (!isValidTtsRequest(n, lang, voice)) {
-    return NextResponse.json({ error: 'Parámetros inválidos: n (1-4 dígitos), lang (en|es) y voice opcional (Kore, Aoede, Zephyr, Puck, Orus)' }, { status: 400 })
+    return NextResponse.json({ error: 'Parámetros inválidos: n (1-6 dígitos), lang (en|es) y voice opcional (Kore, Aoede, Zephyr, Puck, Orus)' }, { status: 400 })
   }
 
   try {

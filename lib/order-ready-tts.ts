@@ -72,7 +72,7 @@ export function isValidVoice(v: string | null | undefined): v is VoiceId {
 }
 
 export function isValidTtsRequest(n: string | null, lang: string | null, voice?: string | null): n is string {
-  const numOk = !!n && /^\d{1,4}$/.test(n)
+  const numOk = !!n && /^\d{1,6}$/.test(n)
   const langOk = lang === 'en' || lang === 'es'
   const voiceOk = !voice || isValidVoice(voice)
   return numOk && langOk && voiceOk
