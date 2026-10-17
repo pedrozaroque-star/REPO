@@ -1244,22 +1244,16 @@ export default function BlindajeDeliveryEmpaquePage() {
   }, [orders, showHistory, dismissedVoided])
 
   // Detectar colisiones de nombres (mismo nombre exacto, mismo primer nombre con apellido diferente, o nombre muy parecido)
-  // entre todas las órdenes que han entrado al sistema desde KDS en las últimas 2 horas (o que siguen activas)
+  // únicamente entre órdenes activas pendientes de entregar (cuando ya se entregó una de las 2 al chofer, se quita el color rojo de inmediato)
   const collisionsByGuid = useMemo(() => {
     const map = new Map<string, NameCollisionMatch[]>()
-    const now = Date.now()
-    const recentKdsPool = orders.filter(o => {
-      if (o.isVoided) return false
-      if (isOrderCurrentlyActive(o, dismissedVoided)) return true
-      const openedAgeMs = now - new Date(o.openedAt).getTime()
-      const readyAgeMs = o.kdsReadyAt ? now - new Date(o.kdsReadyAt).getTime() : openedAgeMs
-      return Math.min(openedAgeMs, readyAgeMs) <= 120 * 60 * 1000
-    })
+    const activeUnreleasedPool = orders.filter(
+      o => !o.isVoided && o.audit?.status !== 'released' && isOrderCurrentlyActive(o, dismissedVoided)
+    )
 
-    for (const currentOrder of orders) {
-      if (currentOrder.isVoided) continue
+    for (const currentOrder of activeUnreleasedPool) {
       const matches: NameCollisionMatch[] = []
-      for (const candidate of recentKdsPool) {
+      for (const candidate of activeUnreleasedPool) {
         if (candidate.guid === currentOrder.guid) continue
         const check = areCustomerNamesConfusable(currentOrder.customer, candidate.customer)
         if (check.confusable && check.reason) {
@@ -1275,7 +1269,7 @@ export default function BlindajeDeliveryEmpaquePage() {
       }
     }
     return map
-  }, [orders, t])
+  }, [orders, dismissedVoided, t])
 
   const order = useMemo(() => orders.find(value => value.guid === selected) || null, [orders, selected])
   const bagCount = order ? bags[order.guid] || order.audit?.bags || 1 : 1

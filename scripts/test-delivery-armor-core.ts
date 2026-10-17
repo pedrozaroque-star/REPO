@@ -295,9 +295,11 @@ assert.equal(
   'Debe detectar automáticamente cuando el cocinero borra la orden del KDS (IN_KITCHEN -> READY)'
 )
 assert.equal(
-  empaqueSource.includes('collisionsByGuid') && empaqueSource.includes("t('blindaje_delivery.collision_banner_title')"),
+  empaqueSource.includes('collisionsByGuid') &&
+    empaqueSource.includes("t('blindaje_delivery.collision_banner_title')") &&
+    empaqueSource.includes("o.audit?.status !== 'released' && isOrderCurrentlyActive(o, dismissedVoided)"),
   true,
-  'Debe alertar con alto énfasis cuando existan órdenes con nombres iguales o muy parecidos desde KDS'
+  'Debe alertar con alto énfasis cuando existan órdenes activas con nombres iguales o muy parecidos y quitar el color rojo en cuanto se entrega una de las 2'
 )
 assert.equal(
   empaqueSource.includes('landscape:grid-cols-[370px_1fr]') && empaqueSource.includes('landscape:flex-col'),
