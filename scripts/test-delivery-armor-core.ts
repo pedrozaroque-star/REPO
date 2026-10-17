@@ -282,9 +282,12 @@ assert.equal(
 assert.equal(
   empaqueSource.includes('strikeBellPartial(1318.51') &&
     empaqueSource.includes('strikeBellPartial(1760.0') &&
-    empaqueSource.includes('setTimeout(resolve, 1950)'),
+    empaqueSource.includes('triggerBellCycle(0.0, 0.0)') &&
+    empaqueSource.includes('triggerBellCycle(1.25, 0.45)') &&
+    empaqueSource.includes('createDynamicsCompressor') &&
+    empaqueSource.includes('setTimeout(resolve, 3450)'),
   true,
-  'La campana de Delivery debe ser más aguda (1318 Hz -> 1760 Hz con armónicos) y más prolongada (~2 segundos)'
+  'La campana de Delivery debe sonar 2 veces seguidas (~3.45s) con volumen amplificado (masterGain + DynamicsCompressor)'
 )
 assert.equal(
   empaqueSource.includes("prevStatus === 'IN_KITCHEN'"),

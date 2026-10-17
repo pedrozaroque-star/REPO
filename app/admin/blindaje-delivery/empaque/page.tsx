@@ -459,7 +459,7 @@ export default function BlindajeDeliveryEmpaquePage() {
     }
   }, [])
 
-  // Campana aguda y prolongada exclusiva para órdenes Delivery antes de la voz
+  // Campana aguda doble (2 veces seguidas, más prolongada y de alto volumen) exclusiva para órdenes Delivery cuando pasan a EMPACANDO
   const playChime = useCallback((): Promise<void> => {
     return new Promise(async resolve => {
       try {
@@ -474,6 +474,20 @@ export default function BlindajeDeliveryEmpaquePage() {
         }
         const now = ctx.currentTime
 
+        // Cadena de amplificación + compresor/limitador para lograr máximo volumen limpio en altavoces de tableta
+        const masterGain = ctx.createGain()
+        masterGain.gain.setValueAtTime(1.85, now)
+
+        const compressor = ctx.createDynamicsCompressor()
+        compressor.threshold.setValueAtTime(-8, now)
+        compressor.knee.setValueAtTime(6, now)
+        compressor.ratio.setValueAtTime(6, now)
+        compressor.attack.setValueAtTime(0.002, now)
+        compressor.release.setValueAtTime(0.14, now)
+
+        masterGain.connect(compressor)
+        compressor.connect(ctx.destination)
+
         // Helper para crear parciales armónicos de campana cristalina aguda
         const strikeBellPartial = (
           freq: number,
@@ -487,25 +501,35 @@ export default function BlindajeDeliveryEmpaquePage() {
           osc.type = type
           osc.frequency.setValueAtTime(freq, now + startOffset)
           gain.gain.setValueAtTime(0.0001, now + startOffset)
-          gain.gain.linearRampToValueAtTime(peakGain, now + startOffset + 0.015)
+          gain.gain.linearRampToValueAtTime(peakGain, now + startOffset + 0.012)
           gain.gain.exponentialRampToValueAtTime(0.0008, now + startOffset + duration)
           osc.connect(gain)
-          gain.connect(ctx.destination)
+          gain.connect(masterGain)
           osc.start(now + startOffset)
           osc.stop(now + startOffset + duration + 0.02)
         }
 
-        // Toque 1 (Ding agudo brillante - E6 1318.5 Hz + armónicos de campana E7/B7)
-        strikeBellPartial(1318.51, 0.0, 1.35, 0.36, 'sine')
-        strikeBellPartial(2637.02, 0.0, 0.85, 0.16, 'sine')
-        strikeBellPartial(3951.07, 0.0, 0.45, 0.08, 'triangle')
+        // Ejecuta una frase completa de campana (Ding E6 -> Dong A6 prolongado)
+        const triggerBellCycle = (cycleOffset: number, extraSustain: number) => {
+          // Toque A (Ding agudo brillante - E6 1318.5 Hz + armónicos E7/B7 + cuerpo E5)
+          strikeBellPartial(1318.51, cycleOffset + 0.0, 1.45, 0.82, 'sine')
+          strikeBellPartial(2637.02, cycleOffset + 0.0, 0.95, 0.42, 'sine')
+          strikeBellPartial(3951.07, cycleOffset + 0.0, 0.55, 0.24, 'triangle')
+          strikeBellPartial(659.25, cycleOffset + 0.0, 0.85, 0.28, 'sine')
 
-        // Toque 2 (Dong más agudo y prolongado - A6 1760 Hz + resonancia larga de campana A7/E7)
-        strikeBellPartial(1760.0, 0.28, 1.85, 0.42, 'sine')
-        strikeBellPartial(3520.0, 0.28, 1.25, 0.18, 'sine')
-        strikeBellPartial(2637.02, 0.28, 1.55, 0.12, 'triangle')
+          // Toque B (Dong más agudo y prolongado - A6 1760 Hz + resonancia larga A7/E7 + cuerpo A5)
+          strikeBellPartial(1760.0, cycleOffset + 0.30, 1.85 + extraSustain, 0.95, 'sine')
+          strikeBellPartial(3520.0, cycleOffset + 0.30, 1.30 + extraSustain * 0.6, 0.48, 'sine')
+          strikeBellPartial(2637.02, cycleOffset + 0.30, 1.60 + extraSustain * 0.8, 0.30, 'triangle')
+          strikeBellPartial(880.0, cycleOffset + 0.30, 1.15 + extraSustain * 0.5, 0.34, 'sine')
+        }
 
-        setTimeout(resolve, 1950)
+        // 1ra Campanada completa
+        triggerBellCycle(0.0, 0.0)
+        // 2da Campanada seguida y aún más prolongada
+        triggerBellCycle(1.25, 0.45)
+
+        setTimeout(resolve, 3450)
       } catch {
         resolve()
       }
@@ -570,8 +594,11 @@ export default function BlindajeDeliveryEmpaquePage() {
             }
             const audioBuffer = await ctx.decodeAudioData(arrayBuf.slice(0))
             const source = ctx.createBufferSource()
+            const voiceGain = ctx.createGain()
+            voiceGain.gain.setValueAtTime(1.35, ctx.currentTime)
             source.buffer = audioBuffer
-            source.connect(ctx.destination)
+            source.connect(voiceGain)
+            voiceGain.connect(ctx.destination)
             const timer = setTimeout(() => {
               try {
                 source.stop()
