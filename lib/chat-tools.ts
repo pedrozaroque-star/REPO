@@ -565,7 +565,7 @@ export const TOOL_DECLARATIONS = [
   },
   {
     name: 'query_mobile_orders',
-    description: 'Consultar órdenes históricas en public.app_orders y el estado de Tacos Gavilan App con Toast Online Ordering integrado visualmente mediante WebView nativo en iOS/Android (order.online procesa menú, carrito, Pickup, Delivery y pago).',
+    description: 'Consultar órdenes históricas en public.app_orders y el estado de Tacos Gavilan App (Menu2 con menú y bolsa nativos por sucursal hacia DoorDash Storefront order_session, y Menu con DoorDash Storefront order.online en WebView).',
     parameters: {
       type: 'OBJECT',
       properties: {
@@ -3148,7 +3148,7 @@ async function queryMobileOrdersTool(args: any): Promise<string> {
     const { data: rawOrders, error } = await query;
     if (error) throw error;
     if (!rawOrders || rawOrders.length === 0) {
-      return `No se encontraron órdenes en public.app_orders con los filtros especificados${args.store_name ? ` para ${args.store_name}` : ''}.\n\nℹ️ **Arquitectura Vigente (Tacos Gavilan App v2.1.0)**: Tacos Gavilan App integra visualmente Toast Online Ordering (\`https://order.online/store/...\`) mediante un WebView nativo endurecido en iOS y Android (y pestaña segura en Web). Los pedidos, pagos, confirmaciones y recibos se procesan directamente en Toast Online Ordering.`;
+      return `No se encontraron órdenes en public.app_orders con los filtros especificados${args.store_name ? ` para ${args.store_name}` : ''}.\n\nℹ️ **Estado Real de Tacos Gavilan App**: \`Menu2\` cuenta con diseño propio de Tacos Gavilan, bolsa nativa asociada a la sucursal (\`gavilan_cart_v3\`) y contrato hacia **DoorDash Storefront** (\`POST /storefront/api/v1/orders/order_session\`, actualmente bloqueado externamente con HTTP 403 en espera de habilitación de Storefront API por DoorDash para el Business ID \`137616\`). Mientras tanto, los pedidos en línea se procesan en las tiendas hospedadas de **DoorDash Storefront** (\`https://order.online/store/...\`) integradas con Toast POS.`;
     }
 
     let orders = rawOrders;
@@ -3166,7 +3166,7 @@ async function queryMobileOrdersTool(args: any): Promise<string> {
 
     let out = `📱 **Órdenes Móviles de Clientes (Tacos Gavilan App)**\n`;
     out += `• **Total órdenes encontradas**: ${orders.length}\n`;
-    out += `• **Arquitectura de Pedidos**: Toast Online Ordering (\`order.online\`) integrado visualmente mediante WebView nativo en iOS/Android\n\n`;
+    out += `• **Proveedor Hospedado Actual**: DoorDash Storefront (\`order.online\`) conectado con Toast POS; \`Menu2\` listo con contrato \`order_session\` en espera de habilitación de Storefront API por DoorDash\n\n`;
     out += `| Orden # | Sucursal | Canal / Método | Total | Cocina | Pago | Toast GUID | Cajón / Delivery |\n`;
     out += `|---------|----------|----------------|-------|--------|------|------------|------------------|\n`;
 

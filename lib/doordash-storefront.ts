@@ -1,25 +1,34 @@
 /**
  * @module lib/doordash-storefront
- * @description Cliente híbrido para DoorDash Storefront API V1 y DoorDash Drive API V2
- * utilizado por el módulo nativo `Menu2` de Tacos Gavilan App.
+ * @description Cliente de servidor para DoorDash Storefront API V1 (menú, direcciones y `order_session`)
+ * y cotizaciones de DoorDash Drive API V2 usados por `Menu2` de Tacos Gavilan App.
  *
  * @businessRules
- * - Las 15 sucursales oficiales de Tacos Gavilan se mapean 1:1 con su `doorDashStoreId` real
- *   bajo el `Merchant Business ID: 137616` y el `Developer ID: cbca7678-3306-47b1-baca-46ccdf3607e2`.
- * - Para envíos a domicilio (`delivery`), cotiza en tiempo real con DoorDash Drive API V2 (`/drive/v2/quotes`)
- *   usando el token JWT `DD-JWT-V1`.
- * - Para el cierre de compra (`checkout`), invoca `POST /storefront/api/v1/orders/order_session` para obtener
- *   el `checkout_url` hospedado por DoorDash con el carrito pre-cargado. Mientras DoorDash Support completa
- *   la habilitación del permiso `Storefront API V1` sobre el `Developer ID`, entrega la URL oficial del
- *   Storefront de la sucursal seleccionada con la modalidad (`pickup` o `delivery`) preseleccionada.
+ * - Producto correcto para "nuestro carrito → checkout hospedado con ESE carrito": Storefront
+ *   `POST /storefront/api/v1/orders/order_session` (devuelve `order_session_id` + `checkout_url`).
+ *   Drive es logística (cotizar/solicitar repartidor); NO provee el checkout de order.online ni cobra la comida.
+ * - La sesión SOLO se crea si: `STOREFRONT_ORDER_SESSION_ENABLED === 'true'`, hay credenciales, el menú Storefront
+ *   autorizado de la sucursal responde, el carrito proviene de ese menú (`catalog.source === 'DOORDASH_STOREFRONT'`)
+ *   y cada línea valida contra él. Si algo falla se devuelve un error con código; JAMÁS se devuelve la página
+ *   principal de la tienda como si fuera un checkout.
+ * - El checkout de Storefront gestiona el reparto: aquí NO se solicita repartidor por Drive (evita entregas duplicadas).
+ * - Las cotizaciones Drive (`quoteStoreDeliveryWithDoorDash`) usan credenciales en estado "Pending activation"
+ *   (sandbox) según el portal de DoorDash (captura del 2026-10-16): sus tarifas NO son reales y no se muestran
+ *   a clientes como cargo.
  *
  * @dataFlow
- * - `Menu2` (App) -> `POST /api/mobile/doordash/checkout-session` -> `lib/doordash-storefront.ts`
- *   -> DoorDash Drive V2 (`/drive/v2/quotes`) + DoorDash Storefront V1 (`/storefront/api/v1/orders/order_session`)
- *   -> Retorna `{ checkoutUrl, sessionMode, deliveryQuote }`.
+ * - `POST /api/mobile/doordash/checkout-session` → `createStorefrontOrderSession()` →
+ *   GET `/storefront/api/v1/stores/{id}/menus` → `validateCartAgainstStorefrontMenu()` →
+ *   (delivery) POST `/storefront/api/v1/addresses/create` → POST `/storefront/api/v1/orders/order_session` →
+ *   `validateOrderSessionResponse()`.
  *
  * @notes
- * - Cero datos inventados: las tarifas y tiempos estimados de entrega provienen directamente de DoorDash Drive V2.
+ * - 2026-10-16: con la credencial actual, `order_session` respondió HTTP 403 `authorization_error` ("permissions to
+ *   access the following apis: Drive API"). Estado: Storefront NO habilitado. Respuesta de soporte recibida: acceso
+ *   restringido, sin fecha (no es aprobación).
+ * - `doorDashStoreId` se tomó del número final del slug de cada URL `order.online/store/<slug>-<id>`. NO está
+ *   verificado como `store_id` de la Storefront API: confirmar con `GET /storefront/api/v1/stores/{id}` al tener acceso.
+ * - Se eliminó el fallback que devolvía `ok:true` con la página principal de la tienda como `checkoutUrl`.
  */
 
 import {
@@ -28,11 +37,27 @@ import {
   type DoorDashAddress,
   type DoorDashQuoteResult,
 } from './doordash-drive'
+import {
+  STOREFRONT_CATALOG_SOURCE,
+  buildOrderSessionPayload,
+  validateCartAgainstStorefrontMenu,
+  validateOrderSessionResponse,
+  type ParsedCheckoutRequest,
+  type StorefrontMenu,
+} from './storefront/order-session-contract'
 
 const DOORDASH_API_HOST =
   process.env.DOORDASH_API_HOST || 'https://openapi.doordash.com'
-export const DOORDASH_BUSINESS_ID =
-  process.env.DOORDASH_BUSINESS_ID || '137616'
+export const DOORDASH_BUSINESS_ID = process.env.DOORDASH_BUSINESS_ID || ''
+
+/** Entorno declarado de la credencial Drive. Por defecto `sandbox` (portal: "Pending activation"). */
+export const DOORDASH_DRIVE_ENVIRONMENT: 'sandbox' | 'production' =
+  process.env.DOORDASH_DRIVE_ENVIRONMENT === 'production' ? 'production' : 'sandbox'
+
+/** La creación productiva de sesiones permanece deshabilitada hasta tener permiso y validación completa. */
+export function isStorefrontOrderSessionEnabled(): boolean {
+  return process.env.STOREFRONT_ORDER_SESSION_ENABLED === 'true'
+}
 
 export interface DoorDashStoreMapping {
   storeId: number
@@ -230,75 +255,40 @@ export const DOORDASH_STORES_BY_ID: Record<number, DoorDashStoreMapping> = {
   },
 }
 
-export interface StorefrontSessionModifierInput {
-  guid: string
-  name: string
-  price: number
-  quantity?: number
-}
-
-export interface StorefrontSessionItemInput {
-  guid: string
-  name: string
-  price: number
-  quantity: number
-  specialInstructions?: string
-  modifiers?: StorefrontSessionModifierInput[]
-}
-
-export interface CreateDoorDashOrderSessionParams {
-  storeId: number
-  fulfillmentType: 'in_store' | 'delivery'
-  items: StorefrontSessionItemInput[]
-  deliveryAddress?: DoorDashAddress
-  customerPhone?: string
-  customerFirstName?: string
-  customerLastName?: string
-  customerEmail?: string
-}
-
-export interface DoorDashOrderSessionResult {
-  ok: boolean
-  sessionMode: 'ORDER_SESSION_API' | 'STOREFRONT_HOSTED_CHECKOUT'
-  doorDashStoreId: string
-  storeName: string
-  orderSessionId?: string
-  checkoutUrl: string
-  deliveryQuote?: DoorDashQuoteResult | null
-  apiMessage?: string
-  error?: string
-}
-
 export function getDoorDashStoreMapping(
   storeId: number
 ): DoorDashStoreMapping | null {
   return DOORDASH_STORES_BY_ID[storeId] ?? null
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Drive (cotización sandbox; NO es parte del checkout de Storefront)
+// ─────────────────────────────────────────────────────────────────────────────
+
 /**
- * Cotiza en tiempo real el envío con DoorDash Drive V2 (/drive/v2/quotes) para una sucursal de Tacos Gavilan.
+ * Cotiza el envío con DoorDash Drive V2 (`/drive/v2/quotes`). Con la credencial actual el resultado es de
+ * sandbox (`DOORDASH_DRIVE_ENVIRONMENT`). No crea entregas ni solicita repartidor.
  */
 export async function quoteStoreDeliveryWithDoorDash(params: {
   storeId: number
   dropoffAddress: DoorDashAddress
-  dropoffPhoneNumber?: string
+  dropoffPhoneNumber: string
   orderValueCents: number
 }): Promise<DoorDashQuoteResult> {
   const store = getDoorDashStoreMapping(params.storeId)
   if (!store) {
-    return {
-      ok: false,
-      error: `Sucursal inválida: ${params.storeId}`,
-    }
+    return { ok: false, error: `Sucursal inválida: ${params.storeId}` }
   }
 
-  const cleanPhone = (params.dropoffPhoneNumber || '+13105550199').replace(
-    /[^\d+]/g,
-    ''
-  )
-  const normalizedPhone = cleanPhone.startsWith('+')
-    ? cleanPhone
-    : `+1${cleanPhone.replace(/^1/, '')}`
+  const digits = params.dropoffPhoneNumber.replace(/[^\d]/g, '')
+  const national = digits.length === 11 && digits.startsWith('1') ? digits.slice(1) : digits
+  if (national.length !== 10) {
+    return { ok: false, error: 'Teléfono de entrega inválido (10 dígitos).' }
+  }
+
+  const orderValue = Number.isFinite(params.orderValueCents)
+    ? Math.min(100_000, Math.max(500, Math.round(params.orderValueCents)))
+    : 2500
 
   return createDoorDashQuote({
     externalDeliveryId: `tg-m2-quote-${store.storeId}-${Date.now()}`,
@@ -311,161 +301,292 @@ export async function quoteStoreDeliveryWithDoorDash(params: {
     pickupPhoneNumber: store.phoneE164,
     pickupBusinessName: `Tacos Gavilan - ${store.storeName}`,
     dropoffAddress: params.dropoffAddress,
-    dropoffPhoneNumber: normalizedPhone,
-    orderValueCents: Math.max(500, Math.round(params.orderValueCents)),
+    dropoffPhoneNumber: `+1${national}`,
+    orderValueCents: orderValue,
   })
 }
 
-/**
- * Crea una sesión de checkout en DoorDash Storefront API V1 (`POST /storefront/api/v1/orders/order_session`).
- * Si el permiso `Storefront API V1` aún está en proceso de activación sobre el Developer ID, retorna de forma
- * limpia la URL del Storefront hospedado de la sucursal (`STOREFRONT_HOSTED_CHECKOUT`) junto con la cotización real de Drive V2.
- */
-export async function createDoorDashOrderSession(
-  params: CreateDoorDashOrderSessionParams
-): Promise<DoorDashOrderSessionResult> {
-  const store = getDoorDashStoreMapping(params.storeId)
-  if (!store) {
+// ─────────────────────────────────────────────────────────────────────────────
+// Storefront: menú, direcciones y order_session
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type StorefrontSessionErrorCode =
+  | 'STOREFRONT_DISABLED'
+  | 'CREDENTIALS_MISSING'
+  | 'STORE_NOT_MAPPED'
+  | 'CATALOG_NOT_AUTHORIZED'
+  | 'CATALOG_STALE'
+  | 'CART_INVALID'
+  | 'ADDRESS_INVALID'
+  | 'STOREFRONT_NOT_AUTHORIZED'
+  | 'PROVIDER_ERROR'
+  | 'PROVIDER_TIMEOUT'
+  | 'INVALID_PROVIDER_RESPONSE'
+
+export type StorefrontSessionResult =
+  | {
+      ok: true
+      orderSessionId: string
+      checkoutUrl: string
+      storefrontStoreId: string
+      menuId: string
+      fulfillmentType: 'pickup' | 'delivery'
+    }
+  | {
+      ok: false
+      code: StorefrontSessionErrorCode
+      httpStatus: number
+      /** Mensaje interno, sin secretos ni datos personales. */
+      detail: string
+      providerStatus?: number
+      cartErrors?: string[]
+    }
+
+const MENU_TIMEOUT_MS = 8000
+const ADDRESS_TIMEOUT_MS = 8000
+const ORDER_SESSION_TIMEOUT_MS = 10000
+
+type FetchOutcome =
+  | { kind: 'response'; status: number; bodyText: string }
+  | { kind: 'timeout' }
+  | { kind: 'network'; message: string }
+
+async function fetchWithTimeout(
+  url: string,
+  init: RequestInit,
+  timeoutMs: number
+): Promise<FetchOutcome> {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
+  try {
+    const res = await fetch(url, { ...init, signal: controller.signal })
+    const bodyText = await res.text()
+    return { kind: 'response', status: res.status, bodyText }
+  } catch (err: unknown) {
+    if (err instanceof Error && err.name === 'AbortError') return { kind: 'timeout' }
+    return { kind: 'network', message: err instanceof Error ? err.message : 'network error' }
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+function safeJson(text: string): unknown {
+  try {
+    return JSON.parse(text)
+  } catch {
+    return null
+  }
+}
+
+/** Extrae solo el `code` del error del proveedor (nunca el cuerpo completo, que puede contener datos). */
+function providerErrorCode(bodyText: string): string {
+  const parsed = safeJson(bodyText)
+  if (parsed && typeof parsed === 'object' && 'code' in parsed) {
+    const c = (parsed as { code?: unknown }).code
+    if (typeof c === 'string') return c.slice(0, 60)
+  }
+  return 'unknown'
+}
+
+function mapProviderFailure(
+  stage: string,
+  outcome: FetchOutcome
+): Extract<StorefrontSessionResult, { ok: false }> {
+  if (outcome.kind === 'timeout') {
+    return { ok: false, code: 'PROVIDER_TIMEOUT', httpStatus: 504, detail: `${stage}: tiempo de espera agotado` }
+  }
+  if (outcome.kind === 'network') {
+    return { ok: false, code: 'PROVIDER_ERROR', httpStatus: 502, detail: `${stage}: error de red` }
+  }
+  if (outcome.status === 401 || outcome.status === 403) {
     return {
       ok: false,
-      sessionMode: 'STOREFRONT_HOSTED_CHECKOUT',
-      doorDashStoreId: '',
-      storeName: '',
-      checkoutUrl: '',
-      error: `Sucursal de Tacos Gavilan no reconocida (${params.storeId}).`,
+      code: 'STOREFRONT_NOT_AUTHORIZED',
+      httpStatus: 503,
+      providerStatus: outcome.status,
+      detail: `${stage}: HTTP ${outcome.status} (${providerErrorCode(outcome.bodyText)})`,
+    }
+  }
+  return {
+    ok: false,
+    code: 'PROVIDER_ERROR',
+    httpStatus: 502,
+    providerStatus: outcome.status,
+    detail: `${stage}: HTTP ${outcome.status} (${providerErrorCode(outcome.bodyText)})`,
+  }
+}
+
+/** GET menú Storefront autorizado. Un reintento solo ante 5xx o error de red (operación de lectura). */
+export async function fetchStorefrontMenu(
+  storefrontStoreId: string,
+  token: string
+): Promise<{ ok: true; menu: StorefrontMenu } | Extract<StorefrontSessionResult, { ok: false }>> {
+  const url = `${DOORDASH_API_HOST}/storefront/api/v1/stores/${encodeURIComponent(storefrontStoreId)}/menus`
+  let outcome: FetchOutcome = { kind: 'network', message: 'not attempted' }
+  for (let attempt = 0; attempt < 2; attempt++) {
+    outcome = await fetchWithTimeout(
+      url,
+      { method: 'GET', headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' } },
+      MENU_TIMEOUT_MS
+    )
+    const retryable =
+      outcome.kind === 'network' || (outcome.kind === 'response' && outcome.status >= 500)
+    if (!retryable) break
+  }
+  if (outcome.kind !== 'response' || outcome.status !== 200) {
+    return mapProviderFailure('menus', outcome)
+  }
+  const parsed = safeJson(outcome.bodyText) as { menu?: StorefrontMenu } | null
+  const menu = parsed && parsed.menu
+  if (!menu || typeof menu.id !== 'string' || !menu.id) {
+    return {
+      ok: false,
+      code: 'INVALID_PROVIDER_RESPONSE',
+      httpStatus: 502,
+      detail: 'menus: respuesta sin menu.id',
+    }
+  }
+  return { ok: true, menu }
+}
+
+/** Obtiene/crea el `address_id` de Storefront a partir de una dirección completa. */
+async function resolveStorefrontAddressId(
+  storefrontStoreId: string,
+  formattedAddress: string,
+  token: string
+): Promise<{ ok: true; addressId: string } | Extract<StorefrontSessionResult, { ok: false }>> {
+  const outcome = await fetchWithTimeout(
+    `${DOORDASH_API_HOST}/storefront/api/v1/addresses/create`,
+    {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        integration_id: storefrontStoreId,
+        integration_type: 'STORE',
+        formatted_address: formattedAddress,
+        country_code: 'US',
+      }),
+    },
+    ADDRESS_TIMEOUT_MS
+  )
+  if (outcome.kind !== 'response' || outcome.status !== 200) {
+    const failure = mapProviderFailure('addresses/create', outcome)
+    return outcome.kind === 'response' && outcome.status === 400
+      ? { ...failure, code: 'ADDRESS_INVALID', httpStatus: 422 }
+      : failure
+  }
+  const parsed = safeJson(outcome.bodyText) as { address?: { address_id?: unknown } } | null
+  const addressId = parsed?.address?.address_id
+  if (typeof addressId !== 'string' || !addressId) {
+    return { ok: false, code: 'ADDRESS_INVALID', httpStatus: 422, detail: 'addresses/create sin address_id' }
+  }
+  return { ok: true, addressId }
+}
+
+/**
+ * Crea la sesión de checkout hospedado desde el carrito de Menu2. Solo retorna `ok:true` cuando DoorDash
+ * devolvió un `order_session_id` y un `checkout_url` HTTPS válido en un host permitido.
+ * No hay reintento automático del POST para no crear sesiones duplicadas.
+ */
+export async function createStorefrontOrderSession(
+  req: ParsedCheckoutRequest
+): Promise<StorefrontSessionResult> {
+  if (!isStorefrontOrderSessionEnabled()) {
+    return {
+      ok: false,
+      code: 'STOREFRONT_DISABLED',
+      httpStatus: 503,
+      detail: 'STOREFRONT_ORDER_SESSION_ENABLED no está activo (acceso Storefront pendiente de DoorDash)',
     }
   }
 
-  const isDelivery = params.fulfillmentType === 'delivery'
-  const modeParam = isDelivery ? 'delivery=true' : 'pickup=true'
-  const fallbackStorefrontUrl = `${store.storefrontBaseUrl}/?hideModal=true&${modeParam}`
+  const store = getDoorDashStoreMapping(req.storeId)
+  if (!store) {
+    return { ok: false, code: 'STORE_NOT_MAPPED', httpStatus: 400, detail: `Sucursal ${req.storeId} sin mapeo` }
+  }
 
-  // Calcular subtotal en centavos para la cotización de DoorDash Drive V2
-  const subtotalCents = params.items.reduce((acc, item) => {
-    const modsTotal = (item.modifiers || []).reduce(
-      (mAcc, m) => mAcc + Number(m.price || 0) * (m.quantity || 1),
-      0
-    )
-    return (
-      acc +
-      Math.round((Number(item.price || 0) + modsTotal) * 100) *
-        Math.max(1, item.quantity || 1)
-    )
-  }, 0)
-
-  let deliveryQuote: DoorDashQuoteResult | null = null
-  if (isDelivery && params.deliveryAddress?.street && params.deliveryAddress?.zip_code) {
-    deliveryQuote = await quoteStoreDeliveryWithDoorDash({
-      storeId: store.storeId,
-      dropoffAddress: params.deliveryAddress,
-      dropoffPhoneNumber: params.customerPhone,
-      orderValueCents: subtotalCents || 2000,
-    })
+  if (req.catalogSource !== STOREFRONT_CATALOG_SOURCE || !req.menuId) {
+    return {
+      ok: false,
+      code: 'CATALOG_NOT_AUTHORIZED',
+      httpStatus: 409,
+      detail: `El carrito proviene de "${req.catalogSource}"; se requiere el menú Storefront autorizado`,
+    }
   }
 
   const token = generateDoorDashAuthToken()
   if (!token) {
+    return { ok: false, code: 'CREDENTIALS_MISSING', httpStatus: 503, detail: 'Credenciales DoorDash no configuradas' }
+  }
+
+  const menuResult = await fetchStorefrontMenu(store.doorDashStoreId, token)
+  if (!menuResult.ok) return menuResult
+  const menu = menuResult.menu
+
+  if (menu.id !== req.menuId) {
     return {
-      ok: true,
-      sessionMode: 'STOREFRONT_HOSTED_CHECKOUT',
-      doorDashStoreId: store.doorDashStoreId,
-      storeName: store.storeName,
-      checkoutUrl: fallbackStorefrontUrl,
-      deliveryQuote,
-      apiMessage: 'Token JWT de DoorDash no configurado; usando Storefront directo.',
+      ok: false,
+      code: 'CATALOG_STALE',
+      httpStatus: 409,
+      detail: 'El menú de la sucursal cambió; el carrito debe revalidarse',
     }
   }
 
-  const orderSessionPayload = {
-    store_id: store.doorDashStoreId,
-    business_id: DOORDASH_BUSINESS_ID,
-    fulfillment_type: isDelivery ? 'delivery' : 'pickup',
-    items: params.items.map((item) => ({
-      id: item.guid,
-      merchant_supplied_id: item.guid,
-      name: item.name,
-      quantity: Math.max(1, item.quantity || 1),
-      special_instructions: item.specialInstructions || '',
-      options: (item.modifiers || []).map((mod) => ({
-        id: mod.guid,
-        merchant_supplied_id: mod.guid,
-        name: mod.name,
-        quantity: mod.quantity || 1,
-      })),
-    })),
-    ...(params.customerPhone || params.customerFirstName
-      ? {
-          consumer: {
-            first_name: params.customerFirstName || 'Cliente',
-            last_name: params.customerLastName || 'Tacos Gavilan',
-            phone_number: params.customerPhone || '',
-            email: params.customerEmail || '',
-          },
-        }
-      : {}),
-    ...(isDelivery && params.deliveryAddress
-      ? {
-          delivery_address: {
-            street: params.deliveryAddress.street,
-            city: params.deliveryAddress.city,
-            state: params.deliveryAddress.state,
-            zip_code: params.deliveryAddress.zip_code,
-          },
-        }
-      : {}),
+  const validation = validateCartAgainstStorefrontMenu(menu, req.lines)
+  if (!validation.ok) {
+    return {
+      ok: false,
+      code: 'CART_INVALID',
+      httpStatus: 422,
+      detail: 'El carrito no coincide con el menú autorizado',
+      cartErrors: validation.errors.slice(0, 20),
+    }
   }
 
-  try {
-    const res = await fetch(
-      `${DOORDASH_API_HOST}/storefront/api/v1/orders/order_session`,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify(orderSessionPayload),
-      }
-    )
+  let addressId: string | undefined
+  if (req.fulfillmentType === 'delivery') {
+    if (!req.delivery) {
+      return { ok: false, code: 'ADDRESS_INVALID', httpStatus: 422, detail: 'Falta dirección de entrega' }
+    }
+    const addr = await resolveStorefrontAddressId(store.doorDashStoreId, req.delivery.formattedAddress, token)
+    if (!addr.ok) return addr
+    addressId = addr.addressId
+  }
 
-    if (res.ok) {
-      const data = (await res.json()) as {
-        order_session_id?: string
-        checkout_url?: string
-      }
-      if (data.checkout_url) {
-        return {
-          ok: true,
-          sessionMode: 'ORDER_SESSION_API',
-          doorDashStoreId: store.doorDashStoreId,
-          storeName: store.storeName,
-          orderSessionId: data.order_session_id,
-          checkoutUrl: data.checkout_url,
-          deliveryQuote,
-        }
-      }
-    }
+  const payload = buildOrderSessionPayload({
+    storefrontStoreId: store.doorDashStoreId,
+    menuId: menu.id,
+    fulfillmentType: req.fulfillmentType,
+    items: validation.items,
+    addressId,
+    apartmentNumber: req.delivery?.apartmentNumber,
+    deliveryInstruction: req.delivery?.instructions,
+  })
 
-    const errText = await res.text()
-    return {
-      ok: true,
-      sessionMode: 'STOREFRONT_HOSTED_CHECKOUT',
-      doorDashStoreId: store.doorDashStoreId,
-      storeName: store.storeName,
-      checkoutUrl: fallbackStorefrontUrl,
-      deliveryQuote,
-      apiMessage: `Storefront order_session status ${res.status}: ${errText.slice(0, 180)}`,
-    }
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : 'Error de red'
-    return {
-      ok: true,
-      sessionMode: 'STOREFRONT_HOSTED_CHECKOUT',
-      doorDashStoreId: store.doorDashStoreId,
-      storeName: store.storeName,
-      checkoutUrl: fallbackStorefrontUrl,
-      deliveryQuote,
-      apiMessage: msg,
-    }
+  const outcome = await fetchWithTimeout(
+    `${DOORDASH_API_HOST}/storefront/api/v1/orders/order_session`,
+    {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    },
+    ORDER_SESSION_TIMEOUT_MS
+  )
+  if (outcome.kind !== 'response' || outcome.status !== 200) {
+    return mapProviderFailure('order_session', outcome)
+  }
+
+  const check = validateOrderSessionResponse(safeJson(outcome.bodyText), store.doorDashStoreId)
+  if (!check.ok) {
+    return { ok: false, code: 'INVALID_PROVIDER_RESPONSE', httpStatus: 502, detail: `order_session: ${check.reason}` }
+  }
+
+  return {
+    ok: true,
+    orderSessionId: check.orderSessionId,
+    checkoutUrl: check.checkoutUrl,
+    storefrontStoreId: store.doorDashStoreId,
+    menuId: menu.id,
+    fulfillmentType: req.fulfillmentType,
   }
 }

@@ -48,7 +48,7 @@ export function corsHeaders(): Record<string, string> {
   return {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Gavilan-Client, Accept-Language',
     'Access-Control-Max-Age': '86400', // Caché de preflight por 24 horas
   }
 }

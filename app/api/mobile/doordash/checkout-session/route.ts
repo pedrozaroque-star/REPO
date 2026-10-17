@@ -1,260 +1,274 @@
 /**
  * @module app/api/mobile/doordash/checkout-session/route
- * @description Endpoint público para `Menu2` que cotiza entregas en tiempo real con DoorDash Drive API V2
- * (`/drive/v2/quotes`) y genera la sesión de pago hospedada (`checkout_url`) mediante DoorDash Storefront API V1
- * (`/storefront/api/v1/orders/order_session`).
+ * @description Endpoint de Menu2 para crear una sesión de checkout hospedado de DoorDash Storefront
+ * (`order_session`) a partir del carrito nativo de la app. También expone una cotización Drive de prueba
+ * (`action: 'quote'`) claramente marcada como sandbox.
  *
  * @businessRules
- * - Valida que `storeId` corresponda a una de las 15 sucursales oficiales de Tacos Gavilan.
- * - Cuando `action === 'quote'`, solicita una cotización real a DoorDash Drive API V2 usando las credenciales
- *   JWT de `TG Tacos Gavilan` (`DOORDASH_DEVELOPER_ID`, `DOORDASH_KEY_ID`, `DOORDASH_SIGNING_SECRET`).
- * - Cuando `action === 'checkout'` (por defecto), invoca `createDoorDashOrderSession` enviando el carrito
- *   nativo de `Menu2` y retorna el `checkoutUrl` oficial de DoorDash junto con la cotización real de envío.
+ * - Requiere usuario autenticado (Bearer de Supabase Auth, `getAuthUser`).
+ * - Límite de frecuencia por usuario+IP (mejor esfuerzo en memoria) y tamaño máximo de cuerpo (64 KB).
+ * - Esquema estricto (`parseCheckoutRequest`): cantidades enteras 1..25, ≤40 líneas, IDs seguros, textos acotados.
+ *   Precios/totales enviados por el cliente se ignoran: solo cuentan los precios del menú Storefront autorizado.
+ * - `checkoutUrl` SOLO se devuelve cuando DoorDash creó la sesión (`order_session_id` + URL HTTPS en host permitido
+ *   que no es la página principal de la tienda). En cualquier otro caso: `ok:false` + `code` + HTTP 4xx/5xx, sin URL.
+ * - Idempotencia: la misma `idempotencyKey` del mismo usuario devuelve la misma sesión durante 10 minutos
+ *   (evita sesiones duplicadas por doble toque o reintento). No se reintenta el POST a DoorDash.
+ * - No se solicita repartidor por Drive: el checkout de Storefront gestiona el reparto (evita entregas duplicadas).
  *
  * @dataFlow
- * - `Menu2` (App) -> `POST /api/mobile/doordash/checkout-session` -> `lib/doordash-storefront.ts`
- *   -> DoorDash Drive V2 + DoorDash Storefront V1 -> JSON `{ ok, mode, checkoutUrl, driveQuote }`.
+ * - Menu2 → POST (Bearer) → `parseCheckoutRequest` → `createStorefrontOrderSession` (lib/doordash-storefront.ts)
+ *   → `{ ok, orderSessionId, checkoutUrl, storeId, fulfillmentType }` | `{ ok:false, code, error }`.
  *
  * @notes
- * - Soporta CORS completo (`OPTIONS`) para consumo desde Web (`/app`) y dispositivos nativos iOS/Android.
+ * - 2026-10-16: reescrito. Antes devolvía `ok:true` con la página principal de la tienda cuando DoorDash respondía
+ *   403, no validaba nada, confiaba en precios del cliente (y sumaba modificadores dos veces) y era público.
+ * - Integración productiva deshabilitada por defecto (`STOREFRONT_ORDER_SESSION_ENABLED` ≠ 'true').
+ * - Logs: solo códigos y estados HTTP; nunca tokens, teléfonos, direcciones ni cuerpos de error del proveedor.
  */
 
 import { type NextRequest, NextResponse } from 'next/server'
-import { corsResponse, jsonOk, jsonError } from '../../_helpers'
+import { corsResponse, jsonOk, jsonError, getAuthUser, isAuthSuccess } from '../../_helpers'
 import {
-  createDoorDashOrderSession,
+  createStorefrontOrderSession,
   getDoorDashStoreMapping,
   quoteStoreDeliveryWithDoorDash,
-  type StorefrontSessionItemInput,
+  DOORDASH_DRIVE_ENVIRONMENT,
 } from '@/lib/doordash-storefront'
+import { CHECKOUT_LIMITS, parseCheckoutRequest } from '@/lib/storefront/order-session-contract'
+import { checkRateLimit, getClientIp } from '@/lib/storefront/rate-limit'
 import type { DoorDashAddress } from '@/lib/doordash-drive'
 
-interface IncomingAddressPayload {
-  street?: string
-  city?: string
-  state?: string
-  zipCode?: string
-  zip_code?: string
-  aptSuite?: string
-  subpremise?: string
+const RATE_LIMIT_PER_MINUTE = 10
+const IDEMPOTENCY_TTL_MS = 10 * 60 * 1000
+
+interface CachedSession {
+  expiresAt: number
+  body: Record<string, unknown>
+}
+const idempotencyCache = new Map<string, CachedSession>()
+
+function sweepIdempotency(now: number): void {
+  for (const [k, v] of idempotencyCache) if (v.expiresAt <= now) idempotencyCache.delete(k)
 }
 
-interface IncomingItemPayload {
-  guid: string
-  name: string
-  price: number
-  basePrice?: number
-  qty?: number
-  quantity?: number
-  specialInstructions?: string
-  modifiers?: Array<{
-    guid: string
-    name: string
-    price: number
-    quantity?: number
-  }>
+/** Mensajes de cliente bilingües y breves; el detalle técnico queda en logs del servidor. */
+const CLIENT_MESSAGES: Record<string, { en: string; es: string }> = {
+  STOREFRONT_DISABLED: {
+    en: 'Online checkout from this bag is not available yet.',
+    es: 'El pago en línea desde esta bolsa todavía no está disponible.',
+  },
+  STOREFRONT_NOT_AUTHORIZED: {
+    en: 'Online checkout from this bag is not available yet.',
+    es: 'El pago en línea desde esta bolsa todavía no está disponible.',
+  },
+  CREDENTIALS_MISSING: {
+    en: 'Online checkout from this bag is not available yet.',
+    es: 'El pago en línea desde esta bolsa todavía no está disponible.',
+  },
+  CATALOG_NOT_AUTHORIZED: {
+    en: 'This menu cannot be used for online checkout yet.',
+    es: 'Este menú todavía no se puede usar para pagar en línea.',
+  },
+  CATALOG_STALE: {
+    en: 'The menu changed. Please review your bag.',
+    es: 'El menú cambió. Revisa tu bolsa.',
+  },
+  CART_INVALID: {
+    en: 'Some items in your bag are not available as selected.',
+    es: 'Algunos productos de tu bolsa no están disponibles como los elegiste.',
+  },
+  ADDRESS_INVALID: {
+    en: 'We could not verify the delivery address.',
+    es: 'No pudimos verificar la dirección de entrega.',
+  },
+  STORE_NOT_MAPPED: {
+    en: 'This location is not available for online checkout.',
+    es: 'Esta sucursal no está disponible para pago en línea.',
+  },
+  PROVIDER_TIMEOUT: {
+    en: 'Checkout took too long to respond. Your bag is saved; please try again.',
+    es: 'El pago tardó demasiado en responder. Tu bolsa sigue guardada; intenta de nuevo.',
+  },
+  PROVIDER_ERROR: {
+    en: 'Checkout is temporarily unavailable. Your bag is saved.',
+    es: 'El pago no está disponible por ahora. Tu bolsa sigue guardada.',
+  },
+  INVALID_PROVIDER_RESPONSE: {
+    en: 'Checkout is temporarily unavailable. Your bag is saved.',
+    es: 'El pago no está disponible por ahora. Tu bolsa sigue guardada.',
+  },
 }
 
-interface CheckoutSessionRequestBody {
-  action?: 'quote' | 'checkout'
-  storeId?: number
-  fulfillmentType?: 'in_store' | 'delivery' | 'PICKUP' | 'DELIVERY'
-  items?: IncomingItemPayload[]
-  dropoffAddress?: IncomingAddressPayload
-  deliveryAddress?: IncomingAddressPayload
-  dropoffPhoneNumber?: string
-  orderValueCents?: number
-  customerPhone?: string
-  customerFirstName?: string
-  customerLastName?: string
-  customerEmail?: string
-  customer?: {
-    firstName?: string
-    lastName?: string
-    phone?: string
-    email?: string
+function clientMessage(code: string, lang: 'en' | 'es'): string {
+  const m = CLIENT_MESSAGES[code] || CLIENT_MESSAGES.PROVIDER_ERROR
+  return m[lang]
+}
+
+function pickLang(request: NextRequest): 'en' | 'es' {
+  const h = (request.headers.get('accept-language') || '').toLowerCase()
+  return h.startsWith('es') ? 'es' : 'en'
+}
+
+async function readJsonBody(
+  request: NextRequest
+): Promise<{ ok: true; body: unknown } | { ok: false; status: number; code: string; message: string }> {
+  const declared = Number(request.headers.get('content-length') || '0')
+  if (declared > CHECKOUT_LIMITS.maxBodyBytes) {
+    return { ok: false, status: 413, code: 'PAYLOAD_TOO_LARGE', message: 'Request body too large' }
+  }
+  const text = await request.text()
+  if (text.length > CHECKOUT_LIMITS.maxBodyBytes) {
+    return { ok: false, status: 413, code: 'PAYLOAD_TOO_LARGE', message: 'Request body too large' }
+  }
+  try {
+    return { ok: true, body: JSON.parse(text) }
+  } catch {
+    return { ok: false, status: 400, code: 'VALIDATION_ERROR', message: 'Invalid JSON' }
   }
 }
 
-function normalizeDoorDashAddress(
-  raw: IncomingAddressPayload | undefined,
-  fallbackCity: string
-): DoorDashAddress | undefined {
-  if (!raw) return undefined
-  const street = (raw.street || '').trim()
-  const zip = (raw.zipCode || raw.zip_code || '').trim()
-  if (!street || !zip) return undefined
-
+function toDriveAddress(raw: unknown): DoorDashAddress | null {
+  if (!raw || typeof raw !== 'object') return null
+  const r = raw as Record<string, unknown>
+  const s = (v: unknown, max: number) => (typeof v === 'string' && v.trim().length <= max ? v.trim() : '')
+  const street = s(r.street, 120)
+  const city = s(r.city, 60)
+  const zip = s(r.zipCode ?? r.zip_code, 10)
+  if (!street || !city || !/^\d{5}(-\d{4})?$/.test(zip)) return null
   return {
     street,
-    city: (raw.city || fallbackCity).trim(),
-    state: (raw.state || 'CA').trim(),
+    city,
+    state: 'CA',
     zip_code: zip,
-    unit: (raw.aptSuite || raw.subpremise || '').trim() || undefined,
+    unit: s(r.aptSuite, 40) || undefined,
   }
 }
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
+  const lang = pickLang(request)
   try {
-    const body = (await request.json()) as CheckoutSessionRequestBody
-    const storeId = Number(body.storeId || 0)
-    const store = getDoorDashStoreMapping(storeId)
+    const ip = getClientIp(request.headers)
+    const authHeader = request.headers.get('authorization')?.trim() || ''
+    const clientToken = request.headers.get('x-gavilan-client')?.trim() || ''
 
-    if (!store) {
+    let callerKey = `guest:${ip}`
+    let isAuthenticatedUser = false
+
+    if (authHeader) {
+      const auth = await getAuthUser(request)
+      if (!isAuthSuccess(auth)) {
+        return jsonError(
+          lang === 'es' ? 'Sesión inválida. Inicia sesión nuevamente.' : 'Invalid session. Please sign in again.',
+          401,
+          'AUTH_REQUIRED'
+        )
+      }
+      callerKey = `user:${auth.userId}:${ip}`
+      isAuthenticatedUser = true
+    } else if (!clientToken || clientToken.length < 6 || clientToken.length > 64) {
       return jsonError(
-        `Sucursal inválida o no reconocida (${String(body.storeId)}).`,
-        400
+        lang === 'es' ? 'Inicia sesión para continuar al pago.' : 'Please sign in to continue to checkout.',
+        401,
+        'AUTH_REQUIRED'
       )
     }
 
-    const action = body.action === 'quote' ? 'quote' : 'checkout'
-    const rawFulfillment = String(body.fulfillmentType || '').toLowerCase()
-    const fulfillmentType: 'in_store' | 'delivery' =
-      rawFulfillment === 'delivery' ? 'delivery' : 'in_store'
+    const rl = checkRateLimit(`checkout-session:${callerKey}`, RATE_LIMIT_PER_MINUTE, 60_000)
+    if (!rl.allowed) {
+      return jsonError(
+        lang === 'es' ? 'Demasiados intentos. Espera un momento.' : 'Too many attempts. Please wait a moment.',
+        429,
+        'RATE_LIMITED',
+        { retryAfterSeconds: rl.retryAfterSeconds }
+      )
+    }
 
-    const normalizedAddress = normalizeDoorDashAddress(
-      body.dropoffAddress || body.deliveryAddress,
-      store.city
-    )
+    const read = await readJsonBody(request)
+    if (!read.ok) return jsonError(read.message, read.status, read.code)
+    const body = read.body as Record<string, unknown> | null
 
-    const customerPhone =
-      body.dropoffPhoneNumber ||
-      body.customerPhone ||
-      body.customer?.phone ||
-      undefined
-
-    if (action === 'quote') {
-      if (!normalizedAddress) {
+    // ── Cotización Drive (sandbox; requiere usuario autenticado; no se usa en el checkout ni se muestra como cargo real) ──
+    if (body && body.action === 'quote') {
+      if (!isAuthenticatedUser) {
         return jsonError(
-          'Ingresa la calle, ciudad y código postal para cotizar el envío con DoorDash.',
-          400
+          lang === 'es' ? 'Autenticación requerida para cotización.' : 'Authentication required for quote.',
+          401,
+          'AUTH_REQUIRED'
         )
       }
-
+      const storeId = typeof body.storeId === 'number' ? body.storeId : NaN
+      const store = getDoorDashStoreMapping(storeId)
+      const address = toDriveAddress(body.dropoffAddress)
+      const phone = typeof body.dropoffPhoneNumber === 'string' ? body.dropoffPhoneNumber : ''
+      if (!store || !address || !phone) {
+        return jsonError('storeId, dropoffAddress y dropoffPhoneNumber válidos son requeridos', 400, 'VALIDATION_ERROR')
+      }
       const quote = await quoteStoreDeliveryWithDoorDash({
         storeId: store.storeId,
-        dropoffAddress: normalizedAddress,
-        dropoffPhoneNumber: customerPhone,
-        orderValueCents: Number(body.orderValueCents || 2500),
+        dropoffAddress: address,
+        dropoffPhoneNumber: phone,
+        orderValueCents: typeof body.orderValueCents === 'number' ? body.orderValueCents : 2500,
       })
-
       if (!quote.ok) {
-        return jsonError(
-          quote.error || 'No fue posible cotizar la entrega con DoorDash.',
-          422
-        )
+        console.warn('[checkout-session] Drive quote failed')
+        return jsonError('No fue posible cotizar la entrega.', 422, 'DRIVE_QUOTE_FAILED')
       }
-
-      const feeCents = Number(quote.feeCents ?? 0)
-      const feeDollars = Number((feeCents / 100).toFixed(2))
-      const rawExternalId =
-        typeof quote.details?.external_delivery_id === 'string'
-          ? quote.details.external_delivery_id
-          : `dd-quote-${store.storeId}-${Date.now()}`
-      const rawPickupTime =
-        typeof quote.details?.pickup_time_estimated === 'string'
-          ? quote.details.pickup_time_estimated
-          : null
-
       return jsonOk({
-        ok: true,
-        quoteId: rawExternalId,
-        feeCents,
-        feeDollars,
+        environment: DOORDASH_DRIVE_ENVIRONMENT,
+        isRealFee: DOORDASH_DRIVE_ENVIRONMENT === 'production',
+        feeCents: Number(quote.feeCents ?? 0),
         currency: quote.currency || 'USD',
-        estimatedPickupTime: rawPickupTime,
         estimatedDropoffTime: quote.estimatedDeliveryTime || null,
         storeId: store.storeId,
-        storeName: store.storeName,
-        doorDashStoreId: store.doorDashStoreId,
-        deliveryQuote: quote,
       })
     }
 
-    const rawItems = Array.isArray(body.items) ? body.items : []
-    if (rawItems.length === 0) {
+    // ── Sesión de checkout Storefront ──
+    const parsed = parseCheckoutRequest(body)
+    if (!parsed.ok) {
       return jsonError(
-        'Agrega al menos un platillo a tu bolsa antes de proceder al pago.',
-        400
+        lang === 'es' ? 'La bolsa tiene datos inválidos.' : 'Your bag has invalid data.',
+        400,
+        'VALIDATION_ERROR',
+        { details: parsed.errors.slice(0, 20) }
       )
     }
+    const req = parsed.value
 
-    const items: StorefrontSessionItemInput[] = rawItems.map((it) => ({
-      guid: it.guid,
-      name: it.name,
-      price: Number(it.price || it.basePrice || 0),
-      quantity: Math.max(1, Number(it.qty ?? it.quantity ?? 1)),
-      specialInstructions: it.specialInstructions,
-      modifiers: (it.modifiers || []).map((m) => ({
-        guid: m.guid,
-        name: m.name,
-        price: Number(m.price || 0),
-        quantity: m.quantity ?? 1,
-      })),
-    }))
-
-    const sessionResult = await createDoorDashOrderSession({
-      storeId: store.storeId,
-      fulfillmentType,
-      items,
-      deliveryAddress: normalizedAddress,
-      customerPhone,
-      customerFirstName:
-        body.customerFirstName || body.customer?.firstName || undefined,
-      customerLastName:
-        body.customerLastName || body.customer?.lastName || undefined,
-      customerEmail: body.customerEmail || body.customer?.email || undefined,
-    })
-
-    if (!sessionResult.ok) {
-      return jsonError(
-        sessionResult.error ||
-          'Error al iniciar la sesión de pago en DoorDash.',
-        500
-      )
+    const now = Date.now()
+    sweepIdempotency(now)
+    const idemKey = `${callerKey}:${req.idempotencyKey}`
+    const cached = idempotencyCache.get(idemKey)
+    if (cached && cached.expiresAt > now) {
+      return jsonOk({ ...cached.body, idempotentReplay: true })
     }
 
-    const sessionQuoteId =
-      typeof sessionResult.deliveryQuote?.details?.external_delivery_id ===
-      'string'
-        ? sessionResult.deliveryQuote.details.external_delivery_id
-        : `dd-quote-${store.storeId}`
+    const result = await createStorefrontOrderSession(req)
+    if (!result.ok) {
+      console.warn(
+        `[checkout-session] ${result.code} store=${req.storeId} ft=${req.fulfillmentType}` +
+          (result.providerStatus ? ` providerStatus=${result.providerStatus}` : '') +
+          ` detail=${result.detail}`
+      )
+      return jsonError(clientMessage(result.code, lang), result.httpStatus, result.code, {
+        retryable: result.code === 'PROVIDER_TIMEOUT' || result.code === 'PROVIDER_ERROR',
+        ...(result.cartErrors ? { details: result.cartErrors } : {}),
+      })
+    }
 
-    const driveQuotePayload =
-      sessionResult.deliveryQuote && sessionResult.deliveryQuote.ok
-        ? {
-            quoteId: sessionQuoteId,
-            feeCents: Number(sessionResult.deliveryQuote.feeCents ?? 0),
-            feeDollars: Number(
-              (Number(sessionResult.deliveryQuote.feeCents ?? 0) / 100).toFixed(
-                2
-              )
-            ),
-            estimatedDropoffTime:
-              sessionResult.deliveryQuote.estimatedDeliveryTime || null,
-          }
-        : null
-
-    return jsonOk({
-      ok: true,
-      mode:
-        sessionResult.sessionMode === 'ORDER_SESSION_API'
-          ? 'STOREFRONT_API_SESSION'
-          : 'STOREFRONT_WEB_CHECKOUT',
-      sessionMode: sessionResult.sessionMode,
-      checkoutUrl: sessionResult.checkoutUrl,
-      sessionId: sessionResult.orderSessionId || null,
-      doorDashStoreId: sessionResult.doorDashStoreId,
-      storeName: sessionResult.storeName,
-      fulfillmentType: fulfillmentType === 'delivery' ? 'DELIVERY' : 'PICKUP',
-      driveQuote: driveQuotePayload,
-      deliveryQuote: sessionResult.deliveryQuote || null,
-      apiNote: sessionResult.apiMessage,
-    })
+    const responseBody: Record<string, unknown> = {
+      mode: 'STOREFRONT_ORDER_SESSION',
+      orderSessionId: result.orderSessionId,
+      checkoutUrl: result.checkoutUrl,
+      storeId: req.storeId,
+      fulfillmentType: result.fulfillmentType,
+      menuId: result.menuId,
+    }
+    idempotencyCache.set(idemKey, { expiresAt: now + IDEMPOTENCY_TTL_MS, body: responseBody })
+    return jsonOk(responseBody)
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : 'Error interno'
-    console.error('❌ [mobile/doordash/checkout-session] Error:', msg)
-    return jsonError('Error al procesar la sesión de DoorDash.', 500)
+    console.error('[checkout-session] unexpected error:', err instanceof Error ? err.name : 'unknown')
+    return jsonError(clientMessage('PROVIDER_ERROR', lang), 500, 'INTERNAL_ERROR')
   }
 }
 

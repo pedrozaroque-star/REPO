@@ -4,20 +4,24 @@
  * Devuelve sugerencias estructuradas (calle, unidad opcional, ciudad, estado y código postal) mientras el cliente escribe.
  *
  * @businessRules
- * - Prioriza direcciones reales cercanas a la sucursal seleccionada en California (`lat`, `lng`).
- * - Extrae automáticamente `street`, `aptSuite` (si aplica), `city`, `state` y `zipCode` para rellenar todos los campos con un solo toque.
- * - Mantiene alta disponibilidad mediante 3 niveles: ArcGIS World Geocoder Suggest -> Google Maps Geocoding API -> OpenStreetMap Nominatim.
- * - Protege las llaves de servidor (`GOOGLE_MAPS_API_KEY`) sin exponerlas al cliente.
+ * - Prioriza direcciones cercanas a la sucursal seleccionada (`lat`, `lng` = coordenadas de la TIENDA, no del usuario).
+ * - Extrae `street`, `aptSuite` (si aplica), `city`, `state` y `zipCode` para rellenar los campos con un solo toque.
+ * - Terceros que reciben el texto escrito (desde nuestro servidor, no desde el teléfono):
+ *   1) Esri ArcGIS World Geocoder `suggest` (sin llave); 2) Google Geocoding API (solo si hay < 2 resultados y existe
+ *   `GOOGLE_MAPS_API_KEY`). Debe reflejarse en la Política de Privacidad de la app.
+ * - Límite: 40 solicitudes/min por IP (memoria, mejor esfuerzo), consulta ≤ 120 caracteres, timeout 4 s por proveedor.
  *
  * @dataFlow
  * Cliente Móvil/Web (`GET /api/mobile/address/autocomplete?q=...&lat=...&lng=...`) -> Proveedor de Geocodificación -> Lista de `AddressSuggestion`.
  *
  * @notes
- * - Incluye encabezados CORS (`corsHeaders`) para permitir peticiones desde Web y dispositivos móviles.
+ * - 2026-10-16: se retiró OpenStreetMap Nominatim (su política pública prohíbe búsquedas tipo autocompletado) y los
+ *   errores ya no devuelven `err.message` al cliente.
  */
 
 import { NextResponse } from 'next/server'
 import { corsHeaders } from '../../_helpers'
+import { checkRateLimit, getClientIp } from '@/lib/storefront/rate-limit'
 
 export interface AddressSuggestionDTO {
   id: string
@@ -136,19 +140,32 @@ export async function OPTIONS() {
   return NextResponse.json({}, { headers: corsHeaders() })
 }
 
+const PROVIDER_TIMEOUT_MS = 4000
+const MAX_QUERY_LENGTH = 120
+const RATE_LIMIT_PER_MINUTE = 40
+
 export async function GET(request: Request) {
   try {
+    const ip = getClientIp(request.headers)
+    const rl = checkRateLimit(`address-autocomplete:${ip}`, RATE_LIMIT_PER_MINUTE, 60_000)
+    if (!rl.allowed) {
+      return NextResponse.json(
+        { ok: false, suggestions: [], code: 'RATE_LIMITED', retryAfterSeconds: rl.retryAfterSeconds },
+        { status: 429, headers: corsHeaders() }
+      )
+    }
+
     const { searchParams } = new URL(request.url)
-    const q = (searchParams.get('q') || '').trim()
+    const q = (searchParams.get('q') || '').trim().slice(0, MAX_QUERY_LENGTH)
     const latParam = Number(searchParams.get('lat'))
     const lngParam = Number(searchParams.get('lng'))
 
     const lat =
-      Number.isFinite(latParam) && Math.abs(latParam) > 1
+      Number.isFinite(latParam) && Math.abs(latParam) > 1 && Math.abs(latParam) <= 90
         ? latParam
         : DEFAULT_LA_LAT
     const lng =
-      Number.isFinite(lngParam) && Math.abs(lngParam) > 1
+      Number.isFinite(lngParam) && Math.abs(lngParam) > 1 && Math.abs(lngParam) <= 180
         ? lngParam
         : DEFAULT_LA_LNG
 
@@ -189,6 +206,7 @@ export async function GET(request: Request) {
 
       const arcRes = await fetch(suggestUrl, {
         headers: { Accept: 'application/json' },
+        signal: AbortSignal.timeout(PROVIDER_TIMEOUT_MS),
       })
 
       if (arcRes.ok) {
@@ -208,7 +226,7 @@ export async function GET(request: Request) {
         })
       }
     } catch {
-      // Continúa al siguiente proveedor en caso de error de red
+      // Continúa al siguiente proveedor en caso de error de red o timeout
     }
 
     // 2. Respaldo con Google Maps Geocoding API (si hay menos de 2 sugerencias)
@@ -225,7 +243,7 @@ export async function GET(request: Request) {
           `&key=${googleKey}` +
           `&solution_id=gmp_git_agentskills_v1`
 
-        const gRes = await fetch(googleUrl)
+        const gRes = await fetch(googleUrl, { signal: AbortSignal.timeout(PROVIDER_TIMEOUT_MS) })
         if (gRes.ok) {
           const gData = (await gRes.json()) as {
             status?: string
@@ -287,56 +305,7 @@ export async function GET(request: Request) {
           }
         }
       } catch {
-        // Continúa al respaldo Nominatim
-      }
-    }
-
-    // 3. Respaldo final con OpenStreetMap Nominatim
-    if (suggestions.length === 0) {
-      try {
-        const nomUrl =
-          `https://nominatim.openstreetmap.org/search` +
-          `?format=json&addressdetails=1&countrycodes=us&limit=5` +
-          `&q=${encodeURIComponent(`${q}, California`)}`
-        const nomRes = await fetch(nomUrl, {
-          headers: { 'User-Agent': 'TacosGavilanApp/1.0' },
-        })
-        if (nomRes.ok) {
-          const nomData = (await nomRes.json()) as Array<{
-            address?: Record<string, string>
-          }>
-          if (Array.isArray(nomData)) {
-            nomData.forEach((item, idx) => {
-              const addr = item.address || {}
-              const houseNumber = addr.house_number || ''
-              const road = addr.road || ''
-              const city =
-                addr.city ||
-                addr.town ||
-                addr.village ||
-                addr.suburb ||
-                addr.hamlet ||
-                ''
-              const postcode = (addr.postcode || '').slice(0, 5)
-              if (houseNumber && road && city && postcode) {
-                const street = `${houseNumber} ${road}`.trim()
-                const secondaryText = `${city}, CA, ${postcode}`
-                pushUnique({
-                  id: `nom-${idx}-${street}-${postcode}`.replace(/\s+/g, '_'),
-                  label: `${street}, ${secondaryText}`,
-                  primaryText: street,
-                  secondaryText,
-                  street,
-                  city,
-                  state: 'CA',
-                  zipCode: postcode,
-                })
-              }
-            })
-          }
-        }
-      } catch {
-        // Ignorar fallo de último nivel
+        // Sin más respaldos: Nominatim se retiró (su política de uso prohíbe autocompletado).
       }
     }
 
@@ -347,16 +316,9 @@ export async function GET(request: Request) {
       },
       { status: 200, headers: corsHeaders() }
     )
-  } catch (err: unknown) {
+  } catch {
     return NextResponse.json(
-      {
-        ok: false,
-        suggestions: [],
-        error:
-          err instanceof Error
-            ? err.message
-            : 'Error fetching address suggestions',
-      },
+      { ok: false, suggestions: [], code: 'AUTOCOMPLETE_ERROR' },
       { status: 200, headers: corsHeaders() }
     )
   }
