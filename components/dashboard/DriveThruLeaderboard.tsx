@@ -130,9 +130,11 @@ const ALL_SLOTS = generateSlots()
 
 interface DriveThruLeaderboardProps {
     selectedDate?: string
+    startDate?: string
+    endDate?: string
 }
 
-export default function DriveThruLeaderboard({ selectedDate }: DriveThruLeaderboardProps) {
+export default function DriveThruLeaderboard({ selectedDate, startDate, endDate }: DriveThruLeaderboardProps) {
     const { t } = useLanguage()
     const router = useRouter()
     const [data, setData] = useState<LeaderboardData | null>(null)
@@ -146,15 +148,21 @@ export default function DriveThruLeaderboard({ selectedDate }: DriveThruLeaderbo
     })
     const abortRef = useRef<AbortController | null>(null)
 
-    const fetchData = useCallback(async () => {
+    const effectiveStart = startDate || selectedDate || getBusinessDate()
+    const effectiveEnd = endDate || selectedDate || effectiveStart
+    const isRange = effectiveStart !== effectiveEnd
+
+    const fetchData = useCallback(async (isBackground = false) => {
         if (abortRef.current) abortRef.current.abort()
         const controller = new AbortController()
         abortRef.current = controller
 
+        if (!isBackground) setLoading(true)
         try {
-            const date = selectedDate || getBusinessDate()
             const slot = viewMode === 'slot' ? ALL_SLOTS[currentSlotIndex] : undefined
-            const url = `/api/drive-thru/leaderboard?date=${date}${slot ? `&slot=${slot}` : ''}`
+            const url = slot
+                ? `/api/drive-thru/leaderboard?date=${effectiveEnd}&slot=${slot}`
+                : `/api/drive-thru/leaderboard?startDate=${effectiveStart}&endDate=${effectiveEnd}`
 
             const res = await fetch(url, { signal: controller.signal })
             if (!res.ok) throw new Error(`HTTP ${res.status}`)
@@ -169,11 +177,11 @@ export default function DriveThruLeaderboard({ selectedDate }: DriveThruLeaderbo
         } finally {
             setLoading(false)
         }
-    }, [viewMode, currentSlotIndex, selectedDate])
+    }, [viewMode, currentSlotIndex, effectiveStart, effectiveEnd])
 
     useEffect(() => {
-        fetchData()
-        const interval = setInterval(fetchData, 60000) // Auto-refresh every 60s
+        fetchData(false)
+        const interval = setInterval(() => fetchData(true), 60000) // Auto-refresh every 60s in background
         return () => {
             clearInterval(interval)
             if (abortRef.current) abortRef.current.abort()
@@ -188,7 +196,7 @@ export default function DriveThruLeaderboard({ selectedDate }: DriveThruLeaderbo
         })
     }
 
-    const isToday = !selectedDate || selectedDate === getBusinessDate()
+    const isToday = effectiveEnd === getBusinessDate()
     const realTimeSlotIndex = ALL_SLOTS.indexOf(getCurrentSlot())
     const isNextDisabled = currentSlotIndex >= ALL_SLOTS.length - 1 || (isToday && currentSlotIndex >= realTimeSlotIndex)
 
@@ -252,9 +260,9 @@ export default function DriveThruLeaderboard({ selectedDate }: DriveThruLeaderbo
                         </div>
                         {/* Link to full module (mobile only) */}
                         <button
-                            onClick={() => router.push('/drive-thru')}
+                            onClick={() => router.push(`/drive-thru?date=${effectiveEnd}&startDate=${effectiveStart}&endDate=${effectiveEnd}`)}
                             className="sm:hidden p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 transition-colors"
-                            title="Ver módulo completo"
+                            title={t('drive_thru.view_full_module')}
                         >
                             <TrendingUp size={16} />
                         </button>
@@ -269,7 +277,7 @@ export default function DriveThruLeaderboard({ selectedDate }: DriveThruLeaderbo
                                     : 'text-slate-500 hover:text-slate-700'
                                     }`}
                             >
-                                {t('drive_thru.current_day')}
+                                {isRange ? t('drive_thru.selected_range') : t('drive_thru.current_day')}
                             </button>
                             <button
                                 onClick={() => setViewMode('slot')}
@@ -307,9 +315,9 @@ export default function DriveThruLeaderboard({ selectedDate }: DriveThruLeaderbo
 
                         {/* Link to full module (desktop only) */}
                         <button
-                            onClick={() => router.push('/drive-thru')}
+                            onClick={() => router.push(`/drive-thru?date=${effectiveEnd}&startDate=${effectiveStart}&endDate=${effectiveEnd}`)}
                             className="hidden sm:block p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 transition-colors"
-                            title="Ver módulo completo"
+                            title={t('drive_thru.view_full_module')}
                         >
                             <TrendingUp size={16} />
                         </button>
@@ -326,7 +334,7 @@ export default function DriveThruLeaderboard({ selectedDate }: DriveThruLeaderbo
                     return (
                         <div
                             key={entry.store_id}
-                            onClick={() => router.push(`/drive-thru?store=${entry.store_id}`)}
+                            onClick={() => router.push(`/drive-thru?store=${entry.store_id}&date=${effectiveEnd}&startDate=${effectiveStart}&endDate=${effectiveEnd}`)}
                             className={`flex items-center gap-3 px-3 py-2.5 rounded-xl border cursor-pointer transition-all hover:scale-[1.01] hover:shadow-sm ${colors.bg} ${colors.border}`}
                         >
                             {/* Rank */}
@@ -393,7 +401,7 @@ export default function DriveThruLeaderboard({ selectedDate }: DriveThruLeaderbo
                                 <div className="flex items-center gap-1 select-none">
                                     <Zap size={12} className="text-emerald-500" />
                                     <span className="text-emerald-600 font-medium">
-                                        Rápida: #{data.entries[0].fastest_order.number} ({formatDuration(data.entries[0].fastest_order.duration)})
+                                        {t('drive_thru.fastest_short')}: #{data.entries[0].fastest_order.number} ({formatDuration(data.entries[0].fastest_order.duration)})
                                     </span>
                                 </div>
                             )}
@@ -401,7 +409,7 @@ export default function DriveThruLeaderboard({ selectedDate }: DriveThruLeaderbo
                                 <div className="flex items-center gap-1 select-none">
                                     <AlertTriangle size={12} className="text-rose-500" />
                                     <span className="text-rose-600 font-medium">
-                                        Lenta: #{data.entries[0].slowest_order.number} ({formatDuration(data.entries[0].slowest_order.duration)})
+                                        {t('drive_thru.slowest_short')}: #{data.entries[0].slowest_order.number} ({formatDuration(data.entries[0].slowest_order.duration)})
                                     </span>
                                 </div>
                             )}

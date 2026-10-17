@@ -932,22 +932,27 @@ export async function autoDetectDTStores(): Promise<{
  * - Each entry gets a color based on DT_THRESHOLDS
  *
  * @param businessDate - YYYY-MM-DD
+ * @param businessDate - YYYY-MM-DD (or start date when endDate is provided)
  * @param slot - Optional half-hour slot (e.g., "12:00")
+ * @param endDate - Optional YYYY-MM-DD end date for multi-day range aggregation
  * @returns Ranked array of LeaderboardEntry
  */
 export async function getLeaderboard(
     businessDate: string,
-    slot?: string
+    slot?: string,
+    endDate?: string
 ): Promise<LeaderboardEntry[]> {
     const supabase = getServerSupabase()
     const entries: LeaderboardEntry[] = []
+    const isMultiDay = Boolean(!slot && endDate && endDate !== businessDate)
 
     if (slot) {
         // --- Query specific slot from dt_halfhour_stats ---
+        const targetDate = endDate || businessDate
         const { data: statsRows, error } = await supabase
             .from('dt_halfhour_stats')
             .select('*')
-            .eq('business_date', businessDate)
+            .eq('business_date', targetDate)
             .eq('slot', slot)
 
         if (error) {
@@ -972,6 +977,94 @@ export async function getLeaderboard(
                 color: getColorForDuration(row.avg_duration_sec),
                 rank: 0 // Will be assigned after sorting
             })
+        }
+    } else if (isMultiDay && endDate) {
+        // --- Multi-day range: aggregate pre-computed dt_halfhour_stats for high speed ---
+        let allStats: any[] = []
+        let page = 0
+        const pageSize = 1000
+        let hasMore = true
+
+        while (hasMore) {
+            const { data, error } = await supabase
+                .from('dt_halfhour_stats')
+                .select('store_id, store_name, order_count, avg_duration_sec, min_duration_sec, max_duration_sec, min_order_number, max_order_number')
+                .gte('business_date', businessDate)
+                .lte('business_date', endDate)
+                .range(page * pageSize, (page + 1) * pageSize - 1)
+
+            if (error) {
+                console.error(`[DT-SYNC] Leaderboard multi-day stats query error:`, error.message)
+                break
+            }
+            if (data && data.length > 0) {
+                allStats = allStats.concat(data)
+                if (data.length < pageSize) hasMore = false
+                else page++
+            } else {
+                hasMore = false
+            }
+        }
+
+        if (allStats.length > 0) {
+            const storeAgg: Record<string, {
+                store_name: string
+                total_orders: number
+                weighted_duration_sum: number
+                min_dur: number | null
+                min_order: string
+                max_dur: number | null
+                max_order: string
+            }> = {}
+
+            for (const row of allStats) {
+                const count = Number(row.order_count) || 0
+                const avgDur = Number(row.avg_duration_sec) || 0
+                if (count <= 0 || avgDur <= 0) continue
+
+                if (!storeAgg[row.store_id]) {
+                    storeAgg[row.store_id] = {
+                        store_name: row.store_name,
+                        total_orders: 0,
+                        weighted_duration_sum: 0,
+                        min_dur: null,
+                        min_order: '',
+                        max_dur: null,
+                        max_order: ''
+                    }
+                }
+                const agg = storeAgg[row.store_id]
+                agg.total_orders += count
+                agg.weighted_duration_sum += avgDur * count
+
+                if (row.min_duration_sec !== null && row.min_duration_sec > 0) {
+                    if (agg.min_dur === null || row.min_duration_sec < agg.min_dur) {
+                        agg.min_dur = row.min_duration_sec
+                        agg.min_order = row.min_order_number || ''
+                    }
+                }
+                if (row.max_duration_sec !== null && row.max_duration_sec > 0) {
+                    if (agg.max_dur === null || row.max_duration_sec > agg.max_dur) {
+                        agg.max_dur = row.max_duration_sec
+                        agg.max_order = row.max_order_number || ''
+                    }
+                }
+            }
+
+            for (const [storeId, agg] of Object.entries(storeAgg)) {
+                if (agg.total_orders === 0) continue
+                const avg = Math.round(agg.weighted_duration_sum / agg.total_orders)
+                entries.push({
+                    store_id: storeId,
+                    store_name: agg.store_name,
+                    avg_duration_sec: avg,
+                    order_count: agg.total_orders,
+                    fastest_order: agg.min_dur !== null ? { number: agg.min_order, duration: agg.min_dur } : null,
+                    slowest_order: agg.max_dur !== null ? { number: agg.max_order, duration: agg.max_dur } : null,
+                    color: getColorForDuration(avg),
+                    rank: 0
+                })
+            }
         }
     } else {
         // --- Query full day from dt_orders ---

@@ -33,6 +33,7 @@
         setItem: function (key, value) {
             try {
                 localStorage.setItem(key, value);
+                return;
             } catch (e) {}
             try {
                 var d = new Date();
@@ -165,8 +166,7 @@
     var currentLang = (function () {
         var saved = safeStorage.getItem('tacosgavilan_lang') || safeStorage.getItem('tg_site_lang');
         if (saved && (saved === 'es' || saved === 'en')) return saved;
-        var browser = (navigator.language || navigator.userLanguage || '').toLowerCase();
-        return browser.indexOf('es') === 0 ? 'es' : 'en';
+        return (typeof document !== 'undefined' && document.documentElement && document.documentElement.lang === 'es') ? 'es' : 'en';
     })();
 
     var a11yState = {
@@ -192,6 +192,11 @@
         timestamp: null,
         answered: false
     };
+
+    function isAnalyticsAllowed() {
+        var gpcActive = (typeof navigator !== 'undefined' && navigator.globalPrivacyControl === true);
+        return !!(cookieConsent.answered && cookieConsent.analytics && !gpcActive);
+    }
 
     /* ==========================================================================
        3. STORAGE & SYNC
@@ -261,7 +266,8 @@
             cookieConsent.answered = true;
             safeStorage.setItem('tg_cookie_consent', JSON.stringify(cookieConsent));
             // Keep legacy tacosgavilan_cookie_consent string in sync
-            safeStorage.setItem('tacosgavilan_cookie_consent', statusStr || (cookieConsent.marketing && !cookieConsent.doNotSell ? 'accepted' : 'declined'));
+            var computedStatus = statusStr || ((cookieConsent.marketing && !cookieConsent.doNotSell) ? 'accepted' : (cookieConsent.analytics ? 'custom' : 'declined'));
+            safeStorage.setItem('tacosgavilan_cookie_consent', computedStatus);
         } catch (e) {}
     }
 
@@ -269,12 +275,28 @@
        4. DYNAMIC TRACKING ENFORCEMENT (CCPA/CPRA + GOOGLE CONSENT MODE V2)
        ========================================================================== */
     function purgeTrackingCookies() {
-        var cookiesToPurge = ['_ga', '_gid', '_gat', '_gcl_au', '_gcl_aw', '_fbp', '_fbc', '_ttp'];
-        var hostParts = (window.location.hostname || '').split('.');
-        var rootDomain = hostParts.length >= 2 ? '.' + hostParts.slice(-2).join('.') : window.location.hostname;
-        cookiesToPurge.forEach(function (name) {
+        var staticNames = ['_ga', '_gid', '_gat', '_gcl_au', '_gcl_aw', '_fbp', '_fbc', '_ttp', '_tt_enable_cookie', 'ttcsid'];
+        var dynamicNames = [];
+        try {
+            var rawCookies = (document.cookie || '').split(';');
+            for (var i = 0; i < rawCookies.length; i++) {
+                var eqIdx = rawCookies[i].indexOf('=');
+                var cName = (eqIdx > -1 ? rawCookies[i].slice(0, eqIdx) : rawCookies[i]).trim();
+                if (cName && /^(_ga|_gid|_gat|_gcl|_fbp|_fbc|_ttp|_tt_|ttcsid)/i.test(cName)) {
+                    dynamicNames.push(cName);
+                }
+            }
+        } catch (e) {}
+        var allToPurge = staticNames.concat(dynamicNames);
+        var host = window.location.hostname || '';
+        var hostParts = host.split('.');
+        var rootDomain = hostParts.length >= 2 ? '.' + hostParts.slice(-2).join('.') : host;
+        allToPurge.forEach(function (name) {
             try {
                 document.cookie = name + '=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/';
+                if (host) {
+                    document.cookie = name + '=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/;domain=' + host;
+                }
                 if (rootDomain) {
                     document.cookie = name + '=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/;domain=' + rootDomain;
                 }
@@ -284,24 +306,56 @@
 
     function syncModalCheckboxes() {
         var gpcActive = (typeof navigator !== 'undefined' && navigator.globalPrivacyControl === true);
-        var chkAnalytics = document.getElementById('tg-chk-analytics');
-        var chkMarketing = document.getElementById('tg-chk-marketing');
-        var chkDns = document.getElementById('tg-chk-dns');
-        if (chkAnalytics) chkAnalytics.checked = !!(cookieConsent.answered && cookieConsent.analytics && !cookieConsent.doNotSell && !gpcActive);
-        if (chkMarketing) chkMarketing.checked = !!(cookieConsent.answered && cookieConsent.marketing && !cookieConsent.doNotSell && !gpcActive);
-        if (chkDns) chkDns.checked = !!(cookieConsent.doNotSell || gpcActive);
+        var anaChecked = !!(cookieConsent.answered && cookieConsent.analytics && !gpcActive);
+        var mktChecked = !!(cookieConsent.answered && cookieConsent.marketing && !cookieConsent.doNotSell && !gpcActive);
+        var dnsChecked = !!(cookieConsent.doNotSell || gpcActive);
+
+        ['tg-chk-analytics', 'page-chk-analytics'].forEach(function (id) {
+            var el = document.getElementById(id);
+            if (el) el.checked = anaChecked;
+        });
+        ['tg-chk-marketing', 'page-chk-marketing'].forEach(function (id) {
+            var el = document.getElementById(id);
+            if (el) el.checked = mktChecked;
+        });
+        ['tg-chk-dns', 'page-chk-dns'].forEach(function (id) {
+            var el = document.getElementById(id);
+            if (el) el.checked = dnsChecked;
+        });
     }
 
     function applyTrackingConsent() {
         var gpcActive = (typeof navigator !== 'undefined' && navigator.globalPrivacyControl === true);
-        var allowMarketing = cookieConsent.answered && cookieConsent.marketing && !cookieConsent.doNotSell && !gpcActive;
-        var allowAnalytics = cookieConsent.answered && cookieConsent.analytics && !cookieConsent.doNotSell && !gpcActive;
+        var allowMarketing = !!(cookieConsent.answered && cookieConsent.marketing && !cookieConsent.doNotSell && !gpcActive);
+        var allowAnalytics = !!(cookieConsent.answered && cookieConsent.analytics && !gpcActive);
 
-        // Disable Google Analytics tracker directly when analytics/sale is not granted
+        // Disable Google Analytics tracker directly when analytics is not granted
         window['ga-disable-UA-74752614-19'] = !allowAnalytics;
+
+        if (!allowAnalytics) {
+            try {
+                sessionStorage.removeItem('tg_session_id');
+            } catch (e) {}
+        }
 
         if (!allowMarketing || !allowAnalytics) {
             purgeTrackingCookies();
+        }
+
+        // Remove injected third-party scripts if consent was revoked
+        if (!allowAnalytics && !allowMarketing && window.__tgGtmLoaded) {
+            try {
+                var gtmScripts = document.querySelectorAll('script[src*="googletagmanager.com/gtm.js"]');
+                gtmScripts.forEach(function (s) { if (s.parentNode) s.parentNode.removeChild(s); });
+                window.__tgGtmLoaded = false;
+            } catch (e) {}
+        }
+        if (!allowMarketing && window.__tgMktPixelsLoaded) {
+            try {
+                var mktScripts = document.querySelectorAll('script[src*="connect.facebook.net"], script[src*="analytics.tiktok.com"]');
+                mktScripts.forEach(function (s) { if (s.parentNode) s.parentNode.removeChild(s); });
+                window.__tgMktPixelsLoaded = false;
+            } catch (e) {}
         }
 
         // Dynamically load GTM and homepage marketing pixels ONLY if explicit consent was granted
@@ -366,27 +420,23 @@
         statusIds.forEach(function (id) {
             var statusEl = document.getElementById(id);
             if (!statusEl) return;
-            if (currentLang === 'es') {
-                if (gpcActive) {
-                    statusEl.textContent = 'Estado Actual: Opt-out request honored — Señal Global Privacy Control (GPC) Activa (Venta/Compartición y Etiquetas Publicitarias Bloqueadas)';
-                } else if (isOptedOut) {
-                    statusEl.textContent = 'Estado Actual: Opt-out request honored — Exclusión Activa (No Vender ni Compartir Mi Información Personal)';
-                } else if (!cookieConsent.answered) {
-                    statusEl.textContent = 'Estado Actual: Bloqueo Previo Activo (Etiquetas no esenciales bloqueadas hasta su consentimiento)';
-                } else {
-                    statusEl.textContent = 'Estado Actual: Consentimiento Personalizado Activo (Analítica: ' + (allowAnalytics ? 'Sí' : 'No') + ', Marketing: ' + (allowMarketing ? 'Sí' : 'No') + ')';
-                }
+            var textEs, textEn;
+            if (gpcActive) {
+                textEs = 'Estado Actual: Opt-out request honored — Señal Global Privacy Control (GPC) Activa (Venta/Compartición y Etiquetas Publicitarias Bloqueadas)';
+                textEn = 'Current Status: Opt-out request honored — Global Privacy Control (GPC) Signal Active (Sale/Sharing & Ad Tags Blocked)';
+            } else if (cookieConsent.doNotSell || (cookieConsent.answered && !allowAnalytics && !allowMarketing)) {
+                textEs = 'Estado Actual: Opt-out request honored — Exclusión Activa (No Vender ni Compartir Mi Información Personal)';
+                textEn = 'Current Status: Opt-out request honored — Do Not Sell or Share Active (Non-Essential Ad Tags Blocked)';
+            } else if (!cookieConsent.answered) {
+                textEs = 'Estado Actual: Bloqueo Previo Activo (Etiquetas no esenciales bloqueadas hasta su consentimiento)';
+                textEn = 'Current Status: Prior-Consent Protection Active (Non-essential tags blocked until you opt in)';
             } else {
-                if (gpcActive) {
-                    statusEl.textContent = 'Current Status: Opt-out request honored — Global Privacy Control (GPC) Signal Active (Sale/Sharing & Ad Tags Blocked)';
-                } else if (isOptedOut) {
-                    statusEl.textContent = 'Current Status: Opt-out request honored — Do Not Sell or Share Active (Non-Essential Ad Tags Blocked)';
-                } else if (!cookieConsent.answered) {
-                    statusEl.textContent = 'Current Status: Prior-Consent Protection Active (Non-essential tags blocked until you opt in)';
-                } else {
-                    statusEl.textContent = 'Current Status: Custom Consent Active (Analytics: ' + (allowAnalytics ? 'On' : 'Off') + ', Marketing: ' + (allowMarketing ? 'On' : 'Off') + ')';
-                }
+                textEs = 'Estado Actual: Consentimiento Personalizado Activo (Analítica: ' + (allowAnalytics ? 'Sí' : 'No') + ', Marketing: ' + (allowMarketing ? 'Sí' : 'No') + ')';
+                textEn = 'Current Status: Custom Consent Active (Analytics: ' + (allowAnalytics ? 'On' : 'Off') + ', Marketing: ' + (allowMarketing ? 'On' : 'Off') + ')';
             }
+            statusEl.setAttribute('data-en', textEn);
+            statusEl.setAttribute('data-es', textEs);
+            statusEl.textContent = currentLang === 'es' ? textEs : textEn;
         });
 
         var honoredBadges = [
@@ -397,14 +447,18 @@
         honoredBadges.forEach(function (badge) {
             if (!badge) return;
             if (isOptedOut) {
+                var badgeEs = gpcActive ? '✓ Opt-out request honored (Señal GPC Activa)' : '✓ Opt-out request honored (Solicitud de exclusión aplicada)';
+                var badgeEn = gpcActive ? '✓ Opt-out request honored (GPC Signal Active)' : '✓ Opt-out request honored';
                 badge.style.display = 'inline-flex';
-                badge.textContent = currentLang === 'es'
-                    ? (gpcActive ? '✓ Opt-out request honored (Señal GPC Activa)' : '✓ Opt-out request honored (Solicitud de exclusión aplicada)')
-                    : (gpcActive ? '✓ Opt-out request honored (GPC Signal Active)' : '✓ Opt-out request honored');
+                badge.setAttribute('data-en', badgeEn);
+                badge.setAttribute('data-es', badgeEs);
+                badge.textContent = currentLang === 'es' ? badgeEs : badgeEn;
             } else {
                 badge.style.display = 'none';
             }
         });
+
+        sendInitialPageViewIfConsented();
     }
 
     /* ==========================================================================
@@ -1107,15 +1161,12 @@
     function showCookieBannerIfNeeded() {
         var consent = safeStorage.getItem('tg_cookie_consent') || safeStorage.getItem('tacosgavilan_cookie_consent');
         if (!consent) {
-            setTimeout(function () {
-                var banner = document.getElementById('tg-cookie-banner') || document.getElementById('cookie-banner');
-                if (banner) {
-                    banner.style.display = 'block';
-                    banner.offsetHeight;
-                    banner.classList.add('is-visible', 'cookie-banner-visible');
-                    document.body.classList.add('has-cookie-banner');
-                }
-            }, 1000);
+            var banner = document.getElementById('tg-cookie-banner') || document.getElementById('cookie-banner');
+            if (banner) {
+                banner.style.display = 'block';
+                banner.classList.add('is-visible', 'cookie-banner-visible');
+                document.body.classList.add('has-cookie-banner');
+            }
         }
     }
 
@@ -1142,10 +1193,27 @@
         var langToggle = document.getElementById('tg-lang-toggle');
         if (langToggle) {
             langToggle.addEventListener('click', function () {
-                switchLanguage(currentLang === 'es' ? 'en' : 'es');
-                // Also trigger site-wide lang toggle if present
                 var mainLangBtn = document.getElementById('lang-toggle');
-                if (mainLangBtn) mainLangBtn.click();
+                if (mainLangBtn) {
+                    mainLangBtn.click();
+                } else {
+                    switchLanguage(currentLang === 'es' ? 'en' : 'es');
+                    applyTrackingConsent();
+                }
+            });
+        }
+
+        // Sync when main site language toggle (#lang-toggle) is clicked
+        var mainLangBtn = document.getElementById('lang-toggle');
+        if (mainLangBtn) {
+            mainLangBtn.addEventListener('click', function () {
+                setTimeout(function () {
+                    var docLang = document.documentElement.lang === 'es' ? 'es' : 'en';
+                    if (docLang !== currentLang) {
+                        switchLanguage(docLang);
+                        applyTrackingConsent();
+                    }
+                }, 0);
             });
         }
 
@@ -1321,11 +1389,16 @@
             }
         });
 
-        // Cookie Banner buttons (both new and legacy IDs)
-        var acceptBtns = [document.getElementById('tg-btn-accept-all'), document.getElementById('cookie-accept-btn')];
+        // Cookie Banner & Privacy Choices buttons (both new and legacy IDs)
+        var acceptBtns = [
+            document.getElementById('tg-btn-accept-all'),
+            document.getElementById('cookie-accept-btn'),
+            document.getElementById('page-accept-all-btn')
+        ];
         acceptBtns.forEach(function (btn) {
             if (btn) {
-                btn.addEventListener('click', function () {
+                btn.addEventListener('click', function (e) {
+                    if (e) e.preventDefault();
                     cookieConsent.analytics = true;
                     cookieConsent.marketing = true;
                     cookieConsent.doNotSell = false;
@@ -1339,7 +1412,8 @@
         var rejectBtns = [document.getElementById('tg-btn-reject-all'), document.getElementById('cookie-decline-btn')];
         rejectBtns.forEach(function (btn) {
             if (btn) {
-                btn.addEventListener('click', function () {
+                btn.addEventListener('click', function (e) {
+                    if (e) e.preventDefault();
                     cookieConsent.analytics = false;
                     cookieConsent.marketing = false;
                     cookieConsent.doNotSell = true;
@@ -1390,6 +1464,39 @@
             cookieModalClose.addEventListener('click', closeCookieModal);
         }
 
+        // Checkbox mutual exclusivity for modal and /privacy-choices/ inline controls
+        function bindCheckboxGroup(anaId, mktId, dnsId) {
+            var chkAna = document.getElementById(anaId);
+            var chkMkt = document.getElementById(mktId);
+            var chkDns = document.getElementById(dnsId);
+            if (chkAna) {
+                chkAna.addEventListener('change', function () {
+                    var gpc = (typeof navigator !== 'undefined' && navigator.globalPrivacyControl === true);
+                    if (chkAna.checked && !gpc && chkDns) {
+                        chkDns.checked = false;
+                    }
+                });
+            }
+            if (chkMkt) {
+                chkMkt.addEventListener('change', function () {
+                    var gpc = (typeof navigator !== 'undefined' && navigator.globalPrivacyControl === true);
+                    if (chkMkt.checked && !gpc && chkDns) {
+                        chkDns.checked = false;
+                    }
+                });
+            }
+            if (chkDns) {
+                chkDns.addEventListener('change', function () {
+                    if (chkDns.checked) {
+                        if (chkMkt) chkMkt.checked = false;
+                        if (chkAna) chkAna.checked = false;
+                    }
+                });
+            }
+        }
+        bindCheckboxGroup('tg-chk-analytics', 'tg-chk-marketing', 'tg-chk-dns');
+        bindCheckboxGroup('page-chk-analytics', 'page-chk-marketing', 'page-chk-dns');
+
         var btnSavePrefs = document.getElementById('tg-save-prefs-btn');
         if (btnSavePrefs) {
             btnSavePrefs.addEventListener('click', function () {
@@ -1405,9 +1512,31 @@
                     cookieConsent.marketing = false;
                 }
 
-                saveCookieConsent(cookieConsent.marketing && !cookieConsent.doNotSell ? 'accepted' : 'declined');
+                saveCookieConsent();
                 applyTrackingConsent();
                 closeCookieModal();
+                hideCookieBanner();
+            });
+        }
+
+        var btnPageSaveChoices = document.getElementById('page-save-choices-btn');
+        if (btnPageSaveChoices) {
+            btnPageSaveChoices.addEventListener('click', function (e) {
+                if (e) e.preventDefault();
+                var chkAnalytics = document.getElementById('page-chk-analytics');
+                var chkMarketing = document.getElementById('page-chk-marketing');
+                var chkDns = document.getElementById('page-chk-dns');
+
+                cookieConsent.analytics = chkAnalytics ? chkAnalytics.checked : false;
+                cookieConsent.marketing = chkMarketing ? chkMarketing.checked : false;
+                cookieConsent.doNotSell = chkDns ? chkDns.checked : false;
+
+                if (cookieConsent.doNotSell) {
+                    cookieConsent.marketing = false;
+                }
+
+                saveCookieConsent();
+                applyTrackingConsent();
                 hideCookieBanner();
             });
         }
@@ -1500,7 +1629,10 @@
         { hint: '4406', id: 13, name: 'Bell' }
     ];
 
+    var initialPageViewSent = false;
+
     function getSessionId() {
+        if (!isAnalyticsAllowed()) return null;
         try {
             var sid = sessionStorage.getItem('tg_session_id');
             if (!sid) {
@@ -1539,10 +1671,15 @@
     }
 
     function sendTrackEvent(payload) {
+        if (!isAnalyticsAllowed()) return;
         try {
             // Skip tracking when loaded inside an admin preview iframe
             if (window.self !== window.top) return;
             if (window.location.pathname.indexOf('/api/web-preview') === 0) return;
+
+            if (!payload.session_id) {
+                payload.session_id = getSessionId();
+            }
 
             var bodyStr = JSON.stringify(payload);
             if (navigator.sendBeacon) {
@@ -1621,13 +1758,14 @@
         return 'page';
     }
 
-    function initFirstPartyAnalytics() {
+    function sendInitialPageViewIfConsented() {
+        if (initialPageViewSent || !isAnalyticsAllowed()) return;
+        initialPageViewSent = true;
         var sessionId = getSessionId();
         var lang = (document.documentElement.lang === 'es' || currentLang === 'es') ? 'es' : 'en';
         var pagePath = window.location.pathname || '/';
         var storeFromUrl = detectStoreFromElementOrHref(null, window.location.href);
 
-        // 1. Track Initial Page View
         sendTrackEvent({
             event_type: 'page_view',
             session_id: sessionId,
@@ -1640,14 +1778,21 @@
             lang: lang,
             referrer: getReferrerSource()
         });
+    }
+
+    function initFirstPartyAnalytics() {
+        // 1. Track Initial Page View (only if Analytics consent is granted)
+        sendInitialPageViewIfConsented();
 
         // 2. Track Outbound Order Clicks, Phone Calls, Directions, and Store Details Modal
         document.addEventListener('click', function (e) {
+            if (!isAnalyticsAllowed()) return;
             var link = e.target && e.target.closest ? e.target.closest('a') : null;
             if (!link) return;
             var href = link.getAttribute('href') || '';
             if (!href) return;
 
+            var sessionId = getSessionId();
             var activeLang = (document.documentElement.lang === 'es' || currentLang === 'es') ? 'es' : 'en';
             var lowerHref = href.toLowerCase();
 

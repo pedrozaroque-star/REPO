@@ -31,8 +31,8 @@ export async function GET(request: NextRequest) {
         const searchParams = request.nextUrl.searchParams
 
         // ─── Parámetros ───
-        // date: YYYY-MM-DD, default = hoy según regla 6 AM
-        let date = searchParams.get('date')
+        // date / startDate: YYYY-MM-DD, default = hoy según regla 6 AM
+        let date = searchParams.get('startDate') || searchParams.get('date')
         if (!date) {
             const now = new Date()
             const laNow = new Date(now.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
@@ -46,11 +46,13 @@ export async function GET(request: NextRequest) {
             date = `${y}-${m}-${d}`
         }
 
+        const endDate = searchParams.get('endDate') || undefined
+
         // slot: HH:MM (opcional), ej: "14:30"
         const slot = searchParams.get('slot') || undefined
 
         // ─── Obtener leaderboard ───
-        const entries = await getLeaderboard(date, slot)
+        const entries = await getLeaderboard(date, slot, endDate)
 
         // ─── Calcular globalAvg y totalCars ───
         let totalDuration = 0
@@ -68,6 +70,7 @@ export async function GET(request: NextRequest) {
             globalAvg,
             totalCars,
             date,
+            endDate: endDate || date,
             slot: slot || null
         })
 

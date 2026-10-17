@@ -18,15 +18,21 @@ function InspeccionesContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const openId = searchParams.get('openId') || searchParams.get('id')
-  const storeParam = searchParams.get('store') // New: URL param for store filter
+  const storeParam = searchParams.get('store') || searchParams.get('storeId')
+  const inspectorIdParam = searchParams.get('inspector_id')
+  const userParam = searchParams.get('user')
+  const startDateParam = searchParams.get('startDate')
+  const endDateParam = searchParams.get('endDate')
   const { t, language } = useLanguage()
   const localeObj = language === 'es' ? es : enUS
   const { user } = useAuth()
   const [inspections, setInspections] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
-  const [storeFilter, setStoreFilter] = useState('all')
+  const [storeFilter, setStoreFilter] = useState(() => storeParam || 'all')
   const [statusFilter, setStatusFilter] = useState('all')
-  const [supervisorFilter, setSupervisorFilter] = useState('all')
+  const [supervisorFilter, setSupervisorFilter] = useState(() => inspectorIdParam || 'all')
+  const [startDateFilter, setStartDateFilter] = useState(() => startDateParam || '')
+  const [endDateFilter, setEndDateFilter] = useState(() => endDateParam || '')
   const [stores, setStores] = useState<any[]>([])
   const [users, setUsers] = useState<any[]>([])
 
@@ -42,34 +48,21 @@ function InspeccionesContent() {
 
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
 
-  // Auto-set store filter from URL param
+  // Sync URL params if changed dynamically
   useEffect(() => {
-    if (storeParam && storeParam !== 'all') {
-      setStoreFilter(storeParam)
-      // Clean URL after setting filter
-      window.history.replaceState(null, '', '/inspecciones')
-    }
-  }, [storeParam])
-
-  // Auto-open modal if query param exists
-  useEffect(() => {
-    if (openId && inspections.length > 0 && !isModalOpen) {
-      const target = inspections.find(i => i.id.toString() === openId)
-      if (target) {
-        handleRowClick(target)
-        // Clean URL smoothly
-        window.history.replaceState(null, '', '/inspecciones')
-      }
-    }
-  }, [openId, inspections])
+    if (storeParam && storeParam !== 'all') setStoreFilter(storeParam)
+    if (inspectorIdParam && inspectorIdParam !== 'all') setSupervisorFilter(inspectorIdParam)
+    if (startDateParam) setStartDateFilter(startDateParam)
+    if (endDateParam) setEndDateFilter(endDateParam)
+  }, [storeParam, inspectorIdParam, startDateParam, endDateParam])
 
   useEffect(() => {
     setCurrentPage(0) // Reset page on filter change
-  }, [storeFilter, statusFilter, supervisorFilter])
+  }, [storeFilter, statusFilter, supervisorFilter, startDateFilter, endDateFilter])
 
   useEffect(() => {
     if (user) fetchData()
-  }, [storeFilter, statusFilter, supervisorFilter, user, currentPage])
+  }, [storeFilter, statusFilter, supervisorFilter, startDateFilter, endDateFilter, user, currentPage])
 
   const fetchData = async () => {
     try {
@@ -94,19 +87,59 @@ function InspeccionesContent() {
       setStores(storesList || [])
       setUsers(usersList || [])
 
+      // Resolver storeFilter si viene por nombre en lugar de ID
+      let effectiveStoreFilter = storeFilter
+      if (effectiveStoreFilter !== 'all' && storesList && storesList.length > 0) {
+        const byId = storesList.find(s => String(s.id) === String(effectiveStoreFilter))
+        if (!byId) {
+          const cleanTarget = formatStoreName(String(effectiveStoreFilter)).toLowerCase().trim()
+          const byName = storesList.find(s =>
+            s.name?.toLowerCase().trim() === String(effectiveStoreFilter).toLowerCase().trim() ||
+            formatStoreName(s.name).toLowerCase().trim() === cleanTarget
+          )
+          if (byName) {
+            effectiveStoreFilter = String(byName.id)
+            if (storeFilter !== effectiveStoreFilter) setStoreFilter(effectiveStoreFilter)
+          }
+        }
+      }
+
+      // Resolver supervisorFilter si viene por nombre (?user=...) o ID (?inspector_id=...)
+      let effectiveSupervisorFilter = supervisorFilter
+      if (effectiveSupervisorFilter === 'all' && userParam && usersList && usersList.length > 0) {
+        const cleanUser = userParam.toLowerCase().trim()
+        const matchedUser = usersList.find(u =>
+          String(u.id) === cleanUser ||
+          (u.full_name || '').toLowerCase().trim() === cleanUser ||
+          (u.full_name || '').toLowerCase().includes(cleanUser)
+        )
+        if (matchedUser) {
+          effectiveSupervisorFilter = String(matchedUser.id)
+          setSupervisorFilter(effectiveSupervisorFilter)
+        }
+      }
 
       // 2. Obtener inspecciones básicas (Con Paginación y Filtros en Servidor)
       let query = supabase
         .from('supervisor_inspections')
         .select('*', { count: 'exact' })
 
-      // Aplicar filtros a la consulta de Supabase
-      if (storeFilter !== 'all') {
-        query = query.eq('store_id', storeFilter)
+      // Aplicar filtros a la consulta de Supabase (independientes para permitir Tienda + Supervisor + Fechas)
+      if (effectiveStoreFilter !== 'all') {
+        query = query.eq('store_id', effectiveStoreFilter)
       } else if (user?.role === 'manager' || user?.role === 'gerente') {
         if (user.store_id) query = query.eq('store_id', user.store_id)
-      } else if (supervisorFilter !== 'all') {
-        query = query.eq('inspector_id', supervisorFilter)
+      }
+
+      if (effectiveSupervisorFilter !== 'all') {
+        query = query.eq('inspector_id', effectiveSupervisorFilter)
+      }
+
+      if (startDateFilter) {
+        query = query.gte('inspection_date', startDateFilter)
+      }
+      if (endDateFilter) {
+        query = query.lte('inspection_date', endDateFilter)
       }
 
       if (statusFilter !== 'all') {
@@ -130,11 +163,14 @@ function InspeccionesContent() {
       setTotalCount(count || 0)
 
       // 2.5 Obtener Stats Globales (para las tarjetas de arriba)
-      // Nota: Fetching stats separately to avoid massive queries
-      const statsQuery = supabase.from('supervisor_inspections').select('overall_score, estatus_admin')
-      if (storeFilter !== 'all') statsQuery.eq('store_id', storeFilter)
-      else if (user?.role === 'manager' || user?.role === 'gerente') if (user.store_id) statsQuery.eq('store_id', user.store_id)
-      if (supervisorFilter !== 'all') statsQuery.eq('inspector_id', supervisorFilter)
+      let statsQuery = supabase.from('supervisor_inspections').select('overall_score, estatus_admin')
+      if (effectiveStoreFilter !== 'all') statsQuery = statsQuery.eq('store_id', effectiveStoreFilter)
+      else if (user?.role === 'manager' || user?.role === 'gerente') {
+        if (user.store_id) statsQuery = statsQuery.eq('store_id', user.store_id)
+      }
+      if (effectiveSupervisorFilter !== 'all') statsQuery = statsQuery.eq('inspector_id', effectiveSupervisorFilter)
+      if (startDateFilter) statsQuery = statsQuery.gte('inspection_date', startDateFilter)
+      if (endDateFilter) statsQuery = statsQuery.lte('inspection_date', endDateFilter)
 
       const { data: statsData } = await statsQuery
       if (statsData) {
@@ -166,23 +202,41 @@ function InspeccionesContent() {
       }
 
       // 3. Mapeo manual de datos
-      const mappedData = (rawData || []).map(item => {
+      const mapInspectionItem = (item: any) => {
         const store = (storesList || []).find(s => s.id === item.store_id)
-        const user = (usersList || []).find(u => u.id === item.inspector_id)
+        const usr = (usersList || []).find(u => u.id === item.inspector_id)
 
         return {
           ...item,
           store_name: formatStoreName(store?.name) || 'N/A',
-          supervisor_name: user?.full_name || item.supervisor_name || 'Desconocido',
+          supervisor_name: usr?.full_name || item.supervisor_name || 'Desconocido',
           checklist_type: 'supervisor',
           checklist_date: item.inspection_date || item.created_at,
           score: item.overall_score,
           photo_urls: item.photos || [],
           has_comments: commentCounts[item.id] > 0
         }
-      })
+      }
 
+      const mappedData = (rawData || []).map(mapInspectionItem)
       setInspections(mappedData)
+
+      // 4. Auto-abrir modal si existe openId en URL (incluso si no está en la primera página de 20 filas)
+      if (openId && !isModalOpen) {
+        const targetInPage = mappedData.find(i => String(i.id) === String(openId))
+        if (targetInPage) {
+          handleRowClick(targetInPage)
+        } else {
+          const { data: singleInsp } = await supabase
+            .from('supervisor_inspections')
+            .select('*')
+            .eq('id', openId)
+            .maybeSingle()
+          if (singleInsp) {
+            handleRowClick(mapInspectionItem(singleInsp))
+          }
+        }
+      }
     } catch (error: any) {
       console.error('Error fetching data:', error)
 
@@ -335,6 +389,19 @@ function InspeccionesContent() {
                     <svg className="fill-current h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z" /></svg>
                   </div>
                 </div>
+
+                {(startDateFilter || endDateFilter) && (
+                  <div className="flex items-center gap-2 bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800/60 text-indigo-700 dark:text-indigo-300 px-3 py-1.5 rounded-lg text-xs font-bold">
+                    <span>📅 {startDateFilter || '...'} → {endDateFilter || '...'}</span>
+                    <button
+                      onClick={() => { setStartDateFilter(''); setEndDateFilter('') }}
+                      className="ml-1 text-indigo-500 hover:text-indigo-800 dark:hover:text-white font-black"
+                      title="Clear date filter"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                )}
               </div>
             )}
 

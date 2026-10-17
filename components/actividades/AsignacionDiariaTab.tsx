@@ -595,6 +595,56 @@ export default function AsignacionDiariaTab() {
     };
   }, [showVisualBoard]);
 
+  // ── Wake Lock: Prevenir que la tableta se duerma en modo Tablero Fullscreen ──
+  // (Wake Lock: Prevent tablet from sleeping in Fullscreen Board mode)
+  const [isScreenAwake, setIsScreenAwake] = useState(false);
+
+  useEffect(() => {
+    if (!showVisualBoard) {
+      setIsScreenAwake(false);
+      return;
+    }
+
+    let wakeLock: any = null;
+
+    const requestWakeLock = async () => {
+      try {
+        if (typeof window !== 'undefined' && 'wakeLock' in navigator && document.visibilityState === 'visible') {
+          wakeLock = await (navigator as any).wakeLock.request('screen');
+          setIsScreenAwake(true);
+          wakeLock.addEventListener('release', () => {
+            setIsScreenAwake(false);
+          });
+        }
+      } catch (err) {
+        console.warn('[WakeLock] No se pudo activar el bloqueo de suspensión:', err);
+        setIsScreenAwake(false);
+      }
+    };
+
+    requestWakeLock();
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && showVisualBoard) {
+        requestWakeLock();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      if (wakeLock) {
+        try {
+          wakeLock.release().then(() => {
+            wakeLock = null;
+            setIsScreenAwake(false);
+          }).catch(() => {});
+        } catch {}
+      }
+    };
+  }, [showVisualBoard]);
+
   // ── Derived ──
   const selectedStore = useMemo(() => {
     return stores.find((s) => String(s.id) === String(selectedStoreId));
@@ -1842,6 +1892,20 @@ export default function AsignacionDiariaTab() {
                         <span className="text-orange-500 not-italic ml-2 font-bold">{activeShift}</span>
                       </h1>
                     </div>
+
+                    {/* Wake Lock Active Indicator */}
+                    {isScreenAwake && (
+                      <div 
+                        className="hidden sm:flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200/80 dark:border-emerald-800/60 text-emerald-700 dark:text-emerald-300 text-xs font-bold shadow-sm"
+                        title="Screen Wake Lock activo: la pantalla permanecerá encendida"
+                      >
+                        <span className="relative flex h-2 w-2">
+                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                          <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                        </span>
+                        <span>{t('actividades.daily.screen_awake')}</span>
+                      </div>
+                    )}
                   </div>
 
                   {/* Date & Shift Selectors */}

@@ -68,23 +68,32 @@ export default function FoodCostPage() {
     const [lastUpdated, setLastUpdated] = useState<Date>(new Date())
 
     // Filter State
-    const [period, setPeriod] = useState<'today' | 'yesterday' | 'week' | 'month' | 'quarter' | 'custom' | 'last_week' | 'last_7' | 'last_month'>(() => {
+    const getBusinessDateLA = () => {
+        const now = new Date()
+        const la = new Date(now.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
+        if (la.getHours() < 6) la.setDate(la.getDate() - 1)
+        return `${la.getFullYear()}-${String(la.getMonth() + 1).padStart(2, '0')}-${String(la.getDate()).padStart(2, '0')}`
+    }
+
+    const [period, setPeriod] = useState<'today' | 'yesterday' | 'week' | 'month' | 'quarter' | 'year' | 'custom' | 'last_week' | 'last_7' | 'last_month'>(() => {
+        const p = urlParams.get('period')
+        if (p && ['today', 'yesterday', 'week', 'month', 'quarter', 'year', 'custom', 'last_week', 'last_7', 'last_month'].includes(p)) {
+            return p as any
+        }
         if (urlParams.get('startDate') && urlParams.get('endDate')) return 'custom'
         return 'today'
     })
     const [startDate, setStartDate] = useState(() => {
         if (urlParams.get('startDate')) return urlParams.get('startDate')!
-        const d = new Date()
-        if (d.getHours() < 6) d.setDate(d.getDate() - 1)
-        return d.toISOString().split('T')[0]
+        return getBusinessDateLA()
     })
     const [endDate, setEndDate] = useState(() => {
         if (urlParams.get('endDate')) return urlParams.get('endDate')!
-        const d = new Date()
-        if (d.getHours() < 6) d.setDate(d.getDate() - 1)
-        return d.toISOString().split('T')[0]
+        return getBusinessDateLA()
     })
-    const [selectedStore, setSelectedStore] = useState<string>('all')
+    const [selectedStore, setSelectedStore] = useState<string>(() => {
+        return urlParams.get('store') || urlParams.get('storeId') || 'all'
+    })
     const [filterTerm, setFilterTerm] = useState('')
 
     // Data State
@@ -137,56 +146,16 @@ export default function FoodCostPage() {
         setLoading(true)
         setLoadingMessage(t('sales.loading_fetching'))
         try {
-            const now = new Date()
-            if (now.getHours() < 6) now.setDate(now.getDate() - 1)
-            const today = now
-
-            let start = new Date(today)
-            let end = new Date(today)
-
-            if (period === 'custom' || period === 'last_week' || period === 'last_7' || period === 'last_month') {
-                start = new Date(startDate + 'T00:00:00')
-                end = new Date(endDate + 'T00:00:00')
-            } else if (period === 'today') {
-                start = today
-                end = today
-            } else if (period === 'yesterday') {
-                const y = new Date(today)
-                y.setDate(y.getDate() - 1)
-                start = y
-                end = y
-            } else if (period === 'week') {
-                const day = today.getDay()
-                const diff = today.getDate() - day + (day === 0 ? -6 : 1)
-                start = new Date(today.setDate(diff))
-                end = new Date()
-            } else if (period === 'month') {
-                start = new Date(today.getFullYear(), today.getMonth(), 1)
-            } else if (period === 'quarter') {
-                const quarterAgo = new Date(today)
-                quarterAgo.setDate(quarterAgo.getDate() - 90)
-                start = quarterAgo
-            }
-
-            const formatDate = (d: Date) => {
-                const year = d.getFullYear()
-                const month = String(d.getMonth() + 1).padStart(2, '0')
-                const day = String(d.getDate()).padStart(2, '0')
-                return `${year}-${month}-${day}`
-            }
-
-            setStartDate(formatDate(start))
-            setEndDate(formatDate(end))
+            const queryStart = startDate || getBusinessDateLA()
+            const queryEnd = endDate || queryStart
 
             setLoadingMessage(t('sales.loading_processing'))
-            const res = await fetch(`/api/inventory/food-cost?storeId=all&startDate=${formatDate(start)}&endDate=${formatDate(end)}`)
+            const res = await fetch(`/api/inventory/food-cost?storeId=all&startDate=${queryStart}&endDate=${queryEnd}`)
             const json = await res.json()
 
             if (json.data) {
                 setData(json.data)
 
-                // Store authoritative net_sales from sales_daily_cache (for KPI parity with Ventas)
-                // This does NOT alter individual product data — only used for top-level summary
                 if (json.salesNetSales && Object.keys(json.salesNetSales).length > 0) {
                     setSalesNetSales(json.salesNetSales)
                 } else {
@@ -195,7 +164,21 @@ export default function FoodCostPage() {
 
                 // Extract unique stores
                 const stores = Array.from(new Set(json.data.map((r: FoodCostItem) => r.store_name || t('sales.unknown_store')))) as string[]
-                setStoreList(stores.sort())
+                const sortedStores = stores.sort()
+                setStoreList(sortedStores)
+
+                // Resolve URL store/storeId parameter against actual store_name values in json.data
+                setSelectedStore(prev => {
+                    if (prev === 'all' || sortedStores.includes(prev)) return prev
+                    const normPrev = formatStoreName(prev).toLowerCase().trim()
+                    const matchedRow = json.data.find((r: FoodCostItem) =>
+                        r.store_id === prev ||
+                        r.store_name === prev ||
+                        formatStoreName(r.store_name || '').toLowerCase().trim() === normPrev ||
+                        (r.store_name || '').toLowerCase().includes(normPrev)
+                    )
+                    return matchedRow?.store_name || prev
+                })
             } else {
                 setData([])
                 setStoreList([])
@@ -208,13 +191,11 @@ export default function FoodCostPage() {
             setLoading(false)
             setLoadingMessage('')
         }
-    }, [endDate, period, startDate, t])
+    }, [endDate, startDate, t])
 
     useEffect(() => {
-        if (period !== 'custom') {
-            refreshData()
-        }
-    }, [period, refreshData])
+        refreshData()
+    }, [refreshData])
 
     // Memoized Data Processing
     const { summaryData, storeTableData } = useMemo(() => {
@@ -223,7 +204,13 @@ export default function FoodCostPage() {
         // 1. Filter raw data based on selected store and search term
         let filtered = data
         if (selectedStore !== 'all') {
-            filtered = filtered.filter(item => (item.store_name || t('sales.unknown_store')) === selectedStore)
+            const normSelected = formatStoreName(selectedStore).toLowerCase().trim()
+            filtered = filtered.filter(item => {
+                const rawName = item.store_name || t('sales.unknown_store')
+                return rawName === selectedStore ||
+                    item.store_id === selectedStore ||
+                    formatStoreName(rawName).toLowerCase().trim() === normSelected
+            })
         }
         if (filterTerm) {
             const lowerFact = filterTerm.toLowerCase()

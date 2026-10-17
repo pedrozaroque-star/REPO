@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef } from 'react'
 import { useLanguage } from '@/lib/i18n'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { Star, MessageSquare, MessageCircleMore, ThumbsUp, ThumbsDown, Filter, Calendar, Search, MapPin, TrendingUp, TrendingDown, Minus, Plus, ChevronLeft, ChevronRight } from 'lucide-react'
 import { getSupabaseClient, formatStoreName } from '@/lib/supabase'
 import { formatDateLA, formatTimeLA, getStatusColor, getStatusLabel } from '@/lib/checklistPermissions'
@@ -14,6 +14,10 @@ import SurpriseLoader from '@/components/SurpriseLoader'
 
 function FeedbackContent() {
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const storeParam = searchParams.get('store') || searchParams.get('storeId')
+  const startDateParam = searchParams.get('startDate')
+  const endDateParam = searchParams.get('endDate')
   const { user } = useAuth()
   const { t } = useLanguage()
 
@@ -31,9 +35,11 @@ function FeedbackContent() {
   })
   const [feedbacks, setFeedbacks] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
-  const [storeFilter, setStoreFilter] = useState('all')
+  const [storeFilter, setStoreFilter] = useState(() => storeParam || 'all')
   const [statusFilter, setStatusFilter] = useState('all') // New Status Filter
   const [sourceFilter, setSourceFilter] = useState('all') // Source Filter (Google vs Other)
+  const [startDateFilter, setStartDateFilter] = useState(() => startDateParam || '')
+  const [endDateFilter, setEndDateFilter] = useState(() => endDateParam || '')
   const [stores, setStores] = useState<any[]>([])
   const [users, setUsers] = useState<any[]>([])
 
@@ -53,16 +59,20 @@ function FeedbackContent() {
   const itemsPerPage = 100
 
   // -- EFFECTS --
+  useEffect(() => {
+    if (storeParam && storeParam !== 'all') setStoreFilter(storeParam)
+    if (startDateParam) setStartDateFilter(startDateParam)
+    if (endDateParam) setEndDateFilter(endDateParam)
+  }, [storeParam, startDateParam, endDateParam])
 
   useEffect(() => {
     // Reset page to 1 when filters change
-    // Reset page to 1 when filters change
     setPage(1)
-  }, [storeFilter, statusFilter, sourceFilter])
+  }, [storeFilter, statusFilter, sourceFilter, startDateFilter, endDateFilter])
 
   useEffect(() => {
     if (user) fetchData()
-  }, [page, storeFilter, statusFilter, sourceFilter, user])
+  }, [page, storeFilter, statusFilter, sourceFilter, startDateFilter, endDateFilter, user])
 
   // Identity Check Effect
   useEffect(() => {
@@ -75,8 +85,6 @@ function FeedbackContent() {
         const payload = JSON.parse(atob(token.split('.')[1]))
         const jwtEmail = payload.email
 
-
-
         const supabase = await getSupabaseClient()
 
         // ✅ CONSULTA CORREGIDA: Buscar el usuario ESPECÍFICO del JWT
@@ -87,7 +95,6 @@ function FeedbackContent() {
           .single()
 
         if (data) {
-
           setTokenIdentity(data)
         }
       } catch (err) {
@@ -119,14 +126,28 @@ function FeedbackContent() {
 
       const supabase = await getSupabaseClient()
 
-
       const { data: claimsData, error: claimsError } = await supabase.rpc('get_my_claims')
-
-
 
       // Obtener tiendas
       const { data: storesData } = await supabase.from('stores').select('*')
       setStores(storesData || [])
+
+      // Resolver storeFilter si viene por nombre en vez de ID
+      let effectiveStoreFilter = storeFilter
+      if (effectiveStoreFilter !== 'all' && storesData && storesData.length > 0) {
+        const byId = storesData.find(s => String(s.id) === String(effectiveStoreFilter))
+        if (!byId) {
+          const cleanTarget = formatStoreName(String(effectiveStoreFilter)).toLowerCase().trim()
+          const byName = storesData.find(s =>
+            s.name?.toLowerCase().trim() === String(effectiveStoreFilter).toLowerCase().trim() ||
+            formatStoreName(s.name).toLowerCase().trim() === cleanTarget
+          )
+          if (byName) {
+            effectiveStoreFilter = String(byName.id)
+            if (storeFilter !== effectiveStoreFilter) setStoreFilter(effectiveStoreFilter)
+          }
+        }
+      }
 
       // Obtener usuarios para mapeo de nombres
       const { data: usersData } = await supabase.from('users').select('id, full_name')
@@ -139,8 +160,16 @@ function FeedbackContent() {
         .order('submission_date', { ascending: false })
 
       // Apply Store Filter (DB Level)
-      if (storeFilter !== 'all') {
-        query = query.eq('store_id', storeFilter)
+      if (effectiveStoreFilter !== 'all') {
+        query = query.eq('store_id', effectiveStoreFilter)
+      }
+
+      // Apply Date Range Filter (DB Level)
+      if (startDateFilter) {
+        query = query.gte('submission_date', startDateFilter)
+      }
+      if (endDateFilter) {
+        query = query.lte('submission_date', `${endDateFilter}T23:59:59.999Z`)
       }
 
       // Apply Source Filter
@@ -199,24 +228,11 @@ function FeedbackContent() {
         has_chat: (commentCounts[f.id] || 0) > 0
       }))
 
-      // NOTE: Status filtering is now done at DB level, no need to filter here again.
-      // But we keep the stats calculation based on the *fetched* page for now to avoid extra heavy queries.
-
       setFeedbacks(finalData)
 
-      // Auto-open Leaderboard on first load if logic dictates
-      // (User request: "al abrir la pagina FEEDBACK abrir un modal LEaderBoard")
-      if (!isLeaderboardOpen && finalData.length > 0) {
-        // Logic to open only once per session or navigation could be added here
-        // For now, just opening it when data is ready effectively.
-        // But careful about re-renders.
-      }
-
       // Calcular estadísticas GLOBALES (Server-Side RPC)
-      // This ensures "Real Data" across all history, not just the current page.
-      const rpcStoreId = storeFilter === 'all' ? null : parseInt(storeFilter)
+      const rpcStoreId = effectiveStoreFilter === 'all' ? null : parseInt(effectiveStoreFilter)
 
-      // Only fetch stats if we have a valid session, although filters are public-ish
       const { data: globalStats } = await supabase
         .rpc('get_feedback_overview', {
           p_store_id: rpcStoreId,
@@ -225,8 +241,8 @@ function FeedbackContent() {
 
       if (globalStats) {
         setStats({
-          total: globalStats.total_count,
-          promoters: 0, // Detailed breakdown not used in current summary cards
+          total: (startDateFilter || endDateFilter) ? (count || 0) : globalStats.total_count,
+          promoters: 0,
           passives: 0,
           detractors: 0,
           nps: globalStats.nps_score,
@@ -236,7 +252,6 @@ function FeedbackContent() {
           avgSpeed: globalStats.avg_speed
         })
       } else {
-        // Fallback
         setStats({
           total: count || 0,
           promoters: 0,
@@ -250,8 +265,9 @@ function FeedbackContent() {
         })
       }
 
-      // Open Leaderboard once data is loaded (Only for the first time)
-      if (!isLeaderboardOpen && !hasAutoOpened.current) {
+      // Open Leaderboard once data is loaded (Only for the first time, and NOT when navigated with URL filters)
+      const hasUrlFilters = Boolean(startDateParam || endDateParam || storeParam)
+      if (!isLeaderboardOpen && !hasAutoOpened.current && !hasUrlFilters) {
         setIsLeaderboardOpen(true)
         hasAutoOpened.current = true
       }
@@ -400,7 +416,7 @@ function FeedbackContent() {
               </button>
 
               {/* Desktop Filter */}
-              <div className="hidden md:block">
+              <div className="hidden md:flex items-center gap-2">
                 <select
                   value={storeFilter}
                   onChange={(e) => setStoreFilter(e.target.value)}
@@ -411,8 +427,20 @@ function FeedbackContent() {
                     <option key={s.id} value={s.id} className="bg-slate-900 text-white">{formatStoreName(s.name)}</option>
                   ))}
                 </select>
-              </div>
 
+                {(startDateFilter || endDateFilter) && (
+                  <div className="flex items-center gap-1.5 bg-indigo-500/20 border border-indigo-400/30 text-indigo-200 px-3 py-2 rounded-xl text-xs font-bold">
+                    <span>📅 {startDateFilter || '...'} → {endDateFilter || '...'}</span>
+                    <button
+                      onClick={() => { setStartDateFilter(''); setEndDateFilter('') }}
+                      className="ml-1 text-indigo-300 hover:text-white font-black"
+                      title="Clear date filter"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                )}
+              </div>
 
             </div>
           </div>

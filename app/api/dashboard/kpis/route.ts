@@ -46,9 +46,9 @@ export async function GET(req: NextRequest) {
         }
 
         // ═══════════════════════════════════════════════════
-        // 1. Sales + Labor via the UNIFIED engine (cache-first, live fallback for dirty dates)
+        // 1. Start Sales + Labor via the UNIFIED engine in parallel
         // ═══════════════════════════════════════════════════
-        const salesResult = await fetchToastData(salesOptions)
+        const salesPromise = fetchToastData(salesOptions)
 
         // ═══════════════════════════════════════════════════
         // 2. Food Cost: SAME STRATEGY AS VENTAS MODULE
@@ -58,13 +58,14 @@ export async function GET(req: NextRequest) {
         let fcTotalSales = 0
 
         try {
-            // Step A: Try cache (instant ~50ms)
+            // Step A: Try cache (instant ~50ms) — limit(5000) prevents 1,000-row PostgREST truncation on Quarter/Year ranges
             const supabase = await getSupabaseAdminClient()
             const { data: fcRows, error: fcErr } = await supabase
                 .from('food_cost_daily_cache')
                 .select('store_id, store_name, total_cost, net_sales, cost_percentage, business_date')
                 .gte('business_date', startDate)
                 .lte('business_date', endDate)
+                .limit(5000)
 
             const rangeDays = Math.floor(
                 (new Date(endDate + 'T00:00:00').getTime() - new Date(startDate + 'T00:00:00').getTime()) / (1000 * 60 * 60 * 24)
@@ -88,50 +89,68 @@ export async function GET(req: NextRequest) {
                 // Cache hit complete — use pre-calculated data
                 fcTotalCost = tempCost
                 fcTotalSales = tempSales
-            } else {
+            } else if (rangeDays <= 7) {
                 // Step B: Cache miss or partial — live fallback for short ranges (≤7 days)
-                if (rangeDays <= 7) {
-                    try {
-                        const directReq = new NextRequest(`http://localhost:3000/api/inventory/food-cost?storeId=all&startDate=${startDate}&endDate=${endDate}`)
-                        const directRes = await foodCostGet(directReq)
-                        if (directRes.ok) {
-                            const directJson = await directRes.json()
-                            if (directJson.data && directJson.data.length > 0) {
-                                fcTotalCost = 0
-                                fcTotalSales = 0
-                                directJson.data.forEach((item: any) => {
-                                    fcTotalCost += Number(item.total_cost || 0)
-                                    fcTotalSales += Number(item.net_sales || 0)
-                                })
-                            }
-                        }
-                    } catch (inProcErr) {
-                        const baseUrl = process.env.NEXT_PUBLIC_APP_URL 
-                            ? process.env.NEXT_PUBLIC_APP_URL.replace(/\/$/, '')
-                            : (process.env.VERCEL_PROJECT_PRODUCTION_URL 
-                                ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` 
-                                : (process.env.VERCEL_URL 
-                                    ? `https://${process.env.VERCEL_URL}` 
-                                    : 'http://localhost:3000'))
-                        const fcUrl = `${baseUrl}/api/inventory/food-cost?storeId=all&startDate=${startDate}&endDate=${endDate}`
-                        const fcRes = await fetch(fcUrl)
-                        const fcJson = await fcRes.json()
-
-                        if (fcJson.data && fcJson.data.length > 0) {
+                // Keep partial cache as safety baseline in case live fallback fails
+                fcTotalCost = tempCost
+                fcTotalSales = tempSales
+                try {
+                    const directReq = new NextRequest(`http://localhost:3000/api/inventory/food-cost?storeId=all&startDate=${startDate}&endDate=${endDate}`)
+                    const directRes = await foodCostGet(directReq)
+                    if (directRes.ok) {
+                        const directJson = await directRes.json()
+                        if (directJson.data && directJson.data.length > 0) {
                             fcTotalCost = 0
                             fcTotalSales = 0
-                            fcJson.data.forEach((item: any) => {
+                            directJson.data.forEach((item: any) => {
                                 fcTotalCost += Number(item.total_cost || 0)
                                 fcTotalSales += Number(item.net_sales || 0)
                             })
+                            // Use authoritative salesNetSales denominator if available (exact parity with /admin/food-cost)
+                            if (directJson.salesNetSales && Object.keys(directJson.salesNetSales).length > 0) {
+                                const authSales = Object.values(directJson.salesNetSales as Record<string, number>)
+                                    .reduce((sum, val) => sum + Number(val || 0), 0)
+                                if (authSales > 0) fcTotalSales = authSales
+                            }
+                        }
+                    }
+                } catch (inProcErr) {
+                    const baseUrl = process.env.NEXT_PUBLIC_APP_URL 
+                        ? process.env.NEXT_PUBLIC_APP_URL.replace(/\/$/, '')
+                        : (process.env.VERCEL_PROJECT_PRODUCTION_URL 
+                            ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` 
+                            : (process.env.VERCEL_URL 
+                                ? `https://${process.env.VERCEL_URL}` 
+                                : 'http://localhost:3000'))
+                    const fcUrl = `${baseUrl}/api/inventory/food-cost?storeId=all&startDate=${startDate}&endDate=${endDate}`
+                    const fcRes = await fetch(fcUrl)
+                    const fcJson = await fcRes.json()
+
+                    if (fcJson.data && fcJson.data.length > 0) {
+                        fcTotalCost = 0
+                        fcTotalSales = 0
+                        fcJson.data.forEach((item: any) => {
+                            fcTotalCost += Number(item.total_cost || 0)
+                            fcTotalSales += Number(item.net_sales || 0)
+                        })
+                        if (fcJson.salesNetSales && Object.keys(fcJson.salesNetSales).length > 0) {
+                            const authSales = Object.values(fcJson.salesNetSales as Record<string, number>)
+                                .reduce((sum, val) => sum + Number(val || 0), 0)
+                            if (authSales > 0) fcTotalSales = authSales
                         }
                     }
                 }
-                // For ranges > 7 days without cache, leave as 0 (too expensive to calculate live)
+            } else {
+                // Step C: For ranges > 7 days (e.g. This Month, Quarter) where today or a single day isn't cached yet,
+                // ALWAYS preserve the cached days accumulated in tempCost / tempSales instead of dropping to 0!
+                fcTotalCost = tempCost
+                fcTotalSales = tempSales
             }
         } catch (fcError) {
             console.error('[Dashboard KPIs] Food Cost Error:', fcError)
         }
+
+        const salesResult = await salesPromise
 
         // ── Aggregate Sales + Labor from fetchToastData rows ──
         // Each row = one store × one day (same structure as /api/ventas response)

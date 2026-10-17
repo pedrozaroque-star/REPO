@@ -35,7 +35,7 @@
     <meta name="twitter:image" content="https://tacosgavilan.com/img/og-tacos-gavilan-1200x630.jpg">
     <meta name="twitter:image:alt" content="Tacos Gavilan authentic Mexican food">
 
-    <link rel="stylesheet" href="../css/style.css?v=36">
+    <link rel="stylesheet" href="../css/style.css?v=42">
     <link rel="stylesheet" href="../css/compliance-a11y.css?v=36">
     <style>
         .legal-page-wrapper {
@@ -221,9 +221,18 @@
         var allowAna = false;
         try {
             var raw = localStorage.getItem('tg_cookie_consent') || localStorage.getItem('tacosgavilan_cookie_consent');
-            if (raw && raw.charAt(0) === '{') {
+            if (raw === 'accepted' && !gpc) {
+                allowMkt = true;
+                allowAna = true;
+            } else if (raw && raw.charAt(0) === '{') {
                 var parsed = JSON.parse(raw);
-                if (!parsed.doNotSell && !gpc) {
+                if (gpc) {
+                    allowMkt = false;
+                    allowAna = false;
+                } else if (parsed.doNotSell) {
+                    allowMkt = false;
+                    allowAna = parsed.analytics === true;
+                } else {
                     allowMkt = parsed.marketing === true;
                     allowAna = parsed.analytics === true;
                 }
@@ -267,7 +276,7 @@
                 <img src="../img/logo.webp" alt="Tacos Gavilan Logo" width="160" height="48">
             </a>
 
-            <nav class="nav" id="mobile-navigation" aria-label="Main Navigation" aria-hidden="true">
+            <nav class="nav" id="mobile-navigation" aria-label="Main Navigation">
                 <div class="nav-drawer-header">
                     <img src="../img/logo.webp" alt="Tacos Gavilan" class="nav-drawer-logo nav-drawer-logo-img" width="140" height="42">
                     <button class="nav-drawer-close" id="nav-drawer-close" aria-label="Close navigation menu" type="button">
@@ -313,7 +322,7 @@
             <article class="legal-card">
                 <header class="legal-header">
                     <h1 class="legal-title" data-en="Accessibility Statement" data-es="Declaración de Accesibilidad">Accessibility Statement</h1>
-                    <div class="legal-meta-bar" data-en="<strong>Effective Date:</strong> <code>[REQUIRES OWNER/LEGAL APPROVAL]</code> &amp;nbsp;·&amp;nbsp; <strong>Last Updated:</strong> October 16, 2026 &amp;nbsp;·&amp;nbsp; <strong>Last Technical Accessibility Review:</strong> October 16, 2026 &amp;nbsp;·&amp;nbsp; <strong>Version:</strong> 2.0 &amp;nbsp;·&amp;nbsp; <strong>Responsible Entity:</strong> Tacos Gavilan (<code>[REQUIRES OWNER/LEGAL APPROVAL: LEGAL ENTITY AND POSTAL ADDRESS]</code>)" data-es="<strong>Fecha de Entrada en Vigor:</strong> <code>[REQUIRES OWNER/LEGAL APPROVAL]</code> &amp;nbsp;·&amp;nbsp; <strong>Última Actualización:</strong> 16 de octubre de 2026 &amp;nbsp;·&amp;nbsp; <strong>Última Revisión Técnica de Accesibilidad:</strong> 16 de octubre de 2026 &amp;nbsp;·&amp;nbsp; <strong>Versión:</strong> 2.0 &amp;nbsp;·&amp;nbsp; <strong>Entidad Responsable:</strong> Tacos Gavilan (<code>[REQUIRES OWNER/LEGAL APPROVAL: LEGAL ENTITY AND POSTAL ADDRESS]</code>)"><strong>Effective Date:</strong> <code>[REQUIRES OWNER/LEGAL APPROVAL]</code> &nbsp;·&nbsp; <strong>Last Updated:</strong> October 16, 2026 &nbsp;·&nbsp; <strong>Last Technical Accessibility Review:</strong> October 16, 2026 &nbsp;·&nbsp; <strong>Version:</strong> 2.0 &nbsp;·&nbsp; <strong>Responsible Entity:</strong> Tacos Gavilan (<code>[REQUIRES OWNER/LEGAL APPROVAL: LEGAL ENTITY AND POSTAL ADDRESS]</code>)</div>
+                    <div class="legal-meta-bar" data-en="<strong>Effective Date:</strong> October 16, 2026 &amp;nbsp;·&amp;nbsp; <strong>Last Updated:</strong> October 16, 2026 &amp;nbsp;·&amp;nbsp; <strong>Last Technical Accessibility Review:</strong> October 16, 2026 &amp;nbsp;·&amp;nbsp; <strong>Version:</strong> 2.1 &amp;nbsp;·&amp;nbsp; <strong>Operator:</strong> Tacos Gavilan" data-es="<strong>Fecha de Entrada en Vigor:</strong> 16 de octubre de 2026 &amp;nbsp;·&amp;nbsp; <strong>Última Actualización:</strong> 16 de octubre de 2026 &amp;nbsp;·&amp;nbsp; <strong>Última Revisión Técnica de Accesibilidad:</strong> 16 de octubre de 2026 &amp;nbsp;·&amp;nbsp; <strong>Versión:</strong> 2.1 &amp;nbsp;·&amp;nbsp; <strong>Operador:</strong> Tacos Gavilan"><strong>Effective Date:</strong> October 16, 2026 &nbsp;·&nbsp; <strong>Last Updated:</strong> October 16, 2026 &nbsp;·&nbsp; <strong>Last Technical Accessibility Review:</strong> October 16, 2026 &nbsp;·&nbsp; <strong>Version:</strong> 2.1 &nbsp;·&nbsp; <strong>Operator:</strong> Tacos Gavilan</div>
                     <p class="legal-intro" data-en="Tacos Gavilan is working toward WCAG 2.2 Level AA conformance and continuously evaluates and improves our website so all guests can explore our menu, find our 15 Southern California locations, and contact us." data-es="Tacos Gavilan trabaja hacia la conformidad con WCAG 2.2 Nivel AA y evalúa y mejora continuamente nuestro sitio web para que todos los clientes puedan explorar nuestro menú, encontrar nuestras 15 sucursales en el sur de California y comunicarse con nosotros.">Tacos Gavilan is working toward WCAG 2.2 Level AA conformance and continuously evaluates and improves our website so all guests can explore our menu, find our 15 Southern California locations, and contact us.</p>
                 </header>
 
@@ -372,7 +381,7 @@
                     <p data-en="Authentic Mexican food serving Southern California since 1992. From our family to yours — Ya está." data-es="Auténtica comida mexicana sirviendo al sur de California desde 1992. De nuestra familia a la tuya — Ya está.">Authentic Mexican food serving Southern California since 1992. From our family to yours — Ya está.</p>
                 </div>
                 <div class="footer-links">
-                    <h4 data-en="Quick Links" data-es="Enlaces Rápidos">Quick Links</h4>
+                    <h3 data-en="Quick Links" data-es="Enlaces Rápidos">Quick Links</h3>
                     <ul>
                         <li><a href="../menu/" data-en="Menu" data-es="Menú">Menu</a></li>
                         <li><a href="../fiesta-platter/" data-en="Fiesta Platter" data-es="Fiesta Platter">Fiesta Platter</a></li>
@@ -381,9 +390,9 @@
                     </ul>
                 </div>
                 <div class="footer-info">
-                    <h4 data-en="HOURS" data-es="HORARIOS">HOURS</h4>
+                    <h3 data-en="HOURS" data-es="HORARIOS">HOURS</h3>
                     <p data-en="Hours vary by location.<br><strong>Check your nearest restaurant.</strong>" data-es="Los horarios varían por sucursal.<br><strong>Consulta tu restaurante más cercano.</strong>">Hours vary by location.<br><strong>Check your nearest restaurant.</strong></p>
-                    <h4 style="margin-top: 1.25rem;" data-en="CONTACT" data-es="CONTACTO">CONTACT</h4>
+                    <h3 style="margin-top: 1.25rem;" data-en="CONTACT" data-es="CONTACTO">CONTACT</h3>
                     <p><a href="mailto:info@tacosgavilan.com">info@tacosgavilan.com</a></p>
                 </div>
             </div>

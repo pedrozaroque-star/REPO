@@ -1,11 +1,26 @@
+/**
+ * @module components/dashboard/OperationsAlerts
+ * @description Centro de Alertas Operativas para el Dashboard Ejecutivo.
+ *   Visualiza en tiempo real alertas de Labor Cost (>21.5%), Food Cost (>32%),
+ *   caídas de ventas por sucursal (>=15% vs período anterior) y cumplimiento de inspecciones de supervisores.
+ * @businessRules
+ * - Auto-refresca cada 30 segundos en segundo plano sin parpadear la interfaz.
+ * - Cancela peticiones en vuelo con AbortController cuando el usuario cambia el rango de fechas.
+ * - Cada tarjeta de tienda o supervisor navega directamente al módulo correspondiente preservando fechas y filtros.
+ * @dataFlow
+ * - Props (startDate, endDate) -> GET /api/dashboard/alerts -> Renderizado de tarjetas y desglose expandible.
+ * @notes
+ * - Soporta Español e Inglés mediante useLanguage() (lib/i18n.tsx).
+ */
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   AlertTriangle, TrendingDown, Users, ChefHat, Shield,
   CheckCircle2, XCircle, Flame, Eye
 } from 'lucide-react'
+import { useLanguage } from '@/lib/i18n'
 
 interface DailyDetail {
   date: string
@@ -20,11 +35,11 @@ interface DailyDetail {
 
 interface AlertsData {
   totalAlerts: number
-  laborAlerts: { store: string; pct: number; sales: number; labor: number; severity: string }[]
-  foodCostAlerts: { store: string; pct: number; sales: number; cost: number; severity: string }[]
-  lowSalesAlerts: { store: string; sales: number; previousSales: number; pctChange: number; prevPeriodLabel: string }[]
+  laborAlerts: { store: string; storeId?: string; pct: number; sales: number; labor: number; severity: string }[]
+  foodCostAlerts: { store: string; storeId?: string; pct: number; sales: number; cost: number; severity: string }[]
+  lowSalesAlerts: { store: string; storeId?: string; sales: number; previousSales: number; pctChange: number; prevPeriodLabel: string }[]
   inspectionCompliance: {
-    supervisor: string; supervisorFull: string;
+    supervisor: string; supervisorFull: string; supervisorId?: number;
     ownedStores: string[]; scheduledStores: string[];
     inspectedStores: string[]; missingStores: string[]; extraStores: string[];
     totalScheduled: number; totalInspected: number; totalInspections: number;
@@ -41,23 +56,46 @@ interface Props {
 
 export default function OperationsAlerts({ startDate, endDate }: Props) {
   const router = useRouter()
+  const { t, language } = useLanguage()
   const [data, setData] = useState<AlertsData | null>(null)
   const [loading, setLoading] = useState(true)
   const [expandedSection, setExpandedSection] = useState<string | null>(null)
+  const abortRef = useRef<AbortController | null>(null)
 
   useEffect(() => {
-    const fetchAlerts = async () => {
-      setLoading(true)
+    if (abortRef.current) abortRef.current.abort()
+    const controller = new AbortController()
+    abortRef.current = controller
+
+    const fetchAlerts = async (signal: AbortSignal, isBackground = false) => {
+      if (!isBackground) setLoading(true)
       try {
-        const res = await fetch(`/api/dashboard/alerts?startDate=${startDate}&endDate=${endDate}`)
+        const res = await fetch(`/api/dashboard/alerts?startDate=${startDate}&endDate=${endDate}`, { signal })
+        if (!res.ok) throw new Error(`HTTP ${res.status}`)
         const json = await res.json()
-        setData(json)
-      } catch (err) {
+        if (!signal.aborted) {
+          setData(json)
+          setLoading(false)
+        }
+      } catch (err: any) {
+        if (err?.name === 'AbortError') return
         console.error('Failed to fetch alerts:', err)
+        if (!isBackground) setLoading(false)
       }
-      setLoading(false)
     }
-    fetchAlerts()
+
+    fetchAlerts(controller.signal, false)
+
+    const interval = setInterval(() => {
+      const refreshController = new AbortController()
+      abortRef.current = refreshController
+      fetchAlerts(refreshController.signal, true)
+    }, 30000)
+
+    return () => {
+      controller.abort()
+      clearInterval(interval)
+    }
   }, [startDate, endDate])
 
   if (loading) {
@@ -110,10 +148,10 @@ export default function OperationsAlerts({ startDate, endDate }: Props) {
           </div>
           <div>
             <h3 className="font-black text-slate-800 dark:text-white text-lg tracking-tight">
-              {overallSeverity === 'ok' ? '✅ Operaciones Estables' : '🚨 Centro de Alertas Operativas'}
+              {overallSeverity === 'ok' ? t('dashboard.alerts_stable') : t('dashboard.alerts_center')}
             </h3>
             <p className="text-slate-400 dark:text-slate-500 text-xs font-bold uppercase tracking-widest">
-              {data.totalAlerts} {data.totalAlerts === 1 ? 'alerta' : 'alertas'} activas
+              {data.totalAlerts} {data.totalAlerts === 1 ? t('dashboard.alerts_active_single') : t('dashboard.alerts_active_plural')}
             </p>
           </div>
         </div>
@@ -123,7 +161,7 @@ export default function OperationsAlerts({ startDate, endDate }: Props) {
               ? 'bg-red-500 text-white animate-pulse'
               : 'bg-amber-500 text-white'
           }`}>
-            {criticalCount > 0 ? `${criticalCount} CRÍTICAS` : 'ATENCIÓN'}
+            {criticalCount > 0 ? `${criticalCount} ${t('dashboard.alerts_critical_badge')}` : t('dashboard.alerts_attention_badge')}
           </span>
         )}
       </div>
@@ -141,15 +179,15 @@ export default function OperationsAlerts({ startDate, endDate }: Props) {
         >
           <div className="flex items-center gap-2 mb-2">
             <Users size={18} className={hasLaborAlerts ? 'text-red-500 dark:text-red-400' : 'text-emerald-600 dark:text-emerald-400'} />
-            <span className="text-xs font-black uppercase tracking-widest text-slate-500 dark:text-slate-400">Labor</span>
+            <span className="text-xs font-black uppercase tracking-widest text-slate-500 dark:text-slate-400">{t('dashboard.alerts_labor_label')}</span>
           </div>
           {hasLaborAlerts ? (
             <>
               <p className="text-3xl font-black text-red-600 dark:text-red-400">{data.laborAlerts.length}</p>
               <p className="text-xs text-red-500/80 dark:text-red-400/70 font-semibold mt-1">
                 {data.laborAlerts.filter(a => a.severity === 'critical').length > 0
-                  ? `${data.laborAlerts.filter(a => a.severity === 'critical').length} crítica(s)`
-                  : 'sobre target'}
+                  ? `${data.laborAlerts.filter(a => a.severity === 'critical').length} ${t('dashboard.alerts_critical_count')}`
+                  : t('dashboard.alerts_over_target')}
               </p>
             </>
           ) : (
@@ -171,15 +209,15 @@ export default function OperationsAlerts({ startDate, endDate }: Props) {
         >
           <div className="flex items-center gap-2 mb-2">
             <ChefHat size={18} className={hasFoodCostAlerts ? 'text-amber-600 dark:text-amber-400' : 'text-emerald-600 dark:text-emerald-400'} />
-            <span className="text-xs font-black uppercase tracking-widest text-slate-500 dark:text-slate-400">Food Cost</span>
+            <span className="text-xs font-black uppercase tracking-widest text-slate-500 dark:text-slate-400">{t('dashboard.alerts_foodcost_label')}</span>
           </div>
           {hasFoodCostAlerts ? (
             <>
               <p className="text-3xl font-black text-amber-600 dark:text-amber-400">{data.foodCostAlerts.length}</p>
               <p className="text-xs text-amber-600/80 dark:text-amber-400/70 font-semibold mt-1">
                 {data.foodCostAlerts.filter(a => a.severity === 'critical').length > 0
-                  ? `${data.foodCostAlerts.filter(a => a.severity === 'critical').length} crítica(s)`
-                  : 'sobre target'}
+                  ? `${data.foodCostAlerts.filter(a => a.severity === 'critical').length} ${t('dashboard.alerts_critical_count')}`
+                  : t('dashboard.alerts_over_target')}
               </p>
             </>
           ) : (
@@ -201,17 +239,17 @@ export default function OperationsAlerts({ startDate, endDate }: Props) {
         >
           <div className="flex items-center gap-2 mb-2">
             <TrendingDown size={18} className={hasLowSales ? 'text-orange-600 dark:text-orange-400' : 'text-emerald-600 dark:text-emerald-400'} />
-            <span className="text-xs font-black uppercase tracking-widest text-slate-500 dark:text-slate-400">Ventas</span>
+            <span className="text-xs font-black uppercase tracking-widest text-slate-500 dark:text-slate-400">{t('dashboard.alerts_sales_label')}</span>
           </div>
           {hasLowSales ? (
             <>
               <p className="text-3xl font-black text-orange-600 dark:text-orange-400">{data.lowSalesAlerts.length}</p>
-              <p className="text-xs text-orange-600/80 dark:text-orange-400/70 font-semibold mt-1">bajo promedio</p>
+              <p className="text-xs text-orange-600/80 dark:text-orange-400/70 font-semibold mt-1">{t('dashboard.alerts_below_avg')}</p>
             </>
           ) : (
             <>
               <p className="text-3xl font-black text-emerald-600 dark:text-emerald-400">✓</p>
-              <p className="text-xs text-emerald-600/70 dark:text-emerald-400/60 font-semibold mt-1">en promedio</p>
+              <p className="text-xs text-emerald-600/70 dark:text-emerald-400/60 font-semibold mt-1">{t('dashboard.alerts_on_avg')}</p>
             </>
           )}
         </button>
@@ -227,17 +265,17 @@ export default function OperationsAlerts({ startDate, endDate }: Props) {
         >
           <div className="flex items-center gap-2 mb-2">
             <Shield size={18} className={hasInspectionAlerts ? 'text-purple-600 dark:text-purple-400' : 'text-emerald-600 dark:text-emerald-400'} />
-            <span className="text-xs font-black uppercase tracking-widest text-slate-500 dark:text-slate-400">Inspecciones</span>
+            <span className="text-xs font-black uppercase tracking-widest text-slate-500 dark:text-slate-400">{t('dashboard.alerts_inspections_label')}</span>
           </div>
           {hasInspectionAlerts ? (
             <>
               <p className="text-3xl font-black text-purple-600 dark:text-purple-400">{nonCompliant.length}</p>
-              <p className="text-xs text-purple-600/80 dark:text-purple-400/70 font-semibold mt-1">sin compliance</p>
+              <p className="text-xs text-purple-600/80 dark:text-purple-400/70 font-semibold mt-1">{t('dashboard.alerts_non_compliant')}</p>
             </>
           ) : (
             <>
               <p className="text-3xl font-black text-emerald-600 dark:text-emerald-400">✓</p>
-              <p className="text-xs text-emerald-600/70 dark:text-emerald-400/60 font-semibold mt-1">100% cumplimiento</p>
+              <p className="text-xs text-emerald-600/70 dark:text-emerald-400/60 font-semibold mt-1">{t('dashboard.alerts_full_compliance')}</p>
             </>
           )}
         </button>
@@ -249,10 +287,10 @@ export default function OperationsAlerts({ startDate, endDate }: Props) {
           {expandedSection === 'labor' && (
             <div>
               <h4 className="text-base font-black text-slate-800 dark:text-white mb-1 flex items-center gap-2">
-                <Flame size={20} className="text-red-500" /> Labor Cost por Tienda
+                <Flame size={20} className="text-red-500" /> {t('dashboard.alerts_labor_by_store')}
               </h4>
               <p className="text-xs text-slate-400 dark:text-slate-500 mb-4">
-                Tiendas donde el costo de mano de obra supera el <span className="font-bold text-red-500">target de {data.targets.labor}%</span> de las ventas netas. Crítico a partir de {data.targets.laborCritical}%.
+                {t('dashboard.alerts_labor_desc_1')} <span className="font-bold text-red-500">{t('dashboard.alerts_target_of')} {data.targets.labor}%</span> {t('dashboard.alerts_labor_desc_2')} {data.targets.laborCritical}%.
               </p>
               {data.laborAlerts.length > 0 ? (
                 <div className="space-y-3">
@@ -260,7 +298,7 @@ export default function OperationsAlerts({ startDate, endDate }: Props) {
                     const barPct = Math.min(100, (a.pct / data.targets.laborCritical) * 100)
                     return (
                       <div key={i} className="bg-slate-50 dark:bg-slate-800 rounded-xl px-4 py-3 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors cursor-pointer border border-slate-100 dark:border-slate-700"
-                        onClick={() => router.push(`/ventas?period=custom&startDate=${startDate}&endDate=${endDate}`)}>
+                        onClick={() => router.push(`/ventas?period=custom&startDate=${startDate}&endDate=${endDate}&store=${encodeURIComponent(a.store)}&storeId=${encodeURIComponent(a.storeId || '')}`)}>
                         {/* Store name + badge */}
                         <div className="flex items-center justify-between mb-2">
                           <span className="text-base font-black text-slate-800 dark:text-white">{a.store}</span>
@@ -269,7 +307,7 @@ export default function OperationsAlerts({ startDate, endDate }: Props) {
                               ? 'bg-red-100 text-red-600 dark:bg-red-900/40 dark:text-red-400'
                               : 'bg-amber-100 text-amber-600 dark:bg-amber-900/40 dark:text-amber-400'
                           }`}>
-                            {a.pct}% {a.severity === 'critical' ? '🔴 Crítico' : '⚠️ Atención'}
+                            {a.pct}% {a.severity === 'critical' ? t('dashboard.alerts_critical') : t('dashboard.alerts_warning')}
                           </span>
                         </div>
 
@@ -295,15 +333,15 @@ export default function OperationsAlerts({ startDate, endDate }: Props) {
                         {/* Dollar breakdown */}
                         <div className="flex items-center justify-between text-sm">
                           <div className="flex items-center gap-1.5">
-                            <span className="text-slate-400 dark:text-slate-500">Ventas:</span>
+                            <span className="text-slate-400 dark:text-slate-500">{t('dashboard.alerts_sales')}:</span>
                             <span className="font-bold text-slate-600 dark:text-slate-300">${a.sales?.toLocaleString()}</span>
                           </div>
                           <div className="flex items-center gap-1.5">
-                            <span className="text-slate-400 dark:text-slate-500">Labor:</span>
+                            <span className="text-slate-400 dark:text-slate-500">{t('dashboard.alerts_labor')}:</span>
                             <span className={`font-bold ${a.severity === 'critical' ? 'text-red-500' : 'text-amber-600 dark:text-amber-400'}`}>${a.labor?.toLocaleString()}</span>
                           </div>
                           <div className="flex items-center gap-1.5">
-                            <span className="text-slate-400 dark:text-slate-500">Excede en:</span>
+                            <span className="text-slate-400 dark:text-slate-500">{t('dashboard.alerts_exceeds_by')}:</span>
                             <span className="font-bold text-red-500">+{(a.pct - data.targets.labor).toFixed(1)}pp</span>
                           </div>
                         </div>
@@ -312,7 +350,7 @@ export default function OperationsAlerts({ startDate, endDate }: Props) {
                   })}
                 </div>
               ) : (
-                <p className="text-emerald-600 dark:text-emerald-400 text-sm font-medium">Todas las tiendas dentro del target de {data.targets.labor}% ✓</p>
+                <p className="text-emerald-600 dark:text-emerald-400 text-sm font-medium">{t('dashboard.alerts_all_within_target')} {data.targets.labor}% ✓</p>
               )}
             </div>
           )}
@@ -320,10 +358,10 @@ export default function OperationsAlerts({ startDate, endDate }: Props) {
           {expandedSection === 'foodcost' && (
             <div>
               <h4 className="text-base font-black text-slate-800 dark:text-white mb-1 flex items-center gap-2">
-                <ChefHat size={20} className="text-amber-500" /> Food Cost por Tienda
+                <ChefHat size={20} className="text-amber-500" /> {t('dashboard.alerts_food_by_store')}
               </h4>
               <p className="text-xs text-slate-400 dark:text-slate-500 mb-4">
-                Tiendas donde el costo de alimentos supera el <span className="font-bold text-amber-500">target de {data.targets.foodCost}%</span> de las ventas netas. Crítico a partir de {data.targets.foodCostCritical}%.
+                {t('dashboard.alerts_food_desc_1')} <span className="font-bold text-amber-500">{t('dashboard.alerts_target_of')} {data.targets.foodCost}%</span> {t('dashboard.alerts_food_desc_2')} {data.targets.foodCostCritical}%.
               </p>
               {data.foodCostAlerts.length > 0 ? (
                 <div className="space-y-3">
@@ -331,7 +369,7 @@ export default function OperationsAlerts({ startDate, endDate }: Props) {
                     const barPct = Math.min(100, (a.pct / (data.targets.foodCostCritical + 4)) * 100)
                     return (
                       <div key={i} className="bg-slate-50 dark:bg-slate-800 rounded-xl px-4 py-3 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors cursor-pointer border border-slate-100 dark:border-slate-700"
-                        onClick={() => router.push(`/admin/food-cost?startDate=${startDate}&endDate=${endDate}`)}>
+                        onClick={() => router.push(`/admin/food-cost?startDate=${startDate}&endDate=${endDate}&store=${encodeURIComponent(a.store)}&storeId=${encodeURIComponent(a.storeId || '')}`)}>
                         {/* Store name + badge */}
                         <div className="flex items-center justify-between mb-2">
                           <span className="text-base font-black text-slate-800 dark:text-white">{a.store}</span>
@@ -340,7 +378,7 @@ export default function OperationsAlerts({ startDate, endDate }: Props) {
                               ? 'bg-red-100 text-red-600 dark:bg-red-900/40 dark:text-red-400'
                               : 'bg-amber-100 text-amber-600 dark:bg-amber-900/40 dark:text-amber-400'
                           }`}>
-                            {a.pct}% {a.severity === 'critical' ? '🔴 Crítico' : '⚠️ Atención'}
+                            {a.pct}% {a.severity === 'critical' ? t('dashboard.alerts_critical') : t('dashboard.alerts_warning')}
                           </span>
                         </div>
 
@@ -366,15 +404,15 @@ export default function OperationsAlerts({ startDate, endDate }: Props) {
                         {/* Dollar breakdown */}
                         <div className="flex items-center justify-between text-sm">
                           <div className="flex items-center gap-1.5">
-                            <span className="text-slate-400 dark:text-slate-500">Ventas:</span>
+                            <span className="text-slate-400 dark:text-slate-500">{t('dashboard.alerts_sales')}:</span>
                             <span className="font-bold text-slate-600 dark:text-slate-300">${a.sales?.toLocaleString()}</span>
                           </div>
                           <div className="flex items-center gap-1.5">
-                            <span className="text-slate-400 dark:text-slate-500">Costo:</span>
+                            <span className="text-slate-400 dark:text-slate-500">{t('dashboard.alerts_cost')}:</span>
                             <span className={`font-bold ${a.severity === 'critical' ? 'text-red-500' : 'text-amber-600 dark:text-amber-400'}`}>${a.cost?.toLocaleString()}</span>
                           </div>
                           <div className="flex items-center gap-1.5">
-                            <span className="text-slate-400 dark:text-slate-500">Excede en:</span>
+                            <span className="text-slate-400 dark:text-slate-500">{t('dashboard.alerts_exceeds_by')}:</span>
                             <span className="font-bold text-red-500">+{(a.pct - data.targets.foodCost).toFixed(1)}pp</span>
                           </div>
                         </div>
@@ -383,7 +421,7 @@ export default function OperationsAlerts({ startDate, endDate }: Props) {
                   })}
                 </div>
               ) : (
-                <p className="text-emerald-600 dark:text-emerald-400 text-sm font-medium">Todas las tiendas dentro del target de {data.targets.foodCost}% ✓</p>
+                <p className="text-emerald-600 dark:text-emerald-400 text-sm font-medium">{t('dashboard.alerts_all_within_target')} {data.targets.foodCost}% ✓</p>
               )}
             </div>
           )}
@@ -391,10 +429,10 @@ export default function OperationsAlerts({ startDate, endDate }: Props) {
           {expandedSection === 'sales' && (
             <div>
               <h4 className="text-base font-black text-slate-800 dark:text-white mb-1 flex items-center gap-2">
-                <TrendingDown size={20} className="text-orange-500" /> Ventas: Período Actual vs Anterior
+                <TrendingDown size={20} className="text-orange-500" /> {t('dashboard.alerts_sales_comparison')}
               </h4>
               <p className="text-xs text-slate-400 dark:text-slate-500 mb-4">
-                Cada tienda se compara contra <span className="font-bold text-orange-500">su propio período anterior equivalente</span>. Se alertan las que cayeron <span className="font-bold">15% o más</span>.
+                {t('dashboard.alerts_sales_desc_1')} <span className="font-bold text-orange-500">{t('dashboard.alerts_sales_desc_2')}</span>. {t('dashboard.alerts_sales_desc_3')} <span className="font-bold">15% {t('dashboard.alerts_or_more')}</span>.
               </p>
               {data.lowSalesAlerts.length > 0 ? (
                 <div className="space-y-3">
@@ -402,7 +440,7 @@ export default function OperationsAlerts({ startDate, endDate }: Props) {
                     const pctOfPrev = a.previousSales > 0 ? Math.round((a.sales / a.previousSales) * 100) : 0
                     return (
                       <div key={i} className="bg-slate-50 dark:bg-slate-800 rounded-xl px-4 py-3 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors cursor-pointer border border-slate-100 dark:border-slate-700"
-                        onClick={() => router.push(`/ventas?period=custom&startDate=${startDate}&endDate=${endDate}`)}>
+                        onClick={() => router.push(`/ventas?period=custom&startDate=${startDate}&endDate=${endDate}&store=${encodeURIComponent(a.store)}&storeId=${encodeURIComponent(a.storeId || '')}`)}>
                         {/* Store name + badge */}
                         <div className="flex items-center justify-between mb-2">
                           <span className="text-base font-black text-slate-800 dark:text-white">{a.store}</span>
@@ -411,7 +449,7 @@ export default function OperationsAlerts({ startDate, endDate }: Props) {
                               ? 'bg-red-100 text-red-600 dark:bg-red-900/40 dark:text-red-400'
                               : 'bg-orange-100 text-orange-600 dark:bg-orange-900/40 dark:text-orange-400'
                           }`}>
-                            {a.pctChange}% vs anterior
+                            {a.pctChange}% {t('dashboard.alerts_vs_previous')}
                           </span>
                         </div>
 
@@ -426,36 +464,36 @@ export default function OperationsAlerts({ startDate, endDate }: Props) {
                             style={{ width: `${Math.max(pctOfPrev, 8)}%` }}
                           />
                           <div className="absolute inset-y-0 right-0 flex items-center pr-2">
-                            <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400">ANTERIOR</span>
+                            <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400">{t('dashboard.alerts_previous_upper')}</span>
                           </div>
                         </div>
 
                         {/* Numbers detail */}
                         <div className="flex items-center justify-between text-sm">
                           <div className="flex items-center gap-1.5">
-                            <span className="text-slate-400 dark:text-slate-500">Ahora:</span>
+                            <span className="text-slate-400 dark:text-slate-500">{t('dashboard.alerts_now')}:</span>
                             <span className="font-bold text-orange-600 dark:text-orange-400">${a.sales.toLocaleString()}</span>
                           </div>
                           <div className="flex items-center gap-1.5">
-                            <span className="text-slate-400 dark:text-slate-500">Anterior:</span>
+                            <span className="text-slate-400 dark:text-slate-500">{t('dashboard.alerts_previous')}:</span>
                             <span className="font-bold text-slate-600 dark:text-slate-300">${a.previousSales?.toLocaleString()}</span>
                           </div>
                           <div className="flex items-center gap-1.5">
-                            <span className="text-slate-400 dark:text-slate-500">Diferencia:</span>
+                            <span className="text-slate-400 dark:text-slate-500">{t('dashboard.alerts_difference')}:</span>
                             <span className="font-bold text-red-500">-${(a.previousSales - a.sales).toLocaleString()}</span>
                           </div>
                         </div>
 
                         {/* Period context */}
                         <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-1.5 italic">
-                          Comparado vs {a.prevPeriodLabel}
+                          {t('dashboard.alerts_compared_vs')} {a.prevPeriodLabel}
                         </p>
                       </div>
                     )
                   })}
                 </div>
               ) : (
-                <p className="text-emerald-600 dark:text-emerald-400 text-sm font-medium">Todas las tiendas dentro de su rango normal vs período anterior ✓</p>
+                <p className="text-emerald-600 dark:text-emerald-400 text-sm font-medium">{t('dashboard.alerts_all_within_normal')}</p>
               )}
             </div>
           )}
@@ -463,20 +501,24 @@ export default function OperationsAlerts({ startDate, endDate }: Props) {
           {expandedSection === 'inspections' && (
             <div>
               <h4 className="text-base font-black text-slate-800 dark:text-white mb-1 flex items-center gap-2">
-                <Eye size={20} className="text-purple-500" /> Compliance de Inspecciones por Supervisor
+                <Eye size={20} className="text-purple-500" /> {t('dashboard.alerts_inspections_by_supervisor')}
               </h4>
               <p className="text-xs text-slate-400 dark:text-slate-500 mb-4">
-                Cada supervisor debe realizar <span className="font-bold text-purple-500">al menos 1 inspección</span> en sus tiendas asignadas por cada día que esté programado. Solo se muestran los <span className="font-bold">días con fallas</span>.
+                {t('dashboard.alerts_inspections_desc_1')} <span className="font-bold text-purple-500">{t('dashboard.alerts_inspections_desc_2')}</span> {t('dashboard.alerts_inspections_desc_3')} <span className="font-bold">{t('dashboard.alerts_inspections_desc_4')}</span>.
               </p>
               <div className="space-y-3">
                 {data.inspectionCompliance.map((sup, i) => {
                   const failedDays = sup.dailyDetail?.filter(d => !d.compliant) || []
                   return (
-                    <div key={i} className={`rounded-xl border overflow-hidden ${
-                      sup.compliant
-                        ? 'bg-emerald-50 dark:bg-emerald-900/10 border-emerald-200 dark:border-emerald-800/40'
-                        : 'bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700'
-                    }`}>
+                    <div
+                      key={i}
+                      onClick={() => router.push(`/inspecciones?startDate=${startDate}&endDate=${endDate}&inspector_id=${sup.supervisorId || ''}&user=${encodeURIComponent(sup.supervisorFull || sup.supervisor)}`)}
+                      className={`rounded-xl border overflow-hidden cursor-pointer transition-colors ${
+                        sup.compliant
+                          ? 'bg-emerald-50 hover:bg-emerald-100/70 dark:bg-emerald-900/10 dark:hover:bg-emerald-900/20 border-emerald-200 dark:border-emerald-800/40'
+                          : 'bg-slate-50 hover:bg-slate-100 dark:bg-slate-800 dark:hover:bg-slate-700/80 border-slate-200 dark:border-slate-700'
+                      }`}
+                    >
                       {/* Supervisor Header */}
                       <div className="px-4 py-3">
                         <div className="flex items-center justify-between mb-2">
@@ -494,7 +536,7 @@ export default function OperationsAlerts({ startDate, endDate }: Props) {
                                 ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400'
                                 : 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-400'
                           }`}>
-                            {sup.compliancePct}% compliance
+                            {sup.compliancePct}% {t('dashboard.alerts_compliance_pct')}
                           </span>
                         </div>
 
@@ -518,17 +560,17 @@ export default function OperationsAlerts({ startDate, endDate }: Props) {
                         {/* Stats row */}
                         <div className="flex items-center justify-between text-sm">
                           <div className="flex items-center gap-1.5">
-                            <span className="text-slate-400 dark:text-slate-500">Tiendas:</span>
+                            <span className="text-slate-400 dark:text-slate-500">{t('dashboard.alerts_stores_label')}:</span>
                             <span className="font-bold text-slate-600 dark:text-slate-300">{sup.ownedStores?.join(', ') || '—'}</span>
                           </div>
                           <div className="flex items-center gap-1.5">
-                            <span className="text-slate-400 dark:text-slate-500">Cumplidos:</span>
-                            <span className="font-bold text-emerald-600 dark:text-emerald-400">{sup.totalInspected} de {sup.totalScheduled} días</span>
+                            <span className="text-slate-400 dark:text-slate-500">{t('dashboard.alerts_completed_days')}:</span>
+                            <span className="font-bold text-emerald-600 dark:text-emerald-400">{sup.totalInspected} {t('dashboard.alerts_of')} {sup.totalScheduled} {t('dashboard.alerts_days')}</span>
                           </div>
                           {failedDays.length > 0 && (
                             <div className="flex items-center gap-1.5">
-                              <span className="text-slate-400 dark:text-slate-500">Fallas:</span>
-                              <span className="font-bold text-red-500">{failedDays.length} día{failedDays.length > 1 ? 's' : ''}</span>
+                              <span className="text-slate-400 dark:text-slate-500">{t('dashboard.alerts_failures')}:</span>
+                              <span className="font-bold text-red-500">{failedDays.length} {failedDays.length > 1 ? t('dashboard.alerts_days') : t('dashboard.alerts_day')}</span>
                             </div>
                           )}
                         </div>
@@ -540,7 +582,7 @@ export default function OperationsAlerts({ startDate, endDate }: Props) {
                           <div className="divide-y divide-slate-100 dark:divide-slate-800">
                             {failedDays.map((day, j) => {
                               const dateObj = new Date(day.date + 'T12:00:00')
-                              const dayName = dateObj.toLocaleDateString('es-MX', { weekday: 'short' }).toUpperCase()
+                              const dayName = dateObj.toLocaleDateString(language === 'en' ? 'en-US' : 'es-MX', { weekday: 'short' }).toUpperCase()
                               const dayNum = dateObj.getDate()
                               return (
                                 <div key={j} className="px-4 py-2.5 flex items-center gap-3 bg-red-50/80 dark:bg-red-900/10">
@@ -554,17 +596,17 @@ export default function OperationsAlerts({ startDate, endDate }: Props) {
                                   <div className="flex-1 min-w-0">
                                     <div className="flex items-center gap-2 flex-wrap">
                                       <span className="text-sm font-bold text-red-600 dark:text-red-400">
-                                        ❌ Sin inspección
+                                        {t('dashboard.alerts_no_inspection')}
                                       </span>
                                       {day.shift && (
                                         <span className="text-xs text-slate-400 dark:text-slate-500">
-                                          🕐 Programado: {day.shift}
+                                          {t('dashboard.alerts_scheduled')}: {day.shift}
                                         </span>
                                       )}
                                     </div>
                                     {day.ownedStoresMissing.length > 0 && (
                                       <p className="text-xs text-red-500/80 dark:text-red-400/60 mt-0.5">
-                                        Tiendas sin visitar: {day.ownedStoresMissing.join(', ')}
+                                        {t('dashboard.alerts_unvisited_stores')}: {day.ownedStoresMissing.join(', ')}
                                       </p>
                                     )}
                                   </div>
@@ -583,7 +625,7 @@ export default function OperationsAlerts({ startDate, endDate }: Props) {
                       {(!sup.dailyDetail || sup.dailyDetail.length === 0) && (
                         <div className="px-4 py-3 border-t border-slate-200/60 dark:border-slate-700/50">
                           <p className="text-sm text-slate-400 dark:text-slate-500">
-                            Sin días programados en este período
+                            {t('dashboard.alerts_no_scheduled_days')}
                           </p>
                         </div>
                       )}

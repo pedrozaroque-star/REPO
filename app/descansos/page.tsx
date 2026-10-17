@@ -9,13 +9,16 @@
  * - Aprendizaje Continuo (AI Learning): Movimientos manuales del mánager se guardan en `break_manual_overrides` y se aplican en futuros cálculos.
  * @dataFlow Sincroniza turnos de `shifts`, ponchadas de `punches` (Toast POS), proyección de ventas, y guarda preferencias aprendidas en `break_manual_overrides`.
  * @notes Renderizado progresivo ultrarrápido con caché en DB (<150ms) y sincronización bidireccional PC-tableta.
+ *   Modo Tableta mantiene la pantalla siempre encendida (Screen Wake Lock + video silencioso de respaldo, ver `lib/use-wake-lock.ts`)
+ *   con corriente o batería; se libera al salir del modo.
  */
 
 'use client'
 
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
-import { Calendar, Loader2, Zap, ArrowLeft, History, RefreshCw, Maximize, Minimize, ChevronLeft, ChevronRight, Plus, Trash2 } from 'lucide-react'
+import { Calendar, Loader2, Zap, ArrowLeft, History, RefreshCw, Maximize, Minimize, ChevronLeft, ChevronRight, Plus, Trash2, Sun, MoonStar } from 'lucide-react'
 import { useLanguage } from '@/lib/i18n'
+import { useWakeLock } from '@/lib/use-wake-lock'
 import { motion, AnimatePresence } from 'framer-motion'
 import { format, addMonths, subMonths, startOfMonth, endOfMonth, startOfWeek, endOfWeek, isSameMonth, isSameDay } from 'date-fns'
 import { es } from 'date-fns/locale'
@@ -42,6 +45,8 @@ export default function DescansosPage() {
 
     const containerRef = useRef<HTMLDivElement>(null)
     const [isFullscreen, setIsFullscreen] = useState(false)
+    // 🔆 Mientras el Modo Tableta esté activo, la pantalla no se duerme (corriente o batería)
+    const wakeLock = useWakeLock(isFullscreen)
     const [calendarOpen, setCalendarOpen] = useState(false)
     const [calendarViewDate, setCalendarViewDate] = useState(new Date())
 
@@ -336,6 +341,8 @@ export default function DescansosPage() {
         const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 
         if (!isFullscreen) {
+            // 🔆 Pedir "pantalla siempre encendida" DENTRO del gesto del usuario (requisito de iOS para el video de respaldo)
+            wakeLock.requestNow();
             if (isIOS) {
                 setIsFullscreen(true); // En iOS/iPadOS forzamos CSS (su API de fullscreen suele fallar o limitar a videos)
             } else if (elem?.requestFullscreen) {
@@ -1207,6 +1214,21 @@ export default function DescansosPage() {
                         {isFullscreen ? <Minimize size={16} /> : <Maximize size={16} />}
                         <span className="hidden lg:inline">{isFullscreen ? 'Salir' : 'Tableta'}</span>
                     </button>
+
+                    {/* 🔆 Indicador de pantalla siempre encendida (Screen Wake Lock) — solo en Modo Tableta */}
+                    {isFullscreen && (
+                        <button
+                            type="button"
+                            onClick={() => { wakeLock.requestNow() }}
+                            title={wakeLock.isActive ? t('descansos.wake_on_tip') : t('descansos.wake_off_tip')}
+                            className={`flex items-center gap-1.5 px-3 py-2 rounded-lg font-bold text-xs border transition-colors ${wakeLock.isActive
+                                ? 'bg-emerald-50 text-emerald-700 border-emerald-200 cursor-default'
+                                : 'bg-amber-50 text-amber-700 border-amber-300 hover:bg-amber-100 animate-pulse'}`}
+                        >
+                            {wakeLock.isActive ? <Sun size={14} /> : <MoonStar size={14} />}
+                            <span className="hidden md:inline">{wakeLock.isActive ? t('descansos.wake_on') : t('descansos.wake_off')}</span>
+                        </button>
+                    )}
 
                     {showRealPunches && (
                         <button

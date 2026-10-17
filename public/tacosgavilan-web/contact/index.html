@@ -84,8 +84,8 @@
     })();
     </script>
 
-    <link rel="stylesheet" href="../css/style.css?v=35">
-    <link rel="stylesheet" href="../css/compliance-a11y.css?v=28">
+    <link rel="stylesheet" href="../css/style.css?v=42">
+    <link rel="stylesheet" href="../css/compliance-a11y.css?v=36">
     <style>
         .page-content-wrapper {
             padding-top: calc(var(--header-height, 70px) + 2rem);
@@ -237,7 +237,7 @@
             </a>
 
             <!-- Main Navigation (center / Mobile Drawer) -->
-            <nav class="nav" id="mobile-navigation" aria-label="Main Navigation" aria-hidden="true">
+            <nav class="nav" id="mobile-navigation" aria-label="Main Navigation">
                 <div class="nav-drawer-header">
                     <img src="../img/logo.webp" alt="Tacos Gavilan" class="nav-drawer-logo nav-drawer-logo-img" width="140" height="42">
                     <button class="nav-drawer-close" id="nav-drawer-close" aria-label="Close navigation menu" type="button">
@@ -420,7 +420,7 @@
                     </p>
                 </div>
                 <div class="footer-col">
-                    <h4 class="footer-heading" data-i18n="footer.quickLinks">Quick Links</h4>
+                    <h3 class="footer-heading" data-i18n="footer.quickLinks">Quick Links</h3>
                     <ul class="footer-links">
                         <li><a href="../menu/" data-i18n="nav.menu">Menu</a></li>
                         <li><a href="../locations/" data-i18n="nav.locations">Locations</a></li>
@@ -430,7 +430,7 @@
                     </ul>
                 </div>
                 <div class="footer-col">
-                    <h4 class="footer-heading" data-i18n="footer.legal">Legal &amp; Privacy</h4>
+                    <h3 class="footer-heading" data-i18n="footer.legal">Legal &amp; Privacy</h3>
                     <ul class="footer-links">
                         <li><a href="../privacy/" data-i18n="footer.privacy">Privacy Policy</a></li>
                         <li><a href="../privacy/#notice-at-collection" data-i18n="footer.noticeAtCollection">Notice at Collection</a></li>
@@ -440,7 +440,7 @@
                     </ul>
                 </div>
                 <div class="footer-col">
-                    <h4 class="footer-heading" data-i18n="footer.contactHeading">Contact &amp; Support</h4>
+                    <h3 class="footer-heading" data-i18n="footer.contactHeading">Contact &amp; Support</h3>
                     <p class="footer-text"><a href="mailto:info@tacosgavilan.com" style="color: var(--clr-gold, #FFC72C);">info@tacosgavilan.com</a></p>
                     <p class="footer-text" data-i18n="footer.storePhoneDesc">15 Locations across Southern California</p>
                     <p class="footer-text"><a href="../locations/" style="color: var(--clr-gold, #FFC72C);" data-i18n="footer.findStore">Find Your Store &rarr;</a></p>
@@ -459,7 +459,7 @@
         </svg>
     </button>
 
-    <script src="../js/main.js?v=41" defer></script>
+    <script src="../js/main.js?v=42" defer></script>
     <script>
         document.addEventListener('DOMContentLoaded', function() {
             const form = document.getElementById('contact-page-form');
@@ -486,6 +486,7 @@
             form.addEventListener('submit', async function(e) {
                 e.preventDefault();
                 feedback.className = 'form-feedback-message';
+                feedback.setAttribute('role', 'status');
                 feedback.textContent = '';
 
                 // Honeypot check
@@ -493,6 +494,7 @@
                 const hp2 = document.getElementById('b_website').value;
                 if (hp1 || hp2) {
                     feedback.className = 'form-feedback-message is-success';
+                    feedback.setAttribute('role', 'status');
                     feedback.textContent = 'Thank you! Your message has been received.';
                     form.reset();
                     return;
@@ -523,6 +525,7 @@
                     const data = await res.json();
                     if (res.ok && data.ok) {
                         feedback.className = 'form-feedback-message is-success';
+                        feedback.setAttribute('role', 'status');
                         const refInfo = data.reference_id
                             ? (isSpanish
                                 ? ` (ID de Confirmación: ${data.reference_id} | Fecha/Hora UTC: ${data.submitted_at || ''})`
@@ -533,10 +536,12 @@
                         form.reset();
                     } else {
                         feedback.className = 'form-feedback-message is-error';
+                        feedback.setAttribute('role', 'alert');
                         feedback.textContent = data.error || (isSpanish ? 'Error al enviar el mensaje.' : 'Message transmission failed.');
                     }
                 } catch (err) {
                     feedback.className = 'form-feedback-message is-error';
+                    feedback.setAttribute('role', 'alert');
                     feedback.textContent = isSpanish ? 'Error de conexión. Escríbenos a info@tacosgavilan.com.' : 'Connection error. Please email us at info@tacosgavilan.com.';
                 } finally {
                     submitBtn.disabled = false;
@@ -545,6 +550,6 @@
             });
         });
     </script>
-    <script src="../js/compliance-a11y.js?v=35" defer></script>
+    <script src="../js/compliance-a11y.js?v=36" defer></script>
 </body>
 </html>

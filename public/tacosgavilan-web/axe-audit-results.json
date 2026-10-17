@@ -1,0 +1,74 @@
+[
+  {
+    "context": "Desktop English (Base View)",
+    "passes": 43,
+    "incomplete": 3,
+    "violations": []
+  },
+  {
+    "context": "Mobile iPhone 390x844 English",
+    "passes": 43,
+    "incomplete": 3,
+    "violations": []
+  },
+  {
+    "context": "Mobile iPhone 390x844 Spanish",
+    "passes": 43,
+    "incomplete": 3,
+    "violations": []
+  },
+  {
+    "context": "Mobile Map Modal Active",
+    "passes": 38,
+    "incomplete": 4,
+    "violations": []
+  },
+  {
+    "context": "Mobile Privacy Modal Active",
+    "passes": 39,
+    "incomplete": 4,
+    "violations": []
+  },
+  {
+    "context": "Mobile Accessibility Modal Active",
+    "passes": 39,
+    "incomplete": 4,
+    "violations": []
+  },
+  {
+    "context": "Subpage /privacy/ (Desktop)",
+    "passes": 49,
+    "incomplete": 2,
+    "violations": []
+  },
+  {
+    "context": "Subpage /terms/ (Desktop)",
+    "passes": 43,
+    "incomplete": 2,
+    "violations": []
+  },
+  {
+    "context": "Subpage /accessibility/ (Desktop)",
+    "passes": 43,
+    "incomplete": 2,
+    "violations": []
+  },
+  {
+    "context": "Subpage /privacy-choices/ (Desktop)",
+    "passes": 46,
+    "incomplete": 2,
+    "violations": []
+  },
+  {
+    "context": "Subpage /contact/ (Desktop)",
+    "passes": 47,
+    "incomplete": 1,
+    "violations": []
+  },
+  {
+    "context": "Subpage /locations/slauson/ (Desktop)",
+    "passes": 43,
+    "incomplete": 2,
+    "violations": []
+  }
+]

@@ -121,7 +121,7 @@ function SalesPageContent() {
     const [connError, setConnError] = useState<string | null>(null)
     const [verifying, setVerifying] = useState(false)
     const [integrityStatus, setIntegrityStatus] = useState<'idle' | 'verifying' | 'fixed' | 'ok'>('idle')
-    const [selectedStore, setSelectedStore] = useState<string>('all') // Store filter for KPIs and Trend
+    const [selectedStore, setSelectedStore] = useState<string>(() => urlParams.get('store') || urlParams.get('storeId') || 'all') // Store filter for KPIs and Trend
     const [storeList, setStoreList] = useState<string[]>([]) // Available stores
     const [dayOfWeekFilter, setDayOfWeekFilter] = useState<number | null>(null) // null = all days, 0=Sun, 1=Mon...6=Sat
     const [timeFilter, setTimeFilter] = useState<string>('all') // 'all', '6-11', '11-16', '16-23', '23-4', 'custom'
@@ -582,7 +582,7 @@ function SalesPageContent() {
                 // Últimos 90 días, agrupado por SEMANA (or day if day-of-week/time filter active)
                 const quarterAgo = new Date(today)
                 quarterAgo.setDate(quarterAgo.getDate() - 90)
-                start = quarterAgo
+                start = new Date(today.getFullYear(), Math.floor(today.getMonth() / 3) * 3, 1)
                 groupBy = (dayOfWeekFilter !== null || timeFilter !== 'all') ? 'day' : 'week'
             }
 
@@ -640,7 +640,19 @@ function SalesPageContent() {
                 setData({ ...processed, rawRows: json.data, groupByMode: groupBy })
                 // Extract unique store names for filter dropdown
                 const uniqueStores = [...new Set(json.data.map((r: any) => r.storeName || t('sales.unknown_store')))] as string[]
-                setStoreList(uniqueStores.sort())
+                const sortedStores = uniqueStores.sort()
+                setStoreList(sortedStores)
+                setSelectedStore(prev => {
+                    if (prev === 'all' || sortedStores.includes(prev)) return prev
+                    const normPrev = formatStoreName(prev).toLowerCase().trim()
+                    const matchedRow = json.data.find((r: any) =>
+                        r.storeId === prev ||
+                        r.storeName === prev ||
+                        formatStoreName(r.storeName || '').toLowerCase().trim() === normPrev ||
+                        (r.storeName || '').toLowerCase().includes(normPrev)
+                    )
+                    return matchedRow?.storeName || prev
+                })
             } else {
                 setData(null)
                 setStoreList([])
@@ -918,7 +930,10 @@ function SalesPageContent() {
         // Filter rows by selected store - if 'all', use all rows
         let filteredRows = selectedStore === 'all'
             ? data.rawRows
-            : data.rawRows.filter((r: any) => (r.storeName || t('sales.unknown_store')) === selectedStore)
+            : data.rawRows.filter((r: any) => {
+                const rawName = r.storeName || t('sales.unknown_store')
+                return rawName === selectedStore || r.storeId === selectedStore || formatStoreName(rawName).toLowerCase().trim() === formatStoreName(selectedStore).toLowerCase().trim()
+            })
 
         // 📅 DAY-OF-WEEK FILTER: Filter rows to only include a specific day of the week
         if (dayOfWeekFilter !== null) {

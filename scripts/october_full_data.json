@@ -1,5 +1,5 @@
 {
-  "totalHours": 116.9,
+  "totalHours": 120.7,
   "rows": [
     {
       "date": "01-Oct-2026",
@@ -216,45 +216,46 @@
     },
     {
       "date": "16-Oct-2026",
-      "time": "12:00 AM - 12:22 AM & 7:58 AM - 11:58 AM",
-      "hours": 4.4,
+      "time": "12:00 AM - 12:22 AM & 7:58 AM - 1:18 PM & 2:19 PM - 4:32 PM & 5:55 PM - 6:15 PM",
+      "hours": 8.2,
       "badges": [
         "Lanzador /inicio & Selector Post-Login",
-        "App Clientes Menu 2 & DoorDash API",
-        "Basecamp Auto-Sync 6 Capas & Fechas",
-        "Nueva Web Modo Claro & Analítica",
-        "Gavilan POS Banco Pruebas Bodega",
-        "Auditoría Dashboard 6 Módulos",
+        "App Clientes Menu 2, Autocomplete & DoorDash",
+        "Web CCPA/CPRA 2026, GPC & WCAG 2.2 AA",
+        "Salsa 5oz Tech Pack & PDF Vectorial 1:1",
+        "Dashboard Enlace Profundo 6 Módulos",
+        "Tableta Wake Lock (Descansos/Asignación)",
+        "Basecamp Auto-Sync 6 Capas & Check # Delivery",
         "Lynwood #14"
       ],
-      "descEs": "• <strong>Nuevo Centro de Mando '/inicio', Selector de Destino Post-Login y Estandarización de Insignias en Sidebar</strong>: Creación de la página lanzadora categorizada (/inicio) con tarjetas de acceso rápido, expansión permanente por defecto de las 6 secciones de la barra lateral (components/AppSidebar.tsx) y selector ejecutivo post-login (tras el Splash 3D en app/login/page.tsx y app/auth/sso/page.tsx) para elegir entre el Menú de Opciones (INICIO) o el Dashboard Ejecutivo. Estandarización de insignias azules 'NEW' (Order Ready, Contabilidad Cohesion, Crear Bills, Nueva Web, Blindaje Delivery) e insignias de obra '[ 🚧 Building ]' para módulos en construcción (App Clientes en nueva pestaña, Gavilan POS, Mantenimiento & Proveedores y RONOS).<br>• <strong>App Móvil Clientes (/app y gavilan-app) — Nuevo 'Menu 2' Nativo Compactado, Modal de Tacos en 2 Pasos e Integración DoorDash</strong>: Desarrollo de la pestaña nativa 'Menu 2' (app/(tabs)/menu2.tsx) con tarjetas compactadas sin redundancia visual (ej. una sola tarjeta de Horchata con selector Medium/Large), submenú unificado de Tacos con cambio dinámico de fotografía por proteína y modal dedicado en 2 pasos (Add-Ons con cargo, Side Condiments gratuitos e instrucciones especiales por taco), nomenclatura exacta de Toast POS (Mulita vs Super Mulita), badge sutil 'Popular' y configuración de credenciales de DoorDash Developer (lib/doordash-drive.ts y lib/doordash-storefront.ts).<br>• <strong>Basecamp — Auto-Sincronización en Tiempo Real de 6 Capas y Badges de Fecha/Hora de Creación</strong>: Implementación de arquitectura de sincronización en tiempo real de 6 capas (receptor de webhooks, respaldo OAuth2 cifrado y suscripciones Supabase Realtime) y adición de badge informativo con la fecha y hora exacta de creación junto a cada tarea (To-do) en todas las vistas (components/basecamp/ToolTodos.tsx, BasecampProject.tsx y MyStuffPage.tsx).<br>• <strong>Sitio Web tacosgavilan.com y '/nueva-web' — Rediseño en Modo Claro SM TEG, Sensor de Visitas en 37 Páginas y Deduplicación Legal</strong>: Rediseño integral del centro de mando /nueva-web al estándar corporativo claro de SM TEG, incorporación de contador real de visitas web y clics hacia pedidos en línea (api/track.js y sensor en js/compliance-a11y.js en las 37 páginas) y eliminación de archivos HTML legales duplicados en la raíz (privacy.html, terms.html, accessibility.html y privacy-choices.html).<br>• <strong>Gavilan POS (Banco de Pruebas en Bodega y Lector EBT Independiente), Crear Bills QBO y Auditoría de Dashboard</strong>: Adición del laboratorio de pruebas de hardware e idempotencia en Bodega y validación de lector EBT CalFresh independiente en /gavilan-pos (commit b6a632c), endurecimiento de autenticación QuickBooks en /admin/crear-bills y auditoría línea por línea con 3 subagentes del Dashboard Ejecutivo (/dashboard) y sus 6 módulos alimentadores.",
-      "descEn": "• <strong>New '/inicio' Launchpad Hub, Post-Login Destination Selector & Standardized Sidebar Status Badges</strong>: Built the categorized module launchpad (/inicio) with quick-access cards, set all 6 AppSidebar sections expanded by default (components/AppSidebar.tsx), and added a post-login destination selector (after the 3D Splash in app/login/page.tsx and app/auth/sso/page.tsx) to choose between the Options Menu (INICIO) or the Executive Dashboard. Standardized blue 'NEW' badges (Order Ready, Cohesion Accounting, Crear Bills, Nueva Web, Blindaje Delivery) and '[ 🚧 Building ]' hazard badges for modules under active construction (Customer App in new tab, Gavilan POS, Maintenance & Providers, and RONOS).<br>• <strong>Customer Mobile App (/app & gavilan-app) — Compacted Native 'Menu 2', 2-Step Taco Customizer Modal & DoorDash Setup</strong>: Engineered the native 'Menu 2' tab (app/(tabs)/menu2.tsx) featuring compacted cards with zero visual redundancy (e.g., single Horchata card with Medium/Large selector), unified Tacos submenu with dynamic protein photo switching and a dedicated 2-step customization modal (paid Add-Ons, free Side Condiments, and per-item Special Instructions), exact Toast POS naming (Mulita vs Super Mulita), subtle 'Popular' badge, and DoorDash Developer portal integration (lib/doordash-drive.ts & lib/doordash-storefront.ts).<br>• <strong>Basecamp — 6-Layer Real-Time Auto-Sync & Creation Date/Time Badges</strong>: Implemented 6-layer real-time auto-sync architecture (webhook receiver, encrypted OAuth2 fallback, and live Supabase Realtime subscriptions) and added creation date & timestamp badges next to every To-do item across all Basecamp views (components/basecamp/ToolTodos.tsx, BasecampProject.tsx, and MyStuffPage.tsx).<br>• <strong>tacosgavilan.com & '/nueva-web' — SM TEG Light Mode Redesign, 37-Page First-Party Traffic Sensor & Legal HTML Deduplication</strong>: Redesigned the /nueva-web command center in SM TEG corporate Light Mode, deployed a real first-party website visit and online-order click-out counter (api/track.js and js/compliance-a11y.js sensor across all 37 pages), and removed duplicate root legal HTML files (privacy.html, terms.html, accessibility.html, privacy-choices.html).<br>• <strong>Gavilan POS (Warehouse Hardware Test Bench & Standalone EBT), Crear Bills QBO Auth & Dashboard Audit</strong>: Added Warehouse hardware & idempotency test bench and verified standalone EBT CalFresh reader workflows in /gavilan-pos (commit b6a632c), hardened QuickBooks OAuth validation in /admin/crear-bills, and conducted a 3-subagent line-by-line audit of the Executive Dashboard (/dashboard) and its 6 feeder modules."
+      "descEs": "• <strong>Nuevo Centro de Mando '/inicio', Selector de Destino Post-Login, Colores Diferenciados y Estandarización de Insignias</strong>: Creación de la página lanzadora categorizada (/inicio) con tarjetas de acceso rápido, expansión permanente por defecto de las 6 secciones de la barra lateral (components/AppSidebar.tsx), diferenciación cromática de secciones (rose/emerald/amber) y selector ejecutivo post-login (tras el Splash 3D en app/login/page.tsx y app/auth/sso/page.tsx) para elegir entre el Menú de Opciones (INICIO) o el Dashboard Ejecutivo. Estandarización de insignias azules 'NEW' e insignias de obra '[ 🚧 Building ]'.<br>• <strong>App Móvil Clientes (/app y gavilan-app) — 'Menu 2' Nativo Compactado, Autocompletado de Direcciones en Vivo y Opción A Preserva-Bolsa</strong>: Desarrollo de la pestaña nativa 'Menu 2' (app/(tabs)/menu2.tsx) con tarjetas compactadas sin redundancia visual (Horchata Medium/Large en 1 tarjeta), submenú unificado de Tacos con cambio dinámico de fotografía y modal en 2 pasos (Add-Ons, Side Condiments e instrucciones especiales), autocompletado de direcciones de entrega en tiempo real (/api/mobile/address/autocomplete), Opción A para preservar siempre la bolsa de compra (cart) antes del checkout y configuración de credenciales DoorDash Developer (lib/doordash-drive.ts y lib/doordash-storefront.ts).<br>• <strong>Sitio Web tacosgavilan.com y Módulo 'Sitio Web' (/nueva-web) — Blindaje Legal CCPA/CPRA 2026, Consent Mode v2, GPC, 0 Violaciones WCAG 2.2 AA y Cruce de Órdenes</strong>: Renombrado en barra lateral a 'Sitio Web / Website', alineación al 100% de ancho completo, simuladores reconstruidos de iPad (768px) y iPhone (390px), motor de cruce por ventana de tiempo entre clics web y órdenes reales de Toast POS, eliminación de marcas comerciales externas en botones ('Ordenar en Línea'), citación legal expresa de order.online (DoorDash, Inc.) en Privacy/Terms/Accessibility y blindaje E2E completo (Consent Mode v2 estricto, señal GPC, validación HTTP 400 en formulario de contacto, 34/34 páginas validadas y 0 violaciones axe-core WCAG 2.2 AA en 12 contextos).<br>• <strong>Ingeniería de Empaque Propio — Botella de Salsa Picante 5 fl. oz. y Pliego de Impresión 100% Vectorial a Escala 1:1</strong>: Análisis dimensional cuadro por cuadro del envase de 5 fl. oz. (tapatio.mp4: 6.65\" alto, Ø 1.85\" cuerpo, corona 24-414, etiqueta 5.00\" × 3.00\"), elaboración del Manufacturing Tech Pack y diseño desde cero de 3 propuestas 100% originales con vectores oficiales de Adobe Illustrator (gavilan-logo-hor.svg) y tipografía Gotham Ultra incrustada en el PDF 100% vectorial listo para imprenta a escala real 1:1 (Imprimir_Prueba_1a1_Tacos_Gavilan_5oz_Carta.pdf).<br>• <strong>Interconexión Bidireccional del Dashboard con sus 6 Módulos Alimentadores, Wake Lock para Tabletas y Check # en Blindaje Delivery</strong>: Auditoría y enlace profundo bidireccional (deep-linking con filtros sincronizados de fecha, tienda y supervisor) entre /dashboard y Ventas, Food Cost, Drive-Thru, Inspecciones, Feedback y Auditoría de Descuentos. Implementación del hook reutilizable de doble capa lib/use-wake-lock.ts (Screen Wake Lock API nativa + respaldo H.264 silencioso public/media/wake-lock.mp4 para iPadOS) en Modo Tableta de Descansos y Asignación Diaria, adición del número prominente de Check / Ticket en la tarjeta izquierda de Blindaje Delivery (/admin/blindaje-delivery/empaque) y auto-sincronización de 6 capas con fechas de creación en Basecamp.",
+      "descEn": "• <strong>New '/inicio' Launchpad Hub, Post-Login Destination Selector, Differentiated Section Colors & Standardized Status Badges</strong>: Built the categorized module launchpad (/inicio) with quick-access cards, set all 6 AppSidebar sections expanded by default (components/AppSidebar.tsx), differentiated section color palettes (rose/emerald/amber), and added a post-login destination selector (after the 3D Splash in app/login/page.tsx and app/auth/sso/page.tsx) to choose between the Options Menu (INICIO) or the Executive Dashboard. Standardized blue 'NEW' and '[ 🚧 Building ]' status badges.<br>• <strong>Customer Mobile App (/app & gavilan-app) — Compacted Native 'Menu 2', Live Delivery Address Autocomplete & Option A Cart-Preserving Checkout</strong>: Engineered the native 'Menu 2' tab (app/(tabs)/menu2.tsx) featuring compacted cards (single Horchata card with Medium/Large selector), unified Tacos submenu with dynamic protein photo switching and 2-step customizer modal, real-time debounced Delivery Address Autocomplete (/api/mobile/address/autocomplete), Option A cart-preserving checkout flow, and DoorDash Developer portal integration (lib/doordash-drive.ts & lib/doordash-storefront.ts).<br>• <strong>tacosgavilan.com & 'Website' Module (/nueva-web) — CCPA/CPRA 2026 Legal Hardening, Consent Mode v2, GPC, 0-Violation WCAG 2.2 AA & Order Matching</strong>: Renamed sidebar entry to 'Sitio Web / Website', aligned /nueva-web to 100% flush width, rebuilt iPad (768px) and iPhone (390px) device simulators, implemented Time-Window Order Matching between website click-outs and Toast POS orders, removed third-party brand names from ordering buttons ('Order Online'), explicitly cited order.online (DoorDash, Inc.) in Privacy/Terms/Accessibility, and completed full E2E compliance hardening (strict Consent Mode v2 gating, GPC signal honors, contact form HTTP 400 validation, 34/34 static checks, and 0 axe-core WCAG 2.2 AA violations across 12 contexts).<br>• <strong>Proprietary Packaging Engineering — 5 fl. oz. Hot Sauce Bottle & 1:1 Pure Vector Print Proof PDF</strong>: Executed frame-by-frame dimensional engineering from reference video (tapatio.mp4: 6.65\" height, Ø 1.85\" body, 24-414 neck finish, 5.00\" × 3.00\" label), authored the Manufacturing Tech Pack, and designed 3 100% original Tacos Gavilan label proposals using official Adobe Illustrator SVG vectors (gavilan-logo-hor.svg) and embedded Gotham Ultra typography in a 100% pure-vector 1:1 US Letter print sheet (Imprimir_Prueba_1a1_Tacos_Gavilan_5oz_Carta.pdf).<br>• <strong>Executive Dashboard Bidirectional Deep-Linking Across 6 Feeder Modules, Tablet Screen Wake Lock & Blindaje Delivery Check #</strong>: Completed bidirectional deep-linking (preserving date, store, and supervisor filters) between /dashboard and Sales, Food Cost, Drive-Thru, Inspections, Feedback, and Discount Audits. Built the dual-layer lib/use-wake-lock.ts hook (native Screen Wake Lock API + H.264 silent loop fallback public/media/wake-lock.mp4 for iPadOS) so tablets in Fullscreen/Tablet mode (Breaks & Daily Assignment) never sleep, added prominent Check/Ticket numbers on the left card in Blindaje Delivery (/admin/blindaje-delivery/empaque), and deployed 6-layer Basecamp auto-sync with creation timestamps."
     }
   ],
   "effort": [
     {
       "name": "Order Ready (4,000 Audios), Preparador KDS & Blindaje Delivery",
-      "hours": 37,
-      "percent": 31.7
+      "hours": 37.3,
+      "percent": 30.9
     },
     {
       "name": "App Móvil Clientes (/app & Menu 2), Gavilan POS & Sitio Web (tacosgavilan.com)",
-      "hours": 33.3,
-      "percent": 28.5
+      "hours": 35.8,
+      "percent": 29.7
     },
     {
       "name": "Contabilidad, Paridad 100% Cohesion, Candado Toast & Crear Bills",
       "hours": 23,
-      "percent": 19.7
+      "percent": 19.1
     },
     {
-      "name": "Inventario, Orden Diaria IA, Uniformes-Caja Fuerte & Viele",
-      "hours": 13.2,
-      "percent": 11.3
+      "name": "Inventario, Orden Diaria IA, Uniformes-Caja Fuerte, Viele & Salsa 5oz",
+      "hours": 13.8,
+      "percent": 11.4
     },
     {
-      "name": "Home Hub (/inicio), Basecamp 6-Layer Sync, Dashboard, MilesIQ & Reportes",
-      "hours": 10.4,
+      "name": "Home Hub (/inicio), Basecamp 6-Layer Sync, Dashboard, Descansos & Reportes",
+      "hours": 10.8,
       "percent": 8.9
     }
   ],

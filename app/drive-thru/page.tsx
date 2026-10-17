@@ -264,10 +264,15 @@ function DriveThruContent() {
     const { t } = useLanguage()
     const router = useRouter()
     const searchParams = useSearchParams()
+    const urlDateParam = searchParams.get('date') || searchParams.get('endDate') || searchParams.get('startDate')
+    const urlStartDate = searchParams.get('startDate') || ''
+    const urlEndDate = searchParams.get('endDate') || ''
 
     // ─── State global ───
     const [activeTab, setActiveTab] = useState<TabId>('leaderboard')
-    const [selectedDate, setSelectedDate] = useState(getBusinessDate)
+    const [selectedDate, setSelectedDate] = useState(() => urlDateParam || getBusinessDate())
+    const [startDateRange, setStartDateRange] = useState(() => urlStartDate)
+    const [endDateRange, setEndDateRange] = useState(() => urlEndDate)
     const [dtStores, setDtStores] = useState<{ id: string; name: string }[]>(DT_STORES)
 
     useEffect(() => {
@@ -308,7 +313,10 @@ function DriveThruContent() {
         setLbLoading(true)
         try {
             const slot = lbViewMode === 'slot' ? ALL_SLOTS[lbSlotIndex] : undefined
-            const url = `/api/drive-thru/leaderboard?date=${selectedDate}${slot ? `&slot=${slot}` : ''}`
+            const useMultiDayRange = !slot && startDateRange && endDateRange && startDateRange !== endDateRange && selectedDate === endDateRange
+            const url = useMultiDayRange
+                ? `/api/drive-thru/leaderboard?date=${selectedDate}&startDate=${startDateRange}&endDate=${endDateRange}`
+                : `/api/drive-thru/leaderboard?date=${selectedDate}${slot ? `&slot=${slot}` : ''}`
             const res = await fetch(url, { signal: controller.signal })
             if (!res.ok) throw new Error(`HTTP ${res.status}`)
             const json = await res.json()
@@ -319,7 +327,7 @@ function DriveThruContent() {
         } finally {
             setLbLoading(false)
         }
-    }, [lbViewMode, lbSlotIndex, selectedDate])
+    }, [lbViewMode, lbSlotIndex, selectedDate, startDateRange, endDateRange])
 
     useEffect(() => {
         if (activeTab === 'leaderboard') {
@@ -390,28 +398,40 @@ function DriveThruContent() {
     // TAB 2: TIMELINE
     // ═══════════════════════════════════════════════════════
     const [tlStoreId, setTlStoreId] = useState<string>('')
-    const [tlDate, setTlDate] = useState(getBusinessDate)
+    const [tlDate, setTlDate] = useState(() => urlDateParam || getBusinessDate())
     const [tlData, setTlData] = useState<TimelineData | null>(null)
     const [tlLoading, setTlLoading] = useState(false)
     const [tlError, setTlError] = useState<string | null>(null)
     const tlAbortRef = useRef<AbortController | null>(null)
 
-    // Preseleccionar tienda desde URL param ?store=UUID [&tab=lookup|timeline]
+    // Preseleccionar tienda y fecha desde URL params ?store=UUID [&tab=lookup|timeline] [&date=YYYY-MM-DD]
     useEffect(() => {
         const storeParam = searchParams.get('store')
         const tabParam = searchParams.get('tab')
+        const dateFromUrl = searchParams.get('date') || searchParams.get('endDate') || searchParams.get('startDate')
+        const sDate = searchParams.get('startDate') || ''
+        const eDate = searchParams.get('endDate') || ''
+
+        if (sDate) setStartDateRange(sDate)
+        if (eDate) setEndDateRange(eDate)
+        if (dateFromUrl) {
+            setSelectedDate(dateFromUrl)
+            setTlDate(dateFromUrl)
+            setLuDate(dateFromUrl)
+        }
+
         if (storeParam) {
             if (tabParam === 'timeline') {
                 setTlStoreId(storeParam)
                 setActiveTab('timeline')
             } else {
                 setLuStoreId(storeParam)
-                setLuDate(selectedDate)
+                setLuDate(dateFromUrl || selectedDate)
                 setLuPage(1)
                 setActiveTab('lookup')
             }
         }
-    }, [searchParams, selectedDate])
+    }, [searchParams])
 
     const fetchTimeline = useCallback(async () => {
         if (!tlStoreId) return
@@ -448,7 +468,7 @@ function DriveThruContent() {
     // ═══════════════════════════════════════════════════════
     const [luOrderNumber, setLuOrderNumber] = useState('')
     const [luStoreId, setLuStoreId] = useState<string>('')
-    const [luDate, setLuDate] = useState<string>(getBusinessDate)
+    const [luDate, setLuDate] = useState<string>(() => urlDateParam || getBusinessDate())
     const [luData, setLuData] = useState<LookupData | null>(null)
     const [luLoading, setLuLoading] = useState(false)
     const [luError, setLuError] = useState<string | null>(null)

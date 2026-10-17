@@ -100,6 +100,16 @@ document.addEventListener('DOMContentLoaded', () => {
     if (mobileToggle && nav) {
         const navLinks = nav.querySelectorAll('.nav-link, a');
 
+        const syncNavAccessibility = () => {
+            const isOpen = nav.classList.contains('is-open') || nav.classList.contains('nav-open');
+            if (window.innerWidth > 768) {
+                nav.removeAttribute('aria-hidden');
+            } else {
+                nav.setAttribute('aria-hidden', isOpen ? 'false' : 'true');
+            }
+        };
+        syncNavAccessibility();
+
         const openMenu = () => {
             const isEs = document.documentElement.lang === 'es';
             nav.classList.add('is-open', 'nav-open', 'mobile-menu-open');
@@ -123,11 +133,11 @@ document.addEventListener('DOMContentLoaded', () => {
             mobileToggle.classList.remove('active', 'is-open');
             mobileToggle.setAttribute('aria-expanded', 'false');
             mobileToggle.setAttribute('aria-label', isEs ? 'Abrir menú de navegación' : 'Open navigation menu');
-            nav.setAttribute('aria-hidden', 'true');
+            syncNavAccessibility();
             document.body.classList.remove('mobile-menu-open', 'menu-open');
             releaseFocus();
 
-            if (mobileToggle) {
+            if (mobileToggle && window.innerWidth <= 768) {
                 mobileToggle.focus();
             }
         };
@@ -176,6 +186,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (window.innerWidth > 768 && (nav.classList.contains('is-open') || nav.classList.contains('nav-open'))) {
                 closeMenu();
             }
+            syncNavAccessibility();
         });
 
         // Close when switching language

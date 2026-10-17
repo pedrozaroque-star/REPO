@@ -272,7 +272,7 @@ module.exports = async function handler(req, res) {
         body = body || {};
 
         // 5. Honeypot Anti-Spam Check
-        if (body.b_company_website || body.b_website || body.b_name || body.b_company) {
+        if (body.b_company_website || body.b_website || body.b_name || body.b_company || body.website) {
             // Silently discard spam submission; do not write to DB
             return res.status(200).json({
                 ok: true,
@@ -307,16 +307,6 @@ module.exports = async function handler(req, res) {
         const rawReason = REASON_ALIASES[rawReasonInput] || rawReasonInput || 'general';
         const rawStore = sanitizeText(body.store || body.location);
         const message = sanitizeText(body.message);
-
-        // 5b. Automated Bot / Gibberish / Scanner Filter (Shadow-Drop)
-        if (isAutomatedBotSubmission({ name, email, message, userAgent: req.headers['user-agent'] })) {
-            return res.status(200).json({
-                ok: true,
-                reference_id: 'TG-FILTERED',
-                submitted_at: new Date().toISOString(),
-                message: 'Thank you for your message.'
-            });
-        }
 
         if (!name || name.length < 2 || name.length > 100) {
             return res.status(400).json({
@@ -364,6 +354,16 @@ module.exports = async function handler(req, res) {
                 ok: false,
                 field: 'message',
                 error: 'Please write a message between 5 and 2000 characters.'
+            });
+        }
+
+        // 6b. Automated Bot / Gibberish / Scanner Filter (Shadow-Drop)
+        if (isAutomatedBotSubmission({ name, email, message, userAgent: req.headers['user-agent'] })) {
+            return res.status(200).json({
+                ok: true,
+                reference_id: 'TG-FILTERED',
+                submitted_at: new Date().toISOString(),
+                message: 'Thank you for your message.'
             });
         }
 

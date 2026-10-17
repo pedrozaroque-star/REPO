@@ -1,14 +1,37 @@
+/**
+ * @module app/dashboard/page
+ * @description Módulo principal del Dashboard Ejecutivo de Tacos Gavilan (Centro de Comando).
+ *   Consolida en tiempo real los indicadores clave (KPIs) y alertas operativas de los 6 módulos alimentadores:
+ *   1. Ventas y Labor Cost (/ventas, /api/dashboard/kpis)
+ *   2. Food Cost (/admin/food-cost, /api/dashboard/kpis)
+ *   3. Alertas Operativas y Cumplimiento (/api/dashboard/alerts, OperationsAlerts)
+ *   4. Drive-Thru Leaderboard (/drive-thru, DriveThruLeaderboard)
+ *   5. Radar de Descuentos y Tickets Toast (/admin/auditoria-descuentos, /api/toast-order-detail)
+ *   6. Inspecciones de Supervisores (/inspecciones) y Customer Feedback (/feedback)
+ * @businessRules
+ * - El día laboral inicia a las 6:00 AM y termina a las 5:59 AM del día siguiente en zona horaria America/Los_Angeles.
+ * - Umbrales de Food Cost: >32% Atención (ámbar), >36% Crítico.
+ * - Umbrales de Labor Cost: ≤21.5% En Meta (verde), >21.5% Atención (ámbar), >23% Crítico (rojo). Si es 0% (sin datos), se muestra neutro (slate).
+ * - Radar de Descuentos alerta descuentos Employee, Senior y First Responder >= $15.
+ * - Auto-refresh cada 30 segundos (excepto en modo custom) con cancelación de peticiones en vuelo mediante AbortController.
+ * @dataFlow
+ * - DateRangeFilter (timeFilter, startDate, endDate) -> fetchStats() + OperationsAlerts + DriveThruLeaderboard.
+ * - Clic en cualquier tarjeta, alerta, tienda, supervisor, descuento o comentario navega o abre el modal conectado al 100%.
+ * @notes
+ * - Usa useAuth() de ProtectedRoute para obtener el usuario autenticado real (custom JWT teg_token) y habilitar el chat de revisión en FeedbackReviewModal.
+ * - 100% bilingüe (Español / Inglés) a través de useLanguage() (lib/i18n.tsx).
+ */
 'use client'
 
 import { useEffect, useState, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { getSupabaseClient, formatStoreName } from '@/lib/supabase'
 import { formatDateLA } from '@/lib/checklistPermissions'
-import ProtectedRoute from '@/components/ProtectedRoute'
+import ProtectedRoute, { useAuth } from '@/components/ProtectedRoute'
 import {
-    LayoutDashboard, Plus, BarChart3, Store, Users, ClipboardList,
-    MessageSquare, AlertTriangle, CheckCircle, TrendingUp, Activity,
-    Target, Timer, Award, Info, ShieldAlert, Camera, ExternalLink,
+     ClipboardList, Users, Store,
+    MessageSquare, AlertTriangle, CheckCircle, Activity,
+    Target, Timer, Award, ShieldAlert, Camera, ExternalLink,
     DollarSign, X, Receipt, ChevronLeft, ChevronRight
 } from 'lucide-react'
 import SurpriseLoader from '@/components/SurpriseLoader'
@@ -18,9 +41,56 @@ import { useLanguage } from '@/lib/i18n'
 import OperationsAlerts from '@/components/dashboard/OperationsAlerts'
 import DriveThruLeaderboard from '@/components/dashboard/DriveThruLeaderboard'
 
+/**
+ * Obtiene la fecha de negocio actual (YYYY-MM-DD) en zona horaria America/Los_Angeles
+ * respetando la regla de las 6:00 AM.
+ */
+function getBusinessDateLA(): string {
+    const now = new Date()
+    const laTime = new Date(now.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
+    if (laTime.getHours() < 6) {
+        laTime.setDate(laTime.getDate() - 1)
+    }
+    const year = laTime.getFullYear()
+    const month = String(laTime.getMonth() + 1).padStart(2, '0')
+    const day = String(laTime.getDate()).padStart(2, '0')
+    return `${year}-${month}-${day}`
+}
+
+/**
+ * Construye timestamps ISO con el offset real de America/Los_Angeles (-07:00 / -08:00)
+ * cubriendo desde las 00:00:00 del startDate hasta las 05:59:59.999 del día siguiente al endDate.
+ */
+function getRangeTimestampsLA(startDateStr: string, endDateStr: string) {
+    const getOffset = (dStr: string) => {
+        try {
+            const dt = new Date(`${dStr}T12:00:00Z`)
+            const parts = new Intl.DateTimeFormat('en-US', { timeZone: 'America/Los_Angeles', timeZoneName: 'shortOffset' }).formatToParts(dt)
+            const tzPart = parts.find(p => p.type === 'timeZoneName')?.value || 'GMT-7'
+            const match = tzPart.match(/GMT([+-]\d+)/)
+            if (!match) return '-07:00'
+            const hrs = parseInt(match[1], 10)
+            const sign = hrs < 0 ? '-' : '+'
+            return `${sign}${String(Math.abs(hrs)).padStart(2, '0')}:00`
+        } catch {
+            return '-07:00'
+        }
+    }
+    const startOffset = getOffset(startDateStr)
+    const endOffset = getOffset(endDateStr)
+    const [ey, em, ed] = endDateStr.split('-').map(Number)
+    const nextDay = new Date(ey, em - 1, ed + 1)
+    const nextDayStr = `${nextDay.getFullYear()}-${String(nextDay.getMonth() + 1).padStart(2, '0')}-${String(nextDay.getDate()).padStart(2, '0')}`
+    return {
+        startTs: `${startDateStr}T00:00:00${startOffset}`,
+        endTs: `${nextDayStr}T05:59:59.999${endOffset}`
+    }
+}
+
 function DashboardContent() {
     const router = useRouter()
     const { t } = useLanguage()
+    const { user } = useAuth()
     const [stats, setStats] = useState({
         totalInspections: 0,
         avgInspectionScore: 0,
@@ -44,72 +114,26 @@ function DashboardContent() {
     const [anomalyLoading, setAnomalyLoading] = useState(false)
     const [orderDetailData, setOrderDetailData] = useState<{loading: boolean, data?: any, error?: string, checkId?: string, storeName?: string, cajeraName?: string} | null>(null)
     const [timeFilter, setTimeFilter] = useState('today')
-    const [startDate, setStartDate] = useState(() => {
-        const d = new Date()
-        if (d.getHours() < 6) d.setDate(d.getDate() - 1) // Business day adjustment
-        const year = d.getFullYear()
-        const month = String(d.getMonth() + 1).padStart(2, '0')
-        const day = String(d.getDate()).padStart(2, '0')
-        return `${year}-${month}-${day}`
-    })
-    const [endDate, setEndDate] = useState(() => {
-        const d = new Date()
-        if (d.getHours() < 6) d.setDate(d.getDate() - 1) // Business day adjustment
-        const year = d.getFullYear()
-        const month = String(d.getMonth() + 1).padStart(2, '0')
-        const day = String(d.getDate()).padStart(2, '0')
-        return `${year}-${month}-${day}`
-    })
+    const [startDate, setStartDate] = useState(() => getBusinessDateLA())
+    const [endDate, setEndDate] = useState(() => getBusinessDateLA())
     const [selectedFeedback, setSelectedFeedback] = useState<any>(null)
     const [isModalOpen, setIsModalOpen] = useState(false)
-    const [user, setUser] = useState<any>(null)
 
     // AbortController: cancels in-flight HTTP requests when user changes filter
-    // (Same pattern as Ventas module — prevents race conditions)
     const abortControllerRef = useRef<AbortController | null>(null)
 
     useEffect(() => {
-        const fetchUser = async () => {
-            const token = localStorage.getItem('teg_token')
-            const supabase = await getSupabaseClient()
-
-            if (token) {
-                await supabase.auth.setSession({ access_token: token, refresh_token: '' })
-            }
-
-            const { data: { user: authUser } } = await supabase.auth.getUser()
-
-            if (authUser) {
-                const { data: dbUser } = await supabase.from('users').select('*').eq('id', authUser.id).single()
-                if (dbUser) {
-                    setUser({
-                        ...dbUser,
-                        name: dbUser.full_name,
-                        email: authUser.email
-                    })
-                }
-            }
-        }
-        fetchUser()
-    }, [])
-
-    useEffect(() => {
-        // Cancel any in-flight request from the PREVIOUS filter selection
         if (abortControllerRef.current) {
             abortControllerRef.current.abort()
         }
-        // Create a new AbortController for THIS filter selection
         const controller = new AbortController()
         abortControllerRef.current = controller
 
-        // Ejecutar carga inicial
         fetchStats(controller.signal)
 
-        // Auto-refresh cada 30 segundos (solo si no es custom range, para evitar refreshes molestos mientras editas fechas)
         let interval: ReturnType<typeof setInterval> | undefined
         if (timeFilter !== 'custom') {
             interval = setInterval(() => {
-                // Each auto-refresh also gets its own abort signal
                 const refreshController = new AbortController()
                 abortControllerRef.current = refreshController
                 fetchStats(refreshController.signal)
@@ -117,15 +141,11 @@ function DashboardContent() {
         }
 
         return () => {
-            // Cleanup: cancel in-flight request + stop interval
             controller.abort()
             if (interval) clearInterval(interval)
         }
-    }, [timeFilter, startDate, endDate]) // Re-run when dates change
+    }, [timeFilter, startDate, endDate])
 
-    // getDateRange helper removed (logic handled by DateRangeFilter)
-
-    // Aliases de las fechas del estado — disponibles en todo el componente (JSX incluido)
     const startDateStr = startDate
     const endDateStr = endDate
 
@@ -143,15 +163,12 @@ function DashboardContent() {
         setEndDate(formatD(currentEnd))
     }
 
-    // Disable right arrow when already on today's business date
-    const todayBusinessStr = (() => {
-        const d = new Date()
-        if (d.getHours() < 6) d.setDate(d.getDate() - 1)
-        return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0')
-    })()
+    // Disable right arrow when already on today's business date in America/Los_Angeles
+    const todayBusinessStr = getBusinessDateLA()
     const isTodayOrFuture = endDate >= todayBusinessStr
 
     const fetchStats = async (signal?: AbortSignal) => {
+        const validSignal = signal instanceof AbortSignal ? signal : undefined
         try {
             const token = localStorage.getItem('teg_token')
             const supabase = await getSupabaseClient()
@@ -172,11 +189,9 @@ function DashboardContent() {
                   created_at
                 `)
                 .order('created_at', { ascending: false })
-                .limit(500)
+                .limit(1000)
 
             if (timeFilter !== 'all') {
-                // For standard filters, we usually want >= startDate and <= endDate
-                // But inspection_date is just a date column, so simple comparison works.
                 queryInspections = queryInspections
                     .gte('inspection_date', startDateStr)
                     .lte('inspection_date', endDateStr)
@@ -196,7 +211,6 @@ function DashboardContent() {
             ]
 
             const sectionPerf = categories.map(cat => {
-                // Ignore scores that are zero, null, or undefined to avoid skewing averages
                 const scores = validInspections
                     .map((i: any) => i[cat.key])
                     .filter(s => s !== null && s !== undefined && s > 0)
@@ -210,12 +224,16 @@ function DashboardContent() {
             const supervisorMap: Record<string, any> = {}
             validInspections.forEach((i: any) => {
                 const name = i.users?.full_name || 'Desconocido'
-                if (!supervisorMap[name]) supervisorMap[name] = { count: 0, totalScore: 0, name }
+                const inspectorId = i.inspector_id || ''
+                if (!supervisorMap[name]) supervisorMap[name] = { count: 0, totalScore: 0, name, id: inspectorId }
                 supervisorMap[name].count++
                 supervisorMap[name].totalScore += i.overall_score || 0
+                if (!supervisorMap[name].id && inspectorId) supervisorMap[name].id = inspectorId
             })
 
             const supervisorStats = Object.values(supervisorMap).map((s: any) => ({
+                id: s.id,
+                fullName: s.name,
                 name: s.name.split(' ')[0],
                 count: s.count,
                 avgScore: Math.round(s.totalScore / s.count)
@@ -256,22 +274,15 @@ function DashboardContent() {
                 storeId: s.storeId
             })).sort((a, b) => b.avg - a.avg).slice(0, 50)
 
-            // 2. Feedback Query
+            // 2. Feedback Query (incluye google_place_id para el modal y offset LA)
             let queryFeedback = supabase
                 .from('customer_feedback')
-                .select('*, stores(name,code,city,state)')
+                .select('*, stores(name,code,city,state,google_place_id)')
                 .order('submission_date', { ascending: false })
                 .limit(500)
 
             if (timeFilter !== 'all') {
-                // Construct ISO timestamps from the date strings
-                // Start: YYYY-MM-DDT00:00:00
-                // End: YYYY-MM-DDT23:59:59 (inclusive)
-
-                // Note: supabase gte/lte on timestamptz works with ISO strings
-                const startTs = `${startDateStr}T00:00:00`
-                const endTs = `${endDateStr}T23:59:59.999`
-
+                const { startTs, endTs } = getRangeTimestampsLA(startDateStr, endDateStr)
                 queryFeedback = queryFeedback
                     .gte('submission_date', startTs)
                     .lte('submission_date', endTs)
@@ -279,25 +290,28 @@ function DashboardContent() {
 
             const { data: feedbacksRaw } = await queryFeedback
 
-
             // 3. KPIs (server-side, bypasses RLS) + Anomalías (parallel)
-            // ── ABORT CHECK: If filter changed while we were loading, stop early ──
-            if (signal?.aborted) return
+            if (validSignal?.aborted) return
 
             const [kpisRes, { data: anomRows }] = await Promise.all([
-                // KPIs: server-side API using admin client (same pattern as Alerts)
-                fetch(`/api/dashboard/kpis?startDate=${startDateStr}&endDate=${endDateStr}`, { signal })
+                fetch(`/api/dashboard/kpis?startDate=${startDateStr}&endDate=${endDateStr}`, { signal: validSignal })
                     .then(r => r.json())
                     .catch((e) => {
-                        // AbortError is expected when user changes filter — return zeroes silently
                         if (e?.name === 'AbortError') return { _aborted: true }
                         return { totalSales: 0, totalLaborCost: 0, laborPct: 0, foodCostPct: 0, foodCostDollars: 0 }
                     }),
-                // Anomalías: direct from Supabase
-                supabase.from('sales_discounts_log').select('id, store_id, store_name, discount_amount, discount_name, business_date, server_name, approver_name, order_id, check_id, opened_date').in('discount_name', ['First Responder Discount', 'Employee Discount', 'Senior Discount', 'Senior']).gte('business_date', startDateStr).lte('business_date', endDateStr).gte('discount_amount', 15).order('id', { ascending: false }).limit(20)
+                supabase
+                    .from('sales_discounts_log')
+                    .select('id, store_id, store_name, discount_amount, discount_name, business_date, server_name, approver_name, order_id, check_id, opened_date')
+                    .in('discount_name', ['First Responder Discount', 'Employee Discount', 'Senior Discount', 'Senior'])
+                    .gte('business_date', startDateStr)
+                    .lte('business_date', endDateStr)
+                    .gte('discount_amount', 15)
+                    .order('business_date', { ascending: false })
+                    .order('discount_amount', { ascending: false })
+                    .limit(50)
             ])
-            // If the request was aborted (user changed filter), bail out
-            if (kpisRes?._aborted || signal?.aborted) return
+            if (kpisRes?._aborted || validSignal?.aborted) return
 
             const totalSales = kpisRes.totalSales || 0
             const totalLaborCost = kpisRes.totalLaborCost || 0
@@ -339,7 +353,7 @@ function DashboardContent() {
                     const storeData = f.stores
                     const storeName = Array.isArray(storeData) ? storeData[0]?.name : storeData?.name
                     return {
-                        ...f, // Keep all original data for the modal
+                        ...f,
                         score: f.nps_score || 0,
                         comment: f.comments || '',
                         store: formatStoreName(storeName || 'Tienda'),
@@ -376,14 +390,13 @@ function DashboardContent() {
 
             setLoading(false)
         } catch (err: any) {
-            // AbortError is expected when user changes filter — silently ignore
             if (err?.name === 'AbortError') return
             console.error(err)
             setLoading(false)
         }
     }
 
-    // Abre el modal con TODOS los registros del mismo order_id
+    // Abre el modal con TODOS los registros del mismo order_id (incluyendo store_id)
     const openAnomalyModal = async (anomaly: any) => {
         setSelectedAnomaly(anomaly)
         setAnomalyDetails([])
@@ -391,14 +404,12 @@ function DashboardContent() {
         const supabase = await getSupabaseClient()
         let query = supabase
             .from('sales_discounts_log')
-            .select('id, store_name, business_date, discount_name, discount_amount, server_name, approver_name, order_id, check_id, opened_date')
+            .select('id, store_id, store_name, business_date, discount_name, discount_amount, server_name, approver_name, order_id, check_id, opened_date')
             .eq('business_date', anomaly.date)
             .eq('store_name', anomaly.store_name)
-        // Si tiene order_id, traer todos los descuentos de esa orden
         if (anomaly.order_id && anomaly.order_id !== 'N/A') {
             query = query.eq('order_id', anomaly.order_id)
         } else {
-            // Fallback: misma orden por server + fecha + tienda
             query = query.eq('server_name', anomaly.server)
         }
         const { data } = await query.order('id', { ascending: true })
@@ -408,6 +419,19 @@ function DashboardContent() {
 
     if (loading) return <SurpriseLoader />
 
+
+    const getAuditsTitle = () => {
+        switch (timeFilter) {
+            case 'today': return t('dashboard.audits_today')
+            case 'yesterday': return t('dashboard.audits_yesterday')
+            case 'week': return t('dashboard.audits_week')
+            case 'month': return t('dashboard.audits_month')
+            case 'quarter': return t('dashboard.audits_quarter')
+            case 'year': return t('dashboard.audits_year')
+            case 'custom': return t('dashboard.audits_custom')
+            default: return t('dashboard.audits_total')
+        }
+    }
 
     return (
         <div className="bg-transparent min-h-screen font-sans w-full pb-10">
@@ -436,7 +460,7 @@ function DashboardContent() {
                             <button
                                 onClick={() => shiftDate(-1)}
                                 className="p-1.5 text-slate-500 hover:text-slate-900 hover:bg-slate-200 dark:hover:text-white dark:hover:bg-slate-700 rounded-lg transition-colors cursor-pointer"
-                                title="Día Anterior"
+                                title={t('dashboard.prev_day')}
                             >
                                 <ChevronLeft className="w-5 h-5" />
                             </button>
@@ -454,7 +478,7 @@ function DashboardContent() {
                                 onClick={() => shiftDate(1)}
                                 disabled={isTodayOrFuture}
                                 className="p-1.5 text-slate-500 hover:text-slate-900 hover:bg-slate-200 dark:hover:text-white dark:hover:bg-slate-700 rounded-lg transition-colors disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
-                                title="Día Siguiente"
+                                title={t('dashboard.next_day')}
                             >
                                 <ChevronRight className="w-5 h-5" />
                             </button>
@@ -471,7 +495,7 @@ function DashboardContent() {
                     <button
                         onClick={() => shiftDate(-1)}
                         className="p-2 text-slate-500 hover:text-slate-900 hover:bg-slate-200 dark:hover:text-white dark:hover:bg-slate-700 rounded-lg transition-colors cursor-pointer"
-                        title="Día Anterior"
+                        title={t('dashboard.prev_day')}
                     >
                         <ChevronLeft className="w-5 h-5" />
                     </button>
@@ -490,7 +514,7 @@ function DashboardContent() {
                         onClick={() => shiftDate(1)}
                         disabled={isTodayOrFuture}
                         className="p-2 text-slate-500 hover:text-slate-900 hover:bg-slate-200 dark:hover:text-white dark:hover:bg-slate-700 rounded-lg transition-colors disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
-                        title="Día Siguiente"
+                        title={t('dashboard.next_day')}
                     >
                         <ChevronRight className="w-5 h-5" />
                     </button>
@@ -506,31 +530,31 @@ function DashboardContent() {
                         className="bg-slate-900 rounded-2xl p-5 text-white shadow-xl relative overflow-hidden group cursor-pointer hover:scale-[1.02] transition-transform"
                     >
                         <div className="absolute top-0 right-0 p-3 opacity-10 group-hover:opacity-20 transition-opacity"><DollarSign size={60} /></div>
-                        <p className="text-emerald-400 text-[10px] font-black uppercase tracking-widest">Ventas Netas</p>
+                        <p className="text-emerald-400 text-[10px] font-black uppercase tracking-widest">{t('dashboard.net_sales')}</p>
                         <h2 className="text-2xl md:text-4xl font-black tracking-tighter mt-1">{new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(stats.totalSales)}</h2>
-                        <p className="text-white/30 text-[10px] mt-2 font-medium group-hover:text-white/50 transition-colors">Ver módulo de ventas →</p>
+                        <p className="text-white/30 text-[10px] mt-2 font-medium group-hover:text-white/50 transition-colors">{t('dashboard.view_sales_module')}</p>
                     </div>
                     {/* Food Cost → /admin/food-cost con filtro */}
                     <div
-                        onClick={() => router.push(`/admin/food-cost?startDate=${startDateStr}&endDate=${endDateStr}`)}
+                        onClick={() => router.push(`/admin/food-cost?period=${timeFilter}&startDate=${startDateStr}&endDate=${endDateStr}`)}
                         className={`rounded-2xl p-5 text-white shadow-xl relative overflow-hidden group cursor-pointer hover:scale-[1.02] transition-transform ${stats.foodCostPct > 36 ? 'bg-amber-600' : stats.foodCostPct > 32 ? 'bg-amber-700' : 'bg-slate-900'}`}
                     >
                         <div className="absolute top-0 right-0 p-3 opacity-10 group-hover:opacity-20 transition-opacity"><Target size={60} /></div>
-                        <p className="text-white/60 text-[10px] font-black uppercase tracking-widest">Food Cost</p>
+                        <p className="text-white/60 text-[10px] font-black uppercase tracking-widest">{t('dashboard.food_cost')}</p>
                         <h2 className="text-2xl md:text-4xl font-black tracking-tighter mt-1">{stats.foodCostPct > 0 ? stats.foodCostPct.toFixed(1) : '--'}<span className="text-xl text-white/40">%</span></h2>
                         <p className="text-white/50 text-[10px] mt-1 font-bold">${stats.foodCostDollars.toLocaleString('en-US', { maximumFractionDigits: 0 })}</p>
-                        <p className="text-white/30 text-[10px] mt-1 font-medium group-hover:text-white/50 transition-colors">Ver reporte Food Cost →</p>
+                        <p className="text-white/30 text-[10px] mt-1 font-medium group-hover:text-white/50 transition-colors">{t('dashboard.view_food_cost_report')}</p>
                     </div>
                     {/* Labor Cost → /ventas con filtro */}
                     <div
                         onClick={() => router.push(`/ventas?period=${timeFilter}&startDate=${startDateStr}&endDate=${endDateStr}`)}
-                        className={`rounded-2xl p-5 text-white shadow-xl relative overflow-hidden group cursor-pointer hover:scale-[1.02] transition-transform ${stats.laborPct > 23 ? 'bg-rose-600' : stats.laborPct > 21.5 ? 'bg-amber-600' : 'bg-emerald-700'}`}
+                        className={`rounded-2xl p-5 text-white shadow-xl relative overflow-hidden group cursor-pointer hover:scale-[1.02] transition-transform ${stats.laborPct === 0 ? 'bg-slate-900' : stats.laborPct > 23 ? 'bg-rose-600' : stats.laborPct > 21.5 ? 'bg-amber-600' : 'bg-emerald-700'}`}
                     >
                         <div className="absolute top-0 right-0 p-3 opacity-10 group-hover:opacity-20 transition-opacity"><Users size={60} /></div>
-                        <p className="text-white/70 text-[10px] font-black uppercase tracking-widest">Labor Cost</p>
+                        <p className="text-white/70 text-[10px] font-black uppercase tracking-widest">{t('dashboard.labor_cost')}</p>
                         <h2 className="text-2xl md:text-4xl font-black tracking-tighter mt-1">{stats.laborPct > 0 ? stats.laborPct.toFixed(1) : '--'}<span className="text-xl text-white/40">%</span></h2>
                         <p className="text-white/50 text-[10px] mt-1 font-bold">${stats.laborCost.toLocaleString('en-US', { maximumFractionDigits: 0 })}</p>
-                        <p className="text-white/30 text-[10px] mt-1 font-medium group-hover:text-white/50 transition-colors">Ver módulo de ventas →</p>
+                        <p className="text-white/30 text-[10px] mt-1 font-medium group-hover:text-white/50 transition-colors">{t('dashboard.view_sales_module')}</p>
                     </div>
                     {/* Auditorías → /inspecciones con filtro */}
                     <div
@@ -538,9 +562,9 @@ function DashboardContent() {
                         className="bg-white dark:bg-slate-900 rounded-2xl p-5 border border-slate-100 dark:border-slate-800 shadow-sm relative overflow-hidden group cursor-pointer hover:scale-[1.02] hover:border-slate-300 dark:hover:border-slate-600 transition-all"
                     >
                         <div className="absolute top-0 right-0 p-3 opacity-5 group-hover:opacity-10 transition-opacity text-slate-900 dark:text-white"><ClipboardList size={60} /></div>
-                        <p className="text-slate-400 text-[10px] font-black uppercase tracking-widest">{timeFilter === 'today' ? t('dashboard.audits_today') : timeFilter === 'week' ? t('dashboard.audits_week') : timeFilter === 'month' ? t('dashboard.audits_month') : t('dashboard.audits_total')}</p>
+                        <p className="text-slate-400 text-[10px] font-black uppercase tracking-widest">{getAuditsTitle()}</p>
                         <h2 className="text-3xl md:text-4xl font-black tracking-tighter mt-1 text-slate-900 dark:text-white">{stats.totalInspections} <span className="text-lg text-slate-400">({stats.avgInspectionScore}%)</span></h2>
-                        <p className="text-slate-300 text-[10px] mt-2 font-medium group-hover:text-slate-400 transition-colors">Ver inspecciones →</p>
+                        <p className="text-slate-300 text-[10px] mt-2 font-medium group-hover:text-slate-400 transition-colors">{t('dashboard.view_inspections_module')}</p>
                     </div>
                 </div>
 
@@ -548,29 +572,29 @@ function DashboardContent() {
                 <OperationsAlerts startDate={startDateStr} endDate={endDateStr} />
 
                 {/* ROW 1.75: Drive-Thru Leaderboard */}
-                <DriveThruLeaderboard selectedDate={startDateStr} />
+                <DriveThruLeaderboard selectedDate={endDateStr} startDate={startDateStr} endDate={endDateStr} />
 
                 {/* ROW 2: Anomalies + Supervisors */}
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <div className="md:col-span-2 bg-white dark:bg-slate-900 rounded-2xl p-0 border border-slate-100 dark:border-slate-800 shadow-sm overflow-hidden flex flex-col" style={{maxHeight:'320px'}}>
                         <div className="p-5 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-red-50/40 dark:bg-red-900/10">
                             <div>
-                                <h3 className="font-black text-red-900 dark:text-red-100 text-base flex items-center gap-3"><ShieldAlert size={22} className="text-red-500" /> Radar de Descuentos</h3>
-                                <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-1">Descuentos Employee, Senior y First Responder mayores a $15</p>
+                                <h3 className="font-black text-red-900 dark:text-red-100 text-base flex items-center gap-3"><ShieldAlert size={22} className="text-red-500" /> {t('dashboard.discount_radar')}</h3>
+                                <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-1">{t('dashboard.discount_radar_desc')}</p>
                             </div>
                             <div className="flex items-center gap-3">
                                 <span className="bg-red-500 text-white text-[10px] font-black px-2.5 py-0.5 rounded-full shadow-sm">{stats.anomalies.length}</span>
                                 <button
                                     onClick={() => router.push(`/admin/auditoria-descuentos?startDate=${startDateStr}&endDate=${endDateStr}`)}
                                     className="text-[10px] font-black text-red-400 hover:text-red-600 dark:hover:text-red-300 uppercase tracking-widest transition-colors"
-                                >Ver todo →</button>
+                                >{t('dashboard.view_all_discounts')}</button>
                             </div>
                         </div>
                         <div className="flex-1 overflow-y-auto custom-scrollbar">
                             {stats.anomalies.length > 0 ? (
                                 <table className="w-full text-left">
                                     <thead className="bg-slate-50 dark:bg-slate-800 text-slate-400 font-black text-[10px] uppercase tracking-widest sticky top-0">
-                                        <tr><th className="pl-5 py-3">Sucursal</th><th className="py-3">Descuento</th><th className="py-3">Empleado</th><th className="py-3">Fecha</th><th className="pr-5 py-3 text-right">Monto</th></tr>
+                                        <tr><th className="pl-5 py-3">{t('dashboard.col_store')}</th><th className="py-3">{t('dashboard.col_discount')}</th><th className="py-3">{t('dashboard.col_employee')}</th><th className="py-3">{t('dashboard.col_date')}</th><th className="pr-5 py-3 text-right">{t('dashboard.col_amount')}</th></tr>
                                     </thead>
                                     <tbody className="divide-y divide-slate-50 dark:divide-slate-800">
                                         {stats.anomalies.map((a: any, i: number) => (
@@ -578,7 +602,7 @@ function DashboardContent() {
                                                 key={i}
                                                 onClick={() => openAnomalyModal(a)}
                                                 className="hover:bg-red-50/60 dark:hover:bg-red-900/20 transition-colors cursor-pointer group"
-                                                title="Ver registros de esta orden"
+                                                title={t('dashboard.view_order_records')}
                                             >
                                                 <td className="pl-5 py-2.5 font-bold text-sm text-slate-800 dark:text-slate-200 group-hover:text-red-700 dark:group-hover:text-red-400 transition-colors">{a.store}</td>
                                                 <td className="py-2.5 text-xs text-slate-500 dark:text-slate-400">{a.name?.replace(' Discount','')}</td>
@@ -590,7 +614,7 @@ function DashboardContent() {
                                     </tbody>
                                 </table>
                             ) : (
-                                <div className="h-full flex flex-col items-center justify-center py-10 text-slate-300"><CheckCircle size={36} className="mb-2 text-green-200" /><p className="text-xs font-bold text-slate-400">Sin descuentos sospechosos detectados</p></div>
+                                <div className="h-full flex flex-col items-center justify-center py-10 text-slate-300"><CheckCircle size={36} className="mb-2 text-green-200" /><p className="text-xs font-bold text-slate-400">{t('dashboard.no_suspicious_discounts')}</p></div>
                             )}
                         </div>
                     </div>
@@ -601,7 +625,7 @@ function DashboardContent() {
                             {stats.supervisorStats.map((sup, i) => (
                                 <div
                                     key={i}
-                                    onClick={() => router.push(`/inspecciones?startDate=${startDateStr}&endDate=${endDateStr}&user=${encodeURIComponent(sup.name)}`)}
+                                    onClick={() => router.push(`/inspecciones?startDate=${startDateStr}&endDate=${endDateStr}&inspector_id=${sup.id || ''}&user=${encodeURIComponent(sup.fullName || sup.name)}`)}
                                     className="flex items-center justify-between text-sm group cursor-pointer"
                                 >
                                     <div className="flex items-center gap-3">
@@ -620,13 +644,20 @@ function DashboardContent() {
 
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                     <div className="bg-white dark:bg-slate-900 rounded-2xl p-0 border border-slate-100 dark:border-slate-800 shadow-sm flex flex-col h-[400px] relative">
-                        <div className="p-5 border-b border-slate-100 dark:border-slate-800 bg-indigo-50/40 dark:bg-indigo-900/10 flex justify-between items-center">
-                            <h3 onClick={() => router.push('/feedback')} className="font-black text-indigo-950 dark:text-indigo-100 text-base flex items-center gap-3 cursor-pointer hover:text-indigo-600 transition-colors">
+                        <div className="p-5 border-b border-slate-100 dark:border-slate-800 bg-indigo-50/40 dark:bg-indigo-900/10 flex justify-between items-center gap-2">
+                            <h3 onClick={() => router.push(`/feedback?period=${timeFilter}&startDate=${startDateStr}&endDate=${endDateStr}`)} className="font-black text-indigo-950 dark:text-indigo-100 text-base flex items-center gap-3 cursor-pointer hover:text-indigo-600 transition-colors">
                                 <MessageSquare size={20} className="text-indigo-600 dark:text-indigo-400" />
                                 {t('dashboard.customer_feedback')}
                                 <ExternalLink size={14} className="text-indigo-400 opacity-50" />
                             </h3>
-                            <span className="bg-indigo-600 text-white text-[10px] font-black px-3 py-1 rounded-full uppercase tracking-tighter shadow-md shadow-indigo-100">{t('dashboard.latest')} {stats.recentFeedback?.length || 0}</span>
+                            <div className="flex items-center gap-1.5">
+                                {stats.recentFeedback?.length > 0 && (
+                                    <span className={`text-[10px] font-black px-2.5 py-1 rounded-full uppercase tracking-tighter shadow-sm ${stats.avgNPS >= 50 ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400' : stats.avgNPS >= 0 ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400' : 'bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-400'}`}>
+                                        NPS: {stats.avgNPS}
+                                    </span>
+                                )}
+                                <span className="bg-indigo-600 text-white text-[10px] font-black px-3 py-1 rounded-full uppercase tracking-tighter shadow-md shadow-indigo-100">{t('dashboard.latest')} {stats.recentFeedback?.length || 0}</span>
+                            </div>
                         </div>
                         <div className="flex-1 overflow-y-auto overflow-x-visible p-4 space-y-3 custom-scrollbar">
                             {stats.recentFeedback && stats.recentFeedback.length > 0 ? stats.recentFeedback.map((item: any, i: number) => (
@@ -646,7 +677,8 @@ function DashboardContent() {
                                             ) : (
                                                 item.score
                                             )}
-                                        </div>                                        <div className="flex-1">
+                                        </div>
+                                        <div className="flex-1">
                                             <div className="flex justify-between items-start mb-1">
                                                 <h4 className="font-black text-indigo-900 dark:text-indigo-100 text-sm tracking-tight flex items-center">
                                                     {item.store}
@@ -666,7 +698,7 @@ function DashboardContent() {
                                                     <span className="text-[11px] text-slate-400 dark:text-slate-300 font-black uppercase tracking-widest">{item.date}</span>
                                                 </div>
                                             </div>
-                                            <p className="text-sm text-slate-700 dark:text-slate-300 font-medium leading-relaxed group-hover:text-slate-900 dark:group-hover:text-white transition-colors">"{item.comment || 'Sin comentario'}"</p>
+                                            <p className="text-sm text-slate-700 dark:text-slate-300 font-medium leading-relaxed group-hover:text-slate-900 dark:group-hover:text-white transition-colors">"{item.comment || t('dashboard.no_comment_text')}"</p>
                                         </div>
                                     </div>
                                 </div>
@@ -678,8 +710,8 @@ function DashboardContent() {
 
                     <div className="bg-white dark:bg-slate-900 rounded-2xl p-0 border border-slate-100 dark:border-slate-800 shadow-sm overflow-hidden flex flex-col h-[400px]">
                         <div className="p-5 border-b border-slate-100 dark:border-slate-800 flex flex-col bg-white dark:bg-slate-900">
-                            <h3 className="font-black text-slate-900 dark:text-white text-base flex items-center gap-3"><Store size={22} className="text-blue-600 dark:text-blue-400" /> Ranking Auditoría</h3>
-                            <span className="text-[11px] font-bold text-slate-400 mt-1">Score promedio de inspecciones</span>
+                            <h3 className="font-black text-slate-900 dark:text-white text-base flex items-center gap-3"><Store size={22} className="text-blue-600 dark:text-blue-400" /> {t('dashboard.audit_ranking_title')}</h3>
+                            <span className="text-[11px] font-bold text-slate-400 mt-1">{t('dashboard.audit_ranking_subtitle')}</span>
                         </div>
                         <div className="flex-1 overflow-x-auto overflow-y-auto custom-scrollbar">
                             <table className="w-full text-left">
@@ -690,7 +722,7 @@ function DashboardContent() {
                                     {stats.topStores.map((store, i) => (
                                         <tr
                                             key={i}
-                                            onClick={() => router.push(`/inspecciones?store=${store.storeId}`)}
+                                            onClick={() => router.push(`/inspecciones?store=${store.storeId}&startDate=${startDateStr}&endDate=${endDateStr}`)}
                                             className="hover:bg-blue-50/50 dark:hover:bg-blue-900/10 transition-colors group cursor-pointer"
                                         >
                                             <td className="pl-6 py-4 text-slate-400 dark:text-slate-500 font-black text-sm w-12">{i + 1}</td>
@@ -709,7 +741,7 @@ function DashboardContent() {
                         </div>
                         <div className="flex-1 overflow-y-auto p-5 space-y-6 custom-scrollbar">
                             {stats.recentActivity.map((act, i) => (
-                                <div key={i} onClick={() => router.push(`/inspecciones?openId=${act.id}`)} className="flex gap-4 items-start relative px-2 pt-2 pb-6 last:pb-0 group cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800 -mx-2 rounded-xl transition-all">
+                                <div key={i} onClick={() => router.push(`/inspecciones?openId=${act.id}&startDate=${startDateStr}&endDate=${endDateStr}`)} className="flex gap-4 items-start relative px-2 pt-2 pb-6 last:pb-0 group cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800 -mx-2 rounded-xl transition-all">
                                     {i !== stats.recentActivity.length - 1 && <div className="absolute left-[22px] top-10 bottom-[-24px] w-[3px] bg-slate-100 dark:bg-slate-800 rounded-full"></div>}
                                     <div className={`shrink-0 w-7 h-7 rounded-full border-4 flex items-center justify-center bg-white dark:bg-slate-900 z-10 shadow-sm transition-transform group-hover:scale-125 ${act.score >= 80 ? 'border-green-500 text-green-500' : 'border-red-500 text-red-500'}`}>
                                         <div className={`w-2.5 h-2.5 rounded-full ${act.score >= 80 ? 'bg-green-500' : 'bg-red-500'} animate-pulse`}></div>
@@ -736,7 +768,7 @@ function DashboardContent() {
                     onClose={() => setIsModalOpen(false)}
                     feedback={selectedFeedback}
                     currentUser={user || { id: '', full_name: 'Loading...', role: '' }}
-                    onUpdate={fetchStats}
+                    onUpdate={() => fetchStats()}
                 />
             )}
             {/* MODAL: Detalle de Anomalía */}
@@ -752,14 +784,14 @@ function DashboardContent() {
                             <div>
                                 <div className="flex items-center gap-2 mb-1">
                                     <Receipt size={18} className="text-red-500" />
-                                    <span className="font-black text-red-900 dark:text-red-100 text-base">Registros de la Orden</span>
+                                    <span className="font-black text-red-900 dark:text-red-100 text-base">{t('dashboard.order_records_title')}</span>
                                 </div>
                                 <p className="text-xs text-slate-500 dark:text-slate-400">
                                     <span className="font-bold text-slate-700 dark:text-slate-200">{selectedAnomaly.store}</span>
                                     {' · '}{selectedAnomaly.name?.replace(' Discount','')}
                                     {' · '}{formatDateLA(selectedAnomaly.date).split(',')[0]}
                                     {selectedAnomaly.order_id && selectedAnomaly.order_id !== 'N/A' && (
-                                        <span className="ml-2 text-slate-400">Orden #{selectedAnomaly.check_id}</span>
+                                        <span className="ml-2 text-slate-400">{t('dashboard.order_num')} #{selectedAnomaly.check_id}</span>
                                     )}
                                 </p>
                             </div>
@@ -772,21 +804,21 @@ function DashboardContent() {
                             {anomalyLoading ? (
                                 <div className="flex items-center justify-center py-16">
                                     <div className="w-6 h-6 border-2 border-red-400 border-t-transparent rounded-full animate-spin" />
-                                    <span className="ml-3 text-sm text-slate-400">Cargando registros...</span>
+                                    <span className="ml-3 text-sm text-slate-400">{t('dashboard.loading_records')}</span>
                                 </div>
                             ) : anomalyDetails.length === 0 ? (
                                 <div className="flex flex-col items-center justify-center py-16 text-slate-300">
                                     <AlertTriangle size={32} className="mb-2" />
-                                    <p className="text-sm">No se encontraron registros relacionados</p>
+                                    <p className="text-sm">{t('dashboard.no_related_records')}</p>
                                 </div>
                             ) : (
                                 <table className="w-full text-left">
                                     <thead className="bg-slate-50 dark:bg-slate-800 text-slate-400 font-black text-[10px] uppercase tracking-widest sticky top-0">
                                         <tr>
-                                            <th className="pl-5 py-3">Descuento</th>
-                                            <th className="py-3">Monto</th>
-                                            <th className="py-3">Empleado</th>
-                                            <th className="py-3">Aprobó</th>
+                                            <th className="pl-5 py-3">{t('dashboard.col_discount')}</th>
+                                            <th className="py-3">{t('dashboard.col_amount')}</th>
+                                            <th className="py-3">{t('dashboard.col_employee')}</th>
+                                            <th className="py-3">{t('dashboard.col_approved_by')}</th>
                                             <th className="pr-5 py-3">Check #</th>
                                         </tr>
                                     </thead>
@@ -804,10 +836,10 @@ function DashboardContent() {
                                                 <td className="pr-5 py-3">
                                                     {d.check_id && d.check_id !== 'N/A' && d.order_id && d.order_id !== 'N/A' ? (
                                                         <button
-                                                            title="Ver ticket de esta orden"
+                                                            title={t('dashboard.view_ticket_tooltip')}
                                                             onClick={e => {
                                                                 e.stopPropagation()
-                                                                setOrderDetailData({ loading: true, checkId: d.check_id, storeName: d.store_name, cajeraName: d.approver_name || d.server_name || 'Autoservicio' })
+                                                                setOrderDetailData({ loading: true, checkId: d.check_id, storeName: d.store_name, cajeraName: d.approver_name || d.server_name || '' })
                                                                 fetch(`/api/toast-order-detail?guid=${d.order_id}&storeId=${d.store_id || selectedAnomaly?.store_id}`)
                                                                     .then(r => r.json())
                                                                     .then(data => {
@@ -833,7 +865,7 @@ function DashboardContent() {
                                             <td className="py-3 font-black text-red-600 dark:text-red-400">
                                                 ${anomalyDetails.reduce((s, d) => s + Number(d.discount_amount), 0).toFixed(2)}
                                             </td>
-                                            <td colSpan={3} className="pr-5 py-3 text-right text-xs text-slate-400">{anomalyDetails.length} registro(s)</td>
+                                            <td colSpan={3} className="pr-5 py-3 text-right text-xs text-slate-400">{anomalyDetails.length} {t('dashboard.records_count')}</td>
                                         </tr>
                                     </tfoot>
                                 </table>
@@ -842,10 +874,10 @@ function DashboardContent() {
                         {/* Footer */}
                         <div className="p-4 border-t border-slate-100 dark:border-slate-800 flex justify-between items-center">
                             <button
-                                onClick={() => { setSelectedAnomaly(null); router.push(`/admin/auditoria-descuentos?startDate=${selectedAnomaly.date}&endDate=${selectedAnomaly.date}`) }}
+                                onClick={() => { setSelectedAnomaly(null); router.push(`/admin/auditoria-descuentos?startDate=${selectedAnomaly.date}&endDate=${selectedAnomaly.date}&store=${encodeURIComponent(selectedAnomaly.store_name || '')}`) }}
                                 className="text-xs font-black text-red-500 hover:text-red-700 dark:hover:text-red-400 uppercase tracking-widest transition-colors"
-                            >Ver día completo en Auditoría →</button>
-                            <button onClick={() => setSelectedAnomaly(null)} className="text-xs font-bold text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors">Cerrar</button>
+                            >{t('dashboard.view_full_day_audit')}</button>
+                            <button onClick={() => setSelectedAnomaly(null)} className="text-xs font-bold text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors">{t('dashboard.close_btn')}</button>
                         </div>
                     </div>
                 </div>
@@ -856,99 +888,104 @@ function DashboardContent() {
                 <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={() => setOrderDetailData(null)}>
                     <div className="bg-white dark:bg-slate-900/90 rounded-none md:rounded-xl shadow-2xl w-full max-w-sm max-h-[90vh] flex flex-col font-mono text-sm border-2 border-slate-200 dark:border-slate-700" onClick={e => e.stopPropagation()}>
                         <div className="p-4 border-b-2 border-dashed border-slate-300 dark:border-slate-700 font-bold text-center bg-white dark:bg-slate-800 md:rounded-t-xl shrink-0">
-                            RECIBO TICKET #{orderDetailData.checkId}
-                            {orderDetailData.loading && <p className="text-amber-500 animate-pulse text-xs mt-1">Conectando con cajero virtual...</p>}
+                            {t('dashboard.receipt_title')} #{orderDetailData.checkId}
+                            {orderDetailData.loading && <p className="text-amber-500 animate-pulse text-xs mt-1">{t('dashboard.receipt_connecting')}</p>}
                         </div>
                         <div className="p-4 overflow-auto custom-scrollbar flex-1 bg-[#f9fafb] dark:bg-slate-900">
                             {orderDetailData.error && <div className="text-red-500 text-xs break-all bg-red-50 p-2 rounded border border-red-200">{orderDetailData.error}</div>}
-                            {orderDetailData.data && (
-                                <div className="space-y-4 text-slate-800 dark:text-slate-200">
-                                    <div className="text-xs text-center border-b border-slate-200 dark:border-slate-800 pb-3">
-                                        <div className="font-bold text-[14px] uppercase tracking-wider mb-1">SUCURSAL {orderDetailData.storeName || 'TACOS GAVILAN'}</div>
-                                        <div>{orderDetailData.data.diningOption?.name || 'Para Llevar / Dine In'}</div>
-                                        <div>{new Date(orderDetailData.data.openedDate).toLocaleString('en-US', { timeZone: 'America/Los_Angeles' })}</div>
-                                        <div className="mt-1">Cajero/a: <span className="font-bold">{orderDetailData.cajeraName || orderDetailData.data.server?.name || 'Automático'}</span></div>
-                                    </div>
-                                    <div className="border-b-2 border-dashed border-slate-300 dark:border-slate-700 pb-3 space-y-1">
-                                        <div className="flex justify-between font-bold text-[10px] text-slate-400 mb-2 uppercase tracking-widest"><span>ITEM</span><span>TOTAL</span></div>
-                                        {orderDetailData.data.checks?.map((check: any, idx: number) => (
-                                            <div key={idx} className="space-y-2">
-                                                {check.selections?.filter((s: any) => !s.deleted && !s.voided).map((sel: any, i: number) => {
-                                                    const qty = sel.quantity || 1
-                                                    const unitPrice = Number(sel.receiptLinePrice || (Number(sel.price) / qty) || 0)
-                                                    const originalLinePrice = unitPrice * qty
-                                                    const finalLinePrice = Number(sel.price || 0)
-                                                    const inferredDiscount = originalLinePrice - finalLinePrice
-                                                    const validDiscounts = sel.appliedDiscounts?.filter((d: any) => !d.deleted && !d.voided && d.state !== 'VOIDED' && d.state !== 'REMOVED' && d.applied !== false && Number(d.discountAmount || 0) <= inferredDiscount + 0.05) || []
-                                                    return (
-                                                        <div key={i} className="flex justify-between items-start text-xs">
-                                                            <span className="flex-1 pr-2">
-                                                                {qty}x {sel.displayName || sel.item?.name}
-                                                                {validDiscounts.map((d: any, j: number) => (
-                                                                    <div key={j} className="text-amber-600 dark:text-amber-400 text-[10px] ml-4 font-bold border-l-2 border-amber-300 pl-1 mt-0.5">
-                                                                        ↳ DESC: {d.name} (-${Number(d.discountAmount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })})
-                                                                    </div>
-                                                                ))}
-                                                                {validDiscounts.length === 0 && inferredDiscount > 0.009 && (
-                                                                    <div className="text-amber-600 dark:text-amber-400 text-[10px] ml-4 font-bold border-l-2 border-amber-300 pl-1 mt-0.5">
-                                                                        ↳ DESC. AL PLATILLO (-${inferredDiscount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })})
-                                                                    </div>
-                                                                )}
-                                                            </span>
-                                                            <span className="font-bold whitespace-nowrap">${originalLinePrice.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                            {orderDetailData.data && (() => {
+                                const allChecks: any[] = orderDetailData.data.checks || []
+                                const matchedCheck = allChecks.find((c: any) => String(c.displayNumber || c.number || '') === String(orderDetailData.checkId))
+                                const checksToRender = matchedCheck ? [matchedCheck] : allChecks
+                                const primaryCheck = matchedCheck || allChecks[0]
+
+                                return (
+                                    <div className="space-y-4 text-slate-800 dark:text-slate-200">
+                                        <div className="text-xs text-center border-b border-slate-200 dark:border-slate-800 pb-3">
+                                            <div className="font-bold text-[14px] uppercase tracking-wider mb-1">{t('dashboard.receipt_branch')} {orderDetailData.storeName || 'TACOS GAVILAN'}</div>
+                                            <div>{orderDetailData.data.diningOption?.name || 'Para Llevar / Dine In'}</div>
+                                            <div>{new Date(orderDetailData.data.openedDate).toLocaleString('en-US', { timeZone: 'America/Los_Angeles' })}</div>
+                                            <div className="mt-1">{t('dashboard.receipt_cashier')}: <span className="font-bold">{orderDetailData.cajeraName || orderDetailData.data.server?.name || t('dashboard.receipt_self_service')}</span></div>
+                                        </div>
+                                        <div className="border-b-2 border-dashed border-slate-300 dark:border-slate-700 pb-3 space-y-1">
+                                            <div className="flex justify-between font-bold text-[10px] text-slate-400 mb-2 uppercase tracking-widest"><span>ITEM</span><span>TOTAL</span></div>
+                                            {checksToRender.map((check: any, idx: number) => (
+                                                <div key={idx} className="space-y-2">
+                                                    {check.selections?.filter((s: any) => !s.deleted && !s.voided).map((sel: any, i: number) => {
+                                                        const qty = sel.quantity || 1
+                                                        const unitPrice = Number(sel.receiptLinePrice || (Number(sel.price) / qty) || 0)
+                                                        const originalLinePrice = unitPrice * qty
+                                                        const finalLinePrice = Number(sel.price || 0)
+                                                        const inferredDiscount = originalLinePrice - finalLinePrice
+                                                        const validDiscounts = sel.appliedDiscounts?.filter((d: any) => !d.deleted && !d.voided && d.state !== 'VOIDED' && d.state !== 'REMOVED' && d.applied !== false && Number(d.discountAmount || 0) <= inferredDiscount + 0.05) || []
+                                                        return (
+                                                            <div key={i} className="flex justify-between items-start text-xs">
+                                                                <span className="flex-1 pr-2">
+                                                                    {qty}x {sel.displayName || sel.item?.name}
+                                                                    {validDiscounts.map((d: any, j: number) => (
+                                                                        <div key={j} className="text-amber-600 dark:text-amber-400 text-[10px] ml-4 font-bold border-l-2 border-amber-300 pl-1 mt-0.5">
+                                                                            ↳ DESC: {d.name} (-${Number(d.discountAmount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })})
+                                                                        </div>
+                                                                    ))}
+                                                                    {validDiscounts.length === 0 && inferredDiscount > 0.009 && (
+                                                                        <div className="text-amber-600 dark:text-amber-400 text-[10px] ml-4 font-bold border-l-2 border-amber-300 pl-1 mt-0.5">
+                                                                            ↳ {t('dashboard.receipt_item_discount')} (-${inferredDiscount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })})
+                                                                        </div>
+                                                                    )}
+                                                                </span>
+                                                                <span className="font-bold whitespace-nowrap">${originalLinePrice.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                                                            </div>
+                                                        )
+                                                    })}
+                                                    {check.appliedDiscounts?.filter((d: any) => !d.deleted && !d.voided && d.state !== 'VOIDED' && d.state !== 'REMOVED' && d.applied !== false).map((d: any, j: number) => (
+                                                        <div key={j} className="flex justify-between items-start text-[11px] text-amber-600 dark:text-amber-400 font-bold bg-amber-50 dark:bg-amber-500/10 p-1 -mx-1 rounded">
+                                                            <span>{t('dashboard.receipt_ticket_ref')}: {d.name}</span>
+                                                            <span>(-${Number(d.discountAmount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })})</span>
                                                         </div>
-                                                    )
-                                                })}
-                                                {check.appliedDiscounts?.filter((d: any) => !d.deleted && !d.voided && d.state !== 'VOIDED' && d.state !== 'REMOVED' && d.applied !== false).map((d: any, j: number) => (
-                                                    <div key={j} className="flex justify-between items-start text-[11px] text-amber-600 dark:text-amber-400 font-bold bg-amber-50 dark:bg-amber-500/10 p-1 -mx-1 rounded">
-                                                        <span>REFERENCIA TICKET: {d.name}</span>
-                                                        <span>(-${Number(d.discountAmount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })})</span>
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        ))}
-                                    </div>
-                                    <div className="text-right space-y-1 text-xs">
-                                        {(() => {
-                                            const check = orderDetailData.data.checks?.[0]
-                                            if (!check) return null
-                                            const subtotalBruto = check.selections?.filter((s: any) => !s.deleted && !s.voided).reduce((sum: number, sel: any) => {
-                                                const qty = sel.quantity || 1
-                                                const unitPrice = Number(sel.receiptLinePrice || (Number(sel.price) / qty) || 0)
-                                                return sum + (unitPrice * qty)
-                                            }, 0) || 0
-                                            const subtotalNeto = Number(check.amount || 0)
-                                            const totalDiscounts = Math.max(0, subtotalBruto - subtotalNeto)
-                                            return (
-                                                <>
-                                                    <div className="flex justify-between text-slate-500"><span>Subtotal bruto:</span> <span>${subtotalBruto.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
-                                                    {totalDiscounts > 0.009 && (
-                                                        <div className="flex justify-between font-bold text-amber-600 dark:text-amber-400"><span>Descuentos aplicados:</span> <span>-${totalDiscounts.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
-                                                    )}
-                                                    <div className="flex justify-between text-slate-700 dark:text-slate-300 font-semibold mt-1"><span>Subtotal neto:</span> <span>${subtotalNeto.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
-                                                    <div className="flex justify-between text-slate-500"><span>Tax:</span> <span>${Number(check.taxAmount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
-                                                    <div className="flex justify-between font-bold text-lg mt-2 text-slate-900 dark:text-white border-t border-slate-200 dark:border-slate-800 pt-2"><span>TOTAL:</span> <span>${Number(check.totalAmount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
-                                                </>
-                                            )
-                                        })()}
-                                    </div>
-                                    {orderDetailData.data.checks?.[0]?.payments?.length > 0 && (
-                                        <div className="text-xs pt-3 border-t-2 border-dashed border-slate-300 dark:border-slate-700">
-                                            <div className="font-bold text-slate-400 mb-1">PAGOS APLICADOS:</div>
-                                            {orderDetailData.data.checks[0].payments.map((p: any, pIdx: number) => (
-                                                <div key={pIdx} className="flex justify-between text-slate-600 dark:text-slate-400">
-                                                    <span>{p.type || 'Pago'} {p.refundStatus && p.refundStatus !== 'NONE' ? '(Reembolsado)' : ''}</span>
-                                                    <span>${Number(p.amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                                                    ))}
                                                 </div>
                                             ))}
                                         </div>
-                                    )}
-                                </div>
-                            )}
+                                        <div className="text-right space-y-1 text-xs">
+                                            {primaryCheck && (() => {
+                                                const subtotalBruto = primaryCheck.selections?.filter((s: any) => !s.deleted && !s.voided).reduce((sum: number, sel: any) => {
+                                                    const qty = sel.quantity || 1
+                                                    const unitPrice = Number(sel.receiptLinePrice || (Number(sel.price) / qty) || 0)
+                                                    return sum + (unitPrice * qty)
+                                                }, 0) || 0
+                                                const subtotalNeto = Number(primaryCheck.amount || 0)
+                                                const totalDiscounts = Math.max(0, subtotalBruto - subtotalNeto)
+                                                return (
+                                                    <>
+                                                        <div className="flex justify-between text-slate-500"><span>{t('dashboard.receipt_gross_subtotal')}:</span> <span>${subtotalBruto.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
+                                                        {totalDiscounts > 0.009 && (
+                                                            <div className="flex justify-between font-bold text-amber-600 dark:text-amber-400"><span>{t('dashboard.receipt_discounts_applied')}:</span> <span>-${totalDiscounts.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
+                                                        )}
+                                                        <div className="flex justify-between text-slate-700 dark:text-slate-300 font-semibold mt-1"><span>{t('dashboard.receipt_net_subtotal')}:</span> <span>${subtotalNeto.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
+                                                        <div className="flex justify-between text-slate-500"><span>Tax:</span> <span>${Number(primaryCheck.taxAmount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
+                                                        <div className="flex justify-between font-bold text-lg mt-2 text-slate-900 dark:text-white border-t border-slate-200 dark:border-slate-800 pt-2"><span>TOTAL:</span> <span>${Number(primaryCheck.totalAmount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
+                                                    </>
+                                                )
+                                            })()}
+                                        </div>
+                                        {primaryCheck?.payments?.length > 0 && (
+                                            <div className="text-xs pt-3 border-t-2 border-dashed border-slate-300 dark:border-slate-700">
+                                                <div className="font-bold text-slate-400 mb-1">{t('dashboard.receipt_payments_applied')}:</div>
+                                                {primaryCheck.payments.map((p: any, pIdx: number) => (
+                                                    <div key={pIdx} className="flex justify-between text-slate-600 dark:text-slate-400">
+                                                        <span>{p.type || 'Pago'} {p.refundStatus && p.refundStatus !== 'NONE' ? t('dashboard.receipt_refunded') : ''}</span>
+                                                        <span>${Number(p.amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
+                                )
+                            })()}
                         </div>
                         <div className="p-3 text-center border-t-2 border-dashed border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 md:rounded-b-xl shrink-0">
                             <button onClick={() => setOrderDetailData(null)} className="text-xs uppercase tracking-widest font-bold text-slate-500 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-700 px-6 py-2 rounded transition-colors w-full border border-slate-200 dark:border-slate-700 cursor-pointer">
-                                Cerrar Recibo
+                                {t('dashboard.receipt_close')}
                             </button>
                         </div>
                     </div>

@@ -16,6 +16,7 @@
 import { useState, useEffect } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { useLanguage } from '@/lib/i18n'
+import { formatStoreName } from '@/lib/supabase'
 import { createClient } from '@supabase/supabase-js'
 import { Calendar, Store, AlertTriangle, User, Filter, ChevronLeft, ChevronRight, ShieldAlert, Target, Info, X } from 'lucide-react'
 import DateRangeFilter from '@/components/sales/DateRangeFilter'
@@ -70,7 +71,7 @@ export default function AuditoriaDescuentos() {
         const day = String(d.getDate()).padStart(2, '0')
         return `${y}-${m}-${day}`
     })
-    const [storeFilter, setStoreFilter] = useState('all')
+    const [storeFilter, setStoreFilter] = useState(() => urlParams.get('store') || 'all')
 
     const [uniqueStores, setUniqueStores] = useState<string[]>([])
 
@@ -79,15 +80,21 @@ export default function AuditoriaDescuentos() {
         const fetchStores = async () => {
             try {
                 const { data } = await supabase.from('stores').select('name').order('name')
-                if (data && data.length > 0) {
-                    const names = data.map(s => s.name).filter(Boolean)
-                    setUniqueStores(names)
-                } else {
-                    setUniqueStores([
+                const names = (data && data.length > 0)
+                    ? data.map(s => s.name).filter(Boolean)
+                    : [
                         'Azusa', 'Bell', 'Downey', 'Hollywood', 'Huntington Park', 
                         'LA Broadway', 'LA Central', 'La Puente', 'Lynwood', 
                         'Norwalk', 'Rialto', 'Santa Ana', 'Slauson', 'South Gate', 'West Covina'
-                    ])
+                    ]
+                setUniqueStores(names)
+                const urlStore = urlParams.get('store')
+                if (urlStore && urlStore !== 'all') {
+                    const exactMatch = names.find(n =>
+                        n.toLowerCase().trim() === urlStore.toLowerCase().trim() ||
+                        formatStoreName(n).toLowerCase().trim() === formatStoreName(urlStore).toLowerCase().trim()
+                    )
+                    if (exactMatch) setStoreFilter(exactMatch)
                 }
             } catch (err) {
                 console.error('Error fetching stores:', err)
@@ -308,7 +315,9 @@ export default function AuditoriaDescuentos() {
                     .slice(0, 5);
 
                 setRiskAlerts({ loading: false, data: structured });
-                setShowWizard(true);
+                if (!urlParams.get('startDate') && !urlParams.get('store')) {
+                    setShowWizard(true);
+                }
             } catch (err) {
                 console.error('Error fetching risk radar:', err);
                 setRiskAlerts({ loading: false, data: [] });

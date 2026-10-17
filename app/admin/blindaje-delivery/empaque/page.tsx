@@ -1976,11 +1976,16 @@ export default function BlindajeDeliveryEmpaquePage() {
                         {stageInfo.label}
                       </span>
                     </div>
-                    <strong className="block text-2xl font-black mt-1.5 truncate text-slate-950">
-                      {value.customer}
-                    </strong>
+                    <div className="flex items-baseline justify-between gap-2 mt-1.5">
+                      <strong className="text-2xl font-black truncate text-slate-950">
+                        {value.customer}
+                      </strong>
+                      <span className="text-lg sm:text-xl font-black font-mono text-slate-950 bg-white/90 border border-slate-300 px-2.5 py-0.5 rounded-xl shrink-0 shadow-2xs">
+                        Check #{value.ticket}
+                      </span>
+                    </div>
                     <small className="text-slate-700 text-sm font-bold block mt-1 truncate">
-                      #{value.ticket} • {t('blindaje_delivery.key_label')}: {value.platformOrderKey}
+                      Ticket #{value.ticket} • {t('blindaje_delivery.key_label')}: {value.platformOrderKey}
                       {value.hasDrinks ? ` • ${t('blindaje_delivery.with_drinks_badge')}` : ''}
                     </small>
                     {value.audit?.packedBy && value.audit?.status !== 'released' && (
