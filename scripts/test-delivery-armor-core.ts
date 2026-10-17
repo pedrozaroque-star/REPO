@@ -21,10 +21,28 @@ import {
   isHighRiskBeverage,
   isOrderUnclaimedByDriver,
   maskCustomerName,
+  resolveEffectiveOrderOpenedDate,
   UNCLAIMED_DRIVER_TIMEOUT_MS
 } from '../lib/delivery-armor'
 
 const laInstant = (value: string) => new Date(`${value}-07:00`)
+
+// Regresión Caso Real Slauson #7 Orden #975 (Karla M, DoorDash):
+// Toast/DoorDash envía openedDate truncado a 00:01:00.000+0000 UTC (7 horas atrás en LA), mientras createdDate tiene la hora real (06:59:11.567+0000 UTC = 11:59 PM LA)
+assert.equal(
+  resolveEffectiveOrderOpenedDate({
+    openedDate: '2026-10-17T00:01:00.000+0000',
+    createdDate: '2026-10-17T06:59:11.567+0000',
+    checks: [
+      {
+        openedDate: '2026-10-17T00:01:00.000+0000',
+        selections: [{ createdDate: '2026-10-17T06:59:11.552+0000', voided: false }]
+      }
+    ]
+  }),
+  '2026-10-17T06:59:11.567Z',
+  'Debe usar el timestamp real de creación (createdDate) cuando openedDate viene truncado a medianoche UTC (Caso Orden #975 Karla M)'
+)
 
 assert.equal(getToastBusinessDate(laInstant('2026-10-13T05:59:00')), '20261012')
 assert.equal(getToastBusinessDate(laInstant('2026-10-13T06:00:00')), '20261013')

@@ -491,13 +491,56 @@ export function extractPlatformOrderIdentity(params: {
 }
 
 /**
+ * Resuelve la fecha/hora real de apertura de la orden en Toast POS.
+ * Corrige el bug de medianoche de DoorDash/Toast donde `openedDate` viene truncado a `00:01:00.000+0000` UTC
+ * (7 horas en el pasado respecto a Los Ángeles), mientras que `createdDate` y `selections[].createdDate`
+ * conservan el timestamp real en que entró el pedido al restaurante.
+ */
+export function resolveEffectiveOrderOpenedDate(rawOrder: any, fallbackIso?: string | null): string {
+  const candidates: number[] = []
+  const pushValid = (val: unknown) => {
+    if (!val) return
+    const ms = new Date(String(val)).getTime()
+    if (Number.isFinite(ms) && ms > 0) {
+      candidates.push(ms)
+    }
+  }
+
+  pushValid(rawOrder?.openedDate)
+  pushValid(rawOrder?.createdDate)
+
+  const checks = Array.isArray(rawOrder?.checks) ? rawOrder.checks : []
+  for (const chk of checks) {
+    pushValid(chk?.openedDate)
+    pushValid(chk?.createdDate)
+    if (Array.isArray(chk?.selections)) {
+      for (const sel of chk.selections) {
+        if (!sel?.voided) {
+          pushValid(sel?.createdDate)
+        }
+      }
+    }
+  }
+
+  if (candidates.length === 0) {
+    if (fallbackIso) {
+      const fbMs = new Date(fallbackIso).getTime()
+      if (Number.isFinite(fbMs) && fbMs > 0) return new Date(fbMs).toISOString()
+    }
+    return new Date().toISOString()
+  }
+
+  return new Date(Math.max(...candidates)).toISOString()
+}
+
+/**
  * Calcula el tiempo real de preparación en KDS desde que llega la orden (createdDate/openedDate)
  * hasta que el cocinero borra la orden del KDS (fulfillmentStatus === 'READY' -> modifiedDate).
  * Nota operativa: En Toast, las bebidas (Large Piña, Jamaica, Horchata, Champurrado) no van a la pantalla KDS de cocina
  * y permanecen en 'SENT', mientras que los platillos cambian a 'READY' en el segundo exacto en que el cocinero borra la orden.
  */
 export function extractKdsTiming(rawOrder: any): KdsTimingInfo {
-  const openedDate = rawOrder?.openedDate || new Date().toISOString()
+  const openedDate = resolveEffectiveOrderOpenedDate(rawOrder)
   const checks = Array.isArray(rawOrder?.checks) ? rawOrder.checks : []
   const selections: any[] = []
   for (const chk of checks) {
@@ -1116,7 +1159,7 @@ export async function fetchOffPremiseOrders(storeId: number, targetBusinessDate?
     const existingAudit = auditsMap.get(o.guid)
     if (o.voided && !existingAudit) continue
 
-    const openedRaw = o.openedDate || o.createdDate || existingAudit?.order_opened_at
+    const openedRaw = resolveEffectiveOrderOpenedDate(o, existingAudit?.order_opened_at)
     const openedMs = openedRaw ? new Date(openedRaw).getTime() : NaN
 
     // En modo en vivo (tableta), conservar toda orden abierta en las últimas 3 horas (incluso si cruza el corte de las 6:00 AM, ej. 5:45 AM -> 6:05 AM) y descartar órdenes viejas que Toast actualiza por cierre de lote/propinas
@@ -1239,7 +1282,7 @@ export async function fetchOffPremiseOrders(storeId: number, targetBusinessDate?
       platformOrderKey: identity.platformOrderKey,
       shortOrderKey: identity.shortOrderKey,
       assignedDriverHint: identity.assignedDriverHint,
-      openedDate: o.openedDate || new Date().toISOString(),
+      openedDate: openedRaw,
       kdsStatus: kds.kdsStatus,
       kdsSentAt: kds.kdsSentAt,
       kdsReadyAt: kds.kdsReadyAt,
