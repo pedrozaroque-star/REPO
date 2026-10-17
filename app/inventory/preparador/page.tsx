@@ -449,6 +449,7 @@ export default function PreparadorPage() {
                 .select('*')
                 .eq('store_code', storeCode)
                 .eq('status', 'IN_PROGRESS') // Exclusivo órdenes en preparación (SEND)
+                .in('dining_option', ['FOR_HERE', 'TOGO']) // Exclusivo Comedor y Para Llevar (jamás Delivery ni Drive-Thru)
                 .gte('created_at', cutoffTime)
                 .order('created_at', { ascending: true }) // FIFO: las más antiguas primero
                 .limit(150)

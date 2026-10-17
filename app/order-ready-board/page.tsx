@@ -1977,6 +1977,9 @@ function OrderReadyBoardContent() {
   // Regla de Negocio Tacos Gavilan: Encolar de manera unificada para esperar su turno si ya hay otro audio sonando
   const handleImpulseCallFromTablet = useCallback(
     (data: { order_id?: string; order_number: string; store_code: string; dining_option?: string; store_name?: string; called_at?: string }) => {
+      if (data.dining_option && data.dining_option !== 'FOR_HERE' && data.dining_option !== 'TOGO') {
+        return
+      }
       unlockAudio()
 
       const now = Date.now()

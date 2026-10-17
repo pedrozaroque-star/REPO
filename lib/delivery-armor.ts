@@ -919,7 +919,7 @@ export function isDeliveryPlatform(diningOptionName: string, deliveryService?: s
 const diningOptionsCache = new Map<string, { at: number; map: Record<string, string> }>()
 const toastRawOrdersCache = new Map<string, { at: number; orders: any[] }>()
 const toastRawOrdersInflight = new Map<string, Promise<any[]>>()
-const TOAST_RAW_CACHE_TTL_MS = 5000 // 5 segundos para evitar 429 en Toast API y responder al instante tras confirmar empaque
+const TOAST_RAW_CACHE_TTL_MS = 3000 // 3 segundos para detectar de inmediato cuando el cocinero borra del KDS sin causar 429 en Toast API
 
 /**
  * Consulta las opciones de comedor (Dining Options) de Toast de forma dinámica (Protocolo Toast API)
@@ -956,18 +956,44 @@ async function fetchDiningOptionsMap(token: string, storeExternalId: string): Pr
 }
 
 /**
+ * Obtiene la fecha laboral en formato YYYY-MM-DD en horario America/Los_Angeles (Regla de las 6:00 AM a 5:59 AM)
+ */
+export function getBusinessDateYmdLA(dateInput: Date | string | number = new Date()): string {
+  const d = dateInput instanceof Date ? dateInput : new Date(dateInput)
+  if (Number.isNaN(d.getTime())) {
+    return getBusinessDateYmdLA(new Date())
+  }
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/Los_Angeles',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    hour12: false
+  }).formatToParts(d)
+
+  const year = Number(parts.find(p => p.type === 'year')?.value || 1970)
+  const month = Number(parts.find(p => p.type === 'month')?.value || 1)
+  const day = Number(parts.find(p => p.type === 'day')?.value || 1)
+  const rawHour = Number(parts.find(p => p.type === 'hour')?.value || 0)
+  const hour = rawHour === 24 ? 0 : rawHour
+
+  const utcDate = new Date(Date.UTC(year, month - 1, day))
+  if (hour < 6) {
+    utcDate.setUTCDate(utcDate.getUTCDate() - 1)
+  }
+
+  const y = utcDate.getUTCFullYear()
+  const m = String(utcDate.getUTCMonth() + 1).padStart(2, '0')
+  const dt = String(utcDate.getUTCDate()).padStart(2, '0')
+  return `${y}-${m}-${dt}`
+}
+
+/**
  * Obtiene la fecha de negocio actual de Toast en horario Los Ángeles (Regla de las 6:00 AM)
  */
 export function getToastBusinessDate(date: Date = new Date()): string {
-  const laDate = new Date(date.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
-  // Si es antes de las 6:00 AM, pertenece al día laboral anterior
-  if (laDate.getHours() < 6) {
-    laDate.setDate(laDate.getDate() - 1)
-  }
-  const y = laDate.getFullYear()
-  const m = String(laDate.getMonth() + 1).padStart(2, '0')
-  const d = String(laDate.getDate()).padStart(2, '0')
-  return `${y}${m}${d}`
+  return getBusinessDateYmdLA(date).replace(/-/g, '')
 }
 
 /**
@@ -1074,6 +1100,8 @@ export async function fetchOffPremiseOrders(storeId: number, targetBusinessDate?
     .from('delivery_packing_audits')
     .select('*')
     .eq('store_id', storeId)
+    .order('created_at', { ascending: false })
+    .limit(1000)
 
   const auditsMap = new Map<string, any>()
   existingAudits?.forEach(a => {

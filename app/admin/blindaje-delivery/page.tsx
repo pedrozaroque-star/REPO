@@ -25,8 +25,53 @@ import {
   Truck,
   Store as StoreIcon,
   ShoppingBag,
-  ArrowUpRight
+  ArrowUpRight,
+  Calendar,
+  ChevronLeft,
+  ChevronRight
 } from 'lucide-react'
+
+function getBusinessDateYmdClient(dateInput: Date | string | number = new Date()): string {
+  const d = dateInput instanceof Date ? dateInput : new Date(dateInput)
+  if (Number.isNaN(d.getTime())) {
+    return getBusinessDateYmdClient(new Date())
+  }
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/Los_Angeles',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    hour12: false
+  }).formatToParts(d)
+
+  const year = Number(parts.find(p => p.type === 'year')?.value || 1970)
+  const month = Number(parts.find(p => p.type === 'month')?.value || 1)
+  const day = Number(parts.find(p => p.type === 'day')?.value || 1)
+  const rawHour = Number(parts.find(p => p.type === 'hour')?.value || 0)
+  const hour = rawHour === 24 ? 0 : rawHour
+
+  const utcDate = new Date(Date.UTC(year, month - 1, day))
+  if (hour < 6) {
+    utcDate.setUTCDate(utcDate.getUTCDate() - 1)
+  }
+
+  const y = utcDate.getUTCFullYear()
+  const m = String(utcDate.getUTCMonth() + 1).padStart(2, '0')
+  const dt = String(utcDate.getUTCDate()).padStart(2, '0')
+  return `${y}-${m}-${dt}`
+}
+
+function shiftYmd(ymd: string, deltaDays: number): string {
+  const [y, m, d] = ymd.split('-').map(Number)
+  if (!y || !m || !d) return getBusinessDateYmdClient()
+  const utc = new Date(Date.UTC(y, m - 1, d))
+  utc.setUTCDate(utc.getUTCDate() + deltaDays)
+  const ny = utc.getUTCFullYear()
+  const nm = String(utc.getUTCMonth() + 1).padStart(2, '0')
+  const nd = String(utc.getUTCDate()).padStart(2, '0')
+  return `${ny}-${nm}-${nd}`
+}
 
 interface DeliveryAuditRow {
   id: string
@@ -40,6 +85,7 @@ interface DeliveryAuditRow {
   customer_name: string
   customer_phone?: string
   opened_at: string
+  business_date: string
   items_ordered: any[]
   packer_employee_id: string
   packer_name: string
@@ -74,11 +120,60 @@ export default function BovedaDisputasBlindajeDeliveryPage() {
     [t]
   )
 
+  const todayYmd = useMemo(() => getBusinessDateYmdClient(), [])
+  const yesterdayYmd = useMemo(() => shiftYmd(todayYmd, -1), [todayYmd])
+  const last7StartYmd = useMemo(() => shiftYmd(todayYmd, -6), [todayYmd])
+
   // Filtros
   const [selectedStoreId, setSelectedStoreId] = useState<number>(0)
   const [selectedPlatform, setSelectedPlatform] = useState<string>('ALL')
   const [selectedStatus, setSelectedStatus] = useState<string>('ALL')
   const [searchQuery, setSearchQuery] = useState<string>('')
+  const [datePreset, setDatePreset] = useState<'TODAY' | 'YESTERDAY' | 'LAST_7' | 'ALL' | 'CUSTOM'>('TODAY')
+  const [startDate, setStartDate] = useState<string>(() => getBusinessDateYmdClient())
+  const [endDate, setEndDate] = useState<string>(() => getBusinessDateYmdClient())
+
+  const applyPreset = useCallback(
+    (preset: 'TODAY' | 'YESTERDAY' | 'LAST_7' | 'ALL') => {
+      setDatePreset(preset)
+      if (preset === 'TODAY') {
+        const currentToday = getBusinessDateYmdClient()
+        setStartDate(currentToday)
+        setEndDate(currentToday)
+      } else if (preset === 'YESTERDAY') {
+        const currentYesterday = shiftYmd(getBusinessDateYmdClient(), -1)
+        setStartDate(currentYesterday)
+        setEndDate(currentYesterday)
+      } else if (preset === 'LAST_7') {
+        const currentToday = getBusinessDateYmdClient()
+        setStartDate(shiftYmd(currentToday, -6))
+        setEndDate(currentToday)
+      } else {
+        setStartDate('')
+        setEndDate('')
+      }
+    },
+    []
+  )
+
+  const handleStepDay = useCallback(
+    (delta: number) => {
+      const base = startDate || getBusinessDateYmdClient()
+      const next = shiftYmd(base, delta)
+      setStartDate(next)
+      setEndDate(next)
+      const currentToday = getBusinessDateYmdClient()
+      const currentYesterday = shiftYmd(currentToday, -1)
+      if (next === currentToday) {
+        setDatePreset('TODAY')
+      } else if (next === currentYesterday) {
+        setDatePreset('YESTERDAY')
+      } else {
+        setDatePreset('CUSTOM')
+      }
+    },
+    [startDate]
+  )
 
   // Estado de Datos
   const [audits, setAudits] = useState<DeliveryAuditRow[]>([])
@@ -113,6 +208,7 @@ export default function BovedaDisputasBlindajeDeliveryPage() {
         customer_name: a.customer_name || t('blindaje_delivery.default_customer'),
         customer_phone: a.customer_phone,
         opened_at: a.order_opened_at || a.opened_at || a.created_at,
+        business_date: a.business_date || getBusinessDateYmdClient(a.created_at || a.order_opened_at),
         items_ordered: a.items_json || a.items_ordered || [],
         packer_employee_id: String(a.packer_ronos_user_id || a.packer_employee_id || a.packer_pin || ''),
         packer_name: a.packer_ronos_name || a.packer_name || t('blindaje_delivery.default_staff'),
@@ -161,6 +257,10 @@ export default function BovedaDisputasBlindajeDeliveryPage() {
       if (selectedStoreId > 0 && item.store_id !== selectedStoreId) return false
       if (selectedPlatform !== 'ALL' && item.platform !== selectedPlatform) return false
       if (selectedStatus !== 'ALL' && item.status !== selectedStatus) return false
+      if (datePreset !== 'ALL') {
+        if (startDate && item.business_date < startDate) return false
+        if (endDate && item.business_date > endDate) return false
+      }
 
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase().trim()
@@ -181,7 +281,7 @@ export default function BovedaDisputasBlindajeDeliveryPage() {
 
       return true
     })
-  }, [audits, selectedStoreId, selectedPlatform, selectedStatus, searchQuery])
+  }, [audits, selectedStoreId, selectedPlatform, selectedStatus, datePreset, startDate, endDate, searchQuery])
 
   // Métricas clave (KPIs)
   const stats = useMemo(() => {
@@ -348,77 +448,168 @@ export default function BovedaDisputasBlindajeDeliveryPage() {
           </div>
         </div>
 
-        {/* 4. BARRA DE FILTROS & BÚSQUEDA */}
-        <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm flex flex-wrap items-center justify-between gap-3">
-          <div className="flex flex-wrap items-center gap-2.5 flex-1 min-w-[280px]">
-            {/* Selector de Sucursal */}
-            <div className="flex items-center gap-2 bg-slate-50 dark:bg-slate-800 px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-semibold text-slate-700 dark:text-slate-200">
-              <StoreIcon className="w-4 h-4 text-slate-400" />
-              <select
-                value={selectedStoreId}
-                onChange={e => setSelectedStoreId(parseInt(e.target.value, 10))}
-                className="bg-transparent text-slate-800 dark:text-slate-200 font-semibold focus:outline-none cursor-pointer"
-              >
-                {pilotStores.map(s => (
-                  <option key={s.id} value={s.id} className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">
-                    {s.name}
-                  </option>
-                ))}
-              </select>
+        {/* 4. BARRA DE FILTROS, SELECTOR DE FECHAS & BÚSQUEDA */}
+        <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-3">
+          {/* Fila 1: Selector de Fechas (Presets + Calendario Desde/Hasta + Flechas) */}
+          <div className="flex flex-wrap items-center justify-between gap-2.5 pb-3 border-b border-slate-100 dark:border-slate-800">
+            <div className="flex flex-wrap items-center gap-1.5">
+              {(
+                [
+                  { id: 'TODAY', label: t('blindaje_delivery.date_today') },
+                  { id: 'YESTERDAY', label: t('blindaje_delivery.date_yesterday') },
+                  { id: 'LAST_7', label: t('blindaje_delivery.date_last_7_days') },
+                  { id: 'ALL', label: t('blindaje_delivery.date_all') }
+                ] as const
+              ).map(preset => {
+                const active = datePreset === preset.id
+                return (
+                  <button
+                    key={preset.id}
+                    type="button"
+                    onClick={() => applyPreset(preset.id)}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer border ${
+                      active
+                        ? 'bg-red-600 text-white border-red-600 shadow-sm shadow-red-500/20'
+                        : 'bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700'
+                    }`}
+                  >
+                    {preset.label}
+                  </button>
+                )
+              })}
             </div>
 
-            {/* Selector de Plataforma */}
-            <div className="flex items-center gap-2 bg-slate-50 dark:bg-slate-800 px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-semibold text-slate-700 dark:text-slate-200">
-              <Filter className="w-4 h-4 text-slate-400" />
-              <select
-                value={selectedPlatform}
-                onChange={e => setSelectedPlatform(e.target.value)}
-                className="bg-transparent text-slate-800 dark:text-slate-200 font-semibold focus:outline-none cursor-pointer"
+            {/* Calendario Desde - Hasta + Navegación por Día */}
+            <div className="flex flex-wrap items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => handleStepDay(-1)}
+                title={t('blindaje_delivery.date_prev_day')}
+                className="p-2 rounded-xl bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 transition-colors cursor-pointer"
               >
-                <option value="ALL" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">
-                  {t('blindaje_delivery.all_platforms')}
-                </option>
-                <option value="DOORDASH" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">DoorDash</option>
-                <option value="UBER_EATS" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">Uber Eats</option>
-                <option value="GRUBHUB" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">Grubhub</option>
-                <option value="TOAST_ONLINE" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">Toast Direct</option>
-                <option value="TAKEOUT" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">Takeout / To Go</option>
-              </select>
-            </div>
+                <ChevronLeft className="w-4 h-4" />
+              </button>
 
-            {/* Selector de Estado */}
-            <div className="flex items-center gap-2 bg-slate-50 dark:bg-slate-800 px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-semibold text-slate-700 dark:text-slate-200">
-              <select
-                value={selectedStatus}
-                onChange={e => setSelectedStatus(e.target.value)}
-                className="bg-transparent text-slate-800 dark:text-slate-200 font-semibold focus:outline-none cursor-pointer"
+              <div className="flex items-center gap-2 bg-slate-50 dark:bg-slate-800 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-semibold text-slate-700 dark:text-slate-200">
+                <Calendar className="w-3.5 h-3.5 text-red-600 dark:text-red-400 shrink-0" />
+                <span className="text-[11px] text-slate-400">{t('blindaje_delivery.date_from')}:</span>
+                <input
+                  type="date"
+                  value={startDate}
+                  onChange={e => {
+                    const val = e.target.value
+                    setStartDate(val)
+                    if (endDate && val > endDate) {
+                      setEndDate(val)
+                    } else if (!endDate) {
+                      setEndDate(val)
+                    }
+                    setDatePreset('CUSTOM')
+                  }}
+                  className="bg-transparent text-slate-800 dark:text-slate-200 font-bold focus:outline-none cursor-pointer"
+                />
+                <span className="text-slate-300 dark:text-slate-600">—</span>
+                <span className="text-[11px] text-slate-400">{t('blindaje_delivery.date_to')}:</span>
+                <input
+                  type="date"
+                  value={endDate}
+                  onChange={e => {
+                    const val = e.target.value
+                    setEndDate(val)
+                    if (startDate && val < startDate) {
+                      setStartDate(val)
+                    } else if (!startDate) {
+                      setStartDate(val)
+                    }
+                    setDatePreset('CUSTOM')
+                  }}
+                  className="bg-transparent text-slate-800 dark:text-slate-200 font-bold focus:outline-none cursor-pointer"
+                />
+              </div>
+
+              <button
+                type="button"
+                onClick={() => handleStepDay(1)}
+                title={t('blindaje_delivery.date_next_day')}
+                className="p-2 rounded-xl bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 transition-colors cursor-pointer"
               >
-                <option value="ALL" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">
-                  {t('blindaje_delivery.all_statuses')}
-                </option>
-                <option value="sealed" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">
-                  {t('blindaje_delivery.status_filter_sealed')}
-                </option>
-                <option value="delivered" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">
-                  {t('blindaje_delivery.status_filter_delivered')}
-                </option>
-                <option value="unclaimed" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">
-                  {t('blindaje_delivery.status_filter_unclaimed')}
-                </option>
-              </select>
+                <ChevronRight className="w-4 h-4" />
+              </button>
             </div>
           </div>
 
-          {/* Campo de Búsqueda */}
-          <div className="relative w-full sm:w-72">
-            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-            <input
-              type="text"
-              placeholder={t('blindaje_delivery.dashboard_search_placeholder')}
-              value={searchQuery}
-              onChange={e => setSearchQuery(e.target.value)}
-              className="w-full pl-9 pr-3.5 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:border-red-500 focus:bg-white dark:focus:bg-slate-900 transition-colors"
-            />
+          {/* Fila 2: Sucursal, Plataforma, Estado y Búsqueda */}
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex flex-wrap items-center gap-2.5 flex-1 min-w-[280px]">
+              {/* Selector de Sucursal */}
+              <div className="flex items-center gap-2 bg-slate-50 dark:bg-slate-800 px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-semibold text-slate-700 dark:text-slate-200">
+                <StoreIcon className="w-4 h-4 text-slate-400" />
+                <select
+                  value={selectedStoreId}
+                  onChange={e => setSelectedStoreId(parseInt(e.target.value, 10))}
+                  className="bg-transparent text-slate-800 dark:text-slate-200 font-semibold focus:outline-none cursor-pointer"
+                >
+                  {pilotStores.map(s => (
+                    <option key={s.id} value={s.id} className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">
+                      {s.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Selector de Plataforma */}
+              <div className="flex items-center gap-2 bg-slate-50 dark:bg-slate-800 px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-semibold text-slate-700 dark:text-slate-200">
+                <Filter className="w-4 h-4 text-slate-400" />
+                <select
+                  value={selectedPlatform}
+                  onChange={e => setSelectedPlatform(e.target.value)}
+                  className="bg-transparent text-slate-800 dark:text-slate-200 font-semibold focus:outline-none cursor-pointer"
+                >
+                  <option value="ALL" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">
+                    {t('blindaje_delivery.all_platforms')}
+                  </option>
+                  <option value="DOORDASH" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">DoorDash</option>
+                  <option value="UBER_EATS" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">Uber Eats</option>
+                  <option value="GRUBHUB" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">Grubhub</option>
+                  <option value="TOAST_ONLINE" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">Toast Direct</option>
+                  <option value="TAKEOUT" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">Takeout / To Go</option>
+                </select>
+              </div>
+
+              {/* Selector de Estado */}
+              <div className="flex items-center gap-2 bg-slate-50 dark:bg-slate-800 px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-semibold text-slate-700 dark:text-slate-200">
+                <select
+                  value={selectedStatus}
+                  onChange={e => setSelectedStatus(e.target.value)}
+                  className="bg-transparent text-slate-800 dark:text-slate-200 font-semibold focus:outline-none cursor-pointer"
+                >
+                  <option value="ALL" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">
+                    {t('blindaje_delivery.all_statuses')}
+                  </option>
+                  <option value="sealed" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">
+                    {t('blindaje_delivery.status_filter_sealed')}
+                  </option>
+                  <option value="delivered" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">
+                    {t('blindaje_delivery.status_filter_delivered')}
+                  </option>
+                  <option value="unclaimed" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">
+                    {t('blindaje_delivery.status_filter_unclaimed')}
+                  </option>
+                </select>
+              </div>
+            </div>
+
+            {/* Campo de Búsqueda */}
+            <div className="relative w-full sm:w-72">
+              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                placeholder={t('blindaje_delivery.dashboard_search_placeholder')}
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                className="w-full pl-9 pr-3.5 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:border-red-500 focus:bg-white dark:focus:bg-slate-900 transition-colors"
+              />
+            </div>
           </div>
         </div>
 
@@ -489,8 +680,9 @@ export default function BovedaDisputasBlindajeDeliveryPage() {
                             </span>
                           </div>
                           <span className="text-[11px] text-slate-400 block mt-0.5">
-                            Ticket #{audit.ticket_number} •{' '}
+                            Ticket #{audit.ticket_number} • {audit.business_date} •{' '}
                             {new Date(audit.created_at).toLocaleTimeString('es-US', {
+                              timeZone: 'America/Los_Angeles',
                               hour: '2-digit',
                               minute: '2-digit',
                               hour12: true

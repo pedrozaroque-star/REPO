@@ -15,6 +15,7 @@ import {
   extractKdsTiming,
   extractPlatformOrderIdentity,
   formatDisputeStatement,
+  getBusinessDateYmdLA,
   getToastBusinessDate,
   isDeliveryPlatform,
   isHighRiskBeverage,
@@ -29,6 +30,10 @@ assert.equal(getToastBusinessDate(laInstant('2026-10-13T05:59:00')), '20261012')
 assert.equal(getToastBusinessDate(laInstant('2026-10-13T06:00:00')), '20261013')
 assert.equal(getToastBusinessDate(laInstant('2026-10-13T23:59:00')), '20261013')
 assert.equal(getToastBusinessDate(laInstant('2026-10-14T00:00:00')), '20261013')
+assert.equal(getBusinessDateYmdLA(laInstant('2026-10-16T05:59:59')), '2026-10-15')
+assert.equal(getBusinessDateYmdLA(laInstant('2026-10-16T06:00:00')), '2026-10-16')
+assert.equal(getBusinessDateYmdLA(laInstant('2026-10-17T02:06:00')), '2026-10-16')
+assert.equal(getBusinessDateYmdLA('2026-10-17T02:06:00.000Z'), '2026-10-16')
 
 assert.equal(classifyPlatform('DOORDASH - DELIVERY'), 'DOORDASH')
 assert.equal(classifyPlatform('Uber Eats'), 'UBER_EATS')
@@ -233,6 +238,31 @@ assert.equal(
   'ClientLayout debe incluir /admin/blindaje-delivery/empaque en publicRoutes para ocultar barras y mostrar pantalla completa'
 )
 
+const disputesRouteSource = fs.readFileSync(
+  path.join(process.cwd(), 'app', 'api', 'delivery-armor', 'disputes', 'route.ts'),
+  'utf8'
+)
+assert.equal(
+  disputesRouteSource.includes("searchParams.get('limit') || '5000'") &&
+    disputesRouteSource.includes('.range(offset, offset + batchLimit - 1)'),
+  true,
+  'El endpoint /api/delivery-armor/disputes no debe truncar en 50 órdenes y debe paginar hasta 5000 registros'
+)
+
+const dashboardSource = fs.readFileSync(
+  path.join(process.cwd(), 'app', 'admin', 'blindaje-delivery', 'page.tsx'),
+  'utf8'
+)
+assert.equal(
+  dashboardSource.includes('type="date"') &&
+    dashboardSource.includes('handleStepDay(-1)') &&
+    dashboardSource.includes('handleStepDay(1)') &&
+    dashboardSource.includes("t('blindaje_delivery.date_today')") &&
+    dashboardSource.includes('item.business_date < startDate'),
+  true,
+  'El panel administrativo /admin/blindaje-delivery debe incluir selector de fechas (Hoy, Ayer, 7 Días, Todas + calendario Desde/Hasta y flechas) filtrado por día laboral 6 AM - 5:59 AM'
+)
+
 const empaqueSource = fs.readFileSync(
   path.join(process.cwd(), 'app', 'admin', 'blindaje-delivery', 'empaque', 'page.tsx'),
   'utf8'
@@ -317,10 +347,6 @@ assert.equal(
   'Debe garantizar continuidad total entre cajeras y los 7 blindajes operativos en tienda'
 )
 
-const dashboardSource = fs.readFileSync(
-  path.join(process.cwd(), 'app', 'admin', 'blindaje-delivery', 'page.tsx'),
-  'utf8'
-)
 assert.equal(
   dashboardSource.includes('openDossierModal') || dashboardSource.includes('Evidencia (Fotos)'),
   false,

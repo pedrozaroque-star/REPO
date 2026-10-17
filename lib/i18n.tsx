@@ -4965,7 +4965,8 @@ export const dictionaries: Record<Language, Dictionary> = {
             tab_live_site_short: 'Sitio Web',
             view_tablet_short: 'Tablet',
             view_mobile_short: 'Móvil',
-            open_live_site_short: 'Abrir Web'
+            open_live_site_short: 'Abrir Web',
+            native_mobile_view: 'Vista Móvil Nativa'
         },
         blindaje_delivery: {
             title: 'Blindaje Delivery',
@@ -5157,7 +5158,15 @@ export const dictionaries: Record<Language, Dictionary> = {
             btn_confirm_driver_present_first: 'MARCA LA CASILLA DE CHOFER PRESENTE PARA ENTREGAR',
             voided_packed_banner_title: '🚫 ORDEN CANCELADA EN PLATAFORMA — ¡NO ENTREGAR AL CHOFER!',
             voided_packed_banner_desc: 'Esta orden ya había sido empacada pero fue cancelada. Retira la bolsa física del estante inmediatamente.',
-            voided_ack_remove_bag_btn: 'Ya retiré la bolsa física del estante'
+            voided_ack_remove_bag_btn: 'Ya retiré la bolsa física del estante',
+            date_today: 'Hoy',
+            date_yesterday: 'Ayer',
+            date_last_7_days: '7 Días',
+            date_all: 'Todas',
+            date_from: 'Desde',
+            date_to: 'Hasta',
+            date_prev_day: 'Día anterior',
+            date_next_day: 'Día siguiente'
         },
         gavilan_pos: {
             brand_title: 'Gavilan POS Cloud & Terminal Suite',
@@ -10216,7 +10225,8 @@ export const dictionaries: Record<Language, Dictionary> = {
             tab_live_site_short: 'Live Site',
             view_tablet_short: 'Tablet',
             view_mobile_short: 'Mobile',
-            open_live_site_short: 'Open Web'
+            open_live_site_short: 'Open Web',
+            native_mobile_view: 'Native Mobile View'
         },
         blindaje_delivery: {
             title: 'Delivery Armor',
@@ -10408,7 +10418,15 @@ export const dictionaries: Record<Language, Dictionary> = {
             btn_confirm_driver_present_first: 'CHECK THE DRIVER PRESENT BOX TO HAND OFF',
             voided_packed_banner_title: '🚫 ORDER VOIDED ON PLATFORM — DO NOT HAND TO DRIVER!',
             voided_packed_banner_desc: 'This order was already packed but has been canceled. Remove the physical bag from the shelf immediately.',
-            voided_ack_remove_bag_btn: 'I removed the physical bag from the shelf'
+            voided_ack_remove_bag_btn: 'I removed the physical bag from the shelf',
+            date_today: 'Today',
+            date_yesterday: 'Yesterday',
+            date_last_7_days: '7 Days',
+            date_all: 'All Dates',
+            date_from: 'From',
+            date_to: 'To',
+            date_prev_day: 'Previous day',
+            date_next_day: 'Next day'
         },
         gavilan_pos: {
             brand_title: 'Gavilan POS Cloud & Terminal Suite',

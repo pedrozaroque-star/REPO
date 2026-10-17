@@ -90,7 +90,7 @@ export async function POST(request: Request) {
       diningName = payload.diningOption
     }
 
-    const diningOption = classifyDiningName(diningName)
+    const diningOption = classifyDiningName(diningName, orderObj)
 
     // REGLA CRÍTICA: El Order Ready Board es EXCLUSIVO para COMEDOR (FOR_HERE) y PARA LLEVAR (TOGO).
     // Las órdenes de Drive-Thru y Delivery de plataformas se descartan por completo de este tablero.
@@ -206,7 +206,7 @@ export async function POST(request: Request) {
               const diningMap = await getDiningMap(token, rId)
               const dGuid = String(fetchedToastOrder.diningOption?.guid || '')
               const dName = diningMap[dGuid] || fetchedToastOrder.diningOption?.name || ''
-              finalDiningOption = classifyDiningName(dName)
+              finalDiningOption = classifyDiningName(dName, fetchedToastOrder)
             }
             if (fetchedToastOrder.customer?.firstName && !customerName) {
               customerName = fetchedToastOrder.customer.firstName

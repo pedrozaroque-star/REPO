@@ -735,19 +735,21 @@ Food Cost % = (Total Ingredient Cost ÷ Net Sales) × 100
 
 ## BLINDAJE DELIVERY — ESTACIÓN TABLET Y PANEL (/admin/blindaje-delivery/empaque y /admin/blindaje-delivery)
 - **Sesión Exclusiva por Tienda y Expiración por Inactividad (10 min)**: El acceso con PIN de 4 dígitos de RONOS cierra automáticamente la sesión tras 10 minutos sin actividad y garantiza sesión única por sucursal (si otra cajera inicia sesión en la tienda, la sesión anterior se cierra al instante). Incluye botón directo "Cambiar Cajera (PIN)" y muestra el nombre de la cajera activa en los botones de acción.
-- **Continuidad Total entre Cajeras y Selección 100% Manual**:
-  1) Si una cajera empaca las bolsas (Paso 1: \`PACKED_AND_SEALED\` / \`LISTA\`) y cambia de posición con otra cajera, la segunda cajera ve quién empacó la orden, puede ajustar la cantidad de bolsas o re-confirmar el empaque, puede deshacer el empaque (\`undoPackingAudit\` -> regresa a \`EMPACANDO\`), o puede entregarla al chofer (Paso 2: \`DELIVERED\`).
-  2) **Selección Estrictamente Manual**: El sistema nunca autoselecciona órdenes ni al iniciar, ni en el refresco de 8s, ni después de empacar (\`markReady\`) o entregar al chofer (\`release\`), regresando siempre a "Selecciona una orden" para evitar equivocaciones.
-  3) El Paso 2 requiere enfriamiento de 2.5s y marcar la casilla obligatoria de chofer presente en mostrador tras verificar el nombre del cliente y la orden en su teléfono (sin códigos QR).
-  4) Si una orden se marcó como \`ENTREGADA\` por error, puede reabrirse con un toque (\`reopenDeliveredAudit\`) regresando al estante activo en estado \`LISTA\`.
-  5) Si una orden ya empacada (\`LISTA\`) es cancelada (\`voided\`) en la plataforma, muestra alerta roja parpadeante para retirar la bolsa física del estante.
-  6) Respeta continuidad en el corte de las 6:00 AM y órdenes \`NO RECOGIDA (+2H)\`.
+- **Continuidad Total entre Cajeras, Check # Visible y Selección 100% Manual**:
+  1) Cada tarjeta de la columna izquierda muestra el número de orden de plataforma y un badge **\`Check #\`** con el número de ticket de Toast POS (\`orderNumber\`).
+  2) Si una cajera empaca las bolsas (Paso 1: \`PACKED_AND_SEALED\` / \`LISTA\`) y cambia de posición con otra cajera, la segunda cajera ve quién empacó la orden, puede ajustar la cantidad de bolsas o re-confirmar el empaque, puede deshacer el empaque (\`undoPackingAudit\` -> regresa a \`EMPACANDO\`), o puede entregarla al chofer (Paso 2: \`DELIVERED\`).
+  3) **Selección Estrictamente Manual y Deselección al Tocar Espacio en Blanco**: El sistema nunca autoselecciona órdenes ni al iniciar, ni en el refresco, ni después de empacar (\`markReady\`) o entregar al chofer (\`release\`), y permite deseleccionar la orden activa tocando cualquier espacio vacío fuera de las tarjetas.
+  4) El Paso 2 requiere enfriamiento de 2.5s y marcar la casilla obligatoria de chofer presente en mostrador tras verificar el nombre del cliente y la orden en su teléfono (sin códigos QR).
+  5) Si una orden se marcó como \`ENTREGADA\` por error, puede reabrirse con un toque (\`reopenDeliveredAudit\`) regresando al estante activo en estado \`LISTA\`.
+  6) Si una orden ya empacada (\`LISTA\`) es cancelada (\`voided\`) en la plataforma, muestra alerta roja parpadeante para retirar la bolsa física del estante.
+  7) **Selector de Fechas y Paginación Completa Sin Tope de 50 Órdenes**: El panel ejecutivo (\`/admin/blindaje-delivery\`) y el endpoint \`/api/delivery-armor/disputes\` soportan hasta **5,000 auditorías** con paginación por bloques de 1,000 filas en Supabase (\`.range()\`), cálculo de \`business_date\` bajo la regla de día laboral de Tacos Gavilan (6:00 AM – 5:59 AM \`America/Los_Angeles\`) y barra selectora de fechas (\`Hoy\`, \`Ayer\`, \`7 Días\`, \`Todas\`, \`Desde\` / \`Hasta\` y flechas \`◀\` / \`▶\`).
 
 ## PANTALLA DE ÓRDENES Y VOCEO BILINGÜE (/order-ready-board)
-- **Columnas Operativas y Diseño Sobrio Ejecutivo**:
+- **Columnas Operativas, Diseño Sobrio Ejecutivo y Aislamiento Estricto Dine-In vs Delivery**:
   - Columna izquierda: **ENTREGADAS / DELIVERED** (paleta sobria \`slate\`) para órdenes que ya fueron entregadas al cliente tras tocarse en la tableta del Preparador (\`/inventory/preparador\`).
   - Columna derecha: **EN PREPARACIÓN / IN PROGRESS** (acento ámbar cálido \`amber-400\` / \`amber-500\`) para órdenes activas en cocina.
   - Etiquetas claras de modalidad en cada orden: **\`FOR HERE\`** y **\`TO GO\`** en ambos idiomas.
+  - **Aislamiento Estricto de Canales de Audio (Fail-Closed)**: \`classifyDiningName\` inspecciona \`diningOption\`, \`deliveryService\`, \`source\` y \`checks[0].tabName\` (\`UBER...\`, \`DD ...\`, \`DOORDASH\`, \`GRUBHUB\`, \`POSTMATES\`, \`ONLINE\`, \`CURBSIDE\`) y opera en modo fail-closed (\`UNKNOWN\` en lugar de asumir \`TOGO\`). Tanto \`/order-ready-board\` como \`/inventory/preparador\` filtran estrictamente \`['FOR_HERE', 'TOGO']\` para que ninguna orden de Delivery o Drive-Thru suene jamás en el micrófono de comedor, mientras que la tableta de Delivery (\`/admin/blindaje-delivery/empaque\`) hace polling cada **4 segundos** (\`KDS_POLL_INTERVAL_MS = 4000\`) para anunciar inmediatamente los bumps del KDS de cocina.
 - **Visor de Recibo / Ticket Ultrarrápido con Nombre Real del Cajero/a (\`/api/toast-order-detail\`)**:
   - Precarga en segundo plano (\`prefetchOrderDetail\` al pasar el cursor), caché en memoria del cliente y vista previa instantánea (\`0 ms\`) de platillos desde \`items_summary\`.
   - Resuelve automáticamente el nombre real del cajero/a (\`server.name\`) cruzando el \`guid\` de Toast contra \`toast_employees\` en Supabase (\`toast_guid\` y \`v2_toast_guid\`) con respaldo directo en Toast Labor API (\`/labor/v1/employees/{guid}\`) y caché en memoria de 60 minutos (\`employeeNameCache\` y \`diningOptionsCache\`).

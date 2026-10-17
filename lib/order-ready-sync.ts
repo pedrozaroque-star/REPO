@@ -247,18 +247,49 @@ export function evaluateToastOrder(order: any): ToastOrderEvaluation {
 }
 
 /**
- * Traduce el nombre de la dining option de Toast al canal del tablero.
- * FAIL-CLOSED: si el nombre viene vacío (GUID no resuelto / mapa caído) devuelve 'UNKNOWN' y la orden NO entra
- * al tablero (antes se asumía TOGO y se colaban órdenes de Drive-Thru por unos segundos).
+ * Traduce el nombre de la dining option y metadatos de Toast al canal del tablero.
+ * FAIL-CLOSED: si el nombre viene vacío o no coincide con un canal presencial válido, devuelve 'UNKNOWN'
+ * y si detecta indicios de plataforma (Uber, DoorDash, Grubhub, Postmates, Online, API, tabName) devuelve 'DELIVERY'.
  */
-export function classifyDiningName(raw: string): 'TOGO' | 'FOR_HERE' | 'DELIVERY' | 'DRIVE_THRU' | 'UNKNOWN' {
+export function classifyDiningName(raw: string, orderObj?: any): 'TOGO' | 'FOR_HERE' | 'DELIVERY' | 'DRIVE_THRU' | 'UNKNOWN' {
   const up = (raw || '').toUpperCase().trim()
+  const deliveryService = String(orderObj?.deliveryService?.name || orderObj?.deliveryService || '').toUpperCase().trim()
+  const source = String(typeof orderObj?.source === 'string' ? orderObj.source : (orderObj?.source?.name || '')).toUpperCase().trim()
+  const tabName = String(orderObj?.checks?.[0]?.tabName || orderObj?.tabName || '').toUpperCase().trim()
+  const combinedMeta = `${up} ${deliveryService} ${source} ${tabName}`
+
+  if (
+    combinedMeta.includes('UBER') ||
+    combinedMeta.includes('EATS') ||
+    combinedMeta.includes('DOORDASH') ||
+    combinedMeta.includes('GRUBHUB') ||
+    combinedMeta.includes('POSTMATES') ||
+    combinedMeta.includes('DELIVERY') ||
+    combinedMeta.includes('TOAST ONLINE') ||
+    combinedMeta.includes('ONLINE ORDERING') ||
+    combinedMeta.includes('CURBSIDE') ||
+    /^DD\s+[0-9A-F]{4,}/i.test(tabName) ||
+    /^UBER[0-9A-F]{4,}/i.test(tabName) ||
+    source === 'API'
+  ) {
+    return 'DELIVERY'
+  }
+
   if (!up) return 'UNKNOWN'
   if (up.includes('DRIVE') || up.includes('THRU') || up.includes('DT') || up.includes('AUTO')) return 'DRIVE_THRU'
   if (up.includes('HERE') || up.includes('DINE')) return 'FOR_HERE'
-  if (up.includes('UBER') || up.includes('DOORDASH') || up.includes('GRUBHUB') || up.includes('POSTMATES') || up.includes('DELIVERY')) return 'DELIVERY'
-  if (up.includes('TO GO') || up.includes('TOGO') || up.includes('TAKEOUT') || up.includes('TAKE OUT') || up.includes('CURBSIDE') || up.includes('PICKUP')) return 'TOGO'
-  return 'TOGO'
+  if (
+    up.includes('TO GO') ||
+    up.includes('TOGO') ||
+    up.includes('TAKEOUT') ||
+    up.includes('TAKE OUT') ||
+    up.includes('PICKUP') ||
+    up.includes('PHONE') ||
+    up.includes('KIOSK')
+  ) {
+    return 'TOGO'
+  }
+  return 'UNKNOWN'
 }
 
 // ── Mapa GUID -> nombre de dining option por tienda (cache 30 min). NUNCA hardcodear GUIDs de dining options. ──
@@ -356,7 +387,7 @@ export async function syncStoreFromToast(storeCode: string, force = false): Prom
 
         const diningGuid = ord.diningOption?.guid || ord.checks?.[0]?.diningOption?.guid
         const diningName = diningMap[diningGuid] || ord.diningOption?.name || ''
-        const diningOption = classifyDiningName(diningName)
+        const diningOption = classifyDiningName(diningName, ord)
         const itemsSummary = extractOrderItemsSummary(ord)
 
         const row = byGuid.get(ord.guid)

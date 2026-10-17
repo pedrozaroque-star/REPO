@@ -48,7 +48,7 @@ const STORES = [
 
 const PIN_INACTIVITY_TIMEOUT_MS = 10 * 60 * 1000 // 10 minutos sin actividad para cerrar sesión del PIN de la cajera
 const PIN_SESSION_DURATION_MS = PIN_INACTIVITY_TIMEOUT_MS
-const KDS_POLL_INTERVAL_MS = 8000 // 8 segundos para detectar al instante cuando el cocinero borra del KDS
+const KDS_POLL_INTERVAL_MS = 4000 // 4 segundos para detectar al instante cuando el cocinero borra del KDS antes de que la cajera cierre el empaque
 const UNCLAIMED_DRIVER_TIMEOUT_MS = 2 * 60 * 60 * 1000 // 2 horas (120 min) sin que ningún chofer recoja la orden
 
 type Platform = 'DOORDASH' | 'UBER_EATS' | 'GRUBHUB' | 'TOAST_ONLINE' | 'OTHER'
