@@ -223,7 +223,7 @@ export default function StaffEvaluationsPage() {
                         </div>
                         <div>
                             <h1 className="text-2xl sm:text-3xl font-black text-slate-800 dark:text-white tracking-tight">
-                                {isEs ? 'Evaluación de Personal' : 'Staff Evaluations'}
+                                {isEs ? 'Feedback Staff' : 'Staff Feedback'}
                             </h1>
                             <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400">
                                 {isEs

@@ -312,6 +312,25 @@ function getPreviousDateString(dateStr: string): string {
 }
 
 /**
+ * Extrae el timestamp ISO con zona horaria de una ponchada, priorizando timestampIso y localTime (con offset Pacífico)
+ * sobre punchTime (que RONOS envía en UTC sin sufijo 'Z').
+ */
+export function getPunchIsoString(p: any): string {
+  if (!p || typeof p !== 'object') return ''
+  const iso = typeof p.timestampIso === 'string' ? p.timestampIso.trim() : ''
+  if (iso && /[zZ]$|[+-]\d{2}:\d{2}$/.test(iso)) return iso
+  const local = typeof p.localTime === 'string' ? p.localTime.trim() : ''
+  if (local && /[zZ]$|[+-]\d{2}:\d{2}$/.test(local)) return local
+  if (iso) return iso
+  const punch = typeof p.punchTime === 'string' ? p.punchTime.trim() : ''
+  if (punch) {
+    if (/[zZ]$|[+-]\d{2}:\d{2}$/.test(punch)) return punch
+    return local || punch
+  }
+  return local
+}
+
+/**
  * Separa de forma estricta las anomalías verificables ocurridas HOY en la jornada laboral vigente
  * de las tarjetas incompletas históricas de fechas anteriores del período.
  *
@@ -356,7 +375,7 @@ export function detectTodayAnomalies(
         const rawPunches = d.punches || []
         const validPunches = rawPunches.filter(p => {
           if (!p || typeof p !== 'object') return false  // Fix: descartar ponchadas null/malformadas
-          const raw = p.timestampIso || p.punchTime
+          const raw = getPunchIsoString(p)
           if (raw == null || raw === '') return false     // Fix: descartar timestamps vacíos/null
           const pMs = new Date(raw).getTime()
           return !isNaN(pMs) && pMs > 86400000 && pMs <= asOfTimeMs  // Fix: epoch sanity check (>1971)
@@ -364,8 +383,8 @@ export function detectTodayAnomalies(
 
         if (validPunches.length > 0) {
           const sorted = [...validPunches].sort((a, b) => {
-            const tA = new Date(a.timestampIso || a.punchTime).getTime()
-            const tB = new Date(b.timestampIso || b.punchTime).getTime()
+            const tA = new Date(getPunchIsoString(a)).getTime()
+            const tB = new Date(getPunchIsoString(b)).getTime()
             return tA - tB
           })
 
@@ -378,14 +397,14 @@ export function detectTodayAnomalies(
               const prevDay = days.find(day => day?.date?.substring(0, 10) === previousWorkDate)
               const prevValidPunches = (prevDay?.punches || []).filter(p => {
                 if (!p || typeof p !== 'object') return false
-                const raw = p.timestampIso || p.punchTime
+                const raw = getPunchIsoString(p)
                 if (raw == null || raw === '') return false
                 const pMs = new Date(raw).getTime()
                 return !isNaN(pMs) && pMs > 86400000 && pMs <= asOfTimeMs
               })
               if (prevValidPunches.length > 0) {
                 const prevSorted = [...prevValidPunches].sort((a, b) => {
-                  return new Date(a.timestampIso || a.punchTime).getTime() - new Date(b.timestampIso || b.punchTime).getTime()
+                  return new Date(getPunchIsoString(a)).getTime() - new Date(getPunchIsoString(b)).getTime()
                 })
                 const prevLast = prevSorted[prevSorted.length - 1]
                 if (Number(prevLast?.punchType) === 1) {
@@ -399,7 +418,7 @@ export function detectTodayAnomalies(
                 emp,
                 issue: 'Salida registrada sin entrada previa',
                 reason: 'out_without_in',
-                time: firstPunch.punchTime
+                time: formatTime12h(getPunchIsoString(firstPunch)) || firstPunch.punchTime
               })
               hasTodayAnomaly = true
               continue
@@ -411,7 +430,7 @@ export function detectTodayAnomalies(
 
           // 2. Comida prolongada (> 120 min sin regreso)
           if (lastType === 3) {
-            const punchMs = new Date(lastPunch.timestampIso || lastPunch.punchTime).getTime()
+            const punchMs = new Date(getPunchIsoString(lastPunch)).getTime()
             if (!isNaN(punchMs)) {
               const elapsedMin = Math.round((asOfTimeMs - punchMs) / 60000)
               if (elapsedMin > RONOS_OPERATIONAL_THRESHOLDS.MAX_MEAL_MINUTES_WITHOUT_RETURN) {
@@ -419,7 +438,7 @@ export function detectTodayAnomalies(
                   emp,
                   issue: `Descanso de comida prolongado (>2h: ${elapsedMin} min)`,
                   reason: 'lunch_without_return',
-                  time: lastPunch.punchTime
+                  time: formatTime12h(getPunchIsoString(lastPunch)) || lastPunch.punchTime
                 })
                 hasTodayAnomaly = true
                 continue
@@ -435,7 +454,7 @@ export function detectTodayAnomalies(
             let onMeal = false
             for (const sp of sorted) {
               const spType = Number(sp.punchType)
-              const spMs = new Date(sp.timestampIso || sp.punchTime).getTime()
+              const spMs = new Date(getPunchIsoString(sp)).getTime()
               if (isNaN(spMs) || spMs <= 86400000) continue
 
               if (spType === 1) {
@@ -463,13 +482,14 @@ export function detectTodayAnomalies(
               const elapsedHours = (asOfTimeMs - currentShiftStartMs) / 3600000
               if (elapsedHours > RONOS_OPERATIONAL_THRESHOLDS.MAX_SHIFT_HOURS_WITHOUT_OUT) {
                 const sessionStartPunch = sorted.find(sp => 
-                  new Date(sp.timestampIso || sp.punchTime).getTime() === currentShiftStartMs
+                  new Date(getPunchIsoString(sp)).getTime() === currentShiftStartMs
                 )
+                const rawAlertTime = sessionStartPunch ? getPunchIsoString(sessionStartPunch) : getPunchIsoString(lastPunch)
                 openToday.push({
                   emp,
                   issue: `Turno continuo prolongado (>14h: ${elapsedHours.toFixed(1)}h)`,
                   reason: 'shift_over_14h',
-                  time: sessionStartPunch?.punchTime || lastPunch.punchTime
+                  time: formatTime12h(rawAlertTime) || sessionStartPunch?.punchTime || lastPunch.punchTime
                 })
                 hasTodayAnomaly = true
                 continue
@@ -503,13 +523,13 @@ export function detectTodayAnomalies(
             if (nextDay) {
               const nextValidPunches = (nextDay.punches || []).filter(p => {
                 if (!p || typeof p !== 'object') return false
-                const raw = p.timestampIso || p.punchTime
+                const raw = getPunchIsoString(p)
                 if (raw == null || raw === '') return false
                 const pMs = new Date(raw).getTime()
                 return !isNaN(pMs) && pMs > 86400000 && pMs <= asOfTimeMs
               }).sort((a, b) => {
-                const tA = new Date(a.timestampIso || a.punchTime).getTime()
-                const tB = new Date(b.timestampIso || b.punchTime).getTime()
+                const tA = new Date(getPunchIsoString(a)).getTime()
+                const tB = new Date(getPunchIsoString(b)).getTime()
                 return tA - tB
               })
 

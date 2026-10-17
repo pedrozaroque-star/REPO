@@ -197,13 +197,21 @@ function RonosLaborAuditContent() {
           if (Array.isArray(json.stores)) setStores(json.stores)
           if (Array.isArray(json.weeks) && json.weeks.length > 0) {
             setWeeks(json.weeks)
+            const todayBiz = getPacificDateString(new Date(), true)
+            const currentOpenWeek = json.weeks.find((w: any) => {
+              const s = w?.startDate?.substring(0, 10) || ''
+              const e = w?.endDate?.substring(0, 10) || ''
+              return s <= todayBiz && todayBiz <= e
+            }) || json.weeks[0]
+
             const computedBiWeeks = computeCingularBiWeeklyPeriods(json.weeks)
             if (computedBiWeeks.length > 0) {
-              const defaultPeriod = computedBiWeeks[0]
+              const latestClosedBiWeek = computedBiWeeks.find(p => p.endDate.substring(0, 10) < todayBiz)
+              const defaultPeriod = latestClosedBiWeek || computedBiWeeks[0]
               setSelectedBiWeeklyPeriod(defaultPeriod.id)
-              setSelectedWeekId(defaultPeriod.weekIds[1] || json.weeks[0]?.weekId)
+              setSelectedWeekId(currentOpenWeek?.weekId || defaultPeriod.weekIds[1] || json.weeks[0]?.weekId)
             } else {
-              setSelectedWeekId(json.weeks[0]?.weekId)
+              setSelectedWeekId(currentOpenWeek?.weekId || json.weeks[0]?.weekId)
             }
           }
         } else {
@@ -223,24 +231,46 @@ function RonosLaborAuditContent() {
     return () => { isMounted = false }
   }, [])
 
-  // 2. DISPARADOR AL CAMBIAR DE PESTAÑA O MODO DE FACTURA
+  // 2. DISPARADOR AL CAMBIAR DE PESTAÑA, TIENDA, SEMANA O MODO DE FACTURA
   useEffect(() => {
     if (weeks.length === 0) return
 
+    const currentWeeksCompanyId = weeks[0]?.companyId
+    const needsStoreWeeksRefresh = selectedCompanyId > 0 && currentWeeksCompanyId !== selectedCompanyId
+
     if (activeTab === 'summary') {
+      if (selectedCompanyId > 0) {
+        const alreadyLoaded = (storeData?.companyId === selectedCompanyId || (storeData as any)?.ronosCompanyId === selectedCompanyId) && storeData?.weekId === selectedWeekId
+        if (!alreadyLoaded) {
+          fetchStoreAudit(selectedCompanyId, selectedWeekId)
+        }
+      }
       fetchChainAudit(selectedWeekId)
-      const periodId = payrollBiWeekly ? (selectedBiWeeklyPeriod || biWeeklyPeriods[0]?.id || '') : selectedWeekId
-      if (periodId) {
-        fetchPayroll(selectedCompanyId, periodId, payrollBiWeekly, payrollInvoiceMode)
+      if (!needsStoreWeeksRefresh) {
+        const periodId = payrollBiWeekly ? (selectedBiWeeklyPeriod || biWeeklyPeriods[0]?.id || '') : selectedWeekId
+        if (periodId) {
+          fetchPayroll(selectedCompanyId, periodId, payrollBiWeekly, payrollInvoiceMode)
+        }
       }
     } else if (activeTab === 'payroll') {
-      const periodId = payrollBiWeekly ? (selectedBiWeeklyPeriod || biWeeklyPeriods[0]?.id || '') : selectedWeekId
-      if (periodId) {
-        fetchPayroll(selectedCompanyId, periodId, payrollBiWeekly, payrollInvoiceMode)
+      if (needsStoreWeeksRefresh) {
+        fetchStoreAudit(selectedCompanyId, selectedWeekId)
+      } else {
+        const periodId = payrollBiWeekly ? (selectedBiWeeklyPeriod || biWeeklyPeriods[0]?.id || '') : selectedWeekId
+        if (periodId) {
+          fetchPayroll(selectedCompanyId, periodId, payrollBiWeekly, payrollInvoiceMode)
+        }
       }
     } else if (activeTab === 'attendance') {
       if (selectedCompanyId > 0) {
-        fetchStoreAudit(selectedCompanyId, selectedWeekId)
+        const alreadyLoaded = (storeData?.companyId === selectedCompanyId || (storeData as any)?.ronosCompanyId === selectedCompanyId) && storeData?.weekId === selectedWeekId
+        if (!alreadyLoaded) {
+          fetchStoreAudit(selectedCompanyId, selectedWeekId)
+        } else {
+          setIsUpdating(false)
+        }
+      } else {
+        setIsUpdating(false)
       }
     } else if (activeTab === 'team') {
       fetchMappings(selectedCompanyId)
@@ -281,9 +311,12 @@ function RonosLaborAuditContent() {
       }
       if (token) headers['Authorization'] = `Bearer ${token}`
 
+      const currentWeekObj = weeks.find(w => w.weekId === (weekId ?? selectedWeekId))
+      const effectiveStartDate = targetStartDate || currentWeekObj?.startDate?.substring(0, 10)
+
       let url = `/api/ronos/punches?companyId=${companyId}`
       if (weekId) url += `&weekId=${weekId}`
-      if (targetStartDate) url += `&startDate=${targetStartDate}`
+      if (effectiveStartDate) url += `&startDate=${effectiveStartDate}`
       if (force) url += `&force=true`
       url += `&_t=${Date.now()}`
 
@@ -306,17 +339,35 @@ function RonosLaborAuditContent() {
           return newIds !== currentIds ? json.weeks : prevWeeks
         })
 
-        let resolvedWeek = targetStartDate
-          ? json.weeks.find((w: any) => w?.startDate?.substring(0, 10) === targetStartDate)
+        const todayBiz = getPacificDateString(new Date(), true)
+        let resolvedWeek = json.data?.weekId
+          ? json.weeks.find((w: any) => w?.weekId === json.data.weekId)
           : null
+        if (!resolvedWeek && effectiveStartDate) {
+          resolvedWeek = json.weeks.find((w: any) => w?.startDate?.substring(0, 10) === effectiveStartDate) || null
+        }
         if (!resolvedWeek && weekId) {
           resolvedWeek = json.weeks.find((w: any) => w?.weekId === weekId) || null
         }
         if (!resolvedWeek) {
-          resolvedWeek = json.weeks.find((w: any) => new Date(w?.endDate || '').getTime() <= Date.now()) || json.weeks[0]
+          resolvedWeek = json.weeks.find((w: any) => {
+            const s = w?.startDate?.substring(0, 10) || ''
+            const e = w?.endDate?.substring(0, 10) || ''
+            return s <= todayBiz && todayBiz <= e
+          }) || json.weeks[0]
         }
         if (resolvedWeek && resolvedWeek.weekId !== selectedWeekId) {
           setSelectedWeekId(resolvedWeek.weekId)
+        }
+
+        const nextBiWeeks = computeCingularBiWeeklyPeriods(json.weeks)
+        if (nextBiWeeks.length > 0) {
+          const prevBiWeek = biWeeklyPeriods.find(p => p.id === selectedBiWeeklyPeriod)
+          const prevStart = prevBiWeek?.startDate?.substring(0, 10)
+          const matchingBiWeek = (prevStart ? nextBiWeeks.find(p => p.startDate.substring(0, 10) === prevStart) : null) || nextBiWeeks[0]
+          if (matchingBiWeek && matchingBiWeek.id !== selectedBiWeeklyPeriod) {
+            setSelectedBiWeeklyPeriod(matchingBiWeek.id)
+          }
         }
       }
     } catch (err: any) {
@@ -348,10 +399,14 @@ function RonosLaborAuditContent() {
       const headers: Record<string, string> = {}
       if (token) headers['Authorization'] = `Bearer ${token}`
 
+      const currentWeekObj = weeks.find(w => w.weekId === (weekId ?? selectedWeekId))
+      const effectiveStartDate = currentWeekObj?.startDate?.substring(0, 10)
+
       // El Resumen solo necesita métricas agregadas. `mode=chain` evita descargar
       // todas las tarjetas y empleados de cada tienda, reservado para Asistencia/Equipo.
       let url = '/api/ronos/punches?mode=chain'
       if (weekId) url += `&weekId=${weekId}`
+      if (effectiveStartDate) url += `&startDate=${effectiveStartDate}`
       url += `&_t=${Date.now()}`
 
       const res = await fetch(url, { signal: abortCtrl.signal, cache: 'no-store', headers })
@@ -363,6 +418,13 @@ function RonosLaborAuditContent() {
       if (json?.success) {
         setChainData(json.data)
         if (Array.isArray(json.stores)) setStores(json.stores)
+        if (selectedCompanyId === 0 && Array.isArray(json.weeks) && json.weeks.length > 0) {
+          setWeeks(prevWeeks => {
+            const newIds = json.weeks.map((w: any) => w.weekId).join(',')
+            const currentIds = prevWeeks.map(w => w.weekId).join(',')
+            return newIds !== currentIds ? json.weeks : prevWeeks
+          })
+        }
       } else {
         throw new Error(json?.error || 'Error al obtener datos corporativos')
       }
@@ -471,7 +533,9 @@ function RonosLaborAuditContent() {
   }
 
   // 7. HANDLERS DE CAMBIO DE TIENDA Y SEMANA (REGLA: NUNCA MOSTRAR DATOS VIEJOS)
-  const handleStoreChange = async (newCompanyId: number) => {
+  // El useEffect central (sección 2) orquesta las peticiones sin duplicar ni abortar en cadena.
+  const handleStoreChange = (newCompanyId: number) => {
+    if (newCompanyId === selectedCompanyId) return
     setSelectedCompanyId(newCompanyId)
     setSelectedEmployeeDetail(null)
 
@@ -479,38 +543,10 @@ function RonosLaborAuditContent() {
     setIsUpdating(true)
     setStoreData(null)
     setPayrollData(null)
-
-    if (newCompanyId === 0) {
-      if (activeTab === 'payroll' || activeTab === 'summary') {
-        const periodId = payrollBiWeekly ? (selectedBiWeeklyPeriod || biWeeklyPeriods[0]?.id || '') : (selectedWeekId ?? '')
-        fetchPayroll(0, periodId, payrollBiWeekly, payrollInvoiceMode)
-        fetchChainAudit(selectedWeekId)
-      } else if (activeTab === 'attendance') {
-        setIsUpdating(false)
-      } else if (activeTab === 'team') {
-        fetchMappings(0)
-      } else if (activeTab === 'admin') {
-        fetchChainAudit(selectedWeekId)
-      }
-      return
-    }
-
-    const currentPeriod = biWeeklyPeriods.find(p => p.id === selectedBiWeeklyPeriod)
-    const targetStartDate = currentPeriod?.startDate?.substring(0, 10) || weeks.find(w => w.weekId === selectedWeekId)?.startDate?.substring(0, 10)
-
-    if (activeTab === 'payroll') {
-      const periodId = payrollBiWeekly ? (selectedBiWeeklyPeriod || biWeeklyPeriods[0]?.id || '') : (selectedWeekId ?? '')
-      fetchPayroll(newCompanyId, periodId, payrollBiWeekly, payrollInvoiceMode)
-      await fetchStoreAudit(newCompanyId, undefined, false, targetStartDate)
-    } else if (activeTab === 'attendance' || activeTab === 'summary') {
-      await fetchStoreAudit(newCompanyId, undefined, false, targetStartDate)
-      fetchChainAudit(selectedWeekId)
-    } else if (activeTab === 'team') {
-      await fetchMappings(newCompanyId)
-    }
   }
 
   const handleWeekChange = (newWeekId: number) => {
+    if (newWeekId === selectedWeekId) return
     setSelectedWeekId(newWeekId)
     setSelectedEmployeeDetail(null)
 
@@ -518,35 +554,15 @@ function RonosLaborAuditContent() {
     setIsUpdating(true)
     setStoreData(null)
     setPayrollData(null)
-
-    if (activeTab === 'summary') {
-      fetchChainAudit(newWeekId)
-      const periodId = payrollBiWeekly ? (selectedBiWeeklyPeriod || biWeeklyPeriods[0]?.id || '') : newWeekId
-      if (periodId) {
-        fetchPayroll(selectedCompanyId, periodId, payrollBiWeekly, payrollInvoiceMode)
-      }
-    } else if (activeTab === 'attendance') {
-      if (selectedCompanyId > 0) fetchStoreAudit(selectedCompanyId, newWeekId)
-      else setIsUpdating(false)
-    } else if (activeTab === 'payroll' && !payrollBiWeekly) {
-      fetchPayroll(selectedCompanyId, newWeekId, false, payrollInvoiceMode)
-    } else {
-      setIsUpdating(false)
-    }
   }
 
   const handleBiWeeklyPeriodChange = (periodId: string) => {
+    if (periodId === selectedBiWeeklyPeriod) return
     setSelectedBiWeeklyPeriod(periodId)
 
     // Limpieza inmediata de datos de nómina
     setIsUpdating(true)
     setPayrollData(null)
-
-    if (activeTab === 'payroll' || activeTab === 'summary') {
-      fetchPayroll(selectedCompanyId, periodId, true, payrollInvoiceMode)
-    } else {
-      setIsUpdating(false)
-    }
   }
 
   const handlePayrollBiWeeklyToggle = (val: boolean) => {
@@ -554,15 +570,6 @@ function RonosLaborAuditContent() {
     setPayrollBiWeekly(val)
     setPayrollData(null)
     setIsUpdating(true)
-
-    const targetPeriodId = val
-      ? (selectedBiWeeklyPeriod || biWeeklyPeriods[0]?.id || '')
-      : selectedWeekId
-    if (targetPeriodId && (activeTab === 'payroll' || activeTab === 'summary')) {
-      fetchPayroll(selectedCompanyId, targetPeriodId, val, payrollInvoiceMode)
-    } else {
-      setIsUpdating(false)
-    }
   }
 
   // 8. ACCIÓN: SINCRONIZAR EN VIVO (LIVE SYNC)
@@ -575,6 +582,8 @@ function RonosLaborAuditContent() {
       const headers: Record<string, string> = { 'Content-Type': 'application/json' }
       if (token) headers['Authorization'] = `Bearer ${token}`
 
+      const currentWeekStart = weeks.find(w => w.weekId === selectedWeekId)?.startDate?.substring(0, 10)
+
       const res = await fetch('/api/ronos/sync', {
         method: 'POST',
         headers,
@@ -582,6 +591,7 @@ function RonosLaborAuditContent() {
           companyId: selectedCompanyId,
           syncChain: isChain,
           weekId: selectedWeekId,
+          startDate: currentWeekStart,
           force: true
         })
       })
@@ -828,14 +838,6 @@ function RonosLaborAuditContent() {
             loading={summaryLoading && !storeData && !chainData}
             onNavigateToTab={(tab) => {
               setActiveTab(tab)
-              if (tab === 'payroll') {
-                const periodId = payrollBiWeekly ? (selectedBiWeeklyPeriod || biWeeklyPeriods[0]?.id || '') : (selectedWeekId ?? '')
-                fetchPayroll(selectedCompanyId, periodId, payrollBiWeekly, payrollInvoiceMode)
-              } else if (tab === 'attendance') {
-                if (selectedCompanyId > 0) fetchStoreAudit(selectedCompanyId, selectedWeekId)
-              } else if (tab === 'team') {
-                fetchMappings(selectedCompanyId)
-              }
             }}
             onSelectStore={(companyId) => {
               handleStoreChange(companyId)

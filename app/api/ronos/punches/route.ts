@@ -128,7 +128,7 @@ export async function GET(request: Request) {
       storeAudit = await getRonosChainWideStoreAudit(weekId, startDateParam, forceLive)
       availableWeeks = await getRonosWeeks(34, forceLive)
     } else {
-      storeAudit = await getRonosStoreAudit(ronosCompanyId, weekId, forceLive)
+      storeAudit = await getRonosStoreAudit(ronosCompanyId, weekId, forceLive, startDateParam)
       availableWeeks = await getRonosWeeks(ronosCompanyId, forceLive)
     }
 

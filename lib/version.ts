@@ -20,20 +20,42 @@ export interface VersionMilestone {
 }
 
 export const SYSTEM_VERSION = {
-    version: 'v2.15.0',
-    versionNumber: '2.15.0',
+    version: 'v2.16.0',
+    versionNumber: '2.16.0',
     releaseMonthEs: 'Octubre 2026',
     releaseMonthEn: 'October 2026',
     stage: 'Producción',
     stageEn: 'Production',
     year: '2026',
-    labelEs: 'Octubre 2026 • SM TEG v2.15.0',
-    labelEn: 'October 2026 • SM TEG v2.15.0',
+    labelEs: 'Octubre 2026 • SM TEG v2.16.0',
+    labelEn: 'October 2026 • SM TEG v2.16.0',
     brand: 'SM TEG',
-    lastUpdated: '2026-10-16'
+    lastUpdated: '2026-10-17'
 } as const;
 
 export const VERSION_HISTORY: readonly VersionMilestone[] = [
+    {
+        version: 'v2.16.0',
+        date: '17-Oct-2026',
+        titleEs: 'Motor IA Descansos V27 (48 Días Slauson), RONOS Ponchadas en Vivo & Nómina Limpia, Mantenimiento 8 Escenarios Sin Marcas, Menu 2 Carrito v3 + Storefront API, Blindaje Delivery #975 y Reorganización de 6 Categorías',
+        titleEn: 'Breaks AI Engine V27 (48-Day Slauson Backtest), RONOS Live Punches & Clean Payroll, Brand-Free Maintenance 8 Scenarios, Menu 2 Cart v3 + Storefront API, Blindaje Delivery #975 & 6-Category Reorganization',
+        highlightsEs: [
+            'Motor IA de Descansos V27 (lib/breaks-engine.ts y /descansos): aprendizaje calibrado sobre movimientos manuales del mánager en Slauson #7 respetando horas pico, límites de turno, 5ª hora de California y segundo lunch en turnos extendidos (validado con 48 días reales de Septiembre y Octubre 2026 en Slauson + 379 simulaciones en las 15 sucursales)',
+            'RONOS en Vivo y Conciliación de Nómina (/admin/ronos): sincronización en tiempo real de las ponchadas de hoy en las 16 ubicaciones (StoreAttendanceTab.tsx) y depuración de la pestaña Nómina (PayrollReconciliationTab.tsx y lib/payroll-reconciliation.ts) eliminando filas vacías (0.00h / "No disponible") y cuentas "Manager Default"',
+            'Mantenimiento y Proveedores (/mantenimiento/registro y /admin/mantenimiento): eliminación total de marcas comerciales en sugerencias rápidas e integración de 8 mejoras técnicas y 8 escenarios operativos reales (La Bodega, garantías, seguimiento multi-visita, emergencias y firmas táctiles)',
+            'App Móvil Clientes Menu 2 + DoorDash Storefront API (/app y gavilan-app): carrito v3 aislado por sucursal con identidad determinista lineId, validación de precios en servidor, límite de peticiones y contrato estricto order_session (15/15 pruebas runtime y 801/801 aserciones de cumplimiento)',
+            'Blindaje Delivery (resolución de orden #975 Karla M con desfase UTC/programada, aislamiento estricto de audio Dine-In vs Delivery para orden #700, doble campanita prolongada, limpieza instantánea de colisión roja al entregar, selector de fechas y paginación de 5,000 órdenes)',
+            'Reorganización intuitiva de las 6 categorías en /inicio y AppSidebar (Feedback Staff junto a Feedback Clientes y RONOS en Finanzas y Contabilidad), supresión de alertas en Dashboard por vacaciones/descanso (vacation / day_off), desglose Pickup vs Delivery de order.online en /nueva-web, orden cronológico created_at ASC en Basecamp y 127.3 horas de ingeniería + 106.0 horas de turnos en Lynwood #14 (1 al 17 de Octubre 2026)'
+        ],
+        highlightsEn: [
+            'Breaks AI Engine V27 (lib/breaks-engine.ts & /descansos): calibrated AI learning from Slauson #7 manager manual adjustments while enforcing peak-hour protection, shift boundaries, 5th-hour California meal compliance, and extended-shift 2nd lunches (verified across 48 real Slauson days in Sept–Oct 2026 + 379 simulation runs across all 15 stores)',
+            'RONOS Live Attendance & Payroll Reconciliation (/admin/ronos): real-time today punch synchronization across all 16 locations (StoreAttendanceTab.tsx) and clean biweekly Payroll tab (PayrollReconciliationTab.tsx & lib/payroll-reconciliation.ts) filtering out empty 0.00h / "Unavailable" rows and "Manager Default" accounts',
+            'Maintenance & Service Providers (/mantenimiento/registro & /admin/mantenimiento): 100% brand-free quick-suggestion chips plus 8 technical upgrades and 8 real-world store service scenarios (La Bodega support, warranty/emergency tracking, multi-visit follow-ups, and touch signatures)',
+            'Customer Mobile App Menu 2 + DoorDash Storefront API (/app & gavilan-app): store-scoped cart v3 with deterministic lineId identity, server-side price validation, rate limiting, and strict order_session contract (15/15 runtime tests and 801/801 compliance assertions passed)',
+            'Blindaje Delivery (resolved scheduled/midnight-UTC DoorDash Order #975 Karla M via createdDate, strict Dine-In vs Delivery audio isolation for Order #700, double prolonged bell chime, instant red name-collision clearance upon delivery, Date Selector, and 5,000-row pagination)',
+            'Mental-model reorganization of all 6 categories in /inicio & AppSidebar (Feedback Staff next to Customer Feedback and RONOS under Finance & Accounting), Dashboard alert suppression for supervisors on vacation/day_off, order.online Pickup vs Delivery split in /nueva-web, chronological created_at ASC sorting in Basecamp, and 127.3 engineering hours + 106.0 Lynwood #14 shift hours consolidated (October 1–17, 2026)'
+        ]
+    },
     {
         version: 'v2.15.0',
         date: '16-Oct-2026',

@@ -50,19 +50,24 @@ export async function GET(req: Request) {
         let rebalancedStoresCount = 0
         let totalVariancesFound = 0
 
-        // 🚀 PRE-FETCH MASTER DATA (Bien hecho: una sola consulta fuera del bucle)
-        const { data: emps } = await supabase.from('toast_employees').select('id, first_name, last_name, job_references, toast_guid')
+        // 🚀 PRE-FETCH MASTER JOBS
         const { data: jobs } = await supabase.from('toast_jobs').select('*')
 
         for (const store of stores) {
             if (!store.id) continue
             
-            // 1. Get Scheduled Shifts for Today in this store
-            const { data: dbShifts } = await supabase
-                .from('shifts')
-                .select('*')
-                .eq('store_id', store.id)
-                .eq('shift_date', today)
+            // 1. Get Scheduled Shifts for Today in this store + store employees
+            const [{ data: dbShifts }, { data: emps }] = await Promise.all([
+                supabase
+                    .from('shifts')
+                    .select('*')
+                    .eq('store_id', store.id)
+                    .eq('shift_date', today),
+                supabase
+                    .from('toast_employees')
+                    .select('id, first_name, last_name, job_references, toast_guid')
+                    .contains('store_ids', JSON.stringify([store.id]))
+            ])
             
             if (!dbShifts || dbShifts.length === 0) continue
 
@@ -80,7 +85,7 @@ export async function GET(req: Request) {
             const punches = await punchRes.json()
             const timeEntries = Array.isArray(punches) ? punches : (punches.timeEntries || [])
 
-            // 3. Compare and detect "Significant Variances" (> 60 mins)
+            // 3. Compare and detect "Significant Variances" (>= 60 mins on inDate or outDate)
             let storeNeedsRebalance = false
             const adjustedShifts = dbShifts.map(s => {
                 const emp = emps?.find(e => e.id === s.employee_id)
@@ -94,14 +99,21 @@ export async function GET(req: Request) {
                 if (punch && punch.inDate) {
                     const scheduledStart = new Date(s.start_time).getTime()
                     const actualStart = new Date(punch.inDate).getTime()
-                    const diffMins = Math.abs(actualStart - scheduledStart) / (1000 * 60)
+                    const diffInMins = Math.abs(actualStart - scheduledStart) / (1000 * 60)
 
-                    if (diffMins >= 60) {
-                        console.log(`⚠️ Variance for ${emp.first_name} at ${store.name}: ${Math.round(diffMins)}m`)
+                    const scheduledEnd = new Date(s.end_time).getTime()
+                    const actualEnd = punch.outDate ? new Date(punch.outDate).getTime() : null
+                    const diffOutMins = actualEnd ? Math.abs(actualEnd - scheduledEnd) / (1000 * 60) : 0
+
+                    if (diffInMins >= 60 || diffOutMins >= 60) {
+                        console.log(`⚠️ Variance for ${emp.first_name} at ${store.name}: in=${Math.round(diffInMins)}m, out=${Math.round(diffOutMins)}m`)
                         totalVariancesFound++
                         storeNeedsRebalance = true
-                        // Pass the actual punch for AI context
-                        return { ...s, start_time: punch.inDate }
+                        return {
+                            ...s,
+                            start_time: diffInMins >= 60 ? punch.inDate : s.start_time,
+                            end_time: (actualEnd && diffOutMins >= 60) ? punch.outDate : s.end_time
+                        }
                     }
                 }
                 return s
@@ -120,7 +132,7 @@ export async function GET(req: Request) {
                     }
                     const t = title.toLowerCase()
                     const isLeader = t.includes('manager') || t.includes('asst') || t.includes('shift') || t.includes('lead') || t.includes('encargado') || t.includes('asistente')
-                    return { ...s, is_leader: isLeader, job_title: title }
+                    return { ...s, is_leader: isLeader, job_title: title, employee_name: emp ? `${emp.first_name || ''} ${emp.last_name || ''}`.trim() : '' }
                 })
 
                 // 🧠 DEEP AUDIT: Filter out shifts marked as absent (is_callback) using augmented shifts with job titles
@@ -139,7 +151,9 @@ export async function GET(req: Request) {
                     day_of_week: o.day_of_week,
                     break_type: o.break_type,
                     break_index: o.break_index,
-                    offset_from_start_min: o.offset_from_start_min
+                    offset_from_start_min: o.offset_from_start_min,
+                    shift_duration_min: o.shift_duration_min,
+                    peak_hour: o.peak_hour
                 }))
 
                 // Re-calculate the whole day's puzzle (only for present employees) with learned preferences

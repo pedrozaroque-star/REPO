@@ -169,12 +169,22 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
         return () => document.removeEventListener('mousedown', handleClickOutside)
     }, [userDropdownOpen])
 
-    // Menu groups (Structured into 5 main logical groups)
+    // Menu groups (Structured into 6 logical operational categories)
     const menuGroups: MenuGroup[] = [
         {
             title: t('sections.analysis'),
             id: 'analisis',
             items: [
+                {
+                    name: t('items.dashboard'),
+                    plainName: 'Dashboard',
+                    path: '/dashboard',
+                    icon: <LayoutDashboard size={20} />,
+                    roles: ['manager', 'supervisor', 'admin', 'auditor'],
+                    tooltip: language === 'en'
+                        ? 'Executive dashboard with real-time Toast POS sales and store alerts (Tablero principal con métricas en vivo)'
+                        : 'Tablero principal con métricas en tiempo real, ventas Toast POS y alertas operativas'
+                },
                 {
                     name: t('items.sales'),
                     plainName: 'Ventas',
@@ -184,16 +194,6 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
                     tooltip: language === 'en'
                         ? 'Live net sales analysis, hourly comparisons, and revenue trends (Análisis de ventas netas e ingresos)'
                         : 'Análisis en vivo de ventas netas, comparativos por hora y tendencias de ingresos'
-                },
-                {
-                    name: t('items.discounts'),
-                    plainName: 'Descuentos',
-                    path: '/admin/auditoria-descuentos',
-                    icon: <ClipboardList size={20} />,
-                    roles: ['admin', 'supervisor', 'manager'],
-                    tooltip: language === 'en'
-                        ? 'Detailed audit of manager comps, promos, and POS discounts (Auditoría de cortesías y descuentos)'
-                        : 'Auditoría detallada de cortesías, promociones y descuentos aplicados en la caja POS'
                 },
                 {
                     name: t('items.reports'),
@@ -214,34 +214,14 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
                         : 'Reportes consolidados de ventas, canales de entrega, impuestos y métodos de pago'
                 },
                 {
-                    name: t('items.planner'),
-                    plainName: 'Planificador',
-                    path: '/planificador',
-                    icon: <Calendar size={20} />,
-                    roles: ['manager', 'supervisor', 'admin', 'planificador'],
+                    name: t('items.discounts'),
+                    plainName: 'Descuentos',
+                    path: '/admin/auditoria-descuentos',
+                    icon: <ClipboardList size={20} />,
+                    roles: ['admin', 'supervisor', 'manager'],
                     tooltip: language === 'en'
-                        ? 'Weekly demand forecasting and revenue planning (Proyección y planificación de demanda e ingresos)'
-                        : 'Proyección y planificación de demanda e ingresos semanales'
-                },
-                {
-                    name: t('items.breaks_ai'),
-                    plainName: 'Descansos',
-                    path: '/descansos',
-                    icon: <Zap size={20} />,
-                    roles: ['manager', 'supervisor', 'admin'],
-                    tooltip: language === 'en'
-                        ? 'Smart meal break scheduling and labor compliance tracking (Programación de descansos y comidas según norma)'
-                        : 'Programación inteligente y control de descansos/comidas según norma laboral'
-                },
-                {
-                    name: t('items.feedback'),
-                    plainName: 'Feedback',
-                    path: '/feedback',
-                    icon: <MessageSquare size={20} />,
-                    roles: ['asistente', 'manager', 'supervisor', 'admin'],
-                    tooltip: language === 'en'
-                        ? 'Customer feedback and reviews collected from kiosks and surveys (Revisiones y opiniones de clientes)'
-                        : 'Revisiones y comentarios de clientes recopilados en kioskos y encuestas'
+                        ? 'Detailed audit of manager comps, promos, and POS discounts (Auditoría de cortesías y descuentos)'
+                        : 'Auditoría detallada de cortesías, promociones y descuentos aplicados en la caja POS'
                 },
                 {
                     name: t('items.drive_thru_leaderboard'),
@@ -254,94 +234,24 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
                         : 'Métricas de velocidad de atención y ranking entre sucursales para el Drive-Thru'
                 },
                 {
-                    name: t('items.order_ready_board'),
-                    plainName: 'Order Ready Board',
-                    path: '/order-ready-board',
-                    icon: <Bell size={20} />,
+                    name: t('items.feedback'),
+                    plainName: 'Feedback Clientes',
+                    path: '/feedback',
+                    icon: <MessageSquare size={20} />,
                     roles: ['asistente', 'manager', 'supervisor', 'admin'],
                     tooltip: language === 'en'
-                        ? 'Customer-facing order pickup display and voice announcer (Tablero de pedidos listos y locutor de voz)'
-                        : 'Tablero de pedidos listos para clientes y locutor de voz automático'
+                        ? 'Customer feedback and reviews collected from kiosks and surveys (Revisiones y opiniones de clientes)'
+                        : 'Revisiones y comentarios de clientes recopilados en kioskos y encuestas'
                 },
                 {
-                    name: t('items.maintenance') || 'Mantenimiento & Proveedores',
-                    plainName: 'Mantenimiento',
-                    path: '/admin/mantenimiento',
-                    icon: <Wrench size={20} />,
-                    roles: ['asistente', 'manager', 'supervisor', 'admin'],
-                    badgeIcon: <HazardTapeIcon size={16} />,
+                    name: t('items.eval_staff'),
+                    plainName: 'Feedback Staff',
+                    path: '/evaluacion',
+                    icon: <UserCheck size={20} />,
+                    roles: ['admin', 'manager', 'supervisor'],
                     tooltip: language === 'en'
-                        ? 'Vendor service visits, equipment repairs, and technical photo evidence log'
-                        : 'Registro de visitas de técnicos, reparaciones de equipos y evidencias fotográficas de proveedores'
-                },
-            ]
-        },
-        {
-            title: t('sections.finance_accounting') || 'FINANZAS Y CONTABILIDAD',
-            id: 'finanzas',
-            items: [
-                {
-                    name: t('items.pnl') || 'P&L Multi-Sucursal',
-                    plainName: 'P&L Multi-Sucursal',
-                    path: '/admin/pnl',
-                    icon: <BarChart3 size={20} />,
-                    roles: ['admin'],
-                    tooltip: language === 'en'
-                        ? 'Multi-unit side-by-side Profit & Loss statement across all 15 stores with intercompany elimination'
-                        : 'Estado de Resultados multi-sucursal lado a lado de las 15 tiendas con eliminación intercompañía'
-                },
-                {
-                    name: 'Cohesion',
-                    plainName: 'Cohesion',
-                    path: '/contabilidad',
-                    icon: <Calculator size={20} />,
-                    roles: ['admin'],
-                    badgeText: 'new',
-                    tooltip: language === 'en'
-                        ? 'Daily sales journal entries for QuickBooks — replaces Cohesion (Pólizas de ventas diarias)'
-                        : 'Pólizas de ventas diarias para QuickBooks — reemplaza Cohesion ($450/mes)'
-                },
-                {
-                    name: t('items.create_bills') || 'Crear Bills',
-                    plainName: 'Crear Bills',
-                    path: '/admin/crear-bills',
-                    icon: <Receipt size={20} />,
-                    roles: ['admin'],
-                    badgeText: 'new',
-                    tooltip: language === 'en'
-                        ? 'Automatic synchronization and Bill creation from Warehouse Invoices in QuickBooks Online'
-                        : 'Sincronización y creación automática de Bills desde Invoices de Bodega en QuickBooks'
-                },
-                {
-                    name: 'RONOS',
-                    plainName: 'RONOS',
-                    path: '/admin/ronos',
-                    icon: <Clock size={20} />,
-                    roles: ['admin'],
-                    badgeIcon: <HazardTapeIcon size={16} />,
-                    tooltip: language === 'en'
-                        ? 'Live timecard audit, time clock camera photos, meal penalty leakage & 15-store compliance (Auditoría de ponchadas, fotos y multas Cingular HR)'
-                        : 'Auditoría en vivo de ponchadas, fotos de reloj checador, penalizaciones de lunch y cumplimiento Cingular HR'
-                },
-                {
-                    name: t('items.miles_finance') || 'Miles',
-                    plainName: 'Miles',
-                    path: '/miles',
-                    icon: <Car size={20} />,
-                    roles: ['admin'],
-                    tooltip: language === 'en'
-                        ? 'Supervisor mileage tracking, drive log, reimbursement calculation, and HR payroll dispatch'
-                        : 'Control y cálculo de millas manejadas por supervisores, registro de viajes y despacho a RRHH'
-                },
-                {
-                    name: t('items.activity_reports') || 'Reporte de Actividades',
-                    plainName: 'Reporte de Actividades',
-                    path: '/admin/reporte-actividades',
-                    icon: <TrendingUp size={20} />,
-                    roles: ['admin'],
-                    tooltip: language === 'en'
-                        ? 'Interactive executive report of monthly roadmaps, audited dev hours, and Gantt schedules (Septiembre, Agosto, Julio, Junio)'
-                        : 'Consulta ejecutiva de bitácora de desarrollo, horas trabajadas y cronograma Gantt 24h (Septiembre, Agosto, Julio, Junio)'
+                        ? 'Staff feedback and performance evaluation dashboard (Feedback y evaluaciones de desempeño del personal)'
+                        : 'Tablero ejecutivo de feedback, evaluaciones de desempeño y habilidades del personal'
                 },
             ]
         },
@@ -358,50 +268,6 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
                     tooltip: language === 'en'
                         ? 'Communication hub, operational tickets, and company announcements (Casos, tickets y avisos a corporativo)'
                         : 'Plataforma diaria de comunicación, casos operativos y avisos a la compañía'
-                },
-                {
-                    name: t('items.dashboard'),
-                    plainName: 'Dashboard',
-                    path: '/dashboard',
-                    icon: <LayoutDashboard size={20} />,
-                    roles: ['manager', 'supervisor', 'admin'],
-                    tooltip: language === 'en'
-                        ? 'Executive dashboard with real-time Toast POS sales and store alerts (Tablero principal con métricas en vivo)'
-                        : 'Tablero principal con métricas en tiempo real, ventas Toast POS y alertas operativas'
-                },
-                {
-                    name: t('items.customer_app') || (language === 'en' ? 'Customer App' : 'App Clientes'),
-                    plainName: 'App Clientes',
-                    path: '/app',
-                    icon: <Smartphone size={20} />,
-                    roles: ['asistente', 'manager', 'supervisor', 'admin'],
-                    openInNewTab: true,
-                    badgeIcon: <HazardTapeIcon size={16} />,
-                    tooltip: language === 'en'
-                        ? 'Opens in a new tab: Customer mobile ordering app preview and menu consultation (App móvil de pedidos y consulta para clientes)'
-                        : 'Abre en nueva pestaña: Consulta y vista previa de la app móvil de pedidos para clientes'
-                },
-                {
-                    name: t('items.new_website') || (language === 'en' ? 'Website' : 'Sitio Web'),
-                    plainName: language === 'en' ? 'Website' : 'Sitio Web',
-                    path: '/nueva-web',
-                    icon: <Globe size={20} />,
-                    roles: ['asistente', 'manager', 'supervisor', 'admin'],
-                    tooltip: language === 'en'
-                        ? 'Tacos Gavilan official website traffic, order conversions, and live preview (tacosgavilan.com)'
-                        : 'Tráfico, conversiones de órdenes y vista en vivo del Sitio Web oficial de Tacos Gavilan (tacosgavilan.com)'
-                },
-                {
-                    name: t('items.gavilan_pos') || 'Gavilan POS',
-                    plainName: 'Gavilan POS',
-                    path: '/gavilan-pos',
-                    icon: <Monitor size={20} />,
-                    roles: ['admin', 'supervisor', 'manager'],
-                    openInNewTab: true,
-                    badgeIcon: <HazardTapeIcon size={16} />,
-                    tooltip: language === 'en'
-                        ? 'Opens in a new tab: Next-Gen Gavilan POS Cloud & Terminal Ecosystem (Menus, KDS HDMI, ESC/POS Tickets, EBT RMP & Direct Delivery)'
-                        : 'Abre en nueva pestaña: Ecosistema Gavilan POS & KDS (Menús, KDS HDMI, Tickets ESC/POS, EBT RMP y Delivery Directo)'
                 },
                 {
                     name: t('items.manager'),
@@ -454,14 +320,14 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
                         : 'Mesa de empaque, locutor de voz KDS y verificación de entrega a choferes'
                 },
                 {
-                    name: t('items.actividades') || 'Actividades',
-                    plainName: 'Actividades',
-                    path: '/actividades',
-                    icon: <ClipboardList size={20} />,
-                    roles: ['manager', 'supervisor', 'admin', 'asistente'],
+                    name: t('items.order_ready_board'),
+                    plainName: 'Order Ready Board',
+                    path: '/order-ready-board',
+                    icon: <Bell size={20} />,
+                    roles: ['asistente', 'manager', 'supervisor', 'admin'],
                     tooltip: language === 'en'
-                        ? 'Assignment and tracking of individual maintenance tasks (Asignación de tareas individuales)'
-                        : 'Asignación y seguimiento de tareas individuales de mantenimiento y limpieza'
+                        ? 'Customer-facing order pickup display and voice announcer (Tablero de pedidos listos y locutor de voz)'
+                        : 'Tablero de pedidos listos para clientes y locutor de voz automático'
                 },
                 {
                     name: t('items.safe'),
@@ -474,14 +340,25 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
                         : 'Arqueo de billetes, monedas y conciliación de efectivo de uniformes en bóveda'
                 },
                 {
-                    name: t('items.miles') || 'MilesIQ',
-                    plainName: 'MilesIQ',
-                    path: '/miles',
-                    icon: <Car size={20} />,
-                    roles: ['admin', 'supervisor'],
+                    name: t('items.actividades') || 'Actividades',
+                    plainName: 'Actividades',
+                    path: '/actividades',
+                    icon: <ClipboardList size={20} />,
+                    roles: ['manager', 'supervisor', 'admin', 'asistente'],
                     tooltip: language === 'en'
-                        ? 'Supervisor mileage tracking, drive log, reimbursement calculation, and HR payroll dispatch'
-                        : 'Control y cálculo de millas manejadas por supervisores, registro de viajes y despacho a RRHH'
+                        ? 'Assignment and tracking of individual maintenance tasks (Asignación de tareas individuales)'
+                        : 'Asignación y seguimiento de tareas individuales de mantenimiento y limpieza'
+                },
+                {
+                    name: t('items.maintenance') || 'Mantenimiento & Proveedores',
+                    plainName: 'Mantenimiento',
+                    path: '/admin/mantenimiento',
+                    icon: <Wrench size={20} />,
+                    roles: ['asistente', 'manager', 'supervisor', 'admin'],
+                    badgeIcon: <HazardTapeIcon size={16} />,
+                    tooltip: language === 'en'
+                        ? 'Vendor service visits, equipment repairs, and technical photo evidence log'
+                        : 'Registro de visitas de técnicos, reparaciones de equipos y evidencias fotográficas de proveedores'
                 },
             ]
         },
@@ -586,6 +463,26 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
                         : 'Creación y publicación de horarios de trabajo semanales del restaurante'
                 },
                 {
+                    name: t('items.planner'),
+                    plainName: 'Planificador',
+                    path: '/planificador',
+                    icon: <Calendar size={20} />,
+                    roles: ['manager', 'supervisor', 'admin', 'planificador'],
+                    tooltip: language === 'en'
+                        ? 'Weekly shift & demand planning, SPLH targets, and morning punch anomaly audit (Planificador de turnos y auditoría de ponchadas)'
+                        : 'Planificación semanal de turnos por demanda, metas SPLH y auditoría matutina de ponchadas'
+                },
+                {
+                    name: t('items.breaks_ai'),
+                    plainName: 'Descansos',
+                    path: '/descansos',
+                    icon: <Zap size={20} />,
+                    roles: ['manager', 'supervisor', 'admin'],
+                    tooltip: language === 'en'
+                        ? 'Smart meal break scheduling and labor compliance tracking (Programación de descansos y comidas según norma)'
+                        : 'Programación inteligente y control de descansos/comidas según norma laboral'
+                },
+                {
                     name: (
                         <div className="flex items-center gap-2">
                             <span>{t('items.my_schedule')}</span>
@@ -614,6 +511,65 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
                     tooltip: language === 'en'
                         ? '[BETA - Testing] AI-powered automatic labor scheduling (Generador de turnos AI en pruebas)'
                         : '[BETA - En Pruebas] Generación automática de horarios óptimos mediante inteligencia artificial'
+                },
+            ]
+        },
+        {
+            title: t('sections.finance_accounting') || 'FINANZAS Y CONTABILIDAD',
+            id: 'finanzas',
+            items: [
+                {
+                    name: t('items.pnl') || 'P&L Multi-Sucursal',
+                    plainName: 'P&L Multi-Sucursal',
+                    path: '/admin/pnl',
+                    icon: <BarChart3 size={20} />,
+                    roles: ['admin'],
+                    tooltip: language === 'en'
+                        ? 'Multi-unit side-by-side Profit & Loss statement across all 15 stores with intercompany elimination'
+                        : 'Estado de Resultados multi-sucursal lado a lado de las 15 tiendas con eliminación intercompañía'
+                },
+                {
+                    name: 'Cohesion',
+                    plainName: 'Cohesion',
+                    path: '/contabilidad',
+                    icon: <Calculator size={20} />,
+                    roles: ['admin'],
+                    badgeText: 'new',
+                    tooltip: language === 'en'
+                        ? 'Daily sales journal entries for QuickBooks — replaces Cohesion (Pólizas de ventas diarias)'
+                        : 'Pólizas de ventas diarias para QuickBooks — reemplaza Cohesion ($450/mes)'
+                },
+                {
+                    name: t('items.create_bills') || 'Crear Bills',
+                    plainName: 'Crear Bills',
+                    path: '/admin/crear-bills',
+                    icon: <Receipt size={20} />,
+                    roles: ['admin'],
+                    badgeText: 'new',
+                    tooltip: language === 'en'
+                        ? 'Automatic synchronization and Bill creation from Warehouse Invoices in QuickBooks Online'
+                        : 'Sincronización y creación automática de Bills desde Invoices de Bodega en QuickBooks'
+                },
+                {
+                    name: 'RONOS',
+                    plainName: 'RONOS',
+                    path: '/admin/ronos',
+                    icon: <Clock size={20} />,
+                    roles: ['admin'],
+                    badgeIcon: <HazardTapeIcon size={16} />,
+                    tooltip: language === 'en'
+                        ? 'Live timecard audit, time clock camera photos, meal penalty leakage & 15-store compliance (Auditoría de ponchadas, fotos y multas Cingular HR)'
+                        : 'Auditoría en vivo de ponchadas, fotos de reloj checador, penalizaciones de lunch y cumplimiento Cingular HR'
+                },
+                {
+                    name: t('items.miles') || 'MilesIQ',
+                    plainName: 'MilesIQ',
+                    path: '/miles',
+                    icon: <Car size={20} />,
+                    roles: ['admin', 'supervisor'],
+                    tooltip: language === 'en'
+                        ? 'Supervisor mileage tracking, drive log, reimbursement calculation, and HR payroll dispatch'
+                        : 'Control y cálculo de millas manejadas por supervisores, registro de viajes y despacho a RRHH'
                 },
             ]
         },
@@ -672,14 +628,48 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
                         : 'Configuración de pantallas de encuestas de satisfacción del cliente en comedor'
                 },
                 {
-                    name: t('items.eval_staff'),
-                    plainName: 'Evaluación Staff',
-                    path: '/evaluacion',
-                    icon: <UserCheck size={20} />,
-                    roles: ['admin', 'manager', 'supervisor'],
+                    name: t('items.new_website') || (language === 'en' ? 'Website' : 'Sitio Web'),
+                    plainName: language === 'en' ? 'Website' : 'Sitio Web',
+                    path: '/nueva-web',
+                    icon: <Globe size={20} />,
+                    roles: ['asistente', 'manager', 'supervisor', 'admin'],
                     tooltip: language === 'en'
-                        ? 'Staff performance evaluation dashboard and review system (Evaluaciones de desempeño del personal)'
-                        : 'Tablero ejecutivo y evaluaciones de desempeño y habilidades del personal de tienda'
+                        ? 'Tacos Gavilan official website traffic, order conversions, and live preview (tacosgavilan.com)'
+                        : 'Tráfico, conversiones de órdenes y vista en vivo del Sitio Web oficial de Tacos Gavilan (tacosgavilan.com)'
+                },
+                {
+                    name: t('items.customer_app') || (language === 'en' ? 'Customer App' : 'App Clientes'),
+                    plainName: 'App Clientes',
+                    path: '/app',
+                    icon: <Smartphone size={20} />,
+                    roles: ['asistente', 'manager', 'supervisor', 'admin'],
+                    openInNewTab: true,
+                    badgeIcon: <HazardTapeIcon size={16} />,
+                    tooltip: language === 'en'
+                        ? 'Opens in a new tab: Customer mobile ordering app preview and menu consultation (App móvil de pedidos y consulta para clientes)'
+                        : 'Abre en nueva pestaña: Consulta y vista previa de la app móvil de pedidos para clientes'
+                },
+                {
+                    name: t('items.gavilan_pos') || 'Gavilan POS',
+                    plainName: 'Gavilan POS',
+                    path: '/gavilan-pos',
+                    icon: <Monitor size={20} />,
+                    roles: ['admin', 'supervisor', 'manager'],
+                    openInNewTab: true,
+                    badgeIcon: <HazardTapeIcon size={16} />,
+                    tooltip: language === 'en'
+                        ? 'Opens in a new tab: Next-Gen Gavilan POS Cloud & Terminal Ecosystem (Menus, KDS HDMI, ESC/POS Tickets, EBT RMP & Direct Delivery)'
+                        : 'Abre en nueva pestaña: Ecosistema Gavilan POS & KDS (Menús, KDS HDMI, Tickets ESC/POS, EBT RMP y Delivery Directo)'
+                },
+                {
+                    name: t('items.activity_reports') || 'Reporte de Actividades',
+                    plainName: 'Reporte de Actividades',
+                    path: '/admin/reporte-actividades',
+                    icon: <TrendingUp size={20} />,
+                    roles: ['admin'],
+                    tooltip: language === 'en'
+                        ? 'Interactive executive report of monthly roadmaps, audited dev hours, and Gantt schedules (Septiembre, Agosto, Julio, Junio)'
+                        : 'Consulta ejecutiva de bitácora de desarrollo, horas trabajadas y cronograma Gantt 24h (Septiembre, Agosto, Julio, Junio)'
                 },
                 {
                     name: t('items.system_health'),

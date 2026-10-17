@@ -44,6 +44,11 @@ interface AlertsData {
     inspectedStores: string[]; missingStores: string[]; extraStores: string[];
     totalScheduled: number; totalInspected: number; totalInspections: number;
     compliant: boolean; compliancePct: number;
+    status?: 'active' | 'in_progress' | 'vacation' | 'sick' | 'permission' | 'day_off';
+    absenceType?: 'vacation' | 'sick' | 'permission' | null;
+    absenceDays?: number;
+    dayOffDays?: number;
+    inProgressShift?: string | null;
     dailyDetail: DailyDetail[]
   }[]
   targets: { labor: number; laborCritical: number; foodCost: number; foodCostCritical: number }
@@ -509,64 +514,122 @@ export default function OperationsAlerts({ startDate, endDate }: Props) {
               <div className="space-y-3">
                 {data.inspectionCompliance.map((sup, i) => {
                   const failedDays = sup.dailyDetail?.filter(d => !d.compliant) || []
+                  const isNoShiftPeriod = sup.totalScheduled === 0
+                  const supStatus = sup.status || (isNoShiftPeriod ? 'day_off' : 'active')
+
+                  const cardThemeClass = isNoShiftPeriod
+                    ? supStatus === 'vacation'
+                      ? 'bg-sky-50/70 hover:bg-sky-100/60 dark:bg-sky-950/20 dark:hover:bg-sky-950/30 border-sky-200 dark:border-sky-800/50'
+                      : supStatus === 'sick'
+                        ? 'bg-rose-50/70 hover:bg-rose-100/60 dark:bg-rose-950/20 dark:hover:bg-rose-950/30 border-rose-200 dark:border-rose-800/50'
+                        : supStatus === 'permission'
+                          ? 'bg-violet-50/70 hover:bg-violet-100/60 dark:bg-violet-950/20 dark:hover:bg-violet-950/30 border-violet-200 dark:border-violet-800/50'
+                          : supStatus === 'in_progress'
+                            ? 'bg-blue-50/70 hover:bg-blue-100/60 dark:bg-blue-950/20 dark:hover:bg-blue-950/30 border-blue-200 dark:border-blue-800/50'
+                            : 'bg-slate-50/80 hover:bg-slate-100/80 dark:bg-slate-800/50 dark:hover:bg-slate-800/70 border-slate-200 dark:border-slate-700/60'
+                    : sup.compliant
+                      ? 'bg-emerald-50 hover:bg-emerald-100/70 dark:bg-emerald-900/10 dark:hover:bg-emerald-900/20 border-emerald-200 dark:border-emerald-800/40'
+                      : 'bg-slate-50 hover:bg-slate-100 dark:bg-slate-800 dark:hover:bg-slate-700/80 border-slate-200 dark:border-slate-700'
+
                   return (
                     <div
                       key={i}
                       onClick={() => router.push(`/inspecciones?startDate=${startDate}&endDate=${endDate}&inspector_id=${sup.supervisorId || ''}&user=${encodeURIComponent(sup.supervisorFull || sup.supervisor)}`)}
-                      className={`rounded-xl border overflow-hidden cursor-pointer transition-colors ${
-                        sup.compliant
-                          ? 'bg-emerald-50 hover:bg-emerald-100/70 dark:bg-emerald-900/10 dark:hover:bg-emerald-900/20 border-emerald-200 dark:border-emerald-800/40'
-                          : 'bg-slate-50 hover:bg-slate-100 dark:bg-slate-800 dark:hover:bg-slate-700/80 border-slate-200 dark:border-slate-700'
-                      }`}
+                      className={`rounded-xl border overflow-hidden cursor-pointer transition-colors ${cardThemeClass}`}
                     >
                       {/* Supervisor Header */}
                       <div className="px-4 py-3">
                         <div className="flex items-center justify-between mb-2">
                           <div className="flex items-center gap-2">
                             {sup.compliant
-                              ? <CheckCircle2 size={18} className="text-emerald-500" />
+                              ? <CheckCircle2 size={18} className={
+                                  isNoShiftPeriod
+                                    ? supStatus === 'vacation' ? 'text-sky-500' : supStatus === 'in_progress' ? 'text-blue-500' : 'text-slate-400'
+                                    : 'text-emerald-500'
+                                } />
                               : <XCircle size={18} className="text-red-500" />
                             }
                             <span className="text-base font-black text-slate-800 dark:text-white">{sup.supervisor}</span>
                           </div>
-                          <span className={`text-sm font-black px-2.5 py-1 rounded-md ${
-                            sup.compliancePct === 100
-                              ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400'
-                              : sup.compliancePct >= 50
-                                ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400'
-                                : 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-400'
-                          }`}>
-                            {sup.compliancePct}% {t('dashboard.alerts_compliance_pct')}
-                          </span>
+
+                          {isNoShiftPeriod ? (
+                            <span className={`text-xs font-black px-2.5 py-1 rounded-md ${
+                              supStatus === 'vacation'
+                                ? 'bg-sky-100 text-sky-800 border border-sky-300 dark:bg-sky-900/40 dark:text-sky-300 dark:border-sky-700'
+                                : supStatus === 'sick'
+                                  ? 'bg-rose-100 text-rose-800 border border-rose-300 dark:bg-rose-900/40 dark:text-rose-300 dark:border-rose-700'
+                                  : supStatus === 'permission'
+                                    ? 'bg-violet-100 text-violet-800 border border-violet-300 dark:bg-violet-900/40 dark:text-violet-300 dark:border-violet-700'
+                                    : supStatus === 'in_progress'
+                                      ? 'bg-blue-100 text-blue-800 border border-blue-300 dark:bg-blue-900/40 dark:text-blue-300 dark:border-blue-700'
+                                      : 'bg-slate-200/80 text-slate-700 dark:bg-slate-700 dark:text-slate-300'
+                            }`}>
+                              {supStatus === 'vacation'
+                                ? t('dashboard.alerts_badge_vacation')
+                                : supStatus === 'sick'
+                                  ? t('dashboard.alerts_badge_sick')
+                                  : supStatus === 'permission'
+                                    ? t('dashboard.alerts_badge_permission')
+                                    : supStatus === 'in_progress'
+                                      ? `${t('dashboard.alerts_badge_shift_active')}: ${sup.inProgressShift}`
+                                      : t('dashboard.alerts_badge_day_off')}
+                            </span>
+                          ) : (
+                            <span className={`text-sm font-black px-2.5 py-1 rounded-md ${
+                              sup.compliancePct === 100
+                                ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400'
+                                : sup.compliancePct >= 50
+                                  ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400'
+                                  : 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-400'
+                            }`}>
+                              {sup.compliancePct}% {t('dashboard.alerts_compliance_pct')}
+                            </span>
+                          )}
                         </div>
 
-                        {/* Compliance bar */}
-                        <div className="relative h-4 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden mb-2">
-                          <div
-                            className={`absolute inset-y-0 left-0 rounded-full transition-all duration-500 ${
-                              sup.compliancePct === 100
-                                ? 'bg-gradient-to-r from-emerald-400 to-emerald-500'
-                                : sup.compliancePct >= 50
-                                  ? 'bg-gradient-to-r from-amber-400 to-amber-500'
-                                  : 'bg-gradient-to-r from-red-400 to-red-500'
-                            }`}
-                            style={{ width: `${Math.max(sup.compliancePct, 4)}%` }}
-                          />
-                          <div className="absolute inset-y-0 right-0 flex items-center pr-2">
-                            <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400">100%</span>
+                        {/* Compliance bar (only when supervisor had scheduled workdays due) */}
+                        {!isNoShiftPeriod && (
+                          <div className="relative h-4 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden mb-2">
+                            <div
+                              className={`absolute inset-y-0 left-0 rounded-full transition-all duration-500 ${
+                                sup.compliancePct === 100
+                                  ? 'bg-gradient-to-r from-emerald-400 to-emerald-500'
+                                  : sup.compliancePct >= 50
+                                    ? 'bg-gradient-to-r from-amber-400 to-amber-500'
+                                    : 'bg-gradient-to-r from-red-400 to-red-500'
+                              }`}
+                              style={{ width: `${Math.max(sup.compliancePct, 4)}%` }}
+                            />
+                            <div className="absolute inset-y-0 right-0 flex items-center pr-2">
+                              <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400">100%</span>
+                            </div>
                           </div>
-                        </div>
+                        )}
 
                         {/* Stats row */}
-                        <div className="flex items-center justify-between text-sm">
+                        <div className="flex items-center justify-between text-sm flex-wrap gap-2">
                           <div className="flex items-center gap-1.5">
                             <span className="text-slate-400 dark:text-slate-500">{t('dashboard.alerts_stores_label')}:</span>
                             <span className="font-bold text-slate-600 dark:text-slate-300">{sup.ownedStores?.join(', ') || '—'}</span>
                           </div>
-                          <div className="flex items-center gap-1.5">
-                            <span className="text-slate-400 dark:text-slate-500">{t('dashboard.alerts_completed_days')}:</span>
-                            <span className="font-bold text-emerald-600 dark:text-emerald-400">{sup.totalInspected} {t('dashboard.alerts_of')} {sup.totalScheduled} {t('dashboard.alerts_days')}</span>
-                          </div>
+                          {!isNoShiftPeriod && (
+                            <div className="flex items-center gap-3 flex-wrap">
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-slate-400 dark:text-slate-500">{t('dashboard.alerts_completed_days')}:</span>
+                                <span className="font-bold text-emerald-600 dark:text-emerald-400">{sup.totalInspected} {t('dashboard.alerts_of')} {sup.totalScheduled} {t('dashboard.alerts_days')}</span>
+                              </div>
+                              {(sup.absenceDays || 0) > 0 && (
+                                <span className="text-xs font-bold px-2 py-0.5 rounded bg-sky-100 text-sky-700 dark:bg-sky-900/40 dark:text-sky-300">
+                                  🏖️ {t('dashboard.alerts_excluded_vacation')} {sup.absenceDays}d
+                                </span>
+                              )}
+                              {(sup.dayOffDays || 0) > 0 && (
+                                <span className="text-xs font-bold px-2 py-0.5 rounded bg-slate-200/70 text-slate-600 dark:bg-slate-700 dark:text-slate-300">
+                                  📅 {t('dashboard.alerts_excluded_day_off')} {sup.dayOffDays}d
+                                </span>
+                              )}
+                            </div>
+                          )}
                           {failedDays.length > 0 && (
                             <div className="flex items-center gap-1.5">
                               <span className="text-slate-400 dark:text-slate-500">{t('dashboard.alerts_failures')}:</span>
@@ -621,11 +684,29 @@ export default function OperationsAlerts({ startDate, endDate }: Props) {
                         </div>
                       )}
 
-                      {/* No scheduled days message */}
-                      {(!sup.dailyDetail || sup.dailyDetail.length === 0) && (
-                        <div className="px-4 py-3 border-t border-slate-200/60 dark:border-slate-700/50">
-                          <p className="text-sm text-slate-400 dark:text-slate-500">
-                            {t('dashboard.alerts_no_scheduled_days')}
+                      {/* Status explanation when supervisor is on Vacation, Sick, Permission, Day Off, or Shift In Progress */}
+                      {isNoShiftPeriod && (
+                        <div className="px-4 py-2.5 border-t border-slate-200/60 dark:border-slate-700/50">
+                          <p className={`text-xs font-semibold ${
+                            supStatus === 'vacation'
+                              ? 'text-sky-700 dark:text-sky-300'
+                              : supStatus === 'sick'
+                                ? 'text-rose-700 dark:text-rose-300'
+                                : supStatus === 'permission'
+                                  ? 'text-violet-700 dark:text-violet-300'
+                                  : supStatus === 'in_progress'
+                                    ? 'text-blue-700 dark:text-blue-300'
+                                    : 'text-slate-500 dark:text-slate-400'
+                          }`}>
+                            {supStatus === 'vacation'
+                              ? t('dashboard.alerts_msg_vacation')
+                              : supStatus === 'sick'
+                                ? t('dashboard.alerts_msg_sick')
+                                : supStatus === 'permission'
+                                  ? t('dashboard.alerts_msg_permission')
+                                  : supStatus === 'in_progress'
+                                    ? t('dashboard.alerts_msg_shift_active')
+                                    : t('dashboard.alerts_msg_day_off')}
                           </p>
                         </div>
                       )}

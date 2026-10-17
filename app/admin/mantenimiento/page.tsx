@@ -18,12 +18,10 @@
 import React, { useState, useEffect, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
-  Wrench, QrCode, Download, Search, Filter, Calendar,
-  Building2, CheckCircle2, Clock, AlertTriangle, Eye,
-  X, ChevronDown, ChevronRight, ExternalLink, Flame,
-  Snowflake, Droplets, Bug, Sparkles, RefreshCw, FileText,
-  DollarSign, ShieldCheck, User, Phone, Check, ArrowUpDown,
-  Trash2, Loader2
+  Wrench, QrCode, Download, Search, Calendar,
+  Building2, CheckCircle2, Clock, AlertTriangle,
+  X, ExternalLink, RefreshCw, FileText,
+  ShieldCheck, User, Trash2, Loader2, UploadCloud, Save
 } from 'lucide-react'
 import { useLanguage } from '@/lib/i18n'
 import { formatStoreName } from '@/lib/supabase'
@@ -60,16 +58,40 @@ interface MaintenanceLog {
   manager_name: string
   manager_signature_url?: string
   notes?: string
+  has_repeat_within_30d?: boolean
   created_at: string
   store?: Store
 }
 
+interface GlobalKpis {
+  totalMonth: number
+  pendingPartsCount: number
+  distinctStoresCount: number
+}
+
+function formatTimeAndDuration(start?: string, end?: string): string | null {
+  if (!start && !end) return null
+  const cleanStart = start ? start.slice(0, 5) : ''
+  const cleanEnd = end ? end.slice(0, 5) : ''
+  if (cleanStart && cleanEnd && /^\d{2}:\d{2}$/.test(cleanStart) && /^\d{2}:\d{2}$/.test(cleanEnd)) {
+    const [sh, sm] = cleanStart.split(':').map(Number)
+    const [eh, em] = cleanEnd.split(':').map(Number)
+    let diffMins = (eh * 60 + em) - (sh * 60 + sm)
+    if (diffMins < 0) diffMins += 24 * 60
+    const hours = Math.floor(diffMins / 60)
+    const mins = diffMins % 60
+    const durStr = hours > 0 ? `${hours}h ${mins}m` : `${mins}m`
+    return `${cleanStart} – ${cleanEnd} (${durStr})`
+  }
+  return cleanStart || cleanEnd || null
+}
+
 export default function AdminMaintenanceDashboardPage() {
-  const { t, language } = useLanguage()
-  const isEs = language === 'es'
+  const { t } = useLanguage()
 
   const [logs, setLogs] = useState<MaintenanceLog[]>([])
   const [stores, setStores] = useState<Store[]>([])
+  const [globalKpis, setGlobalKpis] = useState<GlobalKpis | null>(null)
   const [loading, setLoading] = useState(true)
 
   // Filtros
@@ -88,7 +110,39 @@ export default function AdminMaintenanceDashboardPage() {
   const [isDeleting, setIsDeleting] = useState(false)
   const [deleteFeedback, setDeleteFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
 
-  // Auto-limpieza de mensaje de feedback de eliminación tras 4 segundos
+  // Estado de Edición / Cierre de Pendientes / Conciliación de Factura en Modal Detalle
+  const [editStatus, setEditStatus] = useState<'completed' | 'pending_parts' | 'follow_up_needed'>('completed')
+  const [editInvoiceNumber, setEditInvoiceNumber] = useState<string>('')
+  const [editCostEstimate, setEditCostEstimate] = useState<string>('')
+  const [editManagerName, setEditManagerName] = useState<string>('')
+  const [editNotes, setEditNotes] = useState<string>('')
+  const [editPhotosInvoice, setEditPhotosInvoice] = useState<string[]>([])
+  const [isSavingEdit, setIsSavingEdit] = useState(false)
+  const [isUploadingAdminInvoice, setIsUploadingAdminInvoice] = useState(false)
+
+  // Sincronizar campos de edición al abrir un registro en el modal
+  useEffect(() => {
+    if (selectedLog) {
+      setEditStatus(selectedLog.status || 'completed')
+      setEditInvoiceNumber(selectedLog.invoice_number || '')
+      setEditCostEstimate(
+        selectedLog.cost_estimate !== null && selectedLog.cost_estimate !== undefined
+          ? String(selectedLog.cost_estimate)
+          : ''
+      )
+      setEditManagerName(selectedLog.manager_name || '')
+      setEditNotes(selectedLog.notes || '')
+      setEditPhotosInvoice(Array.isArray(selectedLog.photos_invoice) ? selectedLog.photos_invoice : [])
+    }
+  }, [selectedLog?.id])
+
+  const getAuthHeaders = (): Record<string, string> => {
+    if (typeof window === 'undefined') return {}
+    const token = localStorage.getItem('teg_token')
+    return token ? { Authorization: `Bearer ${token}` } : {}
+  }
+
+  // Auto-limpieza de mensaje de feedback tras 4 segundos
   useEffect(() => {
     if (deleteFeedback) {
       const timer = setTimeout(() => {
@@ -97,33 +151,6 @@ export default function AdminMaintenanceDashboardPage() {
       return () => clearTimeout(timer)
     }
   }, [deleteFeedback])
-
-  // Manejo de eliminación confirmada
-  const handleConfirmDelete = async () => {
-    if (!logToDelete) return
-    setIsDeleting(true)
-    try {
-      const res = await fetch(`/api/mantenimiento?id=${logToDelete.id}`, {
-        method: 'DELETE'
-      })
-      const json = await res.json()
-      if (json.success) {
-        setLogs(prev => prev.filter(l => l.id !== logToDelete.id))
-        if (selectedLog?.id === logToDelete.id) {
-          setSelectedLog(null)
-        }
-        setDeleteFeedback({ type: 'success', message: t('maintenance.delete_success') })
-        setLogToDelete(null)
-      } else {
-        setDeleteFeedback({ type: 'error', message: json.error || t('maintenance.delete_error') })
-      }
-    } catch (err: any) {
-      console.error('Error al eliminar registro de mantenimiento:', err)
-      setDeleteFeedback({ type: 'error', message: err.message || t('maintenance.delete_error') })
-    } finally {
-      setIsDeleting(false)
-    }
-  }
 
   // Cargar datos
   const fetchData = async () => {
@@ -135,14 +162,16 @@ export default function AdminMaintenanceDashboardPage() {
       if (selectedStatus !== 'all') params.append('status', selectedStatus)
       if (startDate) params.append('from', startDate)
       if (endDate) params.append('to', endDate)
-      if (searchTerm.trim()) params.append('search', searchTerm.trim())
 
-      const res = await fetch(`/api/mantenimiento?${params.toString()}`)
+      const res = await fetch(`/api/mantenimiento?${params.toString()}`, {
+        headers: getAuthHeaders()
+      })
       const json = await res.json()
 
       if (json.success) {
         setLogs(json.data || [])
         if (json.stores) setStores(json.stores)
+        if (json.kpis) setGlobalKpis(json.kpis)
       }
     } catch (err) {
       console.error('Error cargando bitácora de mantenimiento:', err)
@@ -155,72 +184,161 @@ export default function AdminMaintenanceDashboardPage() {
     fetchData()
   }, [selectedStore, selectedCategory, selectedStatus, startDate, endDate])
 
-  // Filtrado reactivo por texto en cliente
+  // Subida de factura PDF/imagen desde el Panel Admin (post-visita)
+  const handleAdminInvoiceUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files
+    if (!files || files.length === 0) return
+    setIsUploadingAdminInvoice(true)
+    try {
+      const file = files[0]
+      const formData = new FormData()
+      formData.append('file', file)
+      formData.append('folder', 'invoice')
+
+      const res = await fetch('/api/mantenimiento/upload', {
+        method: 'POST',
+        body: formData
+      })
+      const json = await res.json()
+      if (json.success && json.url) {
+        setEditPhotosInvoice(prev => [...prev, json.url].slice(0, 5))
+      } else {
+        setDeleteFeedback({ type: 'error', message: json.error || t('maintenance.error_upload_photo') })
+      }
+    } catch (err: any) {
+      setDeleteFeedback({ type: 'error', message: err.message || t('maintenance.error_upload_photo') })
+    } finally {
+      setIsUploadingAdminInvoice(false)
+      e.target.value = ''
+    }
+  }
+
+  // Guardar actualización de Estado, Factura, Costo, Notas y Validación (PATCH /api/mantenimiento)
+  const handleSaveRecordUpdate = async () => {
+    if (!selectedLog) return
+    setIsSavingEdit(true)
+    try {
+      const res = await fetch('/api/mantenimiento', {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          ...getAuthHeaders()
+        },
+        body: JSON.stringify({
+          id: selectedLog.id,
+          status: editStatus,
+          invoice_number: editInvoiceNumber,
+          cost_estimate: editCostEstimate,
+          manager_name: editManagerName,
+          notes: editNotes,
+          photos_invoice: editPhotosInvoice
+        })
+      })
+      const json = await res.json()
+      if (json.success && json.data) {
+        const updatedLog: MaintenanceLog = {
+          ...selectedLog,
+          ...json.data,
+          store: selectedLog.store
+        }
+        setSelectedLog(updatedLog)
+        setLogs(prev => prev.map(l => (l.id === updatedLog.id ? updatedLog : l)))
+        setDeleteFeedback({ type: 'success', message: t('maintenance.update_success') })
+        fetchData()
+      } else {
+        setDeleteFeedback({ type: 'error', message: json.error || t('maintenance.update_error') })
+      }
+    } catch (err: any) {
+      setDeleteFeedback({ type: 'error', message: err.message || t('maintenance.update_error') })
+    } finally {
+      setIsSavingEdit(false)
+    }
+  }
+
+  // Manejo de eliminación confirmada
+  const handleConfirmDelete = async () => {
+    if (!logToDelete) return
+    setIsDeleting(true)
+    try {
+      const res = await fetch(`/api/mantenimiento?id=${logToDelete.id}`, {
+        method: 'DELETE',
+        headers: getAuthHeaders()
+      })
+      const json = await res.json()
+      if (json.success) {
+        setLogs(prev => prev.filter(l => l.id !== logToDelete.id))
+        if (selectedLog?.id === logToDelete.id) {
+          setSelectedLog(null)
+        }
+        setDeleteFeedback({ type: 'success', message: t('maintenance.delete_success') })
+        setLogToDelete(null)
+        fetchData()
+      } else {
+        setDeleteFeedback({ type: 'error', message: json.error || t('maintenance.delete_error') })
+      }
+    } catch (err: any) {
+      console.error('Error al eliminar registro de mantenimiento:', err)
+      setDeleteFeedback({ type: 'error', message: err.message || t('maintenance.delete_error') })
+    } finally {
+      setIsDeleting(false)
+    }
+  }
+
+  // Filtrado reactivo por texto en cliente (incluye nombre limpio de tienda, teléfono y notas)
   const filteredLogs = useMemo(() => {
     if (!searchTerm.trim()) return logs
     const q = searchTerm.toLowerCase()
     return logs.filter(l =>
       l.company_name?.toLowerCase().includes(q) ||
       l.technician_name?.toLowerCase().includes(q) ||
+      l.technician_phone?.toLowerCase().includes(q) ||
       l.area_equipment?.toLowerCase().includes(q) ||
       l.work_description?.toLowerCase().includes(q) ||
       l.invoice_number?.toLowerCase().includes(q) ||
-      l.store?.name?.toLowerCase().includes(q)
+      l.manager_name?.toLowerCase().includes(q) ||
+      l.notes?.toLowerCase().includes(q) ||
+      l.store?.name?.toLowerCase().includes(q) ||
+      formatStoreName(l.store?.name || '').toLowerCase().includes(q)
     )
   }, [logs, searchTerm])
 
-  // Métricas rápidas
+  // Métricas rápidas (prioriza KPIs globales del servidor para que los filtros no distorsionen las tarjetas superiores)
   const totalMonth = useMemo(() => {
-    const now = new Date()
-    const currentYearMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
-    return logs.filter(l => l.service_date?.startsWith(currentYearMonth)).length
-  }, [logs])
+    if (globalKpis) return globalKpis.totalMonth
+    const pstYearMonth = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'America/Los_Angeles',
+      year: 'numeric',
+      month: '2-digit'
+    }).format(new Date())
+    return logs.filter(l => l.service_date?.startsWith(pstYearMonth)).length
+  }, [globalKpis, logs])
 
   const pendingPartsCount = useMemo(() => {
+    if (globalKpis) return globalKpis.pendingPartsCount
     return logs.filter(l => l.status === 'pending_parts').length
-  }, [logs])
+  }, [globalKpis, logs])
 
   const distinctStoresCount = useMemo(() => {
-    const set = new Set(logs.map(l => l.store_id))
+    if (globalKpis) return globalKpis.distinctStoresCount
+    const set = new Set(logs.map(l => String(l.store_id)))
     return set.size
-  }, [logs])
+  }, [globalKpis, logs])
 
-  // Exportar a CSV
-  const exportToCSV = () => {
-    if (filteredLogs.length === 0) return
+  const hasActiveFilters =
+    selectedStore !== 'all' ||
+    selectedCategory !== 'all' ||
+    selectedStatus !== 'all' ||
+    startDate !== '' ||
+    endDate !== '' ||
+    searchTerm.trim() !== ''
 
-    const headers = [
-      'Fecha', 'Sucursal', 'Empresa Proveedora', 'Tecnico', 'Telefono',
-      'Categoria', 'Tipo Servicio', 'Equipo/Area', 'Descripcion',
-      'Piezas Reemplazadas', 'Estado', 'Factura', 'Costo Estimado', 'Encargado Tienda'
-    ]
-
-    const rows = filteredLogs.map(l => [
-      `"${l.service_date}"`,
-      `"${formatStoreName(l.store?.name || 'N/A')}"`,
-      `"${(l.company_name || '').replace(/"/g, '""').replace(/[\r\n]+/g, ' ')}"`,
-      `"${(l.technician_name || '').replace(/"/g, '""').replace(/[\r\n]+/g, ' ')}"`,
-      `"${l.technician_phone || ''}"`,
-      `"${l.category}"`,
-      `"${l.service_type}"`,
-      `"${(l.area_equipment || '').replace(/"/g, '""').replace(/[\r\n]+/g, ' ')}"`,
-      `"${(l.work_description || '').replace(/"/g, '""').replace(/[\r\n]+/g, ' ')}"`,
-      `"${(l.parts_replaced || '').replace(/"/g, '""').replace(/[\r\n]+/g, ' ')}"`,
-      `"${l.status}"`,
-      `"${l.invoice_number || ''}"`,
-      (l.cost_estimate !== null && l.cost_estimate !== undefined) ? `"${l.cost_estimate}"` : '""',
-      `"${(l.manager_name || '').replace(/"/g, '""').replace(/[\r\n]+/g, ' ')}"`
-    ])
-
-    const csvContent = '\uFEFF' + [headers.join(','), ...rows.map(r => r.join(','))].join('\n')
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.setAttribute('download', `bitacora_mantenimiento_tacos_gavilan_${new Date().toISOString().split('T')[0]}.csv`)
-    document.body.appendChild(link)
-    link.click()
-    document.body.removeChild(link)
+  const clearAllFilters = () => {
+    setSelectedStore('all')
+    setSelectedCategory('all')
+    setSelectedStatus('all')
+    setStartDate('')
+    setEndDate('')
+    setSearchTerm('')
   }
 
   // Helper para etiquetas de categorías
@@ -247,6 +365,98 @@ export default function AdminMaintenanceDashboardPage() {
       default:
         return { label: t('maintenance.category_general'), color: 'text-slate-700 bg-slate-50 border-slate-200 dark:bg-slate-800 dark:text-slate-300' }
     }
+  }
+
+  const getServiceTypeLabel = (type: string) => {
+    switch (type) {
+      case 'corrective':
+        return t('maintenance.type_corrective')
+      case 'preventive':
+        return t('maintenance.type_preventive')
+      case 'emergency':
+        return t('maintenance.type_emergency')
+      case 'warranty':
+        return t('maintenance.type_warranty')
+      case 'installation':
+        return t('maintenance.type_installation')
+      case 'inspection':
+        return t('maintenance.type_inspection')
+      default:
+        return type
+    }
+  }
+
+  const getStatusLabel = (st: string) => {
+    switch (st) {
+      case 'completed':
+        return t('maintenance.status_completed')
+      case 'pending_parts':
+        return t('maintenance.status_pending_parts')
+      case 'follow_up_needed':
+        return t('maintenance.status_follow_up')
+      default:
+        return st
+    }
+  }
+
+  // Exportar a CSV (Bilingüe y con fecha PST de Los Ángeles + Horario/Duración + Notas)
+  const exportToCSV = () => {
+    if (filteredLogs.length === 0) return
+
+    const headers = [
+      t('maintenance.date'),
+      t('maintenance.time_on_site_col'),
+      t('maintenance.store'),
+      t('maintenance.vendor'),
+      t('maintenance.technician'),
+      t('maintenance.technician_phone'),
+      t('maintenance.category_title'),
+      t('maintenance.service_type'),
+      t('maintenance.equipment'),
+      t('maintenance.work_description'),
+      t('maintenance.parts_replaced'),
+      t('maintenance.status_title'),
+      t('maintenance.invoice_number'),
+      t('maintenance.cost_estimate'),
+      t('maintenance.manager_name'),
+      t('maintenance.notes_label')
+    ]
+
+    const rows = filteredLogs.map(l => [
+      `"${l.service_date}"`,
+      `"${formatTimeAndDuration(l.start_time, l.end_time) || ''}"`,
+      `"${formatStoreName(l.store?.name || 'N/A')}"`,
+      `"${(l.company_name || '').replace(/"/g, '""').replace(/[\r\n]+/g, ' ')}"`,
+      `"${(l.technician_name || '').replace(/"/g, '""').replace(/[\r\n]+/g, ' ')}"`,
+      `"${l.technician_phone || ''}"`,
+      `"${getCategoryBadge(l.category).label}"`,
+      `"${getServiceTypeLabel(l.service_type)}"`,
+      `"${(l.area_equipment || '').replace(/"/g, '""').replace(/[\r\n]+/g, ' ')}"`,
+      `"${(l.work_description || '').replace(/"/g, '""').replace(/[\r\n]+/g, ' ')}"`,
+      `"${(l.parts_replaced || '').replace(/"/g, '""').replace(/[\r\n]+/g, ' ')}"`,
+      `"${getStatusLabel(l.status)}"`,
+      `"${l.invoice_number || ''}"`,
+      (l.cost_estimate !== null && l.cost_estimate !== undefined) ? `"${l.cost_estimate}"` : '""',
+      `"${(l.manager_name || '').replace(/"/g, '""').replace(/[\r\n]+/g, ' ')}"`,
+      `"${(l.notes || '').replace(/"/g, '""').replace(/[\r\n]+/g, ' ')}"`
+    ])
+
+    const pstDate = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'America/Los_Angeles',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit'
+    }).format(new Date())
+
+    const csvContent = '\uFEFF' + [headers.map(h => `"${h.replace(/"/g, '""')}"`).join(','), ...rows.map(r => r.join(','))].join('\n')
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.setAttribute('download', `bitacora_mantenimiento_tacos_gavilan_${pstDate}.csv`)
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
   }
 
   return (
@@ -379,7 +589,7 @@ export default function AdminMaintenanceDashboardPage() {
 
       {/* FILTROS Y BÚSQUEDA */}
       <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3">
           {/* Tienda */}
           <div>
             <label className="block text-xs font-bold text-slate-600 dark:text-slate-400 mb-1">
@@ -440,6 +650,32 @@ export default function AdminMaintenanceDashboardPage() {
             </select>
           </div>
 
+          {/* Fecha Desde */}
+          <div>
+            <label className="block text-xs font-bold text-slate-600 dark:text-slate-400 mb-1">
+              {t('maintenance.filter_from')}
+            </label>
+            <input
+              type="date"
+              value={startDate}
+              onChange={(e) => setStartDate(e.target.value)}
+              className="w-full px-3 py-2 rounded-2xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-medium focus:ring-2 focus:ring-red-500 focus:outline-none"
+            />
+          </div>
+
+          {/* Fecha Hasta */}
+          <div>
+            <label className="block text-xs font-bold text-slate-600 dark:text-slate-400 mb-1">
+              {t('maintenance.filter_to')}
+            </label>
+            <input
+              type="date"
+              value={endDate}
+              onChange={(e) => setEndDate(e.target.value)}
+              className="w-full px-3 py-2 rounded-2xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-medium focus:ring-2 focus:ring-red-500 focus:outline-none"
+            />
+          </div>
+
           {/* Búsqueda */}
           <div>
             <label className="block text-xs font-bold text-slate-600 dark:text-slate-400 mb-1">
@@ -457,6 +693,19 @@ export default function AdminMaintenanceDashboardPage() {
             </div>
           </div>
         </div>
+
+        {hasActiveFilters && (
+          <div className="flex justify-end pt-1">
+            <button
+              type="button"
+              onClick={clearAllFilters}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-red-50 dark:hover:bg-red-950/40 text-slate-600 dark:text-slate-300 hover:text-red-600 dark:hover:text-red-400 text-xs font-bold transition-colors"
+            >
+              <X size={13} />
+              <span>{t('maintenance.clear_filters')}</span>
+            </button>
+          </div>
+        )}
       </div>
 
       {/* TABLA PRINCIPAL DE REGISTROS */}
@@ -491,6 +740,7 @@ export default function AdminMaintenanceDashboardPage() {
                 {filteredLogs.map(log => {
                   const catBadge = getCategoryBadge(log.category)
                   const totalPhotos = (log.photos_before?.length || 0) + (log.photos_after?.length || 0) + (log.photos_invoice?.length || 0)
+                  const durationStr = formatTimeAndDuration(log.start_time, log.end_time)
 
                   return (
                     <tr
@@ -499,7 +749,13 @@ export default function AdminMaintenanceDashboardPage() {
                       className="hover:bg-slate-50 dark:hover:bg-slate-800/50 cursor-pointer transition-colors"
                     >
                       <td className="py-3 px-4 font-bold text-slate-900 dark:text-white whitespace-nowrap">
-                        {log.service_date}
+                        <div>{log.service_date}</div>
+                        {durationStr && (
+                          <div className="text-[10px] text-slate-400 font-semibold flex items-center gap-1 mt-0.5">
+                            <Clock size={10} />
+                            <span>{durationStr}</span>
+                          </div>
+                        )}
                       </td>
                       <td className="py-3 px-4 font-bold text-slate-800 dark:text-slate-200 whitespace-nowrap">
                         <div className="font-extrabold text-slate-900 dark:text-white">
@@ -516,9 +772,16 @@ export default function AdminMaintenanceDashboardPage() {
                         <div className="text-[11px] text-slate-400">{log.technician_name}</div>
                       </td>
                       <td className="py-3 px-4 whitespace-nowrap">
-                        <span className={`inline-block px-2.5 py-0.5 rounded-full text-[11px] font-bold border ${catBadge.color}`}>
-                          {catBadge.label}
-                        </span>
+                        <div className="flex flex-col items-start gap-1">
+                          <span className={`inline-block px-2.5 py-0.5 rounded-full text-[11px] font-bold border ${catBadge.color}`}>
+                            {catBadge.label}
+                          </span>
+                          {log.has_repeat_within_30d && (
+                            <span className="inline-block px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-amber-100 text-amber-800 dark:bg-amber-950/70 dark:text-amber-300 border border-amber-300 dark:border-amber-800">
+                              {t('maintenance.repeat_alert_badge')}
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td className="py-3 px-4 max-w-xs truncate text-slate-700 dark:text-slate-300">
                         {log.area_equipment}
@@ -551,13 +814,20 @@ export default function AdminMaintenanceDashboardPage() {
                         )}
                       </td>
                       <td className="py-3 px-4 text-slate-700 dark:text-slate-300 whitespace-nowrap">
-                        <div className="flex items-center gap-1.5">
-                          {log.manager_signature_url ? (
-                            <ShieldCheck size={14} className="text-emerald-600" />
-                          ) : (
-                            <User size={14} className="text-slate-400" />
+                        <div className="flex flex-col items-start gap-0.5">
+                          <div className="flex items-center gap-1.5">
+                            {log.manager_signature_url ? (
+                              <ShieldCheck size={14} className="text-emerald-600 shrink-0" />
+                            ) : (
+                              <User size={14} className="text-amber-500 shrink-0" />
+                            )}
+                            <span>{log.manager_name}</span>
+                          </div>
+                          {!log.manager_signature_url && (
+                            <span className="text-[10px] font-bold text-amber-600 dark:text-amber-400">
+                              {t('maintenance.after_hours_badge')}
+                            </span>
                           )}
-                          <span>{log.manager_name}</span>
                         </div>
                       </td>
                       <td className="py-3 px-4 text-right whitespace-nowrap">
@@ -611,9 +881,17 @@ export default function AdminMaintenanceDashboardPage() {
                     <Wrench size={22} />
                   </div>
                   <div>
-                    <span className="text-[11px] font-black uppercase tracking-wider text-red-600 dark:text-red-400">
-                      {formatStoreName(selectedLog.store?.name || 'Tacos Gavilan')} • {selectedLog.service_date}
-                    </span>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-[11px] font-black uppercase tracking-wider text-red-600 dark:text-red-400">
+                        {formatStoreName(selectedLog.store?.name || 'Tacos Gavilan')} • {selectedLog.service_date}
+                      </span>
+                      {formatTimeAndDuration(selectedLog.start_time, selectedLog.end_time) && (
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-200/80 dark:bg-slate-800 text-slate-700 dark:text-slate-300 flex items-center gap-1">
+                          <Clock size={10} />
+                          {formatTimeAndDuration(selectedLog.start_time, selectedLog.end_time)}
+                        </span>
+                      )}
+                    </div>
                     <h3 className="text-lg font-bold text-slate-900 dark:text-white">
                       {selectedLog.company_name} — {selectedLog.area_equipment}
                     </h3>
@@ -629,6 +907,17 @@ export default function AdminMaintenanceDashboardPage() {
 
               {/* Modal Content */}
               <div className="p-6 overflow-y-auto space-y-6 text-xs">
+                {/* Alerta de Reincidencia (<30 días) */}
+                {selectedLog.has_repeat_within_30d && (
+                  <div className="p-3.5 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-800 text-amber-900 dark:text-amber-200 flex items-start gap-2.5">
+                    <AlertTriangle size={18} className="text-amber-600 shrink-0 mt-0.5" />
+                    <div>
+                      <span className="font-black block text-xs">{t('maintenance.repeat_alert_badge')}</span>
+                      <p className="text-[11px] mt-0.5 leading-relaxed">{t('maintenance.repeat_alert_desc')}</p>
+                    </div>
+                  </div>
+                )}
+
                 {/* Meta Cards Grid */}
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-slate-50 dark:bg-slate-800/40 p-4 rounded-2xl border border-slate-200/80 dark:border-slate-700">
                   <div>
@@ -641,9 +930,14 @@ export default function AdminMaintenanceDashboardPage() {
 
                   <div>
                     <span className="text-slate-400 font-bold block">{t('maintenance.category_title')}</span>
-                    <span className="font-bold text-slate-800 dark:text-slate-200">
+                    <span className="font-bold text-slate-800 dark:text-slate-200 block">
                       {getCategoryBadge(selectedLog.category).label}
                     </span>
+                    {selectedLog.service_type && (
+                      <span className="inline-block mt-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-200/80 dark:bg-slate-700 text-slate-700 dark:text-slate-300">
+                        {getServiceTypeLabel(selectedLog.service_type)}
+                      </span>
+                    )}
                   </div>
 
                   <div>
@@ -664,7 +958,7 @@ export default function AdminMaintenanceDashboardPage() {
                     </span>
                     {(selectedLog.cost_estimate !== null && selectedLog.cost_estimate !== undefined) && (
                       <span className="text-emerald-600 font-bold block text-[11px]">
-                        ${selectedLog.cost_estimate.toFixed(2)} USD
+                        ${Number(selectedLog.cost_estimate).toFixed(2)} USD
                       </span>
                     )}
                   </div>
@@ -711,7 +1005,7 @@ export default function AdminMaintenanceDashboardPage() {
                             <img
                               key={idx}
                               src={url}
-                              alt="Antes"
+                              alt={t('maintenance.before_photos')}
                               onClick={() => setZoomedImage(url)}
                               className="w-full h-24 object-cover rounded-xl cursor-zoom-in hover:opacity-90 transition-opacity border border-slate-200 dark:border-slate-700"
                             />
@@ -733,7 +1027,7 @@ export default function AdminMaintenanceDashboardPage() {
                             <img
                               key={idx}
                               src={url}
-                              alt="Después"
+                              alt={t('maintenance.after_photos')}
                               onClick={() => setZoomedImage(url)}
                               className="w-full h-24 object-cover rounded-xl cursor-zoom-in hover:opacity-90 transition-opacity border border-slate-200 dark:border-slate-700"
                             />
@@ -746,33 +1040,188 @@ export default function AdminMaintenanceDashboardPage() {
                   </div>
 
                   {/* Factura / Orden Física */}
-                  {selectedLog.photos_invoice && selectedLog.photos_invoice.length > 0 && (
-                    <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-700">
-                      <span className="font-bold text-slate-700 dark:text-slate-300 mb-2 block">
-                        {t('maintenance.invoice_photo')}
+                  <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-700">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="font-bold text-slate-700 dark:text-slate-300">
+                        {t('maintenance.invoice_photo')} ({editPhotosInvoice.length})
                       </span>
-                      <div className="flex flex-wrap gap-2">
-                        {selectedLog.photos_invoice.map((url, idx) => (
-                          <img
-                            key={idx}
-                            src={url}
-                            alt="Factura"
-                            onClick={() => setZoomedImage(url)}
-                            className="h-28 object-contain rounded-xl cursor-zoom-in hover:opacity-90 transition-opacity border border-slate-200 dark:border-slate-700 bg-white"
+                      {editPhotosInvoice.length < 5 && (
+                        <label className="cursor-pointer inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-blue-50 dark:bg-blue-950/60 hover:bg-blue-100 text-blue-700 dark:text-blue-300 text-[11px] font-bold border border-blue-200 dark:border-blue-800 transition-colors">
+                          <UploadCloud size={13} />
+                          <span>
+                            {isUploadingAdminInvoice
+                              ? t('maintenance.uploading_invoice_admin')
+                              : t('maintenance.upload_invoice_admin')}
+                          </span>
+                          <input
+                            type="file"
+                            accept="image/*,application/pdf"
+                            disabled={isUploadingAdminInvoice}
+                            onChange={handleAdminInvoiceUpload}
+                            className="hidden"
                           />
-                        ))}
+                        </label>
+                      )}
+                    </div>
+                    {editPhotosInvoice.length > 0 ? (
+                      <div className="flex flex-wrap gap-2">
+                        {editPhotosInvoice.map((url, idx) => {
+                          const isPdf = url.toLowerCase().endsWith('.pdf') || url.toLowerCase().includes('.pdf?')
+                          if (isPdf) {
+                            return (
+                              <a
+                                key={idx}
+                                href={url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="h-28 px-4 rounded-xl border border-red-200 dark:border-red-900/60 bg-red-50/70 dark:bg-red-950/30 hover:bg-red-100/80 dark:hover:bg-red-900/50 flex flex-col items-center justify-center gap-1.5 text-center transition-colors"
+                              >
+                                <FileText size={24} className="text-red-600 dark:text-red-400" />
+                                <span className="text-[11px] font-bold text-slate-800 dark:text-slate-200">
+                                  {t('maintenance.pdf_document')}
+                                </span>
+                                <span className="text-[10px] font-extrabold text-red-600 dark:text-red-400 underline flex items-center gap-1">
+                                  {t('maintenance.open_pdf')} <ExternalLink size={10} />
+                                </span>
+                              </a>
+                            )
+                          }
+                          return (
+                            <img
+                              key={idx}
+                              src={url}
+                              alt={t('maintenance.invoice_photo')}
+                              onClick={() => setZoomedImage(url)}
+                              className="h-28 object-contain rounded-xl cursor-zoom-in hover:opacity-90 transition-opacity border border-slate-200 dark:border-slate-700 bg-white"
+                            />
+                          )
+                        })}
+                      </div>
+                    ) : (
+                      <p className="text-slate-400 italic text-[11px]">{t('maintenance.no_evidence')}</p>
+                    )}
+                  </div>
+                </div>
+
+                {/* Panel Interactivo de Seguimiento, Cierre de Pendientes y Conciliación de Factura */}
+                <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 space-y-3.5">
+                  <div>
+                    <h4 className="text-xs font-black uppercase tracking-wider text-slate-800 dark:text-slate-100">
+                      {t('maintenance.edit_record_title')}
+                    </h4>
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                      {t('maintenance.edit_record_desc')}
+                    </p>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300 mb-1">
+                        {t('maintenance.status_title')}
+                      </label>
+                      <select
+                        value={editStatus}
+                        onChange={(e) => setEditStatus(e.target.value as any)}
+                        className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 font-bold text-xs focus:ring-2 focus:ring-red-500 focus:outline-none"
+                      >
+                        <option value="completed">{t('maintenance.status_completed')}</option>
+                        <option value="pending_parts">{t('maintenance.status_pending_parts')}</option>
+                        <option value="follow_up_needed">{t('maintenance.status_follow_up')}</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300 mb-1">
+                        {t('maintenance.manager_validation_label')}
+                      </label>
+                      <input
+                        type="text"
+                        value={editManagerName}
+                        onChange={(e) => setEditManagerName(e.target.value)}
+                        className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 font-semibold text-xs focus:ring-2 focus:ring-red-500 focus:outline-none"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300 mb-1">
+                        {t('maintenance.invoice_number')}
+                      </label>
+                      <input
+                        type="text"
+                        value={editInvoiceNumber}
+                        onChange={(e) => setEditInvoiceNumber(e.target.value)}
+                        placeholder={t('maintenance.invoice_placeholder')}
+                        className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 font-semibold text-xs focus:ring-2 focus:ring-red-500 focus:outline-none"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300 mb-1">
+                        {t('maintenance.cost_estimate')}
+                      </label>
+                      <div className="relative">
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold">$</span>
+                        <input
+                          type="number"
+                          step="0.01"
+                          value={editCostEstimate}
+                          onChange={(e) => setEditCostEstimate(e.target.value)}
+                          placeholder={t('maintenance.cost_placeholder')}
+                          className="w-full pl-7 pr-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 font-semibold text-xs focus:ring-2 focus:ring-red-500 focus:outline-none"
+                        />
                       </div>
                     </div>
-                  )}
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300 mb-1">
+                      {t('maintenance.notes_label')}
+                    </label>
+                    <textarea
+                      rows={2}
+                      value={editNotes}
+                      onChange={(e) => setEditNotes(e.target.value)}
+                      placeholder={t('maintenance.notes_placeholder')}
+                      className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 font-medium text-xs focus:ring-2 focus:ring-red-500 focus:outline-none resize-none"
+                    />
+                  </div>
+
+                  <div className="flex justify-end">
+                    <button
+                      type="button"
+                      disabled={isSavingEdit}
+                      onClick={handleSaveRecordUpdate}
+                      className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-extrabold flex items-center gap-1.5 shadow-sm transition-all disabled:opacity-50"
+                    >
+                      {isSavingEdit ? (
+                        <>
+                          <Loader2 size={14} className="animate-spin" />
+                          <span>{t('maintenance.saving_changes')}</span>
+                        </>
+                      ) : (
+                        <>
+                          <Save size={14} />
+                          <span>{t('maintenance.save_changes')}</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
                 </div>
 
                 {/* Manager Validation and Signature */}
                 <div className="p-4 rounded-2xl bg-emerald-50/60 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-900/60">
-                  <div className="flex items-center gap-2 mb-2">
-                    <ShieldCheck size={16} className="text-emerald-600" />
-                    <span className="font-black uppercase tracking-wider text-emerald-800 dark:text-emerald-300">
-                      {t('maintenance.manager_sign')}
-                    </span>
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      <ShieldCheck size={16} className="text-emerald-600" />
+                      <span className="font-black uppercase tracking-wider text-emerald-800 dark:text-emerald-300">
+                        {t('maintenance.manager_sign')}
+                      </span>
+                    </div>
+                    {!selectedLog.manager_signature_url && (
+                      <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-300 dark:border-amber-800">
+                        {t('maintenance.after_hours_badge')}
+                      </span>
+                    )}
                   </div>
                   <p className="text-slate-700 dark:text-slate-300 font-semibold mb-2">
                     {t('maintenance.verified_by')} <strong className="text-emerald-700 dark:text-emerald-300">{selectedLog.manager_name}</strong>

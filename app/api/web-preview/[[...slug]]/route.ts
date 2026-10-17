@@ -114,7 +114,9 @@ export interface StorefrontOrderRecord {
     guid: string
     storeId: number
     storeName: string
-    channel: 'order.online' | 'toast_online'
+    channel: 'order.online'
+    fulfillmentType: 'pickup' | 'delivery'
+    diningOptionName?: string
     orderCode: string
     customerMasked: string
     openedDate: string
@@ -124,6 +126,44 @@ export interface StorefrontOrderRecord {
 }
 
 const memoryStorefrontCache = new Map<string, { syncedAtMs: number; orders: StorefrontOrderRecord[] }>()
+const memoryDiningOptionsCache = new Map<string, Record<string, { name: string; behavior: string | null }>>()
+const inFlightStorefrontSync = new Set<string>()
+
+async function getStoreDiningOptionsMap(
+    token: string,
+    storeUuid: string
+): Promise<Record<string, { name: string; behavior: string | null }>> {
+    const cached = memoryDiningOptionsCache.get(storeUuid)
+    if (cached && Object.keys(cached).length > 0) return cached
+    try {
+        const res = await fetch(`${TOAST_API_HOST}/config/v2/diningOptions`, {
+            headers: {
+                Authorization: `Bearer ${token}`,
+                'Toast-Restaurant-External-ID': storeUuid
+            },
+            cache: 'no-store'
+        })
+        if (!res.ok) return {}
+        const data = await res.json()
+        const map: Record<string, { name: string; behavior: string | null }> = {}
+        if (Array.isArray(data)) {
+            for (const opt of data) {
+                if (opt?.guid && opt?.name) {
+                    map[opt.guid] = {
+                        name: String(opt.name),
+                        behavior: opt.behavior ? String(opt.behavior) : null
+                    }
+                }
+            }
+        }
+        if (Object.keys(map).length > 0) {
+            memoryDiningOptionsCache.set(storeUuid, map)
+        }
+        return map
+    } catch {
+        return {}
+    }
+}
 
 function maskGuestName(rawName: string): string {
     const clean = String(rawName || '')
@@ -143,7 +183,7 @@ async function fetchStorefrontOrdersForDay(businessDate: string): Promise<Storef
     if (!token) return []
     const formattedDate = businessDate.replace(/-/g, '')
     const fields = [
-        'guid', 'openedDate', 'voided', 'deleted', 'source', 'diningOption',
+        'guid', 'openedDate', 'voided', 'deleted', 'source', 'diningOption', 'deliveryInfo',
         'checks.voided', 'checks.tabName', 'checks.customer', 'checks.amount',
         'checks.taxAmount', 'checks.appliedDiscounts', 'checks.payments.refundAmount',
         'checks.payments.voided', 'checks.selections.price', 'checks.selections.preDiscountPrice',
@@ -153,6 +193,7 @@ async function fetchStorefrontOrdersForDay(businessDate: string): Promise<Storef
     ].join(',')
 
     const perStoreArrays = await Promise.all(STORES_CATALOG.map(async (st) => {
+        const diningMap = await getStoreDiningOptionsMap(token, st.uuid)
         const found: StorefrontOrderRecord[] = []
         let page = 1
         while (page <= 15) {
@@ -174,12 +215,21 @@ async function fetchStorefrontOrdersForDay(businessDate: string): Promise<Storef
                     const chk = o.checks?.[0]
                     if (!chk || chk.voided) continue
                     const tab = String(chk.tabName || '').trim()
-                    const src = String(o.source || '').trim()
                     const email = String(chk.customer?.email || '').toLowerCase()
 
+                    // Strictly order.online (DoorDash Storefront SF) orders only
                     const isStorefront = /^SF\s+[a-f0-9]{6,10}\b/i.test(tab) || email.endsWith('@guest.doordash.com')
-                    const isToastOnline = src.toLowerCase() === 'online'
-                    if (!isStorefront && !isToastOnline) continue
+                    if (!isStorefront) continue
+
+                    // Protocolo Toast API: Traducir diningOption.guid -> Nombre/Behavior con getStoreDiningOptionsMap
+                    const dOpt = o.diningOption?.guid ? diningMap[o.diningOption.guid] : undefined
+                    const dName = String(dOpt?.name || '').toLowerCase()
+                    const dBehavior = String(dOpt?.behavior || '').toUpperCase()
+                    const isDelivery =
+                        dBehavior === 'DELIVERY' ||
+                        dName.includes('delivery') ||
+                        Boolean(o.deliveryInfo && (o.deliveryInfo.address1 || o.deliveryInfo.deliveryState))
+                    const fulfillmentType: 'pickup' | 'delivery' = isDelivery ? 'delivery' : 'pickup'
 
                     // Protocolo Toast API: Sum(Item.Price) - Sum(Item.Discounts) - Sum(Item.Refunds) - Sum(UnlinkedRefunds)
                     let orderNet = 0
@@ -218,7 +268,7 @@ async function fetchStorefrontOrdersForDay(businessDate: string): Promise<Storef
                     const sfMatch = tab.match(/^SF\s+([a-f0-9]{6,10})\b/i)
                     const orderCode = sfMatch
                         ? `SF ${sfMatch[1].toUpperCase()}`
-                        : `ONLINE ${String(o.guid || '').slice(0, 6).toUpperCase()}`
+                        : `SF ${String(o.guid || '').slice(0, 6).toUpperCase()}`
                     const rawGuest = [chk.customer?.firstName, chk.customer?.lastName].filter(Boolean).join(' ') || tab
                     const openedDate = o.openedDate || new Date().toISOString()
 
@@ -226,7 +276,9 @@ async function fetchStorefrontOrdersForDay(businessDate: string): Promise<Storef
                         guid: o.guid,
                         storeId: st.id,
                         storeName: st.name,
-                        channel: isStorefront ? 'order.online' : 'toast_online',
+                        channel: 'order.online',
+                        fulfillmentType,
+                        diningOptionName: dOpt?.name || (fulfillmentType === 'delivery' ? 'DoorDash - Delivery' : 'DoorDash - Takeout'),
                         orderCode,
                         customerMasked: maskGuestName(rawGuest),
                         openedDate,
@@ -337,41 +389,43 @@ export async function GET(
             const rawFeedback = feedbackRes.ok ? await feedbackRes.json() : []
 
             // Map cached Storefront orders by business_date
-            const sfOrdersByDate = new Map<string, { id?: number; syncedAtMs: number; orders: StorefrontOrderRecord[] }>()
+            const sfOrdersByDate = new Map<string, { id?: number; syncedAtMs: number; orders: StorefrontOrderRecord[]; needsUpgrade?: boolean }>()
             for (const cRow of (Array.isArray(rawSfCache) ? rawSfCache : [])) {
                 const nv = cRow.new_values || {}
                 const bDate = nv.business_date
                 if (bDate && !sfOrdersByDate.has(bDate) && Array.isArray(nv.orders)) {
                     const syncedAtMs = nv.synced_at ? new Date(nv.synced_at).getTime() : new Date(cRow.created_at).getTime()
-                    sfOrdersByDate.set(bDate, { id: cRow.id, syncedAtMs, orders: nv.orders })
+                    const needsUpgrade = nv.orders.some(
+                        (o: any) => !o?.fulfillmentType || o?.channel !== 'order.online' || !/^SF\s+/i.test(String(o?.orderCode || ''))
+                    )
+                    const cleanOrders = nv.orders
+                        .filter((o: any) => o?.channel === 'order.online' && /^SF\s+/i.test(String(o?.orderCode || '')))
+                        .map((o: any) => ({
+                            ...o,
+                            fulfillmentType: (o.fulfillmentType === 'delivery' ? 'delivery' : 'pickup') as 'pickup' | 'delivery'
+                        }))
+                    sfOrdersByDate.set(bDate, { id: cRow.id, syncedAtMs, orders: cleanOrders, needsUpgrade })
                 }
             }
 
-            // Refresh Today's Storefront (order.online) orders if older than 90 seconds
-            const datesToRefresh: string[] = []
-            if (todayBiz >= startDate && todayBiz <= endDate) {
-                const memToday = memoryStorefrontCache.get(todayBiz)
-                const dbToday = sfOrdersByDate.get(todayBiz)
-                const latestSyncMs = Math.max(memToday?.syncedAtMs || 0, dbToday?.syncedAtMs || 0)
-                if (Date.now() - latestSyncMs > 90_000) {
-                    datesToRefresh.push(todayBiz)
-                } else if (memToday && !dbToday) {
-                    sfOrdersByDate.set(todayBiz, memToday)
+            // Merge in-memory cache if newer than DB cache
+            for (const [bDate, memEntry] of memoryStorefrontCache.entries()) {
+                const dbEntry = sfOrdersByDate.get(bDate)
+                if (!dbEntry || memEntry.syncedAtMs > dbEntry.syncedAtMs) {
+                    sfOrdersByDate.set(bDate, { id: dbEntry?.id, syncedAtMs: memEntry.syncedAtMs, orders: memEntry.orders, needsUpgrade: false })
                 }
             }
 
-            const yesterdayBiz = shiftDateStr(todayBiz, -1)
-            if (yesterdayBiz >= startDate && yesterdayBiz <= endDate && !sfOrdersByDate.has(yesterdayBiz)) {
-                datesToRefresh.push(yesterdayBiz)
-            }
-
-            for (const bDate of datesToRefresh) {
+            const forceSync = url.searchParams.get('force') === '1'
+            const syncStorefrontDate = async (bDate: string) => {
+                if (inFlightStorefrontSync.has(bDate)) return
+                inFlightStorefrontSync.add(bDate)
                 try {
                     const freshOrders = await fetchStorefrontOrdersForDay(bDate)
                     const nowMs = Date.now()
                     memoryStorefrontCache.set(bDate, { syncedAtMs: nowMs, orders: freshOrders })
                     const prevId = sfOrdersByDate.get(bDate)?.id
-                    sfOrdersByDate.set(bDate, { syncedAtMs: nowMs, orders: freshOrders })
+                    sfOrdersByDate.set(bDate, { syncedAtMs: nowMs, orders: freshOrders, needsUpgrade: false })
 
                     if (prevId) {
                         await fetch(`${supabaseUrl}/rest/v1/activity_logs?id=eq.${prevId}`, {
@@ -395,15 +449,56 @@ export async function GET(
                     }).catch(() => {})
                 } catch {
                     // Fallback to existing cache if Toast API fails transiently
+                } finally {
+                    inFlightStorefrontSync.delete(bDate)
                 }
             }
 
-            // Collect all Storefront (order.online + Toast Online) orders in [startDate, endDate]
+            // Refresh Today's Storefront (order.online) orders if older than 180 seconds or needing schema upgrade
+            const blockingDates: string[] = []
+            const backgroundDates: string[] = []
+
+            if (todayBiz >= startDate && todayBiz <= endDate) {
+                const existingToday = sfOrdersByDate.get(todayBiz)
+                const latestSyncMs = existingToday?.syncedAtMs || 0
+                if (!existingToday || forceSync || existingToday.needsUpgrade) {
+                    blockingDates.push(todayBiz)
+                } else if (Date.now() - latestSyncMs > 180_000) {
+                    backgroundDates.push(todayBiz)
+                }
+            }
+
+            const yesterdayBiz = shiftDateStr(todayBiz, -1)
+            if (yesterdayBiz >= startDate && yesterdayBiz <= endDate) {
+                const existingYesterday = sfOrdersByDate.get(yesterdayBiz)
+                if (!existingYesterday || existingYesterday.needsUpgrade) {
+                    if (range === 'yesterday') {
+                        blockingDates.push(yesterdayBiz)
+                    } else {
+                        backgroundDates.push(yesterdayBiz)
+                    }
+                }
+            }
+
+            for (const bDate of blockingDates) {
+                await syncStorefrontDate(bDate)
+            }
+            for (const bDate of backgroundDates) {
+                void syncStorefrontDate(bDate)
+            }
+
+            // Collect strictly order.online (SF) orders in [startDate, endDate]
             const allStorefrontOrders: (StorefrontOrderRecord & { matched?: boolean })[] = []
             for (const [bDate, entry] of sfOrdersByDate.entries()) {
                 if (bDate >= startDate && bDate <= endDate) {
                     for (const ord of entry.orders) {
-                        allStorefrontOrders.push({ ...ord, matched: false })
+                        if (ord.channel === 'order.online' && /^SF\s+/i.test(ord.orderCode)) {
+                            allStorefrontOrders.push({
+                                ...ord,
+                                fulfillmentType: ord.fulfillmentType === 'delivery' ? 'delivery' : 'pickup',
+                                matched: false
+                            })
+                        }
                     }
                 }
             }
@@ -442,6 +537,10 @@ export async function GET(
                 webStoreViews: number
                 matchedWebOrdersCount: number
                 matchedWebOrdersSales: number
+                pickupOrdersCount: number
+                pickupOrdersSales: number
+                deliveryOrdersCount: number
+                deliveryOrdersSales: number
                 storefrontOrdersCount: number
                 storefrontOrdersSales: number
                 toastDirectSales: number
@@ -460,18 +559,30 @@ export async function GET(
                     webStoreViews: 0,
                     matchedWebOrdersCount: 0,
                     matchedWebOrdersSales: 0,
+                    pickupOrdersCount: 0,
+                    pickupOrdersSales: 0,
+                    deliveryOrdersCount: 0,
+                    deliveryOrdersSales: 0,
                     storefrontOrdersCount: 0,
                     storefrontOrdersSales: 0,
                     toastDirectSales: 0,
                 }
             }
 
-            // Aggregate total Storefront (order.online) orders per store
+            // Aggregate total Storefront (order.online) orders per store (Pickup vs Delivery)
             for (const ord of allStorefrontOrders) {
-                if (storeStatsMap[ord.storeId]) {
-                    storeStatsMap[ord.storeId].storefrontOrdersCount++
-                    storeStatsMap[ord.storeId].storefrontOrdersSales += ord.netSales
-                    storeStatsMap[ord.storeId].toastDirectSales += ord.netSales
+                const stStat = storeStatsMap[ord.storeId]
+                if (stStat) {
+                    stStat.storefrontOrdersCount++
+                    stStat.storefrontOrdersSales += ord.netSales
+                    stStat.toastDirectSales += ord.netSales
+                    if (ord.fulfillmentType === 'delivery') {
+                        stStat.deliveryOrdersCount++
+                        stStat.deliveryOrdersSales += ord.netSales
+                    } else {
+                        stStat.pickupOrdersCount++
+                        stStat.pickupOrdersSales += ord.netSales
+                    }
                 }
             }
 
@@ -621,6 +732,7 @@ export async function GET(
                 storeId: number
                 storeName: string
                 customerMasked: string
+                fulfillmentType: 'pickup' | 'delivery'
                 netSales: number
                 openedDate: string
                 clickAt: string
@@ -647,6 +759,7 @@ export async function GET(
                     storeId: ord.storeId,
                     storeName: ord.storeName,
                     customerMasked: ord.customerMasked,
+                    fulfillmentType: ord.fulfillmentType === 'delivery' ? 'delivery' : 'pickup',
                     netSales: ord.netSales,
                     openedDate: ord.openedDate,
                     clickAt: refClickAt,
@@ -658,26 +771,50 @@ export async function GET(
 
             matchedOrdersList.sort((a, b) => new Date(b.openedDate).getTime() - new Date(a.openedDate).getTime())
 
+            const storefrontOrdersList = [...allStorefrontOrders]
+                .sort((a, b) => b.openedMs - a.openedMs)
+                .map(ord => ({
+                    orderGuid: ord.guid,
+                    orderCode: ord.orderCode,
+                    storeId: ord.storeId,
+                    storeName: ord.storeName,
+                    customerMasked: ord.customerMasked,
+                    fulfillmentType: (ord.fulfillmentType === 'delivery' ? 'delivery' : 'pickup') as 'pickup' | 'delivery',
+                    netSales: ord.netSales,
+                    openedDate: ord.openedDate,
+                    businessDate: ord.businessDate
+                }))
+
             let totalMatchedWebOrdersCount = 0
             let totalMatchedWebOrdersSales = 0
+            let totalPickupOrdersCount = 0
+            let totalPickupOrdersSales = 0
+            let totalDeliveryOrdersCount = 0
+            let totalDeliveryOrdersSales = 0
             let totalStorefrontOrdersCount = 0
             let totalStorefrontOrdersSales = 0
 
             const storeBreakdown = Object.values(storeStatsMap).map(st => {
                 st.matchedWebOrdersSales = Math.round(st.matchedWebOrdersSales * 100) / 100
+                st.pickupOrdersSales = Math.round(st.pickupOrdersSales * 100) / 100
+                st.deliveryOrdersSales = Math.round(st.deliveryOrdersSales * 100) / 100
                 st.storefrontOrdersSales = Math.round(st.storefrontOrdersSales * 100) / 100
                 st.toastDirectSales = st.storefrontOrdersSales
 
                 totalMatchedWebOrdersCount += st.matchedWebOrdersCount
                 totalMatchedWebOrdersSales += st.matchedWebOrdersSales
+                totalPickupOrdersCount += st.pickupOrdersCount
+                totalPickupOrdersSales += st.pickupOrdersSales
+                totalDeliveryOrdersCount += st.deliveryOrdersCount
+                totalDeliveryOrdersSales += st.deliveryOrdersSales
                 totalStorefrontOrdersCount += st.storefrontOrdersCount
                 totalStorefrontOrdersSales += st.storefrontOrdersSales
                 return st
             }).sort(
                 (a, b) =>
-                    (b.matchedWebOrdersSales - a.matchedWebOrdersSales) ||
-                    (b.webOrderClicks - a.webOrderClicks) ||
                     (b.storefrontOrdersSales - a.storefrontOrdersSales) ||
+                    (b.webOrderClicks - a.webOrderClicks) ||
+                    (b.webStoreViews - a.webStoreViews) ||
                     (a.id - b.id)
             )
 
@@ -731,6 +868,10 @@ export async function GET(
                     generalSelectorClicks,
                     matchedWebOrdersCount: totalMatchedWebOrdersCount,
                     matchedWebOrdersSales: Math.round(totalMatchedWebOrdersSales * 100) / 100,
+                    pickupOrdersCount: totalPickupOrdersCount,
+                    pickupOrdersSales: Math.round(totalPickupOrdersSales * 100) / 100,
+                    deliveryOrdersCount: totalDeliveryOrdersCount,
+                    deliveryOrdersSales: Math.round(totalDeliveryOrdersSales * 100) / 100,
                     storefrontOrdersCount: totalStorefrontOrdersCount,
                     storefrontOrdersSales: Math.round(totalStorefrontOrdersSales * 100) / 100,
                     toastDirectSales: Math.round(totalStorefrontOrdersSales * 100) / 100,
@@ -742,6 +883,7 @@ export async function GET(
                 referrers,
                 buttonSources: buttonSourceMap,
                 storeBreakdown,
+                storefrontOrders: storefrontOrdersList,
                 matchedOrders: matchedOrdersList,
                 recentEvents,
                 feedback: feedbackRows

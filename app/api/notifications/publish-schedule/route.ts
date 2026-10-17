@@ -336,7 +336,9 @@ export async function POST(req: Request) {
             day_of_week: o.day_of_week,
             break_type: o.break_type,
             break_index: o.break_index,
-            offset_from_start_min: o.offset_from_start_min
+            offset_from_start_min: o.offset_from_start_min,
+            shift_duration_min: o.shift_duration_min,
+            peak_hour: o.peak_hour
         }))
 
         // POR PETICIÓN DEL USUARIO: Forzar el recálculo de TODOS los turnos 

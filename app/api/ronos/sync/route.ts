@@ -25,7 +25,7 @@
  */
 
 import { NextResponse } from 'next/server'
-import { getRonosStoreAudit, getRonosChainWideAudit, RonosWeekNotFoundError } from '@/lib/ronos-api'
+import { getRonosStoreAudit, getRonosChainWideAudit, getRonosAuthToken, RonosWeekNotFoundError } from '@/lib/ronos-api'
 import { syncSimplifyHrRates, syncAllStoresSimplifyHrRates } from '@/lib/simplifyhr-api'
 import { verifyAdminAuth } from '@/lib/auth-server'
 import { supabaseAdmin } from '@/lib/supabase'
@@ -52,7 +52,7 @@ export async function GET(request: Request) {
 
   const action = searchParams.get('action')
   if (action === 'health') {
-    // Diagnóstico real de solo lectura
+    // Diagnóstico real de solo lectura y conectividad OAuth2 en vivo
     let supabaseStatus: 'online' | 'warning' | 'offline' = 'offline'
     let ronosStatus: 'online' | 'warning' | 'offline' = 'offline'
     let simplifyStatus: 'online' | 'warning' | 'offline' = 'offline'
@@ -65,10 +65,11 @@ export async function GET(request: Request) {
       supabaseStatus = 'offline'
     }
 
-    // 2. RONOS Cache / Datos
+    // 2. RONOS API OAuth2 + Cache
     try {
+      const token = await getRonosAuthToken()
       const { data, error } = await supabaseAdmin.from('ronos_work_weeks').select('week_id').limit(1)
-      ronosStatus = (!error && data && data.length > 0) ? 'online' : 'warning'
+      ronosStatus = (token && !error && data && data.length > 0) ? 'online' : (token ? 'warning' : 'offline')
     } catch {
       ronosStatus = 'offline'
     }
@@ -162,6 +163,7 @@ export async function POST(request: Request) {
 
     const companyId = rawCompanyId !== undefined ? parseInt(String(rawCompanyId), 10) : 34
     const weekId = body.weekId !== undefined ? parseInt(String(body.weekId), 10) : undefined
+    const startDateParam = typeof body.startDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(body.startDate) ? body.startDate : undefined
     const syncChain = Boolean(body.syncChain || body.mode === 'chain' || companyId === 0)
     const syncSimplify = body.syncSimplify !== false
 
@@ -190,7 +192,7 @@ export async function POST(request: Request) {
     // 2. Ejecutar auditoría de RONOS y Simplify HR de forma concurrente
     if (syncChain) {
       const [chainAudit, simplifyResult] = await Promise.all([
-        getRonosChainWideAudit(weekId, undefined, true),
+        getRonosChainWideAudit(weekId, startDateParam, true),
         simplifyPromise
       ])
 
@@ -224,7 +226,7 @@ export async function POST(request: Request) {
     }
 
     const [storeAudit, simplifyResult] = await Promise.all([
-      getRonosStoreAudit(companyId, weekId, true),
+      getRonosStoreAudit(companyId, weekId, true, startDateParam),
       simplifyPromise
     ])
 

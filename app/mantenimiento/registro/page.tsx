@@ -24,9 +24,9 @@ import { useSearchParams } from 'next/navigation'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Wrench, Camera, CheckCircle2, AlertTriangle, ShieldCheck,
-  Building2, User, Phone, FileText, DollarSign, UploadCloud,
+  Building2, User, FileText, DollarSign, UploadCloud,
   X, Sparkles, RefreshCw, Flame, Snowflake, Bug, Droplets,
-  Zap, Lock, Cpu, ArrowRight, ArrowLeft, ChevronRight, ChevronLeft,
+  Zap, Lock, Cpu, ArrowRight, ArrowLeft,
   Globe, MapPin, Check, SkipForward, ExternalLink,
   Clock, LogOut, Plus
 } from 'lucide-react'
@@ -43,25 +43,25 @@ interface Store {
   address?: string
 }
 
-const COMMON_VENDORS = [
-  'Air Quality Hoods',
-  'Ecolab Pest Control',
-  'ThermoKing Refrigeration',
-  'Tri-County Grease Trap',
-  'Hobart Cooking Equipment',
-  'Toast POS / Tech Services'
-]
-
 const TOTAL_SLIDES = 7
+const DRAFT_STORAGE_KEY = 'teg_maintenance_draft_v1'
+const TECH_MEMORY_KEY = 'teg_maintenance_tech_v1'
+
+function getCurrentTimeHHMM(): string {
+  const laDate = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
+  const hh = String(laDate.getHours()).padStart(2, '0')
+  const mi = String(laDate.getMinutes()).padStart(2, '0')
+  return `${hh}:${mi}`
+}
 
 function MaintenanceFormContent() {
   const { t, language, setLanguage } = useLanguage()
-  const isEs = language === 'es'
   const searchParams = useSearchParams()
   const storeParam = searchParams.get('store') || searchParams.get('store_id') || ''
 
   // Splash Animation State (Identical to Login)
   const [showSplash, setShowSplash] = useState(true)
+  const [draftHydrated, setDraftHydrated] = useState(false)
 
   // Wizard Step State (1 to 7)
   const [currentStep, setCurrentStep] = useState(1)
@@ -91,6 +91,10 @@ function MaintenanceFormContent() {
   const [workDescription, setWorkDescription] = useState('')
   const [partsReplaced, setPartsReplaced] = useState('')
   const [status, setStatus] = useState('completed')
+  const [startTime, setStartTime] = useState<string>(() => getCurrentTimeHHMM())
+  const [endTime, setEndTime] = useState<string>('')
+  const [warrantyDays, setWarrantyDays] = useState<number>(0)
+  const [isAfterHours, setIsAfterHours] = useState<boolean>(false)
   const [invoiceNumber, setInvoiceNumber] = useState('')
   const [costEstimate, setCostEstimate] = useState('')
   const [managerName, setManagerName] = useState('')
@@ -102,40 +106,122 @@ function MaintenanceFormContent() {
   const [photosInvoice, setPhotosInvoice] = useState<string[]>([])
   const [uploadingSection, setUploadingSection] = useState<'before' | 'after' | 'invoice' | null>(null)
 
-  // Activación automática y silenciosa de Pantalla Completa nativa en móviles
+  // Restaurar borrador de sessionStorage (protección contra recarga de cámara en móviles) y memoria del técnico
   useEffect(() => {
-    const handleAutoFullscreen = () => {
-      try {
-        if (typeof document !== 'undefined' && !document.fullscreenElement) {
-          if (typeof document.documentElement.requestFullscreen === 'function') {
-            document.documentElement.requestFullscreen().catch(() => {})
-          } else if (typeof (document.documentElement as any).webkitRequestFullscreen === 'function') {
-            (document.documentElement as any).webkitRequestFullscreen()
-          }
-        }
-      } catch {
-        // Fallback silencioso en navegadores móviles con restricciones
+    try {
+      const savedTech = localStorage.getItem(TECH_MEMORY_KEY)
+      if (savedTech) {
+        const parsedTech = JSON.parse(savedTech)
+        if (parsedTech.companyName) setCompanyName(parsedTech.companyName)
+        if (parsedTech.technicianName) setTechnicianName(parsedTech.technicianName)
+        if (parsedTech.technicianPhone) setTechnicianPhone(parsedTech.technicianPhone)
       }
-    }
 
-    // Intento inmediato al montar y al primer gesto táctil del técnico al interactuar
-    handleAutoFullscreen()
-    window.addEventListener('touchstart', handleAutoFullscreen, { passive: true })
-    window.addEventListener('click', handleAutoFullscreen, { passive: true })
-
-    return () => {
-      window.removeEventListener('touchstart', handleAutoFullscreen)
-      window.removeEventListener('click', handleAutoFullscreen)
+      const savedDraft = sessionStorage.getItem(DRAFT_STORAGE_KEY)
+      if (savedDraft) {
+        const d = JSON.parse(savedDraft)
+        if (typeof d.currentStep === 'number' && d.currentStep >= 1 && d.currentStep <= TOTAL_SLIDES) {
+          setCurrentStep(d.currentStep)
+          if (d.currentStep > 1) setShowSplash(false)
+        }
+        if (!storeParam && d.selectedStoreId) setSelectedStoreId(d.selectedStoreId)
+        if (d.companyName) setCompanyName(d.companyName)
+        if (d.technicianName) setTechnicianName(d.technicianName)
+        if (d.technicianPhone) setTechnicianPhone(d.technicianPhone)
+        if (d.category) setCategory(d.category)
+        if (d.serviceType) setServiceType(d.serviceType)
+        if (d.areaEquipment) setAreaEquipment(d.areaEquipment)
+        if (d.workDescription) setWorkDescription(d.workDescription)
+        if (d.partsReplaced) setPartsReplaced(d.partsReplaced)
+        if (d.status) setStatus(d.status)
+        if (d.startTime) setStartTime(d.startTime)
+        if (d.endTime) setEndTime(d.endTime)
+        if (typeof d.warrantyDays === 'number') setWarrantyDays(d.warrantyDays)
+        if (typeof d.isAfterHours === 'boolean') setIsAfterHours(d.isAfterHours)
+        if (d.invoiceNumber) setInvoiceNumber(d.invoiceNumber)
+        if (d.costEstimate) setCostEstimate(d.costEstimate)
+        if (d.managerName) setManagerName(d.managerName)
+        if (Array.isArray(d.photosBefore)) setPhotosBefore(d.photosBefore)
+        if (Array.isArray(d.photosAfter)) setPhotosAfter(d.photosAfter)
+        if (Array.isArray(d.photosInvoice)) setPhotosInvoice(d.photosInvoice)
+      }
+    } catch {
+      // Ignore storage access errors in private browsing
+    } finally {
+      setDraftHydrated(true)
     }
-  }, [])
+  }, [storeParam])
+
+  // Guardar borrador automáticamente en sessionStorage y recordar datos del técnico
+  useEffect(() => {
+    if (!draftHydrated || successData) return
+    try {
+      const draft = {
+        currentStep,
+        selectedStoreId,
+        companyName,
+        technicianName,
+        technicianPhone,
+        category,
+        serviceType,
+        areaEquipment,
+        workDescription,
+        partsReplaced,
+        status,
+        startTime,
+        endTime,
+        warrantyDays,
+        isAfterHours,
+        invoiceNumber,
+        costEstimate,
+        managerName,
+        photosBefore,
+        photosAfter,
+        photosInvoice
+      }
+      sessionStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(draft))
+
+      if (companyName.trim() || technicianName.trim()) {
+        localStorage.setItem(
+          TECH_MEMORY_KEY,
+          JSON.stringify({
+            companyName: companyName.trim(),
+            technicianName: technicianName.trim(),
+            technicianPhone: technicianPhone.trim()
+          })
+        )
+      }
+    } catch {
+      // Ignore quota errors
+    }
+  }, [
+    draftHydrated,
+    successData,
+    currentStep,
+    selectedStoreId,
+    companyName,
+    technicianName,
+    technicianPhone,
+    category,
+    serviceType,
+    areaEquipment,
+    workDescription,
+    partsReplaced,
+    status,
+    startTime,
+    endTime,
+    warrantyDays,
+    isAfterHours,
+    invoiceNumber,
+    costEstimate,
+    managerName,
+    photosBefore,
+    photosAfter,
+    photosInvoice
+  ])
 
   // Handler para cerrar ventana o redirigir a tacosgavilan.com
   const handleFinishAndExit = () => {
-    if (typeof document !== 'undefined' && document.fullscreenElement) {
-      if (typeof document.exitFullscreen === 'function') {
-        document.exitFullscreen().catch(() => {})
-      }
-    }
     try {
       window.close()
     } catch {
@@ -167,9 +253,17 @@ function MaintenanceFormContent() {
     return () => clearTimeout(timer)
   }, [])
 
-  // Cargar lista de tiendas ordenadas numéricamente
+  // Cargar lista de tiendas ordenadas numéricamente + La Bodega (Almacén Central)
   useEffect(() => {
     async function loadStores() {
+      const bodegaEntry: Store = {
+        id: 'BODEGA',
+        name: 'La Bodega (Almacén Central)',
+        code: 'BODEGA',
+        city: 'Vernon / Los Angeles',
+        address: 'Almacén Central Tacos Gavilan'
+      }
+
       try {
         const supabase = await getSupabaseClient()
         const { data, error } = await supabase
@@ -178,24 +272,32 @@ function MaintenanceFormContent() {
           .order('id')
 
         if (!error && data) {
-          const activeStores = data.filter((s: any) => s.is_active !== false)
+          const activeStores: Store[] = [
+            ...data.filter((s: any) => s.is_active !== false),
+            ...(data.some((s: any) => String(s.id).toUpperCase() === 'BODEGA') ? [] : [bodegaEntry])
+          ]
           setStores(activeStores)
 
-          // Preselección robusta si viene ?store= en URL (ID numérico, código, o nombre)
+          // Preselección robusta si viene ?store= en URL (ID numérico con o sin cero inicial, código, nombre o BODEGA)
           if (storeParam) {
             const p = String(storeParam).trim().toLowerCase()
+            const pNoZeros = p.replace(/^0+/, '') || '0'
             const matched = activeStores.find((s: any) =>
               String(s.id).toLowerCase() === p ||
+              String(s.id).toLowerCase() === pNoZeros ||
               s.code?.toLowerCase() === p ||
+              s.code?.toLowerCase() === p.padStart(2, '0') ||
               s.name?.toLowerCase() === p ||
-              formatStoreName(s.name).toLowerCase() === p ||
-              s.code?.toLowerCase() === p.padStart(2, '0')
+              formatStoreName(s.name).toLowerCase() === p
             )
             if (matched) setSelectedStoreId(String(matched.id))
           }
+        } else {
+          setStores([bodegaEntry])
         }
       } catch (err) {
         console.error('Error cargando tiendas:', err)
+        setStores([bodegaEntry])
       } finally {
         setLoadingStores(false)
       }
@@ -203,19 +305,32 @@ function MaintenanceFormContent() {
     loadStores()
   }, [storeParam])
 
-  // Subida de foto con compresión previa en el navegador
+  // Subida de foto con compresión previa en el navegador y límite máximo de 5 archivos por sección
   const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>, section: 'before' | 'after' | 'invoice') => {
     const files = e.target.files
     if (!files || files.length === 0) return
 
+    const currentPhotos =
+      section === 'before' ? photosBefore : section === 'after' ? photosAfter : photosInvoice
+    const remainingSlots = 5 - currentPhotos.length
+
+    if (remainingSlots <= 0) {
+      setErrorMessage(t('maintenance.error_max_photos'))
+      e.target.value = ''
+      return
+    }
+
     setUploadingSection(section)
     setErrorMessage(null)
 
-    try {
-      for (let i = 0; i < files.length; i++) {
-        let file = files[i]
+    const filesToUpload = Array.from(files).slice(0, remainingSlots)
+    const exceededLimit = files.length > remainingSlots
 
-        // Compresión automática de imágenes antes de enviar a Vercel
+    try {
+      for (let i = 0; i < filesToUpload.length; i++) {
+        let file = filesToUpload[i]
+
+        // Compresión automática de imágenes antes de enviar a Vercel (no comprimir PDFs)
         if (file.type.startsWith('image/')) {
           try {
             file = await imageCompression(file, {
@@ -241,16 +356,20 @@ function MaintenanceFormContent() {
 
         const result = await res.json()
         if (result.success && result.url) {
-          if (section === 'before') setPhotosBefore(prev => [...prev, result.url])
-          if (section === 'after') setPhotosAfter(prev => [...prev, result.url])
-          if (section === 'invoice') setPhotosInvoice(prev => [...prev, result.url])
+          if (section === 'before') setPhotosBefore(prev => [...prev, result.url].slice(0, 5))
+          if (section === 'after') setPhotosAfter(prev => [...prev, result.url].slice(0, 5))
+          if (section === 'invoice') setPhotosInvoice(prev => [...prev, result.url].slice(0, 5))
         } else {
-          throw new Error(result.error || (isEs ? 'Fallo al subir foto' : 'Failed to upload photo'))
+          throw new Error(result.error || t('maintenance.error_upload_photo'))
         }
+      }
+
+      if (exceededLimit) {
+        setErrorMessage(t('maintenance.error_max_photos'))
       }
     } catch (err: any) {
       console.error('Error al subir imagen:', err)
-      setErrorMessage(isEs ? 'Error al subir la imagen. Intenta de nuevo.' : 'Failed to upload photo. Please try again.')
+      setErrorMessage(err.message || t('maintenance.error_upload_photo'))
     } finally {
       setUploadingSection(null)
       e.target.value = ''
@@ -263,13 +382,30 @@ function MaintenanceFormContent() {
     if (section === 'invoice') setPhotosInvoice(prev => prev.filter(u => u !== urlToRemove))
   }
 
+  // Toggle multi-selección de chips de equipo en Paso 4
+  const toggleEquipmentChip = (chipLabel: string) => {
+    const currentParts = areaEquipment
+      .split(',')
+      .map(s => s.trim())
+      .filter(Boolean)
+
+    const exists = currentParts.some(p => p.toLowerCase() === chipLabel.toLowerCase())
+    if (exists) {
+      const nextParts = currentParts.filter(p => p.toLowerCase() !== chipLabel.toLowerCase())
+      setAreaEquipment(nextParts.join(', '))
+    } else {
+      const nextParts = [...currentParts, chipLabel]
+      setAreaEquipment(nextParts.join(', '))
+    }
+  }
+
   // Validaciones por diapositiva
   const validateStep = (step: number): boolean => {
     setErrorMessage(null)
 
     if (step === 1) {
       if (!selectedStoreId) {
-        setErrorMessage(isEs ? 'Por favor selecciona la sucursal atendida para continuar.' : 'Please select the serviced store to continue.')
+        setErrorMessage(t('maintenance.error_select_store'))
         return false
       }
       return true
@@ -277,11 +413,11 @@ function MaintenanceFormContent() {
 
     if (step === 2) {
       if (!companyName.trim()) {
-        setErrorMessage(isEs ? 'Ingresa el nombre de la empresa proveedora.' : 'Please enter the vendor company name.')
+        setErrorMessage(t('maintenance.error_vendor_company'))
         return false
       }
       if (!technicianName.trim()) {
-        setErrorMessage(isEs ? 'Ingresa tu nombre de técnico.' : 'Please enter your technician full name.')
+        setErrorMessage(t('maintenance.error_tech_name'))
         return false
       }
       return true
@@ -289,7 +425,7 @@ function MaintenanceFormContent() {
 
     if (step === 3) {
       if (!category) {
-        setErrorMessage(isEs ? 'Selecciona una categoría de servicio.' : 'Please select a service category.')
+        setErrorMessage(t('maintenance.error_category'))
         return false
       }
       return true
@@ -297,37 +433,44 @@ function MaintenanceFormContent() {
 
     if (step === 4) {
       if (!areaEquipment.trim()) {
-        setErrorMessage(isEs ? 'Especifica qué equipo o área atendiste (ej. Campana 1, Walk-in Cooler).' : 'Please specify the equipment or area serviced.')
+        setErrorMessage(t('maintenance.error_area'))
         return false
       }
       if (!workDescription.trim()) {
-        setErrorMessage(isEs ? 'Describe brevemente el trabajo realizado.' : 'Please describe the work performed.')
+        setErrorMessage(t('maintenance.error_description'))
         return false
       }
       return true
     }
 
     if (step === 5) {
-      const totalPhotos = photosBefore.length + photosAfter.length + photosInvoice.length
-      if (totalPhotos === 0) {
-        setErrorMessage(isEs ? 'Es obligatorio subir al menos una foto de evidencia (Antes, Después o Factura).' : 'At least one photo evidence (Before, After, or Invoice) is required.')
+      const totalPhotosCount = photosBefore.length + photosAfter.length + photosInvoice.length
+      if (totalPhotosCount === 0) {
+        setErrorMessage(t('maintenance.error_evidence_required'))
         return false
       }
       return true
     }
 
     if (step === 6) {
-      // Paso 6 es datos contables (opcional)
       return true
     }
 
     if (step === 7) {
+      const totalPhotosCount = photosBefore.length + photosAfter.length + photosInvoice.length
+      if (isAfterHours) {
+        if (totalPhotosCount < 2) {
+          setErrorMessage(t('maintenance.error_after_hours_photos'))
+          return false
+        }
+        return true
+      }
       if (!managerName.trim()) {
-        setErrorMessage(isEs ? 'Ingresa el nombre del encargado de tienda que valida el servicio.' : 'Please enter the store manager name who certifies the visit.')
+        setErrorMessage(t('maintenance.error_manager_name'))
         return false
       }
       if (!signatureDataUrl) {
-        setErrorMessage(isEs ? 'La firma táctil del encargado es obligatoria para certificar el servicio.' : 'The store manager signature is required to certify the service.')
+        setErrorMessage(t('maintenance.error_signature_required'))
         return false
       }
       return true
@@ -339,8 +482,12 @@ function MaintenanceFormContent() {
   const handleNext = () => {
     if (!validateStep(currentStep)) return
     if (currentStep < TOTAL_SLIDES) {
+      const nextStep = currentStep + 1
+      if ((nextStep === 6 || nextStep === 7) && !endTime) {
+        setEndTime(getCurrentTimeHHMM())
+      }
       setSlideDirection(1)
-      setCurrentStep(prev => prev + 1)
+      setCurrentStep(nextStep)
       mainRef.current?.scrollTo({ top: 0, behavior: 'smooth' })
     }
   }
@@ -361,9 +508,9 @@ function MaintenanceFormContent() {
     setSubmitting(true)
 
     try {
-      // 1. Subir firma digital en base64 si existe
+      // 1. Subir firma digital en base64 si existe (y no es servicio nocturno sin firma)
       let signatureUrl: string | null = null
-      if (signatureDataUrl) {
+      if (signatureDataUrl && !isAfterHours) {
         try {
           const sigRes = await fetch('/api/mantenimiento/upload', {
             method: 'POST',
@@ -374,17 +521,23 @@ function MaintenanceFormContent() {
           if (sigJson.success && sigJson.url) {
             signatureUrl = sigJson.url
           } else {
-            throw new Error(sigJson.error || 'Error subiendo firma')
+            throw new Error(sigJson.error || t('maintenance.error_save_signature'))
           }
         } catch (sigErr) {
           console.warn('Error guardando firma táctil:', sigErr)
-          throw new Error(isEs ? 'No se pudo guardar la firma del encargado. Intenta firmar de nuevo.' : 'Failed to save store manager signature. Please sign again.')
+          throw new Error(t('maintenance.error_save_signature'))
         }
       }
 
       // 2. Guardar registro en /api/mantenimiento
       const parsedCost = costEstimate.trim() ? parseFloat(costEstimate.replace(/[^0-9.]/g, '')) : null
       const validCost = parsedCost !== null && !isNaN(parsedCost) && isFinite(parsedCost) ? parsedCost : null
+
+      const resolvedManager = isAfterHours
+        ? managerName.trim()
+          ? `${managerName.trim()} (${t('maintenance.after_hours_manager_default')})`
+          : t('maintenance.after_hours_manager_default')
+        : managerName.trim()
 
       const payload = {
         store_id: selectedStoreId,
@@ -397,13 +550,17 @@ function MaintenanceFormContent() {
         work_description: workDescription,
         parts_replaced: partsReplaced || null,
         status,
+        start_time: startTime || getCurrentTimeHHMM(),
+        end_time: endTime || getCurrentTimeHHMM(),
         photos_before: photosBefore,
         photos_after: photosAfter,
         photos_invoice: photosInvoice,
         invoice_number: invoiceNumber || null,
         cost_estimate: validCost,
-        manager_name: managerName,
-        manager_signature_url: signatureUrl
+        manager_name: resolvedManager,
+        manager_signature_url: signatureUrl,
+        is_after_hours: isAfterHours,
+        warranty_days: warrantyDays
       }
 
       const res = await fetch('/api/mantenimiento', {
@@ -415,7 +572,13 @@ function MaintenanceFormContent() {
       const result = await res.json()
 
       if (!res.ok || !result.success) {
-        throw new Error(result.error || (isEs ? 'Error al guardar registro' : 'Failed to save service record'))
+        throw new Error(result.error || t('maintenance.error_save_record'))
+      }
+
+      try {
+        sessionStorage.removeItem(DRAFT_STORAGE_KEY)
+      } catch {
+        // Ignore storage error
       }
 
       setSuccessData(result.data)
@@ -424,27 +587,33 @@ function MaintenanceFormContent() {
       mainRef.current?.scrollTo({ top: 0, behavior: 'smooth' })
     } catch (err: any) {
       console.error('Error al enviar formulario:', err)
-      setErrorMessage(err.message || (isEs ? 'Error al enviar el registro. Revisa tu conexión.' : 'Error submitting record. Please check your connection.'))
+      setErrorMessage(err.message || t('maintenance.error_save_record'))
     } finally {
       setSubmitting(false)
     }
   }
 
   const resetForm = () => {
+    try {
+      sessionStorage.removeItem(DRAFT_STORAGE_KEY)
+    } catch {
+      // Ignore
+    }
     setSuccessData(null)
     setRedirectCancelled(true)
     setRedirectCountdown(null)
     setCurrentStep(1)
     setSlideDirection(1)
-    setCompanyName('')
-    setTechnicianName('')
-    setTechnicianPhone('')
     setCategory('hood_cleaning')
     setServiceType('corrective')
     setAreaEquipment('')
     setWorkDescription('')
     setPartsReplaced('')
     setStatus('completed')
+    setStartTime(getCurrentTimeHHMM())
+    setEndTime('')
+    setWarrantyDays(0)
+    setIsAfterHours(false)
     setPhotosBefore([])
     setPhotosAfter([])
     setPhotosInvoice([])
@@ -454,6 +623,33 @@ function MaintenanceFormContent() {
     setSignatureDataUrl(null)
     setErrorMessage(null)
   }
+
+  // Sugerencias rápidas 100% libres de marcas comerciales para Paso 2 (Giro / Tipo de Proveedor)
+  const vendorSuggestions = [
+    { label: t('maintenance.vendor_chip_hood'), categoryId: 'hood_cleaning' },
+    { label: t('maintenance.vendor_chip_refrigeration'), categoryId: 'refrigeration' },
+    { label: t('maintenance.vendor_chip_pest'), categoryId: 'pest_control' },
+    { label: t('maintenance.vendor_chip_plumbing'), categoryId: 'grease_trap' },
+    { label: t('maintenance.vendor_chip_cooking'), categoryId: 'cooking_equipment' },
+    { label: t('maintenance.vendor_chip_electrical'), categoryId: 'electrical' },
+    { label: t('maintenance.vendor_chip_internal'), categoryId: 'general' }
+  ]
+
+  // Sugerencias rápidas 100% libres de marcas comerciales para Paso 4 (Equipo o Área Atendida — Multi-Select)
+  const equipmentSuggestions = [
+    t('maintenance.equip_chip_hood'),
+    t('maintenance.equip_chip_walkin'),
+    t('maintenance.equip_chip_freezer'),
+    t('maintenance.equip_chip_grill'),
+    t('maintenance.equip_chip_fryer'),
+    t('maintenance.equip_chip_ice'),
+    t('maintenance.equip_chip_grease'),
+    t('maintenance.equip_chip_drains'),
+    t('maintenance.equip_chip_boiler'),
+    t('maintenance.equip_chip_steam'),
+    t('maintenance.equip_chip_ac'),
+    t('maintenance.equip_chip_pos')
+  ]
 
   // Lista de categorías con iconos y colores
   const categoriesList = [
@@ -677,7 +873,7 @@ function MaintenanceFormContent() {
                 animate={{ opacity: 1, y: 0, transition: { delay: 1.5, duration: 0.4 } }}
                 className="text-xs uppercase tracking-widest font-extrabold text-[#fdc82f]/90 mt-2"
               >
-                {t('maintenance.splash_tagline') || (isEs ? 'Registro de Proveedores & Servicios' : 'Vendor & Maintenance Portal')}
+                {t('maintenance.splash_tagline')}
               </motion.p>
             </div>
           </motion.div>
@@ -785,7 +981,7 @@ function MaintenanceFormContent() {
                         1. {t('maintenance.select_store')}
                       </h2>
                       <p className="text-xs text-slate-500 font-medium">
-                        {t('maintenance.store_question') || (isEs ? '¿En qué sucursal de Tacos Gavilan te encuentras?' : 'Which Tacos Gavilan store are you visiting?')}
+                        {t('maintenance.store_question')}
                       </p>
                     </div>
                   </div>
@@ -811,7 +1007,7 @@ function MaintenanceFormContent() {
                   {/* Selector Dropdown con Nombres Limpios */}
                   <div>
                     <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-2">
-                      {t('maintenance.change_store') || (isEs ? 'Cambiar o Seleccionar Sucursal:' : 'Change or Select Store:')}
+                      {t('maintenance.change_store')}
                     </label>
                     <select
                       value={selectedStoreId}
@@ -857,30 +1053,7 @@ function MaintenanceFormContent() {
                     </div>
                   </div>
 
-                  {/* Botones de Proveedores Frecuentes */}
-                  <div>
-                    <label className="block text-xs font-bold text-slate-600 dark:text-slate-400 mb-2">
-                      {t('maintenance.quick_vendors')}
-                    </label>
-                    <div className="flex flex-wrap gap-1.5">
-                      {COMMON_VENDORS.map((v) => (
-                        <button
-                          key={v}
-                          type="button"
-                          onClick={() => setCompanyName(v)}
-                          className={`text-xs px-3 py-1.5 rounded-full font-semibold transition-all ${
-                            companyName === v
-                              ? 'bg-red-600 text-white shadow-sm'
-                              : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200'
-                          }`}
-                        >
-                          {v}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Nombre de la Empresa */}
+                  {/* Nombre de la Empresa + Sugerencias Rápidas Libres de Marcas */}
                   <div>
                     <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
                       {t('maintenance.company_name')} *
@@ -892,6 +1065,33 @@ function MaintenanceFormContent() {
                       placeholder={t('maintenance.company_placeholder')}
                       className="w-full px-4 py-3 rounded-2xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white font-medium text-base sm:text-sm focus:ring-2 focus:ring-red-500 focus:outline-none"
                     />
+                    <div className="mt-2.5">
+                      <span className="block text-[11px] font-bold text-slate-500 dark:text-slate-400 mb-1.5">
+                        {t('maintenance.quick_vendors')}
+                      </span>
+                      <div className="flex flex-wrap gap-1.5">
+                        {vendorSuggestions.map((chip) => {
+                          const isSelected = companyName === chip.label
+                          return (
+                            <button
+                              key={chip.label}
+                              type="button"
+                              onClick={() => {
+                                setCompanyName(chip.label)
+                                setCategory(chip.categoryId)
+                              }}
+                              className={`px-2.5 py-1.5 rounded-xl text-[11px] font-semibold border transition-all active:scale-95 ${
+                                isSelected
+                                  ? 'bg-red-600 text-white border-red-600 shadow-xs'
+                                  : 'bg-slate-100 dark:bg-slate-800/80 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-red-400'
+                              }`}
+                            >
+                              {chip.label}
+                            </button>
+                          )
+                        })}
+                      </div>
+                    </div>
                   </div>
 
                   {/* Nombre del Técnico */}
@@ -917,7 +1117,7 @@ function MaintenanceFormContent() {
                       type="tel"
                       value={technicianPhone}
                       onChange={(e) => setTechnicianPhone(e.target.value)}
-                      placeholder="Ej. (555) 123-4567"
+                      placeholder={t('maintenance.technician_phone_placeholder')}
                       className="w-full px-4 py-3 rounded-2xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white font-medium text-base sm:text-sm focus:ring-2 focus:ring-red-500 focus:outline-none"
                     />
                   </div>
@@ -986,12 +1186,19 @@ function MaintenanceFormContent() {
                         { id: 'corrective', label: t('maintenance.type_corrective') },
                         { id: 'preventive', label: t('maintenance.type_preventive') },
                         { id: 'emergency', label: t('maintenance.type_emergency') },
+                        { id: 'warranty', label: t('maintenance.type_warranty') },
+                        { id: 'installation', label: t('maintenance.type_installation') },
                         { id: 'inspection', label: t('maintenance.type_inspection') }
                       ].map((type) => (
                         <button
                           key={type.id}
                           type="button"
-                          onClick={() => setServiceType(type.id)}
+                          onClick={() => {
+                            setServiceType(type.id)
+                            if (type.id === 'warranty') {
+                              setCostEstimate('0')
+                            }
+                          }}
                           className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all ${
                             serviceType === type.id
                               ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-sm'
@@ -1033,7 +1240,7 @@ function MaintenanceFormContent() {
                     </div>
                   </div>
 
-                  {/* Equipo o Área */}
+                  {/* Equipo o Área + Sugerencias Rápidas Multi-Selección Libres de Marcas */}
                   <div>
                     <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
                       {t('maintenance.area_equipment')} *
@@ -1045,6 +1252,39 @@ function MaintenanceFormContent() {
                       placeholder={t('maintenance.area_placeholder')}
                       className="w-full px-4 py-3 rounded-2xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white font-medium text-base sm:text-sm focus:ring-2 focus:ring-red-500 focus:outline-none"
                     />
+                    <div className="mt-2.5">
+                      <div className="flex items-center justify-between mb-1.5">
+                        <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400">
+                          {t('maintenance.quick_equipment')}
+                        </span>
+                        <span className="text-[10px] font-medium text-slate-400 dark:text-slate-500">
+                          {t('maintenance.multi_equip_hint')}
+                        </span>
+                      </div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {equipmentSuggestions.map((equipLabel) => {
+                          const currentParts = areaEquipment
+                            .split(',')
+                            .map(s => s.trim().toLowerCase())
+                            .filter(Boolean)
+                          const isSelected = currentParts.includes(equipLabel.toLowerCase())
+                          return (
+                            <button
+                              key={equipLabel}
+                              type="button"
+                              onClick={() => toggleEquipmentChip(equipLabel)}
+                              className={`px-2.5 py-1.5 rounded-xl text-[11px] font-semibold border transition-all active:scale-95 ${
+                                isSelected
+                                  ? 'bg-red-600 text-white border-red-600 shadow-xs'
+                                  : 'bg-slate-100 dark:bg-slate-800/80 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-red-400'
+                              }`}
+                            >
+                              {isSelected ? `✓ ${equipLabel}` : equipLabel}
+                            </button>
+                          )
+                        })}
+                      </div>
+                    </div>
                   </div>
 
                   {/* Descripción */}
@@ -1176,7 +1416,6 @@ function MaintenanceFormContent() {
                           <input
                             type="file"
                             accept="image/*"
-                            capture="environment"
                             multiple
                             disabled={uploadingSection !== null}
                             onChange={(e) => handlePhotoUpload(e, 'before')}
@@ -1187,7 +1426,7 @@ function MaintenanceFormContent() {
                         <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
                           {photosBefore.map((url, idx) => (
                             <div key={idx} className="relative group aspect-square rounded-2xl overflow-hidden border border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 shadow-xs">
-                              <img src={url} alt="Antes" className="w-full h-full object-cover" />
+                              <img src={url} alt={t('maintenance.evidence_before')} className="w-full h-full object-cover" />
                               <button
                                 type="button"
                                 onClick={() => removePhoto(url, 'before')}
@@ -1200,11 +1439,10 @@ function MaintenanceFormContent() {
                           {photosBefore.length < 5 && (
                             <label className="cursor-pointer aspect-square rounded-2xl border-2 border-dashed border-slate-300 dark:border-slate-700 hover:border-red-500 bg-slate-50/60 dark:bg-slate-800/40 flex flex-col items-center justify-center gap-1 text-slate-500 hover:text-red-600 transition-colors group">
                               <Plus size={20} className="group-hover:scale-110 transition-transform" />
-                              <span className="text-[10px] font-bold uppercase">{uploadingSection === 'before' ? '...' : (t('maintenance.add_another_photo') || '+ Foto')}</span>
+                              <span className="text-[10px] font-bold uppercase">{uploadingSection === 'before' ? '...' : t('maintenance.add_another_photo')}</span>
                               <input
                                 type="file"
                                 accept="image/*"
-                                capture="environment"
                                 multiple
                                 disabled={uploadingSection !== null}
                                 onChange={(e) => handlePhotoUpload(e, 'before')}
@@ -1238,7 +1476,6 @@ function MaintenanceFormContent() {
                           <input
                             type="file"
                             accept="image/*"
-                            capture="environment"
                             multiple
                             disabled={uploadingSection !== null}
                             onChange={(e) => handlePhotoUpload(e, 'after')}
@@ -1249,7 +1486,7 @@ function MaintenanceFormContent() {
                         <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
                           {photosAfter.map((url, idx) => (
                             <div key={idx} className="relative group aspect-square rounded-2xl overflow-hidden border border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 shadow-xs">
-                              <img src={url} alt="Después" className="w-full h-full object-cover" />
+                              <img src={url} alt={t('maintenance.evidence_after')} className="w-full h-full object-cover" />
                               <button
                                 type="button"
                                 onClick={() => removePhoto(url, 'after')}
@@ -1262,11 +1499,10 @@ function MaintenanceFormContent() {
                           {photosAfter.length < 5 && (
                             <label className="cursor-pointer aspect-square rounded-2xl border-2 border-dashed border-slate-300 dark:border-slate-700 hover:border-emerald-500 bg-slate-50/60 dark:bg-slate-800/40 flex flex-col items-center justify-center gap-1 text-slate-500 hover:text-emerald-600 transition-colors group">
                               <Plus size={20} className="group-hover:scale-110 transition-transform" />
-                              <span className="text-[10px] font-bold uppercase">{uploadingSection === 'after' ? '...' : (t('maintenance.add_another_photo') || '+ Foto')}</span>
+                              <span className="text-[10px] font-bold uppercase">{uploadingSection === 'after' ? '...' : t('maintenance.add_another_photo')}</span>
                               <input
                                 type="file"
                                 accept="image/*"
-                                capture="environment"
                                 multiple
                                 disabled={uploadingSection !== null}
                                 onChange={(e) => handlePhotoUpload(e, 'after')}
@@ -1308,22 +1544,34 @@ function MaintenanceFormContent() {
                         </label>
                       ) : (
                         <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
-                          {photosInvoice.map((url, idx) => (
-                            <div key={idx} className="relative group aspect-square rounded-2xl overflow-hidden border border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 shadow-xs">
-                              <img src={url} alt="Factura" className="w-full h-full object-cover" />
-                              <button
-                                type="button"
-                                onClick={() => removePhoto(url, 'invoice')}
-                                className="absolute top-1 right-1 p-1 rounded-full bg-black/70 text-white hover:bg-red-600 transition-colors shadow-sm"
-                              >
-                                <X size={12} />
-                              </button>
-                            </div>
-                          ))}
+                          {photosInvoice.map((url, idx) => {
+                            const isPdf = url.toLowerCase().endsWith('.pdf') || url.toLowerCase().includes('.pdf?')
+                            return (
+                              <div key={idx} className="relative group aspect-square rounded-2xl overflow-hidden border border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 shadow-xs">
+                                {isPdf ? (
+                                  <div className="w-full h-full flex flex-col items-center justify-center p-2 text-center bg-red-50/60 dark:bg-red-950/30">
+                                    <FileText size={26} className="text-red-600 mb-1" />
+                                    <span className="text-[10px] font-bold text-slate-700 dark:text-slate-200 leading-tight">
+                                      {t('maintenance.pdf_document')}
+                                    </span>
+                                  </div>
+                                ) : (
+                                  <img src={url} alt={t('maintenance.evidence_invoice')} className="w-full h-full object-cover" />
+                                )}
+                                <button
+                                  type="button"
+                                  onClick={() => removePhoto(url, 'invoice')}
+                                  className="absolute top-1 right-1 p-1 rounded-full bg-black/70 text-white hover:bg-red-600 transition-colors shadow-sm"
+                                >
+                                  <X size={12} />
+                                </button>
+                              </div>
+                            )
+                          })}
                           {photosInvoice.length < 5 && (
                             <label className="cursor-pointer aspect-square rounded-2xl border-2 border-dashed border-slate-300 dark:border-slate-700 hover:border-blue-500 bg-slate-50/60 dark:bg-slate-800/40 flex flex-col items-center justify-center gap-1 text-slate-500 hover:text-blue-600 transition-colors group">
                               <Plus size={20} className="group-hover:scale-110 transition-transform" />
-                              <span className="text-[10px] font-bold uppercase">{uploadingSection === 'invoice' ? '...' : (t('maintenance.add_another_photo') || '+ Doc')}</span>
+                              <span className="text-[10px] font-bold uppercase">{uploadingSection === 'invoice' ? '...' : t('maintenance.add_another_photo')}</span>
                               <input
                                 type="file"
                                 accept="image/*,application/pdf"
@@ -1342,7 +1590,7 @@ function MaintenanceFormContent() {
               )}
 
               {/* ========================================================================= */}
-              {/* DIAPOSITIVA 6: FACTURACIÓN Y COSTO (OPCIONAL) */}
+              {/* DIAPOSITIVA 6: FACTURACIÓN, HORARIO Y GARANTÍA (OPCIONAL) */}
               {/* ========================================================================= */}
               {currentStep === 6 && (
                 <motion.div
@@ -1365,6 +1613,34 @@ function MaintenanceFormContent() {
                       <p className="text-xs text-slate-500 font-medium">
                         {t('maintenance.accounting_slide_desc')}
                       </p>
+                    </div>
+                  </div>
+
+                  {/* Hora de Llegada y Salida (Check-In / Check-Out) */}
+                  <div className="grid grid-cols-2 gap-3 p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200/70 dark:border-slate-700/70">
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300 mb-1 flex items-center gap-1">
+                        <Clock size={12} className="text-red-500" />
+                        <span>{t('maintenance.start_time_label')}</span>
+                      </label>
+                      <input
+                        type="time"
+                        value={startTime}
+                        onChange={(e) => setStartTime(e.target.value)}
+                        className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white font-bold text-sm focus:ring-2 focus:ring-red-500 focus:outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300 mb-1 flex items-center gap-1">
+                        <Clock size={12} className="text-emerald-500" />
+                        <span>{t('maintenance.end_time_label')}</span>
+                      </label>
+                      <input
+                        type="time"
+                        value={endTime}
+                        onChange={(e) => setEndTime(e.target.value)}
+                        className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white font-bold text-sm focus:ring-2 focus:ring-red-500 focus:outline-none"
+                      />
                     </div>
                   </div>
 
@@ -1400,14 +1676,42 @@ function MaintenanceFormContent() {
                     </div>
                   </div>
 
+                  {/* Garantía Otorgada */}
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
+                      {t('maintenance.warranty_period_label')}
+                    </label>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                      {[
+                        { days: 0, label: t('maintenance.warranty_none') },
+                        { days: 30, label: t('maintenance.warranty_30') },
+                        { days: 60, label: t('maintenance.warranty_60') },
+                        { days: 90, label: t('maintenance.warranty_90') }
+                      ].map(opt => (
+                        <button
+                          key={opt.days}
+                          type="button"
+                          onClick={() => setWarrantyDays(opt.days)}
+                          className={`px-2.5 py-2 rounded-xl text-[11px] font-bold border transition-all ${
+                            warrantyDays === opt.days
+                              ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs'
+                              : 'bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-700 hover:border-emerald-400'
+                          }`}
+                        >
+                          {opt.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
                   <div className="p-3 bg-slate-50 dark:bg-slate-800/40 rounded-2xl text-xs text-slate-500 text-center font-medium">
-                    {t('maintenance.skip_step_notice') || (isEs ? 'Si aún no tienes la factura lista, puedes omitir este paso.' : 'If invoice is not ready yet, you can skip this step.')}
+                    {t('maintenance.skip_step_notice')}
                   </div>
                 </motion.div>
               )}
 
               {/* ========================================================================= */}
-              {/* DIAPOSITIVA 7: VALIDACIÓN Y FIRMA DEL ENCARGADO */}
+              {/* DIAPOSITIVA 7: VALIDACIÓN Y FIRMA DEL ENCARGADO (O SERVICIO NOCTURNO) */}
               {/* ========================================================================= */}
               {currentStep === 7 && (
                 <motion.div
@@ -1433,31 +1737,65 @@ function MaintenanceFormContent() {
                     </div>
                   </div>
 
-                  {/* Nombre del Encargado */}
+                  {/* Opción de Servicio Nocturno / Madrugada (Sin Encargado en Tienda) */}
+                  <div className={`p-3.5 rounded-2xl border transition-all ${
+                    isAfterHours
+                      ? 'bg-amber-50 dark:bg-amber-950/40 border-amber-400 dark:border-amber-700'
+                      : 'bg-slate-50 dark:bg-slate-800/50 border-slate-200 dark:border-slate-700/70'
+                  }`}>
+                    <label className="flex items-start gap-3 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={isAfterHours}
+                        onChange={(e) => setIsAfterHours(e.target.checked)}
+                        className="mt-0.5 w-4 h-4 rounded border-slate-300 text-amber-600 focus:ring-amber-500"
+                      />
+                      <div className="flex-1">
+                        <span className="block text-xs font-bold text-slate-800 dark:text-slate-100">
+                          🌙 {t('maintenance.after_hours_toggle')}
+                        </span>
+                        {isAfterHours && (
+                          <p className="text-[11px] text-amber-800 dark:text-amber-300 mt-1 leading-relaxed font-medium">
+                            {t('maintenance.after_hours_desc')}
+                          </p>
+                        )}
+                      </div>
+                    </label>
+                  </div>
+
+                  {/* Nombre del Encargado o Testigo Nocturno */}
                   <div>
                     <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
-                      {t('maintenance.manager_name')} *
+                      {isAfterHours
+                        ? t('maintenance.after_hours_witness_label')
+                        : `${t('maintenance.manager_name')} *`}
                     </label>
                     <input
                       type="text"
                       value={managerName}
                       onChange={(e) => setManagerName(e.target.value)}
-                      placeholder={t('maintenance.manager_placeholder')}
+                      placeholder={
+                        isAfterHours
+                          ? t('maintenance.after_hours_witness_placeholder')
+                          : t('maintenance.manager_placeholder')
+                      }
                       className="w-full px-4 py-3 rounded-2xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white font-medium text-base sm:text-sm focus:ring-2 focus:ring-red-500 focus:outline-none"
                     />
                   </div>
 
-                  {/* Pad de Firma Digital Táctil con Rehidratación */}
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
-                      {t('maintenance.manager_signature')} *
-                    </label>
-                    <SignaturePad
-                      initialSignatureUrl={signatureDataUrl}
-                      onSignatureChange={(dataUrl) => setSignatureDataUrl(dataUrl)}
-                      disabled={submitting}
-                    />
-                  </div>
+                  {/* Pad de Firma Digital Táctil con Rehidratación (Solo obligatorio si hay encargado presente) */}
+                  {!isAfterHours && (
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
+                        {t('maintenance.manager_signature')} *
+                      </label>
+                      <SignaturePad
+                        initialSignatureUrl={signatureDataUrl}
+                        onSignatureChange={(dataUrl) => setSignatureDataUrl(dataUrl)}
+                        disabled={submitting}
+                      />
+                    </div>
+                  )}
                 </motion.div>
               )}
             </AnimatePresence>
@@ -1477,7 +1815,7 @@ function MaintenanceFormContent() {
               onClick={handleNext}
               className="w-full py-4 px-6 rounded-2xl bg-gradient-to-r from-red-600 to-red-700 hover:from-red-500 hover:to-red-600 active:from-red-700 active:to-red-800 text-white font-black text-sm uppercase tracking-wider flex items-center justify-center gap-2.5 shadow-xl shadow-red-600/30 transition-all hover:scale-[1.01] active:scale-[0.98]"
             >
-              <span>{t('maintenance.btn_start') || (isEs ? 'Comenzar Registro' : 'Start Registration')}</span>
+              <span>{t('maintenance.btn_start')}</span>
               <ArrowRight size={18} />
             </button>
           ) : currentStep < TOTAL_SLIDES ? (

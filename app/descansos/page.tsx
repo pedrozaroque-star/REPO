@@ -27,7 +27,7 @@ import { formatDateISO, formatStoreName, getMonday, addDays, getRoleWeight } fro
 import { Shift, Employee, Job } from '@/app/planificador/lib/types'
 import { useAuth } from '@/components/ProtectedRoute'
 
-import { scheduleBreaksWithDemand, LearnedPreference, getLocalDayOfWeek } from '@/lib/breaks-engine'
+import { scheduleBreaksWithDemand, LearnedPreference, getLocalDayOfWeek, getTypeSpecificBreakIndex, encodeLearnedSlotMeta } from '@/lib/breaks-engine'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
 
@@ -50,6 +50,50 @@ export default function DescansosPage() {
     const [calendarOpen, setCalendarOpen] = useState(false)
     const [calendarViewDate, setCalendarViewDate] = useState(new Date())
 
+    const getShiftCategory = (rk: string): 'leader' | 'foh' | 'boh' => {
+        if (
+            rk.includes('manager') || rk.includes('leader') ||
+            rk.includes('shift') || rk.includes('lead') ||
+            rk.includes('assistant') || rk.includes('asistente') ||
+            rk.includes('asst') || rk.includes('encargado')
+        ) return 'leader';
+        if (rk.includes('cashier') || rk.includes('cajera') || rk.includes('cajero')) return 'foh';
+        return 'boh';
+    };
+
+    const computeShiftCohortIndex = (targetShift: Shift): number => {
+        const targetStartMs = new Date(targetShift.start_time).getTime();
+        const targetBlock = Math.floor(targetStartMs / (30 * 60000));
+        const targetRk = (((targetShift as any).job_title || targetShift.job_id || 'unknown') as string).toLowerCase().trim();
+        const targetCat = getShiftCategory(targetRk);
+
+        const group = smartShifts.filter(s => {
+            if ((s as any)._isAbsent) return false;
+            const sBlock = Math.floor(new Date(s.start_time).getTime() / (30 * 60000));
+            const sRk = (((s as any).job_title || s.job_id || 'unknown') as string).toLowerCase().trim();
+            return sBlock === targetBlock && getShiftCategory(sRk) === targetCat;
+        });
+
+        group.sort((a, b) => {
+            const rkA = (((a as any).job_title || a.job_id || 'unknown') as string).toLowerCase().trim();
+            const rkB = (((b as any).job_title || b.job_id || 'unknown') as string).toLowerCase().trim();
+            if (targetCat === 'leader') {
+                const isAsstA = rkA.includes('asst') || rkA.includes('assistant') || rkA.includes('asistente') || (rkA.includes('manager') && !rkA.includes('shift'));
+                const isAsstB = rkB.includes('asst') || rkB.includes('assistant') || rkB.includes('asistente') || (rkB.includes('manager') && !rkB.includes('shift'));
+                if (isAsstA !== isAsstB) return isAsstA ? 1 : -1;
+            }
+            const eMsA = new Date(a.end_time).getTime();
+            const eMsB = new Date(b.end_time).getTime();
+            if (eMsA !== eMsB) return eMsA - eMsB;
+            const sMsA = new Date(a.start_time).getTime();
+            const sMsB = new Date(b.start_time).getTime();
+            if (sMsA !== sMsB) return sMsA - sMsB;
+            return String(a.employee_id || a.id || '').localeCompare(String(b.employee_id || b.id || ''));
+        });
+
+        const idx = group.findIndex(s => s.id === targetShift.id);
+        return idx >= 0 ? idx : 0;
+    };
 
     const handleBreakDragEnd = async (e: any, info: any, shift: Shift, breakIdx: number) => {
         const b = shift.breaks_schedule[breakIdx];
@@ -80,22 +124,45 @@ export default function DescansosPage() {
         let warningMsgs = [];
         
         if (isMeal) {
-            if (newStartMs > shiftStart + (5 * 3600000)) {
-                warningMsgs.push('Meal Penalty Riesgo: El Lunch inicia después de la 5ta hora (Ley de CA).');
+            if (newStartMs >= shiftStart + (5 * 3600000)) {
+                warningMsgs.push('Meal Penalty Riesgo: El Lunch debe iniciar antes de cumplir la 5ta hora (máx. 4h 59m, Ley de CA).');
             }
         }
         
         const rk = (((shift as any).job_title || shift.job_id || 'unknown') as string).toLowerCase().trim();
+        const isLeaderRk = (r: string) => r.includes('manager') || r.includes('leader') || r.includes('shift') || r.includes('lead') || r.includes('asst') || r.includes('assistant') || r.includes('asistente') || r.includes('encargado');
+        const thisIsLeader = isLeaderRk(rk);
+
+        // Validar si choca o queda pegado (<30m) con otro descanso manual del MISMO empleado,
+        // o si aplasta (<45m) un descanso automático de la IA del mismo turno para reacomodarlo automáticamente
+        let needsPersonalAiRebalance = false;
+        for (let idx = 0; idx < (shift.breaks_schedule || []).length; idx++) {
+            if (idx === breakIdx) continue;
+            const ownB = shift.breaks_schedule[idx];
+            const os = new Date(ownB.start_time).getTime();
+            const oe = new Date(ownB.end_time).getTime();
+            if (ownB.is_manual) {
+                if (newStartMs < oe + 30 * 60000 && newEndMs > os - 30 * 60000) {
+                    warningMsgs.push(`El descanso queda encimado o a menos de 30 min de otro descanso fijo del mismo empleado (${new Date(os).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}).`);
+                }
+            } else {
+                if (newStartMs < oe + 45 * 60000 && newEndMs > os - 45 * 60000) {
+                    needsPersonalAiRebalance = true;
+                }
+            }
+        }
+
         for (const otherShift of smartShifts) {
             if (otherShift.id === shift.id) continue;
             const otherRk = (((otherShift as any).job_title || otherShift.job_id || 'unknown') as string).toLowerCase().trim();
-            if (rk === otherRk) {
+            const sameRoleOrLeader = rk === otherRk || (thisIsLeader && isLeaderRk(otherRk));
+            if (sameRoleOrLeader) {
                 for (const otherB of otherShift.breaks_schedule || []) {
                     const os = new Date(otherB.start_time).getTime();
                     const oe = new Date(otherB.end_time).getTime();
                     const overlapMs = Math.max(0, Math.min(newEndMs, oe) - Math.max(newStartMs, os));
                     if (overlapMs > 0) {
-                        warningMsgs.push(`Superposición con ${(otherShift as any).employee_name || 'otro empleado'} que tiene el mismo rol.`);
+                        warningMsgs.push(`Superposición con ${(otherShift as any).employee_name || 'otro empleado'} (${(otherShift as any).job_title || otherRk}).`);
                     }
                 }
             }
@@ -106,13 +173,17 @@ export default function DescansosPage() {
             if (!proceed) return;
         }
         
-        const newBreaks = [...shift.breaks_schedule];
-        newBreaks[breakIdx] = {
+        const updatedRawBreaks = [...shift.breaks_schedule];
+        updatedRawBreaks[breakIdx] = {
             ...b,
             start_time: new Date(newStartMs).toISOString(),
             end_time: new Date(newEndMs).toISOString(),
             is_manual: true
         };
+        const typeBreakIndex = getTypeSpecificBreakIndex(updatedRawBreaks, breakIdx);
+        const newBreaks = [...updatedRawBreaks].sort(
+            (a, c) => new Date(a.start_time).getTime() - new Date(c.start_time).getTime()
+        );
         
         setSmartShifts(prev => prev.map(s => s.id === shift.id ? { ...s, breaks_schedule: newBreaks } : s));
         if (lastDataRef.current?.shifts) {
@@ -123,18 +194,21 @@ export default function DescansosPage() {
             const supabase = await getSupabaseClient();
             await supabase.from('shifts').update({ breaks_schedule: newBreaks }).eq('id', shift.id);
 
-            // ── 🧠 AI LEARNING: Guardar la preferencia ──
+            // ── 🧠 AI LEARNING: Guardar la preferencia con índice por tipo y metadatos de bloque/cohort ──
             const currentStoreGuid = storeGuid || (stores.find(s => String(s.id) === String(selectedStoreId))?.external_id) || searchParams.get('store_guid') || 'b7f63b01-f089-4ad7-a346-afdb1803dc1a';
             const offsetMin = Math.round((newStartMs - shiftStart) / 60000);
             const shiftDurationMin = Math.round((shiftEnd - shiftStart) / 60000);
             const dayOfWeek = getLocalDayOfWeek(shiftStart);
+            const cohortIdx = computeShiftCohortIndex(shift);
+            const slotMeta = encodeLearnedSlotMeta(shiftStart, cohortIdx);
             
             await supabase.from('break_manual_overrides').delete().match({
                 store_id: currentStoreGuid,
                 role: rk,
                 day_of_week: dayOfWeek,
                 break_type: b.type,
-                break_index: breakIdx
+                break_index: typeBreakIndex,
+                peak_hour: slotMeta
             });
             
             await supabase.from('break_manual_overrides').insert({
@@ -142,9 +216,10 @@ export default function DescansosPage() {
                 role: rk,
                 day_of_week: dayOfWeek,
                 break_type: b.type,
-                break_index: breakIdx,
+                break_index: typeBreakIndex,
                 offset_from_start_min: offsetMin,
-                shift_duration_min: shiftDurationMin
+                shift_duration_min: shiftDurationMin,
+                peak_hour: slotMeta
             });
 
             // Actualizar memoria local para no tener que recargar
@@ -152,14 +227,21 @@ export default function DescansosPage() {
                 role: rk,
                 day_of_week: dayOfWeek,
                 break_type: b.type,
-                break_index: breakIdx,
-                offset_from_start_min: offsetMin
+                break_index: typeBreakIndex,
+                offset_from_start_min: offsetMin,
+                shift_duration_min: shiftDurationMin,
+                peak_hour: slotMeta
             };
             const currentPrefs = lastDataRef.current.learnedPrefs || [];
             lastDataRef.current.learnedPrefs = [
-                ...currentPrefs.filter(p => !(p.role === rk && p.day_of_week === dayOfWeek && p.break_type === b.type && p.break_index === breakIdx)),
+                ...currentPrefs.filter(p => !(p.role === rk && p.day_of_week === dayOfWeek && p.break_type === b.type && p.break_index === typeBreakIndex && p.peak_hour === slotMeta)),
                 newPref
             ];
+
+            // Si el movimiento manual aplastó un descanso automático (!is_manual) del mismo turno, reacomodarlo automáticamente
+            if (needsPersonalAiRebalance && shift.id) {
+                await triggerAiRecalculation(absentEmpIds, lastDataRef.current, false, true, false, shift.id);
+            }
 
             setAiStatus({ message: `✅ ${b.type === 'meal_30' ? 'Lunch' : 'Break'} movido y guardado — la IA lo respetará`, type: 'success' });
             setTimeout(() => setAiStatus(null), 4000);
@@ -185,6 +267,8 @@ export default function DescansosPage() {
         const rk = (((shift as any).job_title || shift.job_id || 'unknown') as string).toLowerCase().trim();
         const shiftStart = new Date(shift.start_time).getTime();
         const dayOfWeek = getLocalDayOfWeek(shiftStart);
+        const typeBreakIndex = getTypeSpecificBreakIndex(shift.breaks_schedule, breakIdx);
+        const slotMeta = encodeLearnedSlotMeta(shiftStart, computeShiftCohortIndex(shift));
 
         // Quitar la bandera is_manual del break
         const newBreaks = [...shift.breaks_schedule];
@@ -201,6 +285,14 @@ export default function DescansosPage() {
                 role: rk,
                 day_of_week: dayOfWeek,
                 break_type: b.type,
+                break_index: typeBreakIndex,
+                peak_hour: slotMeta
+            });
+            await supabase.from('break_manual_overrides').delete().match({
+                store_id: currentStoreGuid,
+                role: rk,
+                day_of_week: dayOfWeek,
+                break_type: b.type,
                 break_index: breakIdx
             });
         } catch (err) {
@@ -211,7 +303,7 @@ export default function DescansosPage() {
         // Limpiar preferencia de la memoria local
         const currentPrefs = lastDataRef.current.learnedPrefs || [];
         lastDataRef.current.learnedPrefs = currentPrefs.filter(
-            p => !(p.role === rk && p.day_of_week === dayOfWeek && p.break_type === b.type && p.break_index === breakIdx)
+            p => !(p.role === rk && p.day_of_week === dayOfWeek && p.break_type === b.type && (p.break_index === typeBreakIndex || p.break_index === breakIdx) && (p.peak_hour === slotMeta || p.peak_hour == null))
         );
 
         setAiStatus({ message: `🤖 ${b.type === 'meal_30' ? 'Lunch' : 'Break'} restaurado — recalculando con IA...`, type: 'info' });
@@ -282,6 +374,8 @@ export default function DescansosPage() {
 
     const handleRemoveBreak = async (shift: Shift, breakIdx: number) => {
         const b = (shift.breaks_schedule || [])[breakIdx];
+        const typeBreakIndex = getTypeSpecificBreakIndex(shift.breaks_schedule || [], breakIdx);
+        const slotMeta = encodeLearnedSlotMeta(new Date(shift.start_time).getTime(), computeShiftCohortIndex(shift));
         const updatedBreaks = (shift.breaks_schedule || []).filter((_: any, idx: number) => idx !== breakIdx);
 
         try {
@@ -300,12 +394,20 @@ export default function DescansosPage() {
                     role: rk,
                     day_of_week: dayOfWeek,
                     break_type: b.type,
+                    break_index: typeBreakIndex,
+                    peak_hour: slotMeta
+                });
+                await supabase.from('break_manual_overrides').delete().match({
+                    store_id: currentStoreGuid,
+                    role: rk,
+                    day_of_week: dayOfWeek,
+                    break_type: b.type,
                     break_index: breakIdx
                 });
 
                 const currentPrefs = lastDataRef.current.learnedPrefs || [];
                 lastDataRef.current.learnedPrefs = currentPrefs.filter(
-                    p => !(p.role === rk && p.day_of_week === dayOfWeek && p.break_type === b.type && p.break_index === breakIdx)
+                    p => !(p.role === rk && p.day_of_week === dayOfWeek && p.break_type === b.type && (p.break_index === typeBreakIndex || p.break_index === breakIdx) && (p.peak_hour === slotMeta || p.peak_hour == null))
                 );
             }
 
@@ -456,14 +558,21 @@ export default function DescansosPage() {
             return { ...s, is_leader: isLeader, job_title: extTitle, employee_name: employeeName, breaks_schedule: safeBreaks };
         });
 
-        // 🧠 BYPASS DE OPTIMIZACIÓN: Si los turnos ya tienen breaks calculados, los reusamos.
+        // Detectar si algún turno activo (>= 3.5h) se quedó sin descansos asignados (ej. turno recién agregado o walk-in)
+        const missingBreakIds = new Set<string | number>(
+            shiftsForAi
+                .filter((s: any) => {
+                    const durHrs = (new Date(s.end_time).getTime() - new Date(s.start_time).getTime()) / 3_600_000;
+                    return durHrs >= 3.5 && (!s.breaks_schedule || s.breaks_schedule.length === 0) && s.id != null;
+                })
+                .map((s: any) => s.id)
+        );
+
+        // 🧠 BYPASS DE OPTIMIZACIÓN: Si TODOS los turnos >= 3.5h ya tienen breaks calculados, los reusamos.
         if (!isManualAction && !forceRecalculate) {
-            // Verificamos si AL MENOS UN TURNO ya tiene descansos asignados en BD.
-            // Si es así, significa que la IA ya procesó el día entero previamente.
-            // (Si hay turnos nuevos, el mánager deberá presionar RECALCULAR manualmente).
-            const alreadyCalculated = shiftsForAi.some((s: any) => s.breaks_schedule && s.breaks_schedule.length > 0);
+            const someCalculated = shiftsForAi.some((s: any) => s.breaks_schedule && s.breaks_schedule.length > 0);
             
-            if (alreadyCalculated) {
+            if (someCalculated && missingBreakIds.size === 0) {
                 console.log("⏭️ Bypass IA: Turnos ya calculados previamente. Cargando caché de BD.");
                 // 🔧 FIX SYNC PC↔TABLETA: Inyectar los turnos de ausentes como fantasmas visuales
                 // para que el manager en PC pueda verlos (barra gris) y restaurarlos.
@@ -478,6 +587,14 @@ export default function DescansosPage() {
                 setCalculating(false);
                 return;
             }
+
+            if (someCalculated && missingBreakIds.size > 0) {
+                shiftsForAi.forEach((s: any) => {
+                    if (!missingBreakIds.has(s.id) && s.breaks_schedule && s.breaks_schedule.length > 0) {
+                        s.breaks_schedule = s.breaks_schedule.map((b: any) => ({ ...b, is_manual: true }));
+                    }
+                });
+            }
         }
 
         try {
@@ -489,6 +606,15 @@ export default function DescansosPage() {
                     if (s.id !== targetShiftIdToRecalculate) {
                         const original = presentShifts.find((old: Shift) => old.id === s.id);
                         s.breaks_schedule = original ? [...(original.breaks_schedule || [])] : [];
+                    }
+                });
+            } else if (!isManualAction && !forceRecalculate && missingBreakIds.size > 0) {
+                augmented.forEach((s: any) => {
+                    if (!missingBreakIds.has(s.id)) {
+                        const original = presentShifts.find((old: Shift) => old.id === s.id);
+                        if (original && original.breaks_schedule && original.breaks_schedule.length > 0) {
+                            s.breaks_schedule = [...original.breaks_schedule];
+                        }
                     }
                 });
             }

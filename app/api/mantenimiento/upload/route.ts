@@ -1,22 +1,35 @@
 /**
  * @module api/mantenimiento/upload
- * @description Endpoint de subida de evidencias fotográficas y firmas táctiles para el módulo
- * de Registro de Actividades de Mantenimiento y Proveedores de Tacos Gavilan.
+ * @description Endpoint de subida de evidencias fotográficas, documentos PDF de facturas y firmas táctiles
+ * para el módulo de Registro de Actividades de Mantenimiento y Proveedores de Tacos Gavilan.
  * @businessRules
- * - Acepta archivos de imagen (JPEG, PNG, WEBP) mediante FormData o imágenes en base64 (firma digital táctil).
- * - Almacena los archivos en el bucket público 'checklist-photos' bajo la ruta 'maintenance/{YYYY-MM-DD}/{timestamp}_{random}.{ext}'.
- * - Optimiza y valida tipos MIME para evitar archivos no compatibles o maliciosos.
+ * - Acepta archivos de imagen (JPEG, PNG, WEBP, HEIC) y PDFs de facturas mediante FormData, o imágenes en base64 (firma digital táctil).
+ * - Almacena los archivos en el bucket público 'checklist-photos' bajo la ruta 'maintenance/{YYYY-MM-DD}/{folder}_{timestamp}_{random}.{ext}'.
+ * - Sanitiza el nombre de subcarpeta contra una lista blanca estricta para prevenir Path Traversal.
+ * - Optimiza y valida tipos MIME y tamaños máximos (10MB en FormData, 5MB en Base64).
  * - Utiliza supabaseAdmin para garantizar la escritura en almacenamiento sin requerir sesión iniciada del técnico.
  * @dataFlow
  * - Cliente (Móvil / Web) -> POST /api/mantenimiento/upload -> Supabase Storage (checklist-photos) -> Retorna publicUrl.
  * @notes
- * - Soporta tanto multipart/form-data como JSON payload { base64: string, filename?: string, type?: string }.
+ * - Soporta tanto multipart/form-data como JSON payload { base64: string, folder?: string }.
  */
 
 import { NextRequest, NextResponse } from 'next/server'
 import { getSupabaseAdminClient } from '@/lib/supabase'
 
 export const dynamic = 'force-dynamic'
+
+const ALLOWED_FOLDERS = ['before', 'after', 'invoice', 'signatures', 'evidence']
+const ALLOWED_EXTENSIONS = ['jpg', 'jpeg', 'png', 'webp', 'heic', 'heif', 'pdf']
+const ALLOWED_MIMES = [
+  'image/jpeg',
+  'image/jpg',
+  'image/png',
+  'image/webp',
+  'image/heic',
+  'image/heif',
+  'application/pdf'
+]
 
 /**
  * Obtiene la fecha de negocio oficial en California PST ('America/Los_Angeles')
@@ -40,14 +53,15 @@ export async function POST(request: NextRequest) {
     const contentType = request.headers.get('content-type') || ''
     const today = getBusinessDatePST()
 
-    // 1. Manejo de subida vía FormData (Archivos de cámara o galería)
+    // 1. Manejo de subida vía FormData (Archivos de cámara, galería o PDF de factura)
     if (contentType.includes('multipart/form-data')) {
       const formData = await request.formData()
       const file = formData.get('file') as File | null
-      const folderPrefix = (formData.get('folder') as string) || 'evidence'
+      const rawFolder = String(formData.get('folder') || 'evidence').trim().toLowerCase()
+      const folderPrefix = ALLOWED_FOLDERS.includes(rawFolder) ? rawFolder : 'evidence'
 
-      if (!file) {
-        return NextResponse.json({ success: false, error: 'No se recibió ningún archivo de imagen' }, { status: 400 })
+      if (!file || file.size === 0) {
+        return NextResponse.json({ success: false, error: 'No se recibió ningún archivo válido' }, { status: 400 })
       }
 
       // Validar tamaño máximo (10MB)
@@ -55,15 +69,43 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ success: false, error: 'El archivo excede el tamaño máximo permitido (10MB)' }, { status: 400 })
       }
 
+      const extension = file.name?.split('.').pop()?.toLowerCase() || ''
+      const mime = (file.type || '').toLowerCase()
+
+      const isAllowedMime = ALLOWED_MIMES.includes(mime)
+      const isAllowedExt = ALLOWED_EXTENSIONS.includes(extension)
+
+      if (!isAllowedMime && !isAllowedExt) {
+        return NextResponse.json(
+          { success: false, error: 'Formato de archivo no permitido. Usa JPG, PNG, WEBP, HEIC o PDF.' },
+          { status: 400 }
+        )
+      }
+
+      const isPdf = mime === 'application/pdf' || extension === 'pdf'
+      const sanitizedExt = isPdf
+        ? 'pdf'
+        : ALLOWED_EXTENSIONS.includes(extension)
+        ? extension
+        : mime.includes('webp')
+        ? 'webp'
+        : mime.includes('png')
+        ? 'png'
+        : 'jpg'
+
+      const finalContentType = isPdf
+        ? 'application/pdf'
+        : isAllowedMime
+        ? mime
+        : 'image/jpeg'
+
       const buffer = Buffer.from(await file.arrayBuffer())
-      const extension = file.name?.split('.').pop()?.toLowerCase() || 'webp'
-      const sanitizedExt = ['jpg', 'jpeg', 'png', 'webp', 'heic'].includes(extension) ? extension : 'jpg'
       const fileName = `maintenance/${today}/${folderPrefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}.${sanitizedExt}`
 
-      const { data: uploadData, error: uploadError } = await supabase.storage
+      const { error: uploadError } = await supabase.storage
         .from('checklist-photos')
         .upload(fileName, buffer, {
-          contentType: file.type || 'image/jpeg',
+          contentType: finalContentType,
           upsert: true
         })
 
@@ -87,6 +129,8 @@ export async function POST(request: NextRequest) {
     if (contentType.includes('application/json')) {
       const body = await request.json()
       const { base64, folder = 'signatures' } = body
+      const rawFolder = String(folder || 'signatures').trim().toLowerCase()
+      const sanitizedFolder = ALLOWED_FOLDERS.includes(rawFolder) ? rawFolder : 'signatures'
 
       if (!base64 || typeof base64 !== 'string') {
         return NextResponse.json({ success: false, error: 'Se requiere una cadena base64 válida' }, { status: 400 })
@@ -94,19 +138,25 @@ export async function POST(request: NextRequest) {
 
       // Remover header data:image/png;base64,... si viene incluido
       const matches = base64.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/)
-      let mimeType = 'image/png'
+      let rawMime = 'image/png'
       let base64Data = base64
 
       if (matches && matches.length === 3) {
-        mimeType = matches[1]
+        rawMime = matches[1].toLowerCase()
         base64Data = matches[2]
       }
 
+      const mimeType = rawMime === 'image/jpeg' || rawMime === 'image/jpg' ? 'image/jpeg' : 'image/png'
       const buffer = Buffer.from(base64Data, 'base64')
-      const ext = mimeType.includes('png') ? 'png' : 'jpg'
-      const fileName = `maintenance/${today}/${folder}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}.${ext}`
 
-      const { data: uploadData, error: uploadError } = await supabase.storage
+      if (buffer.length === 0 || buffer.length > 5 * 1024 * 1024) {
+        return NextResponse.json({ success: false, error: 'Tamaño de firma digital inválido (máx. 5MB)' }, { status: 400 })
+      }
+
+      const ext = mimeType === 'image/png' ? 'png' : 'jpg'
+      const fileName = `maintenance/${today}/${sanitizedFolder}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}.${ext}`
+
+      const { error: uploadError } = await supabase.storage
         .from('checklist-photos')
         .upload(fileName, buffer, {
           contentType: mimeType,

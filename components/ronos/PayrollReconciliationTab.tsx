@@ -61,6 +61,7 @@ export default function PayrollReconciliationTab({
   payrollError,
   payrollInvoiceMode,
   setPayrollInvoiceMode,
+  selectedCompanyId,
   onRefresh
 }: PayrollReconciliationTabProps) {
   const { t, language } = useLanguage()
@@ -68,6 +69,7 @@ export default function PayrollReconciliationTab({
 
   const [searchTerm, setSearchTerm] = useState('')
   const [filterType, setFilterType] = useState<'all' | 'ot' | 'pto' | 'salaried'>('all')
+  const [selectedSiteFilter, setSelectedSiteFilter] = useState<string>('all')
   const [expandedEmployeeId, setExpandedEmployeeId] = useState<string | null>(null)
   const normalizeSearch = (value: string) => value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim()
 
@@ -93,18 +95,43 @@ export default function PayrollReconciliationTab({
   const supplementalsList = payrollData?.supplementalsList || []
   const supplementalsCount = supplementalsList.length
 
+  // Lista de sucursales disponibles cuando se consulta "Todas las Tiendas (Cadena)"
+  const availableSites = useMemo(() => {
+    if (selectedCompanyId !== 0 || !Array.isArray(payrollData?.employees)) return []
+    const counts = new Map<string, number>()
+    for (const emp of payrollData.employees) {
+      if (emp.isAdministrativeSupervisor || emp.excludedFromPayroll) continue
+      const site = (emp.siteName || '').trim()
+      if (!site) continue
+      counts.set(site, (counts.get(site) || 0) + 1)
+    }
+    return [...counts.entries()]
+      .sort((a, b) => a[0].localeCompare(b[0], 'es'))
+      .map(([siteName, count]) => ({ siteName, count }))
+  }, [selectedCompanyId, payrollData?.employees])
+
+  const effectiveSiteFilter = selectedCompanyId === 0 && availableSites.some(s => s.siteName === selectedSiteFilter)
+    ? selectedSiteFilter
+    : 'all'
+
   // Filtrado de colaboradores
   const filteredEmployees = useMemo(() => {
     if (!Array.isArray(payrollData?.employees)) return []
 
     return payrollData.employees.filter((emp) => {
+      // 0. Filtro por sucursal en modo Cadena
+      if (effectiveSiteFilter !== 'all' && (emp.siteName || '').trim() !== effectiveSiteFilter) {
+        return false
+      }
+
       // 1. Buscador
       if (searchTerm.trim()) {
         const q = normalizeSearch(searchTerm)
         const matchName = normalizeSearch(emp.fullName).includes(q)
         const matchJob = normalizeSearch(emp.jobTitle || '').includes(q)
         const matchPin = normalizeSearch(emp.pin || '').includes(q)
-        if (!matchName && !matchJob && !matchPin) return false
+        const matchSite = normalizeSearch(emp.siteName || '').includes(q)
+        if (!matchName && !matchJob && !matchPin && !matchSite) return false
       }
 
       // 2. Filtro de tipo
@@ -114,15 +141,19 @@ export default function PayrollReconciliationTab({
 
       return true
     })
-  }, [payrollData?.employees, searchTerm, filterType])
+  }, [payrollData?.employees, effectiveSiteFilter, searchTerm, filterType])
 
-  // Separación clara: Personal Administrativo de Supervisión vs Personal Operativo de Tienda
+  // Separación clara: Personal Administrativo de Supervisión vs Personal Operativo Activo vs Tarjetas Excluidas
   const adminSupervisors = useMemo(() => {
-    return filteredEmployees.filter(e => e.isAdministrativeSupervisor)
+    return filteredEmployees.filter(e => e.isAdministrativeSupervisor && !e.excludedFromPayroll)
   }, [filteredEmployees])
 
   const storeCrew = useMemo(() => {
-    return filteredEmployees.filter(e => !e.isAdministrativeSupervisor)
+    return filteredEmployees.filter(e => !e.isAdministrativeSupervisor && !e.excludedFromPayroll)
+  }, [filteredEmployees])
+
+  const excludedTimecards = useMemo(() => {
+    return filteredEmployees.filter(e => !e.isAdministrativeSupervisor && e.excludedFromPayroll)
   }, [filteredEmployees])
 
   const employeeKey = (emp: CingularEmployeeItem) => `${emp.siteName || ''}:${emp.payrollSource || 'ronos'}:${emp.employeeUserId}:${emp.paystubId || ''}`
@@ -410,6 +441,37 @@ export default function PayrollReconciliationTab({
           </div>
         </div>
 
+        {/* Selector rápido de sucursal cuando se consulta "Todas las Tiendas (Cadena)" */}
+        {availableSites.length > 1 && (
+          <div className="px-3 py-2.5 border-b border-slate-100 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-800/20 flex items-center gap-1.5 overflow-x-auto">
+            <button
+              type="button"
+              onClick={() => setSelectedSiteFilter('all')}
+              className={`min-h-[36px] px-3 py-1 rounded-lg text-[11px] font-bold whitespace-nowrap transition-colors cursor-pointer ${
+                effectiveSiteFilter === 'all'
+                  ? 'bg-[#0288d1] text-white'
+                  : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-100'
+              }`}
+            >
+              {copy('Todas las sucursales', 'All stores')} ({availableSites.reduce((sum, s) => sum + s.count, 0)})
+            </button>
+            {availableSites.map(({ siteName, count }) => (
+              <button
+                key={siteName}
+                type="button"
+                onClick={() => setSelectedSiteFilter(siteName)}
+                className={`min-h-[36px] px-3 py-1 rounded-lg text-[11px] font-bold whitespace-nowrap transition-colors cursor-pointer ${
+                  effectiveSiteFilter === siteName
+                    ? 'bg-[#0288d1] text-white'
+                    : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-100'
+                }`}
+              >
+                {siteName.replace(/^TEG\s*-\s*/i, '')} ({count})
+              </button>
+            ))}
+          </div>
+        )}
+
         {/* VISTA ESCRITORIO: MÁXIMO 5 COLUMNAS INICIALES */}
         <div className="hidden md:block overflow-x-auto">
           <table className="w-full text-xs text-left">
@@ -589,6 +651,53 @@ export default function PayrollReconciliationTab({
             )
           }))}
         </div>
+
+        {/* Tarjetas RONOS con horas que no tienen assignmentId vinculado al recibo (ej. gerentes asalariados cuyo pago ya aparece arriba desde Simplify HR) */}
+        {excludedTimecards.length > 0 && (
+          <details className="border-t border-slate-100 dark:border-slate-800 bg-slate-50/40 dark:bg-slate-800/20 px-4 py-3 text-xs">
+            <summary className="cursor-pointer font-semibold text-slate-600 dark:text-slate-300 select-none">
+              {copy(
+                `Ver ${excludedTimecards.length} tarjeta(s) de asistencia sin vínculo directo al recibo (omitidas del cálculo para no duplicar pagos)`,
+                `View ${excludedTimecards.length} timecard(s) without direct paystub link (omitted from calculation to prevent duplicate pay)`
+              )}
+            </summary>
+            <div className="mt-2.5 overflow-x-auto">
+              <table className="w-full text-xs text-left">
+                <thead className="text-slate-500 border-b border-slate-200 dark:border-slate-700">
+                  <tr>
+                    <th className="py-2 pr-3">{t('ronos.payroll.col_employee') || 'Colaborador'}</th>
+                    <th className="py-2 px-3">{copy('Sucursal / Puesto', 'Store / Role')}</th>
+                    <th className="py-2 px-3 text-right">{copy('Horas en RONOS', 'RONOS hours')}</th>
+                    <th className="py-2 pl-3">{copy('Estado', 'Status')}</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                  {excludedTimecards.map((emp) => {
+                    const cardHrs = emp.clockHours
+                      ? Object.values(emp.clockHours).reduce((sum, h) => sum + (Number(h) || 0), 0)
+                      : emp.totalHours
+                    return (
+                      <tr key={employeeKey(emp)} className="text-slate-600 dark:text-slate-300">
+                        <td className="py-2 pr-3 font-semibold text-slate-800 dark:text-slate-200">
+                          {emp.fullName} {emp.pin ? <span className="text-[10px] font-mono text-slate-400">#{emp.pin}</span> : null}
+                        </td>
+                        <td className="py-2 px-3 text-slate-500">
+                          {emp.jobTitle || 'Crew'} {emp.siteName ? `· ${emp.siteName}` : ''}
+                        </td>
+                        <td className="py-2 px-3 text-right font-mono font-bold">
+                          {cardHrs.toFixed(2)}h
+                        </td>
+                        <td className="py-2 pl-3 text-amber-700 dark:text-amber-300">
+                          {sourceNote(emp)}
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </details>
+        )}
       </section>
 
       {/* ═══════════════════════════════════════════════════════════════════════ */}

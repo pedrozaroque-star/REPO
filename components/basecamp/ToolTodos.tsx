@@ -146,8 +146,9 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
     const [loading, setLoading] = useState(true)
     const [actionLoading, setActionLoading] = useState<string | null>(null)
 
-    // Estados para modo de visualización (cards por defecto o lista)
+    // Estados para modo de visualización (cards por defecto o lista) y orden por fecha de creación
     const [viewMode, setViewMode] = useState<'cards' | 'list'>('cards')
+    const [sortOrder, setSortOrder] = useState<'newest' | 'oldest'>('oldest')
     const [showViewAsMenu, setShowViewAsMenu] = useState(false)
     const viewAsMenuRef = useRef<HTMLDivElement>(null)
 
@@ -559,7 +560,7 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                     .eq('project_id', project.db_id)
                     .order('position', { ascending: true }),
 
-                // Query 2a: Active Todos with assignees (all active todos)
+                // Query 2a: Active Todos with assignees (ordered by creation date ascending: oldest at top, newest at bottom)
                 supabase
                     .from('bc_todos')
                     .select(`
@@ -571,7 +572,7 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                     `)
                     .eq('project_id', project.db_id)
                     .eq('is_completed', false)
-                    .order('position', { ascending: true }),
+                    .order('created_at', { ascending: true }),
 
                 // Query 2b: Recent Completed Todos (limit 100 to avoid PostgREST 1000 row limits)
                 supabase
@@ -585,7 +586,7 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                     `)
                     .eq('project_id', project.db_id)
                     .eq('is_completed', true)
-                    .order('completed_at', { ascending: false })
+                    .order('created_at', { ascending: false })
                     .limit(100),
 
                 // Query 3: Explicit selected todo to bypass pagination limit
@@ -1011,10 +1012,19 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
         return [...startsWithQ, ...containsQ]
     })()
 
+    // Sort helper by creation date (newest first or oldest first)
+    const sortTasksByCreatedDate = useCallback((tasks: any[]) => {
+        return [...tasks].sort((a, b) => {
+            const timeA = a.created_at ? new Date(a.created_at).getTime() : 0
+            const timeB = b.created_at ? new Date(b.created_at).getTime() : 0
+            return sortOrder === 'newest' ? timeB - timeA : timeA - timeB
+        })
+    }, [sortOrder])
+
     // Full List Renderer (Used for both List View and Single List drill-down view)
     const renderFullList = (list: any, listIdx: number, showBackBtn: boolean = false) => {
-        const openTasks = list.tasks.filter((tk: any) => !tk.is_completed)
-        const completedTasks = list.tasks.filter((tk: any) => tk.is_completed)
+        const openTasks = sortTasksByCreatedDate(list.tasks.filter((tk: any) => !tk.is_completed))
+        const completedTasks = sortTasksByCreatedDate(list.tasks.filter((tk: any) => tk.is_completed))
         const isExpanded = expandedCompleted[list.id] || false
         const dotColor = LIST_DOT_COLORS[listIdx % LIST_DOT_COLORS.length]
 
@@ -1036,7 +1046,7 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                     background: '#FAFAF8'
                 }}>
                     {showBackBtn && (
-                        <div style={{ marginBottom: 14 }}>
+                        <div style={{ marginBottom: 14, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
                             <button
                                 onClick={() => setSelectedListId(null)}
                                 style={{
@@ -1057,6 +1067,31 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                                 onMouseLeave={e => (e.currentTarget.style.background = '#fff')}
                             >
                                 ← {t('basecamp.todos') || 'To-dos'}
+                            </button>
+
+                            <button
+                                type="button"
+                                onClick={() => setSortOrder(prev => prev === 'newest' ? 'oldest' : 'newest')}
+                                title={t('basecamp.sort_by_created_tooltip') || 'Sorted by creation date (click to invert)'}
+                                style={{
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: 6,
+                                    padding: '6px 12px',
+                                    borderRadius: 6,
+                                    border: '1px solid #D5D3CE',
+                                    background: '#fff',
+                                    color: '#334155',
+                                    fontSize: 12.5,
+                                    fontWeight: 600,
+                                    cursor: 'pointer',
+                                    transition: 'background 0.15s'
+                                }}
+                                onMouseEnter={e => (e.currentTarget.style.background = '#F0EFEB')}
+                                onMouseLeave={e => (e.currentTarget.style.background = '#fff')}
+                            >
+                                <Clock size={13} style={{ color: '#1D7DB5' }} />
+                                <span>{sortOrder === 'newest' ? t('basecamp.sort_newest_first') : t('basecamp.sort_oldest_first')}</span>
                             </button>
                         </div>
                     )}
@@ -1653,9 +1688,13 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
     }
 
     const filteredLists = React.useMemo(() => {
-        if (!todoFilterQuery.trim()) return lists
+        const sortedLists = lists.map(list => ({
+            ...list,
+            tasks: sortTasksByCreatedDate(list.tasks)
+        }))
+        if (!todoFilterQuery.trim()) return sortedLists
         const q = todoFilterQuery.toLowerCase().trim()
-        return lists.map(list => {
+        return sortedLists.map(list => {
             const listMatches = list.list_name.toLowerCase().includes(q) || (list.description && list.description.toLowerCase().includes(q))
             const matchingTasks = list.tasks.filter((tk: any) => tk.task_name.toLowerCase().includes(q))
             if (listMatches) return list
@@ -1664,7 +1703,7 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
             }
             return null
         }).filter(Boolean) as any[]
-    }, [lists, todoFilterQuery])
+    }, [lists, todoFilterQuery, sortTasksByCreatedDate])
 
     return (
         <div style={{ maxWidth: 1280, width: '100%', margin: '0 auto', padding: '0 12px' }}>
@@ -1861,6 +1900,32 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                                     </div>
                                 )}
                             </div>
+
+                            {/* Sort by Creation Date Toggle */}
+                            <button
+                                type="button"
+                                onClick={() => setSortOrder(prev => prev === 'newest' ? 'oldest' : 'newest')}
+                                title={t('basecamp.sort_by_created_tooltip') || 'Sorted by creation date (click to invert)'}
+                                style={{
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: 6,
+                                    padding: '8px 14px',
+                                    borderRadius: 6,
+                                    border: '1px solid #D5D3CE',
+                                    background: '#fff',
+                                    color: '#1D2D35',
+                                    fontSize: 13.5,
+                                    fontWeight: 600,
+                                    cursor: 'pointer',
+                                    transition: 'background 0.15s, border-color 0.15s'
+                                }}
+                                onMouseEnter={e => (e.currentTarget.style.background = '#F7F7F5')}
+                                onMouseLeave={e => (e.currentTarget.style.background = '#fff')}
+                            >
+                                <Clock size={14} style={{ color: '#1D7DB5' }} />
+                                <span>{sortOrder === 'newest' ? t('basecamp.sort_newest_first') : t('basecamp.sort_oldest_first')}</span>
+                            </button>
 
                             <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center' }}>
                                 <input

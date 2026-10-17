@@ -39,7 +39,7 @@ import {
 import { useLanguage } from '@/lib/i18n'
 import { StoreAuditData, EmployeeTimecard, StoreOption } from './types'
 import EmployeeDetailView from './EmployeeDetailView'
-import { getPacificBusinessDate, detectTodayAnomalies } from './helpers'
+import { getPacificBusinessDate, detectTodayAnomalies, formatTime12h, getPunchIsoString } from './helpers'
 
 interface StoreAttendanceTabProps {
   storeData: StoreAuditData | null
@@ -116,7 +116,7 @@ export default function StoreAttendanceTab({
 
       const validPunches = todayDay.punches.filter(p => {
         if (!p || typeof p !== 'object') return false
-        const raw = p.timestampIso || p.punchTime
+        const raw = getPunchIsoString(p)
         if (raw == null || raw === '') return false
         const pMs = new Date(raw).getTime()
         return !isNaN(pMs) && pMs > 86400000 && pMs <= currentTimeMs
@@ -124,22 +124,25 @@ export default function StoreAttendanceTab({
       if (validPunches.length === 0) continue
 
       const sorted = [...validPunches].sort((a, b) => {
-        const timeA = new Date(a.timestampIso || a.punchTime).getTime()
-        const timeB = new Date(b.timestampIso || b.punchTime).getTime()
+        const timeA = new Date(getPunchIsoString(a)).getTime()
+        const timeB = new Date(getPunchIsoString(b)).getTime()
         return timeA - timeB
       })
 
       const lastPunch = sorted[sorted.length - 1]
+      const lastRaw = getPunchIsoString(lastPunch)
+      const formattedLastTime = formatTime12h(lastRaw) || lastRaw
       const pType = Number(lastPunch?.punchType)
+      const punchPhoto = lastPunch.photoUrl || (lastPunch as any).photoURL || todayDay.clockInPhoto || null
 
       if (pType === 1 || pType === 4) {
-        inShift.push({ emp, lastPunchTime: lastPunch.punchTime || 'En turno', photoUrl: lastPunch.photoUrl })
+        inShift.push({ emp, lastPunchTime: formattedLastTime || 'En turno', photoUrl: punchPhoto })
       } else if (pType === 3) {
-        const lunchMs = new Date(lastPunch.timestampIso || lastPunch.punchTime).getTime()
+        const lunchMs = new Date(lastRaw).getTime()
         const elapsedMins = Math.max(0, Math.round((currentTimeMs - lunchMs) / 60000))
-        onLunch.push({ emp, lunchStartTime: lastPunch.punchTime || 'En comida', minutes: elapsedMins })
+        onLunch.push({ emp, lunchStartTime: formattedLastTime || 'En comida', minutes: elapsedMins })
       } else if (pType === 2) {
-        clockedOut.push({ emp, clockOutTime: lastPunch.punchTime || 'Salida' })
+        clockedOut.push({ emp, clockOutTime: formattedLastTime || 'Salida' })
       }
     }
 

@@ -18,8 +18,8 @@ export const safeNum = (value: unknown, fallback = 0): number => {
 }
 export const safeDiv = (a: number, b: number, fallback = 0) => b && Number.isFinite(a / b) ? a / b : fallback
 export const safeRound = (value: number, decimals = 2) => {
-  const factor = 10 ** decimals
-  return Math.round((safeNum(value) + Math.sign(value) * Number.EPSILON) * factor) / factor
+  const factor = 10 ** decimals, n = safeNum(value)
+  return Math.round((n + Math.sign(n) * Number.EPSILON) * factor) / factor
 }
 const sumMoney = (values: number[]) => values.reduce((a, b) => a + (moneyCents(b) ?? 0), 0) / 100
 const id = (v: unknown) => String(v ?? '').trim()
@@ -199,7 +199,7 @@ export function buildPayrollReport(input: PayrollInputs): CingularInvoiceSummary
       calculationComplete: !unsupported && payRate > 0 && (receipts.length > 0 || validClock),
       rateSource: receipts.length ? 'paystub' : rate ? 'simplify' : 'unknown',
       evidenceSource: receipts.length ? 'simplify_paystub' : 'ronos_cache',
-      auditStatus: unsupported || payRate <= 0 ? 'insufficient_data' : excluded || clockDetailMismatch || grossVariance || (!native && !knownSupervisor) ? 'requires_investigation' : 'estimated',
+      auditStatus: excluded ? 'requires_investigation' : unsupported || payRate <= 0 ? 'insufficient_data' : clockDetailMismatch || grossVariance || (!native && !knownSupervisor) ? 'requires_investigation' : 'estimated',
       auditBadgeText: excluded ? 'Vínculo pendiente' : grossVariance ? 'Diferencia con recibo' : 'Facturación estimada', auditNote: note
     })
   }
@@ -209,6 +209,9 @@ export function buildPayrollReport(input: PayrollInputs): CingularInvoiceSummary
     // Varios pagos de una asignación se pueden sumar solo si corresponden a una única identidad.
     const identities = new Set(matched.map(s => id(s.employeeNumber) || id(s.userId)).filter(Boolean))
     const accepted = identities.size === 1 && matched.every(s=>!!(id(s.employeeNumber)||id(s.userId)) && !used.has(s.id)) ? matched : []
+    const cardHours = cards.reduce((s, c) => s + safeNum(c.regular_hours) + safeNum(c.overtime_hours) + safeNum(c.double_time_hours) + safeNum(c.sick_hours) + safeNum(c.vacation_hours) + safeNum(c.holiday_hours) + safeNum(c.bereavement_hours), 0)
+    const rawName = cards[0]?.full_name || `${cards[0]?.first_name || ''} ${cards[0]?.last_name || ''}`.trim()
+    if (!accepted.length && (cardHours <= 0 || normalizePayrollName(rawName) === 'manager default')) continue
     accepted.forEach(s=>used.add(s.id)); calculate(cards, accepted, uid)
   }
   let synthetic = -1
@@ -257,7 +260,7 @@ export function buildPayrollReport(input: PayrollInputs): CingularInvoiceSummary
     totalGrossPay:totalGross,totalInvoicedAmount:totalBill,totalCingularFee:safeRound(totalBill-totalGross),effectiveMarkupPercentage:safeRound(safeDiv(totalBill-totalGross,totalGross)*100),
     totalApprovedGrossPay:complete && scopeKnown ? sumMoney(stubs.map(s=>s.grossWages!)) : null,approvedPaystubsCount:stubs.length,paystubCoverageComplete:complete && scopeKnown,
     calculationCoverageComplete,
-    ronosEstimatedGrossPay:!input.clockCoverageComplete || employees.some(e=>e.payrollSource==='ronos' && e.ronosEstimatedGrossPay===null) ? null : sumMoney(employees.map(e=>e.ronosEstimatedGrossPay||0)),
+    ronosEstimatedGrossPay:!input.clockCoverageComplete || active.some(e=>e.payrollSource==='ronos' && e.ronosEstimatedGrossPay===null) ? null : sumMoney(active.map(e=>e.ronosEstimatedGrossPay||0)),
     dataWarnings:warnings,invoiceReconciliation:comparison?.summary,invoicePayrollVerification:invoicePayroll,
     pendingStubsCount:pending.length,unmatchedPaystubsCount:pending.length,unmatchedPaystubs:pending,pendingPaystubs:pending,
     confirmedOperationalPayments:active.filter(e=>e.hasNativeMatch && !e.isAdministrativeSupervisor),administrativeSupervisorPayments:active.filter(e=>e.isAdministrativeSupervisor),

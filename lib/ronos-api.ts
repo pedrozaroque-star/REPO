@@ -145,10 +145,12 @@ export interface RonosAtomicPunch {
   assignmentId?: string
   punchType: number // 1=IN/LUNCH_END, 2=OUT, 3=LUNCH_START
   punchTypeName: string
+  timestampIso?: string
   punchTime: string
   localTime: string
   localTimeWithoutOffset?: string
   photoURL?: string
+  photoUrl?: string
   addedPunch?: boolean
   offline?: boolean
 }
@@ -242,19 +244,24 @@ export interface RonosStoreAuditSummary {
   storeCode: string
   storeName: string
   ronosCompanyId: number
+  companyId?: number
   weekId: number
   startDate: string
   endDate: string
   totalEmployees: number
   totalEmployeesCount?: number
   activeEmployeesCount: number
+  activeEmployees?: number
   totalWeeklyHours?: number
   totalChainHours: number
+  totalHours?: number
   totalRegularHours: number
   totalOvertimeHours: number
   totalDoubleTimeHours: number
   totalMealPenaltiesCount: number
+  mealPenaltiesCount?: number
   totalBrokenTimecardsCount: number
+  brokenTimecardsCount?: number
   totalEstimatedPenaltyCostUsd: number
   totalEstimatedOvertimeCostUsd: number
   complianceScorePercent: number
@@ -427,7 +434,7 @@ let cachedSession: RonosTokenSession | null = null
 let authPromiseMutex: Promise<string> | null = null
 
 const storeAuditCache = new Map<string, { data: RonosStoreAuditSummary; timestamp: number }>()
-const AUDIT_CACHE_TTL_MS = 5 * 60 * 1000
+const AUDIT_CACHE_TTL_MS = 60 * 1000
 const AUDIT_PAST_WEEK_TTL_MS = 24 * 60 * 60 * 1000
 
 /**
@@ -678,13 +685,19 @@ const weeksMemoryCache = new Map<number, { data: RonosWorkWeek[]; timestamp: num
  * Obtiene las semanas de pago de una tienda desde memoria / Supabase (o API de RONOS con normalización y auto-caché)
  */
 export async function getRonosWeeks(ronosCompanyId: number, forceRefresh = false): Promise<RonosWorkWeek[]> {
+  const currentBizDate = getPacificBusinessDate()
   const cachedMem = weeksMemoryCache.get(ronosCompanyId)
   if (!forceRefresh && cachedMem && (Date.now() - cachedMem.timestamp) < 15 * 60 * 1000) {
     if (cachedMem.data.length > 0) {
-      return sortWeeksChronologically(cachedMem.data, 'desc')
+      const sortedMem = sortWeeksChronologically(cachedMem.data, 'desc')
+      const newestEnd = sortedMem[0]?.endDate?.substring(0, 10) || ''
+      if (!currentBizDate || newestEnd >= currentBizDate) {
+        return sortedMem
+      }
     }
   }
 
+  let staleDbWeeks: RonosWorkWeek[] = []
   if (!forceRefresh) {
     try {
       const { data: dbWeeks, error: dbErr } = await supabaseAdmin
@@ -703,8 +716,12 @@ export async function getRonosWeeks(ronosCompanyId: number, forceRefresh = false
 
         const sortedDbWeeks = sortWeeksChronologically(parsed, 'desc')
         if (sortedDbWeeks.length > 0) {
-          weeksMemoryCache.set(ronosCompanyId, { data: sortedDbWeeks, timestamp: Date.now() })
-          return sortedDbWeeks
+          staleDbWeeks = sortedDbWeeks
+          const newestEnd = sortedDbWeeks[0]?.endDate?.substring(0, 10) || ''
+          if (!currentBizDate || newestEnd >= currentBizDate) {
+            weeksMemoryCache.set(ronosCompanyId, { data: sortedDbWeeks, timestamp: Date.now() })
+            return sortedDbWeeks
+          }
         }
       }
     } catch (err) {
@@ -755,16 +772,40 @@ export async function getRonosWeeks(ronosCompanyId: number, forceRefresh = false
       })
     }
 
-    return sortedWeeks
+    return sortedWeeks.length > 0 ? sortedWeeks : staleDbWeeks
   } catch (apiErr: any) {
     console.error(`[RONOS Weeks] Error crítico consultando semanas para compañía ${ronosCompanyId}:`, apiErr?.message || String(apiErr))
-    return []
+    return staleDbWeeks
   }
 }
 
 // ============================================================================
 // MOTOR DE CUMPLIMIENTO LABORAL DE CALIFORNIA (COMPLIANCE ANALYZER)
 // ============================================================================
+
+/**
+ * Normaliza el timestamp de una ponchada de RONOS garantizando que incluya su zona horaria real.
+ * Nota crítica: RONOS devuelve `punchTime` en UTC sin el sufijo 'Z' (ej. "2026-10-17T16:59:46.453")
+ * mientras que `localTime` incluye el offset oficial del Pacífico (ej. "2026-10-17T09:59:46.454-07:00").
+ * Si se usa `punchTime` sin 'Z', `new Date()` lo interpreta como hora local (+7/+8h en el futuro).
+ */
+export function normalizePunchTimestampIso(p: any): string {
+  if (!p || typeof p !== 'object') return ''
+  const localStr = typeof p.localTime === 'string' ? p.localTime.trim() : ''
+  if (localStr) {
+    if (/[zZ]$|[+-]\d{2}:\d{2}$/.test(localStr)) {
+      return localStr
+    }
+  }
+  const punchStr = typeof p.punchTime === 'string' ? p.punchTime.trim() : ''
+  if (punchStr) {
+    if (/[zZ]$|[+-]\d{2}:\d{2}$/.test(punchStr)) {
+      return punchStr
+    }
+    return `${punchStr}Z`
+  }
+  return localStr
+}
 
 /**
  * Analiza las ponchadas de un día individual y detecta violaciones laborales de California
@@ -802,8 +843,8 @@ export function analyzeDayCompliance(
 
   const validPunches = (punches || []).filter(Boolean)
   const sorted = [...validPunches].sort((a, b) => {
-    const timeA = safeTimestamp(a?.localTime || a?.punchTime)
-    const timeB = safeTimestamp(b?.localTime || b?.punchTime)
+    const timeA = safeTimestamp(normalizePunchTimestampIso(a))
+    const timeB = safeTimestamp(normalizePunchTimestampIso(b))
     return timeA - timeB
   })
 
@@ -816,28 +857,30 @@ export function analyzeDayCompliance(
   sorted.forEach((p) => {
     let typeName = 'PUNCH'
     const pType = safeNum(p?.punchType)
+    const resolvedIso = normalizePunchTimestampIso(p)
+    const resolvedPhoto = p?.photoURL || p?.photoUrl || undefined
 
     if (pType === 1) {
       if (!inPunch) {
         inPunch = p
         typeName = 'CLOCK IN'
       } else if (currentMealStart) {
-        const startMs = safeTimestamp(currentMealStart?.localTime || currentMealStart?.punchTime)
-        const endMs = safeTimestamp(p?.localTime || p?.punchTime)
+        const startMs = safeTimestamp(normalizePunchTimestampIso(currentMealStart))
+        const endMs = safeTimestamp(resolvedIso)
         // Medición exacta en segundos para no redondear 29m30s a 30m (Labor Code § 512 / Donohue v. AMN Services)
         const durationSeconds = (startMs > 0 && endMs > startMs) ? Math.max(0, Math.floor((endMs - startMs) / 1000)) : 0
         const durationMinutesExact = Number((durationSeconds / 60).toFixed(2))
 
-        const inTimeMs = safeTimestamp(inPunch?.localTime || inPunch?.punchTime)
+        const inTimeMs = safeTimestamp(normalizePunchTimestampIso(inPunch))
         const hoursWorkedBefore = (inTimeMs > 0 && startMs > inTimeMs) ? (startMs - inTimeMs) / (1000 * 60 * 60) : 0
 
         mealCount++
         mealBreaks.push({
           index: mealCount,
-          startTime: currentMealStart?.localTime || currentMealStart?.punchTime,
-          startPhoto: currentMealStart?.photoURL,
-          endTime: p?.localTime || p?.punchTime,
-          endPhoto: p?.photoURL,
+          startTime: normalizePunchTimestampIso(currentMealStart),
+          startPhoto: currentMealStart?.photoURL || currentMealStart?.photoUrl,
+          endTime: resolvedIso,
+          endPhoto: resolvedPhoto,
           durationMinutes: durationMinutesExact,
           hoursWorkedBeforeMeal: Number(hoursWorkedBefore.toFixed(2))
         })
@@ -863,10 +906,12 @@ export function analyzeDayCompliance(
       assignmentId: p?.assignmentId,
       punchType: pType,
       punchTypeName: typeName,
-      punchTime: p?.punchTime || '',
-      localTime: p?.localTime || p?.punchTime || '',
+      timestampIso: resolvedIso,
+      punchTime: resolvedIso,
+      localTime: p?.localTime || resolvedIso,
       localTimeWithoutOffset: p?.localTimeWithoutOffset,
-      photoURL: p?.photoURL,
+      photoURL: resolvedPhoto,
+      photoUrl: resolvedPhoto,
       addedPunch: !!p?.addedPunch,
       offline: !!p?.offline
     })
@@ -874,14 +919,14 @@ export function analyzeDayCompliance(
 
   if (currentMealStart) {
     mealCount++
-    const inTimeMs = inPunch ? safeTimestamp(inPunch?.localTime || inPunch?.punchTime) : 0
-    const startMs = safeTimestamp(currentMealStart?.localTime || currentMealStart?.punchTime)
+    const inTimeMs = inPunch ? safeTimestamp(normalizePunchTimestampIso(inPunch)) : 0
+    const startMs = safeTimestamp(normalizePunchTimestampIso(currentMealStart))
     const hoursWorkedBefore = (inTimeMs > 0 && startMs > inTimeMs) ? (startMs - inTimeMs) / (1000 * 60 * 60) : 0
 
     mealBreaks.push({
       index: mealCount,
-      startTime: currentMealStart.localTime || currentMealStart.punchTime,
-      startPhoto: currentMealStart.photoURL,
+      startTime: normalizePunchTimestampIso(currentMealStart),
+      startPhoto: currentMealStart.photoURL || currentMealStart.photoUrl,
       endTime: undefined,
       endPhoto: undefined,
       durationMinutes: 0,
@@ -893,8 +938,8 @@ export function analyzeDayCompliance(
 
   let shiftHours = safeNum(totalHours, 0)
   if (shiftHours === 0 && inPunch && outPunch) {
-    const inMs = safeTimestamp(inPunch.localTime || inPunch.punchTime)
-    const outMs = safeTimestamp(outPunch.localTime || outPunch.punchTime)
+    const inMs = safeTimestamp(normalizePunchTimestampIso(inPunch))
+    const outMs = safeTimestamp(normalizePunchTimestampIso(outPunch))
     if (inMs > 0 && outMs > inMs) {
       const rawElapsedHours = (outMs - inMs) / (1000 * 60 * 60)
       const lunchElapsedHours = totalLunchMinutes / 60
@@ -973,14 +1018,14 @@ export function analyzeDayCompliance(
   return {
     lunchDurationMinutes: totalLunchMinutes,
     mealBreaks,
-    clockInTime: inPunch?.localTime,
-    clockInPhoto: inPunch?.photoURL,
+    clockInTime: inPunch ? normalizePunchTimestampIso(inPunch) : undefined,
+    clockInPhoto: inPunch?.photoURL || inPunch?.photoUrl,
     lunchStartTime: primaryMeal?.startTime,
     lunchStartPhoto: primaryMeal?.startPhoto,
     lunchEndTime: primaryMeal?.endTime,
     lunchEndPhoto: primaryMeal?.endPhoto,
-    clockOutTime: outPunch?.localTime,
-    clockOutPhoto: outPunch?.photoURL,
+    clockOutTime: outPunch ? normalizePunchTimestampIso(outPunch) : undefined,
+    clockOutPhoto: outPunch?.photoURL || outPunch?.photoUrl,
     parsedPunches,
     violations
   }
@@ -1138,19 +1183,24 @@ export async function getCachedStoreAudit(
       storeCode: storeMeta.tegCode,
       storeName: storeMeta.tegName,
       ronosCompanyId,
+      companyId: ronosCompanyId,
       weekId,
       startDate: selectedWeek?.startDate || '',
       endDate: selectedWeek?.endDate || '',
       totalEmployees: cachedCards.length,
       totalEmployeesCount: cachedCards.length,
       activeEmployeesCount,
+      activeEmployees: activeEmployeesCount,
       totalWeeklyHours: Number(totalChainHours.toFixed(2)),
       totalChainHours: Number(totalChainHours.toFixed(2)),
+      totalHours: Number(totalChainHours.toFixed(2)),
       totalRegularHours: Number(totalRegularHours.toFixed(2)),
       totalOvertimeHours: Number(totalOvertimeHours.toFixed(2)),
       totalDoubleTimeHours: Number(totalDoubleTimeHours.toFixed(2)),
       totalMealPenaltiesCount,
+      mealPenaltiesCount: totalMealPenaltiesCount,
       totalBrokenTimecardsCount,
+      brokenTimecardsCount: totalBrokenTimecardsCount,
       totalEstimatedPenaltyCostUsd: Number(totalEstimatedPenaltyCostUsd.toFixed(2)),
       totalEstimatedOvertimeCostUsd: Number(totalEstimatedOvertimeCostUsd.toFixed(2)),
       complianceScorePercent,
@@ -1174,7 +1224,8 @@ export async function getCachedStoreAudit(
 export async function getRonosStoreAudit(
   ronosCompanyId: number,
   targetWeekId?: number,
-  forceRefresh = false
+  forceRefresh = false,
+  targetStartDate?: string
 ): Promise<RonosStoreAuditSummary> {
   const storeMeta = RONOS_STORES_MAP.find(s => s.ronosCompanyId === ronosCompanyId) || {
     tegStoreId: 0,
@@ -1190,14 +1241,30 @@ export async function getRonosStoreAudit(
   }
 
   let selectedWeek: RonosWorkWeek
+  const cleanTargetStart = targetStartDate ? targetStartDate.substring(0, 10) : undefined
+
   if (targetWeekId) {
-    const found = weeks.find(w => w.weekId === targetWeekId)
+    let found = weeks.find(w => w.weekId === targetWeekId)
+    if (!found && cleanTargetStart) {
+      found = weeks.find(w => w.startDate?.substring(0, 10) === cleanTargetStart)
+    }
     if (!found) {
       throw new RonosWeekNotFoundError(`Semana ${targetWeekId} no encontrada para la tienda ${storeMeta.ronosName} (ID: ${ronosCompanyId}). No se permite sustitución silenciosa de semanas.`)
     }
     selectedWeek = found
+  } else if (cleanTargetStart) {
+    const found = weeks.find(w => w.startDate?.substring(0, 10) === cleanTargetStart)
+    if (!found) {
+      throw new RonosWeekNotFoundError(`Semana con fecha ${cleanTargetStart} no encontrada para la tienda ${storeMeta.ronosName} (ID: ${ronosCompanyId}).`)
+    }
+    selectedWeek = found
   } else {
-    selectedWeek = weeks[0]
+    const todayBiz = getPacificBusinessDate()
+    selectedWeek = weeks.find(w => {
+      const s = w.startDate?.substring(0, 10) || ''
+      const e = w.endDate?.substring(0, 10) || ''
+      return s <= todayBiz && todayBiz <= e
+    }) || weeks[0]
   }
 
   const weekId = safeNum(selectedWeek.weekId)
@@ -1316,8 +1383,9 @@ export async function getRonosStoreAudit(
       let empUnpaidHours = 0
 
       const hasActivity = weeklyHours > 0 || safeNum(emp.mealPenalty) > 0 || safeNum(emp.holidayHours) > 0 || !!emp.brokenHours || !!emp.hasRetroHours || !!emp.pto
+      const shouldInspectWeek = !isClosed ? emp.active !== false : hasActivity
 
-      if (empUserId > 0 && hasActivity) {
+      if (empUserId > 0 && shouldInspectWeek) {
         try {
           const userWeek = await callRonosApi<any>('WorkWeek/ManagerGetUserWeekByWeekId', {
             userId: empUserId,
@@ -1430,6 +1498,7 @@ export async function getRonosStoreAudit(
 
       const rawAssignmentId = emp?.assignmentId || emp?.AssignmentId || emp?.ronos_assignment_id || emp?.ronosAssignmentId || null
       const ronosAssignmentId = punchAssignmentId || (rawAssignmentId ? String(rawAssignmentId).trim() : null) || existingAssignmentsMap.get(empUserId) || null
+      const hasAnyPunches = days.some(d => Array.isArray(d.punches) && d.punches.length > 0)
 
       return {
         employeeUserId: empUserId,
@@ -1457,7 +1526,7 @@ export async function getRonosStoreAudit(
         mealPenaltyCount: safeNum(emp.mealPenalty) || days.reduce((count, d) => count + (d.violations.some(v => v.type === 'MEAL_PENALTY_MISSED') ? 1 : 0), 0),
         brokenHours: broken,
         lockTimecard: !!emp.locktimecard,
-        active: emp.active !== false && (weeklyHours > 0 || empVacationHours > 0 || empSickHours > 0 || (days && days.length > 0)),
+        active: emp.active !== false && (weeklyHours > 0 || empVacationHours > 0 || empSickHours > 0 || hasAnyPunches),
         days,
         totalViolationsCount: empViolationsCount,
         // No monetizar penalizaciones no reconocidas: el pasivo financiero solo devenga por penalizaciones oficiales
@@ -1471,7 +1540,7 @@ export async function getRonosStoreAudit(
     }
   )
 
-  const activeEmployeesCount = employeeTimecards.filter(e => e.totalWeeklyHours > 0 || (e.vacationHours || 0) > 0 || (e.sickHours || 0) > 0).length
+  const activeEmployeesCount = employeeTimecards.filter(e => e.totalWeeklyHours > 0 || (e.vacationHours || 0) > 0 || (e.sickHours || 0) > 0 || (Array.isArray(e.days) && e.days.some(d => Array.isArray(d.punches) && d.punches.length > 0))).length
   const totalChainHours = employeeTimecards.reduce((sum, e) => sum + e.totalWeeklyHours, 0)
   const totalRegularHours = employeeTimecards.reduce((sum, e) => sum + e.regularHours, 0)
   const totalOvertimeHours = employeeTimecards.reduce((sum, e) => sum + e.overtimeHours, 0)
@@ -1492,19 +1561,24 @@ export async function getRonosStoreAudit(
     storeCode: storeMeta.tegCode,
     storeName: storeMeta.tegName,
     ronosCompanyId,
+    companyId: ronosCompanyId,
     weekId,
     startDate: selectedWeek?.startDate || '',
     endDate: selectedWeek?.endDate || '',
     totalEmployees: rawEmployees.length,
     totalEmployeesCount: rawEmployees.length,
     activeEmployeesCount,
+    activeEmployees: activeEmployeesCount,
     totalWeeklyHours: Number(totalChainHours.toFixed(2)),
     totalChainHours: Number(totalChainHours.toFixed(2)),
+    totalHours: Number(totalChainHours.toFixed(2)),
     totalRegularHours: Number(totalRegularHours.toFixed(2)),
     totalOvertimeHours: Number(totalOvertimeHours.toFixed(2)),
     totalDoubleTimeHours: Number(totalDoubleTimeHours.toFixed(2)),
     totalMealPenaltiesCount,
+    mealPenaltiesCount: totalMealPenaltiesCount,
     totalBrokenTimecardsCount,
+    brokenTimecardsCount: totalBrokenTimecardsCount,
     totalEstimatedPenaltyCostUsd: Number(totalEstimatedPenaltyCostUsd.toFixed(2)),
     totalEstimatedOvertimeCostUsd: Number(totalEstimatedOvertimeCostUsd.toFixed(2)),
     complianceScorePercent,

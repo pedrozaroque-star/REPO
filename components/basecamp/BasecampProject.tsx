@@ -276,13 +276,14 @@ export default function BasecampProject({ project, navigateTo, saveProjects, pro
                     setActivePeopleAvatars(Array.from(uniqueAuthors.values()).slice(0, 8))
                 }
 
-                // 4. Process First List and fetch tasks
+                // 4. Process First List and fetch tasks (oldest first by creation date)
                 if (resFirstList.data) {
                     const { data: listTasks } = await supabase
                         .from('bc_todos')
                         .select('id, title, is_completed, created_at')
                         .eq('todolist_id', resFirstList.data.id)
-                        .order('position', { ascending: true })
+                        .eq('is_completed', false)
+                        .order('created_at', { ascending: true })
                         .limit(10)
 
                     setFirstTodoList({

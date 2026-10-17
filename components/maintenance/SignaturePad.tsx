@@ -4,9 +4,10 @@
  * y validación de visitas de técnicos y proveedores de servicio en Tacos Gavilan.
  * @businessRules
  * - Permite al encargado en turno firmar con el dedo en pantallas táctiles de celulares o con el mouse.
- * - Genera trazos fluidos con punta redondeada y color oscuro contrastante (#0f172a).
- * - Canvas con fondo blanco estilo papel de recibo fijo para máxima visibilidad en modo claro y oscuro.
- * - Rehidrata automáticamente firmas previas mediante initialSignatureUrl para no perder trazos al navegar entre pasos.
+ * - Exige un trazo real con desplazamiento (no acepta un toque accidental sin movimiento).
+ * - Genera trazos fluidos con punta redondeada y color oscuro contrastante (#0f172a) sobre fondo blanco sólido (#ffffff)
+ *   incrustado en el PNG exportado para legibilidad total tanto en modo claro como en modo oscuro.
+ * - Rehidrata automáticamente firmas previas mediante initialSignatureUrl sin destruir el lienzo entre trazos.
  * - Optimizado a 60fps reiniciando sub-paths para evitar acumulación de lag en pantallas móviles táctiles.
  * - Proporciona botón de limpieza rápida para reiniciar la firma si hay error.
  * - Notifica al formulario padre mediante callback onSignatureChange(base64DataUrl | null).
@@ -37,45 +38,58 @@ export default function SignaturePad({
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const isDrawing = useRef(false)
   const hasDrawnRef = useRef(false)
-  const [hasSignature, setHasSignature] = useState(false)
+  const latestDataUrlRef = useRef<string | null>(initialSignatureUrl)
+  const startPointRef = useRef<{ x: number; y: number } | null>(null)
+  const [hasSignature, setHasSignature] = useState(Boolean(initialSignatureUrl))
 
-  // Configurar resolución nativa de pantalla (Retina / High DPI)
+  const configureContext = (ctx: CanvasRenderingContext2D, width: number, height: number, dpr: number) => {
+    ctx.setTransform(1, 0, 0, 1, 0, 0)
+    ctx.scale(dpr, dpr)
+    // Rellenar fondo blanco sólido en el bitmap para que el PNG exportado nunca sea transparente en Dark Mode
+    ctx.fillStyle = '#ffffff'
+    ctx.fillRect(0, 0, width, height)
+    ctx.lineCap = 'round'
+    ctx.lineJoin = 'round'
+    ctx.strokeStyle = '#0f172a'
+    ctx.lineWidth = 2.5
+  }
+
+  // Configurar resolución nativa de pantalla (Retina / High DPI) solo al montar o cambiar tamaño real del viewport
   const resizeCanvas = useCallback(() => {
     const canvas = canvasRef.current
     if (!canvas) return
 
-    let prevDataUrl: string | null = null
-    if (hasDrawnRef.current) {
-      prevDataUrl = canvas.toDataURL('image/png')
-    } else if (initialSignatureUrl) {
-      prevDataUrl = initialSignatureUrl
-    }
-
     const rect = canvas.getBoundingClientRect()
+    if (rect.width === 0 || rect.height === 0) return
     const dpr = window.devicePixelRatio || 1
 
-    canvas.width = rect.width * dpr
-    canvas.height = rect.height * dpr
+    const targetWidth = Math.round(rect.width * dpr)
+    const targetHeight = Math.round(rect.height * dpr)
+
+    // Evitar limpiar el canvas si las dimensiones físicas no cambiaron
+    if (canvas.width === targetWidth && canvas.height === targetHeight && hasDrawnRef.current) {
+      return
+    }
+
+    const savedUrl = latestDataUrlRef.current
+    canvas.width = targetWidth
+    canvas.height = targetHeight
 
     const ctx = canvas.getContext('2d')
     if (ctx) {
-      ctx.scale(dpr, dpr)
-      ctx.lineCap = 'round'
-      ctx.lineJoin = 'round'
-      ctx.strokeStyle = '#0f172a' // Slate 900 de alto contraste
-      ctx.lineWidth = 2.5
+      configureContext(ctx, rect.width, rect.height, dpr)
 
-      if (prevDataUrl) {
+      if (savedUrl) {
         const img = new Image()
         img.onload = () => {
           ctx.drawImage(img, 0, 0, rect.width, rect.height)
           hasDrawnRef.current = true
           setHasSignature(true)
         }
-        img.src = prevDataUrl
+        img.src = savedUrl
       }
     }
-  }, [initialSignatureUrl])
+  }, [])
 
   useEffect(() => {
     resizeCanvas()
@@ -83,14 +97,17 @@ export default function SignaturePad({
     return () => window.removeEventListener('resize', resizeCanvas)
   }, [resizeCanvas])
 
-  // Rehidratar firma inicial si se provee después del montaje
+  // Sincronizar cuando el padre restaura una firma previa o resetea el formulario a null
   useEffect(() => {
     if (initialSignatureUrl && !hasDrawnRef.current) {
+      latestDataUrlRef.current = initialSignatureUrl
       const canvas = canvasRef.current
       if (!canvas) return
       const ctx = canvas.getContext('2d')
       if (!ctx) return
       const rect = canvas.getBoundingClientRect()
+      const dpr = window.devicePixelRatio || 1
+      configureContext(ctx, rect.width, rect.height, dpr)
       const img = new Image()
       img.onload = () => {
         ctx.drawImage(img, 0, 0, rect.width, rect.height)
@@ -98,6 +115,19 @@ export default function SignaturePad({
         setHasSignature(true)
       }
       img.src = initialSignatureUrl
+    } else if (!initialSignatureUrl && hasDrawnRef.current) {
+      const canvas = canvasRef.current
+      if (canvas) {
+        const rect = canvas.getBoundingClientRect()
+        const dpr = window.devicePixelRatio || 1
+        const ctx = canvas.getContext('2d')
+        if (ctx) {
+          configureContext(ctx, rect.width, rect.height, dpr)
+        }
+      }
+      latestDataUrlRef.current = null
+      hasDrawnRef.current = false
+      setHasSignature(false)
     }
   }, [initialSignatureUrl])
 
@@ -124,9 +154,8 @@ export default function SignaturePad({
     if (disabled) return
     e.preventDefault()
     isDrawing.current = true
-    hasDrawnRef.current = true
-    setHasSignature(true)
     const { x, y } = getCoordinates(e)
+    startPointRef.current = { x, y }
     const ctx = canvasRef.current?.getContext('2d')
     if (ctx) {
       ctx.beginPath()
@@ -138,6 +167,16 @@ export default function SignaturePad({
     if (!isDrawing.current || disabled) return
     e.preventDefault()
     const { x, y } = getCoordinates(e)
+
+    // Exigir un desplazamiento mínimo (> 2px) para considerar que realmente firmó y no fue un toque accidental
+    if (!hasDrawnRef.current && startPointRef.current) {
+      const dist = Math.hypot(x - startPointRef.current.x, y - startPointRef.current.y)
+      if (dist > 2) {
+        hasDrawnRef.current = true
+        setHasSignature(true)
+      }
+    }
+
     const ctx = canvasRef.current?.getContext('2d')
     if (ctx) {
       ctx.lineTo(x, y)
@@ -152,9 +191,11 @@ export default function SignaturePad({
     if (!isDrawing.current) return
     e.preventDefault()
     isDrawing.current = false
+    startPointRef.current = null
     const canvas = canvasRef.current
     if (canvas && hasDrawnRef.current) {
       const dataUrl = canvas.toDataURL('image/png')
+      latestDataUrlRef.current = dataUrl
       onSignatureChange(dataUrl)
     }
   }
@@ -163,10 +204,13 @@ export default function SignaturePad({
     if (e) e.preventDefault()
     const canvas = canvasRef.current
     if (!canvas) return
+    const rect = canvas.getBoundingClientRect()
+    const dpr = window.devicePixelRatio || 1
     const ctx = canvas.getContext('2d')
     if (ctx) {
-      ctx.clearRect(0, 0, canvas.width, canvas.height)
+      configureContext(ctx, rect.width, rect.height, dpr)
     }
+    latestDataUrlRef.current = null
     hasDrawnRef.current = false
     setHasSignature(false)
     onSignatureChange(null)

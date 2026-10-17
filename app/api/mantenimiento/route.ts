@@ -2,28 +2,64 @@
  * @module api/mantenimiento
  * @description API route principal para el Registro de Actividades de Mantenimiento y Proveedores de Tacos Gavilan.
  * @businessRules
- * - GET: Retorna la bitácora de mantenimientos con soporte de filtros por sucursal, categoría, estado y rango de fechas.
- * - Soporta parámetro ?summary=true para entregar métricas ejecutivas y semáforo de mantenimientos recurrentes
- *   (lavado de campanas, trampas de grasa y control de plagas) por cada sucursal.
- * - POST: Permite el registro público de actividades de técnicos y proveedores sin requerir inicio de sesión previo.
- * - DELETE: Permite a administradores eliminar permanentemente un registro de mantenimiento por su ID único, purgando también todas sus evidencias fotográficas y firmas del bucket 'checklist-photos' en Supabase Storage.
- * - Valida campos mandatorios (tienda, proveedor, técnico, categoría, equipo/área, descripción de trabajo, encargado).
+ * - GET: Protegido con autenticación JWT (teg_token). Retorna la bitácora de mantenimientos con soporte de filtros
+ *   por sucursal, categoría, estado y rango de fechas, además de métricas globales (KPIs) en tiempo real.
+ * - POST: Permite el registro público de actividades de técnicos y proveedores desde el portal QR móvil, validando
+ *   estrictamente sucursal existente, categoría, tipo de servicio, evidencias fotográficas y firma digital del encargado.
+ * - DELETE: Protegido exclusivamente para roles 'admin' y 'supervisor'. Elimina permanentemente un registro de
+ *   mantenimiento por su ID único, purgando también todas sus evidencias fotográficas, PDFs y firmas del bucket
+ *   'checklist-photos' en Supabase Storage.
  * - En cada registro exitoso, genera notificaciones de sistema para supervisores y administradores.
  * - Las fechas y horas respetan la zona horaria oficial 'America/Los_Angeles' y la jornada de 6:00 AM a 5:59 AM.
  * @dataFlow
- * - Frontend (Kiosco / Formulario Móvil / Panel Admin) -> /api/mantenimiento -> PostgreSQL (maintenance_service_logs & stores) & Supabase Storage (checklist-photos).
+ * - Frontend (Portal QR Móvil / Panel Admin) -> /api/mantenimiento -> PostgreSQL (maintenance_service_logs & stores)
+ *   & Supabase Storage (checklist-photos).
  * @notes
- * - Utiliza getSupabaseAdminClient() para garantizar transacciones de lectura, escritura y eliminación segura de datos y archivos.
+ * - Utiliza getSupabaseAdminClient() en el servidor tras validar permisos y entradas.
  */
 
 import { NextRequest, NextResponse } from 'next/server'
 import { getSupabaseAdminClient } from '@/lib/supabase'
+import { verifyAuthToken, getCronSecret } from '@/lib/auth-server'
 
 export const dynamic = 'force-dynamic'
 
+const ALLOWED_CATEGORIES = [
+  'hood_cleaning',
+  'refrigeration',
+  'grease_trap',
+  'pest_control',
+  'cooking_equipment',
+  'electrical',
+  'power_washing',
+  'security_locks',
+  'it_pos',
+  'general'
+]
+
+const ALLOWED_SERVICE_TYPES = [
+  'preventive',
+  'corrective',
+  'emergency',
+  'inspection',
+  'installation',
+  'warranty'
+]
+
+const ALLOWED_STATUSES = ['completed', 'pending_parts', 'follow_up_needed']
+
+const BODEGA_LOCATION = {
+  id: 'BODEGA',
+  name: 'La Bodega (Almacén Central)',
+  code: 'BODEGA',
+  city: 'Vernon / Los Angeles',
+  address: 'Almacén Central Tacos Gavilan',
+  is_active: true
+}
+
 /**
- * Obtiene la fecha de negocio actual en 'America/Los_Angeles' considerando que el día
- * laboral inicia a las 6:00 AM y termina a las 5:59 AM del día siguiente.
+ * Obtiene la fecha de negocio oficial en California PST ('America/Los_Angeles')
+ * aplicando la regla de Tacos Gavilan: el día laboral inicia a las 6:00 AM.
  */
 function getBusinessDatePST(date = new Date()): string {
   const laDate = new Date(date.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
@@ -37,11 +73,117 @@ function getBusinessDatePST(date = new Date()): string {
   return `${yyyy}-${mm}-${dd}`
 }
 
+/**
+ * Obtiene la hora actual en formato HH:MM (24h) en 'America/Los_Angeles'
+ * compatible con columnas PostgreSQL de tipo TIME.
+ */
+function getCurrentTimePST(date = new Date()): string {
+  const laDate = new Date(date.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
+  const hh = String(laDate.getHours()).padStart(2, '0')
+  const mi = String(laDate.getMinutes()).padStart(2, '0')
+  return `${hh}:${mi}`
+}
+
+/**
+ * Sanitiza un valor de hora para columnas PostgreSQL TIME ('HH:MM' o 'HH:MM:SS').
+ * Si recibe un timestamp ISO o un valor inválido, lo convierte o usa la hora PST actual.
+ */
+function sanitizeTimePST(input: unknown, fallbackToNow = true): string | null {
+  if (typeof input === 'string') {
+    const trimmed = input.trim()
+    if (/^\d{2}:\d{2}(:\d{2})?$/.test(trimmed)) {
+      return trimmed.slice(0, 5)
+    }
+    const parsed = new Date(trimmed)
+    if (!isNaN(parsed.getTime())) {
+      return getCurrentTimePST(parsed)
+    }
+  }
+  return fallbackToNow ? getCurrentTimePST() : null
+}
+
+/**
+ * Verifica que la petición provenga de un usuario autenticado con rol autorizado
+ * (mediante cookie 'teg_token' o header 'Authorization: Bearer ...') o de un job interno con CRON_SECRET.
+ */
+function verifyMaintenanceAuth(
+  request: NextRequest,
+  requireAdminOrSupervisor = false
+): { authorized: boolean; error?: string; status?: number } {
+  const authHeader = request.headers.get('authorization') || request.headers.get('Authorization')
+  const cookieHeader = request.headers.get('cookie') || ''
+  const cronHeader = request.headers.get('x-cron-auth') || authHeader
+  const cronSecret = getCronSecret()
+
+  if (cronSecret && (cronHeader === `Bearer ${cronSecret}` || cronHeader === cronSecret)) {
+    return { authorized: true }
+  }
+
+  const token = authHeader?.startsWith('Bearer ')
+    ? authHeader.substring(7).trim()
+    : request.cookies.get('teg_token')?.value || cookieHeader.match(/teg_token=([^;]+)/)?.[1]?.trim() || null
+
+  if (!token) {
+    return {
+      authorized: false,
+      error: 'No autorizado: Inicia sesión para acceder a la bitácora de mantenimiento',
+      status: 401
+    }
+  }
+
+  const decoded = verifyAuthToken(token)
+  if (!decoded) {
+    return {
+      authorized: false,
+      error: 'No autorizado: Sesión inválida o expirada',
+      status: 401
+    }
+  }
+
+  const rawRole = String(decoded.user_role || (decoded as any).role || decoded.user_metadata?.role || '').toLowerCase()
+  const isAdminOrSupervisor = ['admin', 'administrador', 'supervisor'].includes(rawRole)
+  const isStaff = isAdminOrSupervisor || ['manager', 'gerente', 'asistente', 'assistant'].includes(rawRole)
+
+  if (requireAdminOrSupervisor && !isAdminOrSupervisor) {
+    return {
+      authorized: false,
+      error: 'Acceso denegado: Se requiere rol de Administrador o Supervisor para eliminar registros',
+      status: 403
+    }
+  }
+
+  if (!isStaff) {
+    return {
+      authorized: false,
+      error: 'Acceso denegado: Rol sin permisos para consultar bitácora de mantenimiento',
+      status: 403
+    }
+  }
+
+  return { authorized: true }
+}
+
+/**
+ * Sanitiza un arreglo de URLs de evidencias fotográficas o documentos.
+ */
+function sanitizePhotoUrls(input: unknown): string[] {
+  if (!Array.isArray(input)) return []
+  return input
+    .filter((item): item is string => typeof item === 'string' && item.trim().startsWith('http'))
+    .map(item => item.trim())
+    .slice(0, 5)
+}
+
 // ============================================================================
-// GET: Consultar Bitácora y Métricas
+// GET /api/mantenimiento
 // ============================================================================
 export async function GET(request: NextRequest) {
   try {
+    const auth = verifyMaintenanceAuth(request, false)
+    if (!auth.authorized) {
+      return NextResponse.json({ success: false, error: auth.error }, { status: auth.status || 401 })
+    }
+
     const supabase = await getSupabaseAdminClient()
     const { searchParams } = new URL(request.url)
 
@@ -51,72 +193,53 @@ export async function GET(request: NextRequest) {
     const serviceType = searchParams.get('service_type')
     const from = searchParams.get('from')
     const to = searchParams.get('to')
-    const search = searchParams.get('search')?.trim()
-    const summary = searchParams.get('summary') === 'true'
-    const limit = Math.min(parseInt(searchParams.get('limit') || '100', 10), 500)
-    const offset = Math.max(parseInt(searchParams.get('offset') || '0', 10), 0)
+    const search = searchParams.get('search')
+    const limit = Math.min(Math.max(parseInt(searchParams.get('limit') || '100', 10) || 100, 1), 500)
+    const offset = Math.max(parseInt(searchParams.get('offset') || '0', 10) || 0, 0)
 
-    // 1. Obtener catálogo de tiendas activas para enriquecer los registros
+    // 1. Obtener mapa de tiendas para enriquecer resultados (incluyendo La Bodega)
     const { data: storesList } = await supabase
       .from('stores')
       .select('id, name, code, city, address, is_active')
-      .order('id')
+      .order('name')
 
     const storesMap = new Map<string, any>()
-    storesList?.forEach(s => {
+    ;(storesList || []).forEach(s => {
       storesMap.set(String(s.id), s)
     })
+    storesMap.set('BODEGA', BODEGA_LOCATION)
 
-    // Si se solicitó solo o además el resumen operativo:
-    if (summary) {
-      const businessDate = getBusinessDatePST()
-      const [currYear, currMonth] = businessDate.split('-')
-      const firstDayOfMonth = `${currYear}-${currMonth}-01`
+    const allStoresWithBodega = [
+      ...(storesList || []),
+      ...((storesList || []).some((s: any) => String(s.id).toUpperCase() === 'BODEGA') ? [] : [BODEGA_LOCATION])
+    ]
 
-      // Logs del mes actual
-      const { data: monthLogs } = await supabase
+    // 2. Calcular KPIs globales en zona horaria oficial 'America/Los_Angeles' (6:00 AM)
+    const todayPST = getBusinessDatePST()
+    const currentMonthStart = `${todayPST.slice(0, 7)}-01`
+
+    const [monthCountRes, pendingCountRes, allStoreIdsRes] = await Promise.all([
+      supabase
         .from('maintenance_service_logs')
-        .select('id, store_id, category, status, service_date')
-        .gte('service_date', firstDayOfMonth)
-
-      const totalMonth = monthLogs?.length || 0
-      const pendingParts = monthLogs?.filter(l => l.status === 'pending_parts').length || 0
-
-      // Último servicio de categorías críticas por sucursal
-      const { data: allRecurrent } = await supabase
+        .select('id', { count: 'exact', head: true })
+        .gte('service_date', currentMonthStart),
+      supabase
         .from('maintenance_service_logs')
-        .select('store_id, category, service_date')
-        .in('category', ['hood_cleaning', 'grease_trap', 'pest_control'])
-        .order('service_date', { ascending: false })
+        .select('id', { count: 'exact', head: true })
+        .in('status', ['pending_parts', 'follow_up_needed']),
+      supabase
+        .from('maintenance_service_logs')
+        .select('store_id')
+    ])
 
-      const recurrentByStore: Record<string, { lastHood?: string; lastGreaseTrap?: string; lastPestControl?: string }> = {}
-      allRecurrent?.forEach(r => {
-        if (!recurrentByStore[r.store_id]) {
-          recurrentByStore[r.store_id] = {}
-        }
-        if (r.category === 'hood_cleaning' && !recurrentByStore[r.store_id].lastHood) {
-          recurrentByStore[r.store_id].lastHood = r.service_date
-        }
-        if (r.category === 'grease_trap' && !recurrentByStore[r.store_id].lastGreaseTrap) {
-          recurrentByStore[r.store_id].lastGreaseTrap = r.service_date
-        }
-        if (r.category === 'pest_control' && !recurrentByStore[r.store_id].lastPestControl) {
-          recurrentByStore[r.store_id].lastPestControl = r.service_date
-        }
-      })
-
-      return NextResponse.json({
-        success: true,
-        summary: {
-          totalMonth,
-          pendingParts,
-          recurrentByStore,
-          stores: storesList || []
-        }
-      })
+    const distinctStores = new Set((allStoreIdsRes.data || []).map((r: any) => String(r.store_id))).size
+    const kpis = {
+      totalMonth: monthCountRes.count || 0,
+      pendingPartsCount: pendingCountRes.count || 0,
+      distinctStoresCount: distinctStores
     }
 
-    // 2. Consulta filtrada de registros
+    // 3. Consulta filtrada de registros
     let query = supabase
       .from('maintenance_service_logs')
       .select('*', { count: 'exact' })
@@ -143,10 +266,10 @@ export async function GET(request: NextRequest) {
       query = query.lte('service_date', to)
     }
     if (search) {
-      const sanitized = search.replace(/[,()]/g, ' ').trim()
-      if (sanitized) {
+      const sanitizedSearch = search.replace(/[,()]/g, ' ').trim()
+      if (sanitizedSearch) {
         query = query.or(
-          `company_name.ilike.%${sanitized}%,technician_name.ilike.%${sanitized}%,area_equipment.ilike.%${sanitized}%,work_description.ilike.%${sanitized}%,invoice_number.ilike.%${sanitized}%`
+          `company_name.ilike.%${sanitizedSearch}%,technician_name.ilike.%${sanitizedSearch}%,area_equipment.ilike.%${sanitizedSearch}%,work_description.ilike.%${sanitizedSearch}%,invoice_number.ilike.%${sanitizedSearch}%,manager_name.ilike.%${sanitizedSearch}%,notes.ilike.%${sanitizedSearch}%`
         )
       }
     }
@@ -158,35 +281,41 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ success: false, error: error.message }, { status: 500 })
     }
 
-    // Unir metadatos de tienda
+    // Detectar reincidencias (<30 días en la misma tienda y misma categoría)
     const enrichedLogs = (logs || []).map(log => {
       const storeInfo = storesMap.get(String(log.store_id))
+      const logTime = new Date(`${log.service_date}T12:00:00`).getTime()
+      const hasRecentRepeat = (logs || []).some(other => {
+        if (other.id === log.id) return false
+        if (String(other.store_id) !== String(log.store_id)) return false
+        if (other.category !== log.category) return false
+        const otherTime = new Date(`${other.service_date}T12:00:00`).getTime()
+        const diffDays = Math.abs(logTime - otherTime) / (1000 * 60 * 60 * 24)
+        return diffDays <= 30
+      })
+
       return {
         ...log,
-        store: storeInfo || {
-          id: log.store_id,
-          name: 'Sucursal ' + (log.store_id?.slice(0, 6) || ''),
-          code: 'N/A'
-        }
+        has_repeat_within_30d: hasRecentRepeat,
+        store: storeInfo || { id: log.store_id, name: `Sucursal ${log.store_id}`, code: '' }
       }
     })
 
     return NextResponse.json({
       success: true,
       data: enrichedLogs,
-      totalCount: count || 0,
-      limit,
-      offset,
-      stores: storesList || []
+      total: count || 0,
+      kpis,
+      stores: allStoresWithBodega
     })
   } catch (err: any) {
     console.error('[mantenimiento] Excepción en GET:', err)
-    return NextResponse.json({ success: false, error: err.message || 'Error interno del servidor' }, { status: 500 })
+    return NextResponse.json({ success: false, error: err.message || 'Error interno' }, { status: 500 })
   }
 }
 
 // ============================================================================
-// POST: Registrar Nueva Actividad de Proveedor / Mantenimiento
+// POST /api/mantenimiento (Público — Para Técnicos, Proveedores y Kioscos)
 // ============================================================================
 export async function POST(request: NextRequest) {
   try {
@@ -195,105 +324,185 @@ export async function POST(request: NextRequest) {
 
     const {
       store_id,
-      service_date,
-      start_time,
-      end_time,
       company_name,
       technician_name,
       technician_phone,
       category,
-      service_type = 'corrective',
+      service_type,
       area_equipment,
       work_description,
       parts_replaced,
-      status = 'completed',
-      photos_before = [],
-      photos_after = [],
-      photos_invoice = [],
+      status,
+      service_date,
+      start_time,
+      end_time,
+      photos_before,
+      photos_after,
+      photos_invoice,
       invoice_number,
       cost_estimate,
       manager_name,
       manager_signature_url,
-      notes
+      notes,
+      is_after_hours,
+      warranty_days
     } = body
 
-    // Validaciones estrictas
+    const isAfterHours = Boolean(is_after_hours)
+
+    // Validaciones obligatorias
     if (!store_id) {
-      return NextResponse.json({ success: false, error: 'La sucursal (store_id) es obligatoria' }, { status: 400 })
+      return NextResponse.json({ success: false, error: 'Debes seleccionar la sucursal de Tacos Gavilan' }, { status: 400 })
     }
-    if (!company_name?.trim()) {
-      return NextResponse.json({ success: false, error: 'El nombre de la empresa proveedora es obligatorio' }, { status: 400 })
+    if (!company_name || !String(company_name).trim()) {
+      return NextResponse.json({ success: false, error: 'El nombre de la empresa o proveedor es obligatorio' }, { status: 400 })
     }
-    if (!technician_name?.trim()) {
+    if (!technician_name || !String(technician_name).trim()) {
       return NextResponse.json({ success: false, error: 'El nombre del técnico es obligatorio' }, { status: 400 })
     }
-    if (!category?.trim()) {
-      return NextResponse.json({ success: false, error: 'La categoría del servicio es obligatoria' }, { status: 400 })
+    if (!category || !ALLOWED_CATEGORIES.includes(String(category))) {
+      return NextResponse.json({ success: false, error: 'Debes seleccionar una categoría de servicio válida' }, { status: 400 })
     }
-    if (!area_equipment?.trim()) {
-      return NextResponse.json({ success: false, error: 'El equipo o área intervenida es obligatorio' }, { status: 400 })
+    if (!area_equipment || !String(area_equipment).trim()) {
+      return NextResponse.json({ success: false, error: 'Especifica el equipo o área intervenida' }, { status: 400 })
     }
-    if (!work_description?.trim()) {
+    if (!work_description || !String(work_description).trim()) {
       return NextResponse.json({ success: false, error: 'La descripción del trabajo realizado es obligatoria' }, { status: 400 })
     }
-    if (!manager_name?.trim()) {
-      return NextResponse.json({ success: false, error: 'El nombre del encargado en turno que validó la visita es obligatorio' }, { status: 400 })
+
+    // Validar que exista evidencia fotográfica válida
+    const cleanBefore = sanitizePhotoUrls(photos_before)
+    const cleanAfter = sanitizePhotoUrls(photos_after)
+    const cleanInvoice = sanitizePhotoUrls(photos_invoice)
+    const totalEvidenceCount = cleanBefore.length + cleanAfter.length + cleanInvoice.length
+
+    if (totalEvidenceCount === 0) {
+      return NextResponse.json(
+        { success: false, error: 'Es obligatorio adjuntar al menos una fotografía de evidencia (Antes, Después o Factura)' },
+        { status: 400 }
+      )
     }
 
-    // Validación estricta de evidencia fotográfica obligatoria
-    const hasPhotosBefore = Array.isArray(photos_before) && photos_before.length > 0
-    const hasPhotosAfter = Array.isArray(photos_after) && photos_after.length > 0
-    const hasPhotosInvoice = Array.isArray(photos_invoice) && photos_invoice.length > 0
+    // Validación de Firma del Encargado vs Servicio Nocturno (After-Hours)
+    let resolvedManagerName = manager_name ? String(manager_name).trim() : ''
+    let resolvedSignatureUrl: string | null =
+      typeof manager_signature_url === 'string' && manager_signature_url.trim().startsWith('http')
+        ? manager_signature_url.trim()
+        : null
 
-    if (!hasPhotosBefore && !hasPhotosAfter && !hasPhotosInvoice) {
-      return NextResponse.json({
-        success: false,
-        error: 'Es obligatorio adjuntar al menos una fotografía como evidencia del servicio (antes, después o factura/ticket)'
-      }, { status: 400 })
-    }
-
-    const officialDate = service_date || getBusinessDatePST()
-
-    // Sanitizar y validar costo estimado para evitar PostgresError 22P02 con NaN
-    let safeCostEstimate: number | null = null
-    if (cost_estimate !== undefined && cost_estimate !== null && cost_estimate !== '') {
-      const cleaned = typeof cost_estimate === 'string'
-        ? parseFloat(cost_estimate.replace(/[^0-9.]/g, ''))
-        : Number(cost_estimate)
-      if (!isNaN(cleaned) && isFinite(cleaned)) {
-        safeCostEstimate = Math.round(cleaned * 100) / 100
+    if (isAfterHours) {
+      if (totalEvidenceCount < 2) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: 'En servicios nocturnos sin firma del encargado es obligatorio adjuntar al menos 2 fotografías de evidencia'
+          },
+          { status: 400 }
+        )
+      }
+      if (!resolvedManagerName) {
+        resolvedManagerName = 'Turno Nocturno (Pendiente Validación AM)'
+      } else if (!resolvedManagerName.toLowerCase().includes('nocturno')) {
+        resolvedManagerName = `${resolvedManagerName} (Turno Nocturno)`
+      }
+    } else {
+      if (!resolvedManagerName) {
+        return NextResponse.json(
+          { success: false, error: 'El nombre del encargado en turno que valida el servicio es obligatorio' },
+          { status: 400 }
+        )
+      }
+      if (!resolvedSignatureUrl) {
+        return NextResponse.json(
+          { success: false, error: 'La firma táctil del encargado en turno es obligatoria para certificar la visita' },
+          { status: 400 }
+        )
       }
     }
 
-    // Preparar objeto de inserción atómico (sin columnas autogeneradas)
-    const insertPayload: Record<string, any> = {
-      store_id: String(store_id).trim(),
+    // Verificar que la sucursal exista en la tabla stores o sea La Bodega
+    const rawStoreParam = String(store_id).trim().toLowerCase()
+    let matchedStore: { id: string | number; name: string; code?: string } | undefined
+
+    if (rawStoreParam === 'bodega' || rawStoreParam === 'la bodega') {
+      matchedStore = BODEGA_LOCATION
+    } else {
+      const { data: storesList } = await supabase
+        .from('stores')
+        .select('id, name, code')
+
+      matchedStore = (storesList || []).find((s: any) =>
+        String(s.id).toLowerCase() === rawStoreParam ||
+        (!isNaN(Number(rawStoreParam)) && String(s.id) === String(Number(rawStoreParam))) ||
+        s.code?.toLowerCase() === rawStoreParam ||
+        s.name?.toLowerCase() === rawStoreParam
+      )
+    }
+
+    if (!matchedStore) {
+      return NextResponse.json({ success: false, error: 'La sucursal seleccionada no es válida' }, { status: 400 })
+    }
+
+    const officialDate = service_date && /^\d{4}-\d{2}-\d{2}$/.test(String(service_date))
+      ? String(service_date)
+      : getBusinessDatePST()
+
+    const validServiceType = ALLOWED_SERVICE_TYPES.includes(String(service_type))
+      ? String(service_type)
+      : 'corrective'
+
+    // Sanitizar y asegurar que cost_estimate sea numérico válido o null (0 automático para garantías)
+    let numericCost: number | null = validServiceType === 'warranty' ? 0 : null
+    if (cost_estimate !== null && cost_estimate !== undefined && String(cost_estimate).trim() !== '') {
+      const cleaned = parseFloat(String(cost_estimate).replace(/[^0-9.]/g, ''))
+      if (!isNaN(cleaned) && isFinite(cleaned) && cleaned >= 0) {
+        numericCost = Math.round(cleaned * 100) / 100
+      }
+    }
+
+    const validStatus = ALLOWED_STATUSES.includes(String(status))
+      ? String(status)
+      : 'completed'
+
+    // Construir notas incluyendo días de garantía si fueron especificados
+    const parsedWarrantyDays = Number(warranty_days)
+    let finalNotes = notes ? String(notes).trim() : ''
+    if (!isNaN(parsedWarrantyDays) && [30, 60, 90].includes(parsedWarrantyDays)) {
+      const warrantyTag = `[Garantía: ${parsedWarrantyDays} días]`
+      if (!finalNotes.includes(warrantyTag)) {
+        finalNotes = finalNotes ? `${warrantyTag} ${finalNotes}` : warrantyTag
+      }
+    }
+
+    // Construir payload atómico (sin columnas generadas y con formato TIME 'HH:MM' válido)
+    const insertPayload = {
+      store_id: String(matchedStore.id),
+      company_name: String(company_name).trim().slice(0, 150),
+      technician_name: String(technician_name).trim().slice(0, 150),
+      technician_phone: technician_phone ? String(technician_phone).trim().slice(0, 40) : null,
+      category: String(category),
+      service_type: validServiceType,
+      area_equipment: String(area_equipment).trim().slice(0, 200),
+      work_description: String(work_description).trim().slice(0, 2000),
+      parts_replaced: parts_replaced ? String(parts_replaced).trim().slice(0, 500) : null,
+      status: validStatus,
       service_date: officialDate,
-      start_time: start_time || null,
-      end_time: end_time || null,
-      company_name: company_name.trim(),
-      technician_name: technician_name.trim(),
-      technician_phone: technician_phone?.trim() || null,
-      category: category.trim(),
-      service_type: service_type.trim(),
-      area_equipment: area_equipment.trim(),
-      work_description: work_description.trim(),
-      parts_replaced: parts_replaced?.trim() || null,
-      status: ['completed', 'pending_parts', 'follow_up_needed'].includes(status) ? status : 'completed',
-      photos_before: Array.isArray(photos_before) ? photos_before : [],
-      photos_after: Array.isArray(photos_after) ? photos_after : [],
-      photos_invoice: Array.isArray(photos_invoice) ? photos_invoice : [],
-      invoice_number: invoice_number?.trim() || null,
-      cost_estimate: safeCostEstimate,
-      manager_name: manager_name.trim(),
-      manager_signature_url: manager_signature_url || null,
-      notes: notes?.trim() || null
+      start_time: sanitizeTimePST(start_time, true),
+      end_time: sanitizeTimePST(end_time, true),
+      photos_before: cleanBefore,
+      photos_after: cleanAfter,
+      photos_invoice: cleanInvoice,
+      invoice_number: invoice_number ? String(invoice_number).trim().slice(0, 80) : null,
+      cost_estimate: numericCost,
+      manager_name: resolvedManagerName.slice(0, 150),
+      manager_signature_url: resolvedSignatureUrl,
+      notes: finalNotes ? finalNotes.slice(0, 1000) : null
     }
 
     const { data: insertedRecord, error: insertError } = await supabase
       .from('maintenance_service_logs')
       .insert(insertPayload)
-      .select()
+      .select('*')
       .single()
 
     if (insertError) {
@@ -301,23 +510,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: insertError.message }, { status: 500 })
     }
 
-    // Buscar el nombre de la tienda para generar la notificación
-    let storeDisplayName = 'la sucursal'
-    const parsedStoreId = parseInt(String(store_id), 10)
-    if (!isNaN(parsedStoreId)) {
-      try {
-        const { data: storeData } = await supabase
-          .from('stores')
-          .select('name, address')
-          .eq('id', parsedStoreId)
-          .maybeSingle()
-        if (storeData) {
-          storeDisplayName = storeData.name
-        }
-      } catch {
-        // Fallback seguro
-      }
-    }
+    const storeDisplayName = matchedStore.name || `Sucursal #${matchedStore.id}`
 
     // Generar notificación del sistema para supervisores y administradores
     try {
@@ -329,12 +522,11 @@ export async function POST(request: NextRequest) {
 
       if (targetUsers && targetUsers.length > 0) {
         const notifPayloads = targetUsers.map(u => ({
-          user_id: String(u.id),
-          title: `🛠️ Servicio Registrado: ${company_name.trim()}`,
-          message: `${technician_name.trim()} completó servicio de ${category} (${area_equipment.trim()}) en ${storeDisplayName}. Validado por ${manager_name.trim()}.`,
+          user_id: u.id,
+          title: `🛠️ Servicio Registrado: ${insertPayload.company_name}`,
+          message: `${insertPayload.technician_name} completó servicio de ${category} (${insertPayload.area_equipment}) en ${storeDisplayName}. Validado por ${insertPayload.manager_name}.`,
           type: 'maintenance',
           read: false,
-          is_read: false,
           link: '/admin/mantenimiento'
         }))
 
@@ -357,65 +549,166 @@ export async function POST(request: NextRequest) {
 }
 
 // ============================================================================
-// DELETE: Eliminar Registro de Actividad de Proveedor / Mantenimiento
+// PATCH /api/mantenimiento (Actualización de Estado, Factura, Costo y Validación)
+// ============================================================================
+export async function PATCH(request: NextRequest) {
+  try {
+    const auth = verifyMaintenanceAuth(request, false)
+    if (!auth.authorized) {
+      return NextResponse.json({ success: false, error: auth.error }, { status: auth.status || 401 })
+    }
+
+    const supabase = await getSupabaseAdminClient()
+    const body = await request.json()
+    const {
+      id,
+      status,
+      invoice_number,
+      cost_estimate,
+      notes,
+      photos_invoice,
+      manager_name,
+      manager_signature_url
+    } = body
+
+    if (!id || typeof id !== 'string' || !id.trim()) {
+      return NextResponse.json({ success: false, error: 'Se requiere el ID del registro a actualizar' }, { status: 400 })
+    }
+
+    const updatePayload: Record<string, any> = {}
+
+    if (status !== undefined) {
+      if (!ALLOWED_STATUSES.includes(String(status))) {
+        return NextResponse.json({ success: false, error: 'Estado de servicio no válido' }, { status: 400 })
+      }
+      updatePayload.status = String(status)
+    }
+
+    if (invoice_number !== undefined) {
+      updatePayload.invoice_number = invoice_number ? String(invoice_number).trim().slice(0, 80) : null
+    }
+
+    if (cost_estimate !== undefined) {
+      if (cost_estimate === null || String(cost_estimate).trim() === '') {
+        updatePayload.cost_estimate = null
+      } else {
+        const cleaned = parseFloat(String(cost_estimate).replace(/[^0-9.]/g, ''))
+        if (!isNaN(cleaned) && isFinite(cleaned) && cleaned >= 0) {
+          updatePayload.cost_estimate = Math.round(cleaned * 100) / 100
+        }
+      }
+    }
+
+    if (notes !== undefined) {
+      updatePayload.notes = notes ? String(notes).trim().slice(0, 1000) : null
+    }
+
+    if (photos_invoice !== undefined) {
+      updatePayload.photos_invoice = sanitizePhotoUrls(photos_invoice)
+    }
+
+    if (manager_name !== undefined && String(manager_name).trim()) {
+      updatePayload.manager_name = String(manager_name).trim().slice(0, 150)
+    }
+
+    if (manager_signature_url !== undefined) {
+      updatePayload.manager_signature_url =
+        typeof manager_signature_url === 'string' && manager_signature_url.trim().startsWith('http')
+          ? manager_signature_url.trim()
+          : null
+    }
+
+    if (Object.keys(updatePayload).length === 0) {
+      return NextResponse.json({ success: false, error: 'No se enviaron campos para actualizar' }, { status: 400 })
+    }
+
+    const { data: updatedRecord, error: updateError } = await supabase
+      .from('maintenance_service_logs')
+      .update(updatePayload)
+      .eq('id', id.trim())
+      .select('*')
+      .single()
+
+    if (updateError) {
+      console.error('[mantenimiento] Error al actualizar registro:', updateError)
+      return NextResponse.json({ success: false, error: updateError.message }, { status: 500 })
+    }
+
+    return NextResponse.json({
+      success: true,
+      message: 'Registro de mantenimiento actualizado exitosamente',
+      data: updatedRecord
+    })
+  } catch (err: any) {
+    console.error('[mantenimiento] Excepción en PATCH:', err)
+    return NextResponse.json(
+      { success: false, error: err.message || 'Error interno al actualizar el registro' },
+      { status: 500 }
+    )
+  }
+}
+
+// ============================================================================
+// DELETE /api/mantenimiento?id={uuid} (Eliminación de Registro + Fotos en Storage)
 // ============================================================================
 export async function DELETE(request: NextRequest) {
   try {
+    const auth = verifyMaintenanceAuth(request, true)
+    if (!auth.authorized) {
+      return NextResponse.json({ success: false, error: auth.error }, { status: auth.status || 401 })
+    }
+
     const supabase = await getSupabaseAdminClient()
     const { searchParams } = new URL(request.url)
     const id = searchParams.get('id')?.trim()
 
     if (!id) {
       return NextResponse.json(
-        { success: false, error: 'El parámetro ID es obligatorio para eliminar el registro' },
+        { success: false, error: 'Se requiere el ID del registro de mantenimiento a eliminar' },
         { status: 400 }
       )
     }
 
-    // 1. Verificar si el registro existe previamente y consultar las fotos/firmas asociadas
-    const { data: existingRecord, error: findError } = await supabase
+    // 1. Consultar el registro primero para obtener todas las URLs de fotos y firma digital
+    const { data: existingLog, error: fetchError } = await supabase
       .from('maintenance_service_logs')
-      .select('id, company_name, technician_name, store_id, photos_before, photos_after, photos_invoice, manager_signature_url')
+      .select('id, photos_before, photos_after, photos_invoice, manager_signature_url')
       .eq('id', id)
       .maybeSingle()
 
-    if (findError) {
-      console.error('[mantenimiento] Error al verificar registro previo para eliminar:', findError)
-      return NextResponse.json({ success: false, error: findError.message }, { status: 500 })
+    if (fetchError) {
+      console.error('[mantenimiento] Error al buscar registro para eliminar:', fetchError)
+      return NextResponse.json({ success: false, error: fetchError.message }, { status: 500 })
     }
 
-    if (!existingRecord) {
+    if (!existingLog) {
       return NextResponse.json(
-        { success: false, error: 'El registro no fue encontrado o ya ha sido eliminado' },
+        { success: false, error: 'El registro de mantenimiento no existe o ya fue eliminado' },
         { status: 404 }
       )
     }
 
-    // 2. Extraer rutas relativas de Supabase Storage para eliminar los archivos físicos
+    // 2. Extraer las rutas internas de Supabase Storage del bucket 'checklist-photos'
     const allUrls: string[] = [
-      ...(Array.isArray(existingRecord.photos_before) ? existingRecord.photos_before : []),
-      ...(Array.isArray(existingRecord.photos_after) ? existingRecord.photos_after : []),
-      ...(Array.isArray(existingRecord.photos_invoice) ? existingRecord.photos_invoice : []),
-      ...(existingRecord.manager_signature_url ? [existingRecord.manager_signature_url] : [])
-    ]
+      ...(Array.isArray(existingLog.photos_before) ? existingLog.photos_before : []),
+      ...(Array.isArray(existingLog.photos_after) ? existingLog.photos_after : []),
+      ...(Array.isArray(existingLog.photos_invoice) ? existingLog.photos_invoice : []),
+      ...(existingLog.manager_signature_url ? [existingLog.manager_signature_url] : [])
+    ].filter((u): u is string => typeof u === 'string' && u.trim().length > 0)
 
-    const filesToRemove: string[] = []
     const bucketName = 'checklist-photos'
-    const bucketMarker = `/${bucketName}/`
+    const marker = `/storage/v1/object/public/${bucketName}/`
+    const filesToRemove: string[] = []
 
     for (const url of allUrls) {
-      if (!url || typeof url !== 'string') continue
-      // Caso 1: URL pública de Supabase Storage con '/checklist-photos/'
-      const markerIdx = url.indexOf(bucketMarker)
-      if (markerIdx !== -1) {
-        const rawPath = url.substring(markerIdx + bucketMarker.length).split('?')[0]
+      const idx = url.indexOf(marker)
+      if (idx !== -1) {
+        const rawPath = url.slice(idx + marker.length).split('?')[0]
         const decodedPath = decodeURIComponent(rawPath)
-        // Solo eliminamos archivos que pertenezcan a la carpeta de mantenimiento por seguridad
         if (decodedPath && decodedPath.startsWith('maintenance/')) {
           filesToRemove.push(decodedPath)
         }
       } else if (url.startsWith('maintenance/')) {
-        // Caso 2: Ruta relativa directa
         filesToRemove.push(url.split('?')[0])
       }
     }
@@ -464,4 +757,3 @@ export async function DELETE(request: NextRequest) {
     )
   }
 }
-

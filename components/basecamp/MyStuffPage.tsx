@@ -68,7 +68,7 @@ export default function MyStuffPage({ navigateTo, currentUserName }: MyStuffPage
                             bc_todo_assignees!inner(person_id)
                         `)
                         .eq('bc_todo_assignees.person_id', personId)
-                        .order('updated_at', { ascending: false }),
+                        .order('created_at', { ascending: true }),
                     supabase
                         .from('bc_memberships')
                         .select('project_id')

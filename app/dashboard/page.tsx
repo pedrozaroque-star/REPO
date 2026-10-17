@@ -158,9 +158,21 @@ function DashboardContent() {
         currentStart.setDate(currentStart.getDate() + days)
         currentEnd.setDate(currentEnd.getDate() + days)
         const formatD = (d: Date) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0')
-        setTimeFilter('custom')
-        setStartDate(formatD(currentStart))
-        setEndDate(formatD(currentEnd))
+        const nextStart = formatD(currentStart)
+        const nextEnd = formatD(currentEnd)
+        const todayStr = getBusinessDateLA()
+        const [ty, tm, td] = todayStr.split('-').map(Number)
+        const yestStr = formatD(new Date(ty, tm - 1, td - 1))
+
+        if (nextStart === todayStr && nextEnd === todayStr) {
+            setTimeFilter('today')
+        } else if (nextStart === yestStr && nextEnd === yestStr) {
+            setTimeFilter('yesterday')
+        } else {
+            setTimeFilter('custom')
+        }
+        setStartDate(nextStart)
+        setEndDate(nextEnd)
     }
 
     // Disable right arrow when already on today's business date in America/Los_Angeles
@@ -425,7 +437,10 @@ function DashboardContent() {
             case 'today': return t('dashboard.audits_today')
             case 'yesterday': return t('dashboard.audits_yesterday')
             case 'week': return t('dashboard.audits_week')
+            case 'last_week': return t('dashboard.audits_last_week')
+            case 'last_7': return t('dashboard.audits_last_7')
             case 'month': return t('dashboard.audits_month')
+            case 'last_month': return t('dashboard.audits_last_month')
             case 'quarter': return t('dashboard.audits_quarter')
             case 'year': return t('dashboard.audits_year')
             case 'custom': return t('dashboard.audits_custom')

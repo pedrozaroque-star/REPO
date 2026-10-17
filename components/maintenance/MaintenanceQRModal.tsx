@@ -3,12 +3,12 @@
  * @description Modal interactivo para visualizar, descargar e imprimir códigos QR oficiales
  * y hojas de stickers de Registro de Proveedores y Mantenimiento de Tacos Gavilan.
  * @businessRules
- * - Permite generar el código QR genérico o personalizado con el UUID/código de cada sucursal.
+ * - Permite generar el código QR genérico o personalizado con el ID/código de cada sucursal.
  * - Los técnicos escanean el QR pegado en la campana, oficina o cuarto eléctrico y acceden
  *   directamente al formulario '/mantenimiento/registro?store={store_id}' con la tienda preseleccionada.
- * - Soporta descarga en alta resolución y ventana de impresión para pegado en sucursal.
+ * - Soporta descarga directa del PNG en alta resolución y ventana de impresión sincronizada con la carga de imagen.
  * @dataFlow
- * - Lista de sucursales -> Selección de tienda -> Generación de URL y QR con SVG/Canvas -> Impresión/Descarga.
+ * - Lista de sucursales -> Selección de tienda -> Generación de URL y QR -> Impresión / Descarga PNG.
  * @notes
  * - Bilingüe (Español / Inglés) vía useLanguage().
  * - Totalmente responsive.
@@ -20,7 +20,7 @@ import React, { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   X, QrCode, Download, Printer, ExternalLink,
-  CheckCircle2, Sparkles, Building2, MapPin, Copy, Wrench
+  CheckCircle2, Copy, Wrench
 } from 'lucide-react'
 import { useLanguage } from '@/lib/i18n'
 import { formatStoreName } from '@/lib/supabase'
@@ -49,16 +49,24 @@ const getBaseDomain = () => {
   return 'https://tacosgavilan.vercel.app'
 }
 
+const escapeHtml = (str: string) =>
+  str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+
 export default function MaintenanceQRModal({
   isOpen,
   onClose,
   stores
 }: MaintenanceQRModalProps) {
-  const { t, language } = useLanguage()
-  const isEs = language === 'es'
+  const { t } = useLanguage()
 
   const [selectedStoreId, setSelectedStoreId] = useState<string>('generic')
   const [copied, setCopied] = useState(false)
+  const [downloading, setDownloading] = useState(false)
 
   if (!isOpen) return null
 
@@ -67,15 +75,15 @@ export default function MaintenanceQRModal({
   // URL dinámica según tienda seleccionada
   const targetUrl = selectedStoreId === 'generic'
     ? `${domain}/mantenimiento/registro`
-    : `${domain}/mantenimiento/registro?store=${selectedStoreId}`
+    : `${domain}/mantenimiento/registro?store=${encodeURIComponent(selectedStoreId)}`
 
-  // Generador de QR usando QuickChart API (vectorial y fiable)
-  const qrImageUrl = `https://quickchart.io/qr?text=${encodeURIComponent(targetUrl)}&size=500&margin=2&ecLevel=H&format=png`
+  // Generador de QR usando QuickChart API (alta resolución 600px y corrección de error nivel H)
+  const qrImageUrl = `https://quickchart.io/qr?text=${encodeURIComponent(targetUrl)}&size=600&margin=2&ecLevel=H&format=png`
 
   const selectedStore = stores.find(s => String(s.id) === String(selectedStoreId))
   const storeLabel = selectedStore
     ? `Tacos Gavilan • ${formatStoreName(selectedStore.name)}`
-    : (isEs ? 'Todas las Sucursales (Genérico)' : 'All Stores (Generic)')
+    : t('maintenance.qr_all_stores_label')
 
   const handleCopyLink = () => {
     navigator.clipboard.writeText(targetUrl)
@@ -83,15 +91,43 @@ export default function MaintenanceQRModal({
     setTimeout(() => setCopied(false), 2500)
   }
 
+  const handleDownloadQR = async () => {
+    setDownloading(true)
+    try {
+      const response = await fetch(qrImageUrl)
+      const blob = await response.blob()
+      const blobUrl = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      const slug = selectedStore
+        ? formatStoreName(selectedStore.name).toLowerCase().replace(/[^a-z0-9]+/g, '-')
+        : 'general'
+      link.href = blobUrl
+      link.download = `qr-mantenimiento-tacos-gavilan-${slug}.png`
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      URL.revokeObjectURL(blobUrl)
+    } catch {
+      window.open(qrImageUrl, '_blank', 'noopener,noreferrer')
+    } finally {
+      setDownloading(false)
+    }
+  }
+
   const handlePrint = () => {
     const printWindow = window.open('', '_blank')
     if (!printWindow) return
+
+    const safeLabel = escapeHtml(storeLabel)
+    const safeAddress = selectedStore?.address
+      ? escapeHtml(`${selectedStore.address}${selectedStore.city ? `, ${selectedStore.city}` : ''}`)
+      : ''
 
     printWindow.document.write(`
       <!DOCTYPE html>
       <html>
         <head>
-          <title>QR Proveedores - ${storeLabel} - Tacos Gavilan</title>
+          <title>QR Proveedores - ${safeLabel} - Tacos Gavilan</title>
           <style>
             @page { size: letter portrait; margin: 0.5in; }
             body {
@@ -134,7 +170,7 @@ export default function MaintenanceQRModal({
               font-weight: 800;
               padding: 6px 18px;
               border-radius: 9999px;
-              margin-bottom: ${selectedStore?.address ? '8px' : '20px'};
+              margin-bottom: ${safeAddress ? '8px' : '20px'};
             }
             .store-address {
               font-size: 13px;
@@ -181,11 +217,16 @@ export default function MaintenanceQRModal({
           <div class="sticker-card">
             <div class="brand">Tacos Gavilan</div>
             <div class="tagline">Bitácora Oficial de Mantenimiento y Proveedores</div>
-            <div class="store-badge">${storeLabel}</div>
-            ${selectedStore?.address ? `<div class="store-address">📍 ${selectedStore.address}${selectedStore.city ? `, ${selectedStore.city}` : ''}</div>` : ''}
+            <div class="store-badge">${safeLabel}</div>
+            ${safeAddress ? `<div class="store-address">📍 ${safeAddress}</div>` : ''}
             
             <div class="qr-wrapper">
-              <img class="qr-img" src="${qrImageUrl}" alt="QR Mantenimiento" />
+              <img
+                class="qr-img"
+                src="${qrImageUrl}"
+                alt="QR Mantenimiento"
+                onload="setTimeout(function(){ window.focus(); window.print(); }, 250);"
+              />
             </div>
 
             <div class="instructions">
@@ -202,11 +243,6 @@ export default function MaintenanceQRModal({
               Tacos Gavilan Enterprise System • www.tacosgavilan.com
             </div>
           </div>
-          <script>
-            window.onload = function() {
-              window.print();
-            }
-          </script>
         </body>
       </html>
     `)
@@ -238,6 +274,7 @@ export default function MaintenanceQRModal({
               </div>
             </div>
             <button
+              type="button"
               onClick={onClose}
               className="p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
             >
@@ -258,7 +295,7 @@ export default function MaintenanceQRModal({
                 className="w-full px-4 py-3 rounded-2xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white font-medium text-sm focus:ring-2 focus:ring-red-500 focus:outline-none transition-shadow"
               >
                 <option value="generic">
-                  🌐 {isEs ? 'Enlace Genérico (Permite al técnico elegir la tienda)' : 'Generic Link (Technician selects store)'}
+                  🌐 {t('maintenance.qr_generic_option')}
                 </option>
                 {stores.map((s) => (
                   <option key={s.id} value={s.id}>
@@ -273,7 +310,7 @@ export default function MaintenanceQRModal({
               <div className="flex items-center gap-2 mb-3">
                 <Wrench className="text-red-600 dark:text-red-400" size={18} />
                 <span className="text-xs font-black tracking-widest text-red-700 dark:text-red-400 uppercase">
-                  Tacos Gavilan • Mantenimiento
+                  {t('maintenance.qr_sticker_header')}
                 </span>
               </div>
 
@@ -296,9 +333,7 @@ export default function MaintenanceQRModal({
               </div>
 
               <p className="mt-4 text-xs font-semibold text-center text-gray-600 dark:text-gray-400 max-w-sm">
-                {isEs
-                  ? 'Pegue este código en la campana de cocina, cuarto de máquinas o tablero de control.'
-                  : 'Display this QR code near kitchen hoods, machine room, or control panel.'}
+                {t('maintenance.qr_placement_hint')}
               </p>
             </div>
 
@@ -311,6 +346,7 @@ export default function MaintenanceQRModal({
                 className="flex-1 bg-transparent text-xs text-gray-600 dark:text-gray-300 font-mono focus:outline-none select-all truncate"
               />
               <button
+                type="button"
                 onClick={handleCopyLink}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-xs font-bold text-gray-800 dark:text-gray-200 transition-colors shrink-0"
               >
@@ -339,6 +375,16 @@ export default function MaintenanceQRModal({
                 className="px-4 py-2 text-xs font-semibold text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 transition-colors"
               >
                 {t('common.cancel')}
+              </button>
+
+              <button
+                type="button"
+                disabled={downloading}
+                onClick={handleDownloadQR}
+                className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-2xl bg-slate-200 dark:bg-gray-700 hover:bg-slate-300 dark:hover:bg-gray-600 text-slate-800 dark:text-white text-xs font-bold transition-all disabled:opacity-50"
+              >
+                <Download size={15} />
+                <span>{t('maintenance.download_qr')}</span>
               </button>
 
               <button

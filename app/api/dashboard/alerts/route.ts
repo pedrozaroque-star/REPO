@@ -110,7 +110,7 @@ export async function GET(req: NextRequest) {
       // 4. Supervisor schedules in date range (strictly filtered by supervisorIds to prevent 1,000-row truncation!)
       supervisorIds.length > 0
         ? supabaseAdmin.from('schedules')
-            .select('user_id, store_id, date, start_time, end_time')
+            .select('user_id, store_id, date, start_time, end_time, shift_label')
             .in('user_id', supervisorIds)
             .gte('date', startDate).lte('date', endDate)
             .limit(5000)
@@ -263,12 +263,45 @@ export async function GET(req: NextRequest) {
     // e.g. This month vs last month, this week vs last week
     // ══════════════════════════════════════════════════
 
-    // Build previous period total per store
+    // Helper: convert HH:MM to minutes elapsed since 06:00 AM business day start (06:00 = 0, 00:00 = 1080, 05:59 = 1439)
+    const toBizMins = (hhmm: string): number => {
+      const [h, m] = (hhmm || '06:00').split(':').map(Number)
+      const adjH = h < 6 ? h + 24 : h
+      return (adjH - 6) * 60 + (m || 0)
+    }
+    const nowBizMins = toBizMins(nowTimeLA)
+
+    // Expected cumulative fraction of daily sales completed by `nowBizMins` (calibrated to Tacos Gavilan 9 AM - 2 AM curve)
+    const getIntradaySalesFraction = (bizMins: number): number => {
+      // 06:00 - 09:00 (0..180 mins): 0% -> 1% (prep & opening)
+      if (bizMins <= 180) return (bizMins / 180) * 0.01
+      // 09:00 - 12:00 (180..360 mins): 1% -> 10% (morning)
+      if (bizMins <= 360) return 0.01 + ((bizMins - 180) / 180) * 0.09
+      // 12:00 - 15:00 (360..540 mins): 10% -> 32% (lunch rush)
+      if (bizMins <= 540) return 0.10 + ((bizMins - 360) / 180) * 0.22
+      // 15:00 - 18:00 (540..720 mins): 32% -> 52% (afternoon)
+      if (bizMins <= 720) return 0.32 + ((bizMins - 540) / 180) * 0.20
+      // 18:00 - 22:00 (720..960 mins): 52% -> 84% (dinner rush)
+      if (bizMins <= 960) return 0.52 + ((bizMins - 720) / 240) * 0.32
+      // 22:00 - 02:00 (960..1200 mins): 84% -> 98% (late night)
+      if (bizMins <= 1200) return 0.84 + ((bizMins - 960) / 240) * 0.14
+      // 02:00 - 06:00 (1200..1440 mins): 98% -> 100%
+      return Math.min(1.0, 0.98 + ((bizMins - 1200) / 240) * 0.02)
+    }
+
+    const isSingleDayToday = startDate === todayBusinessStr && endDate === todayBusinessStr
+    const includesTodayInProgress = endDate === todayBusinessStr
+
+    // Build previous period total per store (pro-rating the lookback day corresponding to Today if Today is still in progress)
     const prevByStore: Record<string, { totalSales: number; storeId: string }> = {}
     histSales.forEach(r => {
       const name = (r.store_name || '').replace(/^Tacos Gavilan\s+/i, '').trim()
       if (!prevByStore[name]) prevByStore[name] = { totalSales: 0, storeId: r.store_id }
-      prevByStore[name].totalSales += Number(r.net_sales) || 0
+      let dayNetSales = Number(r.net_sales) || 0
+      if (includesTodayInProgress && r.business_date === lbEndStr) {
+        dayNetSales = dayNetSales * getIntradaySalesFraction(nowBizMins)
+      }
+      prevByStore[name].totalSales += dayNetSales
     })
 
     // For each store: compare current vs previous equivalent period
@@ -277,22 +310,26 @@ export async function GET(req: NextRequest) {
     const prevPeriodLabel = rangeDays <= 2
       ? `mismo día semana pasada`
       : `${lbStartStr.slice(5)} al ${lbEndStr.slice(5)}`
-    const lowSalesAlerts = allStoreSales
-      .map(s => {
-        const prev = prevByStore[s.store]
-        if (!prev || prev.totalSales <= 0) return null
-        const pctChange = ((s.sales - prev.totalSales) / prev.totalSales) * 100
-        return {
-          store: s.store,
-          storeId: s.storeId,
-          sales: Math.round(s.sales),
-          previousSales: Math.round(prev.totalSales),
-          pctChange: +pctChange.toFixed(1),
-          prevPeriodLabel
-        }
-      })
-      .filter((s): s is NonNullable<typeof s> => s !== null && s.pctChange <= -SELF_DECLINE_THRESHOLD)
-      .sort((a, b) => a.pctChange - b.pctChange)
+
+    // Do not fire low sales alerts on single-day Today before 11:00 AM LA time (300 biz mins) while stores are just opening
+    const lowSalesAlerts = (isSingleDayToday && nowBizMins < 300)
+      ? []
+      : allStoreSales
+          .map(s => {
+            const prev = prevByStore[s.store]
+            if (!prev || prev.totalSales <= 0) return null
+            const pctChange = ((s.sales - prev.totalSales) / prev.totalSales) * 100
+            return {
+              store: s.store,
+              storeId: s.storeId,
+              sales: Math.round(s.sales),
+              previousSales: Math.round(prev.totalSales),
+              pctChange: +pctChange.toFixed(1),
+              prevPeriodLabel
+            }
+          })
+          .filter((s): s is NonNullable<typeof s> => s !== null && s.pctChange <= -SELF_DECLINE_THRESHOLD)
+          .sort((a, b) => a.pctChange - b.pctChange)
 
     // ══════════════════════════════════════════════════
     // 4. INSPECTION COMPLIANCE — per supervisor per date
@@ -309,8 +346,40 @@ export async function GET(req: NextRequest) {
     }
 
     // Build schedule lookup: supId → date → {store_id, start_time, end_time}
+    // Also track explicit absences (Vacaciones, Enfermedad, Permiso) vs unscheduled Days Off
     const supScheduleByDate: Record<number, Record<string, { store_id: number; start_time: string; end_time: string }>> = {}
-    schedules.forEach(s => {
+    const supAbsenceByDate: Record<number, Record<string, 'vacation' | 'sick' | 'permission'>> = {}
+
+    schedules.forEach((s: any) => {
+      const startShort = (s.start_time || '').slice(0, 5)
+      const endShort = (s.end_time || '').slice(0, 5)
+      const labelLower = (s.shift_label || '').toLowerCase()
+
+      if (labelLower.includes('vacac') || labelLower.includes('vacat')) {
+        if (!supAbsenceByDate[s.user_id]) supAbsenceByDate[s.user_id] = {}
+        supAbsenceByDate[s.user_id][s.date] = 'vacation'
+        return
+      }
+      if (labelLower.includes('enferm') || labelLower.includes('sick')) {
+        if (!supAbsenceByDate[s.user_id]) supAbsenceByDate[s.user_id] = {}
+        supAbsenceByDate[s.user_id][s.date] = 'sick'
+        return
+      }
+      if (labelLower.includes('permis') || labelLower.includes('leave') || labelLower.includes('unpaid')) {
+        if (!supAbsenceByDate[s.user_id]) supAbsenceByDate[s.user_id] = {}
+        supAbsenceByDate[s.user_id][s.date] = 'permission'
+        return
+      }
+
+      const isDayOff =
+        (startShort === '00:00' && endShort === '00:00') ||
+        labelLower.includes('descanso') ||
+        labelLower.includes('ausenc') ||
+        labelLower.includes('absence') ||
+        labelLower === 'off'
+
+      if (isDayOff) return
+
       if (!supScheduleByDate[s.user_id]) supScheduleByDate[s.user_id] = {}
       supScheduleByDate[s.user_id][s.date] = {
         store_id: s.store_id,
@@ -345,6 +414,10 @@ export async function GET(req: NextRequest) {
 
       let totalScheduledDays = 0
       let totalCompliantDays = 0
+      let absenceDays = 0
+      let dayOffDays = 0
+      let primaryAbsenceType: 'vacation' | 'sick' | 'permission' | null = null
+      let inProgressShift: string | null = null
       const allInspectedStores = new Set<string>()
       const allMissingStores = new Set<string>()
 
@@ -352,6 +425,7 @@ export async function GET(req: NextRequest) {
         // Never evaluate future dates as missed inspections
         if (date > todayBusinessStr) return
 
+        const absenceOnDate = supAbsenceByDate[sup.id]?.[date] || null
         const schedule = supScheduleByDate[sup.id]?.[date]
         const wasScheduled = !!schedule
         const inspectedOnDate = supInspByDate[sup.id]?.[date] || new Set<number>()
@@ -360,56 +434,77 @@ export async function GET(req: NextRequest) {
         // Mark all inspected stores
         inspectedNames.forEach(n => allInspectedStores.add(n))
 
-        if (wasScheduled) {
-          const scheduledStoreName = storeNameMap[schedule.store_id] || `Store #${schedule.store_id}`
-          const shift = schedule.start_time && schedule.end_time
-            ? `${schedule.start_time.slice(0, 5)} - ${schedule.end_time.slice(0, 5)}`
-            : null
-
-          // Check: did the supervisor inspect at least one of their OWNED stores this day?
-          const ownedInspected = ownedStoreIds
-            .filter(id => inspectedOnDate.has(id))
-            .map(id => storeNameMap[id] || `Store #${id}`)
-          const ownedMissing = ownedStoreIds
-            .filter(id => !inspectedOnDate.has(id))
-            .map(id => storeNameMap[id] || `Store #${id}`)
-
-          const dayCompliant = ownedInspected.length > 0
-
-          // If this is TODAY and the supervisor hasn't inspected yet, check if their shift is still in progress or hasn't ended
-          if (date === todayBusinessStr && !dayCompliant) {
-            const endTimeShort = schedule.end_time ? schedule.end_time.slice(0, 5) : '23:59'
-            // Only count today as a missed scheduled day if current LA time has passed the shift end_time
-            if (nowTimeLA <= endTimeShort) {
-              return
-            }
-          }
-
-          totalScheduledDays++
-          if (dayCompliant) totalCompliantDays++
-          ownedMissing.forEach(n => allMissingStores.add(n))
-
-          dailyDetail.push({
-            date,
-            wasScheduled: true,
-            scheduledAt: scheduledStoreName,
-            shift,
-            inspectedStores: inspectedNames,
-            ownedStoresInspected: ownedInspected,
-            ownedStoresMissing: ownedMissing,
-            compliant: dayCompliant
-          })
+        if (absenceOnDate) {
+          absenceDays++
+          if (!primaryAbsenceType) primaryAbsenceType = absenceOnDate
+          return
         }
+
+        if (!wasScheduled) {
+          dayOffDays++
+          return
+        }
+
+        const scheduledStoreName = storeNameMap[schedule.store_id] || `Store #${schedule.store_id}`
+        const startShort = schedule.start_time ? schedule.start_time.slice(0, 5) : null
+        const endShort = schedule.end_time ? schedule.end_time.slice(0, 5) : null
+        const shift = startShort && endShort ? `${startShort} - ${endShort}` : null
+
+        // Check: did the supervisor inspect at least one of their OWNED stores this day?
+        const ownedInspected = ownedStoreIds
+          .filter(id => inspectedOnDate.has(id))
+          .map(id => storeNameMap[id] || `Store #${id}`)
+        const ownedMissing = ownedStoreIds
+          .filter(id => !inspectedOnDate.has(id))
+          .map(id => storeNameMap[id] || `Store #${id}`)
+
+        const dayCompliant = ownedInspected.length > 0
+
+        // If this is TODAY and the supervisor hasn't inspected yet, check if their shift is still in progress or hasn't ended
+        if (date === todayBusinessStr && !dayCompliant) {
+          const startBiz = startShort ? toBizMins(startShort) : 180 // default 09:00
+          let endBiz = endShort ? toBizMins(endShort) : 1080 // default 00:00 (midnight)
+          // Handle AM/PM schedule entry typos (e.g. 12:00 - 10:00 where 10:00 was meant as 22:00 / 10:00 PM)
+          if (endBiz <= startBiz) {
+            endBiz = Math.max(startBiz + 8 * 60, endBiz + 12 * 60)
+          }
+          if (nowBizMins <= endBiz) {
+            inProgressShift = shift || 'Hoy'
+            return
+          }
+        }
+
+        totalScheduledDays++
+        if (dayCompliant) totalCompliantDays++
+        ownedMissing.forEach(n => allMissingStores.add(n))
+
+        dailyDetail.push({
+          date,
+          wasScheduled: true,
+          scheduledAt: scheduledStoreName,
+          shift,
+          inspectedStores: inspectedNames,
+          ownedStoresInspected: ownedInspected,
+          ownedStoresMissing: ownedMissing,
+          compliant: dayCompliant
+        })
       })
 
       // Extra stores (inspected but not owned)
       const ownedNames = new Set(ownedStoreNames)
       const extraStores = [...allInspectedStores].filter(n => !ownedNames.has(n))
 
-      // If supervisor had 0 scheduled days due in this period (e.g. day off or shift still in progress today), they are 100% compliant
+      // If supervisor had 0 scheduled days due in this period (e.g. vacation, day off, or shift still in progress today), they are 100% compliant (never trigger alert)
       const compliancePct = totalScheduledDays > 0
         ? Math.round((totalCompliantDays / totalScheduledDays) * 100)
         : 100
+
+      let status: 'active' | 'in_progress' | 'vacation' | 'sick' | 'permission' | 'day_off' = 'active'
+      if (totalScheduledDays === 0) {
+        if (inProgressShift) status = 'in_progress'
+        else if (primaryAbsenceType) status = primaryAbsenceType
+        else status = 'day_off'
+      }
 
       return {
         supervisor: sup.full_name.split(' ')[0],
@@ -425,9 +520,23 @@ export async function GET(req: NextRequest) {
         totalInspections: allInspectedStores.size,
         compliant: totalScheduledDays > 0 ? totalCompliantDays === totalScheduledDays : true,
         compliancePct,
+        status,
+        absenceType: primaryAbsenceType,
+        absenceDays,
+        dayOffDays,
+        inProgressShift,
         dailyDetail: dailyDetail.filter(d => d.wasScheduled) // Only show days they were scheduled
       }
-    }).sort((a, b) => a.compliancePct - b.compliancePct)
+    }).sort((a, b) => {
+      // 1. Non-compliant active supervisors first
+      if (a.compliant !== b.compliant) return a.compliant ? 1 : -1
+      // 2. Active supervisors (totalScheduled > 0) before off/vacation/in_progress
+      const aActive = a.totalScheduled > 0 ? 0 : 1
+      const bActive = b.totalScheduled > 0 ? 0 : 1
+      if (aActive !== bActive) return aActive - bActive
+      // 3. Lowest compliancePct first
+      return a.compliancePct - b.compliancePct
+    })
 
     // ══════════════════════════════════════════════════
     // Summary counts
