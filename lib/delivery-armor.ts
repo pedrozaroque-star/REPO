@@ -22,7 +22,7 @@
 
 import { supabaseAdmin } from './supabase'
 import { getAuthToken } from './toast-api'
-import { RONOS_STORES_MAP } from './ronos-api'
+import { RONOS_STORES_MAP, getRonosWeeks, getRonosWeekEmployees } from './ronos-api'
 
 // Host de Toast API
 const TOAST_API_HOST = process.env.TOAST_API_HOST || 'https://ws-api.toasttab.com'
@@ -658,8 +658,237 @@ export function getRonosCompanyId(storeId: number): number {
   return match?.ronosCompanyId || 34 // Default Lynwood / Corporativo
 }
 
+export interface ActiveRonosRosterEmployee {
+  employeeUserId: number
+  employeeId: number | null
+  firstName: string
+  lastName: string
+  fullName: string
+  pin: string
+  jobTitle: string
+}
+
+interface LiveRonosRosterCacheEntry {
+  companyId: number
+  weekId: number
+  employees: ActiveRonosRosterEmployee[]
+  timestamp: number
+  isLiveFromRonos: boolean
+}
+
+const LIVE_RONOS_ROSTER_TTL_MS = 2 * 60 * 1000 // 2 minutos de caché en memoria para padrón en vivo de RONOS
+const liveRonosRosterCache = new Map<number, LiveRonosRosterCacheEntry>()
+
 /**
- * Valida un PIN de 4 dígitos contra el personal activo de RONOS para la tienda
+ * Sincroniza en tiempo real el padrón de colaboradores activos de una sucursal directamente desde RONOS API
+ * (`WorkWeek/AdminGetWeekByWeekId` con `showInactive: 0`), garantizando que:
+ *   1. Nuevos ingresos (new hires) y cambios de PIN estén disponibles de inmediato (incluso con 0 horas acumuladas).
+ *   2. Bajas / inactivos (terminated employees) sean excluidos inmediatamente y nunca puedan iniciar sesión con registros de semanas pasadas.
+ *   3. La caché `ronos_employee_timecards_cache` de la semana en curso se mantenga sincronizada sin sobrescribir horas auditadas.
+ */
+export async function syncStoreRonosRoster(
+  companyId: number,
+  forceRefresh = false
+): Promise<LiveRonosRosterCacheEntry> {
+  const cached = liveRonosRosterCache.get(companyId)
+  if (!forceRefresh && cached && cached.isLiveFromRonos && (Date.now() - cached.timestamp) < LIVE_RONOS_ROSTER_TTL_MS) {
+    return cached
+  }
+
+  const todayBiz = getBusinessDateYmdLA()
+  let currentWeekId = 0
+
+  try {
+    const weeks = await getRonosWeeks(companyId, forceRefresh)
+    if (weeks && weeks.length > 0) {
+      const matchingWeek = weeks.find(w => {
+        const s = w.startDate?.substring(0, 10) || ''
+        const e = w.endDate?.substring(0, 10) || ''
+        return s <= todayBiz && todayBiz <= e
+      }) || weeks[0]
+      currentWeekId = Number(matchingWeek?.weekId || 0)
+    }
+
+    if (currentWeekId > 0) {
+      const rawEmployees = await getRonosWeekEmployees(companyId, currentWeekId)
+      const activeEmployees: ActiveRonosRosterEmployee[] = []
+
+      for (const emp of rawEmployees || []) {
+        if (!emp || emp.active === false) continue
+        const employeeUserId = Number(emp.employeeUserId || emp.userId || emp.id || 0)
+        if (employeeUserId <= 0) continue
+
+        const firstName = String(emp.firstName || '').trim()
+        const lastName = String(emp.lastName || '').trim()
+        const fullName = `${firstName} ${lastName}`.trim() || String(emp.fullName || `Empleado #${employeeUserId}`).trim()
+        const pin = String(emp.pin || '').trim()
+        const jobTitle = String(emp.title || emp.jobTitle || 'Colaborador').trim()
+        const employeeId = Number(emp.employeeId || emp.empId || 0) || null
+
+        if (pin) {
+          activeEmployees.push({
+            employeeUserId,
+            employeeId,
+            firstName,
+            lastName,
+            fullName,
+            pin,
+            jobTitle
+          })
+        }
+      }
+
+      if (activeEmployees.length > 0) {
+        // Sincronizar de forma segura la semana actual en ronos_employee_timecards_cache
+        // (agregando nuevos ingresos, actualizando PINs y limpiando bajas de la semana actual sin horas)
+        Promise.resolve().then(async () => {
+          try {
+            const { data: existingWeekRows } = await supabaseAdmin
+              .from('ronos_employee_timecards_cache')
+              .select('employee_user_id, pin, full_name, job_title, total_weekly_hours')
+              .eq('company_id', companyId)
+              .eq('week_id', currentWeekId)
+
+            const existingMap = new Map<number, any>()
+            for (const row of existingWeekRows || []) {
+              existingMap.set(Number(row.employee_user_id), row)
+            }
+
+            const activeUserIds = new Set<number>(activeEmployees.map(e => e.employeeUserId))
+            const newRowsToInsert: any[] = []
+
+            for (const emp of activeEmployees) {
+              const existing = existingMap.get(emp.employeeUserId)
+              if (!existing) {
+                newRowsToInsert.push({
+                  company_id: companyId,
+                  week_id: currentWeekId,
+                  employee_user_id: emp.employeeUserId,
+                  employee_id: emp.employeeId,
+                  full_name: emp.fullName,
+                  first_name: emp.firstName,
+                  last_name: emp.lastName,
+                  pin: emp.pin,
+                  job_title: emp.jobTitle,
+                  regular_hours: 0,
+                  overtime_hours: 0,
+                  double_time_hours: 0,
+                  total_weekly_hours: 0,
+                  meal_penalty_count: 0,
+                  broken_hours: false,
+                  active: true,
+                  updated_at: new Date().toISOString()
+                })
+              } else if (
+                String(existing.pin || '').trim() !== emp.pin ||
+                String(existing.full_name || '').trim() !== emp.fullName ||
+                String(existing.job_title || '').trim() !== emp.jobTitle
+              ) {
+                await supabaseAdmin
+                  .from('ronos_employee_timecards_cache')
+                  .update({
+                    pin: emp.pin,
+                    full_name: emp.fullName,
+                    first_name: emp.firstName,
+                    last_name: emp.lastName,
+                    job_title: emp.jobTitle,
+                    updated_at: new Date().toISOString()
+                  })
+                  .eq('company_id', companyId)
+                  .eq('week_id', currentWeekId)
+                  .eq('employee_user_id', emp.employeeUserId)
+              }
+            }
+
+            if (newRowsToInsert.length > 0) {
+              await supabaseAdmin
+                .from('ronos_employee_timecards_cache')
+                .upsert(newRowsToInsert, { onConflict: 'company_id,week_id,employee_user_id' })
+            }
+
+            // Si un empleado fue dado de baja en la semana actual y no tiene horas acumuladas, retirarlo de la caché de la semana actual
+            const terminatedIdsInCurrentWeek = Array.from(existingMap.keys()).filter(uid => !activeUserIds.has(uid))
+            for (const termUid of terminatedIdsInCurrentWeek) {
+              const row = existingMap.get(termUid)
+              if (Number(row?.total_weekly_hours || 0) === 0) {
+                await supabaseAdmin
+                  .from('ronos_employee_timecards_cache')
+                  .delete()
+                  .eq('company_id', companyId)
+                  .eq('week_id', currentWeekId)
+                  .eq('employee_user_id', termUid)
+              }
+            }
+          } catch (syncErr: any) {
+            console.warn('[DeliveryArmor RONOS Sync] Advertencia sincronizando caché de semana actual:', syncErr?.message)
+          }
+        })
+
+        const entry: LiveRonosRosterCacheEntry = {
+          companyId,
+          weekId: currentWeekId,
+          employees: activeEmployees,
+          timestamp: Date.now(),
+          isLiveFromRonos: true
+        }
+        liveRonosRosterCache.set(companyId, entry)
+        return entry
+      }
+    }
+  } catch (liveErr: any) {
+    console.warn(`[DeliveryArmor RONOS Sync] Advertencia consultando RONOS en vivo para companyId=${companyId}: ${liveErr?.message}. Usando respaldo de la semana más reciente en Supabase.`)
+  }
+
+  // Respaldo de emergencia (SOLO si la API de RONOS tuvo una caída momentánea de red):
+  // Consultar ÚNICAMENTE la semana más reciente (latest week_id) de esta sucursal, NUNCA semanas históricas antiguas.
+  const { data: latestWeekRow } = await supabaseAdmin
+    .from('ronos_employee_timecards_cache')
+    .select('week_id')
+    .eq('company_id', companyId)
+    .order('week_id', { ascending: false })
+    .limit(1)
+
+  const fallbackWeekId = currentWeekId || Number(latestWeekRow?.[0]?.week_id || 0)
+  const fallbackEmployees: ActiveRonosRosterEmployee[] = []
+
+  if (fallbackWeekId > 0) {
+    const { data: cachedRows } = await supabaseAdmin
+      .from('ronos_employee_timecards_cache')
+      .select('employee_user_id, employee_id, first_name, last_name, full_name, pin, job_title')
+      .eq('company_id', companyId)
+      .eq('week_id', fallbackWeekId)
+
+    for (const r of cachedRows || []) {
+      const uid = Number(r.employee_user_id || 0)
+      const pin = String(r.pin || '').trim()
+      if (uid > 0 && pin) {
+        fallbackEmployees.push({
+          employeeUserId: uid,
+          employeeId: r.employee_id ? Number(r.employee_id) : null,
+          firstName: String(r.first_name || '').trim(),
+          lastName: String(r.last_name || '').trim(),
+          fullName: String(r.full_name || `Empleado #${uid}`).trim(),
+          pin,
+          jobTitle: String(r.job_title || 'Colaborador').trim()
+        })
+      }
+    }
+  }
+
+  const fallbackEntry: LiveRonosRosterCacheEntry = {
+    companyId,
+    weekId: fallbackWeekId,
+    employees: fallbackEmployees,
+    timestamp: Date.now(),
+    isLiveFromRonos: false
+  }
+  return fallbackEntry
+}
+
+/**
+ * Valida un PIN de 4 dígitos sincronizando en tiempo real contra el personal ACTIVO de RONOS para la tienda.
+ * - Garantiza que los nuevos ingresos (new hires) puedan ingresar de inmediato (haciendo refresh en vivo si no están en memoria).
+ * - Garantiza que las bajas (terminated employees) sean rechazadas inmediatamente al validar siempre contra el padrón activo de la semana actual en RONOS.
  */
 export async function verifyRonosPin(storeId: number, pin: string): Promise<{
   valid: boolean
@@ -676,49 +905,72 @@ export async function verifyRonosPin(storeId: number, pin: string): Promise<{
   const companyId = getRonosCompanyId(storeId)
 
   try {
-    // 1. Buscar primero en la caché de tarjetas de tiempo de RONOS para esta sucursal
-    const { data: cached, error } = await supabaseAdmin
-      .from('ronos_employee_timecards_cache')
-      .select('employee_user_id, full_name, job_title, pin, company_id')
-      .eq('company_id', companyId)
-      .eq('pin', cleanPin)
-      .limit(1)
+    // 1. Consultar el padrón activo de RONOS de esta sucursal (semana actual)
+    let storeRoster = await syncStoreRonosRoster(companyId, false)
+    let localMatch = storeRoster.employees.find(e => e.pin === cleanPin)
 
-    if (!error && cached && cached.length > 0) {
-      const emp = cached[0]
+    // Si no está en la caché de 2 minutos, forzar consulta EN VIVO a RONOS API por si es un nuevo ingreso recién registrado o cambio de PIN
+    if (!localMatch) {
+      storeRoster = await syncStoreRonosRoster(companyId, true)
+      localMatch = storeRoster.employees.find(e => e.pin === cleanPin)
+    }
+
+    if (localMatch) {
       return {
         valid: true,
-        employeeUserId: emp.employee_user_id,
-        fullName: emp.full_name,
-        jobTitle: emp.job_title || 'Colaborador'
+        employeeUserId: localMatch.employeeUserId,
+        fullName: localMatch.fullName,
+        jobTitle: localMatch.jobTitle || 'Colaborador'
       }
     }
 
-    // 2. Si no se encuentra en la tienda local, buscar si es un colaborador flotante o transferido en cualquier sucursal de RONOS
-    const { data: anyStoreMatch } = await supabaseAdmin
+    // 2. Si no pertenece a la sucursal local, verificar si es un supervisor o colaborador flotante ACTIVO en otra sucursal.
+    //    IMPORTANTE: Para impedir que una baja histórica entre por otra tienda, se valida en vivo contra el padrón actual de esa otra sucursal en RONOS.
+    const { data: candidateRows } = await supabaseAdmin
       .from('ronos_employee_timecards_cache')
-      .select('employee_user_id, full_name, job_title, pin, company_id')
+      .select('company_id, week_id')
       .eq('pin', cleanPin)
-      .limit(1)
+      .neq('company_id', companyId)
+      .order('week_id', { ascending: false })
+      .limit(5)
 
-    if (anyStoreMatch && anyStoreMatch.length > 0) {
-      const emp = anyStoreMatch[0]
-      return {
-        valid: true,
-        employeeUserId: emp.employee_user_id,
-        fullName: emp.full_name,
-        jobTitle: emp.job_title || 'Colaborador (Transferido)'
+    const candidateCompanyIds = new Set<number>()
+    for (const row of candidateRows || []) {
+      const cid = Number(row.company_id || 0)
+      if (cid > 0 && cid !== companyId) {
+        candidateCompanyIds.add(cid)
+      }
+    }
+    // Incluir siempre Corporativo / Lynwood (#34) por si un supervisor nuevo aún no está en caché
+    if (companyId !== 34) {
+      candidateCompanyIds.add(34)
+    }
+
+    for (const otherCompanyId of Array.from(candidateCompanyIds)) {
+      let otherRoster = await syncStoreRonosRoster(otherCompanyId, false)
+      let floatingMatch = otherRoster.employees.find(e => e.pin === cleanPin)
+      if (!floatingMatch) {
+        otherRoster = await syncStoreRonosRoster(otherCompanyId, true)
+        floatingMatch = otherRoster.employees.find(e => e.pin === cleanPin)
+      }
+      if (floatingMatch) {
+        return {
+          valid: true,
+          employeeUserId: floatingMatch.employeeUserId,
+          fullName: floatingMatch.fullName,
+          jobTitle: floatingMatch.jobTitle || 'Colaborador (Transferido)'
+        }
       }
     }
 
-    return { valid: false, error: 'PIN no encontrado en el padrón de colaboradores de RONOS.' }
+    return { valid: false, error: 'PIN no encontrado o colaborador inactivo en el padrón actual de RONOS.' }
   } catch (err: any) {
     console.error('Error validando PIN de RONOS:', err)
     return { valid: false, error: 'Error de conexión con el padrón de RONOS.' }
   }
 }
 
-export const PIN_INACTIVITY_TIMEOUT_MS = 10 * 60 * 1000 // 10 minutos sin actividad
+export const PIN_INACTIVITY_TIMEOUT_MS = 2 * 60 * 1000 // 2 minutos sin actividad
 
 export interface ActiveStorePinSession {
   storeId: number
@@ -739,7 +991,7 @@ function getStoreSessionRowId(storeId: number): string {
 
 /**
  * Obtiene la sesión única activa de PIN para una sucursal desde PostgreSQL.
- * Si ya cumplió 10 minutos sin actividad, devuelve null.
+ * Si ya cumplió 2 minutos sin actividad, devuelve null.
  */
 export async function getActiveStorePinSession(storeId: number): Promise<ActiveStorePinSession | null> {
   try {

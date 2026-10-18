@@ -345,13 +345,18 @@ assert.equal(
   'La tableta de empaque debe estar 100% traducida con useLanguage() e incluir botón de cambio de idioma ES/EN'
 )
 assert.equal(
-  empaqueSource.includes('PIN_INACTIVITY_TIMEOUT_MS = 10 * 60 * 1000') &&
+  empaqueSource.includes('PIN_INACTIVITY_TIMEOUT_MS = 2 * 60 * 1000') &&
     empaqueSource.includes('recordCashierActivity') &&
     empaqueSource.includes('blindaje_packer_last_activity_at') &&
     empaqueSource.includes('handleSessionReplacedError') &&
     empaqueSource.includes('blindaje_packer_session_token'),
   true,
-  'La sesión del PIN de la cajera debe cerrarse tras 10 min sin actividad o cuando alguien más inicia sesión en esa tienda (no puede haber 2 sesiones abiertas)'
+  'La sesión del PIN de la cajera debe cerrarse tras 2 min sin actividad o cuando alguien más inicia sesión en esa tienda (no puede haber 2 sesiones abiertas)'
+)
+assert.equal(
+  empaqueSource.includes('setIsMuted') || empaqueSource.includes('VolumeX'),
+  false,
+  'El sonido debe estar siempre activo: el personal no debe tener botón para silenciar/deshabilitar la voz o campana en la tableta'
 )
 
 assert.equal(
@@ -395,6 +400,12 @@ assert.equal(
   'El diccionario de blindaje_delivery debe cubrir la totalidad de textos del módulo'
 )
 assert.equal(
+  dictionaries.es.blindaje_delivery.switch_cashier_btn === 'Cerrar Sesión' &&
+    dictionaries.en.blindaje_delivery.switch_cashier_btn === 'Close Session',
+  true,
+  'El botón de salida debe decir Cerrar Sesión (ES) y Close Session (EN)'
+)
+assert.equal(
   Object.values(dictionaries.es.blindaje_delivery).some(v => /\bQR\b/i.test(String(v))) ||
     Object.values(dictionaries.en.blindaje_delivery).some(v => /\bQR\b/i.test(String(v))) ||
     empaqueSource.includes('DOORDASH_QR'),
@@ -429,14 +440,63 @@ import {
   getActiveStorePinSession,
   clearActiveStorePinSession,
   reopenDeliveredAudit,
-  undoPackingAudit
+  undoPackingAudit,
+  syncStoreRonosRoster,
+  verifyRonosPin,
+  getRonosCompanyId
 } from '../lib/delivery-armor'
 import { supabaseAdmin } from '../lib/supabase'
 
 ;(async () => {
   const testStoreId = 9999
   const testOrderGuid = `test-continuity-guid-${Date.now()}`
+  const terminatedEmployeeUserId = 99999901
   try {
+    // 0. Sincronización en vivo de PINs con RONOS API (Nuevos ingresos activos vs Bajas de semanas pasadas)
+    const slausonRoster = await syncStoreRonosRoster(getRonosCompanyId(7), true)
+    assert.equal(slausonRoster.isLiveFromRonos, true, 'El padrón de Slauson (#7) debe sincronizarse en vivo desde RONOS API')
+    assert.equal(slausonRoster.employees.length > 0, true, 'El padrón activo de Slauson en RONOS debe contener colaboradores activos')
+
+    const activeSample = slausonRoster.employees.find(e => /^\d{4}$/.test(e.pin))
+    assert.equal(!!activeSample, true, 'Debe existir al menos un colaborador activo con PIN de 4 dígitos en Slauson')
+    if (activeSample) {
+      const livePinCheck = await verifyRonosPin(7, activeSample.pin)
+      assert.equal(livePinCheck.valid, true, 'El PIN de un colaborador activo en RONOS debe validarse exitosamente')
+      assert.equal(livePinCheck.employeeUserId, activeSample.employeeUserId, 'Debe devolver el ID exacto del colaborador activo en RONOS')
+    }
+
+    // Simular una BAJA (empleado que trabajó en una semana antigua week_id=1 pero ya NO está activo en la semana actual de RONOS)
+    const activePinsSet = new Set(slausonRoster.employees.map(e => e.pin))
+    let syntheticTerminatedPin = '9876'
+    for (let candidate = 9990; candidate >= 9000; candidate--) {
+      const pinStr = String(candidate)
+      if (!activePinsSet.has(pinStr)) {
+        syntheticTerminatedPin = pinStr
+        break
+      }
+    }
+    await supabaseAdmin.from('ronos_employee_timecards_cache').upsert({
+      company_id: getRonosCompanyId(7),
+      week_id: 1, // Semana histórica pasada
+      employee_user_id: terminatedEmployeeUserId,
+      full_name: 'Ex Empleado Baja Test',
+      first_name: 'Ex Empleado',
+      last_name: 'Baja Test',
+      pin: syntheticTerminatedPin,
+      job_title: 'Cashier',
+      regular_hours: 40,
+      total_weekly_hours: 40,
+      active: false,
+      updated_at: new Date().toISOString()
+    }, { onConflict: 'company_id,week_id,employee_user_id' })
+
+    const terminatedPinCheck = await verifyRonosPin(7, syntheticTerminatedPin)
+    assert.equal(
+      terminatedPinCheck.valid,
+      false,
+      'Un ex-empleado (baja) que solo existe en semanas pasadas de la caché y no está activo en RONOS hoy DEBE ser rechazado'
+    )
+
     // 1. Cajera 1 inicia sesión en la tienda 9999
     const s1 = await registerExclusiveStorePinSession({
       storeId: testStoreId,
@@ -532,6 +592,10 @@ import { supabaseAdmin } from '../lib/supabase'
 
     console.log('Delivery Armor core simulation: PASS')
   } finally {
+    await supabaseAdmin
+      .from('ronos_employee_timecards_cache')
+      .delete()
+      .eq('employee_user_id', terminatedEmployeeUserId)
     await supabaseAdmin.from('delivery_packing_audits').delete().eq('toast_order_guid', testOrderGuid)
     await clearActiveStorePinSession(testStoreId)
   }

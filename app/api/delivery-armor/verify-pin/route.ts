@@ -5,7 +5,7 @@
  * @businessRules
  *   - El PIN del empleado se obtiene y valida contra RONOS, NUNCA de Toast.
  *   - Solo puede existir 1 sesión de PIN activa por sucursal (`storeId`): si otra persona inicia sesión en esa tienda, la sesión anterior se invalida inmediatamente.
- *   - La sesión expira automáticamente tras 10 minutos sin actividad.
+ *   - La sesión expira automáticamente tras 2 minutos sin actividad.
  *
  * @dataFlow
  *   Client Tablet -> POST/PUT/DELETE { storeId, pin / sessionToken } -> verifyRonosPin() + registerExclusiveStorePinSession() -> Supabase -> Response JSON.

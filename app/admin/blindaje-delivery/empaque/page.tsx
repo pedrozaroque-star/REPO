@@ -3,7 +3,7 @@
  * @description Estación vertical Fullscreen de Entrega Blindada para validar el empaque y liberar cada bolsa al chofer correcto identificando por Nombre + Apellido/Inicial y blindando contra nombres duplicados o muy parecidos desde KDS.
  * @businessRules
  *   - Siempre en modo Fullscreen (tanto al pedir PIN, al iniciar sesión con PIN, durante la operación y al cerrarse/expirar la sesión de PIN).
- *   - Acceso de la cajera/empacador con PIN de 4 dígitos de RONOS con cierre automático de sesión tras 10 minutos sin actividad (inactividad). Cualquier interacción real de la cajera reinicia el contador de 10 minutos.
+ *   - Acceso de la cajera/empacador con PIN de 4 dígitos de RONOS con cierre automático de sesión tras 2 minutos sin actividad (inactividad). Cualquier interacción real de la cajera reinicia el contador de 2 minutos.
  *   - Identificación principal por Nombre + Apellido/Inicial del cliente (si existe), acompañado de #Check y Clave de Plataforma.
  *   - Blindaje estricto contra colisión de nombres desde que entran por KDS: alerta de alto énfasis si existen dos órdenes con el mismo nombre exacto, el mismo primer nombre con apellido diferente, o nombres fonética/visualmente muy parecidos.
  *   - Mide automáticamente el tiempo de preparación en cocina desde que llega al KDS hasta que el cocinero borra la orden (READY).
@@ -33,8 +33,7 @@ import {
   ShoppingBag,
   Truck,
   User,
-  Volume2,
-  VolumeX
+  Volume2
 } from 'lucide-react'
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
@@ -46,7 +45,7 @@ const STORES = [
   { id: 6, name: 'LA Central (#6)' }
 ]
 
-const PIN_INACTIVITY_TIMEOUT_MS = 10 * 60 * 1000 // 10 minutos sin actividad para cerrar sesión del PIN de la cajera
+const PIN_INACTIVITY_TIMEOUT_MS = 2 * 60 * 1000 // 2 minutos sin actividad para cerrar sesión del PIN de la cajera
 const PIN_SESSION_DURATION_MS = PIN_INACTIVITY_TIMEOUT_MS
 const KDS_POLL_INTERVAL_MS = 4000 // 4 segundos para detectar al instante cuando el cocinero borra del KDS antes de que la cajera cierre el empaque
 const UNCLAIMED_DRIVER_TIMEOUT_MS = 2 * 60 * 60 * 1000 // 2 horas (120 min) sin que ningún chofer recoja la orden
@@ -384,12 +383,11 @@ export default function BlindajeDeliveryEmpaquePage() {
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
   const [isFullscreen, setIsFullscreen] = useState(false)
-  const [isMuted, setIsMuted] = useState(false)
   const [selectedVoice, setSelectedVoice] = useState<'Kore' | 'Aoede' | 'Zephyr' | 'Puck' | 'Orus'>('Kore')
   const [activeAnnouncement, setActiveAnnouncement] = useState<string | null>(null)
   const [showHistory, setShowHistory] = useState(false)
 
-  // Referencias del motor de audio, rastreo de KDS e inactividad de sesión PIN (10 min sin actividad)
+  // Referencias del motor de audio, rastreo de KDS e inactividad de sesión PIN (2 min sin actividad)
   const audioCtxRef = useRef<AudioContext | null>(null)
   const clipCacheRef = useRef<Map<string, Promise<ArrayBuffer | null>>>(new Map())
   const audioQueueRef = useRef<Order[]>([])
@@ -737,10 +735,10 @@ export default function BlindajeDeliveryEmpaquePage() {
   )
 
   const processAudioQueue = useCallback(async () => {
-    if (isPlayingAudioRef.current || isMuted || audioQueueRef.current.length === 0) return
+    if (isPlayingAudioRef.current || audioQueueRef.current.length === 0) return
     isPlayingAudioRef.current = true
     try {
-      while (audioQueueRef.current.length > 0 && !isMuted) {
+      while (audioQueueRef.current.length > 0) {
         const nextOrder = audioQueueRef.current.shift()
         if (nextOrder) {
           await speakOrderReadyToPack(nextOrder)
@@ -749,15 +747,14 @@ export default function BlindajeDeliveryEmpaquePage() {
     } finally {
       isPlayingAudioRef.current = false
     }
-  }, [isMuted, speakOrderReadyToPack])
+  }, [speakOrderReadyToPack])
 
   const enqueueOrderAnnouncement = useCallback(
     (targetOrder: Order) => {
-      if (isMuted) return
       audioQueueRef.current.push(targetOrder)
       void processAudioQueue()
     },
-    [isMuted, processAudioQueue]
+    [processAudioQueue]
   )
 
   // Función para activar y mantener siempre Pantalla Completa (Fullscreen) en la tableta
@@ -911,7 +908,7 @@ export default function BlindajeDeliveryEmpaquePage() {
     return true
   }, [logout, handleSessionReplacedError, t])
 
-  // Restaurar sesión si sigue dentro de los 10 minutos sin actividad y sigue siendo la sesión única activa de la tienda
+  // Restaurar sesión si sigue dentro de los 2 minutos sin actividad y sigue siendo la sesión única activa de la tienda
   useEffect(() => {
     try {
       const savedStore = Number(sessionStorage.getItem('blindaje_packer_store'))
@@ -926,30 +923,32 @@ export default function BlindajeDeliveryEmpaquePage() {
         Number.isFinite(savedLastActivity) && savedLastActivity > 0
           ? savedLastActivity
           : expiresAt - PIN_INACTIVITY_TIMEOUT_MS
+      const effectiveExpiresAt = Math.min(expiresAt, lastActivity + PIN_INACTIVITY_TIMEOUT_MS)
       if (
         savedStore === storeId &&
         /^\d{4}$/.test(savedPin) &&
         name &&
         id &&
         savedSessionToken &&
-        Number.isFinite(expiresAt) &&
-        expiresAt > now &&
+        Number.isFinite(effectiveExpiresAt) &&
+        effectiveExpiresAt > now &&
         now - lastActivity < PIN_INACTIVITY_TIMEOUT_MS
       ) {
         lastActivityAtRef.current = lastActivity
-        sessionExpiresAtRef.current = expiresAt
+        sessionExpiresAtRef.current = effectiveExpiresAt
+        sessionStorage.setItem('blindaje_packer_expires_at', String(effectiveExpiresAt))
         const restored: Packer = {
           pin: savedPin,
           name,
           title: sessionStorage.getItem('blindaje_packer_title') || t('blindaje_delivery.default_staff'),
           id,
           storeId,
-          expiresAt,
+          expiresAt: effectiveExpiresAt,
           sessionToken: savedSessionToken
         }
         packerRef.current = restored
         setPacker(restored)
-        setRemainingMs(expiresAt - now)
+        setRemainingMs(effectiveExpiresAt - now)
       } else {
         logout(undefined, true)
       }
@@ -1684,15 +1683,6 @@ export default function BlindajeDeliveryEmpaquePage() {
               </button>
               <button
                 type="button"
-                onClick={() => setIsMuted(prev => !prev)}
-                title={isMuted ? t('blindaje_delivery.voice_unmute_title') : t('blindaje_delivery.voice_mute_title')}
-                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-100 text-slate-700 text-xs sm:text-sm font-black"
-              >
-                {isMuted ? <VolumeX className="w-4 h-4 text-red-600" /> : <Volume2 className="w-4 h-4 text-emerald-600" />}
-                <span>{isMuted ? t('blindaje_delivery.voice_muted') : t('blindaje_delivery.voice_active')}</span>
-              </button>
-              <button
-                type="button"
                 onClick={() => void ensureFullscreen()}
                 title={t('blindaje_delivery.fullscreen_title')}
                 className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-slate-100 text-slate-700 text-xs sm:text-sm font-black"
@@ -1843,14 +1833,6 @@ export default function BlindajeDeliveryEmpaquePage() {
             </button>
             <button
               type="button"
-              onClick={() => setIsMuted(prev => !prev)}
-              title={isMuted ? t('blindaje_delivery.voice_unmute_title') : t('blindaje_delivery.voice_mute_title')}
-              className={`p-3 rounded-xl ${isMuted ? 'bg-red-50 text-red-600' : 'bg-slate-100 text-emerald-700'}`}
-            >
-              {isMuted ? <VolumeX className="w-6 h-6" /> : <Volume2 className="w-6 h-6" />}
-            </button>
-            <button
-              type="button"
               onClick={() => void ensureFullscreen()}
               title={t('blindaje_delivery.fullscreen_title')}
               className="p-3 rounded-xl bg-slate-100 text-slate-700"
@@ -1865,22 +1847,24 @@ export default function BlindajeDeliveryEmpaquePage() {
             >
               <RefreshCw className={`w-6 h-6 ${loading ? 'animate-spin' : ''}`} />
             </button>
-            <button
-              type="button"
-              onClick={() => logout()}
-              title={t('blindaje_delivery.logout_pin_title')}
-              className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-sm sm:text-base font-black transition-colors"
-            >
-              <User className="w-5 h-5 text-emerald-400" />
-              <span>{packer.name}</span>
-              <small className="text-slate-300 font-mono text-xs sm:text-sm">
-                ({formatRemainingMs(remainingMs)})
-              </small>
-              <span className="ml-1 px-2.5 py-1 rounded-lg bg-red-600 text-white text-xs font-black flex items-center gap-1">
-                <LogOut className="w-3.5 h-3.5" />
-                {t('blindaje_delivery.switch_cashier_btn')}
-              </span>
-            </button>
+            <div className="flex items-center gap-2 pl-1">
+              <div className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-emerald-50 border border-emerald-200 text-slate-900 antialiased">
+                <User className="w-5 h-5 text-emerald-600 stroke-[2.25] flex-shrink-0" />
+                <span className="text-sm sm:text-base font-bold tracking-tight text-slate-900">{packer.name}</span>
+                <span className="px-2 py-0.5 rounded-md bg-white border border-emerald-200 text-emerald-800 font-mono text-xs sm:text-sm font-bold tabular-nums">
+                  {formatRemainingMs(remainingMs)}
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => logout()}
+                title={t('blindaje_delivery.logout_pin_title')}
+                className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-red-600 hover:bg-red-700 active:bg-red-800 border border-red-700 text-white text-sm sm:text-base font-bold tracking-normal shadow-sm transition-colors antialiased"
+              >
+                <LogOut className="w-5 h-5 stroke-[2.25] flex-shrink-0" />
+                <span>{t('blindaje_delivery.switch_cashier_btn')}</span>
+              </button>
+            </div>
           </div>
         </div>
       </header>
