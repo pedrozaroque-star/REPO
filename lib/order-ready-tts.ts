@@ -186,6 +186,12 @@ async function generateTextWithGemini(
 
       for (let attempt = 0; attempt < 2; attempt++) {
         try {
+          const promptText = model.includes('3.8')
+            ? textToSpeak
+            : lang === 'es'
+            ? `Say in a warm, cheerful Mexican Spanish voice: "${textToSpeak}"`
+            : `Say in a warm, cheerful voice: "${textToSpeak}"`
+
           const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
             method: 'POST',
             headers: { 'x-goog-api-key': key, 'Content-Type': 'application/json' },
@@ -194,7 +200,7 @@ async function generateTextWithGemini(
               contents: [{
                 role: 'user',
                 parts: [{
-                  text: textToSpeak,
+                  text: promptText,
                   ...(model.includes('3.8') && stylePrompt
                     ? {
                         speech_metadata: {

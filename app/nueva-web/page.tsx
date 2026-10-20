@@ -30,6 +30,7 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { useLanguage } from '@/lib/i18n'
+import DateRangeFilter from '@/components/sales/DateRangeFilter'
 import {
     Globe,
     ExternalLink,
@@ -53,12 +54,34 @@ import {
     Sparkles,
     Navigation,
     Store,
-    Languages
+    Languages,
+    CalendarDays,
+    ChevronDown,
+    ChevronLeft,
+    ChevronRight
 } from 'lucide-react'
 
 type ViewportMode = 'desktop' | 'tablet' | 'mobile'
 type ActiveTab = 'analytics' | 'messages' | 'live_site'
-type DateRangeKey = 'today' | 'yesterday' | '7d' | '30d'
+type PeriodKey = 'today' | 'yesterday' | 'week' | 'last_week' | 'last_7' | 'month' | 'last_month' | 'quarter' | 'custom'
+
+const STORES_LIST = [
+    { id: 4, name: 'Azusa' },
+    { id: 13, name: 'Bell' },
+    { id: 16, name: 'Downey' },
+    { id: 8, name: 'Hollywood' },
+    { id: 11, name: 'Huntington Park' },
+    { id: 5, name: 'LA Broadway' },
+    { id: 6, name: 'LA Central' },
+    { id: 10, name: 'La Puente' },
+    { id: 14, name: 'Lynwood' },
+    { id: 12, name: 'Norwalk' },
+    { id: 1, name: 'Rialto' },
+    { id: 9, name: 'Santa Ana' },
+    { id: 7, name: 'Slauson' },
+    { id: 15, name: 'South Gate' },
+    { id: 3, name: 'West Covina' },
+]
 
 interface StoreAnalyticsRow {
     id: number
@@ -131,9 +154,12 @@ interface RecentEventRow {
 interface AnalyticsPayload {
     ok: boolean
     range: string
+    period?: string
     startDate: string
     endDate: string
     todayBusinessDate: string
+    syncingMissingDays?: boolean
+    missingDaysCount?: number
     summary: {
         totalPageViews: number
         uniqueVisitors: number
@@ -196,12 +222,51 @@ export default function NuevaWebPage() {
     const iframeRef = useRef<HTMLIFrameElement>(null)
     const stageRef = useRef<HTMLDivElement>(null)
 
+    const getLocalDateString = () => {
+        const now = new Date()
+        const laTime = new Date(now.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
+        if (laTime.getHours() < 6) laTime.setDate(laTime.getDate() - 1)
+        const year = laTime.getFullYear()
+        const month = String(laTime.getMonth() + 1).padStart(2, '0')
+        const day = String(laTime.getDate()).padStart(2, '0')
+        return `${year}-${month}-${day}`
+    }
+
     const [activeTab, setActiveTab] = useState<ActiveTab>('analytics')
-    const [dateRange, setDateRange] = useState<DateRangeKey>('today')
+    const [period, setPeriod] = useState<PeriodKey>('today')
+    const [startDate, setStartDate] = useState<string>(() => getLocalDateString())
+    const [endDate, setEndDate] = useState<string>(() => getLocalDateString())
+    const [selectedStore, setSelectedStore] = useState<string>('all')
+    const [dayOfWeekFilter, setDayOfWeekFilter] = useState<number | null>(null)
+    const [showAllOrders, setShowAllOrders] = useState<boolean>(false)
+
     const [analytics, setAnalytics] = useState<AnalyticsPayload | null>(null)
     const [loadingAnalytics, setLoadingAnalytics] = useState<boolean>(true)
     const [feedbackFilter, setFeedbackFilter] = useState<string>('all')
     const [orderTypeFilter, setOrderTypeFilter] = useState<'all' | 'pickup' | 'delivery'>('all')
+
+    const todayStr = getLocalDateString()
+    const isTodayOrFuture = endDate >= todayStr
+
+    const shiftDate = (days: number) => {
+        const [sYear, sMonth, sDay] = startDate.split('-').map(Number)
+        const [eYear, eMonth, eDay] = endDate.split('-').map(Number)
+        const currentStart = new Date(sYear, sMonth - 1, sDay)
+        const currentEnd = new Date(eYear, eMonth - 1, eDay)
+        currentStart.setDate(currentStart.getDate() + days)
+        currentEnd.setDate(currentEnd.getDate() + days)
+        const formatD = (d: Date) =>
+            d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0')
+        const nextS = formatD(currentStart)
+        const nextE = formatD(currentEnd)
+        setPeriod('custom')
+        setStartDate(nextS)
+        setEndDate(nextE)
+        setShowAllOrders(false)
+        if (nextS === nextE) {
+            setDayOfWeekFilter(null)
+        }
+    }
 
     // Live site preview state
     const [viewport, setViewport] = useState<ViewportMode>('desktop')
@@ -243,31 +308,58 @@ export default function NuevaWebPage() {
         }
     }, [activeTab, isFullscreen, viewport])
 
-    const fetchAnalyticsData = useCallback(async (selectedRange: DateRangeKey, force = false) => {
-        setLoadingAnalytics(true)
-        try {
-            const url = `/api/web-preview?action=analytics&range=${selectedRange}${force ? '&force=1' : ''}`
-            const res = await fetch(url, {
-                cache: 'no-store'
-            })
-            const data = await res.json()
-            if (data && data.ok) {
-                setAnalytics(data)
+    const fetchAnalyticsData = useCallback(
+        async (
+            p: string,
+            sDate: string,
+            eDate: string,
+            storeVal: string,
+            dowVal: number | null,
+            force = false
+        ) => {
+            setLoadingAnalytics(true)
+            try {
+                const params = new URLSearchParams({
+                    action: 'analytics',
+                    period: p,
+                    startDate: sDate,
+                    endDate: eDate,
+                    store: storeVal,
+                    dayOfWeek: dowVal === null ? 'all' : String(dowVal)
+                })
+                if (force) params.set('force', '1')
+                const res = await fetch(`/api/web-preview?${params.toString()}`, {
+                    cache: 'no-store'
+                })
+                const data = await res.json()
+                if (data && data.ok) {
+                    setAnalytics(data)
+                }
+            } catch {
+                // Silent catch
+            } finally {
+                setLoadingAnalytics(false)
             }
-        } catch {
-            // Silent catch
-        } finally {
-            setLoadingAnalytics(false)
-        }
-    }, [])
+        },
+        []
+    )
 
     useEffect(() => {
-        fetchAnalyticsData(dateRange)
+        fetchAnalyticsData(period, startDate, endDate, selectedStore, dayOfWeekFilter)
         const interval = setInterval(() => {
-            fetchAnalyticsData(dateRange)
+            fetchAnalyticsData(period, startDate, endDate, selectedStore, dayOfWeekFilter)
         }, 45000)
         return () => clearInterval(interval)
-    }, [dateRange, fetchAnalyticsData])
+    }, [period, startDate, endDate, selectedStore, dayOfWeekFilter, fetchAnalyticsData])
+
+    // Auto-poll every 6 seconds if background historical days are actively being synced
+    useEffect(() => {
+        if (!analytics?.syncingMissingDays) return
+        const timer = setTimeout(() => {
+            fetchAnalyticsData(period, startDate, endDate, selectedStore, dayOfWeekFilter)
+        }, 6000)
+        return () => clearTimeout(timer)
+    }, [analytics?.syncingMissingDays, analytics?.missingDaysCount, period, startDate, endDate, selectedStore, dayOfWeekFilter, fetchAnalyticsData])
 
     const handleReloadPreview = () => {
         setIframeLoading(true)
@@ -426,45 +518,152 @@ export default function NuevaWebPage() {
                ===================================================================== */}
             {activeTab === 'analytics' && (
                 <div className="flex-1 py-4 sm:py-5 w-full space-y-4 sm:space-y-6">
-                    {/* Period Selector & Refresh Bar */}
-                    <div className="flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center justify-between gap-2.5 sm:gap-3 bg-white dark:bg-slate-900 p-3 sm:p-3.5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
-                        <div className="grid grid-cols-2 sm:flex sm:flex-wrap items-center gap-1.5 sm:gap-2">
-                            {(
-                                [
-                                    { key: 'today', label: t('new_website.range_today') },
-                                    { key: 'yesterday', label: t('new_website.range_yesterday') },
-                                    { key: '7d', label: t('new_website.range_7d') },
-                                    { key: '30d', label: t('new_website.range_30d') }
-                                ] as { key: DateRangeKey; label: string }[]
-                            ).map(r => (
+                    {/* VENTAS-Style Unified Filter Bar: DateRangeFilter + Store + DayOfWeek + Sync/Refresh */}
+                    <div className="flex flex-wrap items-center justify-between gap-2 bg-white dark:bg-slate-900 p-2 sm:p-2.5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
+                        {/* Left Group: Date Picker with Prev/Next Arrows + Store Filter + Day of Week Filter */}
+                        <div className="flex flex-wrap items-center gap-2">
+                            {/* Date Navigation Group (Identical to VENTAS) */}
+                            <div className="flex items-center gap-1 mx-0.5">
                                 <button
-                                    key={r.key}
-                                    onClick={() => setDateRange(r.key)}
-                                    className={`px-2.5 sm:px-3.5 py-2 sm:py-1.5 rounded-xl text-[11px] sm:text-xs font-semibold tracking-normal transition-all text-center truncate ${
-                                        dateRange === r.key
-                                            ? 'bg-slate-900 dark:bg-amber-500 text-white dark:text-slate-950 shadow-sm'
-                                            : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
-                                    }`}
+                                    onClick={() => shiftDate(-1)}
+                                    className="p-1.5 text-slate-500 hover:text-slate-900 hover:bg-slate-200 dark:hover:text-white dark:hover:bg-slate-700 rounded-lg transition-colors cursor-pointer shrink-0"
+                                    title={t('new_website.prev_day')}
                                 >
-                                    {r.label}
+                                    <ChevronLeft className="w-5 h-5" />
                                 </button>
-                            ))}
+                                <DateRangeFilter
+                                    period={period}
+                                    startDate={startDate}
+                                    endDate={endDate}
+                                    align="left"
+                                    onChange={(p, s, e) => {
+                                        setPeriod(p as PeriodKey)
+                                        setStartDate(s)
+                                        setEndDate(e)
+                                        setShowAllOrders(false)
+                                        if (s === e || ['today', 'yesterday'].includes(p)) {
+                                            setDayOfWeekFilter(null)
+                                        }
+                                    }}
+                                />
+                                <button
+                                    onClick={() => shiftDate(1)}
+                                    disabled={isTodayOrFuture}
+                                    className="p-1.5 text-slate-500 hover:text-slate-900 hover:bg-slate-200 dark:hover:text-white dark:hover:bg-slate-700 rounded-lg transition-colors disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer shrink-0"
+                                    title={t('new_website.next_day')}
+                                >
+                                    <ChevronRight className="w-5 h-5" />
+                                </button>
+                            </div>
+
+                            {/* Store Filter Dropdown (Identical to VENTAS) */}
+                            <div className="relative min-w-0">
+                                <select
+                                    value={selectedStore}
+                                    onChange={(e) => {
+                                        setSelectedStore(e.target.value)
+                                        setShowAllOrders(false)
+                                    }}
+                                    className="appearance-none pl-8 pr-8 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-xl text-slate-700 dark:text-slate-300 text-xs font-medium transition-colors border border-black/5 dark:border-slate-700 cursor-pointer focus:outline-none focus:ring-2 focus:ring-emerald-500/50 min-w-[180px] w-auto"
+                                >
+                                    <option value="all">{t('sales.all_stores')}</option>
+                                    {STORES_LIST.map((s) => (
+                                        <option key={s.id} value={String(s.id)}>
+                                            {s.name}
+                                        </option>
+                                    ))}
+                                </select>
+                                <Store size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                                <ChevronDown size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                            </div>
+
+                            {/* Day-of-Week Comparison Filter — always visible, disabled for single-day (Identical to VENTAS) */}
+                            {(() => {
+                                const isMultiDay = startDate !== endDate
+                                const daysInRange = new Set<number>()
+                                if (isMultiDay) {
+                                    const [sY, sM, sD] = startDate.split('-').map(Number)
+                                    const [eY, eM, eD] = endDate.split('-').map(Number)
+                                    const cur = new Date(sY, sM - 1, sD)
+                                    const end = new Date(eY, eM - 1, eD)
+                                    const diffDays = Math.round((end.getTime() - cur.getTime()) / 86400000)
+                                    if (diffDays >= 6) {
+                                        for (let i = 0; i < 7; i++) daysInRange.add(i)
+                                    } else {
+                                        while (cur <= end) {
+                                            daysInRange.add(cur.getDay())
+                                            cur.setDate(cur.getDate() + 1)
+                                        }
+                                    }
+                                }
+                                const dayOptions = [
+                                    { value: '1', label: t('sales.day_filter.monday') },
+                                    { value: '2', label: t('sales.day_filter.tuesday') },
+                                    { value: '3', label: t('sales.day_filter.wednesday') },
+                                    { value: '4', label: t('sales.day_filter.thursday') },
+                                    { value: '5', label: t('sales.day_filter.friday') },
+                                    { value: '6', label: t('sales.day_filter.saturday') },
+                                    { value: '0', label: t('sales.day_filter.sunday') },
+                                ]
+                                return (
+                                    <div className="relative min-w-0">
+                                        <select
+                                            value={dayOfWeekFilter === null ? 'all' : String(dayOfWeekFilter)}
+                                            onChange={(e) => {
+                                                setDayOfWeekFilter(e.target.value === 'all' ? null : Number(e.target.value))
+                                                setShowAllOrders(false)
+                                            }}
+                                            disabled={!isMultiDay}
+                                            className={`appearance-none pl-8 pr-8 py-2 rounded-xl text-xs font-medium transition-colors border cursor-pointer focus:outline-none focus:ring-2 focus:ring-indigo-500/50 ${
+                                                !isMultiDay
+                                                    ? 'bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-600 border-black/5 dark:border-slate-700 opacity-50 cursor-not-allowed'
+                                                    : dayOfWeekFilter !== null
+                                                        ? 'bg-indigo-50 dark:bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 border-indigo-200 dark:border-indigo-500/30'
+                                                        : 'bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border-black/5 dark:border-slate-700'
+                                            }`}
+                                        >
+                                            <option value="all">{t('sales.day_filter.all_days')}</option>
+                                            {dayOptions.filter(d => daysInRange.has(Number(d.value))).map(d => (
+                                                <option key={d.value} value={d.value}>{d.label}</option>
+                                            ))}
+                                        </select>
+                                        <CalendarDays size={14} className={`absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none ${dayOfWeekFilter !== null && isMultiDay ? 'text-indigo-500' : 'text-slate-400'}`} />
+                                        <ChevronDown size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                                    </div>
+                                )
+                            })()}
                         </div>
 
-                        <div className="flex items-center justify-between sm:justify-end gap-2 sm:gap-3 pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-100 dark:border-slate-800">
-                            {analytics?.startDate && (
-                                <span className="text-[11px] sm:text-xs text-slate-600 dark:text-slate-300 font-mono font-medium tracking-wide bg-slate-100 dark:bg-slate-800 px-2.5 sm:px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 truncate">
-                                    {analytics.startDate === analytics.endDate
-                                        ? analytics.startDate
-                                        : `${analytics.startDate} → ${analytics.endDate}`}
-                                </span>
+                        {/* Right Group: Syncing Indicator + Refresh Button (Identical to VENTAS) */}
+                        <div className="flex items-center gap-2 ml-auto">
+                            {(loadingAnalytics || analytics?.syncingMissingDays) && (
+                                <div className="hidden sm:flex items-center gap-2 px-2.5 py-1.5 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 rounded-lg text-xs font-medium animate-pulse">
+                                    <span className="relative flex h-2 w-2">
+                                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                                        <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                                    </span>
+                                    <span>
+                                        {analytics?.syncingMissingDays
+                                            ? t('new_website.syncing_missing_days', { count: analytics.missingDaysCount || 1 })
+                                            : t('sales.syncing_live')}
+                                    </span>
+                                </div>
                             )}
+
                             <button
-                                onClick={() => fetchAnalyticsData(dateRange, true)}
+                                onClick={() =>
+                                    fetchAnalyticsData(period, startDate, endDate, selectedStore, dayOfWeekFilter, true)
+                                }
                                 disabled={loadingAnalytics}
-                                className="flex items-center justify-center gap-1.5 px-3 sm:px-3.5 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-xs font-semibold tracking-normal text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 transition-colors shrink-0"
+                                className={`flex items-center gap-1.5 px-3 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-xl text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white transition-colors border border-black/5 dark:border-slate-700 shrink-0 text-xs font-medium ${
+                                    loadingAnalytics ? 'opacity-70 cursor-wait' : ''
+                                }`}
+                                title={loadingAnalytics ? t('sales.syncing_latest') : t('sales.refresh')}
                             >
-                                <RefreshCw className={`w-3.5 h-3.5 ${loadingAnalytics ? 'animate-spin text-red-600 dark:text-amber-400' : ''}`} />
+                                <RefreshCw
+                                    size={16}
+                                    className={loadingAnalytics ? 'animate-spin text-emerald-500' : ''}
+                                />
                                 <span>{t('new_website.refresh')}</span>
                             </button>
                         </div>
@@ -599,6 +798,25 @@ export default function NuevaWebPage() {
                             if (orderTypeFilter === 'all') return true
                             return o.fulfillmentType === orderTypeFilter
                         })
+                        const displayedSfOrders = showAllOrders ? filteredSfOrders : filteredSfOrders.slice(0, 50)
+                        const isMultiDay = startDate !== endDate
+
+                        const formatOrderTimestamp = (isoDate: string) => {
+                            const d = new Date(isoDate)
+                            const locale = language === 'es' ? 'es-MX' : 'en-US'
+                            const timePart = d.toLocaleTimeString(locale, {
+                                hour: '2-digit',
+                                minute: '2-digit',
+                                timeZone: 'America/Los_Angeles'
+                            })
+                            if (!isMultiDay) return timePart
+                            const datePart = d.toLocaleDateString(locale, {
+                                month: 'short',
+                                day: 'numeric',
+                                timeZone: 'America/Los_Angeles'
+                            })
+                            return `${datePart} • ${timePart}`
+                        }
 
                         return (
                             <div className="bg-white dark:bg-slate-900 border border-emerald-200 dark:border-emerald-800/70 rounded-2xl overflow-hidden shadow-sm">
@@ -616,7 +834,10 @@ export default function NuevaWebPage() {
                                     {/* Interactive Filter & Summary Pills: All / Pickup / Delivery */}
                                     <div className="flex flex-wrap items-center gap-2">
                                         <button
-                                            onClick={() => setOrderTypeFilter('all')}
+                                            onClick={() => {
+                                                setOrderTypeFilter('all')
+                                                setShowAllOrders(false)
+                                            }}
                                             className={`px-3 py-1.5 rounded-xl text-xs font-semibold tracking-wide border transition-all ${
                                                 orderTypeFilter === 'all'
                                                     ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm'
@@ -627,7 +848,10 @@ export default function NuevaWebPage() {
                                         </button>
 
                                         <button
-                                            onClick={() => setOrderTypeFilter('pickup')}
+                                            onClick={() => {
+                                                setOrderTypeFilter('pickup')
+                                                setShowAllOrders(false)
+                                            }}
                                             className={`px-3 py-1.5 rounded-xl text-xs font-semibold tracking-wide border transition-all ${
                                                 orderTypeFilter === 'pickup'
                                                     ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
@@ -638,7 +862,10 @@ export default function NuevaWebPage() {
                                         </button>
 
                                         <button
-                                            onClick={() => setOrderTypeFilter('delivery')}
+                                            onClick={() => {
+                                                setOrderTypeFilter('delivery')
+                                                setShowAllOrders(false)
+                                            }}
                                             className={`px-3 py-1.5 rounded-xl text-xs font-semibold tracking-wide border transition-all ${
                                                 orderTypeFilter === 'delivery'
                                                     ? 'bg-amber-600 text-white border-amber-600 shadow-sm'
@@ -658,16 +885,12 @@ export default function NuevaWebPage() {
                                     <>
                                         {/* Mobile Cards View (< md) */}
                                         <div className="md:hidden divide-y divide-slate-100 dark:divide-slate-800">
-                                            {filteredSfOrders.map(ord => {
-                                                const orderTimeStr = new Date(ord.openedDate).toLocaleTimeString(language === 'es' ? 'es-MX' : 'en-US', {
-                                                    hour: '2-digit',
-                                                    minute: '2-digit',
-                                                    timeZone: 'America/Los_Angeles'
-                                                })
+                                            {displayedSfOrders.map(ord => {
+                                                const orderTimeStr = formatOrderTimestamp(ord.openedDate)
                                                 const isDelivery = ord.fulfillmentType === 'delivery'
 
                                                 return (
-                                                    <div key={ord.orderGuid} className="p-3.5 flex items-center justify-between gap-3">
+                                                    <div key={`${ord.orderGuid}-${ord.openedDate}`} className="p-3.5 flex items-center justify-between gap-3">
                                                         <div className="min-w-0 flex-1 space-y-1">
                                                             <div className="flex items-center gap-2 flex-wrap">
                                                                 <span className="font-mono font-semibold tracking-wide text-xs text-slate-900 dark:text-white">
@@ -709,21 +932,21 @@ export default function NuevaWebPage() {
                                                         <th className="py-3 px-4">{t('new_website.matched_col_order')}</th>
                                                         <th className="py-3 px-4">{t('new_website.matched_col_store')}</th>
                                                         <th className="py-3 px-4 text-center">{t('new_website.matched_col_type')}</th>
-                                                        <th className="py-3 px-4 text-center">{t('new_website.matched_col_order_time')}</th>
+                                                        <th className="py-3 px-4 text-center">
+                                                            {isMultiDay
+                                                                ? t('new_website.matched_col_date_time')
+                                                                : t('new_website.matched_col_order_time')}
+                                                        </th>
                                                         <th className="py-3 px-5 text-right text-emerald-700 dark:text-emerald-400">{t('new_website.matched_col_net_sales')}</th>
                                                     </tr>
                                                 </thead>
                                                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-xs">
-                                                    {filteredSfOrders.map(ord => {
-                                                        const orderTimeStr = new Date(ord.openedDate).toLocaleTimeString(language === 'es' ? 'es-MX' : 'en-US', {
-                                                            hour: '2-digit',
-                                                            minute: '2-digit',
-                                                            timeZone: 'America/Los_Angeles'
-                                                        })
+                                                    {displayedSfOrders.map(ord => {
+                                                        const orderTimeStr = formatOrderTimestamp(ord.openedDate)
                                                         const isDelivery = ord.fulfillmentType === 'delivery'
 
                                                         return (
-                                                            <tr key={ord.orderGuid} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition-colors">
+                                                            <tr key={`${ord.orderGuid}-${ord.openedDate}`} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition-colors">
                                                                 <td className="py-3 px-4">
                                                                     <div className="flex items-center gap-2">
                                                                         <span className="font-mono font-semibold tracking-wide text-slate-900 dark:text-white text-xs">
@@ -763,6 +986,26 @@ export default function NuevaWebPage() {
                                                 </tbody>
                                             </table>
                                         </div>
+
+                                        {/* Footer Pagination Bar when > 50 orders */}
+                                        {filteredSfOrders.length > 50 && (
+                                            <div className="px-4 py-3 bg-slate-50/80 dark:bg-slate-800/50 border-t border-slate-100 dark:border-slate-800 flex flex-col sm:flex-row items-center justify-between gap-2 text-xs">
+                                                <span className="text-slate-500 dark:text-slate-400 font-medium">
+                                                    {t('new_website.showing_orders_count', {
+                                                        shown: displayedSfOrders.length,
+                                                        total: filteredSfOrders.length
+                                                    })}
+                                                </span>
+                                                <button
+                                                    onClick={() => setShowAllOrders(!showAllOrders)}
+                                                    className="px-3.5 py-1.5 rounded-xl bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800 font-semibold tracking-wide transition-colors shadow-sm"
+                                                >
+                                                    {showAllOrders
+                                                        ? t('new_website.show_less_orders')
+                                                        : t('new_website.show_all_orders', { count: filteredSfOrders.length })}
+                                                </button>
+                                            </div>
+                                        )}
                                     </>
                                 )}
                             </div>
@@ -770,205 +1013,212 @@ export default function NuevaWebPage() {
                     })()}
 
                     {/* 15 Stores Breakdown Table (Simplified: Web Visits/Clicks + Pickup vs Delivery order.online) */}
-                    <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden shadow-sm">
-                        <div className="p-4 sm:p-5 border-b border-slate-100 dark:border-slate-800 flex flex-wrap items-center justify-between gap-3">
-                            <div>
-                                <h2 className="text-sm sm:text-base font-bold tracking-normal text-slate-900 dark:text-white flex items-center gap-2">
-                                    <Store className="w-4.5 h-4.5 sm:w-5 sm:h-5 text-red-600 dark:text-amber-400 shrink-0" />
-                                    <span>{t('new_website.store_table_title')}</span>
-                                </h2>
-                                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 font-normal">
-                                    {t('new_website.store_table_subtitle')}
-                                </p>
-                            </div>
-                            <div className="flex items-center gap-2 text-xs font-medium text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700">
-                                <span>{t('new_website.general_selector_clicks_label')}:</span>
-                                <span className="font-semibold tracking-wide text-amber-600 dark:text-amber-400">
-                                    {summary.generalSelectorClicks.toLocaleString()}
-                                </span>
-                            </div>
-                        </div>
-
-                        {/* Mobile Store Cards View (< md) */}
-                        <div className="md:hidden divide-y divide-slate-100 dark:divide-slate-800">
-                            {(analytics?.storeBreakdown || []).map(st => (
-                                <div key={st.id} className="p-3.5 space-y-2.5">
-                                    <div className="flex items-start justify-between gap-2">
-                                        <div className="min-w-0 flex-1">
-                                            <div className="font-semibold tracking-normal text-slate-900 dark:text-white text-sm truncate">{st.name}</div>
-                                            <div className="text-[11px] text-slate-500 dark:text-slate-400 font-normal truncate">
-                                                {st.crossStreets} • {st.phone}
-                                            </div>
-                                        </div>
-                                        <a
-                                            href={st.toastUrl}
-                                            target="_blank"
-                                            rel="noopener noreferrer"
-                                            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-red-50 hover:bg-red-100 dark:bg-red-900/30 dark:hover:bg-red-900/50 text-red-700 dark:text-red-300 border border-red-200 dark:border-red-800 text-[11px] font-semibold tracking-wide transition-colors shrink-0"
-                                        >
-                                            <span>{t('new_website.btn_open_toast')}</span>
-                                            <ExternalLink className="w-3 h-3" />
-                                        </a>
+                    {(() => {
+                        const visibleStores = (analytics?.storeBreakdown || []).filter(st =>
+                            selectedStore === 'all' ? true : st.id === Number(selectedStore)
+                        )
+                        return (
+                            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden shadow-sm">
+                                <div className="p-4 sm:p-5 border-b border-slate-100 dark:border-slate-800 flex flex-wrap items-center justify-between gap-3">
+                                    <div>
+                                        <h2 className="text-sm sm:text-base font-bold tracking-normal text-slate-900 dark:text-white flex items-center gap-2">
+                                            <Store className="w-4.5 h-4.5 sm:w-5 sm:h-5 text-red-600 dark:text-amber-400 shrink-0" />
+                                            <span>{t('new_website.store_table_title')}</span>
+                                        </h2>
+                                        <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 font-normal">
+                                            {t('new_website.store_table_subtitle')}
+                                        </p>
                                     </div>
-
-                                    <div className="grid grid-cols-2 gap-2 text-xs">
-                                        <div className="bg-slate-50 dark:bg-slate-800/60 p-2.5 rounded-xl border border-slate-200/70 dark:border-slate-800">
-                                            <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 truncate">
-                                                {t('new_website.col_web_activity')}
-                                            </div>
-                                            <div className="text-xs font-semibold tracking-wide text-slate-800 dark:text-slate-100 mt-0.5 truncate">
-                                                {st.webStoreViews} {t('new_website.views_short')} • {st.webOrderClicks} {t('new_website.clicks_short')}
-                                            </div>
-                                        </div>
-
-                                        <div className="bg-emerald-50/60 dark:bg-emerald-950/20 p-2.5 rounded-xl border border-emerald-200/70 dark:border-emerald-900/50">
-                                            <div className="text-[10px] font-semibold uppercase tracking-wider text-emerald-700 dark:text-emerald-400 truncate">
-                                                {t('new_website.col_total_online_orders')}
-                                            </div>
-                                            <div className="text-xs font-mono font-semibold tracking-wide text-emerald-700 dark:text-emerald-300 mt-0.5 truncate">
-                                                {st.storefrontOrdersCount > 0
-                                                    ? `${st.storefrontOrdersCount} ${t('new_website.orders_short_unit')} • $${formatCurrency(st.storefrontOrdersSales)}`
-                                                    : '—'}
-                                            </div>
-                                        </div>
-
-                                        <div className="bg-blue-50/60 dark:bg-blue-950/20 p-2.5 rounded-xl border border-blue-200/70 dark:border-blue-900/50">
-                                            <div className="text-[10px] font-semibold uppercase tracking-wider text-blue-700 dark:text-blue-400 truncate">
-                                                🛍️ {t('new_website.fulfillment_pickup_short')}
-                                            </div>
-                                            <div className="text-xs font-mono font-semibold tracking-wide text-blue-800 dark:text-blue-200 mt-0.5 truncate">
-                                                {st.pickupOrdersCount > 0
-                                                    ? `${st.pickupOrdersCount} ${t('new_website.orders_short_unit')} • $${formatCurrency(st.pickupOrdersSales)}`
-                                                    : '—'}
-                                            </div>
-                                        </div>
-
-                                        <div className="bg-amber-50/60 dark:bg-amber-950/20 p-2.5 rounded-xl border border-amber-200/70 dark:border-amber-900/50">
-                                            <div className="text-[10px] font-semibold uppercase tracking-wider text-amber-700 dark:text-amber-400 truncate">
-                                                🛵 {t('new_website.fulfillment_delivery_short')}
-                                            </div>
-                                            <div className="text-xs font-mono font-semibold tracking-wide text-amber-800 dark:text-amber-200 mt-0.5 truncate">
-                                                {st.deliveryOrdersCount > 0
-                                                    ? `${st.deliveryOrdersCount} ${t('new_website.orders_short_unit')} • $${formatCurrency(st.deliveryOrdersSales)}`
-                                                    : '—'}
-                                            </div>
-                                        </div>
+                                    <div className="flex items-center gap-2 text-xs font-medium text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700">
+                                        <span>{t('new_website.general_selector_clicks_label')}:</span>
+                                        <span className="font-semibold tracking-wide text-amber-600 dark:text-amber-400">
+                                            {summary.generalSelectorClicks.toLocaleString()}
+                                        </span>
                                     </div>
                                 </div>
-                            ))}
-                        </div>
 
-                        {/* Desktop Table View (md+): 6 Clean, Scannable Columns */}
-                        <div className="hidden md:block overflow-x-auto">
-                            <table className="w-full text-left border-collapse">
-                                <thead>
-                                    <tr className="bg-slate-50 dark:bg-slate-800/70 border-b border-slate-200 dark:border-slate-800 text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                                        <th className="py-3.5 px-4">{t('new_website.col_store_name')}</th>
-                                        <th className="py-3.5 px-3 text-center">{t('new_website.col_web_activity')}</th>
-                                        <th className="py-3.5 px-3 text-center text-blue-700 dark:text-blue-400">🛍️ {t('new_website.col_pickup_orders')}</th>
-                                        <th className="py-3.5 px-3 text-center text-amber-700 dark:text-amber-400">🛵 {t('new_website.col_delivery_orders')}</th>
-                                        <th className="py-3.5 px-3 text-center text-emerald-700 dark:text-emerald-400">{t('new_website.col_total_online_orders')}</th>
-                                        <th className="py-3.5 px-4 text-center">{t('new_website.col_open_order')}</th>
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-xs">
-                                    {(analytics?.storeBreakdown || []).map(st => {
-                                        return (
-                                            <tr key={st.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition-colors">
-                                                <td className="py-3 px-4">
-                                                    <div className="font-semibold tracking-normal text-slate-900 dark:text-white text-sm">{st.name}</div>
-                                                    <div className="text-[11px] text-slate-500 dark:text-slate-400 font-normal">
+                                {/* Mobile Store Cards View (< md) */}
+                                <div className="md:hidden divide-y divide-slate-100 dark:divide-slate-800">
+                                    {visibleStores.map(st => (
+                                        <div key={st.id} className="p-3.5 space-y-2.5">
+                                            <div className="flex items-start justify-between gap-2">
+                                                <div className="min-w-0 flex-1">
+                                                    <div className="font-semibold tracking-normal text-slate-900 dark:text-white text-sm truncate">{st.name}</div>
+                                                    <div className="text-[11px] text-slate-500 dark:text-slate-400 font-normal truncate">
                                                         {st.crossStreets} • {st.phone}
                                                     </div>
-                                                </td>
-                                                <td className="py-3 px-3 text-center">
-                                                    <div className="inline-flex items-center gap-2 text-xs">
-                                                        <span className="text-slate-600 dark:text-slate-300 font-medium">
-                                                            {st.webStoreViews.toLocaleString()} {t('new_website.views_short')}
-                                                        </span>
-                                                        <span className="text-slate-300 dark:text-slate-600">•</span>
-                                                        <span
-                                                            className={`px-2 py-0.5 rounded-md font-semibold tracking-wide ${
-                                                                st.webOrderClicks > 0
-                                                                    ? 'bg-amber-100 dark:bg-amber-900/40 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-700'
-                                                                    : 'text-slate-400 dark:text-slate-500'
-                                                            }`}
-                                                        >
-                                                            {st.webOrderClicks.toLocaleString()} {t('new_website.clicks_short')}
-                                                        </span>
+                                                </div>
+                                                <a
+                                                    href={st.toastUrl}
+                                                    target="_blank"
+                                                    rel="noopener noreferrer"
+                                                    className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-red-50 hover:bg-red-100 dark:bg-red-900/30 dark:hover:bg-red-900/50 text-red-700 dark:text-red-300 border border-red-200 dark:border-red-800 text-[11px] font-semibold tracking-wide transition-colors shrink-0"
+                                                >
+                                                    <span>{t('new_website.btn_open_toast')}</span>
+                                                    <ExternalLink className="w-3 h-3" />
+                                                </a>
+                                            </div>
+
+                                            <div className="grid grid-cols-2 gap-2 text-xs">
+                                                <div className="bg-slate-50 dark:bg-slate-800/60 p-2.5 rounded-xl border border-slate-200/70 dark:border-slate-800">
+                                                    <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 truncate">
+                                                        {t('new_website.col_web_activity')}
                                                     </div>
-                                                </td>
-                                                <td className="py-3 px-3 text-center font-mono">
-                                                    {st.pickupOrdersCount > 0 ? (
-                                                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg font-semibold tracking-wide text-xs bg-blue-50 dark:bg-blue-900/30 text-blue-800 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
-                                                            <span>{st.pickupOrdersCount} {t('new_website.orders_short_unit')}</span>
-                                                            <span>•</span>
-                                                            <span>${formatCurrency(st.pickupOrdersSales)}</span>
-                                                        </span>
-                                                    ) : (
-                                                        <span className="text-slate-300 dark:text-slate-700">—</span>
-                                                    )}
-                                                </td>
-                                                <td className="py-3 px-3 text-center font-mono">
-                                                    {st.deliveryOrdersCount > 0 ? (
-                                                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg font-semibold tracking-wide text-xs bg-amber-50 dark:bg-amber-900/30 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
-                                                            <span>{st.deliveryOrdersCount} {t('new_website.orders_short_unit')}</span>
-                                                            <span>•</span>
-                                                            <span>${formatCurrency(st.deliveryOrdersSales)}</span>
-                                                        </span>
-                                                    ) : (
-                                                        <span className="text-slate-300 dark:text-slate-700">—</span>
-                                                    )}
-                                                </td>
-                                                <td className="py-3 px-3 text-center font-mono">
-                                                    {st.storefrontOrdersCount > 0 ? (
-                                                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg font-semibold tracking-wide text-xs bg-emerald-100 dark:bg-emerald-900/40 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700">
-                                                            <span>{st.storefrontOrdersCount} {t('new_website.orders_short_unit')}</span>
-                                                            <span>•</span>
-                                                            <span>${formatCurrency(st.storefrontOrdersSales)}</span>
-                                                        </span>
-                                                    ) : (
-                                                        <span className="text-slate-300 dark:text-slate-700">—</span>
-                                                    )}
-                                                </td>
-                                                <td className="py-3 px-4 text-center">
-                                                    <a
-                                                        href={st.toastUrl}
-                                                        target="_blank"
-                                                        rel="noopener noreferrer"
-                                                        className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-red-50 hover:bg-red-100 dark:bg-red-900/30 dark:hover:bg-red-900/50 text-red-700 dark:text-red-300 border border-red-200 dark:border-red-800 text-[11px] font-semibold tracking-wide transition-colors"
-                                                    >
-                                                        <span>{t('new_website.btn_open_toast')}</span>
-                                                        <ExternalLink className="w-3 h-3" />
-                                                    </a>
-                                                </td>
+                                                    <div className="text-xs font-semibold tracking-wide text-slate-800 dark:text-slate-100 mt-0.5 truncate">
+                                                        {st.webStoreViews} {t('new_website.views_short')} • {st.webOrderClicks} {t('new_website.clicks_short')}
+                                                    </div>
+                                                </div>
+
+                                                <div className="bg-emerald-50/60 dark:bg-emerald-950/20 p-2.5 rounded-xl border border-emerald-200/70 dark:border-emerald-900/50">
+                                                    <div className="text-[10px] font-semibold uppercase tracking-wider text-emerald-700 dark:text-emerald-400 truncate">
+                                                        {t('new_website.col_total_online_orders')}
+                                                    </div>
+                                                    <div className="text-xs font-mono font-semibold tracking-wide text-emerald-700 dark:text-emerald-300 mt-0.5 truncate">
+                                                        {st.storefrontOrdersCount > 0
+                                                            ? `${st.storefrontOrdersCount} ${t('new_website.orders_short_unit')} • $${formatCurrency(st.storefrontOrdersSales)}`
+                                                            : '—'}
+                                                    </div>
+                                                </div>
+
+                                                <div className="bg-blue-50/60 dark:bg-blue-950/20 p-2.5 rounded-xl border border-blue-200/70 dark:border-blue-900/50">
+                                                    <div className="text-[10px] font-semibold uppercase tracking-wider text-blue-700 dark:text-blue-400 truncate">
+                                                        🛍️ {t('new_website.fulfillment_pickup_short')}
+                                                    </div>
+                                                    <div className="text-xs font-mono font-semibold tracking-wide text-blue-800 dark:text-blue-200 mt-0.5 truncate">
+                                                        {st.pickupOrdersCount > 0
+                                                            ? `${st.pickupOrdersCount} ${t('new_website.orders_short_unit')} • $${formatCurrency(st.pickupOrdersSales)}`
+                                                            : '—'}
+                                                    </div>
+                                                </div>
+
+                                                <div className="bg-amber-50/60 dark:bg-amber-950/20 p-2.5 rounded-xl border border-amber-200/70 dark:border-amber-900/50">
+                                                    <div className="text-[10px] font-semibold uppercase tracking-wider text-amber-700 dark:text-amber-400 truncate">
+                                                        🛵 {t('new_website.fulfillment_delivery_short')}
+                                                    </div>
+                                                    <div className="text-xs font-mono font-semibold tracking-wide text-amber-800 dark:text-amber-200 mt-0.5 truncate">
+                                                        {st.deliveryOrdersCount > 0
+                                                            ? `${st.deliveryOrdersCount} ${t('new_website.orders_short_unit')} • $${formatCurrency(st.deliveryOrdersSales)}`
+                                                            : '—'}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+
+                                {/* Desktop Table View (md+): 6 Clean, Scannable Columns */}
+                                <div className="hidden md:block overflow-x-auto">
+                                    <table className="w-full text-left border-collapse">
+                                        <thead>
+                                            <tr className="bg-slate-50 dark:bg-slate-800/70 border-b border-slate-200 dark:border-slate-800 text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                                                <th className="py-3.5 px-4">{t('new_website.col_store_name')}</th>
+                                                <th className="py-3.5 px-3 text-center">{t('new_website.col_web_activity')}</th>
+                                                <th className="py-3.5 px-3 text-center text-blue-700 dark:text-blue-400">🛍️ {t('new_website.col_pickup_orders')}</th>
+                                                <th className="py-3.5 px-3 text-center text-amber-700 dark:text-amber-400">🛵 {t('new_website.col_delivery_orders')}</th>
+                                                <th className="py-3.5 px-3 text-center text-emerald-700 dark:text-emerald-400">{t('new_website.col_total_online_orders')}</th>
+                                                <th className="py-3.5 px-4 text-center">{t('new_website.col_open_order')}</th>
                                             </tr>
-                                        )
-                                    })}
-                                </tbody>
-                                <tfoot>
-                                    <tr className="bg-slate-50 dark:bg-slate-800/90 border-t-2 border-slate-200 dark:border-slate-700 text-xs font-semibold tracking-wide">
-                                        <td className="py-3.5 px-4 text-slate-900 dark:text-white">
-                                            {t('new_website.totals_row_label')}
-                                        </td>
-                                        <td className="py-3.5 px-3 text-center text-slate-700 dark:text-slate-200">
-                                            {summary.totalOrderClicks.toLocaleString()} {t('new_website.clicks_short')}
-                                        </td>
-                                        <td className="py-3.5 px-3 text-center font-mono text-blue-700 dark:text-blue-300">
-                                            {summary.pickupOrdersCount} {t('new_website.orders_short_unit')} • ${formatCurrency(summary.pickupOrdersSales)}
-                                        </td>
-                                        <td className="py-3.5 px-3 text-center font-mono text-amber-700 dark:text-amber-300">
-                                            {summary.deliveryOrdersCount} {t('new_website.orders_short_unit')} • ${formatCurrency(summary.deliveryOrdersSales)}
-                                        </td>
-                                        <td className="py-3.5 px-3 text-center font-mono text-emerald-700 dark:text-emerald-400">
-                                            {summary.storefrontOrdersCount} {t('new_website.orders_short_unit')} • ${formatCurrency(summary.storefrontOrdersSales)}
-                                        </td>
-                                        <td className="py-3.5 px-4 text-center text-slate-400">—</td>
-                                    </tr>
-                                </tfoot>
-                            </table>
-                        </div>
-                    </div>
+                                        </thead>
+                                        <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-xs">
+                                            {visibleStores.map(st => {
+                                                return (
+                                                    <tr key={st.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition-colors">
+                                                        <td className="py-3 px-4">
+                                                            <div className="font-semibold tracking-normal text-slate-900 dark:text-white text-sm">{st.name}</div>
+                                                            <div className="text-[11px] text-slate-500 dark:text-slate-400 font-normal">
+                                                                {st.crossStreets} • {st.phone}
+                                                            </div>
+                                                        </td>
+                                                        <td className="py-3 px-3 text-center">
+                                                            <div className="inline-flex items-center gap-2 text-xs">
+                                                                <span className="text-slate-600 dark:text-slate-300 font-medium">
+                                                                    {st.webStoreViews.toLocaleString()} {t('new_website.views_short')}
+                                                                </span>
+                                                                <span className="text-slate-300 dark:text-slate-600">•</span>
+                                                                <span
+                                                                    className={`px-2 py-0.5 rounded-md font-semibold tracking-wide ${
+                                                                        st.webOrderClicks > 0
+                                                                            ? 'bg-amber-100 dark:bg-amber-900/40 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-700'
+                                                                            : 'text-slate-400 dark:text-slate-500'
+                                                                    }`}
+                                                                >
+                                                                    {st.webOrderClicks.toLocaleString()} {t('new_website.clicks_short')}
+                                                                </span>
+                                                            </div>
+                                                        </td>
+                                                        <td className="py-3 px-3 text-center font-mono">
+                                                            {st.pickupOrdersCount > 0 ? (
+                                                                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg font-semibold tracking-wide text-xs bg-blue-50 dark:bg-blue-900/30 text-blue-800 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
+                                                                    <span>{st.pickupOrdersCount} {t('new_website.orders_short_unit')}</span>
+                                                                    <span>•</span>
+                                                                    <span>${formatCurrency(st.pickupOrdersSales)}</span>
+                                                                </span>
+                                                            ) : (
+                                                                <span className="text-slate-300 dark:text-slate-700">—</span>
+                                                            )}
+                                                        </td>
+                                                        <td className="py-3 px-3 text-center font-mono">
+                                                            {st.deliveryOrdersCount > 0 ? (
+                                                                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg font-semibold tracking-wide text-xs bg-amber-50 dark:bg-amber-900/30 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
+                                                                    <span>{st.deliveryOrdersCount} {t('new_website.orders_short_unit')}</span>
+                                                                    <span>•</span>
+                                                                    <span>${formatCurrency(st.deliveryOrdersSales)}</span>
+                                                                </span>
+                                                            ) : (
+                                                                <span className="text-slate-300 dark:text-slate-700">—</span>
+                                                            )}
+                                                        </td>
+                                                        <td className="py-3 px-3 text-center font-mono">
+                                                            {st.storefrontOrdersCount > 0 ? (
+                                                                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg font-semibold tracking-wide text-xs bg-emerald-100 dark:bg-emerald-900/40 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700">
+                                                                    <span>{st.storefrontOrdersCount} {t('new_website.orders_short_unit')}</span>
+                                                                    <span>•</span>
+                                                                    <span>${formatCurrency(st.storefrontOrdersSales)}</span>
+                                                                </span>
+                                                            ) : (
+                                                                <span className="text-slate-300 dark:text-slate-700">—</span>
+                                                            )}
+                                                        </td>
+                                                        <td className="py-3 px-4 text-center">
+                                                            <a
+                                                                href={st.toastUrl}
+                                                                target="_blank"
+                                                                rel="noopener noreferrer"
+                                                                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-red-50 hover:bg-red-100 dark:bg-red-900/30 dark:hover:bg-red-900/50 text-red-700 dark:text-red-300 border border-red-200 dark:border-red-800 text-[11px] font-semibold tracking-wide transition-colors"
+                                                            >
+                                                                <span>{t('new_website.btn_open_toast')}</span>
+                                                                <ExternalLink className="w-3 h-3" />
+                                                            </a>
+                                                        </td>
+                                                    </tr>
+                                                )
+                                            })}
+                                        </tbody>
+                                        <tfoot>
+                                            <tr className="bg-slate-50 dark:bg-slate-800/90 border-t-2 border-slate-200 dark:border-slate-700 text-xs font-semibold tracking-wide">
+                                                <td className="py-3.5 px-4 text-slate-900 dark:text-white">
+                                                    {t('new_website.totals_row_label')}
+                                                </td>
+                                                <td className="py-3.5 px-3 text-center text-slate-700 dark:text-slate-200">
+                                                    {summary.totalOrderClicks.toLocaleString()} {t('new_website.clicks_short')}
+                                                </td>
+                                                <td className="py-3.5 px-3 text-center font-mono text-blue-700 dark:text-blue-300">
+                                                    {summary.pickupOrdersCount} {t('new_website.orders_short_unit')} • ${formatCurrency(summary.pickupOrdersSales)}
+                                                </td>
+                                                <td className="py-3.5 px-3 text-center font-mono text-amber-700 dark:text-amber-300">
+                                                    {summary.deliveryOrdersCount} {t('new_website.orders_short_unit')} • ${formatCurrency(summary.deliveryOrdersSales)}
+                                                </td>
+                                                <td className="py-3.5 px-3 text-center font-mono text-emerald-700 dark:text-emerald-400">
+                                                    {summary.storefrontOrdersCount} {t('new_website.orders_short_unit')} • ${formatCurrency(summary.storefrontOrdersSales)}
+                                                </td>
+                                                <td className="py-3.5 px-4 text-center text-slate-400">—</td>
+                                            </tr>
+                                        </tfoot>
+                                    </table>
+                                </div>
+                            </div>
+                        )
+                    })()}
 
                     {/* 3 Bottom Insight Cards: Top Pages, Visitor Profile, Live Activity Feed */}
                     <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-5">
@@ -1170,7 +1420,9 @@ export default function NuevaWebPage() {
                             </p>
                         </div>
                         <button
-                            onClick={() => fetchAnalyticsData(dateRange)}
+                            onClick={() =>
+                                fetchAnalyticsData(period, startDate, endDate, selectedStore, dayOfWeekFilter, true)
+                            }
                             className="flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 text-xs font-semibold tracking-normal transition-colors shrink-0"
                         >
                             <RefreshCw className={`w-3.5 h-3.5 ${loadingAnalytics ? 'animate-spin' : ''}`} />

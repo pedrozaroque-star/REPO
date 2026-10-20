@@ -49,7 +49,7 @@ function UsuariosPage() {
       // Traemos usuarios ordenados por nombre
       const { data: usersData, error: userError } = await supabase
         .from('users')
-        .select('*')
+        .select('id, full_name, email, phone, role, store_id, store_scope, position_type, is_active, toast_guid, avatar_url, last_login, created_at')
         .order('full_name')
 
       if (userError) throw userError

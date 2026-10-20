@@ -1,5 +1,18 @@
 'use client'
 
+/**
+ * @module app/configuracion/page
+ * @description Módulo de configuración de perfil personal y seguridad de cuenta para usuarios de Tacos Gavilan.
+ * @businessRules
+ * - Permite actualizar nombre completo y teléfono de contacto del usuario autenticado.
+ * - El correo electrónico y rol están protegidos contra edición directa por el usuario.
+ * - Excluye columnas sensibles (password, google_refresh_token) en las consultas del cliente.
+ * @dataFlow
+ * - Supabase (users, stores) -> Estado local del formulario -> POST /api/admin/update-user y /api/admin/reset-password.
+ * @notes
+ * - Endurecido para consultar únicamente columnas explícitas no sensibles desde el navegador.
+ */
+
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import ProtectedRoute from '@/components/ProtectedRoute'
@@ -114,7 +127,7 @@ function SettingsPage() {
         const supabase = await getSupabaseClient()
         const { data, error } = await supabase
           .from('users')
-          .select('*, stores:store_id(name)')
+          .select('id, full_name, email, phone, role, store_id, store_scope, position_type, is_active, avatar_url, last_login, created_at, stores:store_id(name)')
           .eq('id', authUser.id)
           .single()
 

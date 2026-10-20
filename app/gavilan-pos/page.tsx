@@ -28,6 +28,22 @@
 
 import React, { useState, useEffect, useMemo } from 'react'
 import { useLanguage } from '@/lib/i18n'
+import CashierRegister, { type AppliedDiscount } from '@/components/gavilan-pos/CashierRegister'
+import {
+    lineTotal,
+    groupLinesByPlate,
+    plateWord,
+    kitchenModifierLabels,
+    computeMultiTenderSummary,
+    computeEqualSplitLegs,
+    computeGroupSplitLegs,
+    formatSplitTenderReceiptLabel,
+    SPLIT_TENDER_METHOD_META,
+    type RegisterCartLine,
+    type SplitPaymentMode,
+    type SplitTenderMethod,
+    type SplitTenderLeg,
+} from '@/lib/gavilan-pos/register-layout'
 import {
     LayoutGrid, UtensilsCrossed, Monitor, Tv, Printer, CreditCard, Truck, HardDrive,
     BookOpen, Search, Store, CheckCircle2, AlertTriangle, Sparkles, ArrowUpRight,
@@ -105,15 +121,7 @@ interface StagedChange {
     timestamp: string
 }
 
-interface CartItem {
-    id: string
-    guid: string
-    name: string
-    unitPrice: number
-    qty: number
-    prepStation: 'PARRILLA' | 'LINEA' | 'TORTILLAS' | 'BEBIDAS' | 'NONE'
-    modifiers: { name: string; price: number; isAlert?: boolean }[]
-}
+type CartItem = RegisterCartLine
 
 interface KdsOrderTicket {
     id: string
@@ -232,45 +240,28 @@ export default function GavilanPosEcosystemPage() {
 
     // Live POS Register States
     const [diningOption, setDiningOption] = useState<'FOR HERE' | 'TO GO' | 'DRIVE-THRU'>('TO GO')
-    const [customerNameOrder, setCustomerNameOrder] = useState<string>('CARLOS M.')
-    const [cart, setCart] = useState<CartItem[]>([
-        {
-            id: 'c-1',
-            guid: 'tg-1',
-            name: 'Taco de Asada',
-            unitPrice: 3.49,
-            qty: 4,
-            prepStation: 'PARRILLA',
-            modifiers: [
-                { name: 'Con Todo (Cilantro y Cebolla)', price: 0 },
-                { name: '*** SIN CEBOLLA *** (en 2 tacos)', price: 0, isAlert: true }
-            ]
-        },
-        {
-            id: 'c-2',
-            guid: 'tg-6',
-            name: 'Burrito Regular de Asada',
-            unitPrice: 11.49,
-            qty: 1,
-            prepStation: 'LINEA',
-            modifiers: [
-                { name: 'Extra Aguacate / Guacamole', price: 1.50 }
-            ]
-        },
-        {
-            id: 'c-3',
-            guid: 'tg-13',
-            name: 'Agua de Horchata (Large 32oz)',
-            unitPrice: 4.49,
-            qty: 2,
-            prepStation: 'BEBIDAS',
-            modifiers: []
-        }
-    ])
-    const [selectedCartItemId, setSelectedCartItemId] = useState<string>('c-1')
+    const [customerNameOrder, setCustomerNameOrder] = useState<string>('')
+    const [vehicleColor, setVehicleColor] = useState<string>('')
+    const [vehicleType, setVehicleType] = useState<string>('')
+    const [appliedDiscount, setAppliedDiscount] = useState<AppliedDiscount | null>(null)
+    const [paymentSheetOpen, setPaymentSheetOpen] = useState<boolean>(false)
+    const [cart, setCart] = useState<CartItem[]>([])
+    const [selectedCartItemId, setSelectedCartItemId] = useState<string>('')
     const [selectedTender, setSelectedTender] = useState<'CARD' | 'EBT_FOOD' | 'EBT_CASH' | 'CASH' | 'SPLIT_EBT_MIXED'>('CARD')
     const [splitEbtAmount, setSplitEbtAmount] = useState<number>(15.00)
     const [splitSecondaryMethod, setSplitSecondaryMethod] = useState<'CASH' | 'CARD_NFC'>('CASH')
+    // Universal 4-Mode Split Payment & Multi-Tender States (BY_AMOUNT / BY_EQUAL / BY_PLATE / BY_ITEM)
+    const [splitMode, setSplitMode] = useState<SplitPaymentMode>('BY_AMOUNT')
+    const [splitTenderLegs, setSplitTenderLegs] = useState<SplitTenderLeg[]>([])
+    const [newLegMethod, setNewLegMethod] = useState<SplitTenderMethod>('EBT_FOOD')
+    const [newLegAmount, setNewLegAmount] = useState<number>(15.00)
+    const [newLegCashTendered, setNewLegCashTendered] = useState<number>(0)
+    const [equalWays, setEqualWays] = useState<number>(2)
+    const [equalShareMethods, setEqualShareMethods] = useState<Record<number, SplitTenderMethod>>({ 0: 'CARD_NFC', 1: 'CARD_NFC' })
+    const [plateMethods, setPlateMethods] = useState<Record<number, SplitTenderMethod>>({ 1: 'CARD_NFC', 2: 'CASH' })
+    const [itemPayerMap, setItemPayerMap] = useState<Record<string, number>>({})
+    const [itemPayerMethods, setItemPayerMethods] = useState<Record<number, SplitTenderMethod>>({ 1: 'CARD_NFC', 2: 'CASH', 3: 'EBT_FOOD', 4: 'GIFT_CARD' })
+    const [giftCardCode, setGiftCardCode] = useState<string>('GAV-8842-2026')
     const [discountPct, setDiscountPct] = useState<number>(0)
     const [discountReason, setDiscountReason] = useState<string>('')
     const [managerPinInput, setManagerPinInput] = useState<string>('1425')
@@ -766,45 +757,166 @@ export default function GavilanPosEcosystemPage() {
 
     const currentTaxRate = activeStore ? activeStore.taxRate : 10.25 // LA County default 10.25%
 
-    // Cart Math with Automatic California EBT RMP 0% Sales Tax & Partial Split-Tender Compliance (CDTFA Reg. 1603)
-    const cartTotals = useMemo(() => {
+    // Base Cart Subtotal & Discount Math
+    const baseCartMath = useMemo(() => {
         let rawSubtotal = 0
         for (const item of cart) {
-            const modSum = item.modifiers.reduce((s, m) => s + m.price, 0)
-            rawSubtotal += (item.unitPrice + modSum) * item.qty
+            rawSubtotal += lineTotal(item)
         }
         const discountDollar = Number(((rawSubtotal * discountPct) / 100).toFixed(2))
         const totalDiscount = Number(Math.min(rawSubtotal, discountDollar + appliedLoyaltyDiscount).toFixed(2))
         const subtotal = Number(Math.max(0, rawSubtotal - totalDiscount).toFixed(2))
+        return {
+            rawSubtotal: Number(rawSubtotal.toFixed(2)),
+            totalDiscount,
+            subtotal,
+        }
+    }, [cart, discountPct, appliedLoyaltyDiscount])
 
-        // CRITICAL CALIFORNIA CDTFA REG. 1603 / USDA FNS RULE:
-        // 1) Full EBT Food Stamps (CalFresh RMP): 100% exempt from state & local sales tax ($0.00 tax).
-        // 2) Split Tender (Partial EBT + Cash/Card): EBT portion is 0% tax; tax only applies to remaining non-EBT subtotal!
+    // Active Split Tender Legs across all 4 Split Modes (BY_AMOUNT / BY_EQUAL / BY_PLATE / BY_ITEM)
+    const activeSplitLegs = useMemo<SplitTenderLeg[]>(() => {
+        const sub = baseCartMath.subtotal
+        if (sub <= 0) return []
+
+        if (splitMode === 'BY_EQUAL') {
+            const methodsArr = Array.from({ length: equalWays }, (_, i) => equalShareMethods[i] || 'CARD_NFC')
+            return computeEqualSplitLegs(sub, currentTaxRate, equalWays, methodsArr, isEs)
+        }
+
+        if (splitMode === 'BY_PLATE') {
+            const pGroups = groupLinesByPlate(cart)
+            const w = plateWord(diningOption, isEs)
+            const groupInputs = pGroups.map(pg => ({
+                key: String(pg.plate),
+                label: `${w} ${pg.plate} (${pg.lines.reduce((s, l) => s + l.qty, 0)} art.)`,
+                rawSubtotal: pg.lines.reduce((s, l) => Number((s + lineTotal(l)).toFixed(2)), 0),
+                method: plateMethods[pg.plate] || (pg.plate === 1 ? 'CARD_NFC' : 'CASH'),
+            }))
+            return computeGroupSplitLegs(groupInputs, sub, currentTaxRate)
+        }
+
+        if (splitMode === 'BY_ITEM') {
+            const byPayer = new Map<number, { rawSubtotal: number; itemCount: number }>()
+            cart.forEach((line, idx) => {
+                const payer = itemPayerMap[line.id] || ((idx % 2) + 1)
+                const cur = byPayer.get(payer) || { rawSubtotal: 0, itemCount: 0 }
+                cur.rawSubtotal = Number((cur.rawSubtotal + lineTotal(line)).toFixed(2))
+                cur.itemCount += line.qty
+                byPayer.set(payer, cur)
+            })
+            const groupInputs = [1, 2, 3, 4]
+                .filter(p => (byPayer.get(p)?.rawSubtotal || 0) > 0)
+                .map(p => {
+                    const info = byPayer.get(p)!
+                    return {
+                        key: `payer-${p}`,
+                        label: isEs ? `Pagador ${p} (${info.itemCount} art.)` : `Payer ${p} (${info.itemCount} items)`,
+                        rawSubtotal: info.rawSubtotal,
+                        method: itemPayerMethods[p] || (p === 1 ? 'CARD_NFC' : 'CASH'),
+                    }
+                })
+            return computeGroupSplitLegs(groupInputs, sub, currentTaxRate)
+        }
+
+        // Default Mode: BY_AMOUNT (Custom Sequential Multi-Tender Ledger)
+        if (splitTenderLegs.length > 0) {
+            return splitTenderLegs
+        }
+        const ebtCovered = Number(Math.min(sub, Math.max(0, Number(splitEbtAmount || 0))).toFixed(2))
+        const remSub = Number(Math.max(0, sub - ebtCovered).toFixed(2))
+        const remTax = remSub <= 0 ? 0 : Number(((remSub * currentTaxRate) / 100).toFixed(2))
+        const remDue = Number((remSub + remTax).toFixed(2))
+        const fallbackLegs: SplitTenderLeg[] = []
+        if (ebtCovered > 0) {
+            fallbackLegs.push({
+                id: 'leg-ebt-default',
+                method: 'EBT_FOOD',
+                amount: ebtCovered,
+                label: 'Tramo #1 · EBT CalFresh RMP (0% Tax)',
+            })
+        }
+        if (remDue > 0) {
+            fallbackLegs.push({
+                id: 'leg-sec-default',
+                method: splitSecondaryMethod,
+                amount: remDue,
+                label: `Tramo #${fallbackLegs.length + 1} · Remanente (${SPLIT_TENDER_METHOD_META[splitSecondaryMethod].shortEs})`,
+            })
+        }
+        return fallbackLegs
+    }, [
+        baseCartMath.subtotal,
+        splitMode,
+        equalWays,
+        equalShareMethods,
+        cart,
+        diningOption,
+        plateMethods,
+        itemPayerMap,
+        itemPayerMethods,
+        splitTenderLegs,
+        splitEbtAmount,
+        splitSecondaryMethod,
+        currentTaxRate,
+        isEs,
+    ])
+
+    const multiTenderSummary = useMemo(
+        () => computeMultiTenderSummary(baseCartMath.subtotal, currentTaxRate, activeSplitLegs),
+        [baseCartMath.subtotal, currentTaxRate, activeSplitLegs]
+    )
+
+    // Cart Math with Automatic California EBT RMP 0% Sales Tax & Universal Multi-Tender Compliance (CDTFA Reg. 1603)
+    const cartTotals = useMemo(() => {
+        const { rawSubtotal, totalDiscount, subtotal } = baseCartMath
+
         const isEbtFoodStamp = selectedTender === 'EBT_FOOD'
         const isSplitEbt = selectedTender === 'SPLIT_EBT_MIXED'
+
         const ebtCoveredPortion = isEbtFoodStamp
             ? subtotal
             : isSplitEbt
-                ? Math.min(subtotal, Math.max(0, Number(splitEbtAmount || 0)))
+                ? multiTenderSummary.ebtFoodSubtotalCovered
                 : 0
-        const taxableRemainingSubtotal = Number(Math.max(0, subtotal - ebtCoveredPortion).toFixed(2))
-        const tax = (isEbtFoodStamp || taxableRemainingSubtotal === 0)
+        const taxableRemainingSubtotal = isSplitEbt
+            ? multiTenderSummary.taxableRemainingSubtotal
+            : Number(Math.max(0, subtotal - ebtCoveredPortion).toFixed(2))
+        const tax = isEbtFoodStamp
             ? 0
-            : Number(((taxableRemainingSubtotal * currentTaxRate) / 100).toFixed(2))
+            : isSplitEbt
+                ? multiTenderSummary.taxAmount
+                : taxableRemainingSubtotal === 0
+                    ? 0
+                    : Number(((taxableRemainingSubtotal * currentTaxRate) / 100).toFixed(2))
         const total = Number((subtotal + tax).toFixed(2))
-        const secondaryDue = Number((taxableRemainingSubtotal + tax).toFixed(2))
+        const secondaryDue = isSplitEbt
+            ? multiTenderSummary.nonEbtPaid
+            : Number((taxableRemainingSubtotal + tax).toFixed(2))
 
-        // Real Interchange++ vs Toast Fee calculation on this ticket
-        const cardChargedAmt = selectedTender === 'CARD' ? total : (isSplitEbt && splitSecondaryMethod === 'CARD_NFC' ? secondaryDue : 0)
-        const toastFee = cardChargedAmt > 0 ? Number(((cardChargedAmt * 0.0249) + 0.15).toFixed(2)) : 0
-        const icPlusDurbinFee = cardChargedAmt > 0
-            ? Number(((cardChargedAmt * 0.0005) + 0.22 + (cardChargedAmt * (interchangePlusMarkupBps / 10000)) + 0.03).toFixed(2))
-            : (selectedTender === 'EBT_FOOD' || selectedTender === 'EBT_CASH' || isSplitEbt)
-                ? 0.05 // Standard EBT flat processor fee ($0.05)
+        // Real Interchange++ vs Toast Fee calculation on this ticket (supports multiple card swipes!)
+        const cardChargedAmt = selectedTender === 'CARD'
+            ? total
+            : isSplitEbt
+                ? multiTenderSummary.cardChargedTotal
                 : 0
+        const cardSwipes = selectedTender === 'CARD'
+            ? (total > 0 ? 1 : 0)
+            : isSplitEbt
+                ? multiTenderSummary.cardSwipeCount
+                : 0
+        const toastFee = cardChargedAmt > 0
+            ? Number(((cardChargedAmt * 0.0249) + (0.15 * cardSwipes)).toFixed(2))
+            : 0
+        const hasEbtSwipe = isEbtFoodStamp || selectedTender === 'EBT_CASH' || (isSplitEbt && (multiTenderSummary.ebtFoodSubtotalCovered > 0 || multiTenderSummary.ebtCashTotal > 0))
+        const icPlusDurbinFee = Number((
+            (cardChargedAmt > 0
+                ? (cardChargedAmt * 0.0005) + (0.22 * cardSwipes) + (cardChargedAmt * (interchangePlusMarkupBps / 10000)) + (0.03 * cardSwipes)
+                : 0) +
+            (hasEbtSwipe ? 0.05 : 0)
+        ).toFixed(2))
 
         return {
-            rawSubtotal: Number(rawSubtotal.toFixed(2)),
+            rawSubtotal,
             totalDiscount,
             subtotal,
             ebtCoveredPortion,
@@ -815,9 +927,9 @@ export default function GavilanPosEcosystemPage() {
             isEbtFoodStamp,
             isSplitEbt,
             toastFee,
-            icPlusDurbinFee
+            icPlusDurbinFee,
         }
-    }, [cart, selectedTender, splitEbtAmount, splitSecondaryMethod, discountPct, appliedLoyaltyDiscount, currentTaxRate, interchangePlusMarkupBps])
+    }, [baseCartMath, selectedTender, multiTenderSummary, currentTaxRate, interchangePlusMarkupBps])
 
     // Active Cash Drawer Expected Balance (Starting Bank + Cash Sales + Pay-In - Cash Drops - Pay-Outs)
     const liveDrawerExpectedCash = useMemo(() => {
@@ -827,12 +939,17 @@ export default function GavilanPosEcosystemPage() {
             if (ev.event_type === 'STARTING_BANK' || ev.event_type === 'PAY_IN') balance += amt
             else if (ev.event_type === 'CASH_DROP' || ev.event_type === 'PAY_OUT') balance -= amt
         }
-        // Add cash orders from rawOrders
+        // Add cash orders from rawOrders (including multi-tender cash legs)
         for (const ord of rawOrders) {
             if (ord.is_voided) continue
-            if (ord.payment_method === 'CASH') balance += Number(ord.total_amount || 0)
-            else if (ord.payment_method === 'SPLIT_EBT_MIXED' && ord.split_secondary_method === 'CASH') {
-                balance += Number(ord.split_secondary_amount || 0)
+            if (ord.payment_method === 'CASH') {
+                balance += Number(ord.total_amount || 0)
+            } else if (ord.payment_method === 'SPLIT_EBT_MIXED') {
+                if (typeof ord.cash_collected_amount === 'number') {
+                    balance += Number(ord.cash_collected_amount)
+                } else if (String(ord.split_secondary_method || '').includes('CASH')) {
+                    balance += Number(ord.split_secondary_amount || 0)
+                }
             }
         }
         return Number(Math.max(0, balance).toFixed(2))
@@ -893,22 +1010,90 @@ export default function GavilanPosEcosystemPage() {
         }))
     }
 
+    const handleApplyDiscount = (d: AppliedDiscount) => {
+        setAppliedDiscount(d)
+        setDiscountPct(d.pct)
+        setDiscountReason(`${d.type} ${d.pct}% (Autorizó: ${d.approverName})`)
+    }
+
+    const handleClearDiscount = () => {
+        setAppliedDiscount(null)
+        setDiscountPct(0)
+        setDiscountReason('')
+    }
+
+    const handleVerifiedVoidLastOrder = async (approverName: string, isWaste: boolean) => {
+        const targetOrd = rawOrders.find((o: any) => !o.is_voided)
+        if (!targetOrd) return
+        await dispatchPosMutation('VOID_OR_COMP_ORDER', {
+            orderId: targetOrd.id || targetOrd.client_order_id,
+            clientOrderId: targetOrd.client_order_id,
+            orderNumber: targetOrd.order_number,
+            isVoided: true,
+            voidReason: isWaste
+                ? `Anulación Post-Cocina — Merma/Waste (Autorizó: ${approverName})`
+                : `Anulación Pre-Cocina — Devuelto a Inventario (Autorizó: ${approverName})`,
+            isWaste,
+            managerPinUsed: approverName,
+        })
+        setRawOrders(prev => prev.map(o =>
+            (o.id === targetOrd.id || o.client_order_id === targetOrd.client_order_id)
+                ? { ...o, is_voided: true, is_waste: isWaste, kds_status: 'BUMPED' }
+                : o
+        ))
+        setKdsTickets(prev => prev.filter(t => t.id !== (targetOrd.id || targetOrd.client_order_id)))
+    }
+
     // Complete Live Checkout & Persist to Supabase PostgreSQL (or Offline SAF Queue) + Fire to KDS + Printer
-    const handleProcessPayment = () => {
+    const handleProcessPayment = (overrideTender?: 'CARD' | 'EBT_FOOD' | 'SPLIT_EBT_MIXED' | 'EBT_CASH' | 'CASH') => {
         if (cart.length === 0) return
+        const activeTender = overrideTender || selectedTender
+        if (overrideTender) {
+            setSelectedTender(overrideTender)
+        }
+        const effectiveIsEbtFoodStamp = activeTender === 'EBT_FOOD'
+        const effectiveIsSplitEbt = activeTender === 'SPLIT_EBT_MIXED'
+        const effectiveSubtotal = cartTotals.subtotal
+        const effectiveEbtCovered = effectiveIsEbtFoodStamp
+            ? effectiveSubtotal
+            : effectiveIsSplitEbt
+                ? multiTenderSummary.ebtFoodSubtotalCovered
+                : 0
+        const effectiveTaxableRemaining = effectiveIsSplitEbt
+            ? multiTenderSummary.taxableRemainingSubtotal
+            : Number(Math.max(0, effectiveSubtotal - effectiveEbtCovered).toFixed(2))
+        const effectiveTax = effectiveIsEbtFoodStamp
+            ? 0
+            : effectiveIsSplitEbt
+                ? multiTenderSummary.taxAmount
+                : effectiveTaxableRemaining === 0
+                    ? 0
+                    : Number(((effectiveTaxableRemaining * currentTaxRate) / 100).toFixed(2))
+        const effectiveTotal = Number((effectiveSubtotal + effectiveTax).toFixed(2))
+        const effectiveSecondaryDue = effectiveIsSplitEbt
+            ? multiTenderSummary.nonEbtPaid
+            : Number((effectiveTaxableRemaining + effectiveTax).toFixed(2))
+        const resolvedSplitSecondaryMethodSummary = effectiveIsSplitEbt
+            ? (activeSplitLegs
+                .filter(l => l.method !== 'EBT_FOOD' && l.amount > 0)
+                .map(l => `${l.method}:${l.amount.toFixed(2)}`)
+                .join('+') || splitSecondaryMethod)
+            : null
+
         setPinPadStatus('WAITING_PIN_TAP')
         setTimeout(() => {
             setPinPadStatus('APPROVED')
             const nextCheckNum = lastReceiptInfo.checkNumber + 1
             const isOffline = networkPowerMode === 'OFFLINE_BATTERY'
+            const plateCount = groupLinesByPlate(cart).length
             const tenderLabel =
-                selectedTender === 'EBT_FOOD'
+                activeTender === 'EBT_FOOD'
                     ? (networkPowerMode === 'CELLULAR_5G_UPS' ? 'EBT CALFRESH RMP (5G FAILOVER AUTH)' : 'EBT CALFRESH RMP (CHIP + PIN)')
-                    : selectedTender === 'SPLIT_EBT_MIXED'
-                        ? `PAGO DIVIDIDO: EBT $${cartTotals.ebtCoveredPortion.toFixed(2)} (0% TAX) + ${splitSecondaryMethod} $${cartTotals.secondaryDue.toFixed(2)}`
-                        : selectedTender === 'EBT_CASH'
+                    : activeTender === 'SPLIT_EBT_MIXED'
+                        ? formatSplitTenderReceiptLabel(splitMode, activeSplitLegs, multiTenderSummary)
+                        : activeTender === 'EBT_CASH'
                             ? 'EBT CASH / CALWORKS (CHIP + PIN)'
-                            : selectedTender === 'CASH'
+                            : activeTender === 'CASH'
                                 ? 'EFECTIVO (CASH - CAJÓN ABIERTO)'
                                 : isOffline
                                     ? 'VISA / APPLE PAY (OFFLINE SAF ENCRYPTED)'
@@ -917,16 +1102,12 @@ export default function GavilanPosEcosystemPage() {
             setLastReceiptInfo({
                 checkNumber: nextCheckNum,
                 tender: tenderLabel,
-                subtotal: cartTotals.subtotal,
-                tax: cartTotals.tax,
-                total: cartTotals.total,
-                ebtRemainingBalance: selectedTender === 'EBT_FOOD'
-                    ? Number((184.50 - cartTotals.total).toFixed(2))
-                    : selectedTender === 'SPLIT_EBT_MIXED'
-                        ? 0.00
-                        : null,
-                authCode: selectedTender === 'CASH' ? 'CASH-OK' : isOffline ? `SAF-${nextCheckNum}` : `A${Math.floor(10000 + Math.random() * 89999)}`,
-                drawerOpened: selectedTender === 'CASH' || (selectedTender === 'SPLIT_EBT_MIXED' && splitSecondaryMethod === 'CASH')
+                subtotal: effectiveSubtotal,
+                tax: effectiveTax,
+                total: effectiveTotal,
+                ebtRemainingBalance: null,
+                authCode: activeTender === 'CASH' ? 'CASH-OK' : isOffline ? `SAF-${nextCheckNum}` : `A${Math.floor(10000 + Math.random() * 89999)}`,
+                drawerOpened: activeTender === 'CASH' || (activeTender === 'SPLIT_EBT_MIXED' && multiTenderSummary.requiresCashDrawerKick)
             })
 
             const clientOrderId = `POS-${activeStore?.storeNumber || 14}-${nextCheckNum}-${Date.now()}`
@@ -942,7 +1123,7 @@ export default function GavilanPosEcosystemPage() {
                     name: c.name,
                     qty: c.qty,
                     station: c.prepStation,
-                    modifiers: c.modifiers.map(m => m.name),
+                    modifiers: kitchenModifierLabels(c, plateCount, diningOption),
                     done: false
                 }))
             }
@@ -950,13 +1131,25 @@ export default function GavilanPosEcosystemPage() {
             broadcastLanEvent({ type: 'NEW_KDS_TICKET', ticket: newKdsTicket })
 
             const resolvedPayMethod =
-                selectedTender === 'EBT_FOOD'
+                activeTender === 'EBT_FOOD'
                     ? 'EBT_CALFRESH'
-                    : selectedTender === 'SPLIT_EBT_MIXED'
+                    : activeTender === 'SPLIT_EBT_MIXED'
                         ? 'SPLIT_EBT_MIXED'
-                        : selectedTender === 'CARD'
+                        : activeTender === 'CARD'
                             ? 'CARD_NFC'
-                            : selectedTender
+                            : activeTender
+
+            const serializedItems = cart.map(c => ({
+                id: c.guid,
+                name: c.name,
+                qty: c.qty,
+                unitPrice: c.unitPrice,
+                station: c.prepStation,
+                family: c.family || null,
+                plate: c.plate || 1,
+                modifiers: kitchenModifierLabels(c, plateCount, diningOption),
+                modifierDetails: c.modifiers,
+            }))
 
             const newOrderRecord = {
                 id: clientOrderId,
@@ -965,25 +1158,22 @@ export default function GavilanPosEcosystemPage() {
                 store_number: activeStore?.storeNumber || 14,
                 dining_option: diningOption.replace(' ', '_'),
                 customer_name: customerNameOrder || `ORDEN #${nextCheckNum}`,
-                items: cart.map(c => ({
-                    id: c.guid,
-                    name: c.name,
-                    qty: c.qty,
-                    unitPrice: c.unitPrice,
-                    station: c.prepStation,
-                    modifiers: c.modifiers.map(m => m.name)
-                })),
-                subtotal: cartTotals.subtotal,
-                tax_rate: cartTotals.isEbtFoodStamp ? 0 : currentTaxRate,
-                tax_amount: cartTotals.tax,
-                total_amount: cartTotals.total,
+                items: serializedItems,
+                subtotal: effectiveSubtotal,
+                tax_rate: effectiveIsEbtFoodStamp ? 0 : currentTaxRate,
+                tax_amount: effectiveTax,
+                total_amount: effectiveTotal,
                 payment_method: resolvedPayMethod,
                 kds_status: 'IN_PREP',
-                split_ebt_amount: cartTotals.ebtCoveredPortion,
-                split_secondary_amount: cartTotals.isSplitEbt ? cartTotals.secondaryDue : 0,
-                split_secondary_method: cartTotals.isSplitEbt ? splitSecondaryMethod : null,
+                vehicle_type: diningOption === 'DRIVE-THRU' ? (vehicleType || 'N/A') : 'N/A',
+                vehicle_color: diningOption === 'DRIVE-THRU' ? (vehicleColor || 'N/A') : 'N/A',
+                split_ebt_amount: effectiveEbtCovered,
+                split_secondary_amount: effectiveIsSplitEbt ? effectiveSecondaryDue : 0,
+                split_secondary_method: resolvedSplitSecondaryMethodSummary,
+                cash_collected_amount: effectiveIsSplitEbt ? multiTenderSummary.cashAppliedTotal : (activeTender === 'CASH' ? effectiveTotal : 0),
                 discount_amount: cartTotals.totalDiscount,
                 discount_reason: discountReason || null,
+                manager_pin_used: appliedDiscount?.approverName || null,
                 loyalty_phone: loyaltyPhoneInput || null,
                 created_at: new Date().toISOString()
             }
@@ -996,36 +1186,41 @@ export default function GavilanPosEcosystemPage() {
                 storeNumber: activeStore?.storeNumber || 14,
                 diningOption: diningOption.replace(' ', '_'),
                 customerName: customerNameOrder || `ORDEN #${nextCheckNum}`,
-                items: cart.map(c => ({
-                    id: c.guid,
-                    name: c.name,
-                    qty: c.qty,
-                    unitPrice: c.unitPrice,
-                    station: c.prepStation,
-                    modifiers: c.modifiers.map(m => m.name)
-                })),
-                subtotal: cartTotals.subtotal,
-                taxRate: cartTotals.isEbtFoodStamp ? 0 : currentTaxRate,
-                taxAmount: cartTotals.tax,
-                totalAmount: cartTotals.total,
+                items: serializedItems,
+                subtotal: effectiveSubtotal,
+                taxRate: effectiveIsEbtFoodStamp ? 0 : currentTaxRate,
+                taxAmount: effectiveTax,
+                totalAmount: effectiveTotal,
                 paymentMethod: resolvedPayMethod,
                 paymentCaptureMode: isOffline
-                    ? (selectedTender === 'CASH' ? 'CASH_LOCAL_DRAWER' : 'OFFLINE_SAF_ENCRYPTED')
+                    ? (activeTender === 'CASH' ? 'CASH_LOCAL_DRAWER' : 'OFFLINE_SAF_ENCRYPTED')
                     : networkPowerMode === 'CELLULAR_5G_UPS'
                         ? '5G_CELLULAR_FAILOVER'
                         : 'ONLINE_AUTH',
                 stationCode: cart[0]?.prepStation || 'PARRILLA',
                 createdOffline: isOffline,
                 powerSourceMode: networkPowerMode === 'ONLINE_AC' ? 'AC_GRID' : 'LIFEPO4_UPS_BACKUP',
-                splitEbtAmount: cartTotals.ebtCoveredPortion,
-                splitSecondaryAmount: cartTotals.isSplitEbt ? cartTotals.secondaryDue : 0,
-                splitSecondaryMethod: cartTotals.isSplitEbt ? splitSecondaryMethod : null,
+                vehicleType: diningOption === 'DRIVE-THRU' ? (vehicleType || 'N/A') : 'N/A',
+                vehicleColor: diningOption === 'DRIVE-THRU' ? (vehicleColor || 'N/A') : 'N/A',
+                splitEbtAmount: effectiveEbtCovered,
+                splitSecondaryAmount: effectiveIsSplitEbt ? effectiveSecondaryDue : 0,
+                splitSecondaryMethod: resolvedSplitSecondaryMethodSummary,
                 discountAmount: cartTotals.totalDiscount,
                 discountReason: discountReason || null,
+                managerPinUsed: appliedDiscount?.approverName || null,
                 loyaltyPhone: loyaltyPhoneInput || null,
             })
 
-            setTimeout(() => setPinPadStatus('IDLE'), 1800)
+            setTimeout(() => {
+                setPinPadStatus('IDLE')
+                setCart([])
+                setSplitTenderLegs([])
+                setCustomerNameOrder('')
+                setVehicleColor('')
+                setVehicleType('')
+                handleClearDiscount()
+                setPaymentSheetOpen(false)
+            }, 1400)
         }, 500)
     }
 
@@ -2243,233 +2438,100 @@ export default function GavilanPosEcosystemPage() {
                         MODULE 3: TERMINAL CAJA POS EN VIVO + PANTALLA CLIENTE (CFD)
                        ================================================================= */}
                     {activeCategory === 'register' && (
-                        <div className="space-y-5">
-                            {/* Top Bar Info */}
-                            <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-2xs flex flex-wrap items-center justify-between gap-3">
-                                <div>
-                                    <div className="flex items-center gap-2 text-xs font-bold text-red-600 uppercase tracking-wider">
-                                        <Monitor size={14} />
-                                        <span>Simulador Funcional "Caja de Pruebas #1" (Elo 15.6" Cajero + Pantalla Cliente 10.1" + Lector PAX A35)</span>
-                                    </div>
-                                    <p className="text-xs text-slate-500 mt-0.5">
-                                        Toca cualquier platillo, agrega modificadores, cambia entre Tarjeta / Efectivo / <strong>EBT CalFresh RMP (0% Tax automático)</strong> y envía la orden en vivo al KDS HDMI.
-                                    </p>
+                        <div className="space-y-4">
+                            <CashierRegister
+                                cart={cart}
+                                setCart={setCart}
+                                diningOption={diningOption}
+                                setDiningOption={setDiningOption}
+                                customerName={customerNameOrder}
+                                setCustomerName={setCustomerNameOrder}
+                                vehicleColor={vehicleColor}
+                                setVehicleColor={setVehicleColor}
+                                vehicleType={vehicleType}
+                                setVehicleType={setVehicleType}
+                                orderNumber={lastReceiptInfo.checkNumber + 1}
+                                storeNumber={activeStore?.storeNumber || 14}
+                                taxRatePct={cartTotals.isEbtFoodStamp ? 0 : currentTaxRate}
+                                totals={cartTotals}
+                                appliedDiscount={appliedDiscount}
+                                onApplyDiscount={handleApplyDiscount}
+                                onClearDiscount={handleClearDiscount}
+                                onCharge={() => setPaymentSheetOpen(true)}
+                                onOpenSplitPayment={() => {
+                                    setSelectedTender('SPLIT_EBT_MIXED')
+                                    setPaymentSheetOpen(true)
+                                }}
+                                onQuickTender={(method) => handleProcessPayment(method)}
+                                chargeBusy={pinPadStatus !== 'IDLE'}
+                                onVoidLastOrder={handleVerifiedVoidLastOrder}
+                                canVoidLastOrder={rawOrders.some((o: any) => !o.is_voided)}
+                            />
+
+                            {/* 10.1" Customer-Facing Display (CFD) + PAX A35 Live Preview */}
+                            <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-2xs">
+                                <div className="flex items-center justify-between mb-2">
+                                    <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500">
+                                        Vista en Vivo: Pantalla Frente al Cliente (10.1&quot; CFD + Lector PAX A35)
+                                    </span>
+                                    <span className="text-[10px] font-mono font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                                        Dual-Screen Activo
+                                    </span>
                                 </div>
-                                <div className="flex items-center gap-2">
-                                    {(['FOR HERE', 'TO GO', 'DRIVE-THRU'] as const).map(opt => (
-                                        <button
-                                            key={opt}
-                                            onClick={() => setDiningOption(opt)}
-                                            className={`px-3 py-1.5 rounded-xl text-xs font-extrabold border cursor-pointer transition-all ${
-                                                diningOption === opt
-                                                    ? 'bg-red-600 text-white border-red-700 shadow-2xs'
-                                                    : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
-                                            }`}
-                                        >
-                                            {opt === 'FOR HERE' ? '🍽️ COMER AQUÍ (FOR HERE)' : opt === 'TO GO' ? '🛍️ PARA LLEVAR (TO GO)' : '🚗 DRIVE-THRU'}
-                                        </button>
-                                    ))}
+                                <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between gap-4">
+                                    <div className="space-y-1">
+                                        <p className="text-xs font-black text-slate-900">
+                                            Tacos Gavilan — Bienvenido {customerNameOrder || `#${lastReceiptInfo.checkNumber + 1}`}
+                                        </p>
+                                        <p className="text-[11px] text-slate-600">
+                                            {cart.reduce((s, c) => s + c.qty, 0)} artículos • {diningOption}
+                                        </p>
+                                    </div>
+                                    <div className="text-right">
+                                        <span className="text-[10px] font-bold uppercase text-slate-400">Total en Pantalla Cliente</span>
+                                        <p className="text-xl font-black text-slate-900 tabular-nums">${cartTotals.total.toFixed(2)}</p>
+                                    </div>
                                 </div>
                             </div>
 
-                            {/* Main Dual-Screen POS Register Layout */}
-                            <div className="grid grid-cols-1 xl:grid-cols-12 gap-5">
-                                {/* LEFT 7 COLS: CASHIER TOUCH MENU + MODIFIER BAR */}
-                                <div className="xl:col-span-7 space-y-4">
-                                    {/* Category Tabs */}
-                                    <div className="bg-white rounded-2xl border border-slate-200 p-3 shadow-2xs flex flex-wrap gap-1.5">
-                                        {menuGroups.slice(0, 8).map(grp => (
-                                            <button
-                                                key={grp}
-                                                onClick={() => setSelectedMenuGroup(grp)}
-                                                className={`px-3 py-1.5 rounded-xl text-xs font-extrabold border cursor-pointer ${
-                                                    selectedMenuGroup === grp
-                                                        ? 'bg-slate-900 text-white border-slate-900'
-                                                        : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
-                                                }`}
-                                            >
-                                                {grp === 'ALL' ? 'Todo el Menú' : grp}
-                                            </button>
-                                        ))}
-                                    </div>
-
-                                    {/* POS Touch Grid */}
-                                    <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-2xs">
-                                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
-                                            {filteredMenuItems.slice(0, 15).map(item => (
-                                                <button
-                                                    key={item.guid}
-                                                    disabled={!item.inStock}
-                                                    onClick={() => addToCart(item)}
-                                                    className={`p-3 rounded-xl border text-left transition-all flex flex-col justify-between min-h-[84px] cursor-pointer active:scale-[0.98] ${
-                                                        !item.inStock
-                                                            ? 'bg-slate-100 border-slate-200 opacity-50 cursor-not-allowed'
-                                                            : item.buttonColor || 'bg-slate-50 hover:bg-white border-slate-200 hover:border-slate-300 shadow-2xs'
-                                                    }`}
-                                                >
-                                                    <div className="flex items-start justify-between gap-1">
-                                                        <span className="text-xs font-extrabold leading-snug line-clamp-2">
-                                                            {item.name}
-                                                        </span>
-                                                        {!item.inStock && (
-                                                            <span className="px-1.5 py-0.5 rounded bg-rose-600 text-white text-[9px] font-black">86</span>
-                                                        )}
-                                                    </div>
-                                                    <div className="flex items-center justify-between mt-2 pt-1.5 border-t border-black/5">
-                                                        <span className="text-[10px] font-bold opacity-75">{item.prepStation}</span>
-                                                        <span className="text-xs font-black tabular-nums">${item.basePrice.toFixed(2)}</span>
-                                                    </div>
-                                                </button>
-                                            ))}
-                                        </div>
-                                    </div>
-
-                                    {/* Instant Modifier Touch Pad for Selected Check Item */}
-                                    <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-2xs">
-                                        <div className="flex items-center justify-between mb-2.5">
-                                            <span className="text-xs font-extrabold text-slate-900">
-                                                Modificadores Rápidos (Se aplican al artículo seleccionado en la cuenta)
-                                            </span>
-                                            <span className="text-[11px] font-bold text-red-600">
-                                                Rojo = Imprime en Tinta Roja en Epson TM-U220B
-                                            </span>
-                                        </div>
-                                        <div className="flex flex-wrap gap-2">
-                                            {AVAILABLE_MODIFIERS.map(mod => {
-                                                const selectedItemObj = cart.find(c => c.id === selectedCartItemId)
-                                                const isApplied = selectedItemObj?.modifiers.some(m => m.name === mod.name)
-                                                return (
-                                                    <button
-                                                        key={mod.name}
-                                                        onClick={() => toggleModifierOnSelected(mod)}
-                                                        className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
-                                                            isApplied
-                                                                ? mod.isAlert
-                                                                    ? 'bg-red-600 text-white border-red-700'
-                                                                    : 'bg-slate-900 text-white border-slate-900'
-                                                                : mod.isAlert
-                                                                    ? 'bg-red-50 text-red-800 border-red-200 hover:bg-red-100'
-                                                                    : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
-                                                        }`}
-                                                    >
-                                                        {mod.name} {mod.price > 0 ? `+$${mod.price.toFixed(2)}` : ''}
-                                                    </button>
-                                                )
-                                            })}
-                                        </div>
-                                    </div>
-                                </div>
-
-                                {/* RIGHT 5 COLS: ACTIVE CHECK + PAX A35 PIN PAD + 10.1" CUSTOMER DISPLAY */}
-                                <div className="xl:col-span-5 space-y-4">
-                                    {/* Active Check & Tender Box */}
-                                    <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-2xs space-y-3">
+                            {/* Payment & Tender Sheet Modal (works in normal view AND fullscreen register mode) */}
+                            {paymentSheetOpen && (
+                                <div className="fixed inset-0 z-[75] bg-slate-900/45 flex items-center justify-center p-4" role="dialog" aria-modal="true">
+                                    <div className="w-full max-w-2xl max-h-[92vh] overflow-y-auto bg-white rounded-2xl border border-slate-200 p-5 shadow-2xl space-y-4">
                                         <div className="flex items-center justify-between border-b border-slate-200 pb-3">
-                                            <div>
-                                                <div className="flex items-center gap-2">
-                                                    <span className="px-2 py-0.5 rounded bg-slate-900 text-white text-xs font-black">
-                                                        ORDEN #{lastReceiptInfo.checkNumber + 1}
-                                                    </span>
-                                                    <span className="text-xs font-extrabold text-red-600">{diningOption}</span>
-                                                </div>
-                                                <div className="flex items-center gap-2 mt-1.5">
-                                                    <span className="text-[11px] font-bold text-slate-500">Cliente:</span>
-                                                    <input
-                                                        type="text"
-                                                        value={customerNameOrder}
-                                                        onChange={(e) => setCustomerNameOrder(e.target.value)}
-                                                        className="px-2 py-0.5 text-xs font-bold text-slate-900 bg-slate-50 border border-slate-200 rounded-md"
-                                                    />
-                                                </div>
+                                            <div className="flex items-center gap-2">
+                                                <CreditCard size={18} className="text-emerald-600" />
+                                                <h3 className="text-base font-black text-slate-900">
+                                                    {t('gavilan_pos.register.payment_sheet_title')}
+                                                </h3>
                                             </div>
                                             <button
-                                                onClick={() => setCart([])}
-                                                className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-rose-50 hover:text-rose-700 text-slate-600 text-xs font-bold flex items-center gap-1 cursor-pointer"
+                                                type="button"
+                                                onClick={() => setPaymentSheetOpen(false)}
+                                                className="min-h-[44px] px-3 rounded-xl border border-slate-200 bg-slate-50 text-xs font-black text-slate-700 flex items-center gap-1 cursor-pointer"
                                             >
-                                                <Trash2 size={13} /> Limpiar
+                                                <X size={16} /> {t('gavilan_pos.register.close_payment_sheet')}
                                             </button>
                                         </div>
 
-                                        {/* Cart Items List */}
-                                        <div className="max-h-56 overflow-y-auto divide-y divide-slate-100 pr-1">
-                                            {cart.length === 0 ? (
-                                                <p className="py-8 text-center text-xs text-slate-400 font-medium">
-                                                    Toca un platillo a la izquierda para agregarlo a la orden.
-                                                </p>
-                                            ) : (
-                                                cart.map(c => {
-                                                    const isSelected = c.id === selectedCartItemId
-                                                    const modSum = c.modifiers.reduce((s, m) => s + m.price, 0)
-                                                    const lineTotal = (c.unitPrice + modSum) * c.qty
-                                                    return (
-                                                        <div
-                                                            key={c.id}
-                                                            onClick={() => setSelectedCartItemId(c.id)}
-                                                            className={`py-2.5 px-2.5 rounded-xl cursor-pointer transition-colors ${
-                                                                isSelected ? 'bg-blue-50/70 border border-blue-200' : 'hover:bg-slate-50'
-                                                            }`}
-                                                        >
-                                                            <div className="flex items-center justify-between">
-                                                                <div className="flex items-center gap-2">
-                                                                    <div className="flex items-center border border-slate-200 rounded-lg bg-white">
-                                                                        <button
-                                                                            onClick={(e) => {
-                                                                                e.stopPropagation()
-                                                                                setCart(prev => prev.map(x => x.id === c.id ? { ...x, qty: Math.max(0, x.qty - 1) } : x).filter(x => x.qty > 0))
-                                                                            }}
-                                                                            className="px-1.5 py-0.5 text-slate-600 hover:bg-slate-100 cursor-pointer"
-                                                                        >
-                                                                            <Minus size={11} />
-                                                                        </button>
-                                                                        <span className="px-2 text-xs font-black tabular-nums">{c.qty}</span>
-                                                                        <button
-                                                                            onClick={(e) => {
-                                                                                e.stopPropagation()
-                                                                                setCart(prev => prev.map(x => x.id === c.id ? { ...x, qty: x.qty + 1 } : x))
-                                                                            }}
-                                                                            className="px-1.5 py-0.5 text-slate-600 hover:bg-slate-100 cursor-pointer"
-                                                                        >
-                                                                            <Plus size={11} />
-                                                                        </button>
-                                                                    </div>
-                                                                    <span className="text-xs font-extrabold text-slate-900">{c.name}</span>
-                                                                </div>
-                                                                <span className="text-xs font-black text-slate-900 tabular-nums">
-                                                                    ${lineTotal.toFixed(2)}
-                                                                </span>
-                                                            </div>
-                                                            {c.modifiers.length > 0 && (
-                                                                <div className="mt-1 pl-14 space-y-0.5">
-                                                                    {c.modifiers.map((m, idx) => (
-                                                                        <p key={idx} className={`text-[11px] font-bold ${m.isAlert ? 'text-red-600' : 'text-slate-500'}`}>
-                                                                            • {m.name} {m.price > 0 ? `(+$${m.price.toFixed(2)})` : ''}
-                                                                        </p>
-                                                                    ))}
-                                                                </div>
-                                                            )}
-                                                        </div>
-                                                    )
-                                                })
-                                            )}
-                                        </div>
-
-                                        {/* Payment Tender Selector (Card / EBT Food / Split EBT+Cash / EBT Cash / Cash) */}
-                                        <div className="pt-2 border-t border-slate-200 space-y-2">
+                                        {/* Payment Tender Selector (Card / EBT Food / Universal Split Multi-Tender / EBT Cash / Cash) */}
+                                        <div className="space-y-3">
                                             <label className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500">
-                                                Método de Pago (PAX A35 Semi-Integrado + Cajón RJ12 + Pago Dividido EBT CDTFA)
+                                                Método de Pago (PAX A35 Semi-Integrado + Cajón RJ12 + Motor Universal de Pago Dividido Multi-Tender)
                                             </label>
                                             <div className="grid grid-cols-2 gap-2">
                                                 {[
                                                     { id: 'CARD', label: '💳 Tarjeta / Apple Pay / Google Pay', sub: 'Interchange++ (Durbin 0.05%)' },
                                                     { id: 'EBT_FOOD', label: '🏛️ EBT CalFresh RMP (100% Comida)', sub: 'Elimina Sales Tax a $0.00 auto' },
-                                                    { id: 'SPLIT_EBT_MIXED', label: '🔀 Pago Dividido: EBT Parcial + Resto', sub: '0% Tax en EBT + Tax solo al resto (CDTFA)' },
+                                                    { id: 'SPLIT_EBT_MIXED', label: '🔀 Pago Dividido Universal & Multi-Método (4 Modalidades)', sub: 'Por Monto Libre • Partes Iguales (÷N) • Por Plato/Bolsa • Por Artículos (Efectivo, Múltiples Tarjetas, EBT 0% Tax, Gift Card)' },
                                                     { id: 'EBT_CASH', label: '💵 EBT Cash (CalWORKs)', sub: 'Con PIN en lector PAX A35' },
                                                     { id: 'CASH', label: '💶 Efectivo (Cash Drawer)', sub: 'Pulso ESC p abre cajón APG' }
                                                 ].map(tnd => (
                                                     <button
                                                         key={tnd.id}
+                                                        type="button"
                                                         onClick={() => setSelectedTender(tnd.id as any)}
-                                                        className={`p-2.5 rounded-xl border text-left cursor-pointer transition-all ${
+                                                        className={`p-3 rounded-xl border text-left cursor-pointer transition-all ${
                                                             tnd.id === 'SPLIT_EBT_MIXED' ? 'col-span-2 ' : ''
                                                         }${
                                                             selectedTender === tnd.id
@@ -2483,139 +2545,549 @@ export default function GavilanPosEcosystemPage() {
                                                 ))}
                                             </div>
 
-                                            {/* Partial EBT Split-Tender Configuration Box (CDTFA Reg. 1603) */}
+                                            {/* UNIVERSAL 4-MODE SPLIT PAYMENT & MULTI-TENDER WORKSTATION */}
                                             {selectedTender === 'SPLIT_EBT_MIXED' && (
-                                                <div className="p-3 rounded-xl bg-teal-50/70 border border-teal-300 space-y-2 text-xs">
-                                                    <div className="flex items-center justify-between">
-                                                        <span className="font-extrabold text-teal-950">
-                                                            🏛️ Regla Oficial California CDTFA Reg. 1603 (Split EBT RMP)
-                                                        </span>
-                                                        <span className="px-2 py-0.5 rounded bg-teal-200 text-teal-900 text-[10px] font-black">
-                                                            0% Tax en porción EBT
+                                                <div className="p-3.5 rounded-2xl bg-slate-50 border-2 border-teal-400 space-y-3 text-xs">
+                                                    {/* Header + 4 Split Modes Segmented Bar */}
+                                                    <div className="flex flex-wrap items-center justify-between gap-2">
+                                                        <div className="flex items-center gap-1.5">
+                                                            <Split size={15} className="text-teal-700" />
+                                                            <span className="font-black text-slate-900">
+                                                                Motor de Pago Dividido (Toast / Square / Simphony + CDTFA Reg. 1603)
+                                                            </span>
+                                                        </div>
+                                                        <span className="px-2 py-0.5 rounded-md bg-teal-100 text-teal-900 text-[10px] font-black border border-teal-300">
+                                                            5 Métodos Combinables · 0% Tax en EBT Food
                                                         </span>
                                                     </div>
-                                                    <div className="grid grid-cols-2 gap-2">
-                                                        <div>
-                                                            <label className="text-[10px] font-bold uppercase text-teal-800">Monto Aprobado en EBT ($)</label>
-                                                            <input
-                                                                type="number"
-                                                                step="1.00"
-                                                                value={splitEbtAmount}
-                                                                onChange={(e) => setSplitEbtAmount(Math.max(0, Number(e.target.value)))}
-                                                                className="w-full mt-0.5 px-2.5 py-1 rounded-lg border border-teal-300 bg-white font-black text-teal-950"
-                                                            />
-                                                        </div>
-                                                        <div>
-                                                            <label className="text-[10px] font-bold uppercase text-teal-800">2do Método por Remanente</label>
-                                                            <select
-                                                                value={splitSecondaryMethod}
-                                                                onChange={(e) => setSplitSecondaryMethod(e.target.value as any)}
-                                                                className="w-full mt-0.5 px-2 py-1 rounded-lg border border-teal-300 bg-white font-bold text-slate-900"
+
+                                                    {/* 4 Split Mode Tabs */}
+                                                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+                                                        {([
+                                                            { id: 'BY_AMOUNT', title: '1. Por Monto Libre', sub: 'Multi-Tender (2 a 6 pagos)' },
+                                                            { id: 'BY_EQUAL', title: '2. Partes Iguales', sub: 'Dividir ÷2 a ÷6 personas' },
+                                                            { id: 'BY_PLATE', title: '3. Por Plato / Bolsa', sub: `${groupLinesByPlate(cart).length} ${plateWord(diningOption, isEs).toLowerCase()}(s)` },
+                                                            { id: 'BY_ITEM', title: '4. Por Artículos', sub: `${cart.length} línea(s) asignables` },
+                                                        ] as const).map(tab => (
+                                                            <button
+                                                                key={tab.id}
+                                                                type="button"
+                                                                onClick={() => setSplitMode(tab.id)}
+                                                                className={`p-2 rounded-xl border text-left cursor-pointer transition-all ${
+                                                                    splitMode === tab.id
+                                                                        ? 'bg-slate-900 text-white border-slate-900 shadow-2xs'
+                                                                        : 'bg-white text-slate-800 border-slate-200 hover:bg-slate-100'
+                                                                }`}
                                                             >
-                                                                <option value="CASH">💶 Efectivo (Abre Cajón)</option>
-                                                                <option value="CARD_NFC">💳 Tarjeta / Apple Pay</option>
-                                                            </select>
+                                                                <p className="text-[11px] font-black leading-tight">{tab.title}</p>
+                                                                <p className={`text-[10px] mt-0.5 ${splitMode === tab.id ? 'text-slate-300' : 'text-slate-500'}`}>{tab.sub}</p>
+                                                            </button>
+                                                        ))}
+                                                    </div>
+
+                                                    {/* =============================================================
+                                                        MODE 1: BY_AMOUNT (Sequential Multi-Tender & Partial Auth)
+                                                       ============================================================= */}
+                                                    {splitMode === 'BY_AMOUNT' && (
+                                                        <div className="space-y-2.5 bg-white p-3 rounded-xl border border-slate-200">
+                                                            {/* 1-Click Quick Scenarios Bar */}
+                                                            <div className="space-y-1">
+                                                                <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500">
+                                                                    Plantillas Rápidas de 1 Toque (Casos Reales en Caja):
+                                                                </span>
+                                                                <div className="flex flex-wrap gap-1.5">
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => {
+                                                                            const sub = baseCartMath.subtotal
+                                                                            const ebtAmt = Number(Math.min(sub, 15).toFixed(2))
+                                                                            const remSub = Number(Math.max(0, sub - ebtAmt).toFixed(2))
+                                                                            const remTax = Number(((remSub * currentTaxRate) / 100).toFixed(2))
+                                                                            const remDue = Number((remSub + remTax).toFixed(2))
+                                                                            setSplitTenderLegs([
+                                                                                { id: `l-${Date.now()}-1`, method: 'EBT_FOOD', amount: ebtAmt, label: 'Tramo #1 · Saldo Parcial EBT (0% Tax)' },
+                                                                                ...(remDue > 0 ? [{ id: `l-${Date.now()}-2`, method: 'CASH' as const, amount: remDue, cashTendered: Math.ceil(remDue / 5) * 5, label: 'Tramo #2 · Resto en Efectivo' }] : []),
+                                                                            ])
+                                                                        }}
+                                                                        className="px-2.5 py-1 rounded-lg bg-teal-50 hover:bg-teal-100 border border-teal-300 text-teal-950 font-black text-[11px] cursor-pointer"
+                                                                    >
+                                                                        🏛️+💵 EBT $15 + Efectivo
+                                                                    </button>
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => {
+                                                                            const fullTax = Number(((baseCartMath.subtotal * currentTaxRate) / 100).toFixed(2))
+                                                                            const fullTotal = Number((baseCartMath.subtotal + fullTax).toFixed(2))
+                                                                            const gcAmt = Number(Math.min(fullTotal, 10).toFixed(2))
+                                                                            const rem = Number(Math.max(0, fullTotal - gcAmt).toFixed(2))
+                                                                            setSplitTenderLegs([
+                                                                                { id: `l-${Date.now()}-1`, method: 'GIFT_CARD', amount: gcAmt, label: `Tramo #1 · Gift Card (${giftCardCode})` },
+                                                                                ...(rem > 0 ? [{ id: `l-${Date.now()}-2`, method: 'CARD_NFC' as const, amount: rem, label: 'Tramo #2 · Resto en Tarjeta NFC' }] : []),
+                                                                            ])
+                                                                        }}
+                                                                        className="px-2.5 py-1 rounded-lg bg-amber-50 hover:bg-amber-100 border border-amber-300 text-amber-950 font-black text-[11px] cursor-pointer"
+                                                                    >
+                                                                        🎁+💳 Gift Card $10 + Tarjeta
+                                                                    </button>
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => {
+                                                                            const fullTax = Number(((baseCartMath.subtotal * currentTaxRate) / 100).toFixed(2))
+                                                                            const fullTotal = Number((baseCartMath.subtotal + fullTax).toFixed(2))
+                                                                            const cashAmt = Number(Math.min(fullTotal, 20).toFixed(2))
+                                                                            const rem = Number(Math.max(0, fullTotal - cashAmt).toFixed(2))
+                                                                            setSplitTenderLegs([
+                                                                                { id: `l-${Date.now()}-1`, method: 'CASH', amount: cashAmt, cashTendered: cashAmt, label: 'Tramo #1 · Efectivo $20.00' },
+                                                                                ...(rem > 0 ? [{ id: `l-${Date.now()}-2`, method: 'CARD_NFC' as const, amount: rem, label: 'Tramo #2 · Resto en Tarjeta' }] : []),
+                                                                            ])
+                                                                        }}
+                                                                        className="px-2.5 py-1 rounded-lg bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 text-emerald-950 font-black text-[11px] cursor-pointer"
+                                                                    >
+                                                                        💵+💳 Efectivo $20 + Tarjeta
+                                                                    </button>
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => {
+                                                                            const sub = baseCartMath.subtotal
+                                                                            const ebtAmt = Number(Math.min(sub, 12).toFixed(2))
+                                                                            const remSub = Number(Math.max(0, sub - ebtAmt).toFixed(2))
+                                                                            const remTax = Number(((remSub * currentTaxRate) / 100).toFixed(2))
+                                                                            const remTotal = Number((remSub + remTax).toFixed(2))
+                                                                            const cashAmt = Number(Math.min(remTotal, 10).toFixed(2))
+                                                                            const cardAmt = Number(Math.max(0, remTotal - cashAmt).toFixed(2))
+                                                                            setSplitTenderLegs([
+                                                                                { id: `l-${Date.now()}-1`, method: 'EBT_FOOD', amount: ebtAmt, label: 'Tramo #1 · EBT Food (0% Tax)' },
+                                                                                ...(cashAmt > 0 ? [{ id: `l-${Date.now()}-2`, method: 'CASH' as const, amount: cashAmt, cashTendered: cashAmt, label: 'Tramo #2 · Efectivo $10.00' }] : []),
+                                                                                ...(cardAmt > 0 ? [{ id: `l-${Date.now()}-3`, method: 'CARD_NFC' as const, amount: cardAmt, label: 'Tramo #3 · Resto en Tarjeta' }] : []),
+                                                                            ])
+                                                                        }}
+                                                                        className="px-2.5 py-1 rounded-lg bg-indigo-50 hover:bg-indigo-100 border border-indigo-300 text-indigo-950 font-black text-[11px] cursor-pointer"
+                                                                    >
+                                                                        🏛️+💵+💳 Triple (EBT + Cash + Card)
+                                                                    </button>
+                                                                </div>
+                                                            </div>
+
+                                                            {/* Add New Payment Leg Builder */}
+                                                            <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 space-y-2">
+                                                                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                                                                    <div>
+                                                                        <label className="text-[10px] font-bold uppercase text-slate-600">Método del Tramo</label>
+                                                                        <select
+                                                                            value={newLegMethod}
+                                                                            onChange={(e) => setNewLegMethod(e.target.value as SplitTenderMethod)}
+                                                                            className="w-full mt-0.5 px-2 py-1.5 rounded-lg border border-slate-300 bg-white font-bold text-slate-900"
+                                                                        >
+                                                                            <option value="EBT_FOOD">🏛️ EBT Food (0% Tax)</option>
+                                                                            <option value="CASH">💵 Efectivo (Abre Cajón)</option>
+                                                                            <option value="CARD_NFC">💳 Tarjeta / Apple Pay</option>
+                                                                            <option value="GIFT_CARD">🎁 Tarjeta de Regalo (Gift Card)</option>
+                                                                            <option value="EBT_CASH">🏧 EBT Cash (CalWORKs)</option>
+                                                                        </select>
+                                                                    </div>
+                                                                    <div>
+                                                                        <label className="text-[10px] font-bold uppercase text-slate-600">Monto a Aplicar ($)</label>
+                                                                        <input
+                                                                            type="number"
+                                                                            step="0.50"
+                                                                            min="0"
+                                                                            value={newLegAmount}
+                                                                            onChange={(e) => setNewLegAmount(Math.max(0, Number(e.target.value)))}
+                                                                            className="w-full mt-0.5 px-2.5 py-1.5 rounded-lg border border-slate-300 bg-white font-black text-slate-900 tabular-nums"
+                                                                        />
+                                                                    </div>
+                                                                    {newLegMethod === 'CASH' ? (
+                                                                        <div>
+                                                                            <label className="text-[10px] font-bold uppercase text-emerald-800">Billete Entregado (Cambio)</label>
+                                                                            <input
+                                                                                type="number"
+                                                                                step="1.00"
+                                                                                min="0"
+                                                                                value={newLegCashTendered || newLegAmount}
+                                                                                onChange={(e) => setNewLegCashTendered(Math.max(0, Number(e.target.value)))}
+                                                                                className="w-full mt-0.5 px-2.5 py-1.5 rounded-lg border border-emerald-300 bg-emerald-50/50 font-black text-emerald-950 tabular-nums"
+                                                                            />
+                                                                        </div>
+                                                                    ) : (
+                                                                        <div className="flex items-end">
+                                                                            <button
+                                                                                type="button"
+                                                                                onClick={() => {
+                                                                                    if (newLegAmount <= 0) return
+                                                                                    const baseLegs = splitTenderLegs.length > 0 ? splitTenderLegs : activeSplitLegs
+                                                                                    const nextIdx = baseLegs.length + 1
+                                                                                    setSplitTenderLegs([
+                                                                                        ...baseLegs,
+                                                                                        {
+                                                                                            id: `leg-${Date.now()}`,
+                                                                                            method: newLegMethod,
+                                                                                            amount: Number(newLegAmount.toFixed(2)),
+                                                                                            label: `Tramo #${nextIdx} · ${SPLIT_TENDER_METHOD_META[newLegMethod].shortEs}`,
+                                                                                        },
+                                                                                    ])
+                                                                                }}
+                                                                                className="w-full py-1.5 px-3 rounded-lg bg-slate-900 hover:bg-slate-800 text-white font-black text-xs cursor-pointer flex items-center justify-center gap-1"
+                                                                            >
+                                                                                <Plus size={14} /> Agregar Tramo
+                                                                            </button>
+                                                                        </div>
+                                                                    )}
+                                                                </div>
+
+                                                                {/* Quick Amount Chips + Add Cash Leg button when CASH is selected */}
+                                                                <div className="flex flex-wrap items-center justify-between gap-1.5 pt-1">
+                                                                    <div className="flex flex-wrap items-center gap-1">
+                                                                        {[5, 10, 15, 20].map(preset => (
+                                                                            <button
+                                                                                key={preset}
+                                                                                type="button"
+                                                                                onClick={() => {
+                                                                                    setNewLegAmount(preset)
+                                                                                    if (newLegMethod === 'CASH') setNewLegCashTendered(preset)
+                                                                                }}
+                                                                                className="px-2 py-0.5 rounded border border-slate-300 bg-white hover:bg-slate-100 text-[11px] font-extrabold text-slate-800 cursor-pointer"
+                                                                            >
+                                                                                ${preset}
+                                                                            </button>
+                                                                        ))}
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() => {
+                                                                                const half = Number((multiTenderSummary.adjustedOrderTotal / 2).toFixed(2))
+                                                                                setNewLegAmount(half)
+                                                                                if (newLegMethod === 'CASH') setNewLegCashTendered(Math.ceil(half))
+                                                                            }}
+                                                                            className="px-2 py-0.5 rounded border border-slate-300 bg-white hover:bg-slate-100 text-[11px] font-extrabold text-slate-800 cursor-pointer"
+                                                                        >
+                                                                            50% Mitad
+                                                                        </button>
+                                                                        {multiTenderSummary.remainingDue > 0 && (
+                                                                            <button
+                                                                                type="button"
+                                                                                onClick={() => {
+                                                                                    const rem = multiTenderSummary.remainingDue
+                                                                                    const baseLegs = splitTenderLegs.length > 0 ? splitTenderLegs : activeSplitLegs
+                                                                                    setSplitTenderLegs([
+                                                                                        ...baseLegs,
+                                                                                        {
+                                                                                            id: `leg-rem-${Date.now()}`,
+                                                                                            method: newLegMethod,
+                                                                                            amount: rem,
+                                                                                            cashTendered: newLegMethod === 'CASH' ? Math.max(rem, newLegCashTendered || rem) : undefined,
+                                                                                            label: `Tramo #${baseLegs.length + 1} · Liquidación (${SPLIT_TENDER_METHOD_META[newLegMethod].shortEs})`,
+                                                                                        },
+                                                                                    ])
+                                                                                }}
+                                                                                className="px-2.5 py-0.5 rounded bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-black cursor-pointer"
+                                                                            >
+                                                                                + Saldar Resto (${multiTenderSummary.remainingDue.toFixed(2)})
+                                                                            </button>
+                                                                        )}
+                                                                    </div>
+                                                                    {newLegMethod === 'CASH' && (
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() => {
+                                                                                if (newLegAmount <= 0) return
+                                                                                const baseLegs = splitTenderLegs.length > 0 ? splitTenderLegs : activeSplitLegs
+                                                                                const nextIdx = baseLegs.length + 1
+                                                                                setSplitTenderLegs([
+                                                                                    ...baseLegs,
+                                                                                    {
+                                                                                        id: `leg-${Date.now()}`,
+                                                                                        method: 'CASH',
+                                                                                        amount: Number(newLegAmount.toFixed(2)),
+                                                                                        cashTendered: Math.max(Number(newLegAmount.toFixed(2)), Number((newLegCashTendered || newLegAmount).toFixed(2))),
+                                                                                        label: `Tramo #${nextIdx} · Efectivo`,
+                                                                                    },
+                                                                                ])
+                                                                            }}
+                                                                            className="py-1 px-3 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white font-black text-[11px] cursor-pointer flex items-center gap-1"
+                                                                        >
+                                                                            <Plus size={13} /> Agregar Efectivo
+                                                                        </button>
+                                                                    )}
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    )}
+
+                                                    {/* =============================================================
+                                                        MODE 2: BY_EQUAL (Oracle Simphony / Toast Split Evenly ÷2..÷6)
+                                                       ============================================================= */}
+                                                    {splitMode === 'BY_EQUAL' && (
+                                                        <div className="space-y-2.5 bg-white p-3 rounded-xl border border-slate-200">
+                                                            <div className="flex flex-wrap items-center justify-between gap-2">
+                                                                <span className="text-[11px] font-black text-slate-800">
+                                                                    ¿Entre cuántas personas se divide la cuenta en partes iguales?
+                                                                </span>
+                                                                <div className="flex items-center gap-1">
+                                                                    {[2, 3, 4, 5, 6].map(n => (
+                                                                        <button
+                                                                            key={n}
+                                                                            type="button"
+                                                                            onClick={() => setEqualWays(n)}
+                                                                            className={`h-8 px-3 rounded-lg font-black text-xs border cursor-pointer ${
+                                                                                equalWays === n
+                                                                                    ? 'bg-slate-900 text-white border-slate-900'
+                                                                                    : 'bg-slate-50 text-slate-800 border-slate-300 hover:bg-slate-100'
+                                                                            }`}
+                                                                        >
+                                                                            ÷{n}
+                                                                        </button>
+                                                                    ))}
+                                                                </div>
+                                                            </div>
+                                                            <div className="space-y-1.5">
+                                                                {activeSplitLegs.map((leg, idx) => (
+                                                                    <div key={leg.id} className="flex items-center justify-between gap-2 p-2 rounded-lg bg-slate-50 border border-slate-200">
+                                                                        <span className="font-extrabold text-slate-900">{leg.label}</span>
+                                                                        <div className="flex items-center gap-2">
+                                                                            <select
+                                                                                value={equalShareMethods[idx] || 'CARD_NFC'}
+                                                                                onChange={(e) => setEqualShareMethods(prev => ({ ...prev, [idx]: e.target.value as SplitTenderMethod }))}
+                                                                                className="px-2 py-1 rounded-lg border border-slate-300 bg-white font-bold text-xs text-slate-900"
+                                                                            >
+                                                                                <option value="CARD_NFC">💳 Tarjeta #{idx + 1}</option>
+                                                                                <option value="CASH">💵 Efectivo</option>
+                                                                                <option value="EBT_FOOD">🏛️ EBT Food (0% Tax)</option>
+                                                                                <option value="GIFT_CARD">🎁 Gift Card</option>
+                                                                                <option value="EBT_CASH">🏧 EBT Cash</option>
+                                                                            </select>
+                                                                            <span className="min-w-[68px] text-right font-black text-sm tabular-nums text-slate-900">
+                                                                                ${leg.amount.toFixed(2)}
+                                                                            </span>
+                                                                        </div>
+                                                                    </div>
+                                                                ))}
+                                                            </div>
+                                                        </div>
+                                                    )}
+
+                                                    {/* =============================================================
+                                                        MODE 3: BY_PLATE (Split by Plato / Bolsa from Register)
+                                                       ============================================================= */}
+                                                    {splitMode === 'BY_PLATE' && (
+                                                        <div className="space-y-2 bg-white p-3 rounded-xl border border-slate-200">
+                                                            <p className="text-[11px] font-bold text-slate-600">
+                                                                Cada <strong>{plateWord(diningOption, isEs)}</strong> creado con el botón «Separar {plateWord(diningOption, isEs)}» calcula su propio subtotal, descuento prorrateado e impuesto independiente:
+                                                            </p>
+                                                            <div className="space-y-1.5">
+                                                                {groupLinesByPlate(cart).map((pg, idx) => {
+                                                                    const leg = activeSplitLegs[idx]
+                                                                    return (
+                                                                        <div key={pg.plate} className="p-2.5 rounded-lg bg-slate-50 border border-slate-200 flex flex-wrap items-center justify-between gap-2">
+                                                                            <div>
+                                                                                <p className="font-black text-slate-900">
+                                                                                    {plateWord(diningOption, isEs)} {pg.plate}
+                                                                                </p>
+                                                                                <p className="text-[11px] text-slate-500">
+                                                                                    {pg.lines.map(l => `${l.qty}× ${l.name}`).join(', ')}
+                                                                                </p>
+                                                                            </div>
+                                                                            <div className="flex items-center gap-2">
+                                                                                <select
+                                                                                    value={plateMethods[pg.plate] || (pg.plate === 1 ? 'CARD_NFC' : 'CASH')}
+                                                                                    onChange={(e) => setPlateMethods(prev => ({ ...prev, [pg.plate]: e.target.value as SplitTenderMethod }))}
+                                                                                    className="px-2 py-1 rounded-lg border border-slate-300 bg-white font-bold text-xs text-slate-900"
+                                                                                >
+                                                                                    <option value="CARD_NFC">💳 Tarjeta / NFC</option>
+                                                                                    <option value="CASH">💵 Efectivo</option>
+                                                                                    <option value="EBT_FOOD">🏛️ EBT Food (0% Tax)</option>
+                                                                                    <option value="GIFT_CARD">🎁 Gift Card</option>
+                                                                                    <option value="EBT_CASH">🏧 EBT Cash</option>
+                                                                                </select>
+                                                                                <span className="min-w-[68px] text-right font-black text-sm tabular-nums text-slate-900">
+                                                                                    ${(leg?.amount || 0).toFixed(2)}
+                                                                                </span>
+                                                                            </div>
+                                                                        </div>
+                                                                    )
+                                                                })}
+                                                            </div>
+                                                        </div>
+                                                    )}
+
+                                                    {/* =============================================================
+                                                        MODE 4: BY_ITEM (Assign Each Cart Line to Payer 1..4)
+                                                       ============================================================= */}
+                                                    {splitMode === 'BY_ITEM' && (
+                                                        <div className="space-y-2.5 bg-white p-3 rounded-xl border border-slate-200">
+                                                            <p className="text-[11px] font-bold text-slate-600">
+                                                                Toca el número de pagador (<strong>P1..P4</strong>) en cada platillo para asignarlo a su sub-cuenta y elige cómo paga cada persona:
+                                                            </p>
+                                                            <div className="space-y-1 max-h-40 overflow-y-auto pr-1">
+                                                                {cart.map((line, idx) => {
+                                                                    const activePayer = itemPayerMap[line.id] || ((idx % 2) + 1)
+                                                                    return (
+                                                                        <div key={line.id} className="flex items-center justify-between gap-2 p-1.5 rounded-lg bg-slate-50 border border-slate-200">
+                                                                            <span className="font-bold text-slate-900 truncate">
+                                                                                {line.qty}× {line.name} <span className="text-slate-500">(${lineTotal(line).toFixed(2)})</span>
+                                                                            </span>
+                                                                            <div className="flex items-center gap-1 shrink-0">
+                                                                                {[1, 2, 3, 4].map(p => (
+                                                                                    <button
+                                                                                        key={p}
+                                                                                        type="button"
+                                                                                        onClick={() => setItemPayerMap(prev => ({ ...prev, [line.id]: p }))}
+                                                                                        className={`h-7 px-2 rounded font-black text-[11px] border cursor-pointer ${
+                                                                                            activePayer === p
+                                                                                                ? 'bg-slate-900 text-white border-slate-900'
+                                                                                                : 'bg-white text-slate-700 border-slate-300'
+                                                                                        }`}
+                                                                                    >
+                                                                                        P{p}
+                                                                                    </button>
+                                                                                ))}
+                                                                            </div>
+                                                                        </div>
+                                                                    )
+                                                                })}
+                                                            </div>
+                                                            <div className="space-y-1.5 pt-1 border-t border-slate-200">
+                                                                {activeSplitLegs.map(leg => {
+                                                                    const payerNum = Number(leg.id.replace(/\D+/g, '')) || 1
+                                                                    return (
+                                                                        <div key={leg.id} className="flex items-center justify-between gap-2 p-2 rounded-lg bg-teal-50/50 border border-teal-200">
+                                                                            <span className="font-black text-slate-900">{leg.label}</span>
+                                                                            <div className="flex items-center gap-2">
+                                                                                <select
+                                                                                    value={itemPayerMethods[payerNum] || (payerNum === 1 ? 'CARD_NFC' : 'CASH')}
+                                                                                    onChange={(e) => setItemPayerMethods(prev => ({ ...prev, [payerNum]: e.target.value as SplitTenderMethod }))}
+                                                                                    className="px-2 py-1 rounded-lg border border-slate-300 bg-white font-bold text-xs text-slate-900"
+                                                                                >
+                                                                                    <option value="CARD_NFC">💳 Tarjeta / NFC</option>
+                                                                                    <option value="CASH">💵 Efectivo</option>
+                                                                                    <option value="EBT_FOOD">🏛️ EBT Food (0% Tax)</option>
+                                                                                    <option value="GIFT_CARD">🎁 Gift Card</option>
+                                                                                    <option value="EBT_CASH">🏧 EBT Cash</option>
+                                                                                </select>
+                                                                                <span className="min-w-[68px] text-right font-black text-sm tabular-nums text-slate-900">
+                                                                                    ${leg.amount.toFixed(2)}
+                                                                                </span>
+                                                                            </div>
+                                                                        </div>
+                                                                    )
+                                                                })}
+                                                            </div>
+                                                        </div>
+                                                    )}
+
+                                                    {/* =============================================================
+                                                        LIVE MULTI-TENDER LEDGER (Bitácora de Tramos Aplicados)
+                                                       ============================================================= */}
+                                                    <div className="p-2.5 rounded-xl bg-white border border-slate-200 space-y-1.5">
+                                                        <div className="flex items-center justify-between">
+                                                            <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500">
+                                                                Bitácora de Pagos Aplicados ({activeSplitLegs.length} tramo{activeSplitLegs.length === 1 ? '' : 's'})
+                                                            </span>
+                                                            {splitMode === 'BY_AMOUNT' && splitTenderLegs.length > 0 && (
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => setSplitTenderLegs([])}
+                                                                    className="text-[10px] font-black text-rose-600 hover:underline cursor-pointer"
+                                                                >
+                                                                    Reiniciar Tramos
+                                                                </button>
+                                                            )}
+                                                        </div>
+                                                        <div className="space-y-1">
+                                                            {activeSplitLegs.map((leg, i) => {
+                                                                const meta = SPLIT_TENDER_METHOD_META[leg.method]
+                                                                return (
+                                                                    <div key={leg.id} className="flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg bg-slate-50 border border-slate-200">
+                                                                        <div className="flex items-center gap-2 min-w-0">
+                                                                            <span className={`px-2 py-0.5 rounded text-[10px] font-black border shrink-0 ${meta.badgeCls}`}>
+                                                                                {meta.iconEmoji} {meta.shortEs}
+                                                                            </span>
+                                                                            <span className="font-bold text-slate-800 truncate">{leg.label}</span>
+                                                                        </div>
+                                                                        <div className="flex items-center gap-2 shrink-0">
+                                                                            {leg.method === 'CASH' && leg.cashTendered && leg.cashTendered > leg.amount && (
+                                                                                <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
+                                                                                    Billete ${leg.cashTendered.toFixed(2)}
+                                                                                </span>
+                                                                            )}
+                                                                            <span className="font-black tabular-nums text-slate-900">
+                                                                                ${leg.amount.toFixed(2)}
+                                                                            </span>
+                                                                            {splitMode === 'BY_AMOUNT' && (
+                                                                                <button
+                                                                                    type="button"
+                                                                                    onClick={() => {
+                                                                                        const baseLegs = splitTenderLegs.length > 0 ? splitTenderLegs : activeSplitLegs
+                                                                                        setSplitTenderLegs(baseLegs.filter((_, idx) => idx !== i))
+                                                                                    }}
+                                                                                    className="text-slate-400 hover:text-rose-600 cursor-pointer"
+                                                                                    aria-label="Eliminar tramo"
+                                                                                >
+                                                                                    <X size={13} />
+                                                                                </button>
+                                                                            )}
+                                                                        </div>
+                                                                    </div>
+                                                                )
+                                                            })}
+                                                        </div>
+
+                                                        {/* Remaining Balance / Change Due / CDTFA Summary Bar */}
+                                                        <div className="pt-1.5 border-t border-slate-200 flex flex-wrap items-center justify-between gap-2">
+                                                            <div className="text-[11px] text-slate-700">
+                                                                Exento EBT: <strong>${multiTenderSummary.ebtFoodSubtotalCovered.toFixed(2)} ($0 Tax)</strong> · Gravable: <strong>${multiTenderSummary.taxableRemainingSubtotal.toFixed(2)}</strong> + Tax: <strong>${multiTenderSummary.taxAmount.toFixed(2)}</strong>
+                                                            </div>
+                                                            <div className="flex items-center gap-2">
+                                                                {multiTenderSummary.changeDue > 0 && (
+                                                                    <span className="px-2 py-0.5 rounded-md bg-emerald-100 border border-emerald-300 text-emerald-950 font-black text-[11px]">
+                                                                        💵 CAMBIO: ${multiTenderSummary.changeDue.toFixed(2)}
+                                                                    </span>
+                                                                )}
+                                                                {multiTenderSummary.remainingDue > 0.009 ? (
+                                                                    <span className="px-2 py-0.5 rounded-md bg-amber-100 border border-amber-300 text-amber-950 font-black text-[11px]">
+                                                                        FALTA POR CUBRIR: ${multiTenderSummary.remainingDue.toFixed(2)}
+                                                                    </span>
+                                                                ) : (
+                                                                    <span className="px-2 py-0.5 rounded-md bg-teal-100 border border-teal-300 text-teal-950 font-black text-[11px]">
+                                                                        ✓ 100% CUBIERTO (${multiTenderSummary.adjustedOrderTotal.toFixed(2)})
+                                                                    </span>
+                                                                )}
+                                                            </div>
                                                         </div>
                                                     </div>
-                                                    <p className="text-[11px] text-teal-900">
-                                                        Exento EBT: <strong>${cartTotals.ebtCoveredPortion.toFixed(2)} ($0.00 Tax)</strong> • Base Gravable Restante: <strong>${cartTotals.taxableRemainingSubtotal.toFixed(2)}</strong> + Tax ({currentTaxRate}%): <strong>${cartTotals.tax.toFixed(2)}</strong> → A cobrar en {splitSecondaryMethod}: <strong>${cartTotals.secondaryDue.toFixed(2)}</strong>
-                                                    </p>
                                                 </div>
                                             )}
                                         </div>
 
-                                        {/* Loyalty Gavilan Rewards + Manager Discount/Comp/Void Controls */}
-                                        <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 space-y-2.5 text-xs">
-                                            <div className="flex flex-wrap items-center justify-between gap-2">
-                                                <div className="flex items-center gap-1.5">
-                                                    <span className="text-[10px] font-extrabold uppercase text-amber-700">⭐ Gavilan Rewards / Teléfono:</span>
-                                                    <input
-                                                        type="text"
-                                                        value={loyaltyPhoneInput}
-                                                        onChange={(e) => setLoyaltyPhoneInput(e.target.value)}
-                                                        className="w-28 px-2 py-0.5 rounded border border-slate-300 bg-white font-mono text-xs font-bold text-slate-900"
-                                                    />
-                                                </div>
-                                                <div className="flex items-center gap-1.5">
-                                                    <button
-                                                        onClick={async () => {
-                                                            setAppliedLoyaltyDiscount(prev => prev === 5 ? 0 : 5)
-                                                            await dispatchPosMutation('UPDATE_LOYALTY_OR_GIFTCARD', {
-                                                                phone: loyaltyPhoneInput,
-                                                                customerName: customerNameOrder,
-                                                                pointsDelta: appliedLoyaltyDiscount === 5 ? 100 : -100,
-                                                                giftcardDeltaUsd: 0,
-                                                                orderTotalUsd: cartTotals.total
-                                                            })
-                                                        }}
-                                                        className={`px-2 py-1 rounded-lg text-[10px] font-black cursor-pointer border ${
-                                                            appliedLoyaltyDiscount > 0
-                                                                ? 'bg-amber-500 text-white border-amber-600'
-                                                                : 'bg-amber-50 text-amber-900 border-amber-300 hover:bg-amber-100'
-                                                        }`}
-                                                    >
-                                                        {appliedLoyaltyDiscount > 0 ? '✓ -$5.00 Canjeado (100 pts)' : 'Canjear -$5.00 (100 pts)'}
-                                                    </button>
-                                                    <button
-                                                        onClick={() => {
-                                                            const nextPct = discountPct === 50 ? 0 : 50
-                                                            setDiscountPct(nextPct)
-                                                            setDiscountReason(nextPct === 50 ? 'Comida de Empleado 50% (PIN 1425)' : '')
-                                                        }}
-                                                        className={`px-2 py-1 rounded-lg text-[10px] font-black cursor-pointer border ${
-                                                            discountPct === 50
-                                                                ? 'bg-indigo-600 text-white border-indigo-700'
-                                                                : 'bg-indigo-50 text-indigo-900 border-indigo-200 hover:bg-indigo-100'
-                                                        }`}
-                                                    >
-                                                        {discountPct === 50 ? '✓ Empleado 50% OFF' : 'Empleado 50% OFF'}
-                                                    </button>
-                                                </div>
+                                        {/* Loyalty Gavilan Rewards */}
+                                        <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 flex flex-wrap items-center justify-between gap-2 text-xs">
+                                            <div className="flex items-center gap-1.5">
+                                                <span className="text-[10px] font-extrabold uppercase text-amber-700">⭐ Gavilan Rewards / Teléfono:</span>
+                                                <input
+                                                    type="text"
+                                                    value={loyaltyPhoneInput}
+                                                    onChange={(e) => setLoyaltyPhoneInput(e.target.value)}
+                                                    className="w-32 px-2 py-1 rounded border border-slate-300 bg-white font-mono text-xs font-bold text-slate-900"
+                                                />
                                             </div>
-
-                                            {/* Post-Send Void & Waste Tracking with Manager PIN */}
-                                            <div className="pt-2 border-t border-slate-200/80 flex flex-wrap items-center justify-between gap-2">
-                                                <div className="flex items-center gap-1.5">
-                                                    <span className="text-[10px] font-bold text-slate-500">PIN Gerente:</span>
-                                                    <input
-                                                        type="password"
-                                                        maxLength={6}
-                                                        value={managerPinInput}
-                                                        onChange={(e) => setManagerPinInput(e.target.value)}
-                                                        className="w-16 px-2 py-0.5 rounded border border-slate-300 bg-white font-mono text-xs font-bold text-slate-900"
-                                                    />
-                                                    <button
-                                                        onClick={() => setVoidIsWaste(prev => !prev)}
-                                                        className={`px-2 py-0.5 rounded text-[10px] font-bold border cursor-pointer ${
-                                                            voidIsWaste
-                                                                ? 'bg-rose-50 text-rose-800 border-rose-200'
-                                                                : 'bg-emerald-50 text-emerald-800 border-emerald-200'
-                                                        }`}
-                                                    >
-                                                        {voidIsWaste ? '🔥 Merma (Ya Cocinado)' : '❄️ Devolver a Stock'}
-                                                    </button>
-                                                </div>
-                                                <button
-                                                    onClick={async () => {
-                                                        const targetOrd = rawOrders[0]
-                                                        if (!targetOrd) return
-                                                        await dispatchPosMutation('VOID_OR_COMP_ORDER', {
-                                                            orderId: targetOrd.id || targetOrd.client_order_id,
-                                                            clientOrderId: targetOrd.client_order_id,
-                                                            orderNumber: targetOrd.order_number,
-                                                            isVoided: true,
-                                                            voidReason: voidIsWaste ? 'Anulación Post-Cocina (Registrado en Merma/Waste)' : 'Anulación Pre-Cocina (Devuelto a Inventario)',
-                                                            isWaste: voidIsWaste,
-                                                            managerPinUsed: managerPinInput || '1425'
-                                                        })
-                                                        setRawOrders(prev => prev.map((o, idx) => idx === 0 ? { ...o, is_voided: true, is_waste: voidIsWaste, kds_status: 'BUMPED' } : o))
-                                                        setKdsTickets(prev => prev.slice(1))
-                                                    }}
-                                                    className="px-2.5 py-1 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-[10px] font-black cursor-pointer"
-                                                >
-                                                    🚫 Anular Última Orden en DB (Void + Waste)
-                                                </button>
-                                            </div>
+                                            <button
+                                                type="button"
+                                                onClick={async () => {
+                                                    setAppliedLoyaltyDiscount(prev => prev === 5 ? 0 : 5)
+                                                    await dispatchPosMutation('UPDATE_LOYALTY_OR_GIFTCARD', {
+                                                        phone: loyaltyPhoneInput,
+                                                        customerName: customerNameOrder,
+                                                        pointsDelta: appliedLoyaltyDiscount === 5 ? 100 : -100,
+                                                        giftcardDeltaUsd: 0,
+                                                        orderTotalUsd: cartTotals.total
+                                                    })
+                                                }}
+                                                className={`px-3 py-1.5 rounded-lg text-xs font-black cursor-pointer border ${
+                                                    appliedLoyaltyDiscount > 0
+                                                        ? 'bg-amber-500 text-white border-amber-600'
+                                                        : 'bg-amber-50 text-amber-900 border-amber-300 hover:bg-amber-100'
+                                                }`}
+                                            >
+                                                {appliedLoyaltyDiscount > 0 ? '✓ -$5.00 Canjeado (100 pts)' : 'Canjear -$5.00 (100 pts)'}
+                                            </button>
                                         </div>
 
                                         {/* Totals + Automatic EBT Tax Exemption Banner */}
@@ -2646,76 +3118,62 @@ export default function GavilanPosEcosystemPage() {
                                                     <span className="font-bold tabular-nums">${cartTotals.tax.toFixed(2)}</span>
                                                 )}
                                             </div>
-                                            <div className="flex justify-between text-base font-black text-slate-900 pt-1.5 border-t border-slate-200">
+                                            <div className="flex justify-between text-lg font-black text-slate-900 pt-1.5 border-t border-slate-200">
                                                 <span>TOTAL A COBRAR:</span>
                                                 <span className="tabular-nums text-red-600">${cartTotals.total.toFixed(2)}</span>
                                             </div>
 
-                                            {selectedTender === 'CARD' && (
+                                            {(selectedTender === 'CARD' || (selectedTender === 'SPLIT_EBT_MIXED' && multiTenderSummary.cardChargedTotal > 0)) && (
                                                 <div className="pt-1.5 border-t border-slate-200/80 flex items-center justify-between text-[11px]">
-                                                    <span className="text-slate-500">Comisión Toast: <strong className="text-rose-600">${cartTotals.toastFee.toFixed(2)}</strong></span>
-                                                    <span className="text-emerald-700 font-bold">Nuestro IC++ Durbin: ${cartTotals.icPlusDurbinFee.toFixed(2)} (Ahorras ${(cartTotals.toastFee - cartTotals.icPlusDurbinFee).toFixed(2)})</span>
+                                                    <span className="text-slate-500">
+                                                        Comisión Toast{selectedTender === 'SPLIT_EBT_MIXED' && multiTenderSummary.cardSwipeCount > 1 ? ` (${multiTenderSummary.cardSwipeCount} tarjetas)` : ''}:{' '}
+                                                        <strong className="text-rose-600">${cartTotals.toastFee.toFixed(2)}</strong>
+                                                    </span>
+                                                    <span className="text-emerald-700 font-bold">
+                                                        Nuestro IC++ Durbin: ${cartTotals.icPlusDurbinFee.toFixed(2)} (Ahorras ${(cartTotals.toastFee - cartTotals.icPlusDurbinFee).toFixed(2)})
+                                                    </span>
                                                 </div>
                                             )}
                                         </div>
 
                                         {/* Fire & Charge Button */}
                                         <button
-                                            onClick={handleProcessPayment}
-                                            disabled={cart.length === 0 || pinPadStatus !== 'IDLE'}
-                                            className="w-full py-3.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 text-white font-black text-sm shadow-sm cursor-pointer transition-all flex items-center justify-center gap-2"
+                                            type="button"
+                                            onClick={() => handleProcessPayment()}
+                                            disabled={cart.length === 0 || pinPadStatus !== 'IDLE' || (selectedTender === 'SPLIT_EBT_MIXED' && !multiTenderSummary.isFullyPaid)}
+                                            className="w-full min-h-[60px] rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 text-white font-black text-base shadow-sm cursor-pointer transition-all flex items-center justify-center gap-2"
                                         >
                                             {pinPadStatus === 'WAITING_PIN_TAP' ? (
                                                 <>
-                                                    <RefreshCw size={16} className="animate-spin" />
+                                                    <RefreshCw size={18} className="animate-spin" />
                                                     <span>Esperando Tap / Chip / PIN en Lector PAX A35...</span>
                                                 </>
                                             ) : pinPadStatus === 'APPROVED' ? (
                                                 <>
-                                                    <CheckCircle2 size={16} />
+                                                    <CheckCircle2 size={18} />
                                                     <span>¡APROBADO! Enviado al KDS HDMI + Impresora Térmica Mostrador (12ms)</span>
+                                                </>
+                                            ) : selectedTender === 'SPLIT_EBT_MIXED' && !multiTenderSummary.isFullyPaid ? (
+                                                <>
+                                                    <AlertTriangle size={18} />
+                                                    <span>
+                                                        FALTAN ${multiTenderSummary.remainingDue.toFixed(2)} POR CUBRIR EN PAGO DIVIDIDO — USA &ldquo;COBRAR RESTO&rdquo; ARRIBA
+                                                    </span>
                                                 </>
                                             ) : (
                                                 <>
-                                                    <Send size={16} />
-                                                    <span>COBRAR ${cartTotals.total.toFixed(2)} Y ENVIAR AL KDS HDMI + RECIBO CLIENTE</span>
+                                                    <Send size={18} />
+                                                    <span>
+                                                        {selectedTender === 'SPLIT_EBT_MIXED'
+                                                            ? `FINALIZAR PAGO DIVIDIDO (${activeSplitLegs.length} TRAMOS · $${cartTotals.total.toFixed(2)}) Y ENVIAR AL KDS HDMI`
+                                                            : `COBRAR $${cartTotals.total.toFixed(2)} Y ENVIAR AL KDS HDMI + RECIBO CLIENTE`}
+                                                    </span>
                                                 </>
                                             )}
                                         </button>
                                     </div>
-
-                                    {/* 10.1" Customer-Facing Display (CFD) + PAX A35 Live Preview */}
-                                    <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-2xs">
-                                        <div className="flex items-center justify-between mb-2">
-                                            <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500">
-                                                Vista en Vivo: Pantalla Frente al Cliente (10.1" CFD + Lector PAX A35)
-                                            </span>
-                                            <span className="text-[10px] font-mono font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
-                                                Dual-Screen Activo
-                                            </span>
-                                        </div>
-                                        <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between gap-4">
-                                            <div className="space-y-1">
-                                                <p className="text-xs font-black text-slate-900">
-                                                    Tacos Gavilan — Bienvenido {customerNameOrder}
-                                                </p>
-                                                <p className="text-[11px] text-slate-600">
-                                                    {cart.reduce((s, c) => s + c.qty, 0)} artículos • {diningOption}
-                                                </p>
-                                                {lastReceiptInfo.ebtRemainingBalance !== null && (
-                                                    <p className="text-[11px] font-bold text-teal-700">
-                                                        Último Saldo EBT CalFresh: ${lastReceiptInfo.ebtRemainingBalance.toFixed(2)}
-                                                    </p>
-                                                )}
-                                            </div>
-                                            <div className="text-right">
-                                                <span className="text-[10px] font-bold uppercase text-slate-400">Total en Pantalla Cliente</span>
-                                                <p className="text-xl font-black text-slate-900 tabular-nums">${cartTotals.total.toFixed(2)}</p>
-                                            </div>
-                                        </div>
-                                    </div>
                                 </div>
-                            </div>
+                            )}
                         </div>
                     )}
 

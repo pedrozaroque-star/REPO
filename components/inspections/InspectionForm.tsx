@@ -1,5 +1,17 @@
 'use client'
 
+/**
+ * @module components/inspections/InspectionForm
+ * @description Formulario dinámico de auditoría e inspección de supervisores para sucursales de Tacos Gavilan.
+ * @businessRules
+ * - Evalúa secciones ponderadas con evidencia fotográfica obligatoria, validación GPS y cálculo de score en tiempo real.
+ * - Verifica conexión de cuenta Google mediante google_email_connected sin exponer google_refresh_token al cliente.
+ * @dataFlow
+ * - useDynamicChecklist('supervisor_inspection_v1') -> Captura de respuestas/fotos -> Supabase (supervisor_inspections) + envío de reporte por correo.
+ * @notes
+ * - Persiste borrador temporal en localStorage durante el flujo de autorización OAuth.
+ */
+
 import React, { useState, useEffect, useMemo, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -35,8 +47,8 @@ export default function InspectionForm({ user, initialData, stores }: { user: an
   const checkGoogleAuth = async () => {
     if (!user?.id) return
     const supabase = await getSupabaseClient()
-    const { data } = await supabase.from('users').select('google_refresh_token').eq('id', user.id).single()
-    setGoogleConnected(!!data?.google_refresh_token)
+    const { data } = await supabase.from('users').select('google_email_connected').eq('id', user.id).single()
+    setGoogleConnected(!!data?.google_email_connected)
   }
 
   useEffect(() => {

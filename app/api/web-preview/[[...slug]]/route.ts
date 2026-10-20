@@ -196,7 +196,8 @@ async function fetchStorefrontOrdersForDay(businessDate: string): Promise<Storef
         const diningMap = await getStoreDiningOptionsMap(token, st.uuid)
         const found: StorefrontOrderRecord[] = []
         let page = 1
-        while (page <= 15) {
+        let retries = 0
+        while (page <= 30) {
             const url = `${TOAST_API_HOST}/orders/v2/ordersBulk?businessDate=${formattedDate}&pageSize=100&page=${page}&fields=${encodeURIComponent(fields)}`
             try {
                 const res = await fetch(url, {
@@ -206,7 +207,13 @@ async function fetchStorefrontOrdersForDay(businessDate: string): Promise<Storef
                     },
                     cache: 'no-store'
                 })
+                if (res.status === 429 && retries < 3) {
+                    retries++
+                    await new Promise(r => setTimeout(r, 1500 * retries))
+                    continue
+                }
                 if (!res.ok) break
+                retries = 0
                 const orders = await res.json()
                 if (!Array.isArray(orders) || orders.length === 0) break
 
@@ -355,20 +362,78 @@ export async function GET(
     // Acción ejecutiva para consultar analíticas de visitas web, clics de orden y cruce con órdenes order.online (Opción 2)
     if (action === 'analytics' || (slug?.length === 1 && slug[0] === 'analytics')) {
         try {
-            const range = url.searchParams.get('range') || '7d'
+            const period = url.searchParams.get('period') || url.searchParams.get('range') || 'today'
+            const paramStart = url.searchParams.get('startDate')
+            const paramEnd = url.searchParams.get('endDate')
+            const storeParam = url.searchParams.get('store') || 'all'
+            const dayOfWeekRaw = url.searchParams.get('dayOfWeek')
+
             const todayBiz = getGavilanBusinessDate()
             let startDate = todayBiz
             let endDate = todayBiz
 
-            if (range === 'yesterday') {
+            if (paramStart && paramEnd && /^\d{4}-\d{2}-\d{2}$/.test(paramStart) && /^\d{4}-\d{2}-\d{2}$/.test(paramEnd)) {
+                startDate = paramStart <= paramEnd ? paramStart : paramEnd
+                endDate = paramStart <= paramEnd ? paramEnd : paramStart
+            } else if (period === 'yesterday') {
                 startDate = shiftDateStr(todayBiz, -1)
                 endDate = startDate
-            } else if (range === '7d') {
+            } else if (period === '7d' || period === 'last_7') {
                 startDate = shiftDateStr(todayBiz, -6)
                 endDate = todayBiz
-            } else if (range === '30d') {
+            } else if (period === '30d') {
                 startDate = shiftDateStr(todayBiz, -29)
                 endDate = todayBiz
+            } else if (period === 'week') {
+                const [y, m, d] = todayBiz.split('-').map(Number)
+                const dt = new Date(Date.UTC(y, m - 1, d, 12, 0, 0))
+                const dow = dt.getUTCDay() // 0=Sun, 1=Mon...
+                const diffToMon = dow === 0 ? -6 : 1 - dow
+                startDate = shiftDateStr(todayBiz, diffToMon)
+                endDate = todayBiz
+            } else if (period === 'last_week') {
+                const [y, m, d] = todayBiz.split('-').map(Number)
+                const dt = new Date(Date.UTC(y, m - 1, d, 12, 0, 0))
+                const dow = dt.getUTCDay()
+                const diffToThisMon = dow === 0 ? -6 : 1 - dow
+                startDate = shiftDateStr(todayBiz, diffToThisMon - 7)
+                endDate = shiftDateStr(todayBiz, diffToThisMon - 1)
+            } else if (period === 'month') {
+                startDate = `${todayBiz.slice(0, 7)}-01`
+                endDate = todayBiz
+            } else if (period === 'last_month') {
+                const [y, m] = todayBiz.split('-').map(Number)
+                const prevMonthEnd = new Date(Date.UTC(y, m - 1, 0, 12, 0, 0)).toISOString().slice(0, 10)
+                startDate = `${prevMonthEnd.slice(0, 7)}-01`
+                endDate = prevMonthEnd
+            } else if (period === 'quarter') {
+                const [y, m] = todayBiz.split('-').map(Number)
+                const qStartMonth = Math.floor((m - 1) / 3) * 3 + 1
+                startDate = `${y}-${String(qStartMonth).padStart(2, '0')}-01`
+                endDate = todayBiz
+            }
+
+            const dayOfWeekFilter: number | null =
+                dayOfWeekRaw !== null && dayOfWeekRaw !== 'all' && /^[0-6]$/.test(dayOfWeekRaw) && startDate !== endDate
+                    ? Number(dayOfWeekRaw)
+                    : null
+
+            const matchesDayOfWeek = (bDate: string): boolean => {
+                if (dayOfWeekFilter === null) return true
+                const [y, m, d] = bDate.split('-').map(Number)
+                return new Date(Date.UTC(y, m - 1, d, 12, 0, 0)).getUTCDay() === dayOfWeekFilter
+            }
+
+            let selectedStoreId: number | null = null
+            if (storeParam && storeParam !== 'all') {
+                if (/^\d+$/.test(storeParam)) {
+                    selectedStoreId = Number(storeParam)
+                } else {
+                    const matchedSt = STORES_CATALOG.find(
+                        st => st.name.toLowerCase() === storeParam.trim().toLowerCase()
+                    )
+                    if (matchedSt) selectedStoreId = matchedSt.id
+                }
             }
 
             const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://ywwwdcvgfculqmcfkihq.supabase.co'
@@ -378,13 +443,34 @@ export async function GET(
                 'Authorization': `Bearer ${supabaseKey}`
             }
 
-            const [logsRes, sfCacheRes, feedbackRes] = await Promise.all([
-                fetch(`${supabaseUrl}/rest/v1/activity_logs?select=*&entity_type=eq.tacosgavilan_web&order=created_at.desc&limit=5000`, { headers, cache: 'no-store' }),
-                fetch(`${supabaseUrl}/rest/v1/activity_logs?select=id,new_values,created_at&entity_type=eq.tacosgavilan_storefront_cache&order=created_at.desc&limit=60`, { headers, cache: 'no-store' }),
-                fetch(`${supabaseUrl}/rest/v1/customer_feedback?select=id,store_id,customer_name,customer_email,customer_phone,comments,complaint_type,source,created_at,submission_date&source=in.(website_contact,website_newsletter,website)&order=created_at.desc&limit=100`, { headers, cache: 'no-store' })
+            // Paginate tacosgavilan_web logs in 1,000-row chunks so PostgREST 1,000-row limit never drops visits or clicks
+            const queryStartIso = `${shiftDateStr(startDate, -1)}T00:00:00.000Z`
+            const queryEndIso = `${shiftDateStr(endDate, 2)}T23:59:59.999Z`
+
+            const fetchAllWebLogs = async (): Promise<any[]> => {
+                const collected: any[] = []
+                let offset = 0
+                while (offset < 25000) {
+                    const r = await fetch(
+                        `${supabaseUrl}/rest/v1/activity_logs?select=*&entity_type=eq.tacosgavilan_web&created_at=gte.${queryStartIso}&created_at=lte.${queryEndIso}&order=created_at.desc&limit=1000&offset=${offset}`,
+                        { headers, cache: 'no-store' }
+                    )
+                    if (!r.ok) break
+                    const batch = await r.json()
+                    if (!Array.isArray(batch) || batch.length === 0) break
+                    collected.push(...batch)
+                    if (batch.length < 1000) break
+                    offset += 1000
+                }
+                return collected
+            }
+
+            const [rawLogs, sfCacheRes, feedbackRes] = await Promise.all([
+                fetchAllWebLogs(),
+                fetch(`${supabaseUrl}/rest/v1/activity_logs?select=id,new_values,created_at&entity_type=eq.tacosgavilan_storefront_cache&order=created_at.desc&limit=1000`, { headers, cache: 'no-store' }),
+                fetch(`${supabaseUrl}/rest/v1/customer_feedback?select=id,store_id,customer_name,customer_email,customer_phone,comments,complaint_type,source,created_at,submission_date&source=in.(website_contact,website_newsletter,website)&order=created_at.desc&limit=200`, { headers, cache: 'no-store' })
             ])
 
-            const rawLogs = logsRes.ok ? await logsRes.json() : []
             const rawSfCache = sfCacheRes.ok ? await sfCacheRes.json() : []
             const rawFeedback = feedbackRes.ok ? await feedbackRes.json() : []
 
@@ -424,15 +510,17 @@ export async function GET(
                     const freshOrders = await fetchStorefrontOrdersForDay(bDate)
                     const nowMs = Date.now()
                     memoryStorefrontCache.set(bDate, { syncedAtMs: nowMs, orders: freshOrders })
-                    const prevId = sfOrdersByDate.get(bDate)?.id
                     sfOrdersByDate.set(bDate, { syncedAtMs: nowMs, orders: freshOrders, needsUpgrade: false })
 
-                    if (prevId) {
-                        await fetch(`${supabaseUrl}/rest/v1/activity_logs?id=eq.${prevId}`, {
+                    // Delete any existing cache row(s) for this business_date to prevent duplicate rows
+                    await fetch(
+                        `${supabaseUrl}/rest/v1/activity_logs?entity_type=eq.tacosgavilan_storefront_cache&new_values->>business_date=eq.${bDate}`,
+                        {
                             method: 'DELETE',
                             headers
-                        }).catch(() => {})
-                    }
+                        }
+                    ).catch(() => {})
+
                     await fetch(`${supabaseUrl}/rest/v1/activity_logs`, {
                         method: 'POST',
                         headers: { ...headers, 'Content-Type': 'application/json' },
@@ -454,43 +542,54 @@ export async function GET(
                 }
             }
 
-            // Refresh Today's Storefront (order.online) orders if older than 180 seconds or needing schema upgrade
+            // Enumerate all business dates in [startDate, min(endDate, todayBiz)] and auto-sync any missing date
             const blockingDates: string[] = []
             const backgroundDates: string[] = []
+            const cappedEndDate = endDate <= todayBiz ? endDate : todayBiz
 
-            if (todayBiz >= startDate && todayBiz <= endDate) {
-                const existingToday = sfOrdersByDate.get(todayBiz)
-                const latestSyncMs = existingToday?.syncedAtMs || 0
-                if (!existingToday || forceSync || existingToday.needsUpgrade) {
-                    blockingDates.push(todayBiz)
-                } else if (Date.now() - latestSyncMs > 180_000) {
-                    backgroundDates.push(todayBiz)
-                }
-            }
-
-            const yesterdayBiz = shiftDateStr(todayBiz, -1)
-            if (yesterdayBiz >= startDate && yesterdayBiz <= endDate) {
-                const existingYesterday = sfOrdersByDate.get(yesterdayBiz)
-                if (!existingYesterday || existingYesterday.needsUpgrade) {
-                    if (range === 'yesterday') {
-                        blockingDates.push(yesterdayBiz)
+            let cursorDate = cappedEndDate
+            let safetyDays = 0
+            while (cursorDate >= startDate && safetyDays < 120) {
+                if (matchesDayOfWeek(cursorDate)) {
+                    const existing = sfOrdersByDate.get(cursorDate)
+                    if (cursorDate === todayBiz) {
+                        const latestSyncMs = existing?.syncedAtMs || 0
+                        if (!existing || forceSync || existing.needsUpgrade) {
+                            blockingDates.push(cursorDate)
+                        } else if (Date.now() - latestSyncMs > 180_000) {
+                            backgroundDates.push(cursorDate)
+                        }
                     } else {
-                        backgroundDates.push(yesterdayBiz)
+                        if (!existing || existing.needsUpgrade || (forceSync && startDate === endDate)) {
+                            if (blockingDates.length < 3) {
+                                blockingDates.push(cursorDate)
+                            } else {
+                                backgroundDates.push(cursorDate)
+                            }
+                        }
                     }
                 }
+                cursorDate = shiftDateStr(cursorDate, -1)
+                safetyDays++
             }
 
             for (const bDate of blockingDates) {
                 await syncStorefrontDate(bDate)
             }
-            for (const bDate of backgroundDates) {
-                void syncStorefrontDate(bDate)
+            if (backgroundDates.length > 0) {
+                void (async () => {
+                    for (const bDate of backgroundDates) {
+                        await syncStorefrontDate(bDate)
+                    }
+                })()
             }
 
-            // Collect strictly order.online (SF) orders in [startDate, endDate]
+            const missingDaysCount = backgroundDates.filter(d => !sfOrdersByDate.has(d) || sfOrdersByDate.get(d)?.needsUpgrade).length
+
+            // Collect strictly order.online (SF) orders in [startDate, endDate] matching dayOfWeekFilter
             const allStorefrontOrders: (StorefrontOrderRecord & { matched?: boolean })[] = []
             for (const [bDate, entry] of sfOrdersByDate.entries()) {
-                if (bDate >= startDate && bDate <= endDate) {
+                if (bDate >= startDate && bDate <= endDate && matchesDayOfWeek(bDate)) {
                     for (const ord of entry.orders) {
                         if (ord.channel === 'order.online' && /^SF\s+/i.test(ord.orderCode)) {
                             allStorefrontOrders.push({
@@ -504,11 +603,12 @@ export async function GET(
             }
             allStorefrontOrders.sort((a, b) => a.openedMs - b.openedMs)
 
-            // Filter website events by business_date in [startDate, endDate]
+            // Filter website events by business_date in [startDate, endDate] and dayOfWeekFilter
             const filteredLogs = (Array.isArray(rawLogs) ? rawLogs : []).filter((row: any) => {
                 const nv = row.new_values || {}
                 const bDate = nv.business_date || (row.created_at ? getGavilanBusinessDate(new Date(row.created_at)) : '')
-                return bDate >= startDate && bDate <= endDate
+                if (!(bDate >= startDate && bDate <= endDate)) return false
+                return matchesDayOfWeek(bDate)
             })
 
             let totalPageViews = 0
@@ -609,8 +709,6 @@ export async function GET(
             for (const row of chronologicalLogs) {
                 const nv = row.new_values || {}
                 const sid = nv.session_id || `row_${row.id}`
-                sessionSet.add(sid)
-
                 const dev = nv.device_type === 'mobile' ? 'mobile' : (nv.device_type === 'tablet' ? 'tablet' : 'desktop')
                 const lg = nv.lang === 'es' ? 'es' : 'en'
                 const stId = Number(row.entity_id || nv.store_id || 0) || null
@@ -618,43 +716,58 @@ export async function GET(
                     sessionStoreHint.set(sid, stId)
                 }
 
+                const matchesSelectedStore = selectedStoreId === null || stId === selectedStoreId
+                if (matchesSelectedStore) {
+                    sessionSet.add(sid)
+                }
+
                 if (row.action === 'website_page_view') {
-                    totalPageViews++
-                    deviceBreakdown[dev]++
-                    langBreakdown[lg]++
-
-                    const cleanPath = (nv.page_path || '/').replace(/\/index\.html$/, '/')
-                    pageMap[cleanPath] = (pageMap[cleanPath] || 0) + 1
-
-                    const ref = nv.referrer || 'direct'
-                    if (ref !== 'internal') {
-                        refMap[ref] = (refMap[ref] || 0) + 1
-                    }
-
                     if (stId && storeStatsMap[stId]) {
                         storeStatsMap[stId].webStoreViews++
+                    }
+                    if (matchesSelectedStore) {
+                        totalPageViews++
+                        deviceBreakdown[dev]++
+                        langBreakdown[lg]++
+
+                        const cleanPath = (nv.page_path || '/').replace(/\/index\.html$/, '/')
+                        pageMap[cleanPath] = (pageMap[cleanPath] || 0) + 1
+
+                        const ref = nv.referrer || 'direct'
+                        if (ref !== 'internal') {
+                            refMap[ref] = (refMap[ref] || 0) + 1
+                        }
                     }
                 } else if (row.action === 'website_order_click') {
                     const plat = nv.platform || 'toast'
                     const bSrc = nv.button_source || 'page'
-                    buttonSourceMap[bSrc] = (buttonSourceMap[bSrc] || 0) + 1
+                    if (matchesSelectedStore) {
+                        buttonSourceMap[bSrc] = (buttonSourceMap[bSrc] || 0) + 1
+                    }
 
                     if (plat === 'phone') {
-                        totalPhoneClicks++
                         if (stId && storeStatsMap[stId]) {
                             storeStatsMap[stId].webPhoneClicks++
                         }
+                        if (matchesSelectedStore) {
+                            totalPhoneClicks++
+                        }
                     } else if (plat === 'directions') {
-                        totalDirectionsClicks++
                         if (stId && storeStatsMap[stId]) {
                             storeStatsMap[stId].webDirectionsClicks++
                         }
+                        if (matchesSelectedStore) {
+                            totalDirectionsClicks++
+                        }
                     } else {
-                        totalOrderClicks++
                         if (stId && storeStatsMap[stId]) {
                             storeStatsMap[stId].webOrderClicks++
-                        } else {
-                            generalSelectorClicks++
+                        }
+                        if (matchesSelectedStore) {
+                            totalOrderClicks++
+                            if (!stId) {
+                                generalSelectorClicks++
+                            }
                         }
 
                         // Build or update session click intent (15-min grouping window per session)
@@ -753,25 +866,28 @@ export async function GET(
                     storeStatsMap[ord.storeId].matchedWebOrdersSales += ord.netSales
                 }
 
-                matchedOrdersList.push({
-                    orderGuid: ord.guid,
-                    orderCode: ord.orderCode,
-                    storeId: ord.storeId,
-                    storeName: ord.storeName,
-                    customerMasked: ord.customerMasked,
-                    fulfillmentType: ord.fulfillmentType === 'delivery' ? 'delivery' : 'pickup',
-                    netSales: ord.netSales,
-                    openedDate: ord.openedDate,
-                    clickAt: refClickAt,
-                    buttonSource: intent.buttonSource,
-                    matchType: intent.matchType,
-                    minutesAfterClick
-                })
+                if (selectedStoreId === null || ord.storeId === selectedStoreId) {
+                    matchedOrdersList.push({
+                        orderGuid: ord.guid,
+                        orderCode: ord.orderCode,
+                        storeId: ord.storeId,
+                        storeName: ord.storeName,
+                        customerMasked: ord.customerMasked,
+                        fulfillmentType: ord.fulfillmentType === 'delivery' ? 'delivery' : 'pickup',
+                        netSales: ord.netSales,
+                        openedDate: ord.openedDate,
+                        clickAt: refClickAt,
+                        buttonSource: intent.buttonSource,
+                        matchType: intent.matchType,
+                        minutesAfterClick
+                    })
+                }
             }
 
             matchedOrdersList.sort((a, b) => new Date(b.openedDate).getTime() - new Date(a.openedDate).getTime())
 
             const storefrontOrdersList = [...allStorefrontOrders]
+                .filter(ord => selectedStoreId === null || ord.storeId === selectedStoreId)
                 .sort((a, b) => b.openedMs - a.openedMs)
                 .map(ord => ({
                     orderGuid: ord.guid,
@@ -801,14 +917,16 @@ export async function GET(
                 st.storefrontOrdersSales = Math.round(st.storefrontOrdersSales * 100) / 100
                 st.toastDirectSales = st.storefrontOrdersSales
 
-                totalMatchedWebOrdersCount += st.matchedWebOrdersCount
-                totalMatchedWebOrdersSales += st.matchedWebOrdersSales
-                totalPickupOrdersCount += st.pickupOrdersCount
-                totalPickupOrdersSales += st.pickupOrdersSales
-                totalDeliveryOrdersCount += st.deliveryOrdersCount
-                totalDeliveryOrdersSales += st.deliveryOrdersSales
-                totalStorefrontOrdersCount += st.storefrontOrdersCount
-                totalStorefrontOrdersSales += st.storefrontOrdersSales
+                if (selectedStoreId === null || st.id === selectedStoreId) {
+                    totalMatchedWebOrdersCount += st.matchedWebOrdersCount
+                    totalMatchedWebOrdersSales += st.matchedWebOrdersSales
+                    totalPickupOrdersCount += st.pickupOrdersCount
+                    totalPickupOrdersSales += st.pickupOrdersSales
+                    totalDeliveryOrdersCount += st.deliveryOrdersCount
+                    totalDeliveryOrdersSales += st.deliveryOrdersSales
+                    totalStorefrontOrdersCount += st.storefrontOrdersCount
+                    totalStorefrontOrdersSales += st.storefrontOrdersSales
+                }
                 return st
             }).sort(
                 (a, b) =>
@@ -831,34 +949,47 @@ export async function GET(
                 .map(([source, count]) => ({ source, count }))
                 .sort((a, b) => b.count - a.count)
 
-            const recentEvents = filteredLogs.slice(0, 25).map((r: any) => {
-                const nv = r.new_values || {}
-                return {
-                    id: r.id,
-                    action: r.action,
-                    page_path: nv.page_path || '/',
-                    store_id: r.entity_id || nv.store_id || null,
-                    store_name: nv.store_name || (r.entity_id ? STORE_ID_TO_NAME[Number(r.entity_id)] : null),
-                    platform: nv.platform || 'web',
-                    button_source: nv.button_source || 'page',
-                    device_type: nv.device_type || 'desktop',
-                    lang: nv.lang || 'en',
-                    referrer: nv.referrer || 'direct',
-                    created_at: r.created_at
-                }
-            })
+            const recentEvents = filteredLogs
+                .filter((r: any) => {
+                    if (selectedStoreId === null) return true
+                    const nv = r.new_values || {}
+                    const stId = Number(r.entity_id || nv.store_id || 0) || null
+                    return stId === selectedStoreId
+                })
+                .slice(0, 25)
+                .map((r: any) => {
+                    const nv = r.new_values || {}
+                    return {
+                        id: r.id,
+                        action: r.action,
+                        page_path: nv.page_path || '/',
+                        store_id: r.entity_id || nv.store_id || null,
+                        store_name: nv.store_name || (r.entity_id ? STORE_ID_TO_NAME[Number(r.entity_id)] : null),
+                        platform: nv.platform || 'web',
+                        button_source: nv.button_source || 'page',
+                        device_type: nv.device_type || 'desktop',
+                        lang: nv.lang || 'en',
+                        referrer: nv.referrer || 'direct',
+                        created_at: r.created_at
+                    }
+                })
 
-            const feedbackRows = (Array.isArray(rawFeedback) ? rawFeedback : []).map((r: any) => ({
-                ...r,
-                store_name: r.store_id ? (STORE_ID_TO_NAME[Number(r.store_id)] || `Sucursal #${r.store_id}`) : null
-            }))
+            const feedbackRows = (Array.isArray(rawFeedback) ? rawFeedback : [])
+                .filter((r: any) => selectedStoreId === null || Number(r.store_id) === selectedStoreId)
+                .map((r: any) => ({
+                    ...r,
+                    store_name: r.store_id ? (STORE_ID_TO_NAME[Number(r.store_id)] || `Sucursal #${r.store_id}`) : null
+                }))
 
             return Response.json({
                 ok: true,
-                range,
+                range: period,
+                period,
                 startDate,
                 endDate,
                 todayBusinessDate: todayBiz,
+                syncingMissingDays: missingDaysCount > 0,
+                missingDaysCount,
                 summary: {
                     totalPageViews,
                     uniqueVisitors: sessionSet.size,

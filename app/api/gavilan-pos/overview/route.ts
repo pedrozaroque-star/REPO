@@ -22,7 +22,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import net from 'net'
 import os from 'os'
-import { getSupabaseClient } from '@/lib/supabase'
+import { getSupabaseAdminClient } from '@/lib/supabase'
 
 function getLocalLanAddresses() {
     const nets = os.networkInterfaces()
@@ -145,7 +145,7 @@ function inferPrepStation(groupName: string, itemName: string): 'PARRILLA' | 'LI
 
 export async function GET() {
     try {
-        const supabase = await getSupabaseClient()
+        const supabase = await getSupabaseAdminClient()
         const currentBusinessDate = getCurrentGavilanBusinessDate()
 
         // 1. Fetch stores
@@ -1387,7 +1387,7 @@ async function scanWarehouseLanForPrinters(customSubnetPrefix?: string) {
 
 export async function POST(req: NextRequest) {
     try {
-        const supabase = await getSupabaseClient()
+        const supabase = await getSupabaseAdminClient()
         const body = await req.json()
         const { action } = body
 

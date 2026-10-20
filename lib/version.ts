@@ -20,20 +20,62 @@ export interface VersionMilestone {
 }
 
 export const SYSTEM_VERSION = {
-    version: 'v2.17.0',
-    versionNumber: '2.17.0',
+    version: 'v2.18.0',
+    versionNumber: '2.18.0',
     releaseMonthEs: 'Octubre 2026',
     releaseMonthEn: 'October 2026',
     stage: 'Producción',
     stageEn: 'Production',
     year: '2026',
-    labelEs: 'Octubre 2026 • SM TEG v2.17.0',
-    labelEn: 'October 2026 • SM TEG v2.17.0',
+    labelEs: 'Octubre 2026 • SM TEG v2.18.0',
+    labelEn: 'October 2026 • SM TEG v2.18.0',
     brand: 'SM TEG',
-    lastUpdated: '2026-10-19'
+    lastUpdated: '2026-10-20'
 } as const;
 
 export const VERSION_HISTORY: readonly VersionMilestone[] = [
+    {
+        version: 'v2.18.0',
+        date: '20-Oct-2026',
+        titleEs: 'Actividades 200 Nombres Cortos & Orden Diaria, Gavilan POS 13.48M Unidades & Split Payment, Supabase 156 Tablas RLS Zero-Downtime y Auditoría de 4,000 Voces Kore',
+        titleEn: 'Actividades 200 Short Names & Daily Order Alignment, Gavilan POS 13.48M Units & Split Payment, 156-Table Supabase Zero-Downtime RLS & 4,000 Kore Voice Clips Audit',
+        highlightsEs: [
+            'Módulo ACTIVIDADES (commit fe23aed2): formalización ortográfica integral de las 200 actividades en Supabase (140 Catálogo + 60 Roles), asignación de Nombres Cortos ejecutivos (2–5 palabras) y Descripciones Detalladas desplegables, alineación 100% con insumos reales de Orden Diaria y Orden de Líquidos (sin términos ajenos como rábanos o "insertos"), preservación de actividades "AMBOS" en turnos PM (Slauson #7) y 72/72 pruebas en vivo aprobadas',
+            'Gavilan POS (/gavilan-pos): pantalla de caja basada en el análisis de 13.48 millones de unidades vendidas (27,792 tickets + 5,235 días-tienda de PMIX en For Here, To Go y Drive-Thru), catálogo real depurado (/api/gavilan-pos/register-catalog y /api/gavilan-pos/manager-approval), 7 mejoras de ergonomía QSR POS (1920×1080) y motor universal de Pago Dividido y Múltiples Métodos de Pago (Split Payment / Multi-Tender con Efectivo, Tarjeta, Gift Card y EBT CalFresh RMP)',
+            'Seguridad Supabase Zero-Downtime (supabase/migrations/20261020_supabase_security_rls_hardening.sql): auditoría línea por línea de las 156 tablas y remediación completa del Security Advisor (0 alertas 0013/0008), sincronizando public.current_user_id() y public.current_user_role() con el JWT de /api/login',
+            'Order Ready Board (/order-ready-board y lib/order-ready-tts.ts): auditoría forense por duración silábica y transcripción IA de los 4,000 archivos de voz Kore en Supabase Storage (1..2000 ES & EN), regenerando los 15 clips corruptos (incluyendo la orden #3 en español)',
+            'TEG Assistant AI (commit 0f6c1207): tarjetas inferiores de descarga CSV, barras de descarga al pie de tabla, enlaces inline clicables y 142.0 horas de ingeniería + 119.0 horas de turnos en Lynwood #14 consolidadas (1 al 20 de Octubre 2026)'
+        ],
+        highlightsEn: [
+            'ACTIVIDADES Module (commit fe23aed2): full orthographic standardization across all 200 Supabase activities (140 Catalog + 60 Roles), executive Short Names (2–5 words) with expandable Detailed Descriptions, 100% alignment with real Daily Order and Liquids Order items, "AMBOS" shift preservation in PM shifts (Slauson #7), and 72/72 live tests passed',
+            'Gavilan POS (/gavilan-pos): cashier register screen engineered from 13.48 million units sold (27,792 tickets + 5,235 store-days of PMIX across For Here, To Go, and Drive-Thru), clean register catalog (/api/gavilan-pos/register-catalog & /api/gavilan-pos/manager-approval), 7 QSR POS ergonomic upgrades (1920×1080), and universal Split Payment & Multi-Tender engine (Cash, Card, Gift Card, and CalFresh RMP EBT)',
+            'Supabase Zero-Downtime Security Hardening (supabase/migrations/20261020_supabase_security_rls_hardening.sql): line-by-line audit across all 156 tables resolving all Security Advisor warnings (0 alerts for 0013/0008) and syncing public.current_user_id() & public.current_user_role() with /api/login JWT claims',
+            'Order Ready Board (/order-ready-board & lib/order-ready-tts.ts): forensic syllable-duration and AI speech-to-text audit across all 4,000 Kore WAV clips in Supabase Storage (1..2000 ES & EN), regenerating all 15 corrupted clips (including Spanish Order #3)',
+            'TEG Assistant AI (commit 0f6c1207): bottom CSV download cards, table footer download bars, clickable inline CSV links, and 142.0 engineering hours + 119.0 Lynwood #14 shift hours consolidated (October 1–20, 2026)'
+        ]
+    },
+    {
+        version: 'v2.17.0',
+        date: '19-Oct-2026',
+        titleEs: 'Auto-Reconfiguración 24/7 en 5 Tabletas & Modal Despertar 3h, Estabilización Integral ACTIVIDADES (A01–A26), Voceo Café & Champurrado, Asistente IA Tablas 42 Semanas + CSV y Etiqueta Salsa 5oz Cilíndrica',
+        titleEn: '5-Tablet 24/7 Auto-Reconfig & 3h Wake Modal, Full ACTIVIDADES Stabilization (A01–A26), Café & Champurrado Voice Callouts, TEG Assistant 42-Week Tables + CSV & 5oz Cylindrical Label',
+        highlightsEs: [
+            'Sistema de Reconfiguración Automática 24/7, Renovación Silenciosa de Sesión y Modal "☀️ Despertar Tableta" (tras 3 horas de inactividad) en las 5 tabletas operativas de tienda (Cocina Trasera/Bodega, Proyección de Carnes + Llamadas, Blindaje Delivery, Descansos y Actividades/Asignación Diaria + Order Ready Board) con lib/tablet-cache-cleaner.ts y /api/auth/refresh',
+            'Estabilización Integral y Blindaje Transaccional del Módulo ACTIVIDADES (Hallazgos A01–A26 + 58/58 pruebas en vivo): endurecimiento de políticas RLS en station_assignments y checklist_completions, revocación de permisos EXECUTE a anon en RPCs SECURITY DEFINER, corte operativo multitienda de las 06:00 AM y resolución de conflictos 409 entre AM+PM vs AM/PM',
+            'Preparador KDS y Order Ready Board (commit d6ce9138): botones táctiles "☕ Café" y "☕ Champurrado" en la tableta del Preparador con transmisión silenciosa en tiempo real hacia la PC del Manager y locuciones WAV neuronales ("Café pendiente ya está listo" y "Champurrado pendiente ya está listo")',
+            'TEG Assistant AI (lib/chat-tools.ts, app/api/support-chat/route.ts y SupportChatWidget.tsx): corrección de uniones SQL en store_id (8/8 pruebas en vivo), renderizado completo sin truncamiento de tablas grandes de 5 y 42 semanas y botón garantizado "⬇️ Descargar CSV (Excel)"',
+            'Módulo Sitio Web (/nueva-web): barra superior de filtros homologada 1:1 con VENTAS, paginación completa en Supabase sin límite de 1,000 filas y gestión de activación de DoorDash Storefront API (Business ID: 137616)',
+            'Ingeniería de Etiqueta Botella de Salsa Picante 5 fl. oz. ("Versión Dueño" por desenrollado cilíndrico sin acento en "Gavilan" y texto de ingredientes negro puro #000000 para impresora Epson 3840 en Imprimir_Prueba_1a1_Tacos_Gavilan_5oz_Carta.pdf) y auditoría contable de Orden Abierta #512 vs Cohesion'
+        ],
+        highlightsEn: [
+            '24/7 Automatic Daily Reconfiguration, Silent Session Renewal & 3-Hour Inactivity "☀️ Wake Up Tablet" Modal across all 5 store tablets (Back Kitchen/Bodega, Meat Projection + Callouts, Delivery Shield, Breaks, and Daily Activities/Assignments + Order Ready Board) via lib/tablet-cache-cleaner.ts and /api/auth/refresh',
+            'Full Stabilization & Transactional Hardening of the ACTIVIDADES Module (Findings A01–A26 + 58/58 live tests passed): hardened RLS policies on station_assignments and checklist_completions, revoked anon EXECUTE on SECURITY DEFINER RPCs, unified multi-store 06:00 AM boundaries, and eliminated false-positive 409 Conflicts between AM+PM and single-shift revisions',
+            'Prep Line KDS & Order Ready Board (commit d6ce9138): touch buttons for "☕ Café" and "☕ Champurrado" on the Prep Line tablet routed silently in real time to the Manager PC with neural WAV callouts ("Café pendiente ya está listo" and "Champurrado pendiente ya está listo")',
+            'TEG Assistant AI (lib/chat-tools.ts, app/api/support-chat/route.ts & SupportChatWidget.tsx): fixed store_id SQL join types (8/8 live tests passed), full untruncated rendering for 5-week and 42-week store sales tables, and guaranteed "⬇️ Download CSV (Excel)" button',
+            'Website Module (/nueva-web): filter bar aligned 1:1 with the VENTAS module, full uncapped Supabase pagination (>1,000 rows), and DoorDash Storefront API activation request (Business ID: 137616)',
+            '5 fl. oz. Hot Sauce Bottle Label Engineering ("Owner\'s Choice" via cylindrical unwrapping, accent-free "Gavilan", and pure black #000000 ingredients text for Epson 3840 inkjet printing in Imprimir_Prueba_1a1_Tacos_Gavilan_5oz_Carta.pdf) and Open Order #512 Cohesion accounting audit'
+        ]
+    },
     {
         version: 'v2.16.0',
         date: '17-Oct-2026',

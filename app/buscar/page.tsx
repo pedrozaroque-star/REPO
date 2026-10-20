@@ -1,5 +1,17 @@
 'use client'
 
+/**
+ * @module app/buscar/page
+ * @description Buscador global unificado de Tacos Gavilan (sucursales, usuarios, inspecciones, feedbacks y checklists).
+ * @businessRules
+ * - Filtra resultados por coincidencia parcial en tiendas, usuarios e historial operativo.
+ * - Excluye columnas sensibles (password, google_refresh_token) al consultar la tabla users desde el cliente.
+ * @dataFlow
+ * - Query param (?q=) -> Supabase REST API (stores, users, supervisor_inspections, customer_feedback, assistant_checklists) -> UI.
+ * @notes
+ * - Endurecido con proyección explícita de columnas seguras en /rest/v1/users.
+ */
+
 import { useState, useEffect } from 'react'
 import { useSearchParams } from 'next/navigation'
 
@@ -48,7 +60,7 @@ export default function BuscarPage() {
 
       // Buscar en usuarios
       const usersRes = await fetch(
-        `${url}/rest/v1/users?or=(full_name.ilike.*${query}*,email.ilike.*${query}*)&limit=10`,
+        `${url}/rest/v1/users?select=id,full_name,email,role,store_id,is_active&or=(full_name.ilike.*${query}*,email.ilike.*${query}*)&limit=10`,
         { headers: { 'apikey': key || '', 'Authorization': `Bearer ${key}` } }
       )
       const users = await usersRes.json()
