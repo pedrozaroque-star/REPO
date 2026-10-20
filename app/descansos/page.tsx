@@ -2,23 +2,26 @@
  * @module descansos-page
  * @description Gestor interactivo inteligente de descansos y almuerzos (Breaks de 10 min y Lunches de 30 min) para restaurantes de Tacos Gavilan.
  * @businessRules
- * - Regla de Día Laboral: 6:00 AM a 5:59 AM del siguiente día (24 horas continuas = 1,440 minutos).
+ * - Regla de Día Laboral: 6:00 AM a 5:59 AM del siguiente día (24 horas continuas = 1,440 minutos) en zona horaria `America/Los_Angeles`.
  * - Ley Laboral de California: Primer almuerzo obligatorio antes de la 5ª hora de jornada.
  * - Prioridad de Salida Anticipada (Regla Manager Jesús): Empleados con salida más temprana van a comer primero.
  * - Modo Kiosko / Tableta: Visualización de alta legibilidad bloqueada contra arrastres accidentales en iPad/tablets.
+ * - Auto-Reconfiguración 24/7 y Modal de Despertar Tableta (3h de inactividad):
+ *   A las 6:00 AM (`America/Los_Angeles`) avanza automáticamente al nuevo día de negocio, limpia cachés obsoletas cada 15 min,
+ *   retorna automáticamente al día de hoy tras 2 min de inactividad si quedó en otra fecha, y muestra el modal "☀️ Despertar Tableta" tras 3h sin actividad.
  * - Aprendizaje Continuo (AI Learning): Movimientos manuales del mánager se guardan en `break_manual_overrides` y se aplican en futuros cálculos.
  * @dataFlow Sincroniza turnos de `shifts`, ponchadas de `punches` (Toast POS), proyección de ventas, y guarda preferencias aprendidas en `break_manual_overrides`.
  * @notes Renderizado progresivo ultrarrápido con caché en DB (<150ms) y sincronización bidireccional PC-tableta.
- *   Modo Tableta mantiene la pantalla siempre encendida (Screen Wake Lock + video silencioso de respaldo, ver `lib/use-wake-lock.ts`)
- *   con corriente o batería; se libera al salir del modo.
+ *   Mantiene la pantalla siempre encendida 24/7 (Screen Wake Lock + video silencioso de respaldo, ver `lib/use-wake-lock.ts`).
  */
 
 'use client'
 
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
-import { Calendar, Loader2, Zap, ArrowLeft, History, RefreshCw, Maximize, Minimize, ChevronLeft, ChevronRight, Plus, Trash2, Sun, MoonStar } from 'lucide-react'
+import { Calendar, Loader2, Zap, ArrowLeft, History, RefreshCw, Maximize, Minimize, ChevronLeft, ChevronRight, Plus, Trash2, Sun, MoonStar, CheckCircle2, Clock } from 'lucide-react'
 import { useLanguage } from '@/lib/i18n'
 import { useWakeLock } from '@/lib/use-wake-lock'
+import { purgeTabletStaleCaches } from '@/lib/tablet-cache-cleaner'
 import { motion, AnimatePresence } from 'framer-motion'
 import { format, addMonths, subMonths, startOfMonth, endOfMonth, startOfWeek, endOfWeek, isSameMonth, isSameDay } from 'date-fns'
 import { es } from 'date-fns/locale'
@@ -35,6 +38,40 @@ const START_HOUR = 6 // 6 AM
 const END_HOUR = 30  // 6 AM Next Day (cubre turnos hasta 5:59 AM, fin de día laboral)
 const TOTAL_HOURS = END_HOUR - START_HOUR
 
+/**
+ * Obtiene la fecha de negocio actual (YYYY-MM-DD) en zona horaria de California (`America/Los_Angeles`),
+ * aplicando la regla de negocio: el día laboral inicia a las 6:00 AM y termina a las 5:59 AM del día siguiente.
+ */
+function getCurrentCaliforniaBusinessDateStr(now: Date = new Date()): string {
+    try {
+        const parts = new Intl.DateTimeFormat('en-US', {
+            timeZone: 'America/Los_Angeles',
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit',
+            hour: '2-digit',
+            hour12: false,
+        }).formatToParts(now)
+        const get = (t: string) => parts.find(p => p.type === t)?.value || ''
+        let year = Number(get('year'))
+        let month = Number(get('month'))
+        let day = Number(get('day'))
+        const hour = Number(get('hour')) % 24
+        if (hour < START_HOUR) {
+            const prev = new Date(Date.UTC(year, month - 1, day))
+            prev.setUTCDate(prev.getUTCDate() - 1)
+            year = prev.getUTCFullYear()
+            month = prev.getUTCMonth() + 1
+            day = prev.getUTCDate()
+        }
+        return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+    } catch {
+        const fallback = new Date(now)
+        if (fallback.getHours() < START_HOUR) fallback.setDate(fallback.getDate() - 1)
+        return formatDateISO(fallback)
+    }
+}
+
 export default function DescansosPage() {
     const { user } = useAuth()
     const searchParams = useSearchParams()
@@ -45,8 +82,8 @@ export default function DescansosPage() {
 
     const containerRef = useRef<HTMLDivElement>(null)
     const [isFullscreen, setIsFullscreen] = useState(false)
-    // 🔆 Mientras el Modo Tableta esté activo, la pantalla no se duerme (corriente o batería)
-    const wakeLock = useWakeLock(isFullscreen)
+    // 🔆 Tableta 24/7: La pantalla nunca se duerme mientras la página esté abierta (con o sin Modo Pantalla Completa)
+    const wakeLock = useWakeLock(true)
     const [calendarOpen, setCalendarOpen] = useState(false)
     const [calendarViewDate, setCalendarViewDate] = useState(new Date())
 
@@ -476,16 +513,18 @@ export default function DescansosPage() {
     const [currentDate, setCurrentDate] = useState<Date>(() => {
         const paramDate = searchParams?.get('date')
         if (paramDate) {
-            // Reconstruit YYYY-MM-DD avoiding TZ shift by appending noon
+            // Reconstruct YYYY-MM-DD avoiding TZ shift by appending noon
             const d = new Date(paramDate + 'T12:00:00')
             if (!isNaN(d.getTime())) return d
         }
-        const now = new Date()
-        if (now.getHours() < 6) {
-            now.setDate(now.getDate() - 1);
-        }
-        return now
+        return new Date(getCurrentCaliforniaBusinessDateStr() + 'T12:00:00')
     })
+
+    // Estados de Auto-Reconfiguración 24/7 y Modal de 3h de Inactividad
+    const [wakingUpTablet, setWakingUpTablet] = useState(false)
+    const [tabletWakeSuccess, setTabletWakeSuccess] = useState(false)
+    const [showWakeUpModal, setShowWakeUpModal] = useState(false)
+    const lastInteractionAtRef = useRef<number>(Date.now())
 
     // Roster de la semana (Idéntico a Planificador)
     const [rosterEmployees, setRosterEmployees] = useState<Employee[]>([])
@@ -772,41 +811,81 @@ export default function DescansosPage() {
         return () => clearInterval(intervalId);
     }, [showRealPunches, pullToastPunches]);
 
-    // --- RELOJ Y LÍNEA DE HORA ACTUAL ---
+    // --- RELOJ, AUTO-RECONFIGURACIÓN 24/7 (6:00 AM CA) Y MODAL DE 3H DE INACTIVIDAD ---
     const [currentTime, setCurrentTime] = useState<Date>(new Date())
-    const lastBusinessDateRef = useRef<string>('')
+    const lastBusinessDateRef = useRef<string>(getCurrentCaliforniaBusinessDateStr())
 
+    // Rastrear actividad del usuario para auto-retorno a Hoy (2 min) y modal de despertar (3 horas)
     useEffect(() => {
-        setCurrentTime(new Date()); // Init just in case
-        const timer = setInterval(() => setCurrentTime(new Date()), 30000) // Update every 30s
-        return () => clearInterval(timer)
+        const markInteraction = () => {
+            lastInteractionAtRef.current = Date.now()
+        }
+        window.addEventListener('pointerdown', markInteraction, { passive: true })
+        window.addEventListener('keydown', markInteraction, { passive: true })
+        window.addEventListener('touchstart', markInteraction, { passive: true })
+        window.addEventListener('wheel', markInteraction, { passive: true })
+        return () => {
+            window.removeEventListener('pointerdown', markInteraction)
+            window.removeEventListener('keydown', markInteraction)
+            window.removeEventListener('touchstart', markInteraction)
+            window.removeEventListener('wheel', markInteraction)
+        }
     }, [])
 
-    // Escaner 6:00 AM Auto-Rollover
+    // Limpieza automática de cachés obsoletas y renovación de JWT cada 15 minutos
     useEffect(() => {
-        const now = currentTime;
-        const bDate = new Date(now);
-        if (now.getHours() < START_HOUR) {
-            bDate.setDate(bDate.getDate() - 1);
-        }
-        const currentBDateStr = formatDateISO(bDate);
+        void purgeTabletStaleCaches()
+        const cacheInterval = setInterval(() => {
+            void purgeTabletStaleCaches({ force: true })
+        }, 15 * 60 * 1000)
+        return () => clearInterval(cacheInterval)
+    }, [])
 
-        if (lastBusinessDateRef.current && lastBusinessDateRef.current !== currentBDateStr) {
-            // El reloj acaba de cruzar las 6:00 AM (Cambio de Día de Negocio)
-            // Avanzamos o retrocedemos la página al día real que inició automáticamente
-            setCurrentDate(new Date(currentBDateStr + 'T12:00:00'));
-        }
-        lastBusinessDateRef.current = currentBDateStr;
-    }, [currentTime])
+    // Centinela cada 15s: actualiza reloj, detecta cruce de 6:00 AM CA, auto-retorna a Hoy tras 2m inactivo y activa modal 3h
+    useEffect(() => {
+        setCurrentTime(new Date())
+        const INACTIVITY_WAKE_MODAL_MS = 3 * 60 * 60 * 1000 // 3 horas
+        const IDLE_RETURN_TODAY_MS = 2 * 60 * 1000 // 2 minutos
+
+        const timer = setInterval(() => {
+            const now = new Date()
+            setCurrentTime(now)
+
+            const currentBDateStr = getCurrentCaliforniaBusinessDateStr(now)
+            const idleMs = Date.now() - lastInteractionAtRef.current
+
+            // Caso 1: El reloj cruzó las 6:00 AM en California (Nuevo Día Laboral)
+            if (lastBusinessDateRef.current && lastBusinessDateRef.current !== currentBDateStr) {
+                console.log(`[Descansos 24/7] 🌅 Cambio de día laboral detectado: ${lastBusinessDateRef.current} -> ${currentBDateStr}`)
+                lastBusinessDateRef.current = currentBDateStr
+                lastPolledDbRef.current = ''
+                setAbsentModalEmp(null)
+                setCalendarOpen(false)
+                setCurrentDate(new Date(currentBDateStr + 'T12:00:00'))
+                void purgeTabletStaleCaches({ force: true })
+            } else {
+                lastBusinessDateRef.current = currentBDateStr
+                // Caso 2: Si alguien dejó la tableta viendo otro día pasado/futuro, regresar a Hoy tras 2 min sin tocarla
+                const viewedDateStr = formatDateISO(currentDate)
+                if (viewedDateStr !== currentBDateStr && idleMs >= IDLE_RETURN_TODAY_MS) {
+                    console.log(`[Descansos 24/7] 🔄 Retornando automáticamente al día actual (${currentBDateStr}) tras 2 min de inactividad`)
+                    lastPolledDbRef.current = ''
+                    setCalendarOpen(false)
+                    setCurrentDate(new Date(currentBDateStr + 'T12:00:00'))
+                }
+            }
+
+            // Caso 3: Tras 3 horas de inactividad continua, mostrar modal para despertar tableta
+            if (!showWakeUpModal && !wakingUpTablet && idleMs >= INACTIVITY_WAKE_MODAL_MS) {
+                setShowWakeUpModal(true)
+            }
+        }, 15_000)
+        return () => clearInterval(timer)
+    }, [currentDate, showWakeUpModal, wakingUpTablet])
 
     const isTodayLineVisible = useMemo(() => {
         if (!mounted) return false
-        const now = currentTime
-        let nowBusinessDate = new Date(now)
-        if (now.getHours() < START_HOUR) {
-            nowBusinessDate.setDate(nowBusinessDate.getDate() - 1)
-        }
-        return formatDateISO(currentDate) === formatDateISO(nowBusinessDate)
+        return formatDateISO(currentDate) === getCurrentCaliforniaBusinessDateStr(currentTime)
     }, [currentDate, currentTime, mounted])
 
     const currentTimeLeft = useMemo(() => {
@@ -1112,6 +1191,48 @@ export default function DescansosPage() {
         loadDayData()
     }, [storeGuid, dateStr])
 
+    /**
+     * Despierta y reconfigura completamente la Tableta de Descansos:
+     * 1. Reactiva el bloqueo de pantalla encendida (Screen Wake Lock).
+     * 2. Limpia cachés obsoletas de navegador / ServiceWorker / localStorage y renueva token JWT (30 días).
+     * 3. Alinea la fecha del calendario al Día de Negocio actual en California (corte 6:00 AM).
+     * 4. Cierra modales obsoletos y recarga turnos + ponchadas en vivo de Toast POS.
+     */
+    const handleWakeUpTablet = async () => {
+        lastInteractionAtRef.current = Date.now()
+        setShowWakeUpModal(false)
+        if (wakingUpTablet) return
+        setWakingUpTablet(true)
+        setTabletWakeSuccess(false)
+        try {
+            wakeLock.requestNow()
+            await purgeTabletStaleCaches({ force: true })
+
+            const now = new Date()
+            setCurrentTime(now)
+            const currentBDateStr = getCurrentCaliforniaBusinessDateStr(now)
+            lastBusinessDateRef.current = currentBDateStr
+            lastPolledDbRef.current = ''
+            setAbsentModalEmp(null)
+            setCalendarOpen(false)
+
+            const todayBDate = new Date(currentBDateStr + 'T12:00:00')
+            setCurrentDate(todayBDate)
+
+            await Promise.all([
+                loadDayData(false),
+                pullToastPunches(true)
+            ])
+
+            setTabletWakeSuccess(true)
+            setTimeout(() => setTabletWakeSuccess(false), 4000)
+        } catch (err) {
+            console.error('[Descansos WakeUp] Error reconfigurando tableta:', err)
+        } finally {
+            setWakingUpTablet(false)
+        }
+    }
+
     const getTimelinePosition = (isoTimeString: string) => {
         if (!isoTimeString) return 0
         const d = new Date(isoTimeString)
@@ -1194,7 +1315,10 @@ export default function DescansosPage() {
                     </h1>
                     <select
                         value={selectedStoreId}
-                        onChange={(e) => setSelectedStoreId(e.target.value)}
+                        onChange={(e) => {
+                            setSelectedStoreId(e.target.value)
+                            try { localStorage.setItem('planner_store', e.target.value) } catch {}
+                        }}
                         className="bg-slate-100 border border-slate-200 rounded-lg px-4 py-2 text-sm font-bold text-slate-800 focus:ring-2 focus:ring-amber-500 cursor-pointer min-w-[180px]"
                     >
                         {stores.map((s: any) => (
@@ -1302,9 +1426,7 @@ export default function DescansosPage() {
                                             <div className="pt-3 mt-3 border-t border-slate-100 flex justify-center">
                                                 <button 
                                                     onClick={() => {
-                                                        const m = new Date()
-                                                        m.setHours(12,0,0,0)
-                                                        setCurrentDate(m)
+                                                        setCurrentDate(new Date(getCurrentCaliforniaBusinessDateStr() + 'T12:00:00'))
                                                         setCalendarOpen(false)
                                                     }}
                                                     className="text-xs font-bold text-amber-600 hover:text-amber-700 hover:bg-amber-50 px-3 py-1.5 rounded-full transition-colors"
@@ -1332,6 +1454,30 @@ export default function DescansosPage() {
                 </div>
 
                 <div className="flex items-center gap-2 md:gap-3">
+                    {/* ☀️ Botón Despertar Tableta (Reconfigura fecha actual 6 AM CA, limpia caché, renueva JWT y recarga datos) */}
+                    <button
+                        type="button"
+                        onClick={handleWakeUpTablet}
+                        disabled={wakingUpTablet}
+                        title={t('prep.wakeUpTabletDesc')}
+                        className={`flex items-center gap-2 px-3.5 py-2 rounded-lg font-black text-xs uppercase tracking-wider border transition-all shadow-sm active:scale-95 ${
+                            tabletWakeSuccess
+                                ? 'bg-emerald-600 text-white border-emerald-500 shadow-emerald-500/20'
+                                : wakingUpTablet
+                                    ? 'bg-amber-500 text-slate-950 border-amber-400 animate-pulse'
+                                    : 'bg-amber-50 hover:bg-amber-100 text-amber-800 border-amber-300'
+                        }`}
+                    >
+                        <RefreshCw size={15} className={wakingUpTablet ? 'animate-spin' : ''} />
+                        <span>
+                            {wakingUpTablet
+                                ? t('prep.wakingUpTablet')
+                                : tabletWakeSuccess
+                                    ? t('prep.tabletAwakeSuccess')
+                                    : t('prep.wakeUpTabletShort')}
+                        </span>
+                    </button>
+
                     <button
                         onClick={toggleFullscreen}
                         className="flex items-center gap-2 bg-slate-100 hover:bg-slate-200 text-slate-600 px-3 py-2 rounded-lg font-bold text-sm transition-colors border border-slate-200"
@@ -1848,6 +1994,65 @@ export default function DescansosPage() {
                                 Cerrar
                             </button>
                         </div>
+                    </div>
+                </div>
+            )}
+
+            {/* ═══ MODAL AUTOMÁTICO: DESPERTAR TABLETA TRAS 3 HORAS DE INACTIVIDAD ═══ */}
+            {showWakeUpModal && (
+                <div
+                    onClick={handleWakeUpTablet}
+                    className="fixed inset-0 z-[100000] bg-slate-950/90 backdrop-blur-md flex items-center justify-center p-6 animate-in fade-in duration-300 cursor-pointer select-none"
+                >
+                    <div
+                        onClick={(e) => {
+                            e.stopPropagation()
+                            void handleWakeUpTablet()
+                        }}
+                        className="relative w-full max-w-xl rounded-3xl bg-gradient-to-b from-slate-900 via-slate-900 to-slate-950 border-2 border-amber-500/60 shadow-[0_0_80px_rgba(245,158,11,0.35)] p-8 text-center overflow-hidden"
+                    >
+                        <div className="mx-auto mb-5 w-20 h-20 rounded-full bg-amber-500/20 border-2 border-amber-400/60 flex items-center justify-center shadow-[0_0_35px_rgba(245,158,11,0.4)]">
+                            <RefreshCw className={`w-10 h-10 text-amber-400 ${wakingUpTablet ? 'animate-spin' : ''}`} />
+                        </div>
+
+                        <h2 className="text-2xl sm:text-3xl font-black text-white tracking-tight uppercase mb-2">
+                            {t('prep.wakeModalTitle')}
+                        </h2>
+                        <p className="text-sm sm:text-base text-slate-300 font-medium max-w-md mx-auto mb-6">
+                            {t('prep.wakeModalSubtitle')}
+                        </p>
+
+                        <div className="bg-slate-950/80 border border-slate-800 rounded-2xl p-4 mb-6 text-left space-y-2.5">
+                            <div className="flex items-center gap-3 text-xs sm:text-sm font-bold text-emerald-300">
+                                <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                                <span>{t('prep.wakeModalCheck1')}</span>
+                            </div>
+                            <div className="flex items-center gap-3 text-xs sm:text-sm font-bold text-amber-300">
+                                <Clock className="w-4 h-4 text-amber-400 shrink-0" />
+                                <span>{t('prep.wakeModalCheck2')}</span>
+                            </div>
+                            <div className="flex items-center gap-3 text-xs sm:text-sm font-bold text-cyan-300">
+                                <Zap className="w-4 h-4 text-cyan-400 shrink-0" />
+                                <span>{t('prep.wakeModalCheck3')}</span>
+                            </div>
+                        </div>
+
+                        <button
+                            type="button"
+                            disabled={wakingUpTablet}
+                            onClick={(e) => {
+                                e.stopPropagation()
+                                void handleWakeUpTablet()
+                            }}
+                            className="w-full py-4 px-6 rounded-2xl bg-gradient-to-r from-amber-500 via-orange-500 to-amber-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 font-black text-lg sm:text-xl uppercase tracking-wider shadow-[0_10px_30px_rgba(245,158,11,0.45)] active:scale-[0.98] transition-all flex items-center justify-center gap-3"
+                        >
+                            <RefreshCw className={`w-6 h-6 ${wakingUpTablet ? 'animate-spin' : ''}`} />
+                            <span>{wakingUpTablet ? t('prep.wakingUpTablet') : t('prep.wakeUpTablet')}</span>
+                        </button>
+
+                        <p className="mt-4 text-[11px] font-bold uppercase tracking-widest text-amber-400/80 animate-pulse">
+                            {t('prep.wakeModalTapHint')}
+                        </p>
                     </div>
                 </div>
             )}

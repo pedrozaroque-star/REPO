@@ -6,8 +6,12 @@
  *   Permite a los managers asignar personal a cada estación de trabajo por día y turno,
  *   visualizando un mapa de estaciones con actividades (checklist) provenientes de position_activities.
  * @businessRules
- *   - El día laboral inicia a las 6:00 AM y finaliza a las 5:59 AM del día siguiente.
- *   - El turno PM inicia a las 5:00 PM.
+ *   - El día laboral inicia a las 6:00 AM y finaliza a las 5:59 AM del día siguiente (`America/Los_Angeles`).
+ *   - El turno PM inicia a las 5:00 PM (`America/Los_Angeles`).
+ *   - Auto-Reconfiguración 24/7 y Modal de Despertar Tableta (3h de inactividad):
+ *     A las 6:00 AM cambia automáticamente al nuevo día de negocio y turno AM; a las 5:00 PM cambia automáticamente al turno PM;
+ *     limpia cachés obsoletas cada 15 min; retorna automáticamente al día/turno actual tras 2 min de inactividad;
+ *     y muestra el modal "☀️ Despertar Tableta" tras 3h sin actividad.
  *   - Los empleados se filtran por store_id (Toast GUID) y se cruzan con shifts del día seleccionado.
  *   - Estaciones vacantes se muestran pulsando en rojo para llamar la atención.
  *   - Las actividades de cada estación se resuelven dinámicamente desde position_activities.
@@ -20,10 +24,10 @@
  * @notes
  *   - Usa `supabase` importado directamente de @/lib/supabase para queries client-side.
  *   - El componente exporta default y no recibe props.
- *   - i18n keys bajo namespace `actividades.daily.*` — deben agregarse a i18n.tsx por el agente padre.
+ *   - i18n keys bajo namespace `actividades.daily.*` y `prep.*` para controles de despertar tableta.
  */
 
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -53,9 +57,12 @@ import {
   Copy,
   ClipboardList,
   Calendar,
+  Zap,
 } from 'lucide-react';
 import { useLanguage } from '@/lib/i18n';
 import { useAuth } from '@/components/ProtectedRoute';
+import { useWakeLock } from '@/lib/use-wake-lock';
+import { purgeTabletStaleCaches } from '@/lib/tablet-cache-cleaner';
 import { supabase } from '@/lib/supabase';
 import { calculateStoreOffsets, applyTimeOffset, formatOffsetTime, type StoreOffsets } from '@/lib/store-time-offset';
 import {
@@ -253,6 +260,13 @@ const getBusinessToday = (): Date => {
     la.setDate(la.getDate() - 1);
   }
   return new Date(la.getFullYear(), la.getMonth(), la.getDate());
+};
+
+/** Determine current operational shift in California (AM: 6:00 AM - 4:59 PM, PM: 5:00 PM - 5:59 AM) */
+const getCurrentShiftLA = (): 'AM' | 'PM' => {
+  const la = getLATime();
+  const h = la.getHours();
+  return h >= 17 || h < 6 ? 'PM' : 'AM';
 };
 
 /** Format date as YYYY-MM-DD */
@@ -492,18 +506,20 @@ export default function AsignacionDiariaTab() {
   // ── State ──
   const [stores, setStores] = useState<Store[]>([]);
   const [selectedStoreId, setSelectedStoreId] = useState<string>(() => {
-    // Usar la tienda del usuario logueado, o '7' (Slauson) como fallback
-    return user?.store_id ? String(user.store_id) : '7';
+    if (user?.store_id) return String(user.store_id);
+    if (typeof window !== 'undefined') {
+      try {
+        const saved = localStorage.getItem('actividades_store_id') || localStorage.getItem('planner_store');
+        if (saved) return saved;
+      } catch {}
+    }
+    return '7';
   });
   const [currentWeekStart, setCurrentWeekStart] = useState<Date>(() =>
     startOfWeek(getBusinessToday(), { weekStartsOn: 1 })
   );
   const [selectedDay, setSelectedDay] = useState<Date>(() => getBusinessToday());
-  const [activeShift, setActiveShift] = useState<'AM' | 'PM'>(() => {
-    const la = getLATime();
-    const h = la.getHours();
-    return h >= 17 || h < 6 ? 'PM' : 'AM';
-  });
+  const [activeShift, setActiveShift] = useState<'AM' | 'PM'>(() => getCurrentShiftLA());
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -530,6 +546,15 @@ export default function AsignacionDiariaTab() {
   const [selectedEmployeeCard, setSelectedEmployeeCard] = useState<Employee | null>(null);
   const [isReassigning, setIsReassigning] = useState(false);
   const [hasDriveThru, setHasDriveThru] = useState(true);
+
+  // ── Auto-Reconfiguración 24/7 y Modal de 3h de Inactividad ──
+  const [liveNow, setLiveNow] = useState<Date>(() => new Date());
+  const [wakingUpTablet, setWakingUpTablet] = useState(false);
+  const [tabletWakeSuccess, setTabletWakeSuccess] = useState(false);
+  const [showWakeUpModal, setShowWakeUpModal] = useState(false);
+  const lastInteractionAtRef = useRef<number>(Date.now());
+  const lastBusinessDateRef = useRef<string>(formatDateISO(getBusinessToday()));
+  const lastAutoShiftRef = useRef<'AM' | 'PM'>(getCurrentShiftLA());
 
   // ── Fullscreen Helpers & Event Listener ──
   const enterFullscreen = () => {
@@ -595,55 +620,92 @@ export default function AsignacionDiariaTab() {
     };
   }, [showVisualBoard]);
 
-  // ── Wake Lock: Prevenir que la tableta se duerma en modo Tablero Fullscreen ──
-  // (Wake Lock: Prevent tablet from sleeping in Fullscreen Board mode)
-  const [isScreenAwake, setIsScreenAwake] = useState(false);
+  // ── Wake Lock 24/7: Prevenir que la tableta se duerma (con respaldo de video silencioso) ──
+  const wakeLock = useWakeLock(true);
+  const isScreenAwake = wakeLock.isActive;
 
+  // Rastrear actividad del usuario para auto-retorno a Hoy/Turno (2 min) y modal de despertar (3 horas)
   useEffect(() => {
-    if (!showVisualBoard) {
-      setIsScreenAwake(false);
-      return;
-    }
-
-    let wakeLock: any = null;
-
-    const requestWakeLock = async () => {
-      try {
-        if (typeof window !== 'undefined' && 'wakeLock' in navigator && document.visibilityState === 'visible') {
-          wakeLock = await (navigator as any).wakeLock.request('screen');
-          setIsScreenAwake(true);
-          wakeLock.addEventListener('release', () => {
-            setIsScreenAwake(false);
-          });
-        }
-      } catch (err) {
-        console.warn('[WakeLock] No se pudo activar el bloqueo de suspensión:', err);
-        setIsScreenAwake(false);
-      }
+    const markInteraction = () => {
+      lastInteractionAtRef.current = Date.now();
     };
-
-    requestWakeLock();
-
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible' && showVisualBoard) {
-        requestWakeLock();
-      }
-    };
-
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-
+    window.addEventListener('pointerdown', markInteraction, { passive: true });
+    window.addEventListener('keydown', markInteraction, { passive: true });
+    window.addEventListener('touchstart', markInteraction, { passive: true });
+    window.addEventListener('wheel', markInteraction, { passive: true });
     return () => {
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-      if (wakeLock) {
-        try {
-          wakeLock.release().then(() => {
-            wakeLock = null;
-            setIsScreenAwake(false);
-          }).catch(() => {});
-        } catch {}
-      }
+      window.removeEventListener('pointerdown', markInteraction);
+      window.removeEventListener('keydown', markInteraction);
+      window.removeEventListener('touchstart', markInteraction);
+      window.removeEventListener('wheel', markInteraction);
     };
-  }, [showVisualBoard]);
+  }, []);
+
+  // Limpieza automática de cachés obsoletas y renovación silenciosa de JWT cada 15 minutos
+  useEffect(() => {
+    void purgeTabletStaleCaches();
+    const cacheInterval = setInterval(() => {
+      void purgeTabletStaleCaches({ force: true });
+    }, 15 * 60 * 1000);
+    return () => clearInterval(cacheInterval);
+  }, []);
+
+  // Centinela cada 15s: reloj en vivo, corte 6:00 AM CA (día + semana + turno AM), corte 5:00 PM CA (turno PM),
+  // auto-retorno tras 2 min de inactividad, y modal de despertar tras 3 horas
+  useEffect(() => {
+    const INACTIVITY_WAKE_MODAL_MS = 3 * 60 * 60 * 1000; // 3 horas
+    const IDLE_RETURN_TODAY_MS = 2 * 60 * 1000; // 2 minutos
+
+    const timer = setInterval(() => {
+      setLiveNow(new Date());
+      const todayBDate = getBusinessToday();
+      const todayBDateStr = formatDateISO(todayBDate);
+      const currentShiftNow = getCurrentShiftLA();
+      const idleMs = Date.now() - lastInteractionAtRef.current;
+
+      // Caso 1: Cruce de 6:00 AM en California (Nuevo Día Laboral)
+      if (lastBusinessDateRef.current && lastBusinessDateRef.current !== todayBDateStr) {
+        console.log(`[Actividades 24/7] 🌅 Cambio de día laboral detectado: ${lastBusinessDateRef.current} -> ${todayBDateStr}`);
+        lastBusinessDateRef.current = todayBDateStr;
+        lastAutoShiftRef.current = currentShiftNow;
+        setCurrentWeekStart(startOfWeek(todayBDate, { weekStartsOn: 1 }));
+        setSelectedDay(todayBDate);
+        setActiveShift(currentShiftNow);
+        setSelectedSlotForCard(null);
+        setSelectedEmployeeCard(null);
+        setIsReassigning(false);
+        void purgeTabletStaleCaches({ force: true });
+      } else if (lastAutoShiftRef.current !== currentShiftNow) {
+        // Caso 2: Cruce automático de turno (ej. 5:00 PM -> cambio automático de AM a PM)
+        console.log(`[Actividades 24/7] 🌇 Cambio automático de turno detectado: ${lastAutoShiftRef.current} -> ${currentShiftNow}`);
+        lastAutoShiftRef.current = currentShiftNow;
+        setActiveShift(currentShiftNow);
+        setSelectedSlotForCard(null);
+        setSelectedEmployeeCard(null);
+        setIsReassigning(false);
+      } else {
+        lastBusinessDateRef.current = todayBDateStr;
+        // Caso 3: Si alguien dejó la tableta viendo otro día u otro turno, regresar al día/turno actual tras 2 min sin tocarla
+        const viewedDateStr = formatDateISO(selectedDay);
+        if ((viewedDateStr !== todayBDateStr || activeShift !== currentShiftNow) && idleMs >= IDLE_RETURN_TODAY_MS) {
+          console.log(`[Actividades 24/7] 🔄 Retornando automáticamente a Hoy (${todayBDateStr}) y turno ${currentShiftNow}`);
+          setCurrentWeekStart(startOfWeek(todayBDate, { weekStartsOn: 1 }));
+          setSelectedDay(todayBDate);
+          setActiveShift(currentShiftNow);
+          setSelectedSlotForCard(null);
+          setSelectedEmployeeCard(null);
+          setIsReassigning(false);
+        }
+      }
+
+      // Caso 4: Tras 3 horas de inactividad continua, mostrar modal para despertar tableta
+      if (!showWakeUpModal && !wakingUpTablet && idleMs >= INACTIVITY_WAKE_MODAL_MS) {
+        setShowWakeUpModal(true);
+      }
+    }, 15_000);
+
+    return () => clearInterval(timer);
+  }, [selectedDay, activeShift, showWakeUpModal, wakingUpTablet]);
 
   // ── Derived ──
   const selectedStore = useMemo(() => {
@@ -1294,6 +1356,49 @@ export default function AsignacionDiariaTab() {
     }
   }, [selectedStoreGuid, currentWeekStart, activeShift, activityMap, language, fetchShifts, fetchAssignments]);
 
+  // ── Despertar Tableta (Reconfiguración 24/7 + Limpieza Caché + Día/Turno Actual) ──
+  const handleWakeUpTablet = useCallback(async () => {
+    lastInteractionAtRef.current = Date.now();
+    setShowWakeUpModal(false);
+    if (wakingUpTablet) return;
+    setWakingUpTablet(true);
+    setTabletWakeSuccess(false);
+    try {
+      wakeLock.requestNow();
+      await purgeTabletStaleCaches({ force: true });
+
+      setLiveNow(new Date());
+      const todayBDate = getBusinessToday();
+      const todayBDateStr = formatDateISO(todayBDate);
+      const currentShiftNow = getCurrentShiftLA();
+
+      lastBusinessDateRef.current = todayBDateStr;
+      lastAutoShiftRef.current = currentShiftNow;
+
+      setCurrentWeekStart(startOfWeek(todayBDate, { weekStartsOn: 1 }));
+      setSelectedDay(todayBDate);
+      setActiveShift(currentShiftNow);
+      setSelectedSlotForCard(null);
+      setSelectedEmployeeCard(null);
+      setIsReassigning(false);
+
+      await Promise.all([
+        fetchStores(),
+        fetchPositionActivities(),
+        fetchShifts(),
+        fetchAssignments(),
+        fetchWeekShiftEmpIds(),
+      ]);
+
+      setTabletWakeSuccess(true);
+      setTimeout(() => setTabletWakeSuccess(false), 4000);
+    } catch (err) {
+      console.error('[Actividades WakeUp] Error reconfigurando tableta:', err);
+    } finally {
+      setWakingUpTablet(false);
+    }
+  }, [wakingUpTablet, wakeLock, fetchStores, fetchPositionActivities, fetchShifts, fetchAssignments, fetchWeekShiftEmpIds]);
+
   // ── Navigation ──
   const goToPrevWeek = () => {
     const newStart = subWeeks(currentWeekStart, 1);
@@ -1352,7 +1457,10 @@ export default function AsignacionDiariaTab() {
                 <Building2 className="w-4 h-4 text-slate-500 flex-shrink-0" />
                 <select
                   value={selectedStoreId}
-                  onChange={(e) => setSelectedStoreId(e.target.value)}
+                  onChange={(e) => {
+                    setSelectedStoreId(e.target.value);
+                    try { localStorage.setItem('actividades_store_id', e.target.value); } catch {}
+                  }}
                   disabled={!canChangeStore}
                   className={`text-sm font-semibold bg-transparent outline-none text-slate-800 dark:text-slate-200 ${canChangeStore ? 'cursor-pointer' : 'cursor-default opacity-80'}`}
                 >
@@ -1421,6 +1529,32 @@ export default function AsignacionDiariaTab() {
                   <Copy className="w-4 h-4 text-indigo-500" />
                 )}
                 {copying ? t('actividades.daily.copying_prev_week') : t('actividades.daily.copy_prev_week')}
+              </motion.button>
+
+              {/* ☀️ Despertar Tableta */}
+              <motion.button
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                type="button"
+                onClick={handleWakeUpTablet}
+                disabled={wakingUpTablet}
+                title={t('prep.wakeUpTabletDesc')}
+                className={`px-4 py-2.5 rounded-xl text-sm font-black border shadow-sm transition-all flex items-center gap-2 ${
+                  tabletWakeSuccess
+                    ? 'bg-emerald-600 text-white border-emerald-500 shadow-emerald-500/20'
+                    : wakingUpTablet
+                      ? 'bg-amber-500 text-slate-950 border-amber-400 animate-pulse'
+                      : 'bg-amber-50 dark:bg-amber-950/30 hover:bg-amber-100 dark:hover:bg-amber-900/40 text-amber-800 dark:text-amber-300 border-amber-300 dark:border-amber-700/60'
+                }`}
+              >
+                <RefreshCw className={`w-4 h-4 ${wakingUpTablet ? 'animate-spin' : ''}`} />
+                <span>
+                  {wakingUpTablet
+                    ? t('prep.wakingUpTablet')
+                    : tabletWakeSuccess
+                      ? t('prep.tabletAwakeSuccess')
+                      : t('prep.wakeUpTabletShort')}
+                </span>
               </motion.button>
 
               {/* Tablero */}
@@ -1945,16 +2079,41 @@ export default function AsignacionDiariaTab() {
                     </div>
                   </div>
 
-                  {/* Close */}
-                  <button
-                    onClick={() => {
-                      setShowVisualBoard(false);
-                      exitFullscreen();
-                    }}
-                    className="bg-black dark:bg-white text-white dark:text-black px-6 py-2.5 rounded-full font-black text-xs uppercase tracking-widest transition-all hover:bg-slate-800 dark:hover:bg-slate-200 active:scale-95"
-                  >
-                    {t('actividades.daily.close_board')}
-                  </button>
+                  {/* Wake Up Tablet + Close */}
+                  <div className="flex items-center gap-2.5">
+                    <button
+                      type="button"
+                      onClick={handleWakeUpTablet}
+                      disabled={wakingUpTablet}
+                      title={t('prep.wakeUpTabletDesc')}
+                      className={`px-4 py-2.5 rounded-full font-black text-xs uppercase tracking-widest border transition-all flex items-center gap-2 active:scale-95 ${
+                        tabletWakeSuccess
+                          ? 'bg-emerald-600 text-white border-emerald-500 shadow-lg shadow-emerald-500/20'
+                          : wakingUpTablet
+                            ? 'bg-amber-500 text-slate-950 border-amber-400 animate-pulse'
+                            : 'bg-amber-50 dark:bg-amber-950/40 hover:bg-amber-100 dark:hover:bg-amber-900/50 text-amber-800 dark:text-amber-300 border-amber-300 dark:border-amber-700/60'
+                      }`}
+                    >
+                      <RefreshCw size={14} className={wakingUpTablet ? 'animate-spin' : ''} />
+                      <span>
+                        {wakingUpTablet
+                          ? t('prep.wakingUpTablet')
+                          : tabletWakeSuccess
+                            ? t('prep.tabletAwakeSuccess')
+                            : t('prep.wakeUpTabletShort')}
+                      </span>
+                    </button>
+
+                    <button
+                      onClick={() => {
+                        setShowVisualBoard(false);
+                        exitFullscreen();
+                      }}
+                      className="bg-black dark:bg-white text-white dark:text-black px-6 py-2.5 rounded-full font-black text-xs uppercase tracking-widest transition-all hover:bg-slate-800 dark:hover:bg-slate-200 active:scale-95"
+                    >
+                      {t('actividades.daily.close_board')}
+                    </button>
+                  </div>
                 </div>
 
                 {/* Layout Content */}
@@ -2204,7 +2363,7 @@ export default function AsignacionDiariaTab() {
                   <div className="w-px h-6 bg-zinc-300 dark:bg-zinc-700" />
                   <div className="flex flex-col">
                     <span className="text-2xl font-black text-slate-800 dark:text-slate-200 tracking-tighter leading-none">
-                      {format(new Date(), 'HH:mm')}
+                      {format(liveNow, 'HH:mm')}
                     </span>
                   </div>
                 </div>
@@ -2606,6 +2765,66 @@ export default function AsignacionDiariaTab() {
             </motion.div>
           )}
         </AnimatePresence>,
+        document.body
+      )}
+
+      {/* ═══ MODAL AUTOMÁTICO: DESPERTAR TABLETA TRAS 3 HORAS DE INACTIVIDAD (PORTAL) ═══ */}
+      {typeof document !== 'undefined' && showWakeUpModal && createPortal(
+        <div
+          onClick={handleWakeUpTablet}
+          className="fixed inset-0 z-[100000] bg-slate-950/90 backdrop-blur-md flex items-center justify-center p-6 animate-in fade-in duration-300 cursor-pointer select-none"
+        >
+          <div
+            onClick={(e) => {
+              e.stopPropagation();
+              void handleWakeUpTablet();
+            }}
+            className="relative w-full max-w-xl rounded-3xl bg-gradient-to-b from-slate-900 via-slate-900 to-slate-950 border-2 border-amber-500/60 shadow-[0_0_80px_rgba(245,158,11,0.35)] p-8 text-center overflow-hidden"
+          >
+            <div className="mx-auto mb-5 w-20 h-20 rounded-full bg-amber-500/20 border-2 border-amber-400/60 flex items-center justify-center shadow-[0_0_35px_rgba(245,158,11,0.4)]">
+              <RefreshCw className={`w-10 h-10 text-amber-400 ${wakingUpTablet ? 'animate-spin' : ''}`} />
+            </div>
+
+            <h2 className="text-2xl sm:text-3xl font-black text-white tracking-tight uppercase mb-2">
+              {t('prep.wakeModalTitle')}
+            </h2>
+            <p className="text-sm sm:text-base text-slate-300 font-medium max-w-md mx-auto mb-6">
+              {t('prep.wakeModalSubtitle')}
+            </p>
+
+            <div className="bg-slate-950/80 border border-slate-800 rounded-2xl p-4 mb-6 text-left space-y-2.5">
+              <div className="flex items-center gap-3 text-xs sm:text-sm font-bold text-emerald-300">
+                <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                <span>{t('prep.wakeModalCheck1')}</span>
+              </div>
+              <div className="flex items-center gap-3 text-xs sm:text-sm font-bold text-amber-300">
+                <Clock className="w-4 h-4 text-amber-400 shrink-0" />
+                <span>{t('prep.wakeModalCheck2')}</span>
+              </div>
+              <div className="flex items-center gap-3 text-xs sm:text-sm font-bold text-cyan-300">
+                <Zap className="w-4 h-4 text-cyan-400 shrink-0" />
+                <span>{t('prep.wakeModalCheck3')}</span>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              disabled={wakingUpTablet}
+              onClick={(e) => {
+                e.stopPropagation();
+                void handleWakeUpTablet();
+              }}
+              className="w-full py-4 px-6 rounded-2xl bg-gradient-to-r from-amber-500 via-orange-500 to-amber-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 font-black text-lg sm:text-xl uppercase tracking-wider shadow-[0_10px_30px_rgba(245,158,11,0.45)] active:scale-[0.98] transition-all flex items-center justify-center gap-3"
+            >
+              <RefreshCw className={`w-6 h-6 ${wakingUpTablet ? 'animate-spin' : ''}`} />
+              <span>{wakingUpTablet ? t('prep.wakingUpTablet') : t('prep.wakeUpTablet')}</span>
+            </button>
+
+            <p className="mt-4 text-[11px] font-bold uppercase tracking-widest text-amber-400/80 animate-pulse">
+              {t('prep.wakeModalTapHint')}
+            </p>
+          </div>
+        </div>,
         document.body
       )}
 

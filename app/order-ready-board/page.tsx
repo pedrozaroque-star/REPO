@@ -105,6 +105,7 @@ import { AVAILABLE_VOICES, VoiceId, isValidVoice, isForbiddenRaulVoice } from '@
 import { getCaliforniaBusinessDate, getCaliforniaShift } from '@/lib/business-date'
 import { STORE_GUID_BY_CODE } from '@/lib/toast-stores'
 import { isDrinkOrDessertOnlyOrder } from '@/lib/order-ready-filter'
+import { purgeTabletStaleCaches, getTabletNoCacheHeaders } from '@/lib/tablet-cache-cleaner'
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
@@ -210,7 +211,10 @@ function OrderReadyBoardContent() {
     let cancelled = false
     ;(async () => {
       try {
-        const res = await fetch('/api/order-ready/my-stores', { cache: 'no-store' })
+        const res = await fetch('/api/order-ready/my-stores', {
+          cache: 'no-store',
+          headers: getTabletNoCacheHeaders()
+        })
         const data = await res.json()
         if (!cancelled) {
           setAccess(res.ok && data.success ? { all: !!data.all, codes: data.codes || [] } : { all: false, codes: [] })
@@ -687,6 +691,7 @@ function OrderReadyBoardContent() {
     setTabletCalledOrderNum(null)
     setReadyOrders([])
     setInProgressOrders([])
+    purgeTabletStaleCaches({ activeDate: newBDate }).catch(() => {})
   }, [])
 
   // Reloj local en vivo con centinela automático de cambio de día laboral (6:00 AM)
@@ -1520,14 +1525,16 @@ function OrderReadyBoardContent() {
     }
   }, [])
 
-  // Recorte de memoria: el set de órdenes ya anunciadas no debe crecer sin límite en turnos de 15+ horas
+  // Recorte de memoria y autolimpieza de caché/token cada 10 minutos para operación 24/7
   useEffect(() => {
+    purgeTabletStaleCaches({ activeDate: getCaliforniaBusinessDate() }).catch(() => {})
     const trim = setInterval(() => {
       const set = announcedIdsRef.current
       if (set.size > 500) {
         const keep = Array.from(set).slice(-250)
         announcedIdsRef.current = new Set(keep)
       }
+      purgeTabletStaleCaches({ activeDate: getCaliforniaBusinessDate() }).catch(() => {})
     }, 10 * 60 * 1000)
     return () => clearInterval(trim)
   }, [])
@@ -1552,10 +1559,14 @@ function OrderReadyBoardContent() {
     const controller = new AbortController()
     const abortTimer = setTimeout(() => controller.abort(), timeoutMs)
     try {
-      if (syncToast) setIsSyncing(true)
-      const res = await fetch(`/api/order-ready/orders?storeCode=${selectedStore}&syncToast=${syncToast}&minutes=45`, {
+      if (syncToast) {
+        setIsSyncing(true)
+        purgeTabletStaleCaches({ activeDate: getCaliforniaBusinessDate() }).catch(() => {})
+      }
+      const res = await fetch(`/api/order-ready/orders?storeCode=${selectedStore}&syncToast=${syncToast}&minutes=45&_t=${Date.now()}`, {
         signal: controller.signal,
-        cache: 'no-store'
+        cache: 'no-store',
+        headers: getTabletNoCacheHeaders()
       })
       const data = await res.json()
 

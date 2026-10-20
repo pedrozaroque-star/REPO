@@ -20,17 +20,17 @@ export interface VersionMilestone {
 }
 
 export const SYSTEM_VERSION = {
-    version: 'v2.16.0',
-    versionNumber: '2.16.0',
+    version: 'v2.17.0',
+    versionNumber: '2.17.0',
     releaseMonthEs: 'Octubre 2026',
     releaseMonthEn: 'October 2026',
     stage: 'Producción',
     stageEn: 'Production',
     year: '2026',
-    labelEs: 'Octubre 2026 • SM TEG v2.16.0',
-    labelEn: 'October 2026 • SM TEG v2.16.0',
+    labelEs: 'Octubre 2026 • SM TEG v2.17.0',
+    labelEn: 'October 2026 • SM TEG v2.17.0',
     brand: 'SM TEG',
-    lastUpdated: '2026-10-17'
+    lastUpdated: '2026-10-19'
 } as const;
 
 export const VERSION_HISTORY: readonly VersionMilestone[] = [

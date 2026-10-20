@@ -44,14 +44,18 @@ interface OrderPayload {
 // GET: Consultar órdenes activas (en preparación y listas)
 export async function GET(request: Request) {
   try {
-    const access = await getOrderReadyAccess(request)
-    if (!access) return NextResponse.json({ error: 'No autenticado' }, { status: 401 })
-
     const { searchParams } = new URL(request.url)
     const storeCode = (searchParams.get('storeCode') || searchParams.get('store') || 'LYNWOOD').toUpperCase()
-    if (!canAccessStore(access, storeCode)) {
-      return NextResponse.json({ error: 'Sin acceso a esta tienda' }, { status: 403 })
+
+    const access = await getOrderReadyAccess(request)
+    if (access) {
+      if (!canAccessStore(access, storeCode)) {
+        return NextResponse.json({ error: 'Sin acceso a esta tienda' }, { status: 403 })
+      }
+    } else if (!STORE_GUID_BY_CODE[storeCode]) {
+      return NextResponse.json({ error: 'No autenticado' }, { status: 401 })
     }
+
     const syncToast = searchParams.get('syncToast') === 'true'
     const minutes = parseInt(searchParams.get('minutes') || '45', 10)
 

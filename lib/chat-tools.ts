@@ -592,8 +592,29 @@ export const TOOL_DECLARATIONS = [
 ]
 
 // ── Tool Executor ──
-export async function executeTool(name: string, args: any): Promise<string> {
+export async function executeTool(name: string, rawArgs: any): Promise<string> {
   try {
+    const args: any = { ...(rawArgs || {}) }
+    if (args.date_from && !args.start_date) args.start_date = args.date_from
+    if (args.date_to && !args.end_date) args.end_date = args.date_to
+    if ((args.sql_query || args.query) && !args.query_text) args.query_text = args.sql_query || args.query
+
+    const toolsRequiringDateRange = new Set([
+      'query_sales',
+      'query_food_cost',
+      'query_labor',
+      'query_violations_budgets',
+      'query_product_mix',
+      'analyze_performance',
+      'query_pnl_consolidated'
+    ])
+    if (toolsRequiringDateRange.has(name)) {
+      const todayStr = new Date(Date.now() - 7 * 3600 * 1000).toISOString().slice(0, 10)
+      const thirtyDaysAgoStr = new Date(Date.now() - 30 * 24 * 3600 * 1000).toISOString().slice(0, 10)
+      if (!args.start_date) args.start_date = thirtyDaysAgoStr
+      if (!args.end_date) args.end_date = todayStr
+    }
+
     switch (name) {
       case 'query_maintenance_logs': return await queryMaintenanceLogs(args)
       case 'query_viele_orders': return await queryVieleOrders(args)
@@ -670,18 +691,50 @@ async function queryDeliveryHandoffs(args: any): Promise<string> {
 }
 
 // ── Store map helper (shared) ──
+function normText(s: string): string {
+  return (s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim()
+}
+
 async function getStoreMaps() {
-  const { data: stores } = await supabaseAdmin.from('stores').select('id, name, external_id')
+  const { data: stores } = await supabaseAdmin.from('stores').select('id, name, code, external_id')
   const idToName: Record<string, string> = {}
-  const nameToId: Record<string, string> = {};
-  (stores || []).forEach(s => {
+  const nameToId: Record<string, string> = {}
+  const nameToExtId: Record<string, string> = {}
+  ;(stores || []).forEach(s => {
     const n = clean(s.name)
     idToName[s.id] = n
-    idToName[s.external_id] = n
     idToName[String(s.id)] = n
-    nameToId[n.toLowerCase()] = s.id
+    if (s.external_id) {
+      idToName[s.external_id] = n
+      nameToExtId[n.toLowerCase()] = String(s.external_id)
+      nameToExtId[normText(n)] = String(s.external_id)
+    }
+    nameToId[n.toLowerCase()] = String(s.id)
+    nameToId[normText(n)] = String(s.id)
   })
-  return { idToName, nameToId, stores: stores || [] }
+  return { idToName, nameToId, nameToExtId, stores: stores || [] }
+}
+
+async function resolveStoreByName(storeName: string): Promise<{ id: number; idStr: string; externalId: string; name: string } | null> {
+  if (!storeName) return null
+  const { stores } = await getStoreMaps()
+  const q = normText(storeName)
+  const matched = stores.find(s => normText(clean(s.name)).includes(q) || (s.code && normText(s.code).includes(q)))
+  if (!matched) return null
+  return {
+    id: Number(matched.id),
+    idStr: String(matched.id),
+    externalId: String(matched.external_id || matched.id),
+    name: clean(matched.name)
+  }
+}
+
+async function getStoreExtIdsByName(storeName: string): Promise<string[]> {
+  const { stores } = await getStoreMaps()
+  const sn = normText(storeName)
+  return stores
+    .filter(s => normText(clean(s.name)).includes(sn) || (s.code && normText(s.code).includes(sn)))
+    .map(s => String(s.external_id || s.id))
 }
 
 // ── Maintenance Logs Tool ──
@@ -705,9 +758,9 @@ async function queryMaintenanceLogs(args: any): Promise<string> {
 
     let filtered = logs
     if (store_name) {
-      const q = store_name.toLowerCase()
+      const q = normText(store_name)
       filtered = logs.filter(l => {
-        const name = (idToName[l.store_id] || '').toLowerCase()
+        const name = normText(idToName[l.store_id] || '')
         return name.includes(q)
       })
     }
@@ -728,62 +781,120 @@ async function queryMaintenanceLogs(args: any): Promise<string> {
 
 async function getStoreIdsByName(storeName: string): Promise<number[]> {
   const { stores } = await getStoreMaps()
-  const sn = storeName.toLowerCase().trim()
+  const sn = normText(storeName)
   return stores
-    .filter(s => clean(s.name).toLowerCase().includes(sn))
+    .filter(s => normText(clean(s.name)).includes(sn) || (s.code && normText(s.code).includes(sn)))
     .map(s => Number(s.id))
 }
 
 // ── 1. Sales ──
 async function querySales(args: any): Promise<string> {
-  let query = supabaseAdmin
-    .from('sales_daily_cache')
-    .select('business_date, store_name, net_sales, order_count, labor_cost, uber_sales, doordash_sales, grubhub_sales')
-    .gte('business_date', args.start_date)
-    .lte('business_date', args.end_date)
-    .order('business_date', { ascending: true })
+  const pageSize = 1000
+  let allRows: any[] = []
+  for (let offset = 0; offset < 10000; offset += pageSize) {
+    let query = supabaseAdmin
+      .from('sales_daily_cache')
+      .select('business_date, store_name, net_sales, order_count, labor_cost, uber_sales, doordash_sales, grubhub_sales')
+      .gte('business_date', args.start_date)
+      .lte('business_date', args.end_date)
+      .order('business_date', { ascending: true })
+      .range(offset, offset + pageSize - 1)
 
-  if (args.store_name) {
-    query = query.ilike('store_name', `%${args.store_name}%`)
+    if (args.store_name) {
+      query = query.ilike('store_name', `%${args.store_name}%`)
+    }
+
+    const { data, error } = await query
+    if (error) return `Error: ${error.message}`
+    if (!data || data.length === 0) break
+    allRows = allRows.concat(data)
+    if (data.length < pageSize) break
   }
 
-  const { data, error } = await query.limit(2000)
-  if (error) return `Error: ${error.message}`
-  if (!data?.length) return `No sales data found for ${args.start_date} to ${args.end_date}.`
+  const data = allRows
+  if (!data.length) return `No sales data found for ${args.start_date} to ${args.end_date}.`
 
   // Aggregate by store
-  const byStore: Record<string, { sales: number; orders: number; labor: number; uber: number; dd: number }> = {}
-  let total = 0, orders = 0, labor = 0, uber = 0, dd = 0
+  const byStore: Record<string, { sales: number; orders: number; labor: number; uber: number; dd: number; gh: number }> = {}
+  let total = 0, orders = 0, labor = 0, uber = 0, dd = 0, gh = 0
   data.forEach(r => {
     const s = Number(r.net_sales) || 0, o = Number(r.order_count) || 0
-    const l = Number(r.labor_cost) || 0, u = Number(r.uber_sales) || 0, d = Number(r.doordash_sales) || 0
-    total += s; orders += o; labor += l; uber += u; dd += d
+    const l = Number(r.labor_cost) || 0, u = Number(r.uber_sales) || 0, d = Number(r.doordash_sales) || 0, g = Number(r.grubhub_sales) || 0
+    total += s; orders += o; labor += l; uber += u; dd += d; gh += g
     const name = clean(r.store_name)
-    if (!byStore[name]) byStore[name] = { sales: 0, orders: 0, labor: 0, uber: 0, dd: 0 }
+    if (!byStore[name]) byStore[name] = { sales: 0, orders: 0, labor: 0, uber: 0, dd: 0, gh: 0 }
     byStore[name].sales += s; byStore[name].orders += o; byStore[name].labor += l
-    byStore[name].uber += u; byStore[name].dd += d
+    byStore[name].uber += u; byStore[name].dd += d; byStore[name].gh += g
   })
 
   const storeLines = Object.entries(byStore).sort((a, b) => b[1].sales - a[1].sales)
-    .map(([n, v]) => `${n}: ${fmt$(v.sales)} | Orders: ${v.orders} | Labor: ${fmt$(v.labor)} (${v.sales > 0 ? ((v.labor/v.sales)*100).toFixed(1) : 0}%) | Uber: ${fmt$(v.uber)} | DD: ${fmt$(v.dd)}`)
+    .map(([n, v]) => `${n}: ${fmt$(v.sales)} | Orders: ${v.orders} | Labor: ${fmt$(v.labor)} (${v.sales > 0 ? ((v.labor/v.sales)*100).toFixed(1) : 0}%) | Uber: ${fmt$(v.uber)} | DD: ${fmt$(v.dd)} | GH: ${fmt$(v.gh)}`)
 
   // Aggregate by date (daily breakdown for day-of-week analysis)
   const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
   const byDate: Record<string, { sales: number; orders: number; labor: number }> = {}
+  // Also aggregate by Monday-Sunday business week per store for multi-week queries
+  const byWeekAndStore: Record<string, Record<string, number>> = {}
+  const weekTotals: Record<string, number> = {}
+
+  const getMondayStr = (dtStr: string): string => {
+    const [y, m, d] = dtStr.split('-').map(Number)
+    const dt = new Date(Date.UTC(y, m - 1, d, 12, 0, 0))
+    const dow = dt.getUTCDay()
+    const diff = dow === 0 ? -6 : 1 - dow
+    dt.setUTCDate(dt.getUTCDate() + diff)
+    return dt.toISOString().slice(0, 10)
+  }
+
   data.forEach(r => {
     const dt = r.business_date
+    const s = Number(r.net_sales) || 0
     if (!byDate[dt]) byDate[dt] = { sales: 0, orders: 0, labor: 0 }
-    byDate[dt].sales += Number(r.net_sales) || 0
+    byDate[dt].sales += s
     byDate[dt].orders += Number(r.order_count) || 0
     byDate[dt].labor += Number(r.labor_cost) || 0
+
+    const mon = getMondayStr(dt)
+    const stName = clean(r.store_name)
+    if (!byWeekAndStore[mon]) byWeekAndStore[mon] = {}
+    byWeekAndStore[mon][stName] = (byWeekAndStore[mon][stName] || 0) + s
+    weekTotals[mon] = (weekTotals[mon] || 0) + s
   })
-  const dailyLines = Object.entries(byDate).sort().map(([dt, v]) => {
+
+  const sortedWeeks = Object.keys(byWeekAndStore).sort()
+  let weeklyMatrixSection = ''
+  if (sortedWeeks.length >= 2) {
+    const latestWeek = sortedWeeks[sortedWeeks.length - 1]
+    const allStores = Object.keys(byStore).sort((a, b) => {
+      const latestDiff = (byWeekAndStore[latestWeek]?.[b] || 0) - (byWeekAndStore[latestWeek]?.[a] || 0)
+      return latestDiff !== 0 ? latestDiff : (byStore[b].sales - byStore[a].sales)
+    })
+    const weekHeaders = sortedWeeks.map(w => {
+      const [y, m, d] = w.split('-').map(Number)
+      const sun = new Date(Date.UTC(y, m - 1, d + 6, 12, 0, 0)).toISOString().slice(0, 10)
+      return `${w}..${sun.slice(5)}`
+    })
+    const matrixHeader = `| Tienda | ${weekHeaders.join(' | ')} | Total Periodo |`
+    const matrixSep = `| :--- | ${weekHeaders.map(() => '---:').join(' | ')} | ---: |`
+    const matrixRows = allStores.map(st => {
+      const cells = sortedWeeks.map(w => fmt$(byWeekAndStore[w]?.[st] || 0))
+      return `| ${st} | ${cells.join(' | ')} | ${fmt$(byStore[st].sales)} |`
+    })
+    const totalRowCells = sortedWeeks.map(w => fmt$(weekTotals[w] || 0))
+    matrixRows.push(`| **TOTAL CADENA** | ${totalRowCells.map(c => `**${c}**`).join(' | ')} | **${fmt$(total)}** |`)
+    weeklyMatrixSection = `\n\nWeekly Sales Matrix by Store (${sortedWeeks.length} weeks, sorted high-to-low by most recent week ${latestWeek}):\n${matrixHeader}\n${matrixSep}\n${matrixRows.join('\n')}`
+  }
+
+  const sortedDates = Object.entries(byDate).sort()
+  // If > 45 days, show weekly matrix + most recent 30 daily lines to keep context crisp
+  const dailySlice = sortedDates.length > 45 ? sortedDates.slice(-30) : sortedDates
+  const dailyLines = dailySlice.map(([dt, v]) => {
     const [y, m, d] = dt.split('-').map(Number)
     const dayName = dayNames[new Date(y, m - 1, d).getDay()]
     return `${dt} (${dayName}): ${fmt$(v.sales)} | ${v.orders} orders | Labor: ${fmt$(v.labor)}`
   })
 
-  return `Sales ${args.start_date} to ${args.end_date}:\nTotal: ${fmt$(total)} | Orders: ${orders} | Labor: ${fmt$(labor)} (${total > 0 ? ((labor/total)*100).toFixed(1) : 0}%) | Uber: ${fmt$(uber)} | DD: ${fmt$(dd)}\n\nBy Store:\n${storeLines.join('\n')}\n\nDaily Breakdown:\n${dailyLines.join('\n')}`
+  return `Sales ${args.start_date} to ${args.end_date}:\nTotal: ${fmt$(total)} | Orders: ${orders} | Labor: ${fmt$(labor)} (${total > 0 ? ((labor/total)*100).toFixed(1) : 0}%) | Uber: ${fmt$(uber)} | DD: ${fmt$(dd)} | GH: ${fmt$(gh)}\n\nBy Store:\n${storeLines.join('\n')}${weeklyMatrixSection}\n\nDaily Breakdown${sortedDates.length > 45 ? ' (Last 30 days)' : ''}:\n${dailyLines.join('\n')}`
 }
 
 // ── 1.1 Compare Sales Periods (Exact Real Data & Percentages) ──
@@ -938,32 +1049,66 @@ async function queryFoodCost(args: any): Promise<string> {
 async function queryLabor(args: any): Promise<string> {
   let query = supabaseAdmin
     .from('punches')
-    .select('employee_name, store_id, in_date, hours_worked, is_overtime, regular_rate, overtime_rate')
-    .gte('in_date', args.start_date)
-    .lte('in_date', args.end_date)
+    .select('store_id, employee_toast_guid, job_toast_guid, business_date, clock_in, clock_out, regular_hours, overtime_hours, tips, hourly_wage')
+    .gte('business_date', args.start_date)
+    .lte('business_date', args.end_date)
 
-  if (args.employee_name) query = query.ilike('employee_name', `%${args.employee_name}%`)
+  if (args.store_name) {
+    const extIds = await getStoreExtIdsByName(args.store_name)
+    if (extIds.length) query = query.in('store_id', extIds)
+  }
 
-  const { data, error } = await query.limit(2000)
+  const { data, error } = await query.limit(3000)
   if (error) return `Error: ${error.message}`
   if (!data?.length) return `No punch data for ${args.start_date} to ${args.end_date}.`
 
-  const { idToName } = await getStoreMaps()
-  const byEmp: Record<string, { hours: number; ot: number; punches: number; store: string }> = {}
-  let totalH = 0, totalOT = 0
-  data.forEach(p => {
-    const h = Number(p.hours_worked) || 0
-    totalH += h; if (p.is_overtime) totalOT++
-    const name = p.employee_name || '?'
-    if (!byEmp[name]) byEmp[name] = { hours: 0, ot: 0, punches: 0, store: idToName[p.store_id] || '' }
-    byEmp[name].hours += h; if (p.is_overtime) byEmp[name].ot++; byEmp[name].punches++
+  const guids = Array.from(new Set(data.map((p: any) => p.employee_toast_guid).filter(Boolean)))
+  const [{ idToName }, { data: empByToast }, { data: empByV2 }] = await Promise.all([
+    getStoreMaps(),
+    guids.length
+      ? supabaseAdmin.from('toast_employees').select('toast_guid, v2_toast_guid, first_name, last_name, chosen_name').in('toast_guid', guids)
+      : Promise.resolve({ data: [] as any[] }),
+    guids.length
+      ? supabaseAdmin.from('toast_employees').select('toast_guid, v2_toast_guid, first_name, last_name, chosen_name').in('v2_toast_guid', guids)
+      : Promise.resolve({ data: [] as any[] })
+  ])
+  const empMap: Record<string, string> = {}
+  ;[...(empByToast || []), ...(empByV2 || [])].forEach((e: any) => {
+    const fullName = `${e.first_name || ''} ${e.last_name || ''}`.trim() || e.chosen_name || '?'
+    if (e.toast_guid) empMap[e.toast_guid] = fullName
+    if (e.v2_toast_guid) empMap[e.v2_toast_guid] = fullName
+  })
+
+  let filtered = data
+  if (args.employee_name) {
+    const empSearch = normText(args.employee_name)
+    filtered = data.filter(p => normText(empMap[p.employee_toast_guid] || '').includes(empSearch))
+  }
+
+  if (!filtered.length) return `No punch data matching "${args.employee_name || ''}" for ${args.start_date} to ${args.end_date}.`
+
+  const byEmp: Record<string, { hours: number; reg: number; ot: number; punches: number; store: string }> = {}
+  let totalH = 0, totalOTShifts = 0, totalOTHours = 0
+  filtered.forEach(p => {
+    const reg = Number(p.regular_hours) || 0
+    const ot = Number(p.overtime_hours) || 0
+    const h = reg + ot
+    totalH += h
+    totalOTHours += ot
+    if (ot > 0) totalOTShifts++
+    const name = empMap[p.employee_toast_guid] || p.employee_toast_guid || '?'
+    if (!byEmp[name]) byEmp[name] = { hours: 0, reg: 0, ot: 0, punches: 0, store: idToName[p.store_id] || '' }
+    byEmp[name].hours += h
+    byEmp[name].reg += reg
+    byEmp[name].ot += ot
+    byEmp[name].punches++
   })
 
   const uniq = Object.keys(byEmp).length
-  const top = Object.entries(byEmp).sort((a, b) => b[1].hours - a[1].hours).slice(0, 20)
-    .map(([n, v]) => `${n} [${v.store}]: ${v.hours.toFixed(1)}h in ${v.punches} shifts${v.ot > 0 ? ` (${v.ot} OT)` : ''}`)
+  const top = Object.entries(byEmp).sort((a, b) => b[1].hours - a[1].hours).slice(0, 25)
+    .map(([n, v]) => `${n} [${v.store}]: ${v.hours.toFixed(2)}h (${v.reg.toFixed(2)}h reg${v.ot > 0 ? `, ${v.ot.toFixed(2)}h OT` : ''}) in ${v.punches} shifts`)
 
-  return `Labor ${args.start_date} to ${args.end_date}:\nTotal: ${totalH.toFixed(1)}h | ${data.length} punches | ${uniq} employees | ${totalOT} overtime\n\nTop employees:\n${top.join('\n')}`
+  return `Labor ${args.start_date} to ${args.end_date}:\nTotal: ${totalH.toFixed(1)}h (OT: ${totalOTHours.toFixed(1)}h across ${totalOTShifts} shifts) | ${filtered.length} punches | ${uniq} employees\n\nTop employees:\n${top.join('\n')}`
 }
 
 // ── 4. Inspections ──
@@ -1220,7 +1365,7 @@ async function queryFeedback(args: any): Promise<string> {
   // Customer feedback / Google reviews / Website contact & newsletter leads
   if (!args.source || args.source !== 'internal') {
     let q = supabaseAdmin.from('customer_feedback')
-      .select('id, store_id, customer_name, customer_email, overall_rating, nps_score, complaint_type, comments, source, submission_date, admin_review_status, created_at')
+      .select('id, store_id, customer_name, customer_email, rating, service_rating, food_quality_rating, cleanliness_rating, recommend_rating, nps_score, complaint_type, comments, source, submission_date, admin_review_status, created_at')
       .order('submission_date', { ascending: false })
       .order('created_at', { ascending: false })
 
@@ -1231,11 +1376,13 @@ async function queryFeedback(args: any): Promise<string> {
     const { data } = await q.limit(50)
 
     if (data?.length) {
-      const rated = data.filter(r => r.overall_rating != null)
-      const avg = rated.length ? (rated.reduce((s, r) => s + (Number(r.overall_rating) || 0), 0) / rated.length).toFixed(1) : 'N/A'
+      const getEffRating = (r: any) => r.rating ?? r.service_rating ?? r.food_quality_rating ?? r.recommend_rating ?? null
+      const rated = data.filter(r => getEffRating(r) != null)
+      const avg = rated.length ? (rated.reduce((s, r) => s + (Number(getEffRating(r)) || 0), 0) / rated.length).toFixed(1) : 'N/A'
       const lines = data.slice(0, 20).map(r => {
         const storeName = idToName[r.store_id] || `Store #${r.store_id || '?'}`
-        const ratingBadge = r.overall_rating != null ? `★${r.overall_rating}` : (r.complaint_type || 'lead')
+        const effR = getEffRating(r)
+        const ratingBadge = effR != null ? `★${effR}` : (r.complaint_type || 'lead')
         return `[${r.submission_date}] ${clean(storeName)} | ${r.customer_name || 'Guest'} (${r.source || 'web'}) [${ratingBadge}]: ${(r.comments || '').slice(0, 120)}`
       })
       parts.push(`Customer Feedback & Web Leads (${data.length}): Avg Rating ${avg}★\n${lines.join('\n')}`)
@@ -1245,7 +1392,7 @@ async function queryFeedback(args: any): Promise<string> {
   // Internal feedback
   if (!args.source || args.source !== 'google') {
     let q = supabaseAdmin.from('system_feedback')
-      .select('id, category, message, status, created_at')
+      .select('*')
       .order('created_at', { ascending: false })
     if (args.start_date) q = q.gte('created_at', args.start_date)
     if (args.end_date) q = q.lte('created_at', args.end_date)
@@ -1253,7 +1400,7 @@ async function queryFeedback(args: any): Promise<string> {
     const { data } = await q.limit(30)
 
     if (data?.length) {
-      parts.push(`Internal Feedback (${data.length}): ${data.map(f => `[${f.category || '?'}] ${(f.message || '').slice(0, 80)}`).join('\n')}`)
+      parts.push(`Internal Feedback (${data.length}): ${data.map((f: any) => `[${f.category || f.type || '?'}] ${(f.message || f.comments || f.content || '').slice(0, 80)}`).join('\n')}`)
     }
   }
 
@@ -1485,20 +1632,60 @@ async function queryViolationsBudgets(args: any): Promise<string> {
 
   // Punch violations
   if (dt === 'all' || dt === 'violations') {
-    const { data } = await supabaseAdmin.from('punch_violations')
-      .select('id, store_id, employee_toast_guid, business_date, violation_type, actual_minutes, allowed_minutes, status')
+    let vQuery = supabaseAdmin.from('punch_violations')
+      .select('id, store_id, employee_toast_guid, business_date, violation_type, in_time, out_time, actual_minutes, allowed_minutes, status')
       .gte('business_date', args.start_date).lte('business_date', args.end_date)
-      .order('business_date', { ascending: false }).limit(300)
+      .order('business_date', { ascending: false })
+
+    if (args.store_name) {
+      const extIds = await getStoreExtIdsByName(args.store_name)
+      if (extIds.length) vQuery = vQuery.in('store_id', extIds)
+    }
+
+    const { data } = await vQuery.limit(1000)
+    const vGuids = Array.from(new Set((data || []).map((v: any) => v.employee_toast_guid).filter(Boolean)))
+    const [{ data: empByToast }, { data: empByV2 }] = await Promise.all([
+      vGuids.length
+        ? supabaseAdmin.from('toast_employees').select('toast_guid, v2_toast_guid, first_name, last_name, chosen_name').in('toast_guid', vGuids)
+        : Promise.resolve({ data: [] as any[] }),
+      vGuids.length
+        ? supabaseAdmin.from('toast_employees').select('toast_guid, v2_toast_guid, first_name, last_name, chosen_name').in('v2_toast_guid', vGuids)
+        : Promise.resolve({ data: [] as any[] })
+    ])
+
+    const empMap: Record<string, string> = {}
+    ;[...(empByToast || []), ...(empByV2 || [])].forEach((e: any) => {
+      const fullName = `${e.first_name || ''} ${e.last_name || ''}`.trim() || e.chosen_name || '?'
+      if (e.toast_guid) empMap[e.toast_guid] = fullName
+      if (e.v2_toast_guid) empMap[e.v2_toast_guid] = fullName
+    })
+
     if (data?.length) {
       let filtered = data
       if (args.store_name) {
-        const sn = args.store_name.toLowerCase()
-        filtered = data.filter(v => (idToName[v.store_id] || '').toLowerCase().includes(sn))
+        const sn = normText(args.store_name)
+        filtered = data.filter(v => normText(idToName[v.store_id] || '').includes(sn))
       }
       const byType: Record<string, number> = {}
-      filtered.forEach(v => { byType[v.violation_type || '?'] = (byType[v.violation_type || '?'] || 0) + 1 })
+      const byEmp: Record<string, { total: number; types: Record<string, number>; store: string; dates: string[] }> = {}
+      filtered.forEach(v => {
+        const vt = v.violation_type || '?'
+        byType[vt] = (byType[vt] || 0) + 1
+        const empName = empMap[v.employee_toast_guid] || v.employee_toast_guid || '?'
+        const stName = idToName[v.store_id] || '?'
+        if (!byEmp[empName]) byEmp[empName] = { total: 0, types: {}, store: stName, dates: [] }
+        byEmp[empName].total++
+        byEmp[empName].types[vt] = (byEmp[empName].types[vt] || 0) + 1
+        if (byEmp[empName].dates.length < 25) {
+          byEmp[empName].dates.push(`${v.business_date} (${vt}${v.actual_minutes ? `: ${Number(v.actual_minutes).toFixed(0)}m` : ''})`)
+        }
+      })
       const typeLines = Object.entries(byType).sort((a, b) => b[1] - a[1]).map(([t, c]) => `${t}: ${c}`)
-      parts.push(`Punch Violations (${filtered.length}):\nBy Type: ${typeLines.join(' | ')}`)
+      const empLines = Object.entries(byEmp).sort((a, b) => b[1].total - a[1].total).slice(0, 25).map(([name, info]) => {
+        const tBreakdown = Object.entries(info.types).map(([k, c]) => `${k}:${c}`).join(', ')
+        return `- ${name} [${info.store}]: ${info.total} violations (${tBreakdown}) | Recent: ${info.dates.slice(0, 8).join(', ')}`
+      })
+      parts.push(`Punch Violations (${filtered.length}):\nBy Type: ${typeLines.join(' | ')}\nBy Employee:\n${empLines.join('\n')}`)
     }
   }
 
@@ -1523,8 +1710,8 @@ async function queryViolationsBudgets(args: any): Promise<string> {
     if (data?.length) {
       let filtered = data
       if (args.store_name) {
-        const sn = args.store_name.toLowerCase()
-        filtered = data.filter(e => (idToName[e.store_id] || '').toLowerCase().includes(sn))
+        const sn = normText(args.store_name)
+        filtered = data.filter(e => normText(idToName[e.store_id] || '').includes(sn))
       }
       const lines = filtered.map(e => `${e.evaluation_date} ${idToName[e.store_id] || '?'}: ${e.evaluated_name} (${e.evaluated_role || '?'}) by ${e.evaluator_name} — Rating: ${e.desempeno_general || '?'}/5 | Strengths: ${(e.fortalezas || '').slice(0, 80)} | Improve: ${(e.areas_mejora || '').slice(0, 80)}`)
       parts.push(`Staff Evaluations (${filtered.length}):\n${lines.join('\n')}`)
@@ -1548,18 +1735,17 @@ async function queryViolationsBudgets(args: any): Promise<string> {
 
 // ── 14. Product Mix & Meat Consumption ──
 async function queryProductMix(args: any): Promise<string> {
-  const { idToName } = await getStoreMaps()
   const parts: string[] = []
   const dt = args.data_type || 'all'
 
-  // PMIX (product mix) — items is a JSONB column with array of sold items
+  // PMIX (product mix) — items is a JSONB column with array of sold items, store_id is Toast external_id (TEXT)
   if (dt === 'all' || dt === 'pmix') {
     let q = supabaseAdmin.from('pmix_daily_cache')
       .select('business_date, store_id, items')
       .gte('business_date', args.start_date).lte('business_date', args.end_date)
     if (args.store_name) {
-      const matchIds = await getStoreIdsByName(args.store_name)
-      if (matchIds.length) q = q.in('store_id', matchIds)
+      const matchExtIds = await getStoreExtIdsByName(args.store_name)
+      if (matchExtIds.length) q = q.in('store_id', matchExtIds)
     }
     const { data } = await q.limit(500)
     if (data?.length) {
@@ -1580,7 +1766,7 @@ async function queryProductMix(args: any): Promise<string> {
     }
   }
 
-  // Meat consumption
+  // Meat consumption — store_id is numeric BIGINT (stores.id)
   if (dt === 'all' || dt === 'meat') {
     let q = supabaseAdmin.from('meat_consumption_history')
       .select('store_id, business_date, meat_type, raw_lbs')
@@ -1608,15 +1794,14 @@ async function queryProductMix(args: any): Promise<string> {
 
 // ── 15. Forecast ──
 async function queryForecast(args: any): Promise<string> {
-  const { idToName } = await getStoreMaps()
-  const storeNameInput = (args.store_name || '').toLowerCase().trim()
-  
-  const matchedStoreEntry = Object.entries(idToName).find(([, name]) => name.toLowerCase().includes(storeNameInput))
-  if (!matchedStoreEntry) {
-    return `Store matching "${args.store_name}" not found. Available stores: ${Object.values(idToName).join(', ')}`
+  const matchedStore = await resolveStoreByName(args.store_name || '')
+  if (!matchedStore) {
+    const { stores } = await getStoreMaps()
+    return `Store matching "${args.store_name}" not found. Available stores: ${stores.map(s => clean(s.name)).join(', ')}`
   }
   
-  const [storeId, storeName] = matchedStoreEntry
+  const storeId = matchedStore.idStr
+  const storeName = matchedStore.name
   const targetDate = args.target_date
   
   try {
@@ -1709,22 +1894,22 @@ async function queryUpcomingEvents(args: any): Promise<string> {
 
 // ── 16. Calculate Breaks ──
 async function calculateBreaks(args: any): Promise<string> {
-  const { idToName } = await getStoreMaps()
-  const storeNameInput = (args.store_name || '').toLowerCase().trim()
-  
-  const matchedStoreEntry = Object.entries(idToName).find(([, name]) => name.toLowerCase().includes(storeNameInput))
-  if (!matchedStoreEntry) {
-    return `Store matching "${args.store_name}" not found. Available stores: ${Object.values(idToName).join(', ')}`
+  const matchedStore = await resolveStoreByName(args.store_name || '')
+  if (!matchedStore) {
+    const { stores } = await getStoreMaps()
+    return `Store matching "${args.store_name}" not found. Available stores: ${stores.map(s => clean(s.name)).join(', ')}`
   }
   
-  const [storeId, storeName] = matchedStoreEntry
+  const storeId = matchedStore.idStr
+  const storeExtId = matchedStore.externalId
+  const storeName = matchedStore.name
   const targetDate = args.target_date
   
   try {
     const { data: dbShifts, error: shiftErr } = await supabaseAdmin
       .from('shifts')
       .select('*')
-      .eq('store_id', storeId)
+      .in('store_id', [storeExtId, storeId])
       .eq('shift_date', targetDate)
       
     if (shiftErr) return `Database error fetching shifts: ${shiftErr.message}`
@@ -1770,7 +1955,7 @@ async function calculateBreaks(args: any): Promise<string> {
     const { data: prefData } = await supabaseAdmin
       .from('break_manual_overrides')
       .select('*')
-      .eq('store_id', storeId)
+      .in('store_id', [storeExtId, storeId])
       
     const learnedPrefs = prefData || []
     
@@ -1818,22 +2003,21 @@ async function calculateBreaks(args: any): Promise<string> {
 
 // ── 17. Analyze Performance ──
 async function analyzePerformance(args: any): Promise<string> {
-  const { idToName } = await getStoreMaps()
-  const storeNameInput = (args.store_name || '').toLowerCase().trim()
-  
-  const matchedStoreEntry = Object.entries(idToName).find(([, name]) => name.toLowerCase().includes(storeNameInput))
-  if (!matchedStoreEntry) {
-    return `Store matching "${args.store_name}" not found. Available stores: ${Object.values(idToName).join(', ')}`
+  const matchedStore = await resolveStoreByName(args.store_name || '')
+  if (!matchedStore) {
+    const { stores } = await getStoreMaps()
+    return `Store matching "${args.store_name}" not found. Available stores: ${stores.map(s => clean(s.name)).join(', ')}`
   }
   
-  const [storeId, storeName] = matchedStoreEntry
+  const storeExtId = matchedStore.externalId
+  const storeName = matchedStore.name
   const { start_date, end_date } = args
   
   try {
     const { data: salesData } = await supabaseAdmin
       .from('sales_daily_cache')
-      .select('business_date, net_sales, labor_cost, order_count, total_tickets')
-      .eq('store_id', storeId)
+      .select('business_date, net_sales, labor_cost, order_count')
+      .eq('store_id', storeExtId)
       .gte('business_date', start_date)
       .lte('business_date', end_date)
       .order('business_date', { ascending: true })
@@ -1841,14 +2025,14 @@ async function analyzePerformance(args: any): Promise<string> {
     const { data: foodData } = await supabaseAdmin
       .from('food_cost_daily_cache')
       .select('business_date, total_cost, cost_percentage')
-      .eq('store_id', storeId)
+      .eq('store_id', storeExtId)
       .gte('business_date', start_date)
       .lte('business_date', end_date)
       
     const { data: violations } = await supabaseAdmin
       .from('punch_violations')
       .select('violation_type, business_date')
-      .eq('store_id', storeId)
+      .eq('store_id', storeExtId)
       .gte('business_date', start_date)
       .lte('business_date', end_date)
       
@@ -1864,7 +2048,7 @@ async function analyzePerformance(args: any): Promise<string> {
     salesData.forEach(d => {
       totalSales += Number(d.net_sales) || 0
       totalLabor += Number(d.labor_cost) || 0
-      totalOrders += Number(d.order_count || d.total_tickets) || 0
+      totalOrders += Number(d.order_count) || 0
     })
     
     let totalFoodCost = 0
@@ -1949,7 +2133,25 @@ async function analyzePerformance(args: any): Promise<string> {
   }
 }
 
-// ── 18. Execute Custom SQL ──
+// ── 18. Execute Custom SQL (with Auto-Healing Store Join Sanitizer) ──
+function sanitizeSqlStoreJoins(sql: string): string {
+  let out = sql
+  // If joining `stores` (with or without alias), rewrite `t.store_id = s.id` or `s.id = t.store_id`
+  // so that BOTH Toast external_id (TEXT UUID) and numeric stores.id (BIGINT) match without type errors!
+  const touchesStores = /\bstores\b/i.test(out)
+  if (touchesStores) {
+    out = out.replace(
+      /(\b[a-zA-Z0-9_]+)\.store_id\s*=\s*(\b[a-zA-Z0-9_]+)\.id\b/gi,
+      '($1.store_id::text = $2.external_id::text OR $1.store_id::text = $2.id::text)'
+    )
+    out = out.replace(
+      /(\b[a-zA-Z0-9_]+)\.id\s*=\s*(\b[a-zA-Z0-9_]+)\.store_id\b/gi,
+      '($1.external_id::text = $2.store_id::text OR $1.id::text = $2.store_id::text)'
+    )
+  }
+  return out
+}
+
 async function executeCustomSql(args: any): Promise<string> {
   const { query_text } = args
   if (!query_text) return 'Error: query_text parameter is required.'
@@ -1960,15 +2162,33 @@ async function executeCustomSql(args: any): Promise<string> {
     sqlQuery = sqlQuery.slice(0, -1).trim()
   }
 
+  // Pre-sanitize common store_id = stores.id join mismatches
+  sqlQuery = sanitizeSqlStoreJoins(sqlQuery)
+
   try {
-    const { data, error } = await supabaseAdmin.rpc('execute_sql', { query_text: sqlQuery })
+    let { data, error } = await supabaseAdmin.rpc('execute_sql', { query_text: sqlQuery })
+
+    // Auto-heal retry if a type mismatch (e.g. text = bigint, uuid = text) still occurred
+    const rawErrMsg = error?.message || data?.error || ''
+    if (rawErrMsg && /operator does not exist:\s*(text|bigint|uuid|integer|varchar)\s*=\s*(text|bigint|uuid|integer|varchar)/i.test(rawErrMsg)) {
+      const healedSql = sqlQuery.replace(
+        /(\b[a-zA-Z0-9_]+\.[a-zA-Z0-9_]+)\s*=\s*(\b[a-zA-Z0-9_]+\.[a-zA-Z0-9_]+)/g,
+        '$1::text = $2::text'
+      )
+      if (healedSql !== sqlQuery) {
+        const retryRes = await supabaseAdmin.rpc('execute_sql', { query_text: healedSql })
+        data = retryRes.data
+        error = retryRes.error
+      }
+    }
+
     if (error) {
-      return `SQL Execution Error: ${error.message}\nDetail: ${error.details || ''}\nHint: ${error.hint || ''}`
+      return `SQL Execution Error (INTERNAL ONLY - DO NOT SHOW TO USER, FIX YOUR QUERY AND RETRY): ${error.message}\nDetail: ${error.details || ''}\nHint: Remember that sales_daily_cache and food_cost_daily_cache ALREADY have store_name (TEXT) directly on the table (no JOIN to stores needed), and their store_id is TEXT (stores.external_id), not BIGINT.`
     }
 
     if (!data) return 'No result returned.'
     if (data.error) {
-      return `SQL Engine Error: ${data.error}`
+      return `SQL Engine Error (INTERNAL ONLY - DO NOT SHOW TO USER, FIX YOUR QUERY AND RETRY): ${data.error}\nHint: Remember that sales_daily_cache and food_cost_daily_cache ALREADY have store_name (TEXT) directly on the table (no JOIN to stores needed), and in Toast tables (sales_daily_cache, food_cost_daily_cache, punches, punch_violations, shifts, pmix_daily_cache) store_id is TEXT matching stores.external_id. In punch_violations and punches, employee is employee_toast_guid matching toast_employees.toast_guid.`
     }
 
     if (Array.isArray(data)) {
@@ -2776,9 +2996,10 @@ async function queryPnlConsolidatedTool(args: any): Promise<string> {
     }
 
     const map = new Map<string, StorePnl>()
+    const extOrNameMap = new Map<string, StorePnl>()
     stores.forEach(s => {
       const sId = String(s.id)
-      map.set(sId, {
+      const entry: StorePnl = {
         storeId: sId,
         storeName: clean(s.name),
         netSales: 0,
@@ -2786,12 +3007,21 @@ async function queryPnlConsolidatedTool(args: any): Promise<string> {
         laborCost: 0,
         operatingExpenses: 0,
         sharedExpenses: 0
-      })
+      }
+      map.set(sId, entry)
+      extOrNameMap.set(sId, entry)
+      if (s.external_id) extOrNameMap.set(String(s.external_id), entry)
+      extOrNameMap.set(normText(clean(s.name)), entry)
     })
 
+    const findTarget = (storeIdVal: any, storeNameVal?: any): StorePnl | undefined => {
+      if (storeIdVal != null && extOrNameMap.has(String(storeIdVal))) return extOrNameMap.get(String(storeIdVal))
+      if (storeNameVal && extOrNameMap.has(normText(clean(String(storeNameVal))))) return extOrNameMap.get(normText(clean(String(storeNameVal))))
+      return undefined
+    }
+
     ;(salesData || []).forEach(r => {
-      const sId = String(r.store_id)
-      const target = map.get(sId)
+      const target = findTarget(r.store_id, r.store_name)
       if (target) {
         target.netSales += Number(r.net_sales) || 0
         target.laborCost += Number(r.labor_cost) || 0
@@ -2799,8 +3029,7 @@ async function queryPnlConsolidatedTool(args: any): Promise<string> {
     })
 
     ;(foodCostData || []).forEach(r => {
-      const sId = String(r.store_id)
-      const target = map.get(sId)
+      const target = findTarget(r.store_id, r.store_name)
       if (target) {
         let cost = Number(r.total_cost) || 0
         if (bodegaMode === 'corporate') {
@@ -2810,16 +3039,15 @@ async function queryPnlConsolidatedTool(args: any): Promise<string> {
       }
     })
 
-    ;(opExData || []).forEach(o => {
-      const sId = String(o.store_id)
-      const target = map.get(sId)
+    ;(opExData || []).forEach((o: any) => {
+      const target = findTarget(o.store_id, o.store_name)
       if (target) {
-        const monthlySum = (Number(o.rent) || 0) +
-          (Number(o.cam) || 0) +
-          (Number(o.utilities) || 0) +
-          (Number(o.repairs_maintenance) || 0) +
-          (Number(o.supplies) || 0) +
-          (Number(o.insurance) || 0) +
+        const monthlySum = (Number(o.rent_monthly ?? o.rent) || 0) +
+          (Number(o.cam_charges ?? o.cam) || 0) +
+          (Number(o.utilities_monthly ?? o.utilities) || 0) +
+          (Number(o.repairs_maintenance_monthly ?? o.repairs_maintenance) || 0) +
+          (Number(o.supplies_misc_monthly ?? o.supplies) || 0) +
+          (Number(o.insurance_monthly ?? o.insurance) || 0) +
           (Number(o.other) || 0)
         target.operatingExpenses += monthlySum * monthRatio
       }
@@ -2829,8 +3057,8 @@ async function queryPnlConsolidatedTool(args: any): Promise<string> {
     const totalChainSales = Array.from(map.values()).reduce((sum, s) => sum + s.netSales, 0)
     const storeCount = map.size
 
-    ;(sharedExpenses || []).forEach(exp => {
-      const allocatedTotal = (Number(exp.total_amount) || 0) * monthRatio
+    ;(sharedExpenses || []).forEach((exp: any) => {
+      const allocatedTotal = (Number(exp.amount ?? exp.total_amount) || 0) * monthRatio
       map.forEach(store => {
         let storeShare = 0
         if (exp.allocation_method === 'even_split' || totalChainSales === 0) {
@@ -2844,7 +3072,8 @@ async function queryPnlConsolidatedTool(args: any): Promise<string> {
 
     let filteredList = Array.from(map.values())
     if (storeFilter) {
-      filteredList = filteredList.filter(s => s.storeName.toLowerCase().includes(storeFilter))
+      const sfNorm = normText(storeFilter)
+      filteredList = filteredList.filter(s => normText(s.storeName).includes(sfNorm))
     }
 
     const safePct = (part: number, whole: number) => whole > 0 ? ((part / whole) * 100).toFixed(1) : '0.0'

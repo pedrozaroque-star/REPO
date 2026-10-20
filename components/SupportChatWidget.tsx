@@ -22,12 +22,168 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { 
   MessageSquare, X, Send, Bot, User, Loader2, Maximize2, Minimize2, 
   Sparkles, ArrowRight, Plus, Compass, History, Trash2, Clock, CheckCircle2,
-  HelpCircle, ChevronRight, BarChart2
+  HelpCircle, ChevronRight, BarChart2, Download, Copy, Check, FileSpreadsheet
 } from 'lucide-react'
 import { useLanguage } from '@/lib/i18n'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import ChatAnimatedChart, { ChartConfig } from '@/components/ChatAnimatedChart'
+
+// Helper to trigger browser CSV download with UTF-8 BOM for Excel compatibility
+function triggerCsvFileDownload(csvText: string, filenamePrefix = 'reporte-tacos-gavilan') {
+  const cleanText = csvText.trim()
+  const bomContent = cleanText.startsWith('\uFEFF') ? cleanText : '\uFEFF' + cleanText
+  const blob = new Blob([bomContent], { type: 'text/csv;charset=utf-8;' })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  const dateStamp = new Date().toISOString().slice(0, 10)
+  link.href = url
+  link.setAttribute('download', `${filenamePrefix}-${dateStamp}.csv`)
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+  URL.revokeObjectURL(url)
+}
+
+// Interactive Markdown Table wrapper with 1-click CSV (Excel) download & Copy
+function ChatTableWithDownload({ children, language, ...props }: any) {
+  const tableRef = useRef<HTMLTableElement>(null)
+  const [copied, setCopied] = useState(false)
+  const isEs = language !== 'en'
+
+  const extractTableAsCsv = (separator = ',') => {
+    if (!tableRef.current) return ''
+    const rows = Array.from(tableRef.current.querySelectorAll('tr'))
+    return rows
+      .map((tr) => {
+        const cells = Array.from(tr.querySelectorAll('th, td'))
+        return cells
+          .map((cell) => {
+            const raw = (cell.textContent || '').replace(/\s+/g, ' ').trim()
+            if (separator === ',') {
+              return raw.includes(',') || raw.includes('"') || raw.includes('\n')
+                ? `"${raw.replace(/"/g, '""')}"`
+                : raw
+            }
+            return raw
+          })
+          .join(separator)
+      })
+      .join('\r\n')
+  }
+
+  const handleDownloadCsv = () => {
+    const csv = extractTableAsCsv(',')
+    if (csv) triggerCsvFileDownload(csv, 'tabla-ventas-teg')
+  }
+
+  const handleCopyTable = async () => {
+    const tsv = extractTableAsCsv('\t')
+    if (!tsv) return
+    try {
+      await navigator.clipboard.writeText(tsv)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch {}
+  }
+
+  return (
+    <div className="my-4 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden bg-white dark:bg-slate-900 shadow-xs">
+      <div className="px-3 py-1.5 bg-slate-100/80 dark:bg-slate-800/90 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between gap-2">
+        <span className="text-[11px] font-semibold text-slate-600 dark:text-slate-300 flex items-center gap-1.5">
+          <FileSpreadsheet size={13} className="text-emerald-600 dark:text-emerald-400" />
+          {isEs ? 'Tabla de Datos' : 'Data Table'}
+        </span>
+        <div className="flex items-center gap-1.5">
+          <button
+            type="button"
+            onClick={handleCopyTable}
+            className="px-2 py-1 rounded-md text-[11px] font-medium bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-600 border border-slate-200 dark:border-slate-600 flex items-center gap-1 transition-all"
+            title={isEs ? 'Copiar para pegar en Excel' : 'Copy to paste in Excel'}
+          >
+            {copied ? <Check size={12} className="text-emerald-500" /> : <Copy size={12} />}
+            {copied ? (isEs ? 'Copiado' : 'Copied') : (isEs ? 'Copiar' : 'Copy')}
+          </button>
+          <button
+            type="button"
+            onClick={handleDownloadCsv}
+            className="px-2.5 py-1 rounded-md text-[11px] font-semibold bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs flex items-center gap-1 transition-all"
+            title={isEs ? 'Descargar archivo .CSV compatible con Excel' : 'Download Excel-compatible .CSV file'}
+          >
+            <Download size={12} />
+            {isEs ? 'Descargar CSV (Excel)' : 'Download CSV (Excel)'}
+          </button>
+        </div>
+      </div>
+      <div className="overflow-x-auto max-h-[420px]">
+        <table ref={tableRef} className="w-full border-collapse text-xs sm:text-[13px]" {...props}>
+          {children}
+        </table>
+      </div>
+    </div>
+  )
+}
+
+// Interactive Code/CSV Block wrapper so ```csv blocks have a 1-click Download CSV button
+function ChatCodeBlockWithDownload({ inline, className, children, language, ...props }: any) {
+  const [copied, setCopied] = useState(false)
+  const isEs = language !== 'en'
+  const rawText = String(children || '').replace(/\n$/, '')
+  const langMatch = /language-(\w+)/.exec(className || '')
+  const lang = langMatch ? langMatch[1].toLowerCase() : ''
+  const lines = rawText.split('\n').filter(l => l.trim().length > 0)
+  const looksLikeCsv = lang === 'csv' || (lines.length >= 2 && lines[0].includes(',') && lines[1].includes(','))
+
+  if (!inline && (looksLikeCsv || lines.length > 1)) {
+    const handleCopy = async () => {
+      try {
+        await navigator.clipboard.writeText(rawText)
+        setCopied(true)
+        setTimeout(() => setCopied(false), 2000)
+      } catch {}
+    }
+
+    return (
+      <div className="my-3 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden bg-slate-900 text-slate-100 shadow-xs">
+        <div className="px-3 py-1.5 bg-slate-800 border-b border-slate-700 flex items-center justify-between gap-2">
+          <span className="text-[11px] font-semibold text-slate-300 flex items-center gap-1.5">
+            <FileSpreadsheet size={13} className="text-emerald-400" />
+            {looksLikeCsv ? (isEs ? 'Archivo CSV Listo para Descargar' : 'CSV File Ready to Download') : (lang.toUpperCase() || 'DATA')}
+          </span>
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={handleCopy}
+              className="px-2 py-1 rounded-md text-[11px] font-medium bg-slate-700 hover:bg-slate-600 text-slate-200 flex items-center gap-1 transition-all"
+            >
+              {copied ? <Check size={12} className="text-emerald-400" /> : <Copy size={12} />}
+              {copied ? (isEs ? 'Copiado' : 'Copied') : (isEs ? 'Copiar' : 'Copy')}
+            </button>
+            {looksLikeCsv && (
+              <button
+                type="button"
+                onClick={() => triggerCsvFileDownload(rawText, 'exportacion-teg')}
+                className="px-2.5 py-1 rounded-md text-[11px] font-semibold bg-emerald-600 hover:bg-emerald-500 text-white shadow-xs flex items-center gap-1 transition-all"
+              >
+                <Download size={12} />
+                {isEs ? 'Descargar CSV (Excel)' : 'Download CSV (Excel)'}
+              </button>
+            )}
+          </div>
+        </div>
+        <pre className="p-3 text-[11px] font-mono overflow-x-auto max-h-[300px] leading-relaxed">
+          <code className={className} {...props}>{rawText}</code>
+        </pre>
+      </div>
+    )
+  }
+
+  return (
+    <code className="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-700/80 text-indigo-600 dark:text-indigo-300 font-mono text-[12px]" {...props}>
+      {children}
+    </code>
+  )
+}
 
 interface Message { 
   id: string
@@ -463,9 +619,11 @@ export default function SupportChatWidget() {
                     <ReactMarkdown 
                       remarkPlugins={[remarkGfm]}
                       components={{
-                        table: ({node, ...props}) => <div className="overflow-x-auto my-4"><table className="w-full border-collapse text-xs sm:text-[13px]" {...props} /></div>,
-                        th: ({node, ...props}) => <th className="border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/80 p-2 sm:p-2.5 text-left font-semibold text-slate-800 dark:text-slate-200" {...props} />,
+                        table: ({node, ...props}) => <ChatTableWithDownload language={language} {...props} />,
+                        th: ({node, ...props}) => <th className="border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/80 p-2 sm:p-2.5 text-left font-semibold text-slate-800 dark:text-slate-200 whitespace-nowrap" {...props} />,
                         td: ({node, ...props}) => <td className="border border-slate-200 dark:border-slate-700 p-2 sm:p-2.5 text-slate-700 dark:text-slate-300" {...props} />,
+                        code: ({node, ...props}: any) => <ChatCodeBlockWithDownload language={language} {...props} />,
+                        pre: ({node, children}: any) => <>{children}</>,
                         p: ({node, ...props}) => <p className="mb-3 last:mb-0 leading-relaxed" {...props} />,
                         a: ({node, ...props}) => <a className="text-indigo-600 dark:text-indigo-400 hover:underline font-medium" {...props} />,
                         ul: ({node, ...props}) => <ul className="list-disc pl-5 mb-4 space-y-1" {...props} />,

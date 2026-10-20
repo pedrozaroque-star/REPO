@@ -19,7 +19,9 @@
  */
 
 import { supabaseAdmin } from '@/lib/supabase'
-import { getServerUser } from '@/lib/auth-server'
+import { getServerUser, getJwtSecret } from '@/lib/auth-server'
+import { cookies } from 'next/headers'
+import jwt from 'jsonwebtoken'
 
 export interface OrderReadyAccess {
   all: boolean
@@ -97,10 +99,45 @@ export function canAccessStore(access: OrderReadyAccess, storeCode: string): boo
 
 /**
  * Autentica la petición (cookie/Bearer) y devuelve el acceso del usuario.
+ * En tabletas de cocina (`/inventory/preparador`) o pantallas TV (`/order-ready-board`) que permanecen
+ * encendidas 24/7 por más de 7 días, si `getServerUser` rechaza únicamente por expiración del timestamp `exp`,
+ * verifica la firma criptográfica HMAC-SHA256 (`SUPABASE_JWT_SECRET`) y valida en vivo en Supabase (`users.is_active !== false`).
  * `null` = no autenticado (responder 401).
  */
 export async function getOrderReadyAccess(req: Request): Promise<OrderReadyAccess | null> {
   const user = await getServerUser(req)
-  if (!user) return null
-  return resolveOrderReadyAccess(user.id, user.role)
+  if (user) {
+    return resolveOrderReadyAccess(user.id, user.role)
+  }
+
+  try {
+    let token: string | undefined
+    try {
+      const cookieStore = await cookies()
+      token = cookieStore.get('teg_token')?.value
+    } catch {
+      // Ignorar si cookies() no está disponible
+    }
+
+    if (!token && req) {
+      const authHeader = req.headers.get('authorization')
+      if (authHeader?.startsWith('Bearer ')) {
+        token = authHeader.substring(7).trim()
+      }
+    }
+
+    if (!token) return null
+
+    const secret = getJwtSecret()
+    if (!secret) return null
+
+    const decoded = jwt.verify(token, secret, { ignoreExpiration: true }) as any
+    if (!decoded || !decoded.sub) return null
+
+    const access = await resolveOrderReadyAccess(decoded.sub, decoded.user_role)
+    if (!access.all && access.codes.length === 0) return null
+    return access
+  } catch {
+    return null
+  }
 }

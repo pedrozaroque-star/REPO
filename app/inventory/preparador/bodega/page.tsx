@@ -8,15 +8,21 @@
  *   - Guacamole: Demanda dividida entre 2 para indicar bolsas de 2 lbs.
  *   - Escucha en tiempo real inserciones en preparador_requests con estado PENDING.
  * @dataFlow meat_consumption_history -> /api/inventory/preparador-history -> Bodega carousel & Realtime WebSocket.
+ * @notes
+ *   - FIX (2026-10-19): Reconfiguración diaria 24/7 a las 6:00 AM, avance automático de bloque cada 30 min,
+ *     y Modal de Despertar Tableta tras 3 horas de inactividad que purga caché, renueva el JWT (`teg_token`) por 30 días,
+ *     sincroniza fecha/día de la semana/bloque actual y recarga proyecciones y alertas pendientes.
  */
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
-import { AlertOctagon, CheckCircle2, Volume2, VolumeX, Store, Loader2, Play, Clock, Maximize, Minimize, HelpCircle, X, Calendar, Sun, Zap, ChevronLeft, ChevronRight } from 'lucide-react'
+import { useState, useEffect, useRef, useMemo } from 'react'
+import { AlertOctagon, CheckCircle2, Volume2, VolumeX, Store, Loader2, Play, Clock, Maximize, Minimize, HelpCircle, X, Calendar, Sun, Zap, ChevronLeft, ChevronRight, RefreshCw } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { createClient } from '@/lib/supabase-client'
 import { useAuth } from '@/components/ProtectedRoute'
 import { useLanguage } from '@/lib/i18n'
+import { purgeTabletStaleCaches, safeLocalStorageSet } from '@/lib/tablet-cache-cleaner'
+import { useWakeLock } from '@/lib/use-wake-lock'
 
 interface PrepRequest {
     id: string
@@ -35,8 +41,9 @@ interface MeatData {
 }
 
 export default function BodegaPWA() {
-    const supabase = createClient()
+    const supabase = useMemo(() => createClient(), [])
     const { t } = useLanguage()
+    const wakeLock = useWakeLock(true)
 
     const [mounted, setMounted] = useState(false)
     const [systemStarted, setSystemStarted] = useState(false)
@@ -62,77 +69,26 @@ export default function BodegaPWA() {
         return laDateStr
     }
 
+    const INACTIVITY_WAKE_MODAL_MS = 3 * 60 * 60 * 1000 // 3 horas de inactividad
     const initialToday = getLAEffectiveBusinessDate()
     const [currentBusinessDate, setCurrentBusinessDate] = useState<string>(initialToday)
     const [selectedDate, setSelectedDate] = useState<string>(initialToday)
     const effectiveDateRef = useRef<string>(initialToday)
     const lastActivityTimeRef = useRef<number>(Date.now())
+    const [showWakeUpModal, setShowWakeUpModal] = useState(false)
+    const showWakeUpModalRef = useRef(false)
+    const [wakingUpTablet, setWakingUpTablet] = useState(false)
+    const fetchHistoryRef = useRef<((overrideDow?: number) => Promise<void>) | null>(null)
+    const fetchManualScheduleRef = useRef<((overrideDow?: number, overrideDate?: string) => Promise<void>) | null>(null)
+    const fetchIntelligenceRef = useRef<(() => Promise<void>) | null>(null)
+    const fetchPendingRef = useRef<(() => Promise<void>) | null>(null)
+    const updateBucketsRef = useRef<(() => void) | null>(null)
 
-    // User activity tracker (touch/click resets inactivity timer)
+    // User activity tracker (touch/click resets inactivity timer unless wake modal is awaiting explicit wake-up)
     const recordUserActivity = () => {
+        if (showWakeUpModalRef.current) return
         lastActivityTimeRef.current = Date.now()
     }
-
-    // Automatic Date Rollover Effect (Checks every 10 seconds, on screen wake-up, and on window focus)
-    useEffect(() => {
-        const checkDateRollover = (forceToday = false) => {
-            const freshBusinessDate = getLAEffectiveBusinessDate()
-            setCurrentBusinessDate(freshBusinessDate)
-            
-            const prevEffective = effectiveDateRef.current
-            const dayChanged = freshBusinessDate !== prevEffective
-
-            if (dayChanged || forceToday) {
-                console.log(`[Bodega] Business date shifted: ${prevEffective} -> ${freshBusinessDate}`)
-                effectiveDateRef.current = freshBusinessDate
-                setSelectedDate(freshBusinessDate)
-                setActiveIndex(0) // Reset carousel to current active interval
-            }
-        }
-
-        // Inactivity auto-return: if viewing a past date but idle for > 2 minutes, return to TODAY
-        const checkInactivityReturn = () => {
-            const now = Date.now()
-            const isIdle = (now - lastActivityTimeRef.current) > 120000 // 2 minutes
-            const freshBusinessDate = getLAEffectiveBusinessDate()
-            if (isIdle && selectedDate !== freshBusinessDate) {
-                console.log(`[Bodega] Idle on past date. Auto-returning to current date: ${freshBusinessDate}`)
-                checkDateRollover(true)
-            }
-        }
-
-        checkDateRollover()
-        const intervalId = setInterval(() => {
-            checkDateRollover()
-            checkInactivityReturn()
-        }, 10000)
-
-        // Wake-up / Screen unlock / Tab active listeners
-        const handleWakeUp = () => {
-            console.log("[Bodega] Screen woke up or tab focused -> Re-checking date & sync...")
-            checkDateRollover()
-        }
-
-        window.addEventListener('focus', handleWakeUp)
-        window.addEventListener('online', handleWakeUp)
-        const onVisibilityChange = () => {
-            if (document.visibilityState === 'visible') handleWakeUp()
-        }
-        document.addEventListener('visibilitychange', onVisibilityChange)
-
-        // Global touch/click listener to record activity
-        window.addEventListener('touchstart', recordUserActivity, { passive: true })
-        window.addEventListener('mousedown', recordUserActivity, { passive: true })
-
-        return () => {
-            clearInterval(intervalId)
-            window.removeEventListener('focus', handleWakeUp)
-            window.removeEventListener('online', handleWakeUp)
-            document.removeEventListener('visibilitychange', onVisibilityChange)
-            window.removeEventListener('touchstart', recordUserActivity)
-            window.removeEventListener('mousedown', recordUserActivity)
-        }
-    }, [selectedDate, storeId])
 
     const getDowFromDate = (dateStr: string) => {
         const [y, m, d] = dateStr.split('-').map(Number)
@@ -146,6 +102,110 @@ export default function BodegaPWA() {
     const [viewMode, setViewMode] = useState<'30min' | 'tramos'>('30min')
     const [cardDisplayMode, setCardDisplayMode] = useState<'manual' | 'basic' | 'advanced'>('manual')
     const [manualWeeklySchedule, setManualWeeklySchedule] = useState<Record<string, number>>({})
+    const [currentBucketIndex, setCurrentBucketIndex] = useState(0)
+    const hasInitializedRef = useRef(false)
+    const prevCurrentBucketIndexRef = useRef<number>(-1)
+
+    // Automatic Date Rollover, 3-Hour Inactivity Wake Modal & Cache Self-Cleaning Effect
+    useEffect(() => {
+        const checkDateRollover = (forceToday = false) => {
+            const freshBusinessDate = getLAEffectiveBusinessDate()
+            setCurrentBusinessDate(freshBusinessDate)
+            
+            const prevEffective = effectiveDateRef.current
+            const dayChanged = freshBusinessDate !== prevEffective
+
+            if (dayChanged || forceToday) {
+                console.log(`[Bodega] Business date shifted: ${prevEffective} -> ${freshBusinessDate}`)
+                effectiveDateRef.current = freshBusinessDate
+                setSelectedDate(freshBusinessDate)
+                setManualWeeklySchedule({})
+                hasInitializedRef.current = false
+                prevCurrentBucketIndexRef.current = -1
+                if (dayChanged) {
+                    try { localStorage.removeItem('teg_galones_ack') } catch {}
+                }
+                purgeTabletStaleCaches({
+                    activeStoreId: storeId,
+                    activeDate: freshBusinessDate,
+                    activeDow: getDowFromDate(freshBusinessDate),
+                    forceTokenRefresh: true
+                }).catch(() => {})
+            }
+        }
+
+        // Inactivity auto-return: if viewing a past date but idle for > 2 minutes, return to TODAY
+        const checkInactivityReturn = () => {
+            const now = Date.now()
+            const idleMs = now - lastActivityTimeRef.current
+            const freshBusinessDate = getLAEffectiveBusinessDate()
+            if (idleMs > 120000 && selectedDate !== freshBusinessDate) {
+                console.log(`[Bodega] Idle on past date. Auto-returning to current date: ${freshBusinessDate}`)
+                checkDateRollover(true)
+            }
+            if (!showWakeUpModalRef.current && idleMs >= INACTIVITY_WAKE_MODAL_MS) {
+                console.log('[Bodega] 3+ hours of inactivity reached -> Showing Wake Up Tablet Modal')
+                showWakeUpModalRef.current = true
+                setShowWakeUpModal(true)
+            }
+        }
+
+        checkDateRollover()
+        purgeTabletStaleCaches({
+            activeStoreId: storeId,
+            activeDate: selectedDate,
+            activeDow: businessDow
+        }).catch(() => {})
+
+        const intervalId = setInterval(() => {
+            checkDateRollover()
+            checkInactivityReturn()
+        }, 10000)
+
+        const cacheCleanupTimer = setInterval(() => {
+            const freshDate = getLAEffectiveBusinessDate()
+            purgeTabletStaleCaches({
+                activeStoreId: storeId,
+                activeDate: freshDate,
+                activeDow: getDowFromDate(freshDate)
+            }).catch(() => {})
+        }, 15 * 60 * 1000)
+
+        // Wake-up / Screen unlock / Tab active listeners
+        const handleWakeUp = () => {
+            console.log("[Bodega] Screen woke up or tab focused -> Re-checking date & sync...")
+            checkDateRollover()
+            checkInactivityReturn()
+            purgeTabletStaleCaches({
+                activeStoreId: storeId,
+                activeDate: getLAEffectiveBusinessDate(),
+                activeDow: getDowFromDate(getLAEffectiveBusinessDate())
+            }).catch(() => {})
+        }
+
+        window.addEventListener('focus', handleWakeUp)
+        window.addEventListener('online', handleWakeUp)
+        const onVisibilityChange = () => {
+            if (document.visibilityState === 'visible') handleWakeUp()
+        }
+        document.addEventListener('visibilitychange', onVisibilityChange)
+
+        // Global touch/click listener to record activity
+        window.addEventListener('touchstart', recordUserActivity, { passive: true })
+        window.addEventListener('mousedown', recordUserActivity, { passive: true })
+        window.addEventListener('keydown', recordUserActivity, { passive: true })
+
+        return () => {
+            clearInterval(intervalId)
+            clearInterval(cacheCleanupTimer)
+            window.removeEventListener('focus', handleWakeUp)
+            window.removeEventListener('online', handleWakeUp)
+            document.removeEventListener('visibilitychange', onVisibilityChange)
+            window.removeEventListener('touchstart', recordUserActivity)
+            window.removeEventListener('mousedown', recordUserActivity)
+            window.removeEventListener('keydown', recordUserActivity)
+        }
+    }, [selectedDate, storeId, businessDow])
     
     // Helper function to normalize time format (e.g., '12:00' -> '12:00:00')
     const normTime = (t: string) => {
@@ -159,11 +219,13 @@ export default function BodegaPWA() {
     // Load Manual Weekly Schedule from API & localStorage with 10s polling for multi-device sync
     useEffect(() => {
         if (!storeId) return
-        const storageKey = `teg_prep_manual_weekly_${storeId}_${businessDow}`
         
-        const fetchManualSchedule = async () => {
+        const fetchManualSchedule = async (overrideDow?: number, overrideDate?: string) => {
+            const targetDow = overrideDow || businessDow
+            const targetDate = overrideDate || selectedDate
+            const targetStorageKey = `teg_prep_manual_weekly_${storeId}_${targetDow}`
             try {
-                const res = await fetch(`/api/inventory/preparador-manual-schedule?storeId=${storeId}&dow=${businessDow}&_t=${Date.now()}`, { cache: 'no-store' })
+                const res = await fetch(`/api/inventory/preparador-manual-schedule?storeId=${storeId}&dow=${targetDow}&_t=${Date.now()}`, { cache: 'no-store' })
                 if (res.ok) {
                     const data = await res.json()
                     if (Array.isArray(data)) {
@@ -172,8 +234,12 @@ export default function BodegaPWA() {
                             const key = `${normTime(item.interval_start)}_${item.meat_type}`
                             map[key] = Number(item.max_lbs)
                         })
-                        setManualWeeklySchedule(prev => ({ ...prev, ...map }))
-                        localStorage.setItem(storageKey, JSON.stringify(map))
+                        setManualWeeklySchedule(map)
+                        safeLocalStorageSet(targetStorageKey, JSON.stringify(map), {
+                            activeStoreId: storeId,
+                            activeDate: targetDate,
+                            activeDow: targetDow
+                        })
                         return
                     }
                 }
@@ -181,18 +247,21 @@ export default function BodegaPWA() {
                 console.error('Error fetching manual schedule in bodega:', e)
             }
 
-            const cached = localStorage.getItem(storageKey)
+            const cached = localStorage.getItem(targetStorageKey)
             if (cached) {
                 try {
                     setManualWeeklySchedule(JSON.parse(cached))
                 } catch (e) {}
+            } else {
+                setManualWeeklySchedule({})
             }
         }
 
+        fetchManualScheduleRef.current = fetchManualSchedule
         fetchManualSchedule()
-        const interval = setInterval(fetchManualSchedule, 10000)
+        const interval = setInterval(() => fetchManualSchedule(), 10000)
         return () => clearInterval(interval)
-    }, [storeId, businessDow])
+    }, [storeId, businessDow, selectedDate])
     
     // Alarma
     const audioRef = useRef<HTMLAudioElement | null>(null)
@@ -213,16 +282,14 @@ export default function BodegaPWA() {
     const [touchEnd, setTouchEnd] = useState<number | null>(null)
     const [showInfoModal, setShowInfoModal] = useState(false)
 
-    // Snap back timer: si mueves el carrusel, a los 15 seg regresa solito a AHORA
+    // Snap back timer: si mueves el carrusel, a los 15 seg regresa solito al bloque actual (AHORA)
     useEffect(() => {
-        let timer: NodeJS.Timeout
-        if (activeIndex !== 0) {
-            timer = setTimeout(() => {
-                setActiveIndex(0)
-            }, 15000)
-        }
+        if (activeIndex === currentBucketIndex) return
+        const timer = setTimeout(() => {
+            setActiveIndex(currentBucketIndex)
+        }, 15000)
         return () => clearTimeout(timer)
-    }, [activeIndex])
+    }, [activeIndex, currentBucketIndex])
 
     // Fullscreen Mode & Carousel Interaction Refs
     const containerRef = useRef<HTMLDivElement>(null)
@@ -329,10 +396,12 @@ export default function BodegaPWA() {
             const { data } = await supabase.from('stores').select('id, name, opening_time, closing_time').eq('is_active', true).order('name')
             if (data) {
                 setStores(data)
-                // Forzar tienda si el usuario no es admin/supervisor y tiene tienda asignada
+                // Forzar y persistir tienda si el usuario no es admin/supervisor y tiene tienda asignada
                 const isSuper = ['admin', 'supervisor'].includes(user?.role?.toLowerCase() || '')
                 if (user && !isSuper && user.store_id) {
-                    setStoreId(String(user.store_id))
+                    const assignedStoreId = String(user.store_id)
+                    setStoreId(assignedStoreId)
+                    safeLocalStorageSet('teg_preparador_store', assignedStoreId)
                 } else {
                     // Recordar o default si es supervisor/admin
                     const saved = localStorage.getItem('teg_preparador_store')
@@ -347,10 +416,11 @@ export default function BodegaPWA() {
     // Load Meat Historial (Solo Cabeza y Lengua para la Bodega)
     useEffect(() => {
         if (!storeId) return
-        const fetchHistory = async () => {
+        const fetchHistory = async (overrideDow?: number) => {
+            const targetDow = overrideDow || businessDow
             setFetchingMeat(true)
             try {
-                const res = await fetch(`/api/inventory/preparador-history?storeId=${storeId}&dow=${businessDow}&_t=${Date.now()}`, { cache: 'no-store' })
+                const res = await fetch(`/api/inventory/preparador-history?storeId=${storeId}&dow=${targetDow}&_t=${Date.now()}`, { cache: 'no-store' })
                 const json = await res.json()
                 if (Array.isArray(json)) {
                     // Pre-filtro: La bodega proyecta Lentos y Bebidas (se requirió remover CAFE)
@@ -364,8 +434,9 @@ export default function BodegaPWA() {
                 setFetchingMeat(false)
             }
         }
+        fetchHistoryRef.current = fetchHistory
         fetchHistory()
-    }, [storeId, businessDow])
+    }, [storeId, businessDow, selectedDate])
 
     // Fetch Intelligence Projections
     const [intelligenceAcelerador, setIntelligenceAcelerador] = useState(1.0)
@@ -388,11 +459,12 @@ export default function BodegaPWA() {
             }
         }
         
+        fetchIntelligenceRef.current = fetchIntelligence
         fetchIntelligence()
         // Refrescar factores cada 3 minutos en tiempo real
         const int = setInterval(fetchIntelligence, 3 * 60 * 1000)
         return () => clearInterval(int)
-    }, [storeId])
+    }, [storeId, selectedDate])
 
 
     // Clock Bucket Updater
@@ -465,6 +537,13 @@ export default function BodegaPWA() {
                     tempH = nxtH
                     tempM = nxtM
                 }
+                const bucketChanged = prevCurrentBucketIndexRef.current !== foundCurrentIndex
+                prevCurrentBucketIndexRef.current = foundCurrentIndex
+                setCurrentBucketIndex(foundCurrentIndex)
+                if (!hasInitializedRef.current || (bucketChanged && Date.now() - lastActivityTimeRef.current > 15000)) {
+                    setActiveIndex(foundCurrentIndex)
+                    hasInitializedRef.current = true
+                }
                 setCarouselBuckets(arr)
             } else {
                 // Define 6 Peak & Operational Time Period Blocks
@@ -483,8 +562,9 @@ export default function BodegaPWA() {
                 }
 
                 const arr: any[] = []
+                let foundCurrentIndex = 0
 
-                PEAK_PERIODS.forEach((period) => {
+                PEAK_PERIODS.forEach((period, idx) => {
                     let startLabel = formatTime12(period.startH, 0)
                     let endLabel = formatTime12(period.endH, 0)
                     let label = `${startLabel} a ${endLabel}`
@@ -517,17 +597,26 @@ export default function BodegaPWA() {
                     }
 
                     let isCurrent = isHourInPeriod(h, period.startH, period.endH)
+                    if (isCurrent) foundCurrentIndex = idx
                     arr.push({ id: period.id, name: period.name, isPeak: period.isPeak, duration: period.duration, label, isCurrent, data })
                 })
 
+                const bucketChanged = prevCurrentBucketIndexRef.current !== foundCurrentIndex
+                prevCurrentBucketIndexRef.current = foundCurrentIndex
+                setCurrentBucketIndex(foundCurrentIndex)
+                if (!hasInitializedRef.current || (bucketChanged && Date.now() - lastActivityTimeRef.current > 15000)) {
+                    setActiveIndex(foundCurrentIndex)
+                    hasInitializedRef.current = true
+                }
                 setCarouselBuckets(arr)
             }
         }
         
+        updateBucketsRef.current = updateBuckets
         updateBuckets()
-        const int = setInterval(updateBuckets, 60000)
+        const int = setInterval(updateBuckets, 15000)
         return () => clearInterval(int)
-    }, [meatData, viewMode, storeId])
+    }, [meatData, viewMode, storeId, stores])
 
     const [wakeToast, setWakeToast] = useState(false)
 
@@ -551,17 +640,26 @@ export default function BodegaPWA() {
         setCurrentBusinessDate(freshDate)
         setSelectedDate(freshDate)
         effectiveDateRef.current = freshDate
-        setActiveIndex(0)
+        hasInitializedRef.current = false
+        prevCurrentBucketIndexRef.current = -1
         setSystemStarted(true)
     }
 
     const handleWakeUpTablet = async () => {
-        recordUserActivity()
+        if (wakingUpTablet) return
+        setWakingUpTablet(true)
+        showWakeUpModalRef.current = false
+        setShowWakeUpModal(false)
+        lastActivityTimeRef.current = Date.now()
+        try { wakeLock.requestNow() } catch {}
+
         const freshDate = getLAEffectiveBusinessDate()
+        const freshDow = getDowFromDate(freshDate)
         setCurrentBusinessDate(freshDate)
         setSelectedDate(freshDate)
         effectiveDateRef.current = freshDate
-        setActiveIndex(0)
+        hasInitializedRef.current = false
+        prevCurrentBucketIndexRef.current = -1
 
         // Request wake lock to keep screen active
         try {
@@ -570,15 +668,36 @@ export default function BodegaPWA() {
             }
         } catch (e) {}
 
-        // Unlock sound
+        // Unlock sound & Web Audio API
         try {
+            const AudioCtx = window.AudioContext || (window as any).webkitAudioContext
+            if (AudioCtx) {
+                const ctx = new AudioCtx()
+                if (ctx.state === 'suspended') await ctx.resume()
+                setTimeout(() => ctx.close().catch(() => {}), 300)
+            }
             const au = new Audio('/sounds/success.mp3')
-            au.volume = 0.2
+            au.volume = 0.25
             au.play().catch(() => {})
         } catch (e) {}
 
+        await Promise.allSettled([
+            purgeTabletStaleCaches({
+                activeStoreId: storeId,
+                activeDate: freshDate,
+                activeDow: freshDow,
+                forceTokenRefresh: true
+            }),
+            fetchHistoryRef.current?.(freshDow),
+            fetchManualScheduleRef.current?.(freshDow, freshDate),
+            fetchIntelligenceRef.current?.(),
+            fetchPendingRef.current?.()
+        ])
+        updateBucketsRef.current?.()
+
+        setWakingUpTablet(false)
         setWakeToast(true)
-        setTimeout(() => setWakeToast(false), 3500)
+        setTimeout(() => setWakeToast(false), 4000)
     }
 
     // Main Logic: Load existing pending & Listen for Realtime inserts
@@ -692,6 +811,7 @@ export default function BodegaPWA() {
             }
         }
         
+        fetchPendingRef.current = fetchPending
         fetchPending()
 
         // 1. RECOVERY POLLER: Las cocinas pierden WiFi. Un "latido" cada 20 segundos asegura que nunca se quede trabado si el Websocket falla.
@@ -827,6 +947,82 @@ export default function BodegaPWA() {
                     >
                         <CheckCircle2 size={24} className="text-emerald-200 shrink-0" />
                         <span>{t('prep.tabletAwakeSuccess')}</span>
+                    </motion.div>
+                )}
+            </AnimatePresence>
+
+            {/* Modal Despertar Tableta tras 3 Horas de Inactividad */}
+            <AnimatePresence>
+                {showWakeUpModal && (
+                    <motion.div
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        onClick={handleWakeUpTablet}
+                        className="fixed inset-0 z-[999998] bg-slate-950/92 backdrop-blur-lg flex items-center justify-center p-4 sm:p-8 cursor-pointer select-none"
+                    >
+                        <motion.div
+                            initial={{ scale: 0.92, y: 30 }}
+                            animate={{ scale: 1, y: 0 }}
+                            exit={{ scale: 0.92, y: 30 }}
+                            onClick={(e) => {
+                                e.stopPropagation()
+                                handleWakeUpTablet()
+                            }}
+                            className="bg-slate-900 border-2 border-amber-500/70 max-w-2xl w-full rounded-[36px] shadow-[0_0_120px_rgba(245,158,11,0.35)] p-6 sm:p-10 md:p-12 flex flex-col items-center text-center relative overflow-hidden"
+                        >
+                            <div className="w-24 h-24 sm:w-28 sm:h-28 rounded-full bg-amber-500/15 border-2 border-amber-400/50 flex items-center justify-center mb-5 sm:mb-6 shadow-[0_0_40px_rgba(245,158,11,0.3)]">
+                                <Sun size={56} className="text-amber-400 animate-spin" style={{ animationDuration: '10s' }} />
+                            </div>
+
+                            <h2 className="text-2xl sm:text-3xl md:text-4xl font-black text-white uppercase tracking-tight leading-tight mb-3">
+                                {t('prep.wakeModalTitle')}
+                            </h2>
+                            <p className="text-slate-300 font-medium text-sm sm:text-base md:text-lg mb-6 max-w-xl">
+                                {t('prep.wakeModalSubtitle')}
+                            </p>
+
+                            <div className="w-full bg-slate-800/80 border border-slate-700 rounded-2xl p-4 sm:p-5 mb-6 sm:mb-8 text-left space-y-2.5">
+                                <div className="flex items-center gap-3 text-xs sm:text-sm font-bold text-emerald-300">
+                                    <CheckCircle2 size={18} className="text-emerald-400 shrink-0" />
+                                    <span>{t('prep.wakeModalCheck1')}</span>
+                                </div>
+                                <div className="flex items-center gap-3 text-xs sm:text-sm font-bold text-amber-200">
+                                    <Clock size={18} className="text-amber-400 shrink-0" />
+                                    <span>{t('prep.wakeModalCheck2')}</span>
+                                </div>
+                                <div className="flex items-center gap-3 text-xs sm:text-sm font-bold text-sky-200">
+                                    <RefreshCw size={18} className="text-sky-400 shrink-0" />
+                                    <span>{t('prep.wakeModalCheck3')}</span>
+                                </div>
+                            </div>
+
+                            <button
+                                type="button"
+                                onClick={(e) => {
+                                    e.stopPropagation()
+                                    handleWakeUpTablet()
+                                }}
+                                disabled={wakingUpTablet}
+                                className="w-full py-5 sm:py-6 rounded-2xl bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600 hover:from-amber-400 hover:to-orange-500 text-white font-black text-xl sm:text-2xl md:text-3xl uppercase tracking-wider shadow-[0_10px_40px_rgba(245,158,11,0.4)] transition-all active:scale-95 flex items-center justify-center gap-3 cursor-pointer border border-amber-300/50"
+                            >
+                                {wakingUpTablet ? (
+                                    <>
+                                        <Loader2 size={28} className="animate-spin text-white" />
+                                        <span>{t('prep.wakingUpTablet')}</span>
+                                    </>
+                                ) : (
+                                    <>
+                                        <Sun size={30} className="animate-spin text-amber-100" style={{ animationDuration: '10s' }} />
+                                        <span>{t('prep.wakeUpTablet')}</span>
+                                    </>
+                                )}
+                            </button>
+
+                            <p className="text-[11px] sm:text-xs font-bold text-slate-400 uppercase tracking-widest mt-4">
+                                {t('prep.wakeModalTapHint')}
+                            </p>
+                        </motion.div>
                     </motion.div>
                 )}
             </AnimatePresence>

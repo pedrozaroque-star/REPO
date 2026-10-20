@@ -28,10 +28,12 @@
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { createPortal } from 'react-dom'
-import { X, Check, Clock, AlertTriangle, ChevronDown, Store } from 'lucide-react'
+import { X, Check, Clock, AlertTriangle, ChevronDown, Store, RefreshCw, CheckCircle2, Zap } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/components/ProtectedRoute'
 import { useLanguage } from '@/lib/i18n'
+import { useWakeLock } from '@/lib/use-wake-lock'
+import { purgeTabletStaleCaches } from '@/lib/tablet-cache-cleaner'
 import { calculateStoreOffsets, applyTimeOffset, type StoreOffsets } from '@/lib/store-time-offset'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -175,6 +177,7 @@ function findCurrentTimeGroup(groups: { time: string }[]): string | null {
 export default function ChecklistMode({ onClose }: ChecklistModeProps) {
   const { user } = useAuth()
   const { t } = useLanguage()
+  const wakeLock = useWakeLock(true)
 
   const userRole = (user?.role || 'user').toLowerCase()
   const canChangeStore = userRole !== 'manager'
@@ -190,6 +193,12 @@ export default function ChecklistMode({ onClose }: ChecklistModeProps) {
   const [clock, setClock] = useState(getLATime())
   const [showStoreDropdown, setShowStoreDropdown] = useState(false)
   const [hasScrolled, setHasScrolled] = useState(false)
+  const [wakingUpTablet, setWakingUpTablet] = useState(false)
+  const [tabletWakeSuccess, setTabletWakeSuccess] = useState(false)
+  const [showWakeUpModal, setShowWakeUpModal] = useState(false)
+  const lastInteractionAtRef = useRef<number>(Date.now())
+  const lastBusinessDateRef = useRef<string>(getBusinessDate())
+  const lastAutoShiftRef = useRef<string>(getCurrentShift())
   const storeDropdownRef = useRef<HTMLDivElement>(null)
   const bodyRef = useRef<HTMLDivElement>(null)
   const timeGroupRefs = useRef<Map<string, HTMLDivElement>>(new Map())
@@ -198,11 +207,57 @@ export default function ChecklistMode({ onClose }: ChecklistModeProps) {
   const businessDate = useMemo(() => getBusinessDate(), [clock.toDateString(), clock.getHours() < 6])
   const dayName = useMemo(() => getDayName(), [businessDate])
 
-  // ─── Live clock ──────────────────────────────────────────────────────────
+  // ─── Live clock & 24/7 Auto-Reconfiguration + 3-Hour Wake Modal ──────────
   useEffect(() => {
-    const interval = setInterval(() => setClock(getLATime()), 1000)
-    return () => clearInterval(interval)
+    const markInteraction = () => {
+      lastInteractionAtRef.current = Date.now()
+    }
+    window.addEventListener('pointerdown', markInteraction, { passive: true })
+    window.addEventListener('keydown', markInteraction, { passive: true })
+    window.addEventListener('touchstart', markInteraction, { passive: true })
+    window.addEventListener('wheel', markInteraction, { passive: true })
+    return () => {
+      window.removeEventListener('pointerdown', markInteraction)
+      window.removeEventListener('keydown', markInteraction)
+      window.removeEventListener('touchstart', markInteraction)
+      window.removeEventListener('wheel', markInteraction)
+    }
   }, [])
+
+  useEffect(() => {
+    void purgeTabletStaleCaches()
+    const cacheTimer = setInterval(() => {
+      void purgeTabletStaleCaches({ force: true })
+    }, 15 * 60 * 1000)
+    return () => clearInterval(cacheTimer)
+  }, [])
+
+  useEffect(() => {
+    const INACTIVITY_WAKE_MODAL_MS = 3 * 60 * 60 * 1000 // 3 horas
+    const interval = setInterval(() => {
+      setClock(getLATime())
+      const currentBDate = getBusinessDate()
+      const currentShiftNow = getCurrentShift()
+      const idleMs = Date.now() - lastInteractionAtRef.current
+
+      if (lastBusinessDateRef.current !== currentBDate) {
+        lastBusinessDateRef.current = currentBDate
+        lastAutoShiftRef.current = currentShiftNow
+        setShiftFilter(currentShiftNow)
+        setHasScrolled(false)
+        void purgeTabletStaleCaches({ force: true })
+      } else if (lastAutoShiftRef.current !== currentShiftNow) {
+        lastAutoShiftRef.current = currentShiftNow
+        setShiftFilter(currentShiftNow)
+        setHasScrolled(false)
+      }
+
+      if (!showWakeUpModal && !wakingUpTablet && idleMs >= INACTIVITY_WAKE_MODAL_MS) {
+        setShowWakeUpModal(true)
+      }
+    }, 1000)
+    return () => clearInterval(interval)
+  }, [showWakeUpModal, wakingUpTablet])
 
   // ─── Close store dropdown on outside click ───────────────────────────────
   useEffect(() => {
@@ -227,8 +282,11 @@ export default function ChecklistMode({ onClose }: ChecklistModeProps) {
       if (data) {
         setStores(data as StoreInfo[])
         const userStoreId = user?.store_id
+        const savedStoreId = typeof window !== 'undefined' ? (localStorage.getItem('actividades_store_id') || localStorage.getItem('planner_store')) : null
         if (userStoreId && data.find((s: StoreInfo) => String(s.id) === String(userStoreId))) {
           setSelectedStoreId(String(userStoreId))
+        } else if (savedStoreId && data.find((s: StoreInfo) => String(s.id) === String(savedStoreId))) {
+          setSelectedStoreId(String(savedStoreId))
         } else if (data.length > 0) {
           setSelectedStoreId(String(data[0].id))
         }
@@ -465,6 +523,37 @@ export default function ChecklistMode({ onClose }: ChecklistModeProps) {
     return `${h12}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')} ${ampm}`
   }, [clock])
 
+  // ─── Despertar Tableta (Checklist Mode) ──────────────────────────────────
+  const handleWakeUpTablet = useCallback(async () => {
+    lastInteractionAtRef.current = Date.now()
+    setShowWakeUpModal(false)
+    if (wakingUpTablet) return
+    setWakingUpTablet(true)
+    setTabletWakeSuccess(false)
+    try {
+      wakeLock.requestNow()
+      await purgeTabletStaleCaches({ force: true })
+
+      setClock(getLATime())
+      const currentBDate = getBusinessDate()
+      const currentShiftNow = getCurrentShift()
+      lastBusinessDateRef.current = currentBDate
+      lastAutoShiftRef.current = currentShiftNow
+      setShiftFilter(currentShiftNow)
+      setHasScrolled(false)
+      setShowStoreDropdown(false)
+
+      await Promise.all([fetchProcedures(), fetchCompletions()])
+
+      setTabletWakeSuccess(true)
+      setTimeout(() => setTabletWakeSuccess(false), 4000)
+    } catch (err) {
+      console.error('[ChecklistMode WakeUp] Error reconfigurando tableta:', err)
+    } finally {
+      setWakingUpTablet(false)
+    }
+  }, [wakingUpTablet, wakeLock, fetchProcedures, fetchCompletions])
+
   // ─── Shift labels ───────────────────────────────────────────────────────
   const SHIFTS = [
     { key: 'Apertura', label: t('actividades.checklist.shift_apertura'), emoji: '🌅' },
@@ -490,8 +579,8 @@ export default function ChecklistMode({ onClose }: ChecklistModeProps) {
         display: 'flex', flexDirection: 'column', gap: '10px',
         boxShadow: '0 4px 20px rgba(234,88,12,0.25)',
       }}>
-        {/* Top row: Title + Clock + Close */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        {/* Top row: Title + Wake Up + Clock + Close */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', flexWrap: 'wrap' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
             <span style={{ fontSize: '26px' }}>☑️</span>
             <div>
@@ -503,7 +592,40 @@ export default function ChecklistMode({ onClose }: ChecklistModeProps) {
               </p>
             </div>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              onClick={handleWakeUpTablet}
+              disabled={wakingUpTablet}
+              title={t('prep.wakeUpTabletDesc')}
+              style={{
+                background: tabletWakeSuccess
+                  ? '#059669'
+                  : wakingUpTablet
+                    ? '#f59e0b'
+                    : 'rgba(255,255,255,0.95)',
+                color: tabletWakeSuccess ? '#fff' : '#9a3412',
+                border: 'none',
+                borderRadius: '10px',
+                padding: '7px 12px',
+                fontSize: '12px',
+                fontWeight: 800,
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                cursor: 'pointer',
+                boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+              }}
+            >
+              <RefreshCw size={14} className={wakingUpTablet ? 'animate-spin' : ''} />
+              <span>
+                {wakingUpTablet
+                  ? t('prep.wakingUpTablet')
+                  : tabletWakeSuccess
+                    ? t('prep.tabletAwakeSuccess')
+                    : t('prep.wakeUpTabletShort')}
+              </span>
+            </button>
             <div style={{
               background: 'rgba(0,0,0,0.2)', borderRadius: '10px', padding: '5px 12px',
               fontFamily: "'JetBrains Mono', 'Courier New', monospace",
@@ -555,7 +677,11 @@ export default function ChecklistMode({ onClose }: ChecklistModeProps) {
                 {stores.map(s => (
                   <button
                     key={s.id}
-                    onClick={() => { setSelectedStoreId(String(s.id)); setShowStoreDropdown(false) }}
+                    onClick={() => {
+                      setSelectedStoreId(String(s.id))
+                      try { localStorage.setItem('actividades_store_id', String(s.id)) } catch {}
+                      setShowStoreDropdown(false)
+                    }}
                     style={{
                       display: 'block', width: '100%', textAlign: 'left',
                       padding: '10px 14px', border: 'none', borderRadius: '8px',
@@ -654,6 +780,65 @@ export default function ChecklistMode({ onClose }: ChecklistModeProps) {
           </>
         )}
       </div>
+
+      {/* ═══ MODAL AUTOMÁTICO: DESPERTAR TABLETA TRAS 3 HORAS DE INACTIVIDAD ═══ */}
+      {showWakeUpModal && (
+        <div
+          onClick={handleWakeUpTablet}
+          className="fixed inset-0 z-[100000] bg-slate-950/90 backdrop-blur-md flex items-center justify-center p-6 animate-in fade-in duration-300 cursor-pointer select-none"
+        >
+          <div
+            onClick={(e) => {
+              e.stopPropagation()
+              void handleWakeUpTablet()
+            }}
+            className="relative w-full max-w-xl rounded-3xl bg-gradient-to-b from-slate-900 via-slate-900 to-slate-950 border-2 border-amber-500/60 shadow-[0_0_80px_rgba(245,158,11,0.35)] p-8 text-center overflow-hidden"
+          >
+            <div className="mx-auto mb-5 w-20 h-20 rounded-full bg-amber-500/20 border-2 border-amber-400/60 flex items-center justify-center shadow-[0_0_35px_rgba(245,158,11,0.4)]">
+              <RefreshCw className={`w-10 h-10 text-amber-400 ${wakingUpTablet ? 'animate-spin' : ''}`} />
+            </div>
+
+            <h2 className="text-2xl sm:text-3xl font-black text-white tracking-tight uppercase mb-2">
+              {t('prep.wakeModalTitle')}
+            </h2>
+            <p className="text-sm sm:text-base text-slate-300 font-medium max-w-md mx-auto mb-6">
+              {t('prep.wakeModalSubtitle')}
+            </p>
+
+            <div className="bg-slate-950/80 border border-slate-800 rounded-2xl p-4 mb-6 text-left space-y-2.5">
+              <div className="flex items-center gap-3 text-xs sm:text-sm font-bold text-emerald-300">
+                <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                <span>{t('prep.wakeModalCheck1')}</span>
+              </div>
+              <div className="flex items-center gap-3 text-xs sm:text-sm font-bold text-amber-300">
+                <Clock className="w-4 h-4 text-amber-400 shrink-0" />
+                <span>{t('prep.wakeModalCheck2')}</span>
+              </div>
+              <div className="flex items-center gap-3 text-xs sm:text-sm font-bold text-cyan-300">
+                <Zap className="w-4 h-4 text-cyan-400 shrink-0" />
+                <span>{t('prep.wakeModalCheck3')}</span>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              disabled={wakingUpTablet}
+              onClick={(e) => {
+                e.stopPropagation()
+                void handleWakeUpTablet()
+              }}
+              className="w-full py-4 px-6 rounded-2xl bg-gradient-to-r from-amber-500 via-orange-500 to-amber-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 font-black text-lg sm:text-xl uppercase tracking-wider shadow-[0_10px_30px_rgba(245,158,11,0.45)] active:scale-[0.98] transition-all flex items-center justify-center gap-3"
+            >
+              <RefreshCw className={`w-6 h-6 ${wakingUpTablet ? 'animate-spin' : ''}`} />
+              <span>{wakingUpTablet ? t('prep.wakingUpTablet') : t('prep.wakeUpTablet')}</span>
+            </button>
+
+            <p className="mt-4 text-[11px] font-bold uppercase tracking-widest text-amber-400/80 animate-pulse">
+              {t('prep.wakeModalTapHint')}
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* ─── Pulse-red animation (CSS injected) ──────────────── */}
       <style>{`

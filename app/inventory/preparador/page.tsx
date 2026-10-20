@@ -32,7 +32,11 @@
  *     Anteriormente, el acumulado de órdenes históricas IN_PROGRESS (bebidas/no cerradas de la mañana) llenaba el .limit(60) con órdenes de hace horas,
  *     provocando que las órdenes nuevas recién enviadas no llegaran a la tableta del preparador.
  *   - FIX: Se optimizó el cliente Supabase con useMemo para prevenir re-suscripciones y render loops continuos.
- *   - FIX: Persistencia inmediata de tienda seleccionada en localStorage al cambiar de sucursal en el dropdown.
+ *   - FIX (2026-10-19): Autolimpieza automática de caché (`lib/tablet-cache-cleaner.ts`) cada 15 min, en cambio de jornada (6:00 AM),
+ *     y Modal de Despertar Tableta tras 3 horas de inactividad (`INACTIVITY_WAKE_MODAL_MS = 3h`): al tocar el modal o el botón Despertar,
+ *     purga llaves obsoletas de `localStorage`, `sessionStorage`, `CacheStorage` y Service Workers, renueva el JWT (`teg_token`) por 30 días,
+ *     reconfigura la fecha laboral (6:00 AM), día de la semana (`businessDow`) y bloque actual de 30 min, desbloquea Web Audio API + WakeLock,
+ *     y recarga en vivo proyecciones, horarios manuales, consumo real, inteligencia y órdenes de Toast POS (`/api/order-ready/orders`).
  */
 'use client'
 
@@ -51,6 +55,12 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { TOAST_STORE_MAP } from '@/lib/toast-stores'
 import { getCaliforniaBusinessDate } from '@/lib/business-date'
 import { isDrinkOrDessertOnlyOrder } from '@/lib/order-ready-filter'
+import {
+    purgeTabletStaleCaches,
+    safeLocalStorageSet,
+    getTabletNoCacheHeaders
+} from '@/lib/tablet-cache-cleaner'
+import { useWakeLock } from '@/lib/use-wake-lock'
         
 
 interface MeatData {
@@ -158,20 +168,40 @@ export default function PreparadorPage() {
         return laDateStr
     }
 
+    const INACTIVITY_WAKE_MODAL_MS = 3 * 60 * 60 * 1000 // 3 horas de inactividad
     const initialToday = getLAEffectiveBusinessDate()
     const [currentBusinessDate, setCurrentBusinessDate] = useState<string>(initialToday)
     const [selectedDate, setSelectedDate] = useState<string>(initialToday)
     const effectiveDateRef = useRef<string>(initialToday)
     const lastActivityTimeRef = useRef<number>(Date.now())
     const lastSaveTimeRef = useRef<number>(0)
+    const [showWakeUpModal, setShowWakeUpModal] = useState(false)
+    const showWakeUpModalRef = useRef(false)
+    const [wakingUpTablet, setWakingUpTablet] = useState(false)
     const fetchReadyOrdersRef = useRef<((isManual?: boolean) => Promise<void>) | null>(null)
+    const fetchHistoryRef = useRef<((overrideDow?: number, overrideDate?: string) => Promise<void>) | null>(null)
+    const fetchManualScheduleRef = useRef<((overrideDow?: number, overrideDate?: string) => Promise<void>) | null>(null)
+    const fetchRealMeatRef = useRef<((overrideDate?: string) => Promise<void>) | null>(null)
+    const fetchIntelligenceRef = useRef<((overrideDate?: string) => Promise<void>) | null>(null)
+    const updateBucketsRef = useRef<(() => void) | null>(null)
 
-    // User activity tracker (touch/click resets inactivity timer)
+    // User activity tracker (touch/click resets inactivity timer unless wake modal is awaiting explicit wake-up)
     const recordUserActivity = () => {
+        if (showWakeUpModalRef.current) return
         lastActivityTimeRef.current = Date.now()
     }
 
-    // Automatic Date Rollover Effect (Checks every 10 seconds, on screen wake-up, and on window focus)
+    const getDowFromDate = (dateStr: string) => {
+        const [y, m, d] = dateStr.split('-').map(Number)
+        const dateObj = new Date(y, m - 1, d)
+        const dayNum = dateObj.getDay()
+        return dayNum === 0 ? 7 : dayNum
+    }
+
+    const businessDow = getDowFromDate(selectedDate)
+    const isToday = selectedDate === currentBusinessDate
+
+    // Automatic Date Rollover, 3-Hour Inactivity Wake Modal & Cache Self-Cleaning Effect
     useEffect(() => {
         const checkDateRollover = (forceToday = false) => {
             const freshBusinessDate = getLAEffectiveBusinessDate()
@@ -184,33 +214,77 @@ export default function PreparadorPage() {
                 console.log(`[Preparador] Business date shifted: ${prevEffective} -> ${freshBusinessDate}`)
                 effectiveDateRef.current = freshBusinessDate
                 setSelectedDate(freshBusinessDate)
+                setSelectedWasteDate(freshBusinessDate)
                 hasInitializedRef.current = false // Allow carousel to re-center on morning interval
+                prevCurrentBucketIndexRef.current = -1
                 setRealMeatData([]) // Clear previous day's real consumptions
-                localStorage.removeItem(`prep_real_meat_${storeId}`)
+                setManualOverrides({}) // Clear previous day's one-off overrides
+                setManualWeeklySchedule({}) // Clear previous day-of-week manual schedule before loading today's DOW
+                lastCookAlertRef.current = null
+                callingIdsRef.current.clear()
+                setCallingOrderIds(new Set())
+                setCallSuccessOrderIds(new Set())
+                try { localStorage.removeItem(`prep_real_meat_${storeId}`) } catch {}
+                // Autolimpieza profunda de cachés de días anteriores + renovación de token en cambio de jornada (6:00 AM)
+                purgeTabletStaleCaches({
+                    activeStoreId: storeId,
+                    activeDate: freshBusinessDate,
+                    activeDow: getDowFromDate(freshBusinessDate),
+                    forceTokenRefresh: true
+                }).catch(() => {})
+                fetchReadyOrdersRef.current?.(true)
             }
         }
 
         // Inactivity auto-return: if viewing a past date but idle for > 2 minutes, return to TODAY
         const checkInactivityReturn = () => {
             const now = Date.now()
-            const isIdle = (now - lastActivityTimeRef.current) > 120000 // 2 minutes
+            const idleMs = now - lastActivityTimeRef.current
             const freshBusinessDate = getLAEffectiveBusinessDate()
-            if (isIdle && selectedDate !== freshBusinessDate) {
+            if (idleMs > 120000 && selectedDate !== freshBusinessDate) {
                 console.log(`[Preparador] Idle on past date. Auto-returning to current date: ${freshBusinessDate}`)
                 checkDateRollover(true)
+            }
+            // Tras 3 horas de inactividad, mostrar modal para despertar tableta y ejecutar reconfiguración completa
+            if (!showWakeUpModalRef.current && idleMs >= INACTIVITY_WAKE_MODAL_MS) {
+                console.log('[Preparador] 3+ hours of inactivity reached -> Showing Wake Up Tablet Modal')
+                showWakeUpModalRef.current = true
+                setShowWakeUpModal(true)
             }
         }
 
         checkDateRollover()
+        // Autolimpieza automática al montar o cambiar de tienda/fecha y cada 15 minutos en segundo plano
+        purgeTabletStaleCaches({
+            activeStoreId: storeId,
+            activeDate: selectedDate,
+            activeDow: businessDow
+        }).catch(() => {})
+
         const intervalId = setInterval(() => {
             checkDateRollover()
             checkInactivityReturn()
         }, 10000)
 
+        const cacheCleanupTimer = setInterval(() => {
+            const freshDate = getLAEffectiveBusinessDate()
+            purgeTabletStaleCaches({
+                activeStoreId: storeId,
+                activeDate: freshDate,
+                activeDow: getDowFromDate(freshDate)
+            }).catch(() => {})
+        }, 15 * 60 * 1000)
+
         // Wake-up / Screen unlock / Tab active listeners
         const handleWakeUp = () => {
-            console.log("[Preparador] Screen woke up or tab focused -> Re-checking date & sync...")
+            console.log("[Preparador] Screen woke up or tab focused -> Re-checking date, cleaning cache & syncing...")
             checkDateRollover()
+            checkInactivityReturn()
+            purgeTabletStaleCaches({
+                activeStoreId: storeId,
+                activeDate: getLAEffectiveBusinessDate(),
+                activeDow: getDowFromDate(getLAEffectiveBusinessDate())
+            }).catch(() => {})
             fetchReadyOrdersRef.current?.(false)
         }
 
@@ -224,26 +298,20 @@ export default function PreparadorPage() {
         // Global touch/click listener to record activity
         window.addEventListener('touchstart', recordUserActivity, { passive: true })
         window.addEventListener('mousedown', recordUserActivity, { passive: true })
+        window.addEventListener('keydown', recordUserActivity, { passive: true })
 
         return () => {
             clearInterval(intervalId)
+            clearInterval(cacheCleanupTimer)
             window.removeEventListener('focus', handleWakeUp)
             window.removeEventListener('online', handleWakeUp)
             document.removeEventListener('visibilitychange', onVisibilityChange)
             window.removeEventListener('touchstart', recordUserActivity)
             window.removeEventListener('mousedown', recordUserActivity)
+            window.removeEventListener('keydown', recordUserActivity)
         }
-    }, [selectedDate, storeId])
+    }, [selectedDate, storeId, businessDow])
 
-    const getDowFromDate = (dateStr: string) => {
-        const [y, m, d] = dateStr.split('-').map(Number)
-        const dateObj = new Date(y, m - 1, d)
-        const dayNum = dateObj.getDay()
-        return dayNum === 0 ? 7 : dayNum
-    }
-
-    const businessDow = getDowFromDate(selectedDate)
-    const isToday = selectedDate === currentBusinessDate
     const [viewMode, setViewMode] = useState<'30min' | 'tramos'>('30min')
     const [cardDisplayMode, setCardDisplayMode] = useState<'manual' | 'basic' | 'advanced'>('manual')
     
@@ -263,6 +331,7 @@ export default function PreparadorPage() {
     const [activeIndex, setActiveIndex] = useState(0)
     const [currentBucketIndex, setCurrentBucketIndex] = useState(0)
     const hasInitializedRef = useRef(false)
+    const prevCurrentBucketIndexRef = useRef<number>(-1)
 
     const [touchStart, setTouchStart] = useState<number | null>(null)
     const [touchEnd, setTouchEnd] = useState<number | null>(null)
@@ -270,21 +339,40 @@ export default function PreparadorPage() {
     const [wakeToast, setWakeToast] = useState(false)
     const [mobileTab, setMobileTab] = useState<'parrilla' | 'insumos' | 'resumen'>('parrilla')
     const [showMobileSettingsDrawer, setShowMobileSettingsDrawer] = useState(false)
+    const wakeLock = useWakeLock(true)
 
-    // Manual/Explicit Tablet Wake-up & Shift Start Handler
+    // Manual/Explicit Tablet Wake-up & Full Daily Reconfiguration Handler (triggered by 3h modal or top bar button)
     const handleWakeUpTablet = async () => {
-        recordUserActivity()
+        if (wakingUpTablet) return
+        setWakingUpTablet(true)
+        showWakeUpModalRef.current = false
+        setShowWakeUpModal(false)
+        lastActivityTimeRef.current = Date.now()
+        try { wakeLock.requestNow() } catch {}
+
         const freshBusinessDate = getLAEffectiveBusinessDate()
+        const freshDow = getDowFromDate(freshBusinessDate)
         setCurrentBusinessDate(freshBusinessDate)
         setSelectedDate(freshBusinessDate)
+        setSelectedWasteDate(freshBusinessDate)
         effectiveDateRef.current = freshBusinessDate
-        hasInitializedRef.current = false // Re-centers carousel to current live interval
-        
-        // Clear previous day's real consumptions and force refresh
+        hasInitializedRef.current = false // Re-centers carousel to current live 30-min interval
+        prevCurrentBucketIndexRef.current = -1
+        lastCookAlertRef.current = null
+        callingIdsRef.current.clear()
+        setCallingOrderIds(new Set())
+        setCallSuccessOrderIds(new Set())
+
+        // Clear previous day's real consumptions & load only today's overrides
         setRealMeatData([])
-        localStorage.removeItem(`prep_real_meat_${storeId}`)
-        fetchReadyOrdersRef.current?.(true)
-        
+        try { localStorage.removeItem(`prep_real_meat_${storeId}`) } catch {}
+        try {
+            const savedOverrides = localStorage.getItem(`teg_prep_overrides_${storeId}_${freshBusinessDate}`)
+            setManualOverrides(savedOverrides ? JSON.parse(savedOverrides) : {})
+        } catch {
+            setManualOverrides({})
+        }
+
         // Request wake lock to keep screen active
         try {
             if ('wakeLock' in navigator) {
@@ -292,16 +380,38 @@ export default function PreparadorPage() {
             }
         } catch (e) {}
 
-        // Unlock audio context for alerts
+        // Unlock Web Audio API context & play subtle wake sound on user gesture
         try {
+            const AudioCtx = window.AudioContext || (window as any).webkitAudioContext
+            if (AudioCtx) {
+                const ctx = new AudioCtx()
+                if (ctx.state === 'suspended') await ctx.resume()
+                setTimeout(() => ctx.close().catch(() => {}), 300)
+            }
             const au = new Audio('/sounds/success.mp3')
-            au.volume = 0.2
+            au.volume = 0.25
             au.play().catch(() => {})
         } catch (e) {}
 
-        // Trigger visual success confirmation
+        // Execute deep cache cleanup + 30-day JWT refresh + live data & Toast orders sync
+        await Promise.allSettled([
+            purgeTabletStaleCaches({
+                activeStoreId: storeId,
+                activeDate: freshBusinessDate,
+                activeDow: freshDow,
+                forceTokenRefresh: true
+            }),
+            fetchHistoryRef.current?.(freshDow, freshBusinessDate),
+            fetchManualScheduleRef.current?.(freshDow, freshBusinessDate),
+            fetchRealMeatRef.current?.(freshBusinessDate),
+            fetchIntelligenceRef.current?.(freshBusinessDate),
+            fetchReadyOrdersRef.current?.(true)
+        ])
+        updateBucketsRef.current?.()
+
+        setWakingUpTablet(false)
         setWakeToast(true)
-        setTimeout(() => setWakeToast(false), 3500)
+        setTimeout(() => setWakeToast(false), 4000)
     }
 
     // Manual Overrides & Weekly Schedule State
@@ -338,23 +448,31 @@ export default function PreparadorPage() {
         if (!storeId) return
         const storageKey = `teg_prep_manual_weekly_${storeId}_${businessDow}`
         
-        const fetchManualSchedule = async () => {
+        const fetchManualSchedule = async (overrideDow?: number, overrideDate?: string) => {
             // Prevent background 10s polling from overwriting user's local edits while saving
-            if (Date.now() - lastSaveTimeRef.current < 8000) return
+            if (!overrideDow && Date.now() - lastSaveTimeRef.current < 8000) return
+            const targetDow = overrideDow || businessDow
+            const targetDate = overrideDate || selectedDate
+            const targetStorageKey = `teg_prep_manual_weekly_${storeId}_${targetDow}`
 
             try {
-                const res = await fetch(`/api/inventory/preparador-manual-schedule?storeId=${storeId}&dow=${businessDow}&_t=${Date.now()}`, { cache: 'no-store' })
+                const res = await fetch(`/api/inventory/preparador-manual-schedule?storeId=${storeId}&dow=${targetDow}&_t=${Date.now()}`, { cache: 'no-store' })
                 if (res.ok) {
                     const data = await res.json()
                     if (Array.isArray(data)) {
-                        if (Date.now() - lastSaveTimeRef.current < 8000) return
+                        if (!overrideDow && Date.now() - lastSaveTimeRef.current < 8000) return
                         const map: Record<string, number> = {}
                         data.forEach((item: any) => {
                             const key = `${normTime(item.interval_start)}_${item.meat_type}`
                             map[key] = Number(item.max_lbs)
                         })
-                        setManualWeeklySchedule(prev => ({ ...prev, ...map }))
-                        localStorage.setItem(storageKey, JSON.stringify(map))
+                        // Reemplazar íntegramente el mapa del día de la semana actual (evita mezclar datos del día anterior cuando la tableta queda encendida 24/7)
+                        setManualWeeklySchedule(map)
+                        safeLocalStorageSet(targetStorageKey, JSON.stringify(map), {
+                            activeStoreId: storeId,
+                            activeDate: targetDate,
+                            activeDow: targetDow
+                        })
                         return
                     }
                 }
@@ -363,25 +481,32 @@ export default function PreparadorPage() {
             }
 
             // Fallback to cache if API failed
-            const cached = localStorage.getItem(storageKey)
+            const cached = localStorage.getItem(targetStorageKey)
             if (cached) {
                 try {
                     setManualWeeklySchedule(JSON.parse(cached))
                 } catch (e) {}
+            } else {
+                setManualWeeklySchedule({})
             }
         }
 
+        fetchManualScheduleRef.current = fetchManualSchedule
         fetchManualSchedule()
-        const interval = setInterval(fetchManualSchedule, 10000)
+        const interval = setInterval(() => fetchManualSchedule(), 10000)
         return () => clearInterval(interval)
-    }, [storeId, businessDow])
+    }, [storeId, businessDow, selectedDate])
 
     // Save Manual Overrides to localStorage
     useEffect(() => {
         if (!storeId || !selectedDate) return
         const storageKey = `teg_prep_overrides_${storeId}_${selectedDate}`
-        localStorage.setItem(storageKey, JSON.stringify(manualOverrides))
-    }, [manualOverrides, storeId, selectedDate])
+        safeLocalStorageSet(storageKey, JSON.stringify(manualOverrides), {
+            activeStoreId: storeId,
+            activeDate: selectedDate,
+            activeDow: businessDow
+        })
+    }, [manualOverrides, storeId, selectedDate, businessDow])
 
     // Inactivity Reset Effect (Aero snap-back)
     useEffect(() => {
@@ -394,8 +519,12 @@ export default function PreparadorPage() {
         return () => clearTimeout(timer)
     }, [activeIndex, currentBucketIndex])
 
-    // Request Cart & Ready Orders Tab State
-    const [activeTab, setActiveTab] = useState<'alimentos' | 'ordenes'>('alimentos')
+    // Request Cart & Ready Orders Tab State (persistente en localStorage para tabletas 24/7)
+    const [activeTab, setActiveTabState] = useState<'alimentos' | 'ordenes'>('alimentos')
+    const setActiveTab = (tab: 'alimentos' | 'ordenes') => {
+        setActiveTabState(tab)
+        try { localStorage.setItem('teg_preparador_active_tab', tab) } catch {}
+    }
     const [cart, setCart] = useState<{name: string, qty: number}[]>([])
     const [sending, setSending] = useState(false)
     const [showDayModal, setShowDayModal] = useState(false)
@@ -409,12 +538,16 @@ export default function PreparadorPage() {
     const realtimeChannelRef = useRef<any>(null)
     const [hideDrinks, setHideDrinks] = useState(true)
 
-    // Cargar preferencia de ocultar bebidas (activada por defecto para la cocina)
+    // Cargar preferencias persistidas de la tableta (ocultar bebidas y pestaña activa)
     useEffect(() => {
         try {
             const saved = localStorage.getItem('prep_hide_drinks')
             if (saved !== null) {
                 setHideDrinks(saved === 'true')
+            }
+            const savedTab = localStorage.getItem('teg_preparador_active_tab')
+            if (savedTab === 'alimentos' || savedTab === 'ordenes') {
+                setActiveTabState(savedTab)
             }
         } catch {}
     }, [])
@@ -427,6 +560,42 @@ export default function PreparadorPage() {
         })
     }
 
+    // Filtra, desduplica y ordena FIFO las órdenes en preparación (IN_PROGRESS)
+    const filterAndDedupePrepOrders = (rows: any[], storeCode: string, todayLA: string): any[] => {
+        const now = Date.now()
+        const seenGuids = new Set<string>()
+        const seenNumbers = new Set<string>()
+        const sortedRows = [...rows].sort((a, b) => {
+            const ta = Date.parse(a?.created_at || '') || 0
+            const tb = Date.parse(b?.created_at || '') || 0
+            return ta - tb // FIFO: las más antiguas primero
+        })
+        const uniqueRecent: any[] = []
+
+        for (const o of sortedRows) {
+            if (!o || o.status !== 'IN_PROGRESS') continue
+            if (o.dining_option && !['FOR_HERE', 'TOGO'].includes(String(o.dining_option).toUpperCase())) continue
+
+            const t = Date.parse(o.created_at)
+            if (!isNaN(t) && now - t >= 90 * 60 * 1000) continue
+
+            // REGLA CRÍTICA TACOS GAVILAN: Las órdenes que SOLO tienen bebidas o postres (flan, cheesecake, etc.)
+            // se despachan en mostrador/caja y NO requieren preparación de cocina ni parrilla por el taquero.
+            if (isDrinkOrDessertOnlyOrder(o.items_summary)) continue
+
+            const guidKey = o.order_guid ? String(o.order_guid).trim() : null
+            const numKey = `${o.store_code || storeCode}_${o.business_date || todayLA}_${o.order_number}`
+
+            if (guidKey && seenGuids.has(guidKey)) continue
+            if (seenNumbers.has(numKey)) continue
+
+            if (guidKey) seenGuids.add(guidKey)
+            seenNumbers.add(numKey)
+            uniqueRecent.push(o)
+        }
+        return uniqueRecent
+    }
+
     // Consulta de órdenes en preparación de la sucursal actual (status = IN_PROGRESS / SEND)
     const fetchReadyOrders = async (isManual = false) => {
         if (!storeId || stores.length === 0) return
@@ -436,13 +605,16 @@ export default function PreparadorPage() {
 
         if (isManual) {
             setLoadingReadyOrders(true)
-            fetch(`/api/order-ready/orders?storeCode=${storeCode}&syncToast=true`).catch(() => {})
+            purgeTabletStaleCaches({
+                activeStoreId: storeId,
+                activeDate: selectedDate,
+                activeDow: businessDow
+            }).catch(() => {})
         }
         try {
             const todayLA = getCaliforniaBusinessDate()
             // @businessRule Tacos Gavilan: Ventana de consulta activa de los últimos 90 minutos (status = IN_PROGRESS).
-            // Usamos una ventana de tiempo física estricta (created_at >= 90 mins). No restringimos por business_date
-            // para que órdenes activas durante el cambio de jornada (6:00 AM) sigan visibles hasta terminarse o cancelarse.
+            // 1. Consulta directa ultrarrápida a Supabase para respuesta inmediata en UI (0ms)
             const cutoffTime = new Date(Date.now() - 90 * 60 * 1000).toISOString()
             const { data, error } = await supabase
                 .from('order_ready_announcements')
@@ -455,31 +627,23 @@ export default function PreparadorPage() {
                 .limit(150)
 
             if (!error && data) {
-                const now = Date.now()
-                // Descartar órdenes con más de 90 minutos en preparación y desduplicar por GUID y por número
-                const seenGuids = new Set<string>()
-                const seenNumbers = new Set<string>()
-                const uniqueRecent: any[] = []
+                setReadyOrdersList(filterAndDedupePrepOrders(data, storeCode, todayLA))
+            }
 
-                for (const o of data) {
-                    const t = Date.parse(o.created_at)
-                    if (!isNaN(t) && now - t >= 90 * 60 * 1000) continue
-
-                    // REGLA CRÍTICA TACOS GAVILAN: Las órdenes que SOLO tienen bebidas o postres (flan, cheesecake, etc.)
-                    // se despachan en mostrador/caja y NO requieren preparación de cocina ni parrilla por el taquero.
-                    if (isDrinkOrDessertOnlyOrder(o.items_summary)) continue
-
-                    const guidKey = o.order_guid ? String(o.order_guid).trim() : null
-                    const numKey = `${o.store_code || storeCode}_${o.business_date || todayLA}_${o.order_number}`
-
-                    if (guidKey && seenGuids.has(guidKey)) continue
-                    if (seenNumbers.has(numKey)) continue
-
-                    if (guidKey) seenGuids.add(guidKey)
-                    seenNumbers.add(numKey)
-                    uniqueRecent.push(o)
+            // 2. Sincronizar con el servidor (/api/order-ready/orders) sin caché de navegador (no-store + timestamp)
+            // para ejecutar syncStoreFromToast y capturar cualquier orden nueva o bump de KDS al instante
+            const syncRes = await fetch(
+                `/api/order-ready/orders?storeCode=${storeCode}&minutes=90&syncToast=${isManual ? 'true' : 'false'}&_t=${Date.now()}`,
+                {
+                    cache: 'no-store',
+                    headers: getTabletNoCacheHeaders()
                 }
-                setReadyOrdersList(uniqueRecent)
+            )
+            if (syncRes.ok) {
+                const syncJson = await syncRes.json()
+                if (Array.isArray(syncJson?.inProgressOrders)) {
+                    setReadyOrdersList(filterAndDedupePrepOrders(syncJson.inProgressOrders, storeCode, todayLA))
+                }
             }
         } catch (err) {
             console.warn('Error fetching prep orders on preparador tablet:', err)
@@ -493,45 +657,71 @@ export default function PreparadorPage() {
         fetchReadyOrdersRef.current = fetchReadyOrders
     }, [fetchReadyOrders])
 
-    // Suscripción Realtime y Polling para la tableta de órdenes
+    // Suscripción Realtime y Polling para la tableta de órdenes (con reconexión automática si el WebSocket cae)
     useEffect(() => {
         if (!storeId || stores.length === 0) return
         const currentStore = stores.find(s => String(s.id) === String(storeId))
         const storeCode = (currentStore?.code || TOAST_STORE_MAP[currentStore?.external_id]?.code || '').toUpperCase()
         if (!storeCode) return
 
+        let unmounted = false
+        let reconnectTimeout: ReturnType<typeof setTimeout> | null = null
+
         fetchReadyOrders(true)
 
-        const channel = supabase
-            .channel('order-ready-realtime')
-            .on(
-                'postgres_changes',
-                {
-                    event: '*',
-                    schema: 'public',
-                    table: 'order_ready_announcements'
-                },
-                (payload: any) => {
-                    const row = payload.new || payload.old
-                    if (row && String(row.store_code || '').toUpperCase() === storeCode) {
-                        fetchReadyOrders(false)
-                    }
-                }
-            )
-            .subscribe()
+        const setupRealtimeChannel = () => {
+            if (unmounted) return
+            if (realtimeChannelRef.current) {
+                supabase.removeChannel(realtimeChannelRef.current).catch(() => {})
+                realtimeChannelRef.current = null
+            }
 
-        realtimeChannelRef.current = channel
+            const channel = supabase
+                .channel('order-ready-realtime')
+                .on(
+                    'postgres_changes',
+                    {
+                        event: '*',
+                        schema: 'public',
+                        table: 'order_ready_announcements'
+                    },
+                    (payload: any) => {
+                        const row = payload.new || payload.old
+                        if (row && String(row.store_code || '').toUpperCase() === storeCode) {
+                            fetchReadyOrdersRef.current?.(false)
+                        }
+                    }
+                )
+                .subscribe((status: string) => {
+                    if (unmounted) return
+                    if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+                        if (reconnectTimeout) clearTimeout(reconnectTimeout)
+                        reconnectTimeout = setTimeout(() => {
+                            if (!unmounted) {
+                                setupRealtimeChannel()
+                                fetchReadyOrdersRef.current?.(false)
+                            }
+                        }, 3000)
+                    }
+                })
+
+            realtimeChannelRef.current = channel
+        }
+
+        setupRealtimeChannel()
 
         const pollTimer = setInterval(() => {
-            fetchReadyOrders(false)
-            // Sincronizar periódicamente con Toast para detectar bumps y recalls aunque el board no esté abierto
-            fetch(`/api/order-ready/orders?storeCode=${storeCode}`).catch(() => {})
+            fetchReadyOrdersRef.current?.(false)
         }, 5000)
 
         return () => {
+            unmounted = true
+            if (reconnectTimeout) clearTimeout(reconnectTimeout)
             clearInterval(pollTimer)
-            supabase.removeChannel(channel)
-            realtimeChannelRef.current = null
+            if (realtimeChannelRef.current) {
+                supabase.removeChannel(realtimeChannelRef.current).catch(() => {})
+                realtimeChannelRef.current = null
+            }
         }
     }, [storeId, stores, supabase])
 
@@ -942,10 +1132,12 @@ export default function PreparadorPage() {
             if (data) {
                 setStores(data)
                 
-                // Si el usuario no es admin/supervisor y tiene tienda asignada, fijamos su tienda automáticamente
+                // Si el usuario no es admin/supervisor y tiene tienda asignada, fijamos y persistimos su tienda automáticamente
                 const isSuper = ['admin', 'supervisor'].includes(user?.role?.toLowerCase() || '')
                 if (user && !isSuper && user.store_id) {
-                    setStoreId(String(user.store_id))
+                    const assignedStoreId = String(user.store_id)
+                    setStoreId(assignedStoreId)
+                    safeLocalStorageSet('teg_preparador_store', assignedStoreId)
                 } else {
                     // Si es admin, recordamos su última selección en la tableta o tomamos la primera
                     const saved = localStorage.getItem('teg_preparador_store')
@@ -960,20 +1152,26 @@ export default function PreparadorPage() {
     // Load Meat Historial
     useEffect(() => {
         if (!storeId) return
-        const fetchHistory = async () => {
+        const fetchHistory = async (overrideDow?: number, overrideDate?: string) => {
+            const targetDow = overrideDow || businessDow
+            const targetDate = overrideDate || selectedDate
             setFetchingMeat(true)
             try {
-                const res = await fetch(`/api/inventory/preparador-history?storeId=${storeId}&dow=${businessDow}&_t=${Date.now()}`, { cache: 'no-store' })
+                const res = await fetch(`/api/inventory/preparador-history?storeId=${storeId}&dow=${targetDow}&_t=${Date.now()}`, { cache: 'no-store' })
                 const json = await res.json()
                 if (Array.isArray(json)) {
                     // @businessRule: Solo se proyectan carnes de PARRILLA que necesitan anticipación.
                     const tablet1Proteins = ['ASADA', 'PASTOR', 'POLLO', 'CARNITAS', 'CABEZA', 'LENGUA']
                     setMeatData(json.filter((m: any) => tablet1Proteins.includes(m.meat_type)))
-                    localStorage.setItem(`prep_meat_history_${storeId}_${businessDow}`, JSON.stringify(json))
+                    safeLocalStorageSet(`prep_meat_history_${storeId}_${targetDow}`, JSON.stringify(json), {
+                        activeStoreId: storeId,
+                        activeDate: targetDate,
+                        activeDow: targetDow
+                    })
                 }
             } catch (err) {
                 console.error(err)
-                const cached = localStorage.getItem(`prep_meat_history_${storeId}_${businessDow}`)
+                const cached = localStorage.getItem(`prep_meat_history_${storeId}_${targetDow}`)
                 if (cached) {
                     try {
                         const json = JSON.parse(cached)
@@ -985,18 +1183,21 @@ export default function PreparadorPage() {
                 setFetchingMeat(false)
             }
         }
+        fetchHistoryRef.current = fetchHistory
         fetchHistory()
-    }, [storeId, businessDow])
+    }, [storeId, businessDow, selectedDate])
 
     // Load Real Meat Consumptions (For TODAY or Selected Date)
     useEffect(() => {
         if (!storeId) return
-        const fetchRealD = async () => {
+        const fetchRealD = async (overrideDate?: string) => {
+            const targetDate = overrideDate || selectedDate
+            const targetIsToday = targetDate === getLAEffectiveBusinessDate()
             try {
                 const { data } = await supabase.from('meat_consumption_history')
                     .select('interval_start, meat_type, raw_lbs')
                     .eq('store_id', storeId)
-                    .eq('business_date', selectedDate)
+                    .eq('business_date', targetDate)
                     
                 if (data) {
                     setRealMeatData(data.map(d => ({
@@ -1004,11 +1205,17 @@ export default function PreparadorPage() {
                         meat_type: d.meat_type,
                         real_lbs: d.raw_lbs
                     })))
-                    if (isToday) localStorage.setItem(`prep_real_meat_${storeId}`, JSON.stringify(data))
+                    if (targetIsToday) {
+                        safeLocalStorageSet(`prep_real_meat_${storeId}`, JSON.stringify(data), {
+                            activeStoreId: storeId,
+                            activeDate: targetDate,
+                            activeDow: getDowFromDate(targetDate)
+                        })
+                    }
                 }
             } catch (err) {
                 console.error("Real meat fetch error:", err)
-                if (isToday) {
+                if (targetIsToday) {
                     const cached = localStorage.getItem(`prep_real_meat_${storeId}`)
                     if (cached) {
                         try {
@@ -1023,12 +1230,13 @@ export default function PreparadorPage() {
                 }
             }
         }
+        fetchRealMeatRef.current = fetchRealD
         fetchRealD()
         if (isToday) {
-            const int = setInterval(fetchRealD, 3 * 60 * 1000)
+            const int = setInterval(() => fetchRealD(), 3 * 60 * 1000)
             return () => clearInterval(int)
         }
-    }, [storeId, selectedDate, isToday, supabase])
+    }, [storeId, selectedDate, isToday, supabase, businessDow])
 
     // Intelligence Fetcher (Only active for TODAY)
     useEffect(() => {
@@ -1038,14 +1246,19 @@ export default function PreparadorPage() {
             setWeatherAlert(false)
             return
         }
-        const fetchIntelligence = async () => {
+        const fetchIntelligence = async (overrideDate?: string) => {
+            const targetDate = overrideDate || selectedDate
             try {
                 const res = await fetch(`/api/preparador/intelligence?store_id=${storeId}&_t=${Date.now()}`, { cache: 'no-store' })
                 if (res.ok) {
                     const data = await res.json()
                     setIntelligenceAcelerador(data.growth_factor || 1.0)
                     setWeatherAlert(data.weather_adjustment || false)
-                    localStorage.setItem(`prep_intelligence_${storeId}`, JSON.stringify(data))
+                    safeLocalStorageSet(`prep_intelligence_${storeId}`, JSON.stringify(data), {
+                        activeStoreId: storeId,
+                        activeDate: targetDate,
+                        activeDow: getDowFromDate(targetDate)
+                    })
                 }
             } catch (err) {
                 console.error("Intelligence error:", err)
@@ -1059,10 +1272,11 @@ export default function PreparadorPage() {
                 }
             }
         }
+        fetchIntelligenceRef.current = fetchIntelligence
         fetchIntelligence()
-        const int = setInterval(fetchIntelligence, 3 * 60 * 1000)
+        const int = setInterval(() => fetchIntelligence(), 3 * 60 * 1000)
         return () => clearInterval(int)
-    }, [storeId, isToday])
+    }, [storeId, isToday, selectedDate, businessDow])
 
     // Sync Guide Modal DOW when opening
     useEffect(() => {
@@ -1188,8 +1402,10 @@ export default function PreparadorPage() {
                     tempM = nxtM
                 }
 
+                const bucketChanged = prevCurrentBucketIndexRef.current !== foundCurrentIndex
+                prevCurrentBucketIndexRef.current = foundCurrentIndex
                 setCurrentBucketIndex(foundCurrentIndex)
-                if (!hasInitializedRef.current) {
+                if (!hasInitializedRef.current || (bucketChanged && Date.now() - lastActivityTimeRef.current > 15000)) {
                     setActiveIndex(foundCurrentIndex)
                     hasInitializedRef.current = true
                 }
@@ -1288,8 +1504,10 @@ export default function PreparadorPage() {
                     arr.push({ id: period.id, name: period.name, isPeak: period.isPeak, duration: period.duration, label, isCurrent, data })
                 })
 
+                const bucketChanged = prevCurrentBucketIndexRef.current !== foundCurrentIndex
+                prevCurrentBucketIndexRef.current = foundCurrentIndex
                 setCurrentBucketIndex(foundCurrentIndex)
-                if (!hasInitializedRef.current) {
+                if (!hasInitializedRef.current || (bucketChanged && Date.now() - lastActivityTimeRef.current > 15000)) {
                     setActiveIndex(foundCurrentIndex)
                     hasInitializedRef.current = true
                 }
@@ -1297,8 +1515,9 @@ export default function PreparadorPage() {
             }
         }
         
+        updateBucketsRef.current = updateBuckets
         updateBuckets()
-        const int = setInterval(updateBuckets, 60000)
+        const int = setInterval(updateBuckets, 15000)
         return () => clearInterval(int)
     }, [meatData, realMeatData, viewMode, storeId])
 
@@ -1347,7 +1566,7 @@ export default function PreparadorPage() {
 
     if (!mounted || authLoading) return <div className="p-8 flex items-center justify-center"><Loader2 className="w-8 h-8 animate-spin text-blue-500" /></div>
 
-    if (!user || !['admin', 'manager', 'supervisor'].includes(user.role?.toLowerCase() || '')) {
+    if (!user || !['admin', 'manager', 'supervisor', 'asistente'].includes(user.role?.toLowerCase() || '')) {
         return <div className="p-8 text-center text-red-500 text-2xl font-bold">{t('prep.accessDenied')}</div>
     }
 
@@ -1366,6 +1585,82 @@ export default function PreparadorPage() {
                     >
                         <CheckCircle2 size={22} className="text-emerald-200 shrink-0" />
                         <span>{t('prep.tabletAwakeSuccess')}</span>
+                    </motion.div>
+                )}
+            </AnimatePresence>
+
+            {/* Modal Despertar Tableta tras 3 Horas de Inactividad */}
+            <AnimatePresence>
+                {showWakeUpModal && (
+                    <motion.div
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        onClick={handleWakeUpTablet}
+                        className="fixed inset-0 z-[999998] bg-slate-950/92 backdrop-blur-lg flex items-center justify-center p-4 sm:p-8 cursor-pointer select-none"
+                    >
+                        <motion.div
+                            initial={{ scale: 0.92, y: 30 }}
+                            animate={{ scale: 1, y: 0 }}
+                            exit={{ scale: 0.92, y: 30 }}
+                            onClick={(e) => {
+                                e.stopPropagation()
+                                handleWakeUpTablet()
+                            }}
+                            className="bg-slate-900 border-2 border-amber-500/70 max-w-2xl w-full rounded-[36px] shadow-[0_0_120px_rgba(245,158,11,0.35)] p-6 sm:p-10 md:p-12 flex flex-col items-center text-center relative overflow-hidden"
+                        >
+                            <div className="w-24 h-24 sm:w-28 sm:h-28 rounded-full bg-amber-500/15 border-2 border-amber-400/50 flex items-center justify-center mb-5 sm:mb-6 shadow-[0_0_40px_rgba(245,158,11,0.3)]">
+                                <Sun size={56} className="text-amber-400 animate-spin" style={{ animationDuration: '10s' }} />
+                            </div>
+
+                            <h2 className="text-2xl sm:text-3xl md:text-4xl font-black text-white uppercase tracking-tight leading-tight mb-3">
+                                {t('prep.wakeModalTitle')}
+                            </h2>
+                            <p className="text-slate-300 font-medium text-sm sm:text-base md:text-lg mb-6 max-w-xl">
+                                {t('prep.wakeModalSubtitle')}
+                            </p>
+
+                            <div className="w-full bg-slate-800/80 border border-slate-700 rounded-2xl p-4 sm:p-5 mb-6 sm:mb-8 text-left space-y-2.5">
+                                <div className="flex items-center gap-3 text-xs sm:text-sm font-bold text-emerald-300">
+                                    <CheckCircle2 size={18} className="text-emerald-400 shrink-0" />
+                                    <span>{t('prep.wakeModalCheck1')}</span>
+                                </div>
+                                <div className="flex items-center gap-3 text-xs sm:text-sm font-bold text-amber-200">
+                                    <Clock size={18} className="text-amber-400 shrink-0" />
+                                    <span>{t('prep.wakeModalCheck2')}</span>
+                                </div>
+                                <div className="flex items-center gap-3 text-xs sm:text-sm font-bold text-sky-200">
+                                    <RefreshCw size={18} className="text-sky-400 shrink-0" />
+                                    <span>{t('prep.wakeModalCheck3')}</span>
+                                </div>
+                            </div>
+
+                            <button
+                                type="button"
+                                onClick={(e) => {
+                                    e.stopPropagation()
+                                    handleWakeUpTablet()
+                                }}
+                                disabled={wakingUpTablet}
+                                className="w-full py-5 sm:py-6 rounded-2xl bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600 hover:from-amber-400 hover:to-orange-500 text-white font-black text-xl sm:text-2xl md:text-3xl uppercase tracking-wider shadow-[0_10px_40px_rgba(245,158,11,0.4)] transition-all active:scale-95 flex items-center justify-center gap-3 cursor-pointer border border-amber-300/50"
+                            >
+                                {wakingUpTablet ? (
+                                    <>
+                                        <Loader2 size={28} className="animate-spin text-white" />
+                                        <span>{t('prep.wakingUpTablet')}</span>
+                                    </>
+                                ) : (
+                                    <>
+                                        <Sun size={30} className="animate-spin text-amber-100" style={{ animationDuration: '10s' }} />
+                                        <span>{t('prep.wakeUpTablet')}</span>
+                                    </>
+                                )}
+                            </button>
+
+                            <p className="text-[11px] sm:text-xs font-bold text-slate-400 uppercase tracking-widest mt-4">
+                                {t('prep.wakeModalTapHint')}
+                            </p>
+                        </motion.div>
                     </motion.div>
                 )}
             </AnimatePresence>

@@ -32,7 +32,7 @@ import {
   Tooltip,
   Legend
 } from 'recharts'
-import { BarChart3, Table as TableIcon, Sparkles, TrendingUp, DollarSign, Percent } from 'lucide-react'
+import { BarChart3, Table as TableIcon, Sparkles, TrendingUp, DollarSign, Percent, Download } from 'lucide-react'
 
 export interface ChartSeries {
   key: string
@@ -141,6 +141,31 @@ export default function ChatAnimatedChart({ chart, language = 'es' }: ChatAnimat
   const isLine = type === 'line'
   const isArea = type === 'area'
 
+  const downloadChartCsv = () => {
+    const headers = [isSpanish ? 'Categoría' : 'Category', ...enhancedSeries.map(s => s.name)]
+    const escapeCsv = (val: any) => {
+      const str = val === undefined || val === null ? '' : String(val)
+      return str.includes(',') || str.includes('"') || str.includes('\n')
+        ? `"${str.replace(/"/g, '""')}"`
+        : str
+    }
+    const rows = data.map(row => [
+      escapeCsv(row[xAxisKey]),
+      ...enhancedSeries.map(s => escapeCsv(row[s.key]))
+    ])
+    const csvContent = '\uFEFF' + [headers.map(escapeCsv).join(','), ...rows.map(r => r.join(','))].join('\r\n')
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    const safeTitle = (title || 'reporte-teg').toLowerCase().replace(/[^a-z0-9-_]+/gi, '-').replace(/^-|-$/g, '')
+    link.href = url
+    link.setAttribute('download', `${safeTitle || 'datos-teg'}.csv`)
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    URL.revokeObjectURL(url)
+  }
+
   return (
     <motion.div
       initial={{ opacity: 0, scale: 0.96, y: 8 }}
@@ -181,6 +206,13 @@ export default function ChatAnimatedChart({ chart, language = 'es' }: ChatAnimat
             title={isSpanish ? 'Ver Tabla de Datos' : 'View Data Table'}
           >
             <TableIcon size={11} /> {isSpanish ? 'Tabla' : 'Table'}
+          </button>
+          <button
+            onClick={downloadChartCsv}
+            className="px-2 py-1 rounded text-[10px] font-semibold flex items-center gap-1 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/50 transition-all"
+            title={isSpanish ? 'Descargar datos en CSV (Excel)' : 'Download data as CSV (Excel)'}
+          >
+            <Download size={11} /> CSV
           </button>
         </div>
       </div>

@@ -18,12 +18,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createClient } from '@supabase/supabase-js'
 import { useLanguage } from '@/lib/i18n'
+import { useWakeLock } from '@/lib/use-wake-lock'
+import { purgeTabletStaleCaches } from '@/lib/tablet-cache-cleaner'
 import {
   AlertTriangle,
   CheckCircle2,
   Clock,
   Delete,
   Globe,
+  Loader2,
   Lock,
   LogOut,
   Maximize2,
@@ -31,6 +34,7 @@ import {
   Search,
   ShieldCheck,
   ShoppingBag,
+  Sun,
   Truck,
   User,
   Volume2
@@ -49,6 +53,32 @@ const PIN_INACTIVITY_TIMEOUT_MS = 2 * 60 * 1000 // 2 minutos sin actividad para 
 const PIN_SESSION_DURATION_MS = PIN_INACTIVITY_TIMEOUT_MS
 const KDS_POLL_INTERVAL_MS = 4000 // 4 segundos para detectar al instante cuando el cocinero borra del KDS antes de que la cajera cierre el empaque
 const UNCLAIMED_DRIVER_TIMEOUT_MS = 2 * 60 * 60 * 1000 // 2 horas (120 min) sin que ningún chofer recoja la orden
+const INACTIVITY_WAKE_MODAL_MS = 3 * 60 * 60 * 1000 // 3 horas sin actividad en la tableta -> mostrar modal "Despertar Tableta"
+
+function getLAEffectiveBusinessDate(): string {
+  const formatter = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/Los_Angeles',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    hour12: false
+  })
+  const parts = formatter.formatToParts(new Date())
+  const year = parseInt(parts.find(p => p.type === 'year')?.value || '2026', 10)
+  const month = parseInt(parts.find(p => p.type === 'month')?.value || '1', 10)
+  const day = parseInt(parts.find(p => p.type === 'day')?.value || '1', 10)
+  let hour = parseInt(parts.find(p => p.type === 'hour')?.value || '0', 10)
+  if (hour === 24) hour = 0
+  const dateObj = new Date(year, month - 1, day)
+  if (hour < 6) {
+    dateObj.setDate(dateObj.getDate() - 1)
+  }
+  const yyyy = dateObj.getFullYear()
+  const mm = String(dateObj.getMonth() + 1).padStart(2, '0')
+  const dd = String(dateObj.getDate()).padStart(2, '0')
+  return `${yyyy}-${mm}-${dd}`
+}
 
 type Platform = 'DOORDASH' | 'UBER_EATS' | 'GRUBHUB' | 'TOAST_ONLINE' | 'OTHER'
 type CheckKey = 'foodComplete' | 'drinksComplete' | 'bagCountCorrect' | 'bagSealed'
@@ -364,6 +394,7 @@ function isForbiddenRaulVoice(voiceName: string | null | undefined): boolean {
 export default function BlindajeDeliveryEmpaquePage() {
   const { t, language, setLanguage } = useLanguage()
   const rootRef = useRef<HTMLElement | null>(null)
+  const wakeLock = useWakeLock(true)
   const [storeId, setStoreId] = useState(7)
   const [packer, setPacker] = useState<Packer | null>(null)
   const [remainingMs, setRemainingMs] = useState<number>(PIN_SESSION_DURATION_MS)
@@ -386,8 +417,11 @@ export default function BlindajeDeliveryEmpaquePage() {
   const [selectedVoice, setSelectedVoice] = useState<'Kore' | 'Aoede' | 'Zephyr' | 'Puck' | 'Orus'>('Kore')
   const [activeAnnouncement, setActiveAnnouncement] = useState<string | null>(null)
   const [showHistory, setShowHistory] = useState(false)
+  const [showWakeUpModal, setShowWakeUpModal] = useState(false)
+  const [wakingUpTablet, setWakingUpTablet] = useState(false)
+  const [wakeToast, setWakeToast] = useState(false)
 
-  // Referencias del motor de audio, rastreo de KDS e inactividad de sesión PIN (2 min sin actividad)
+  // Referencias del motor de audio, rastreo de KDS e inactividad de sesión PIN (2 min) y de tableta (3 horas)
   const audioCtxRef = useRef<AudioContext | null>(null)
   const clipCacheRef = useRef<Map<string, Promise<ArrayBuffer | null>>>(new Map())
   const audioQueueRef = useRef<Order[]>([])
@@ -402,6 +436,25 @@ export default function BlindajeDeliveryEmpaquePage() {
   const lastActivityAtRef = useRef<number>(Date.now())
   const sessionExpiresAtRef = useRef<number>(0)
   const lastStorageSyncAtRef = useRef<number>(0)
+  const effectiveDateRef = useRef<string>(getLAEffectiveBusinessDate())
+  const lastTabletInteractionRef = useRef<number>(Date.now())
+  const showWakeUpModalRef = useRef<boolean>(false)
+
+  useEffect(() => {
+    try {
+      const params = new URLSearchParams(window.location.search)
+      const fromUrl = Number(params.get('storeId'))
+      const fromStorage = Number(localStorage.getItem('blindaje_delivery_store_id'))
+      const candidate = STORES.some(s => s.id === fromUrl)
+        ? fromUrl
+        : STORES.some(s => s.id === fromStorage)
+        ? fromStorage
+        : 7
+      setStoreId(candidate)
+    } catch {
+      // mantiene 7
+    }
+  }, [])
 
   useEffect(() => {
     packerRef.current = packer
@@ -420,24 +473,22 @@ export default function BlindajeDeliveryEmpaquePage() {
   }, [dismissedVoided])
 
   // Sincronizar la voz configurada en Supabase (order_ready_settings) igual que Order Ready Board
-  useEffect(() => {
-    let mounted = true
-    ;(async () => {
-      try {
-        const res = await fetch('/api/order-ready/settings', { cache: 'no-store' })
-        const data = await res.json()
-        const v = data?.settings?.voice
-        if (mounted && (v === 'Kore' || v === 'Aoede' || v === 'Zephyr' || v === 'Puck' || v === 'Orus')) {
-          setSelectedVoice(v)
-        }
-      } catch {
-        // Mantiene Kore por defecto
+  const syncVoiceSettings = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/order-ready/settings?_t=${Date.now()}`, { cache: 'no-store' })
+      const data = await res.json()
+      const v = data?.settings?.voice
+      if (v === 'Kore' || v === 'Aoede' || v === 'Zephyr' || v === 'Puck' || v === 'Orus') {
+        setSelectedVoice(v)
       }
-    })()
-    return () => {
-      mounted = false
+    } catch {
+      // Mantiene Kore por defecto
     }
   }, [])
+
+  useEffect(() => {
+    void syncVoiceSettings()
+  }, [syncVoiceSettings])
 
   // Desbloquear AudioContext en cualquier toque o tecla
   const unlockAudio = useCallback(() => {
@@ -1226,12 +1277,166 @@ export default function BlindajeDeliveryEmpaquePage() {
     }
   }, [storeId, packer, persistAnnouncedGuid, enqueueOrderAnnouncement, handleSessionReplacedError, t])
 
-  // Monitoreo continuo del KDS cada 8 segundos (incluso cuando está en la pantalla de PIN)
+  // Monitoreo continuo del KDS cada 4 segundos (incluso cuando está en la pantalla de PIN)
   useEffect(() => {
     void fetchOrders()
     const timer = window.setInterval(fetchOrders, KDS_POLL_INTERVAL_MS)
     return () => window.clearInterval(timer)
   }, [fetchOrders])
+
+  // Reconfiguración automática 24/7 a las 6:00 AM, autolimpieza de caché cada 15 min y detector de 3 horas de inactividad
+  useEffect(() => {
+    const recordTabletTouch = () => {
+      lastTabletInteractionRef.current = Date.now()
+    }
+
+    const checkDateRolloverAndInactivity = () => {
+      const freshBusinessDate = getLAEffectiveBusinessDate()
+      if (freshBusinessDate !== effectiveDateRef.current) {
+        console.log(`[Delivery Tablet] 6:00 AM Rollover: ${effectiveDateRef.current} -> ${freshBusinessDate}`)
+        effectiveDateRef.current = freshBusinessDate
+        announcedGuidsRef.current.clear()
+        prevKdsStatusRef.current.clear()
+        clipCacheRef.current.clear()
+        initializedStoreRef.current = null
+        try {
+          sessionStorage.removeItem(`blindaje_kds_announced_${storeId}`)
+        } catch {}
+        setDismissedVoided({})
+        setCollisionAck({})
+        setBags({})
+        setEditingPacking({})
+        setAllowEarlyPack({})
+        setReleaseCooldownUntil({})
+        setDriverPresentAck({})
+        setShowHistory(false)
+        setSearch('')
+        setSelected(null)
+        purgeTabletStaleCaches({
+          activeStoreId: String(storeId),
+          activeDate: freshBusinessDate,
+          forceTokenRefresh: true
+        }).catch(() => {})
+        void syncVoiceSettings()
+        void fetchOrders()
+      }
+
+      const idleMs = Date.now() - lastTabletInteractionRef.current
+      if (!showWakeUpModalRef.current && idleMs >= INACTIVITY_WAKE_MODAL_MS) {
+        showWakeUpModalRef.current = true
+        setShowWakeUpModal(true)
+      }
+    }
+
+    checkDateRolloverAndInactivity()
+    purgeTabletStaleCaches({
+      activeStoreId: String(storeId),
+      activeDate: getLAEffectiveBusinessDate()
+    }).catch(() => {})
+
+    const rolloverInterval = window.setInterval(checkDateRolloverAndInactivity, 10_000)
+    const cacheCleanerInterval = window.setInterval(() => {
+      // Podar buffers de audio de órdenes pasadas si superan 80 entradas en RAM
+      if (clipCacheRef.current.size > 80) {
+        for (const k of Array.from(clipCacheRef.current.keys())) {
+          if (k.startsWith('order:')) {
+            clipCacheRef.current.delete(k)
+          }
+        }
+      }
+      purgeTabletStaleCaches({
+        activeStoreId: String(storeId),
+        activeDate: getLAEffectiveBusinessDate()
+      }).catch(() => {})
+    }, 15 * 60 * 1000)
+
+    const onWakeFocus = () => {
+      checkDateRolloverAndInactivity()
+      void fetchOrders()
+    }
+
+    window.addEventListener('pointerdown', recordTabletTouch, { passive: true })
+    window.addEventListener('touchstart', recordTabletTouch, { passive: true })
+    window.addEventListener('keydown', recordTabletTouch, { passive: true })
+    window.addEventListener('focus', onWakeFocus)
+    window.addEventListener('online', onWakeFocus)
+    return () => {
+      window.clearInterval(rolloverInterval)
+      window.clearInterval(cacheCleanerInterval)
+      window.removeEventListener('pointerdown', recordTabletTouch)
+      window.removeEventListener('touchstart', recordTabletTouch)
+      window.removeEventListener('keydown', recordTabletTouch)
+      window.removeEventListener('focus', onWakeFocus)
+      window.removeEventListener('online', onWakeFocus)
+    }
+  }, [storeId, fetchOrders, syncVoiceSettings])
+
+  // Acción "Despertar Tableta" (manual desde el header o desde el modal tras 3h de inactividad)
+  const handleWakeUpTablet = useCallback(async () => {
+    setWakingUpTablet(true)
+    try {
+      lastTabletInteractionRef.current = Date.now()
+      showWakeUpModalRef.current = false
+      setShowWakeUpModal(false)
+
+      // 1. Reactivar AudioContext, Screen Wake Lock y Fullscreen
+      unlockAudio()
+      wakeLock.requestNow()
+      void ensureFullscreen()
+
+      // 2. Verificar corte de 6:00 AM y limpiar cachés obsoletos + renovar sesión JWT (30 días)
+      const freshBusinessDate = getLAEffectiveBusinessDate()
+      if (freshBusinessDate !== effectiveDateRef.current) {
+        effectiveDateRef.current = freshBusinessDate
+        announcedGuidsRef.current.clear()
+        try {
+          sessionStorage.removeItem(`blindaje_kds_announced_${storeId}`)
+        } catch {}
+        setDismissedVoided({})
+        setCollisionAck({})
+        setBags({})
+        setEditingPacking({})
+        setAllowEarlyPack({})
+        setReleaseCooldownUntil({})
+        setDriverPresentAck({})
+        setShowHistory(false)
+        setSearch('')
+        setSelected(null)
+      }
+      clipCacheRef.current.clear()
+      await purgeTabletStaleCaches({
+        activeStoreId: String(storeId),
+        activeDate: freshBusinessDate,
+        forceTokenRefresh: true
+      })
+
+      // 3. Re-sincronizar voz, precargar clips de sufijo y recargar órdenes de Delivery en vivo
+      await syncVoiceSettings()
+      void getCachedAudioBuffer(
+        `suffix:${selectedVoice}:en:please-pack:kds2`,
+        `/api/order-ready/announcement-tts?text=Please%20pack.&lang=en&voice=${selectedVoice}&v=kds2`
+      )
+      void getCachedAudioBuffer(
+        `suffix:${selectedVoice}:es:favor-de-empacar:kds2`,
+        `/api/order-ready/announcement-tts?text=Favor%20de%20empacar.&lang=es&voice=${selectedVoice}&v=kds2`
+      )
+      await fetchOrders()
+
+      setWakeToast(true)
+      window.setTimeout(() => setWakeToast(false), 3800)
+    } finally {
+      setWakingUpTablet(false)
+    }
+  }, [
+    unlockAudio,
+    wakeLock,
+    ensureFullscreen,
+    storeId,
+    syncVoiceSettings,
+    getCachedAudioBuffer,
+    selectedVoice,
+    fetchOrders
+  ])
 
   const activeQueueOrders = useMemo(() => {
     const base = showHistory ? [...orders] : orders.filter(o => isOrderCurrentlyActive(o, dismissedVoided))
@@ -1656,6 +1861,83 @@ export default function BlindajeDeliveryEmpaquePage() {
     }
   }
 
+  const wakeUpOverlay = (
+    <>
+      {wakeToast && (
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[999999] bg-gradient-to-r from-emerald-600 to-teal-700 text-white px-6 py-3.5 rounded-2xl font-black text-sm sm:text-base shadow-2xl flex items-center gap-3 border-2 border-emerald-300 backdrop-blur-md">
+          <CheckCircle2 className="w-6 h-6 text-emerald-200 shrink-0" />
+          <span>{t('prep.tabletAwakeSuccess')}</span>
+        </div>
+      )}
+      {showWakeUpModal && (
+        <div
+          onClick={() => void handleWakeUpTablet()}
+          className="fixed inset-0 z-[999998] bg-slate-950/92 backdrop-blur-lg flex items-center justify-center p-4 sm:p-8 cursor-pointer select-none"
+        >
+          <div
+            onClick={e => {
+              e.stopPropagation()
+              void handleWakeUpTablet()
+            }}
+            className="bg-slate-900 border-2 border-amber-500/70 max-w-2xl w-full rounded-[36px] shadow-[0_0_120px_rgba(245,158,11,0.35)] p-6 sm:p-10 md:p-12 flex flex-col items-center text-center relative overflow-hidden"
+          >
+            <div className="w-24 h-24 sm:w-28 sm:h-28 rounded-full bg-amber-500/15 border-2 border-amber-400/50 flex items-center justify-center mb-5 sm:mb-6 shadow-[0_0_40px_rgba(245,158,11,0.3)]">
+              <Sun className="w-14 h-14 text-amber-400 animate-spin" style={{ animationDuration: '10s' }} />
+            </div>
+
+            <h2 className="text-2xl sm:text-3xl md:text-4xl font-black text-white uppercase tracking-tight leading-tight mb-3">
+              {t('prep.wakeModalTitle')}
+            </h2>
+            <p className="text-slate-300 font-medium text-sm sm:text-base md:text-lg mb-6 max-w-xl">
+              {t('prep.wakeModalSubtitle')}
+            </p>
+
+            <div className="w-full bg-slate-800/80 border border-slate-700 rounded-2xl p-4 sm:p-5 mb-6 sm:mb-8 text-left space-y-2.5">
+              <div className="flex items-center gap-3 text-xs sm:text-sm font-bold text-emerald-300">
+                <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
+                <span>{t('prep.wakeModalCheck1')}</span>
+              </div>
+              <div className="flex items-center gap-3 text-xs sm:text-sm font-bold text-amber-200">
+                <Clock className="w-5 h-5 text-amber-400 shrink-0" />
+                <span>{t('prep.wakeModalCheck2')}</span>
+              </div>
+              <div className="flex items-center gap-3 text-xs sm:text-sm font-bold text-sky-200">
+                <RefreshCw className="w-5 h-5 text-sky-400 shrink-0" />
+                <span>{t('prep.wakeModalCheck3')}</span>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={e => {
+                e.stopPropagation()
+                void handleWakeUpTablet()
+              }}
+              disabled={wakingUpTablet}
+              className="w-full py-5 sm:py-6 rounded-2xl bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600 hover:from-amber-400 hover:to-orange-500 text-white font-black text-xl sm:text-2xl md:text-3xl uppercase tracking-wider shadow-[0_10px_40px_rgba(245,158,11,0.4)] transition-all active:scale-95 flex items-center justify-center gap-3 cursor-pointer border border-amber-300/50"
+            >
+              {wakingUpTablet ? (
+                <>
+                  <Loader2 className="w-7 h-7 animate-spin text-white" />
+                  <span>{t('prep.wakingUpTablet')}</span>
+                </>
+              ) : (
+                <>
+                  <Sun className="w-8 h-8 animate-spin text-amber-100" style={{ animationDuration: '10s' }} />
+                  <span>{t('prep.wakeUpTablet')}</span>
+                </>
+              )}
+            </button>
+
+            <p className="text-[11px] sm:text-xs font-bold text-slate-400 uppercase tracking-widest mt-4">
+              {t('prep.wakeModalTapHint')}
+            </p>
+          </div>
+        </div>
+      )}
+    </>
+  )
+
   // PANTALLA DE PIN EN FULLSCREEN (AL INICIAR Y AL CERRAR/EXPIRAR SESIÓN)
   if (!packer) {
     return (
@@ -1664,6 +1946,7 @@ export default function BlindajeDeliveryEmpaquePage() {
         onClick={() => void ensureFullscreen()}
         className="fixed inset-0 z-[100] w-screen h-screen overflow-y-auto bg-slate-100 flex flex-col justify-center items-center p-4 sm:p-6 select-none"
       >
+        {wakeUpOverlay}
         <form
           onSubmit={login}
           className="w-full max-w-3xl bg-white border border-slate-200 shadow-2xl rounded-[2.5rem] p-6 sm:p-10"
@@ -1673,6 +1956,15 @@ export default function BlindajeDeliveryEmpaquePage() {
               {t('blindaje_delivery.tablet_station_header')}
             </span>
             <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => void handleWakeUpTablet()}
+                title={t('prep.wakeUpTabletDesc')}
+                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-500 text-white text-xs sm:text-sm font-black shadow-sm"
+              >
+                <Sun className="w-4 h-4 text-amber-100 animate-spin" style={{ animationDuration: '10s' }} />
+                <span>{t('prep.wakeUpTabletShort')}</span>
+              </button>
               <button
                 type="button"
                 onClick={() => setLanguage(language === 'es' ? 'en' : 'es')}
@@ -1711,7 +2003,11 @@ export default function BlindajeDeliveryEmpaquePage() {
             value={storeId}
             onChange={event => {
               void ensureFullscreen()
-              setStoreId(Number(event.target.value))
+              const nextStore = Number(event.target.value)
+              setStoreId(nextStore)
+              try {
+                localStorage.setItem('blindaje_delivery_store_id', String(nextStore))
+              } catch {}
             }}
             className="w-full h-16 rounded-2xl border-2 border-slate-200 px-5 text-xl sm:text-2xl font-black mt-6 bg-slate-50"
           >
@@ -1811,6 +2107,7 @@ export default function BlindajeDeliveryEmpaquePage() {
       }}
       className="fixed inset-0 z-[100] w-screen h-screen overflow-y-auto bg-slate-100 text-slate-950 pb-8"
     >
+      {wakeUpOverlay}
       <header className="sticky top-0 z-30 bg-white border-b px-5 py-3.5 shadow-sm">
         <div className="w-full flex justify-between items-center gap-3">
           <div className="flex items-center gap-3">
@@ -1823,6 +2120,15 @@ export default function BlindajeDeliveryEmpaquePage() {
             </div>
           </div>
           <div className="flex items-center gap-2.5">
+            <button
+              type="button"
+              onClick={() => void handleWakeUpTablet()}
+              title={t('prep.wakeUpTabletDesc')}
+              className="inline-flex items-center gap-1.5 px-3 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-500 text-white text-sm font-black shadow-sm"
+            >
+              <Sun className="w-5 h-5 text-amber-100 animate-spin" style={{ animationDuration: '10s' }} />
+              <span className="hidden md:inline">{t('prep.wakeUpTabletShort')}</span>
+            </button>
             <button
               type="button"
               onClick={() => setLanguage(language === 'es' ? 'en' : 'es')}

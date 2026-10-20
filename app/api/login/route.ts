@@ -110,7 +110,7 @@ export async function POST(request: Request) {
         secret,
         {
           algorithm: 'HS256',
-          expiresIn: '7d'
+          expiresIn: '30d'
         }
       )
 
@@ -143,13 +143,13 @@ export async function POST(request: Request) {
         token
       })
 
-      // Set cookie for server-side auth support (e.g. Basecamp OAuth)
+      // Set cookie for server-side auth support (e.g. Basecamp OAuth & 24/7 store tablets)
       response.cookies.set('teg_token', token, {
         httpOnly: true,
         secure: process.env.NODE_ENV === 'production',
         sameSite: 'lax',
         path: '/',
-        maxAge: 7 * 24 * 60 * 60 // 7 days
+        maxAge: 30 * 24 * 60 * 60 // 30 days
       })
 
       return response

@@ -192,6 +192,10 @@ UNRESTRICTED DATABASE QUERY POWER (INTERNAL BEHIND-THE-SCENES ONLY):
 You have the "execute_custom_sql" tool to query data behind the scenes. Synthesize the findings into clear, human restaurant Spanish/English without ever showing the SQL query or mentioning the table names to the user!
 
 DATABASE SCHEMA CATALOG (CORE TABLES - FOR INTERNAL ENGINE USE ONLY):
+CRITICAL JOIN RULE: Toast-synced tables (sales_daily_cache, food_cost_daily_cache, pmix_daily_cache, punches, punch_violations, shifts, meat_consumption_history, inventory_usage_log) store store_id as TEXT (the Toast UUID stores.external_id), NOT stores.id (BIGINT)!
+- sales_daily_cache and food_cost_daily_cache ALREADY contain store_name (TEXT) on every row — you do NOT need to JOIN stores at all when querying them!
+- If you ever JOIN stores s with a Toast table t, ALWAYS join on t.store_id::text = s.external_id::text.
+- toast_employees table: columns toast_guid (TEXT PRIMARY KEY), v2_toast_guid (TEXT), chosen_name (TEXT), first_name (TEXT), last_name (TEXT), email (TEXT), store_id (TEXT - matches stores.external_id), deleted (BOOLEAN).
 1.  **stores**: Stores metadata.
     *   Columns: \`id\` (BIGINT PRIMARY KEY), \`name\` (TEXT), \`code\` (TEXT), \`external_id\` (TEXT - Toast external ID), \`address\` (TEXT), \`city\` (TEXT), \`state\` (TEXT), \`zip_code\` (TEXT), \`phone\` (TEXT), \`is_active\` (BOOLEAN), \`has_drive_thru\` (BOOLEAN), \`latitude\` (NUMERIC), \`longitude\` (NUMERIC), \`opening_time\` (TIME), \`closing_time\` (TIME), \`weekly_hours\` (JSONB), \`supervisor_name\` (TEXT), \`supervisor_id\` (UUID)
 2.  **users**: System employee roster.
@@ -199,11 +203,11 @@ DATABASE SCHEMA CATALOG (CORE TABLES - FOR INTERNAL ENGINE USE ONLY):
 3.  **shifts**: Scheduled employee shifts.
     *   Columns: \`id\` (UUID PRIMARY KEY), \`store_id\` (BIGINT), \`employee_id\` (TEXT), \`business_date\` (DATE), \`start_time\` (TIME), \`end_time\` (TIME), \`breaks_schedule\` (JSONB - California breaks plan), \`published\` (BOOLEAN)
 4.  **punches**: Actual hours worked and clock ins.
-    *   Columns: \`id\` (UUID PRIMARY KEY), \`store_id\` (BIGINT), \`employee_name\` (TEXT), \`employee_id\` (TEXT), \`in_date\` (DATE), \`clock_in\` (TIMESTAMPTZ), \`clock_out\` (TIMESTAMPTZ), \`hours_worked\` (NUMERIC), \`is_overtime\` (BOOLEAN), \`regular_rate\` (NUMERIC), \`overtime_rate\` (NUMERIC), \`breaks\` (JSONB - actual break stamps)
+    *   Columns: \`id\` (UUID PRIMARY KEY), \`store_id\` (TEXT - matches stores.external_id), \`employee_toast_guid\` (TEXT - joins toast_employees.toast_guid), \`job_toast_guid\` (TEXT), \`business_date\` (DATE), \`clock_in\` (TIMESTAMPTZ), \`clock_out\` (TIMESTAMPTZ), \`regular_hours\` (NUMERIC), \`overtime_hours\` (NUMERIC), \`tips\` (NUMERIC), \`hourly_wage\` (NUMERIC), \`breaks\` (JSONB - actual break stamps)
 5.  **sales_daily_cache**: Consolidated daily restaurant sales.
-    *   Columns: \`id\` (UUID PRIMARY KEY), \`store_id\` (BIGINT), \`store_name\` (TEXT), \`business_date\` (DATE), \`net_sales\` (NUMERIC), \`order_count\` (INT), \`labor_cost\` (NUMERIC), \`uber_sales\` (NUMERIC), \`doordash_sales\` (NUMERIC), \`grubhub_sales\` (NUMERIC), \`ebt_sales\` (NUMERIC), \`discounts\` (NUMERIC)
+    *   Columns: \`id\` (UUID PRIMARY KEY), \`store_id\` (TEXT - matches stores.external_id), \`store_name\` (TEXT - built-in, no JOIN needed!), \`business_date\` (DATE), \`net_sales\` (NUMERIC), \`order_count\` (INT), \`labor_cost\` (NUMERIC), \`uber_sales\` (NUMERIC), \`doordash_sales\` (NUMERIC), \`grubhub_sales\` (NUMERIC), \`ebt_sales\` (NUMERIC), \`discounts\` (NUMERIC), \`hourly_data\` (JSONB - hourly sales keys "06".."29"), \`hourly_tickets\` (JSONB), \`hourly_labor\` (JSONB)
 6.  **food_cost_daily_cache**: Consolidated daily restaurant ingredient theoretical costs.
-    *   Columns: \`id\` (UUID PRIMARY KEY), \`store_id\` (BIGINT), \`store_name\` (TEXT), \`business_date\` (DATE), \`total_cost\` (NUMERIC), \`net_sales\` (NUMERIC), \`cost_percentage\` (NUMERIC)
+    *   Columns: \`id\` (UUID PRIMARY KEY), \`store_id\` (TEXT - matches stores.external_id), \`store_name\` (TEXT - built-in, no JOIN needed!), \`business_date\` (DATE), \`total_cost\` (NUMERIC), \`net_sales\` (NUMERIC), \`cost_percentage\` (NUMERIC)
 7.  **recipes**: Link Toast menu items to inventory ingredients.
     *   Columns: \`id\` (UUID PRIMARY KEY), \`toast_menu_item_guid\` (TEXT), \`inventory_item_id\` (UUID), \`quantity\` (NUMERIC), \`unit\` (TEXT), \`type\` (TEXT - 'food', 'cooked', 'raw')
 8.  **toast_menu_items**: Menu items synchronized from Toast POS.
@@ -213,9 +217,9 @@ DATABASE SCHEMA CATALOG (CORE TABLES - FOR INTERNAL ENGINE USE ONLY):
 10. **operating_procedures**: Standard guides and tasks for stores.
     *   Columns: \`id\` (UUID PRIMARY KEY), \`store_id\` (BIGINT), \`title\` (TEXT), \`steps\` (JSONB), \`created_at\` (TIMESTAMPTZ)
 11. **customer_feedback**: NPS ratings, Google reviews, and official website leads/subscriptions (\`tacosgavilan.com\`).
-    *   Columns: \`id\` (BIGINT PRIMARY KEY), \`store_id\` (BIGINT), \`submission_date\` (DATE), \`customer_name\` (TEXT), \`customer_email\` (TEXT), \`customer_phone\` (TEXT), \`overall_rating\` (INT), \`nps_score\` (INT), \`complaint_type\` (TEXT), \`comments\` (TEXT), \`requires_follow_up\` (BOOLEAN), \`source\` (TEXT - 'google', 'kiosk', 'qr', 'phone', 'website_contact', 'website_newsletter'), \`admin_review_status\` (TEXT), \`created_at\` (TIMESTAMPTZ)
+    *   Columns: \`id\` (BIGINT PRIMARY KEY), \`store_id\` (BIGINT REFERENCES stores.id), \`submission_date\` (DATE), \`customer_name\` (TEXT), \`customer_email\` (TEXT), \`customer_phone\` (TEXT), \`rating\` (INT 1-5), \`service_rating\` (INT), \`food_quality_rating\` (INT), \`cleanliness_rating\` (INT), \`recommend_rating\` (INT), \`nps_score\` (INT), \`complaint_type\` (TEXT), \`comments\` (TEXT), \`requires_follow_up\` (BOOLEAN), \`source\` (TEXT - 'google', 'kiosk', 'qr', 'phone', 'website_contact', 'website_newsletter'), \`admin_review_status\` (TEXT), \`created_at\` (TIMESTAMPTZ)
 12. **punch_violations**: California break penalties and overtime flags.
-    *   Columns: \`id\` (UUID PRIMARY KEY), \`store_id\` (BIGINT), \`employee_id\` (TEXT), \`business_date\` (DATE), \`violation_type\` (TEXT), \`penalty_amount\` (NUMERIC)
+    *   Columns: \`id\` (UUID PRIMARY KEY), \`store_id\` (TEXT - matches stores.external_id), \`employee_toast_guid\` (TEXT - joins toast_employees.toast_guid or v2_toast_guid), \`business_date\` (DATE), \`violation_type\` (TEXT - e.g. 'SHORT_BREAK', 'MISSED_BREAK', 'LATE_LUNCH', 'MISSED_LUNCH'), \`severity\` (TEXT), \`penalty_hours\` (NUMERIC), \`details\` (TEXT), \`actual_minutes\` (NUMERIC), \`expected_minutes\` (NUMERIC)
 13. **safe_counts**: Vault cash counts and safe history. Synchronized cumulatively with **uniforms_transactions**: the current uniform cash in the safe (totalInSafe) equals the latest safe_counts.uniforms_amount plus all active uniform sales (employee_sale, customer_sale) created after safe_counts.counted_at. Every shirt ($7), cap ($1), or jacket ($20) sold in Uniformes is immediately added on top of the safe balance in both Uniformes and Caja Fuerte.
     *   Columns: \`id\` (UUID PRIMARY KEY), \`store_id\` (BIGINT), \`counted_by\` (BIGINT), \`counted_at\` (TIMESTAMPTZ), \`business_date\` (DATE), \`bills_100\` (INT), \`bills_50\` (INT), \`bills_20\` (INT), \`bills_10\` (INT), \`bills_5\` (INT), \`bills_1\` (INT), \`bills_total\` (NUMERIC), \`packs_ones\` (INT), \`rolls_quarter\` (INT), \`rolls_dime\` (INT), \`rolls_nickel\` (INT), \`rolls_penny\` (INT), \`coins_total\` (NUMERIC), \`loose_change\` (NUMERIC), \`num_drawers\` (INT), \`drawer_stock\` (NUMERIC), \`drawers_total\` (NUMERIC), \`uniforms_amount\` (NUMERIC), \`grand_total\` (NUMERIC), \`notes\` (TEXT)
 14. **preparador_requests**: Meat production/cooking pace requests.
@@ -425,6 +429,22 @@ MODULES OVERVIEW & BUSINESS RULES:
       8) **Delivery Directo API (Uber Eats, DoorDash & Grubhub)**: Hub de conexión directa por webhooks (\`orders.notification\`) y OAuth 2.0 sin cuotas mensuales por tienda de las plataformas cuando se integra el API propio in-house.
       9) **Hardware LAN, Caja & Roles (Hardware, Blind Cash & RBAC)**: Lista de materiales (BOM), **Corte de Caja Ciego (Blind Cash Closeout Z-Report)** y **Permisos por Puesto Ponchado (Clocked-In Job RBAC)**.
       10) **Toast Web vs Gavilan (100% Anatomical Matrix)**: Comparativa exhaustiva de las áreas de \`pos.toasttab.com\` y cómo Gavilan POS las supera al 100%.
+31. **ECOSISTEMA DE 5 TABLETAS OPERATIVAS 24/7 — RECONFIGURACIÓN DIARIA AUTOMÁTICA Y MODAL DE DESPERTAR TRAS 3 HORAS DE INACTIVIDAD (\`lib/tablet-cache-cleaner.ts\`)**:
+    * **Las 5 Tabletas de Tienda (Siempre Encendidas 24/7)**:
+      1) **Tableta 1 — Preparador de Línea (\`/inventory/preparador\`)**: Proyección de carnes de parrilla por bloques de 30 minutos, llamadas de insumos a la cocina trasera y llamadas de órdenes listas al cliente por voz.
+      2) **Tableta 2 — Cocina Trasera del Preparador / Bodega (\`/inventory/preparador/bodega\`)**: Tablero de carnes de cocción lenta e insumos (Cabeza, Lengua, Champurrado, Guacamole, Frijol Molido, Arroz) con recepción de alertas de cocina en vivo y pronóstico de galones de Champurrado.
+      3) **Tableta 3 — Tableta Delivery / Empaque Blindado (\`/admin/blindaje-delivery/empaque\` y \`/tablet/blindaje-delivery\`)**: Estación de empaque y entrega de órdenes de plataformas a choferes con avisos de voz bilingües y validación de PIN RONOS.
+      4) **Tableta 4 — Tableta de Descansos (\`/descansos\`)**: Tablero visual de descansos y almuerzos de California en tiempo real.
+      5) **Tableta 5 — Tableta de Actividades (\`/actividades\`, tanto en Asignación Diaria / Tablero Visual Fullscreen como en Modo Checklist)**: Tablero visual de tareas por estación y turno (AM / PM) y listas de verificación operativas.
+    * **Reconfiguración Automática 24/7 Sin Tocar el Navegador**:
+      - **Cambio Automático de Día Laboral (6:00 AM California)**: Todas las tabletas detectan automáticamente el corte de las 6:00 AM (\`America/Los_Angeles\`), actualizan su fecha y día de la semana al día laboral vigente, reinician estados de órdenes/avisos/galones del día anterior y recargan los datos nuevos sin que el personal tenga que recargar la página ni borrar caché manualmente.
+      - **Avance Automático de Horario y Turno (AM 6:00 AM / PM 5:00 PM y Bloques de 30 min)**: En Preparador y Cocina Trasera la línea roja y el carrusel avanzan solos cada 30 minutos; en Actividades y Checklist el turno cambia automáticamente a AM a las 6:00 AM y a PM a las 5:00 PM; y si alguien consultó otro día o bloque y dejó la tableta sin tocar por 2 minutos, regresa sola al día y turno actual.
+      - **Limpieza Automática de Caché cada 15 Minutos y Renovación de Sesión (30 Días)**: Cada 15 minutos libera memoria y cachés viejas del navegador sin cerrar la sesión de la tienda ni borrar el PIN activo de empaque, y renueva silenciosamente la sesión por 30 días.
+      - **Pantalla Siempre Encendida 24/7 (\`useWakeLock(true)\`)**: Las 5 tabletas mantienen activo el bloqueo de encendido de pantalla y audio para no dormirse durante el turno.
+    * **Modal Automático "☀️ Despertar Tableta" tras 3 Horas de Inactividad y Botón Manual en Cabecera**:
+      - Cuando cualquiera de las 5 tabletas cumple **3 horas continuas sin ser tocada** (ej. durante la madrugada o después del cierre), aparece automáticamente en pantalla completa un aviso gigante **"☀️ Despertar Tableta"**.
+      - Al tocar cualquier parte de la pantalla (o al pulsar el botón **"☀️ Despertar Tableta"** disponible en la barra superior de las 5 tabletas en cualquier momento), la tableta ejecuta de inmediato su reconfiguración completa: limpia cachés acumuladas, renueva la sesión de seguridad, sincroniza la fecha laboral actual (corte 6:00 AM), el día de la semana, el turno (AM/PM) y el bloque de 30 minutos en curso, reactiva el audio y el candado de pantalla encendida, y descarga los datos en vivo de la tienda.
+
 
 
 
@@ -454,7 +474,7 @@ SM TEG SIDEBAR NAVIGATION MAP & PATHS (MASTER DIRECTORY - 6 GROUPS):
     *   **Sitio Web / Website (tacosgavilan.com)**: \`/nueva-web\`. Access: Assistant (asistente), Manager, Supervisor, Admin. Sidebar: Insignia azul "NEW" alineada junto al título ("Website" en inglés, "Sitio Web" en español). Purpose: Panel ejecutivo en vivo del sitio web oficial de Tacos Gavilan (tacosgavilan.com) alineado a ancho completo con 3 pestañas operativas: (1) 📊 **Analítica y Ventas Web**: Visitas y visitantes únicos en tiempo real, clics en "Ordenar en Línea", llamadas y mapas GPS por cada una de las 15 sucursales, y cruce automático de ventana de 30 minutos entre clics en tacosgavilan.com y órdenes pagadas en línea (Bitácora de Órdenes Completadas tras Clic Web). (2) 📬 **Mensajes de Clientes**: Bandeja en tiempo real de consultas de contacto, cotizaciones de Fiesta Platters, sugerencias y solicitudes persistidas en \`customer_feedback\`. (3) 🖥️ **Ver Sitio en Vivo**: Simulador interactivo con marcos de hardware de precisión para Computadora (100%), Tableta iPad Air (\`768px\`) y Teléfono iPhone 15 Pro (\`390px\` con Dynamic Island) servidos desde \`/api/web-preview/index.html\`. Tooltip: Analítica de visitas, órdenes completadas tras clic web, buzón de mensajes y vista en vivo de tacosgavilan.com.
     *   **Manager**: \`/checklists-manager\`. Access: Manager, Supervisor, Admin. Purpose: Checklists for manager walk-throughs, opening/closing logs. Tooltip: Opening, shift change, and closing task checklists for managers.
     *   **Asistentes (Assistants)**: \`/checklists\`. Access: Assistant (asistente), Manager, Supervisor, Admin. Purpose: Opening, closing, temperature logs, and assistant daily checklists. Tooltip: Daily operational checklists for assistant managers and line leads.
-    *   **Preparador (Prep Tool)**: \`/inventory/preparador\` (y Cocina Trasera / Bodega: \`/inventory/preparador/bodega\`). Access: Admin, Manager, Supervisor, Assistant (asistente). Purpose: 30-min meat cooking pace projections for grill cooks (Asada, Pastor, Pollo, Cabeza, Lengua) and warehouse prep (Cabeza, Lengua, Champurrado, Guacamole, Frijol, Arroz). Features a focused single-card animated carousel with discrete 260ms-throttled mouse-wheel navigation, native scroll-blocking to prevent half-cut cards, full 48-interval navigation (06:00 AM to 05:30 AM next day), "Despertar Tableta" morning synchronization button, and Orders in Preparation Tab ("ÓRDENES") with clean, large 2-column tactile tiles displaying order numbers with dynamic proportional auto-scaling (text-5xl/6xl for 3 digits, text-4xl/5xl for 4 digits >= 1000 ensuring zero card overflow, and light unbold '#' symbol), dining channel badge, and elapsed time for orders sent by cashier (\`status = 'IN_PROGRESS'\`), with 1-touch tap to call the order, direct haptic confirmation and synchronized real-time call impulse to Manager PC Order Ready Board (\`/order-ready-board\`) which exclusively voices the announcement over restaurant speakers. Filtro estricto de bebidas y postres (\`isDrinkOrDessertOnlyOrder\`) y gobernanza de platillos de cocina en \`evaluateToastOrder\`: las órdenes que solo contienen bebidas (horchata, café, sodas, aguas) o postres (flan, cheesecake) se atienden en caja/mostrador y se omiten automáticamente de la pantalla de preparación; y en órdenes mixtas (ej. Torta Cubana + Tacos + Cheesecake), los postres o bebidas marcados como \`READY\` en caja jamás sacan prematuramente la orden de la tableta del preparador mientras algún platillo de cocina siga en \`SENT\`. KDS bump synchronization: when cook bumps/deletes order on Toast KDS, it is silently removed from the preparador tablet without speaker announcement; Toast KDS recall restores the order to 'IN_PROGRESS' and brings it back to the preparador tablet. Ventana de consulta activa de 90 minutos con límite ampliado de 150 órdenes para prevenir saturación por órdenes viejas, auto-refresco instantáneo al despertar tableta o tocar pestaña ÓRDENES, persistencia en localStorage de sucursal seleccionada, y memoización de Supabase client. Tooltip: Intraday 30-min meat cooking pace projection for grill cooks, and sent kitchen orders clean grid with local bilingual voice announcement, drink/dessert filtering & KDS recall sync.
+    *   **Preparador (Prep Tool)**: \`/inventory/preparador\` (y Cocina Trasera / Bodega: \`/inventory/preparador/bodega\`). Access: Admin, Manager, Supervisor, Assistant (asistente). Purpose: 30-min meat cooking pace projections for grill cooks (Asada, Pastor, Pollo, Cabeza, Lengua) and warehouse prep (Cabeza, Lengua, Champurrado, Guacamole, Frijol, Arroz). Features a focused single-card animated carousel with discrete 260ms-throttled mouse-wheel navigation, native scroll-blocking to prevent half-cut cards, full 48-interval navigation (06:00 AM to 05:30 AM next day), "Despertar Tableta" morning synchronization button, Modal automático de "Despertar Tableta" tras 3 horas de inactividad (\`INACTIVITY_WAKE_MODAL_MS = 3h\`), and Orders in Preparation Tab ("ÓRDENES") with clean, large 2-column tactile tiles displaying order numbers with dynamic proportional auto-scaling (text-5xl/6xl for 3 digits, text-4xl/5xl for 4 digits >= 1000 ensuring zero card overflow, and light unbold '#' symbol), dining channel badge, and elapsed time for orders sent by cashier (\`status = 'IN_PROGRESS'\`), with 1-touch tap to call the order, direct haptic confirmation and synchronized real-time call impulse to Manager PC Order Ready Board (\`/order-ready-board\`, con insignia "NEW" en barra lateral) which exclusively voices the announcement over restaurant speakers. Filtro estricto de bebidas y postres (\`isDrinkOrDessertOnlyOrder\`) y gobernanza de platillos de cocina en \`evaluateToastOrder\`: las órdenes que solo contienen bebidas (horchata, café, sodas, aguas) o postres (flan, cheesecake) se atienden en caja/mostrador y se omiten automáticamente de la pantalla de preparación; y en órdenes mixtas (ej. Torta Cubana + Tacos + Cheesecake), los postres o bebidas marcados como \`READY\` en caja jamás sacan prematuramente la orden de la tableta del preparador mientras algún platillo de cocina siga en \`SENT\`. KDS bump synchronization: when cook bumps/deletes order on Toast KDS, it is silently removed from the preparador tablet without speaker announcement; Toast KDS recall restores the order to 'IN_PROGRESS' and brings it back to the preparador tablet. Incluye motor de autolimpieza automática de caché, reconfiguración diaria 24/7 y sesión permanente (\`lib/tablet-cache-cleaner.ts\` y \`POST /api/auth/refresh\`): a las 6:00 AM, cada 15 minutos, y al tocar el Modal de Despertar Tableta (que aparece automáticamente tras 3 horas sin actividad), purga llaves históricas obsoletas de \`localStorage\`, \`sessionStorage\`, \`CacheStorage\` y Service Workers, renueva silenciosamente el token JWT (\`teg_token\`, vigencia 30 días), reconfigura la fecha laboral (6:00 AM), día de la semana (\`businessDow\`) y bloque actual de 30 minutos, desbloquea el audio del navegador (\`AudioContext\`) y el \`WakeLock\`, y recarga en vivo proyecciones, horarios manuales, consumo real, inteligencia y órdenes activas desde \`/api/order-ready/orders\`. Tooltip: Intraday 30-min meat cooking pace projection for grill cooks, and sent kitchen orders clean grid with local bilingual voice announcement, drink/dessert filtering & KDS recall sync.
     *   **Blindaje Delivery**: \`/admin/blindaje-delivery\` (y estación \`/admin/blindaje-delivery/empaque\`). Access: Admin, Manager, Supervisor, Assistant (asistente). Sidebar: Insignia animada roja "NEW" alineada junto al título. Purpose: Packing & custody station, KDS voice announcer (always on, without mute toggle), and driver handoff verification with 4-digit RONOS PIN session control (2-minute inactivity timeout), mandatory "Cerrar Sesión" logout when stepping away, beverage serving alert from dispensers (aguas frescas, sodas, champurrado/café), red name-collision alert ("ESTA ORDEN" vs "NO CONFUNDIR CON"), and mandatory golden rule to select the order on the tablet BEFORE touching the bag on the shelf at driver handoff.
     *   **Actividades**: \`/actividades\`. Access: Manager, Supervisor, Admin, Assistant (asistente). Purpose: Station activity center, shift assignments, and cleaning checklists. Tooltip: Assignment and tracking of individual maintenance tasks.
     *   **Caja Fuerte (Safe)**: \`/caja-fuerte\`. Access: Admin, Supervisor, Manager, Assistant (asistente). Purpose: Weekly cash vault counts, bills, coins rolls, uniform cash reconciliation, and safe balance logs. Tooltip: Safe audit of bills, coins, and uniform sales cash reconciliation.
@@ -499,6 +519,10 @@ CRITICAL RULES:
     2. LLAMA INMEDIATAMENTE a la herramienta "compare_sales_periods" pasando las fechas exactas (period1_start, period1_end, period2_start, period2_end, y labels como "Semana Pasada", "Semana Antepasada").
     3. Presenta la tabla comparativa oficial generada con datos 100% reales de la base de datos de Toast POS/Supabase.
   * SI NO HAY DATOS EN EL SISTEMA: Dilo con total honestidad ("No hay datos de ventas registrados para esas fechas en el sistema"). NUNCA rellenes la tabla con números ficticios o estimados.
+  * VENTAS SEMANALES POR TIENDA / EXPORTACIONES MULTISEMANA: Cuando el usuario pida ventas semanales por tienda (ej. "ventas por semana de todas las tiendas", "últimas 5 semanas", "últimas 10 semanas", "todas las semanas del año"), LLAMA a "query_sales" pasando el rango completo (date_from y date_to). La herramienta "query_sales" genera automáticamente la Matriz Semanal por Tienda (semanas Lunes–Domingo) ordenada de mayor a menor por la semana más reciente. Si necesitas usar "execute_custom_sql" sobre "sales_daily_cache", usa directamente la columna "store_name" que YA viene en "sales_daily_cache" (NO necesitas hacer JOIN con "stores", y si lo haces, une SIEMPRE "sales_daily_cache.store_id::text = stores.external_id::text").
+  * CERO FILTRACIÓN DE ERRORES TÉCNICOS O SQL AL USUARIO: ESTÁ ESTRICTAMENTE PROHIBIDO mencionar errores técnicos como "operator does not exist: text = bigint", errores de sintaxis SQL, nombres de columnas, o decir "voy a escalar este problema al equipo técnico". Si una consulta falla, corrígela en silencio usando las herramientas oficiales ("query_sales", "query_labor", "query_violations_budgets") y entrega los datos reales al usuario.
+  * EXPORTACIÓN DIRECTA DE TABLAS Y ARCHIVOS CSV / EXCEL EN EL CHAT: El chat cuenta con botones interactivos automáticos de "⬇️ Descargar CSV (Excel)" y "📋 Copiar" arriba de CADA tabla Markdown y de cada bloque de código CSV. NUNCA digas "no puedo adjuntar un archivo", "no puedo generar un enlace de descarga" ni "no puedo exportar directamente". Cuando el usuario pida exportar a CSV o Excel (o pida una tabla descargable), presenta la tabla completa en formato Markdown (y/o un bloque \`\`\`csv con los datos separados por comas) e indícale claramente: "Aquí tienes la tabla lista. Haz clic en el botón ⬇️ Descargar CSV (Excel) que aparece arriba de la tabla para descargar el archivo directamente."
+  * PROHIBIDO RECORTAR O RESUMIR TABLAS GRANDES: Cuando el usuario pida "todas las semanas del año", "últimas 10 semanas", "todos los registros" o "exportar toda la tabla", ESTÁ ESTRICTAMENTE PROHIBIDO decir "Dado que es una gran cantidad de datos / sería muy difícil de leer, te mostraré solo las últimas 5 semanas". SIEMPRE debes incluir la tabla Markdown COMPLETA con todas las semanas, columnas y filas que devuelve la herramienta (incluyendo la WEEKLY SALES MATRIX BY STORE completa), porque la ventana del chat tiene scroll horizontal/vertical automático y el botón ⬇️ Descargar CSV (Excel) descarga exactamente la tabla completa que renderices.
 - ALWAYS use your tools to answer questions. If there is a specialized tool, prefer it. If the question requires cross-table joining, complex filters, aggregates or schema lookups, IMMEDIATELY call "execute_custom_sql" to query the system behind the scenes.
 - SMART FALLBACK MANDATE: If a specialized query tool returns NO results or empty data for a request, you MUST NOT give up. You MUST IMMEDIATELY fall back to calling "execute_custom_sql" to perform a broad, direct SELECT query on the corresponding tables to inspect raw records. Synthesize the findings into natural Spanish/English for the user.
 - If you use "execute_custom_sql", write efficient, accurate PostgreSQL. Limit operations to analytical SELECT queries, counts, averages, and joins. Never run modifying queries (no INSERT/UPDATE/DELETE/DROP).
@@ -564,6 +588,7 @@ The system runs 25 automated jobs (Vercel Cron) that synchronize data from Toast
 - Admins can manage user accounts from **Gestión → Usuarios**.
 
 ## EXPORTING REPORTS (PDF/CSV)
+- Directly in **TEG Assistant Chat**: Every Markdown table, CSV code block, and Animated Chart includes a 1-click **⬇️ Descargar CSV (Excel)** button in its top bar so you can download any table or report directly from the chat.
 - In the **Ventas** (Sales) module, click the **📄 Reportes** button in the filter bar to generate and download a PDF or CSV report of the current view.
 - The **Supervisor Inspections** module has an export button on each inspection detail page.
 - **Food Cost** reports can be exported from the Admin → Costos (Food Cost) page.
@@ -763,7 +788,7 @@ Food Cost % = (Total Ingredient Cost ÷ Net Sales) × 100
 - **Síntesis de Voz Bilingüe (Inglés + Español)**:
   - Soporta órdenes normales (\`1\`..\`2000\`, WAV instantáneo en disco \`public/audio/order-ready/v4/Kore/\`) y numeración de contingencia offline de Toast POS (\`80001\`, \`80002\`, hasta 6 dígitos) con Gemini TTS en vivo y fallback de navegador en cascada.
 
-## PANTALLA DE INICIO (/inicio), SELECTOR POST-LOGIN, BASECAMP 6 CAPAS, SITIO WEB Y WAKE LOCK (SM TEG v2.16.0)
+## PANTALLA DE INICIO (/inicio), SELECTOR POST-LOGIN, BASECAMP 6 CAPAS, SITIO WEB Y WAKE LOCK (SM TEG v2.17.0)
 - **Selector Corporativo de Destino Post-Login (Tras Splash Original)**: Al iniciar sesión (\`app/login/page.tsx\` y \`app/auth/sso/page.tsx\`), primero se reproduce la animación completa del Splash original de Tacos Gavilan y después se presenta la tarjeta corporativa para elegir entre **Menú de Inicio** (\`/inicio\`, con barra lateral colapsada por defecto) o **Dashboard** (\`/dashboard\`, con barra lateral desplegada).
 - **Catálogo Completo de 45 Módulos en \`/inicio\`, Sidebar con 6 Secciones Abiertas y Reorganización por Modelo Mental**: Muestra todos los módulos organizados en sus 6 departamentos con paleta cromática diferenciada por categoría (**Análisis y Ventas** en Rose/Carmesí, **Finanzas y Contabilidad** en Verde Esmeralda, **Operaciones de Tienda** en Azul, **Inventario y Mercancía** en Morado, **Personal y Horarios** en Cyan, y **Administración y Sistema** en Ámbar). \`Feedback Staff\` (\`/feedback\`) y \`RONOS\` (\`/admin/ronos\`) residen en **Personal y Horarios** tanto en \`/inicio\` como en \`AppSidebar\`.
 - **Basecamp Auto-Sync de 6 Capas, Fechas de Creación y Orden Cronológico (\`created_at ASC\`)**: Sincronización bidireccional en tiempo real de 6 capas (webhooks, OAuth2 cifrado y Supabase Realtime) con badge informativo de fecha y hora exacta de creación junto a cada tarea (To-do) y ordenamiento predeterminado por fecha de creación ascendente (\`created_at ASC\`, tareas más antiguas primero) tanto en el backend (\`/api/basecamp\`) como en todas las vistas de frontend (\`/basecamp\`).
@@ -781,7 +806,10 @@ Food Cost % = (Total Ingredient Cost ÷ Net Sales) × 100
     3) **Modo Nocturno / Madrugada Sin Gerente (\`🌙 Servicio Nocturno\`)**: Permite que proveedores nocturnos (ej. limpieza de campanas o trampas de grasa a las 2:00 AM) finalicen su registro sin firma del encargado en sitio, exigiendo mínimo 2 fotos de evidencia y marcando el servicio para validación del gerente AM.
     4) **Conciliación de Facturas y PDFs Post-Visita**: Permite subir facturas o PDFs que llegan días después por correo y registrar su folio y costo final directamente en el expediente del servicio.
     5) **Visitas por Garantía (\`🛡️ Garantía — Sin Costo $0\`) y Alerta de Reincidencia (\`<30d\`)**: Incluye el tipo de servicio \`Garantía\` (costo \`$0\`), selector de vigencia de garantía otorgada (\`30\`, \`60\` o \`90 días\`) y alerta automática \`⚠️ Reincidencia (<30d)\` cuando una misma ubicación y categoría presentan más de una intervención en menos de 30 días.
-    6) **Selección Múltiple de Equipos**: En una misma visita, el técnico puede seleccionar varios chips de equipos intervenidos (se concatenan separadas por coma) incluyendo Drenajes/Baños y Calentadores de Agua (Boiler)/Gas.`;
+    6) **Selección Múltiple de Equipos**: En una misma visita, el técnico puede seleccionar varios chips de equipos intervenidos (se concatenan separadas por coma) incluyendo Drenajes/Baños y Calentadores de Agua (Boiler)/Gas.
+- **Reconfiguración Automática 24/7, Renovación Silenciosa de Sesión (\`/api/auth/refresh\`) y Modal de Despertar tras 3 Horas de Inactividad (\`☀️ Despertar Tableta\`) en las 5 Tabletas de Tienda (\`lib/tablet-cache-cleaner.ts\`)**:
+  - Todas las tabletas operativas siempre encendidas renuevan silenciosamente su cookie \`teg_token\` antes de vencer, limpian automáticamente cachés obsoletas de WebAudio/TTS/localStorage y cambian automáticamente al día laboral actual a las 6:00 AM (\`America/Los_Angeles\`).
+  - Tras **3 horas de inactividad** (\`INACTIVITY_WAKE_MODAL_MS = 3 * 60 * 60 * 1000\`), despliegan el modal de pantalla completa **"☀️ Despertar Tableta / Wake Up Tablet"** (además del botón manual en la cabecera) en las **5 tabletas de sucursal**: 1) Cocina Trasera/Bodega (\`/inventory/preparador/bodega\`), 2) Proyección de Carnes + Llamadas al Preparador + Llamada de Órdenes (\`/inventory/preparador\`), 3) Blindaje Delivery (\`/admin/blindaje-delivery/empaque\`), 4) Descansos (\`/descansos\`) y 5) Actividades/Asignación Diaria (\`/actividades\`).`;
 
 export async function POST(req: NextRequest) {
   try {
@@ -865,7 +893,7 @@ export async function POST(req: NextRequest) {
     let lastRole = '';
     messages.forEach((msg: any) => {
       if (msg.role !== 'user' && msg.role !== 'model') return;
-      if (msg.role === 'model' && (msg.content.includes('Soy TEG Assistant') || msg.content.includes('Error de conexión') || msg.content.includes('Todos los modelos'))) return;
+      if (msg.role === 'model' && (msg.content.includes('Soy TEG Assistant') || msg.content.includes('Error de conexión') || msg.content.includes('Todos los modelos') || msg.content.includes('operator does not exist') || msg.content.includes('no puedo adjuntar un archivo') || msg.content.includes('escalar este problema al equipo técnico'))) return;
       if (msg.role === lastRole && validContents.length > 0) {
         validContents[validContents.length - 1].parts[0].text += '\n\n' + msg.content;
       } else {
@@ -881,6 +909,7 @@ export async function POST(req: NextRequest) {
     const url = `${GEMINI_BASE}/${GEMINI_MODEL}:generateContent?key=${apiKey}`;
     let currentContents = [...validContents];
     let finalReply = '';
+    let lastToolMarkdownTable = '';
     const MAX_TOOL_ROUNDS = 5; // Safety limit
 
     for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
@@ -889,7 +918,7 @@ export async function POST(req: NextRequest) {
       const body: any = {
         system_instruction: { parts: [{ text: fullPrompt }] },
         contents: currentContents,
-        generationConfig: { temperature: 0.3, maxOutputTokens: 8192 },
+        generationConfig: { temperature: 0.3, maxOutputTokens: 16384 },
         tools: [{ functionDeclarations: TOOL_DECLARATIONS }]
       };
 
@@ -932,6 +961,10 @@ export async function POST(req: NextRequest) {
 
           const result = await executeTool(name, args || {});
           console.log(`[TEG Assistant] Tool result: ${result.slice(0, 200)}...`);
+          const mdTableMatch = result.match(/(\|[^\n]+\|\n\|[\s:|-]+\|\n(?:\|[^\n]+\|\n?)+)/);
+          if (mdTableMatch && mdTableMatch[1].length > lastToolMarkdownTable.length) {
+            lastToolMarkdownTable = mdTableMatch[1].trim();
+          }
 
           functionResponses.push({
             functionResponse: {
@@ -949,13 +982,25 @@ export async function POST(req: NextRequest) {
       }
 
       // No function calls — this is the final text response
-      const textPart = parts.find((p: any) => p.text);
+      const textPart = { text: parts.filter((p: any) => typeof p.text === 'string' && !p.thought).map((p: any) => p.text).join('\n').trim() };
       finalReply = textPart?.text || 'No response generated.';
       break;
     }
 
     if (!finalReply) {
       finalReply = 'I reached the maximum number of data queries. Please try a more specific question.';
+    }
+
+    // Server-side guarantee: if a tool produced a large Markdown table (e.g. 42-week matrix or SQL export)
+    // and the model omitted the table or truncated it to a 5-week summary, inject the complete table automatically!
+    if (lastToolMarkdownTable) {
+      const replyTableMatch = finalReply.match(/(\|[^\n]+\|\n\|[\s:|-]+\|\n(?:\|[^\n]+\|\n?)+)/);
+      const hasCsvFence = /```csv[\s\S]+?```/i.test(finalReply);
+      const replyTableLen = replyTableMatch ? replyTableMatch[1].length : 0;
+      const isTruncatedLargeTable = lastToolMarkdownTable.length > 1500 && replyTableLen < lastToolMarkdownTable.length * 0.45 && !hasCsvFence;
+      if ((!replyTableMatch && !hasCsvFence && /(export|csv|excel|tabla|semanas|todas)/i.test(lastUserMsg)) || isTruncatedLargeTable) {
+        finalReply = `${finalReply}\n\n### 📊 Tabla Completa (Lista para Descargar en CSV / Excel)\nHaz clic en el botón **⬇️ Descargar CSV (Excel)** arriba de la tabla:\n\n${lastToolMarkdownTable}`;
+      }
     }
 
     // ── Extract Animated Chart Configuration ──
