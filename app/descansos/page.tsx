@@ -30,7 +30,7 @@ import { formatDateISO, formatStoreName, getMonday, addDays, getRoleWeight } fro
 import { Shift, Employee, Job } from '@/app/planificador/lib/types'
 import { useAuth } from '@/components/ProtectedRoute'
 
-import { scheduleBreaksWithDemand, LearnedPreference, getLocalDayOfWeek, getTypeSpecificBreakIndex, encodeLearnedSlotMeta } from '@/lib/breaks-engine'
+import { scheduleBreaksWithDemand, LearnedPreference, getLocalDayOfWeek, getLocalHourMinute, getTypeSpecificBreakIndex, encodeLearnedSlotMeta, isGeneralManagerRole } from '@/lib/breaks-engine'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
 
@@ -100,15 +100,23 @@ export default function DescansosPage() {
 
     const computeShiftCohortIndex = (targetShift: Shift): number => {
         const targetStartMs = new Date(targetShift.start_time).getTime();
-        const targetBlock = Math.floor(targetStartMs / (30 * 60000));
         const targetRk = (((targetShift as any).job_title || targetShift.job_id || 'unknown') as string).toLowerCase().trim();
+        if (isGeneralManagerRole(targetRk)) return 0;
         const targetCat = getShiftCategory(targetRk);
+        const targetGroupKey = targetCat === 'leader'
+            ? `${getLocalHourMinute(targetStartMs).hour < 14 ? 'am_leader' : 'pm_leader'}|leader`
+            : `${Math.floor(targetStartMs / (30 * 60000))}|${targetCat}`;
 
         const group = smartShifts.filter(s => {
             if ((s as any)._isAbsent) return false;
-            const sBlock = Math.floor(new Date(s.start_time).getTime() / (30 * 60000));
             const sRk = (((s as any).job_title || s.job_id || 'unknown') as string).toLowerCase().trim();
-            return sBlock === targetBlock && getShiftCategory(sRk) === targetCat;
+            if (isGeneralManagerRole(sRk)) return false;
+            const sCat = getShiftCategory(sRk);
+            const sStartMs = new Date(s.start_time).getTime();
+            const sGroupKey = sCat === 'leader'
+                ? `${getLocalHourMinute(sStartMs).hour < 14 ? 'am_leader' : 'pm_leader'}|leader`
+                : `${Math.floor(sStartMs / (30 * 60000))}|${sCat}`;
+            return sGroupKey === targetGroupKey;
         });
 
         group.sort((a, b) => {
@@ -1454,30 +1462,6 @@ export default function DescansosPage() {
                 </div>
 
                 <div className="flex items-center gap-2 md:gap-3">
-                    {/* ☀️ Botón Despertar Tableta (Reconfigura fecha actual 6 AM CA, limpia caché, renueva JWT y recarga datos) */}
-                    <button
-                        type="button"
-                        onClick={handleWakeUpTablet}
-                        disabled={wakingUpTablet}
-                        title={t('prep.wakeUpTabletDesc')}
-                        className={`flex items-center gap-2 px-3.5 py-2 rounded-lg font-black text-xs uppercase tracking-wider border transition-all shadow-sm active:scale-95 ${
-                            tabletWakeSuccess
-                                ? 'bg-emerald-600 text-white border-emerald-500 shadow-emerald-500/20'
-                                : wakingUpTablet
-                                    ? 'bg-amber-500 text-slate-950 border-amber-400 animate-pulse'
-                                    : 'bg-amber-50 hover:bg-amber-100 text-amber-800 border-amber-300'
-                        }`}
-                    >
-                        <RefreshCw size={15} className={wakingUpTablet ? 'animate-spin' : ''} />
-                        <span>
-                            {wakingUpTablet
-                                ? t('prep.wakingUpTablet')
-                                : tabletWakeSuccess
-                                    ? t('prep.tabletAwakeSuccess')
-                                    : t('prep.wakeUpTabletShort')}
-                        </span>
-                    </button>
-
                     <button
                         onClick={toggleFullscreen}
                         className="flex items-center gap-2 bg-slate-100 hover:bg-slate-200 text-slate-600 px-3 py-2 rounded-lg font-bold text-sm transition-colors border border-slate-200"

@@ -5,27 +5,28 @@
  * - Cumplimiento de la ley laboral de California (lunches obligatorios antes de la 5ta hora de trabajo).
  * - Bloqueo de zona de pico (rush de ventas) para prevenir falta de personal en horas de alta demanda.
  * - PRIORIDAD DE SALIDA ANTECIPADA (Regla Manager Jesús): Empleados que terminan su turno más temprano son priorizados para salir primero a lunch antes que los que terminan más tarde.
- * - Espaciado mínimo de 30 min entre breaks y 45 min entre lunches de distintos empleados para mantener cobertura.
+ * - Escalera de relevo Slauson: 30 min entre lunches (cero solapamiento) y 10-20 min entre breaks de 10 min.
  * - Respeto y persistencia de preferencias manuales guardadas por managers (AI Learning).
  * @dataFlow Recibe turnos de la tienda, proyección de ventas por hora y preferencias aprendidas → Retorna turnos enriquecidos con breaks_schedule.
- * @notes V27 Fix:
- * - Índices específicos por tipo (`getTypeSpecificBreakIndex`) para evitar que `meal_30` en posición [1]/[2] sea ignorado.
- * - Metadatos de bloque horario y cohort (`encodeLearnedSlotMeta` / `peak_hour`) para separar turnos AM vs Mid vs PM y escalonar múltiples empleados del mismo rol.
- * - Protección de turnos cortos (<=6h) para nunca heredar offsets de turnos largos (previniendo descansos fuera del turno).
- * - Relación inteligente Meal-Rest Slauson: lunches tempranos (<=160m) colocan ambos breaks de 10m post-lunch cada ~2h; líderes Post-Peak toman 1er break antes del rush y lunch saliendo del rush.
+ * @notes V28 Fix (Calibración Forense Slauson - Manager Jesús):
+ * - Eliminado el efecto rebote de `WAVE_SAME_ROLE_REST_MS = 75m` que bloqueaba toda la tarde y aventaba el 1er break a medianoche/4PM y el 2do break antes del lunch.
+ * - Reserva obligatoria de espacio (`reservedTailMs`) para el 2do break post-lunch en turnos con Lunch temprano (`isEarlyMeal`), garantizando siempre el orden `LUNCH -> Break 1 -> Break 2`.
+ * - Ajustado `MIN_GAP_LUNCHES_MS = 30m` para respetar la escalera exacta de 30 min (`10:00 -> 10:30 -> 11:00 -> 11:30 AM` y `6:00 -> 6:30 -> 7:00 -> 7:30 PM`).
+ * - Aislamiento de General Manager (`isGeneralManagerRole`) para que su turno administrativo (oculto en la tableta) no robe cohorts ni bloquee a Shift Leaders / Asst. Managers.
  */
 
 import { Shift } from '@/app/planificador/lib/types'
 import { OperatingHour } from '@/lib/intelligence'
 
 // ══════════════════════════════════════════════════════════════════════════════
-//  BREAKS ENGINE V27 — AI LEARNING & SLAUSON RUSH-HOUR PRECISION
+//  BREAKS ENGINE V28 — AI LEARNING & SLAUSON RUSH-HOUR PRECISION
 //
 //  NUEVO:
 //  ✅ Índices por tipo (meal_30[0], rest_10[0..1]) y separación AM/MID/PM + Cohort
 //  ✅ Prioridad a empleados que salen más temprano (end_time) para ir a lunch primero (Regla Manager Jesús)
-//  ✅ Estrategia diferenciada Crew (Pre-Peak escalonado) vs Leaders (Post-Peak cuidando el Rush)
-//  ✅ Blindaje absoluto de límites de turno y espaciado personal (cero descansos fuera de turno o encimados)
+//  ✅ Escalera exacta Slauson: 30m entre Lunches y 10-20m entre Breaks de 10m (cero rebote pre-lunch)
+//  ✅ Reserva de ventana post-lunch para impedir que el 1er break se vaya al final del turno
+//  ✅ Aislamiento de General Manager y blindaje absoluto de límites de turno
 // ══════════════════════════════════════════════════════════════════════════════
 
 export type BreakBlock = {
@@ -44,6 +45,7 @@ export type LearnedPreference = {
     offset_from_start_min: number;
     shift_duration_min?: number | null;
     peak_hour?: number | null;
+    updated_at?: string | null;
 }
 
 /**
@@ -97,12 +99,13 @@ type GlobalSlot = {
     category: RoleCategory
     empId: string | number | null
     shiftId?: string | number | null
+    isGm?: boolean
 }
 
 type WaveMode = 'normal' | 'relaxed' | 'off'
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  CONSTANTES (heredadas + nuevas)
+//  CONSTANTES CALIBRADAS A OPERACIÓN REAL SLAUSON
 // ─────────────────────────────────────────────────────────────────────────────
 
 const HEAT_MEAL = 0.78
@@ -112,47 +115,44 @@ const GAP_RR_MS = 90 * 60_000
 const GAP_MM_MS = 120 * 60_000
 const GAP_MR_MS = 45 * 60_000
 
-// Nuevos gaps entre empleados distintos (no importa el rol)
-const MIN_GAP_BREAKS_MS = 30 * 60_000   // 30 min entre breaks de distintas personas
-const MIN_GAP_LUNCHES_MS = 45 * 60_000  // 45 min entre lunches de distintas personas
+// Gaps mínimos sin solapamiento entre compañeros del mismo equipo:
+// - Un break dura 10 min → 10 min entre inicios = 0 solapamiento (ej. 12:30 PM y 12:40 PM)
+// - Un lunch dura 30 min → 30 min entre inicios = 0 solapamiento (ej. 6:00 PM, 6:30 PM, 7:00 PM, 7:30 PM)
+const MIN_GAP_BREAKS_MS = 10 * 60_000
+const MIN_GAP_LUNCHES_MS = 30 * 60_000
 
-// Wave gaps originales (ahora con relaxed más estricto)
+// Wave gaps para distribución orgánica sin bloquear ventanas de 4 horas
 const WAVE_SAME_ROLE_MEAL_MS = 30 * 60_000
 const WAVE_LEADER_MEAL_MS = 30 * 60_000
-const WAVE_SAME_ROLE_REST_MS = 75 * 60_000
-const WAVE_SAME_CAT_REST_MS = 60 * 60_000
-const WAVE_CROSS_REST_MS = 30 * 60_000
+const WAVE_SAME_ROLE_REST_MS = 20 * 60_000
+const WAVE_SAME_CAT_REST_MS = 10 * 60_000
+const WAVE_CROSS_REST_MS = 10 * 60_000
 
-const WAVE_MIN_MEAL_MS = 30 * 60_000   // antes 20, ahora 30
-const WAVE_MIN_REST_MS = 30 * 60_000   // antes 15, ahora 30
+const WAVE_MIN_MEAL_MS = 30 * 60_000
+const WAVE_MIN_REST_MS = 10 * 60_000
 
 const SLOT_STEP_MS = 10 * 60_000
-// Dinámico: se usa la función hMinStart(durationHrs) en vez de esta constante
-const H_MIN_START_SHORT = 1.0   // turnos ≤ 6h → ley CA, no más de 5h sin meal
-const H_MIN_START_MED   = 1.0   // turnos 7-8h: 1h buffer
-const H_MIN_START_LONG  = 1.0   // turnos > 8h: 1h buffer → PM 5PM→6PM, abre espacio pre-peak [6PM-6:30PM]
+const H_MIN_START_SHORT = 1.0
+const H_MIN_START_MED   = 1.0
+const H_MIN_START_LONG  = 1.0
 
 function hMinStart(durationHrs: number): number {
-    if (durationHrs <= 6) return 0.75  // turnos cortos: window empieza pronto para cumplir ley
+    if (durationHrs <= 6) return 0.75
     if (durationHrs <= 8) return H_MIN_START_MED
     return H_MIN_START_LONG
 }
 
-// Para RESTS: buffers más chicos. Un descanso de 10 min no necesita
-// el mismo lead time que un meal de 30 min.
 function hMinStartRest(durationHrs: number): number {
     if (durationHrs <= 6) return 0.75
-    if (durationHrs <= 8) return 1.0   // 1h buffer (vs 1.0h para meals, mismo en este tier)
-    return 1.0                         // 1h buffer (vs 1.25h para meals)
+    if (durationHrs <= 8) return 1.0
+    return 1.0
 }
 const H_END_BUFFER = 1.0
-// Ley CA: meal debe INICIAR ANTES de la 5ta hora de trabajo.
-// Usamos 4.75h (15 min margen de seguridad) para que el engine NUNCA
-// coloque un meal justo en el límite legal (ej: Luisa 10AM → límite 3PM,
-// con 4.75 la ventana cierra a 2:45PM → meal a las 2:30-2:45PM máximo).
-// ANTES esto eliminaba espacio post-peak para PM shifts, PERO ahora con
-// la estrategia heat-compare + safeBeforeEnd extendido, pre-peak es viable.
-const H_FIRST_MEAL_MAX = 4.75
+// Ley CA: el 1er meal debe INICIAR antes de cumplirse la 5ta hora (< 5.0h = 300m).
+// Como buildCandidates evalúa `t <= wEndMs - durMs` (restando 30m de duración del lunch),
+// H_FIRST_MEAL_MAX = 5.25h (315m) permite que el INICIO del lunch llegue hasta 4.75h (285m = 4h 45m,
+// ej. 9:30 PM o 9:40 PM para un turno de 5:00 PM), respetando la ley de CA y los lunches de +260m/+270m de Jesús.
+const H_FIRST_MEAL_MAX = 5.25
 const H_SECOND_MEAL_START = 7.0
 const H_SECOND_MEAL_END = 10.0
 
@@ -172,6 +172,15 @@ function sortChron<T extends { start_time: string }>(arr: T[]): T[] {
 
 function getRoleKey(shift: any): string {
     return ((shift.job_title || shift.job_id || 'unknown') as string).toLowerCase().trim()
+}
+
+export function isGeneralManagerRole(rk: string): boolean {
+    const clean = (rk || '').toLowerCase().trim()
+    return (clean.includes('manager') || clean.includes('gerente')) &&
+        !clean.includes('asst') &&
+        !clean.includes('assist') &&
+        !clean.includes('asistente') &&
+        !clean.includes('shift')
 }
 
 function getRoleCategory(rk: string): RoleCategory {
@@ -204,12 +213,12 @@ export function getLocalDayOfWeek(tMs: number): number {
         timeZone: 'America/Los_Angeles',
         weekday: 'short'
     })
-    const dayStr = formatter.format(new Date(tMs)) // "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"
+    const dayStr = formatter.format(new Date(tMs))
     const map: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 }
     return map[dayStr] ?? new Date(tMs).getDay()
 }
 
-function getLocalHourMinute(tMs: number): { hour: number; minute: number } {
+export function getLocalHourMinute(tMs: number): { hour: number; minute: number } {
     const formatter = new Intl.DateTimeFormat('en-US', {
         timeZone: 'America/Los_Angeles',
         hour: 'numeric',
@@ -222,7 +231,7 @@ function getLocalHourMinute(tMs: number): { hour: number; minute: number } {
         if (part.type === 'hour') hour = parseInt(part.value, 10)
         if (part.type === 'minute') minute = parseInt(part.value, 10)
     }
-    if (hour === 24) hour = 0;
+    if (hour === 24) hour = 0
     return { hour, minute }
 }
 
@@ -256,71 +265,61 @@ function normalizeOperatingHours(rawHours: any): OperatingHour[] {
 // ─────────────────────────────────────────────────────────────────────────────
 
 function getPeakHoursForShift(shiftStartMs: number, shiftEndMs: number, rawOperatingHours: OperatingHour[]): { start: number; end: number } {
-    const operatingHours = normalizeOperatingHours(rawOperatingHours);
-    const midMs = shiftStartMs + (shiftEndMs - shiftStartMs) / 2;
-    const { hour } = getLocalHourMinute(midMs);
-    // Según reglas: AM inicia 6am hasta 5pm. PM inicia 5pm hasta 5am.
-    // Usamos el PUNTO MEDIO del turno para categorizar si trabajan más en el día o en la noche
-    const isAm = hour >= 6 && hour < 17;
-    
+    const operatingHours = normalizeOperatingHours(rawOperatingHours)
+    const midMs = shiftStartMs + (shiftEndMs - shiftStartMs) / 2
+    const { hour } = getLocalHourMinute(midMs)
+    const isAm = hour >= 6 && hour < 17
+
     if (!operatingHours || operatingHours.length === 0) {
-        return isAm ? { start: 11, end: 14 } : { start: 18, end: 20 };
+        return isAm ? { start: 11, end: 14 } : { start: 18, end: 20 }
     }
 
-    let maxSales = 0;
-    let peakHour = isAm ? 12 : 19;
-    
-    // AM window: 6am to 5pm (17)
-    // PM window: 5pm (17) to 5am next day (29)
-    const startH = isAm ? 6 : 17;
-    const endH = isAm ? 17 : 29;
+    let maxSales = 0
+    let peakHour = isAm ? 12 : 19
+
+    const startH = isAm ? 6 : 17
+    const endH = isAm ? 17 : 29
 
     for (const oh of operatingHours) {
-        const h = Number(oh.hour);
-        const s = Number(oh.projected_sales || 0);
+        const h = Number(oh.hour)
+        const s = Number(oh.projected_sales || 0)
         if (h >= startH && h <= endH && s > maxSales) {
-            maxSales = s;
-            peakHour = h;
+            maxSales = s
+            peakHour = h
         }
     }
 
     if (maxSales === 0) {
-        return isAm ? { start: 11, end: 14 } : { start: 18, end: 20 };
+        return isAm ? { start: 11, end: 14 } : { start: 18, end: 20 }
     }
 
-    // Expandir el bloque de pico para abarcar TODAS las horas contiguas >= 85% del máximo.
-    // Esto coincide con el criterio visual del módulo VENTAS (heatmap).
-    let pStart = peakHour;
-    let pEnd = peakHour + 1;
+    let pStart = peakHour
+    let pEnd = peakHour + 1
 
     for (let h = peakHour - 1; h >= startH; h--) {
-        const hData = operatingHours.find(o => Number(o.hour) === h);
-        const s = hData ? Number(hData.projected_sales || 0) : 0;
-        if (s >= maxSales * 0.85) pStart = h;
-        else break;
+        const hData = operatingHours.find(o => Number(o.hour) === h)
+        const s = hData ? Number(hData.projected_sales || 0) : 0
+        if (s >= maxSales * 0.85) pStart = h
+        else break
     }
 
     for (let h = peakHour + 1; h <= endH; h++) {
-        const hData = operatingHours.find(o => Number(o.hour) === h);
-        const s = hData ? Number(hData.projected_sales || 0) : 0;
-        if (s >= maxSales * 0.85) pEnd = h + 1;
-        else break;
+        const hData = operatingHours.find(o => Number(o.hour) === h)
+        const s = hData ? Number(hData.projected_sales || 0) : 0
+        if (s >= maxSales * 0.85) pEnd = h + 1
+        else break
     }
 
-    // Garantizar un mínimo de 2 horas de bloque para evitar falsos positivos
     if (pEnd - pStart < 2) {
-        pStart = Math.max(startH, pStart - 1);
-        if (pEnd - pStart < 2) pEnd = Math.min(endH, pEnd + 1);
+        pStart = Math.max(startH, pStart - 1)
+        if (pEnd - pStart < 2) pEnd = Math.min(endH, pEnd + 1)
     }
 
-    return { start: pStart, end: pEnd };
+    return { start: pStart, end: pEnd }
 }
 
 function isInPeakZoneForShift(tMs: number, shiftStartMs: number, shiftEndMs: number, operatingHours: OperatingHour[]): boolean {
     const peak = getPeakHoursForShift(shiftStartMs, shiftEndMs, operatingHours)
-    // FIX: Usar timestamps absolutos en vez de hourFloat.
-    // hourFloat falla para turnos PM con peak.end > 24 (ej: 29 = 5am next day)
-    // porque hourFloat se normaliza a 0-23.
     const { hour: startHour, minute: startMin } = getLocalHourMinute(shiftStartMs)
     const shiftMidnightMs = shiftStartMs - ms(60 * startHour) - ms(startMin)
     const peakStartTs = shiftMidnightMs + ms(60 * peak.start)
@@ -333,16 +332,14 @@ function isInPeakZoneForShift(tMs: number, shiftStartMs: number, shiftEndMs: num
 // ─────────────────────────────────────────────────────────────────────────────
 
 function buildHeatFn(rawOperatingHours: OperatingHour[], shiftStartMs?: number, shiftEndMs?: number): (tMs: number) => number {
-    const operatingHours = normalizeOperatingHours(rawOperatingHours);
+    const operatingHours = normalizeOperatingHours(rawOperatingHours)
     const MOCK: Record<number, number> = {
         6: 10, 7: 30, 8: 80, 9: 150, 10: 300, 11: 600, 12: 950, 13: 850, 14: 400,
         15: 250, 16: 300, 17: 500, 18: 800, 19: 900, 20: 750, 21: 500, 22: 300, 23: 150,
         0: 50, 1: 20, 2: 10, 3: 5
     }
 
-    // Determinar ventana del turno para normalización local
-    // AM: 6-17, PM: 17-29 (5am next day)
-    let windowStart = 6, windowEnd = 29 // default: día completo
+    let windowStart = 6, windowEnd = 29
     if (shiftStartMs && shiftEndMs) {
         const midMs = shiftStartMs + (shiftEndMs - shiftStartMs) / 2
         const { hour } = getLocalHourMinute(midMs)
@@ -351,11 +348,6 @@ function buildHeatFn(rawOperatingHours: OperatingHour[], shiftStartMs?: number, 
         windowEnd = isAm ? 17 : 29
     }
 
-    // Encontrar el MAX solo dentro de la ventana del turno (no del día completo)
-    // Esto hace que AM y PM tengan escalas independientes:
-    // Ej: AM max=600 a las 12pm → 12pm heat=1.00
-    //     PM max=900 a las 7pm → 7pm heat=1.00
-    // Antes: maxGlobal=900 → 12pm heat=0.67 (subvalorado para AM)
     let maxS = 0
     if (operatingHours.length > 0) {
         for (const oh of operatingHours) {
@@ -363,7 +355,6 @@ function buildHeatFn(rawOperatingHours: OperatingHour[], shiftStartMs?: number, 
             const s = Number(oh.projected_sales || 0)
             if (h >= windowStart && h < windowEnd && s > maxS) maxS = s
         }
-        // Fallback: si la ventana del turno no tiene datos, usar el max global
         if (maxS < 10) {
             maxS = Math.max(...operatingHours.map(h => Number(h.projected_sales || 0)))
         }
@@ -376,7 +367,7 @@ function buildHeatFn(rawOperatingHours: OperatingHour[], shiftStartMs?: number, 
     } else {
         for (const h of operatingHours) {
             const val = Number(h.projected_sales || 0) / maxS
-            scores.set(normalizeHour(Number(h.hour)), Math.min(val, 1.0)) // cap a 1.0 para horas fuera de ventana
+            scores.set(normalizeHour(Number(h.hour)), Math.min(val, 1.0))
         }
     }
     return (tMs: number): number => {
@@ -398,9 +389,14 @@ function assignCohorts(shifts: any[]): void {
     const groups = new Map<string, any[]>()
     for (const s of shifts) {
         const sMs = new Date(s.start_time).getTime()
-        const cat = getRoleCategory(getRoleKey(s))
+        const rk = getRoleKey(s)
+        const cat = getRoleCategory(rk)
         let key: string
-        if (cat === 'leader') {
+        if (isGeneralManagerRole(rk)) {
+            // El General Manager está oculto en la vista de tableta (/descansos),
+            // por lo que nunca debe alterar el _cohortIdx de Shift Leaders ni Asst. Managers.
+            key = `gm|${s._uid || s.id}`
+        } else if (cat === 'leader') {
             const { hour } = getLocalHourMinute(sMs)
             const period = hour < 14 ? 'am_leader' : 'pm_leader'
             key = `${period}|${cat}`
@@ -412,17 +408,13 @@ function assignCohorts(shifts: any[]): void {
         groups.get(key)!.push(s)
     }
     for (const group of groups.values()) {
-        // Regla Manager Jesús: dentro del cohort, ordenar por end_time ascendente
-        // Los empleados que salen más temprano van al inicio del grupo (_cohortIdx = 0), recibiendo target de lunch más temprano.
-        // En caso de empate entre líderes (ej. Shift Leader vs Asst. Manager con mismo horario),
-        // el Shift Leader va primero (Pre-Peak) y el Asst. Manager después (Post-Peak) para cuidar el Rush Hour.
         group.sort((a, b) => {
             const rkA = getRoleKey(a)
             const rkB = getRoleKey(b)
             const catA = getRoleCategory(rkA)
             if (catA === 'leader') {
                 const isAsstA = rkA.includes('asst') || rkA.includes('assistant') || rkA.includes('asistente') || (rkA.includes('manager') && !rkA.includes('shift'))
-                const isAsstB = rkB.includes('asst') || rkB.includes('assistant') || rkB.includes('asistente') || (rkB.includes('manager') && !rkB.includes('shift'))
+                const isAsstB = rkB.includes('asst') || rkB.includes('assistant') || rkA.includes('asistente') || (rkB.includes('manager') && !rkB.includes('shift'))
                 if (isAsstA !== isAsstB) return isAsstA ? 1 : -1
             }
 
@@ -457,14 +449,14 @@ function findBestLearnedPref(
     shiftStartMs: number,
     shiftEndMs: number,
     cohortIdx: number
-): { offsetMin: number; exactStartHour: boolean; exactCohort: boolean } | null {
+): { offsetMin: number; exactStartHour: boolean; exactCohort: boolean; exactDay: boolean } | null {
     if (!learnedPrefs || learnedPrefs.length === 0) return null
 
     const shiftDurMin = Math.round((shiftEndMs - shiftStartMs) / 60000)
     const isShortShift = shiftDurMin <= 360
     const { hour: startHour } = getLocalHourMinute(shiftStartMs)
     const shiftPeriod = getShiftPeriodBucket(startHour)
-    const minEndClearance = breakType === 'meal_30' ? 45 : 25
+    const minEndClearance = breakType === 'meal_30' ? 40 : 20
 
     type ScoredCandidate = {
         pref: LearnedPreference
@@ -487,8 +479,11 @@ function findBestLearnedPref(
             if (pDur !== null && pDur <= 360) continue
         }
 
-        // El offset debe caber holgadamente dentro de la duración del turno actual
+        // El offset debe caber dentro de la duración del turno actual (y antes de la 5ta hora para 1er lunch)
         if (p.offset_from_start_min < 30 || p.offset_from_start_min > shiftDurMin - minEndClearance) {
+            continue
+        }
+        if (breakType === 'meal_30' && typeBreakIndex === 0 && p.offset_from_start_min > 290) {
             continue
         }
 
@@ -496,7 +491,6 @@ function findBestLearnedPref(
 
         // 2. Validar índice específico por tipo
         if (p.break_index !== typeBreakIndex) {
-            // Compatibilidad con registros legacy (sin peak_hour) donde meal_30 único se guardó con índice 1 o 2
             const isLegacySingleMeal = pHour === null && breakType === 'meal_30' && typeBreakIndex === 0 && shiftDurMin <= 600 && p.break_index <= 2
             if (!isLegacySingleMeal) continue
         }
@@ -507,7 +501,6 @@ function findBestLearnedPref(
             if (pPeriod !== shiftPeriod) continue
             if (Math.abs(pHour - startHour) > 2) continue
         } else {
-            // Para registros legacy sin peak_hour, exigir mismo día de la semana y coherencia posicional
             if (p.day_of_week !== dayOfWeek) continue
             if (breakType === 'rest_10' && !isShortShift) {
                 if (typeBreakIndex === 0 && p.offset_from_start_min > shiftDurMin * 0.62) continue
@@ -517,17 +510,23 @@ function findBestLearnedPref(
 
         let score = 0
         if (p.day_of_week === dayOfWeek) score += 2000
-        else if (pHour !== null && Math.abs(pHour - startHour) === 0) score += 800
+        else if (pHour !== null && Math.abs(pHour - startHour) === 0) score += 900
         else continue
 
         if (pHour !== null) {
             score += 1000 - Math.abs(pHour - startHour) * 250
-            if (pCohort === cohortIdx) score += 500
-            else score += Math.max(0, 200 - Math.abs(pCohort - cohortIdx) * 80)
+            if (pCohort === cohortIdx) score += 600
+            else score += Math.max(0, 200 - Math.abs(pCohort - cohortIdx) * 90)
         }
 
         if (pDur !== null) {
-            score -= Math.abs(pDur - shiftDurMin) / 5
+            score -= Math.abs(pDur - shiftDurMin) * 1.2
+        }
+
+        // Bonus a movimientos manuales recientes sobre semillas históricas
+        const prefTs = p.updated_at || (p as any).created_at
+        if (prefTs && String(prefTs) > '2026-10-14T00:00:00') {
+            score += 150
         }
 
         candidates.push({ pref: p, score, pHour, pCohort })
@@ -539,7 +538,7 @@ function findBestLearnedPref(
     const best = candidates[0]
 
     let adjustedOffset = best.pref.offset_from_start_min
-    const staggerStep = breakType === 'meal_30' ? 30 : 15
+    const staggerStep = breakType === 'meal_30' ? 30 : 10
 
     if (best.pHour !== null) {
         if (best.pCohort !== cohortIdx) {
@@ -549,13 +548,13 @@ function findBestLearnedPref(
         adjustedOffset += cohortIdx * staggerStep
     }
 
-    // Asegurar que el offset ajustado siga dentro del turno
     adjustedOffset = Math.max(45, Math.min(shiftDurMin - minEndClearance, adjustedOffset))
 
     return {
         offsetMin: adjustedOffset,
         exactStartHour: best.pHour !== null && Math.abs(best.pHour - startHour) <= 1,
-        exactCohort: best.pHour !== null && best.pCohort === cohortIdx
+        exactCohort: best.pHour !== null && best.pCohort === cohortIdx,
+        exactDay: best.pref.day_of_week === dayOfWeek
     }
 }
 
@@ -564,16 +563,14 @@ function findBestLearnedPref(
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function scheduleBreaksWithDemand(shifts: Shift[], rawOperatingHours: OperatingHour[], learnedPrefs: LearnedPreference[] = []): Shift[] {
-    const operatingHours = normalizeOperatingHours(rawOperatingHours);
-    console.warn('%c🧠 BREAKS ENGINE V27 — AI LEARNING & SLAUSON RUSH-HOUR PRECISION', 'background:#0f2447;color:#60a5fa;font-size:14px;font-weight:bold;padding:4px 10px;border-radius:4px')
+    const operatingHours = normalizeOperatingHours(rawOperatingHours)
+    console.warn('%c🧠 BREAKS ENGINE V28 — AI LEARNING & SLAUSON RUSH-HOUR PRECISION', 'background:#0f2447;color:#60a5fa;font-size:14px;font-weight:bold;padding:4px 10px;border-radius:4px')
 
-    // getHeat se re-asigna por cada turno para normalizar AM/PM independientemente.
-    let getHeat = buildHeatFn(operatingHours) // default: global (para diagnóstico final)
+    let getHeat = buildHeatFn(operatingHours)
     const augmented: any[] = shifts.map((s, idx) => {
         const sMs = new Date(s.start_time).getTime()
         const rawEMs = new Date(s.end_time).getTime()
         const rawDurHrs = (rawEMs - sMs) / 3_600_000
-        // Protección contra errores de captura AM/PM del mánager (ej. turnos de 16h-22h como 5:00 PM - 2:00 PM en vez de 2:00 AM)
         const effEndMs = rawDurHrs >= 15 ? sMs + ms(60 * Math.max(8, Math.min(10, rawDurHrs - 12))) : rawEMs
         const durHrs = (effEndMs - sMs) / 3_600_000
         const rawManual = sortChron<BreakBlock>(((s.breaks_schedule || []) as BreakBlock[]).filter((b: BreakBlock) => b.is_manual))
@@ -599,15 +596,15 @@ export function scheduleBreaksWithDemand(shifts: Shift[], rawOperatingHours: Ope
             }
         }
         return { ...s, _uid: `shift_${idx}`, _effEndMs: effEndMs, breaks_schedule: validManual }
-    });
+    })
     assignCohorts(augmented)
     const globalSlots: GlobalSlot[] = []
 
-    // Pre-populate global slots with manual breaks so the engine avoids them
     augmented.forEach(s => {
-        const rk = getRoleKey(s);
-        const cat = getRoleCategory(rk);
-        const empId = s.employee_id ?? null;
+        const rk = getRoleKey(s)
+        const cat = getRoleCategory(rk)
+        const empId = s.employee_id ?? null
+        const isGm = isGeneralManagerRole(rk)
         s.breaks_schedule.forEach((b: BreakBlock) => {
             globalSlots.push({
                 type: b.type,
@@ -616,14 +613,12 @@ export function scheduleBreaksWithDemand(shifts: Shift[], rawOperatingHours: Ope
                 roleKey: rk,
                 category: cat,
                 empId,
-                shiftId: s._uid
-            });
-        });
-    });
+                shiftId: s._uid,
+                isGm
+            })
+        })
+    })
 
-    // ────────────────────────────────────────────────────────────────────────
-    //  HEAT BLOCKS: bloqueo de zona de pico para CUALQUIER break (meal o rest)
-    // ────────────────────────────────────────────────────────────────────────
     function heatBlocks(sMs: number, eMs: number, shiftStartMs: number, shiftEndMs: number): boolean {
         const peak = getPeakHoursForShift(shiftStartMs, shiftEndMs, operatingHours)
         const { hour: startHour, minute: startMin } = getLocalHourMinute(shiftStartMs)
@@ -633,9 +628,6 @@ export function scheduleBreaksWithDemand(shifts: Shift[], rawOperatingHours: Ope
         return sMs < peakEndTs && eMs > peakStartTs
     }
 
-    // ────────────────────────────────────────────────────────────────────────
-    //  VIOLACIONES PERSONALES (mismo empleado)
-    // ────────────────────────────────────────────────────────────────────────
     function personalViolation(sMs: number, eMs: number, newType: 'rest_10' | 'meal_30', existing: BreakBlock[]): boolean {
         for (const pb of existing) {
             const ps = new Date(pb.start_time).getTime()
@@ -649,15 +641,14 @@ export function scheduleBreaksWithDemand(shifts: Shift[], rawOperatingHours: Ope
         return false
     }
 
-    // ────────────────────────────────────────────────────────────────────────
-    //  VIOLACIONES DE OLA (con espaciado mínimo entre distintos empleados)
-    // ────────────────────────────────────────────────────────────────────────
     function waveViolation(sMs: number, eMs: number, shift: any, isMeal: boolean, mode: WaveMode): boolean {
         const rk = getRoleKey(shift)
         const cat = getRoleCategory(rk)
+        const thisIsGm = isGeneralManagerRole(rk)
 
         for (const slot of globalSlots) {
             if (slot.shiftId !== undefined && slot.shiftId === shift._uid) continue
+            if (slot.isGm || thisIsGm) continue
             const overlapMs = Math.max(0, Math.min(eMs, slot.endMs) - Math.max(sMs, slot.startMs))
             const startDiff = Math.abs(sMs - slot.startMs)
             const sameRole = slot.roleKey === rk
@@ -690,17 +681,14 @@ export function scheduleBreaksWithDemand(shifts: Shift[], rawOperatingHours: Ope
         return false
     }
 
-    // ────────────────────────────────────────────────────────────────────────
-    //  SCORING con penalización siempre activa de calor y colisiones
-    // ────────────────────────────────────────────────────────────────────────
     function scoreSlot(sMs: number, durMs: number, isMeal: boolean, targetMs: number, shift: any, shiftStartMs: number, bypassPeak: boolean = false): number {
         const eMs = sMs + durMs
         const h = spanHeat(sMs, eMs, getHeat)
         const rk = getRoleKey(shift)
         const cat = getRoleCategory(rk)
         const empId = shift.employee_id ?? null
+        const thisIsGm = isGeneralManagerRole(rk)
 
-        // Mantener SIEMPRE activo heatPenalty para que ante empate o ajuste prefiera horas más frescas
         const heatPenalty = Math.pow(h, 4) * 1e12
 
         let peakPenalty = 0
@@ -722,6 +710,7 @@ export function scheduleBreaksWithDemand(shifts: Shift[], rawOperatingHours: Ope
 
         for (const slot of globalSlots) {
             if (slot.shiftId !== undefined && slot.shiftId === shift._uid) continue
+            if (slot.isGm || thisIsGm) continue
             const overlapMs = Math.max(0, Math.min(eMs, slot.endMs) - Math.max(sMs, slot.startMs))
             const startDiff = Math.abs(sMs - slot.startMs)
             const isSameEmpOtherShift = empId !== null && slot.empId === empId
@@ -745,19 +734,25 @@ export function scheduleBreaksWithDemand(shifts: Shift[], rawOperatingHours: Ope
 
             if (isGroup) {
                 if (overlapMs > 0) {
-                    const ratio = overlapMs / Math.min(durMs, slot.endMs - slot.startMs)
-                    wavePenalty += ratio * 1e32
+                    if (slot.type === (isMeal ? 'meal_30' : 'rest_10') || (cat === 'leader' && slot.category === 'leader')) {
+                        const ratio = overlapMs / Math.min(durMs, slot.endMs - slot.startMs)
+                        wavePenalty += ratio * 1e32
+                    } else {
+                        // Solapamiento entre un rest_10 y un meal_30 del mismo rol cuando hay >=3 personas activas:
+                        // penalización suave menor a 15m de distPenalty para respetar preferencias aprendidas exactas (ej. 6:20 PM / 6:30 PM)
+                        wavePenalty += 4e15
+                    }
                 } else if (slot.type === (isMeal ? 'meal_30' : 'rest_10')) {
                     const diff = Math.abs(sMs - slot.startMs)
                     const ref = isMeal ? WAVE_SAME_ROLE_MEAL_MS : WAVE_SAME_ROLE_REST_MS
                     if (diff < ref) {
                         const prox = 1 - diff / ref
-                        wavePenalty += prox * prox * 1e21
+                        // Penalización suave (menor a 10m de distPenalty = 1e16) cuando no hay solapamiento
+                        // para que una preferencia aprendida a 10 min (ej. 12:30 PM y 12:40 PM) se respete al minuto
+                        wavePenalty += prox * prox * (isMeal ? 1e20 : 5e14)
                     }
                 }
             } else if (overlapMs > 0 && (cat === 'leader' || slot.category === 'leader')) {
-                // Si un líder se solapa con la ÚNICA cajera (FOH) o el ÚNICO cocinero (BOH) activo en ese instante,
-                // penalizar fuertemente para que el líder esté disponible para cubrir la estación.
                 const stationCat = cat === 'leader' ? slot.category : cat
                 const stationOnDutyCount = augmented.filter(other => {
                     const oS = new Date(other.start_time).getTime()
@@ -772,9 +767,6 @@ export function scheduleBreaksWithDemand(shifts: Shift[], rawOperatingHours: Ope
         return heatPenalty + peakPenalty + distPenalty + wavePenalty
     }
 
-    // ────────────────────────────────────────────────────────────────────────
-    //  TARGET PARA LUNCH: Aprendizaje IA + Estrategia Slauson (Crew Pre-Peak / Leaders Post-Peak)
-    // ────────────────────────────────────────────────────────────────────────
     function getMealTargetOutsidePeak(wStartMs: number, wEndMs: number, durMs: number, cohortIdx: number, cohortSize: number, shiftStartMs: number, allShiftMealsCount: number, globalMealIndex: number, shiftDurationHrs: number, shift: any): { target: number; bypassHeat: boolean } {
         const shiftEndMs = shift._effEndMs ?? new Date(shift.end_time).getTime()
         const peak = getPeakHoursForShift(shiftStartMs, shiftEndMs, operatingHours)
@@ -795,7 +787,7 @@ export function scheduleBreaksWithDemand(shifts: Shift[], rawOperatingHours: Ope
         const idx = (shift._cohortSize && shift._cohortSize > 1) ? shift._cohortIdx : 0
         const size = Math.max((shift._cohortSize && shift._cohortSize > 1) ? shift._cohortSize : 1, 1)
 
-        // ── 1. PREFERENCES CHECK (Con validación de período AM/PM, duración y límite legal) ──
+        // ── 1. PREFERENCES CHECK ──
         const matchedPref = findBestLearnedPref(
             learnedPrefs,
             rk,
@@ -811,8 +803,6 @@ export function scheduleBreaksWithDemand(shifts: Shift[], rawOperatingHours: Ope
             const rawTarget = shiftStartMs + ms(matchedPref.offsetMin)
             const clampedTarget = Math.max(wStartMs, Math.min(wEndMs - durMs, rawTarget))
             const touchesPeak = heatBlocks(clampedTarget, clampedTarget + durMs, shiftStartMs, shiftEndMs)
-            // Permitimos bypassHeat si cae fuera de pico, en los primeros 60m del inicio de pico (ej. 6:30 PM / 7:00 PM escalonado),
-            // o si fue entrenado explícitamente para esa hora de entrada (ej. cocinero de 6:00 PM comiendo a las 7:30 PM)
             const allowBypass = !touchesPeak || clampedTarget <= peakStartMs + ms(60) || matchedPref.exactStartHour
             console.warn(`   → 🧠 LEARNED PREFERENCE applied for ${rk} (cohort ${idx}/${size}) meal#${globalMealIndex}: offset ${matchedPref.offsetMin}m -> target ${new Date(clampedTarget).toLocaleTimeString()} (bypassHeat=${allowBypass})`)
             return { target: midMs(clampedTarget, durMs), bypassHeat: allowBypass }
@@ -824,11 +814,6 @@ export function scheduleBreaksWithDemand(shifts: Shift[], rawOperatingHours: Ope
         const postFits = postPeakSpace >= durMs
         const preFits = prePeakSpace >= durMs
 
-        // A) REGLA DE LÍDERES (Asst. Manager, Manager, Shift Leader):
-        // - Si solo hay 1 líder (size === 1), come POST-PEAK para cuidar el Rush.
-        // - Si hay 2 líderes (ej. Shift Leader + Asst. Manager), idx=0 come PRE-PEAK e idx=1 come POST-PEAK.
-        // - Si hay 3+ líderes (ej. Shift Leader + Asst. Manager + Manager en tiendas grandes),
-        //   idx=0 va PRE-PEAK #1, idx=1 va POST-PEAK #1 (safeAfterStart + 10m), e idx=2 va POST-PEAK #2 (safeAfterStart + 40m) si cabe o PRE-PEAK #2 (safeBeforeStart + 40m).
         if (cat === 'leader') {
             const isSeniorLeader = rk.includes('asst') || rk.includes('assistant') || rk.includes('asistente') || (rk.includes('manager') && !rk.includes('shift'))
             const isLateLeader = startHour >= 19
@@ -841,27 +826,22 @@ export function scheduleBreaksWithDemand(shifts: Shift[], rawOperatingHours: Ope
                 console.warn(`   → 👔 LEADER POST-PEAK para ${shift.employee_name} (${rk}, cohort ${idx}/${size}): target=${new Date(best).toLocaleTimeString()}`)
                 return { target: midMs(best, durMs), bypassHeat: false }
             }
-            // Si es Asst. Manager / 2do líder en turno matutino (ej. 9:00 AM) y el bloque pico de 2h (12:00-2:00 PM)
-            // tapa el cierre de la ventana legal (1:45 PM), enviarlo a la 1:10 PM (pasando la hora más fuerte de 12:00-1:00 PM)
             if (shouldGoPostPeak && !postFits && startHour < 12 && (wEndMs - durMs) >= peakStartMs + ms(60)) {
                 const lateWindowBest = Math.max(peakStartMs + ms(70), wEndMs - durMs - ms(5))
                 console.warn(`   → 👔 LEADER LATE-WINDOW (Post-12PM Rush) para ${shift.employee_name} (${rk}): target=${new Date(lateWindowBest).toLocaleTimeString()}`)
                 return { target: midMs(lateWindowBest, durMs), bypassHeat: true }
             }
             if (preFits) {
-                // En turno AM, si idx=0 va Pre-Peak, apuntar a las 11:00 AM (wStartMs + 60m) para no chocar con la 1ra cajera de las 10:00 AM
                 const preRank = idx === 0 ? 0 : (idx - 1)
                 const basePre = (startHour < 12 && idx === 0 && safeBeforeStart + ms(60) <= safeBeforeEnd - durMs)
                     ? safeBeforeStart + ms(60)
-                    : safeBeforeStart + preRank * ms(40)
+                    : safeBeforeStart + preRank * ms(30)
                 const best = Math.min(safeBeforeEnd - durMs, basePre)
                 console.warn(`   → 👔 LEADER PRE-PEAK para ${shift.employee_name} (${rk}, cohort ${idx}/${size}): target=${new Date(best).toLocaleTimeString()}`)
                 return { target: midMs(best, durMs), bypassHeat: true }
             }
         }
 
-        // B) REGLA CREW (Cashier / Cook):
-        // - Turno AM (<12h): Lunches escalonados cada 30 min empezando a la hora de entrar (10:00, 10:30, 11:00, 11:30 AM) ANTES del rush de 12:00 PM.
         if (startHour < 12) {
             const rawTarget = Math.min(wEndMs - durMs, wStartMs + idx * ms(30))
             const best = preFits ? Math.min(safeBeforeEnd - durMs, rawTarget) : rawTarget
@@ -869,7 +849,6 @@ export function scheduleBreaksWithDemand(shifts: Shift[], rawOperatingHours: Ope
             return { target: midMs(best, durMs), bypassHeat: true }
         }
 
-        // - Turno MEDIO DÍA (12:00 PM - 2:59 PM): Esperar a que termine el rush de mediodía (~2:00 PM)
         if (startHour >= 12 && startHour < 15) {
             if (postFits) {
                 const best = Math.min(safeAfterEnd - durMs, safeAfterStart + idx * ms(20))
@@ -880,11 +859,9 @@ export function scheduleBreaksWithDemand(shifts: Shift[], rawOperatingHours: Ope
             return { target: midMs(best, durMs), bypassHeat: true }
         }
 
-        // - Turno PM (>= 3:00 PM):
-        // Si el Rush Nocturno es tardío (>= 8:00 PM), compactar todos los lunches de 5PM y 6PM ANTES de que inicie el Rush.
         const isLateNightRush = peak.start >= 20
         if (startHour <= 17) {
-            const step = isLateNightRush && size > 2 ? ms(20) : ms(30)
+            const step = ms(30)
             const rawBest = Math.min(wEndMs - durMs, wStartMs + idx * step)
             const best = isLateNightRush ? Math.min(peakStartMs - durMs, rawBest) : rawBest
             console.warn(`   → 🌙 PM 5PM CREW WAVE para ${shift.employee_name} (${rk}, cohort ${idx}/${size}): target=${new Date(best).toLocaleTimeString()}`)
@@ -892,31 +869,26 @@ export function scheduleBreaksWithDemand(shifts: Shift[], rawOperatingHours: Ope
         }
 
         if (startHour === 18) {
-            const offsetBase = isLateNightRush ? ms(60) : ms(90)
-            const step = isLateNightRush ? ms(20) : ms(30)
+            const offsetBase = ms(90)
+            const step = ms(30)
             const rawBest = Math.min(wEndMs - durMs, shiftStartMs + offsetBase + idx * step)
             const best = isLateNightRush ? Math.min(peakStartMs - durMs, rawBest) : rawBest
             console.warn(`   → 🌙 PM 6PM CREW WAVE para ${shift.employee_name} (${rk}, cohort ${idx}/${size}): target=${new Date(best).toLocaleTimeString()}`)
             return { target: midMs(best, durMs), bypassHeat: !isLateNightRush }
         }
 
-        // Entradas >= 7:00 PM (ej. 7PM - 1AM / 2AM): comer saliendo del pico si cabe, o a los 80-90 min
         if (postFits) {
             const best = Math.min(safeAfterEnd - durMs, safeAfterStart + idx * ms(20))
             return { target: midMs(best, durMs), bypassHeat: false }
         }
-        const fallbackBest = Math.min(wEndMs - durMs, shiftStartMs + ms(80) + idx * ms(20))
+        const fallbackBest = Math.min(wEndMs - durMs, shiftStartMs + ms(90) + idx * ms(20))
         return { target: midMs(fallbackBest, durMs), bypassHeat: true }
     }
 
-    // ────────────────────────────────────────────────────────────────────────
-    //  FIND SLOT (con garantía absoluta de límites de turno y cero breaks encimados)
-    // ────────────────────────────────────────────────────────────────────────
     function findSlot(wStartMs: number, wEndMs: number, durationMins: number, personalBreaks: BreakBlock[], shift: any, isMeal: boolean, targetMs: number, shiftStartMs: number, shiftEndMs: number, bypassHeatBlocks: boolean = false): Date {
         const durMs = ms(durationMins)
         const type = isMeal ? 'meal_30' : 'rest_10'
 
-        // Recortar estrictamente la ventana de búsqueda a los límites reales del turno
         const hardMinStart = shiftStartMs + ms(30)
         const hardMaxEnd = shiftEndMs - ms(10)
         const safeWStart = Math.max(hardMinStart, Math.min(wStartMs, hardMaxEnd - durMs))
@@ -938,6 +910,17 @@ export function scheduleBreaksWithDemand(shifts: Shift[], rawOperatingHours: Ope
         const rk = getRoleKey(shift)
         const cat = getRoleCategory(rk)
         const empId = shift.employee_id ?? null
+        const thisIsGm = isGeneralManagerRole(rk)
+
+        const countSameRoleOnDuty = (tStart: number, tEnd: number): number => {
+            let cnt = 0
+            for (const other of augmented) {
+                const oS = new Date(other.start_time).getTime()
+                const oE = other._effEndMs ?? new Date(other.end_time).getTime()
+                if (getRoleKey(other) === rk && tStart < oE && tEnd > oS) cnt++
+            }
+            return cnt
+        }
 
         const filterPool = (candList: number[], ignorePeak: boolean, ignoreRoleOverlap: boolean): number[] => {
             return candList.filter(t => {
@@ -945,15 +928,23 @@ export function scheduleBreaksWithDemand(shifts: Shift[], rawOperatingHours: Ope
                 if (personalViolation(t, t + durMs, type, personalBreaks)) return false
                 for (const slot of globalSlots) {
                     if (slot.shiftId !== undefined && slot.shiftId === shift._uid) continue
-                    // Si el mismo empleado tiene otro turno el mismo día (split/duplicado), prohibir encimar consigo mismo
+                    if (slot.isGm || thisIsGm) continue
                     if (empId !== null && slot.empId === empId) {
                         if (t < slot.endMs + ms(30) && (t + durMs) > slot.startMs - ms(30)) return false
                     }
                     if (!ignoreRoleOverlap) {
                         const overlapMs = Math.max(0, Math.min(t + durMs, slot.endMs) - Math.max(t, slot.startMs))
                         const isLeaderConflict = cat === 'leader' && slot.category === 'leader'
-                        if ((slot.roleKey === rk || isLeaderConflict) && overlapMs > 0) {
-                            return false
+                        if (overlapMs > 0 && (slot.roleKey === rk || isLeaderConflict)) {
+                            // Dos breaks del mismo tipo (meal_30+meal_30 o rest_10+rest_10) o dos líderes NUNCA se solapan.
+                            // Si es un rest_10 coexistiendo con un meal_30 del mismo rol (ej. cajera en break de 10m mientras otra cajera come),
+                            // se permite únicamente si hay >= 3 empleados de ese rol activos en ese momento.
+                            if (isLeaderConflict || slot.type === type) {
+                                return false
+                            }
+                            if (countSameRoleOnDuty(t, t + durMs) < 3) {
+                                return false
+                            }
                         }
                     }
                 }
@@ -978,8 +969,6 @@ export function scheduleBreaksWithDemand(shifts: Shift[], rawOperatingHours: Ope
             : shiftEndMs - ms(30)
         const fullShiftCandidates = buildCandidates(fallbackStart, fallbackEnd)
 
-        // FALLBACK NIVEL 1: Abrir zona de calor en la ventana o en el rango legal del turno,
-        // pero RESPETANDO ESTRICTAMENTE no encimar líderes (isLeaderConflict) ni mismo rol ni personalViolation
         if (pool.length === 0) {
             pool = filterPool(candidates, true, false)
         }
@@ -987,8 +976,6 @@ export function scheduleBreaksWithDemand(shifts: Shift[], rawOperatingHours: Ope
             pool = filterPool(fullShiftCandidates, true, false)
         }
 
-        // FALLBACK NIVEL 2: Si los descansos manuales dejaron huecos de ~2h (menores a GAP_MR_MS=45m o GAP_RR_MS=90m),
-        // permitir un gap personal relajado de 40m manteniendo NO encimar líderes ni mismo rol
         const buildRelaxedFilter = (candList: number[], ignoreRole: boolean) => candList.filter(t => {
             for (const pb of personalBreaks) {
                 const ps = new Date(pb.start_time).getTime()
@@ -998,6 +985,7 @@ export function scheduleBreaksWithDemand(shifts: Shift[], rawOperatingHours: Ope
             }
             for (const slot of globalSlots) {
                 if (slot.shiftId !== undefined && slot.shiftId === shift._uid) continue
+                if (slot.isGm || thisIsGm) continue
                 if (empId !== null && slot.empId === empId) {
                     if (t < slot.endMs + ms(30) && (t + durMs) > slot.startMs - ms(30)) return false
                 }
@@ -1017,7 +1005,6 @@ export function scheduleBreaksWithDemand(shifts: Shift[], rawOperatingHours: Ope
             pool = buildRelaxedFilter(fullShiftCandidates, false)
         }
 
-        // FALLBACK NIVEL 2B: Solo si es materialmente imposible sin solapar mismo rol, relajar rol
         if (pool.length === 0) {
             pool = filterPool(fullShiftCandidates, true, true)
         }
@@ -1025,14 +1012,11 @@ export function scheduleBreaksWithDemand(shifts: Shift[], rawOperatingHours: Ope
             pool = buildRelaxedFilter(candidates, true)
         }
 
-        // FALLBACK NIVEL 3 (Emergencia Personal): Si aún no hay candidatos por GAP_RR_MS (90m),
-        // buscar en todo el turno cualquier slot que NO se solape y maximice la distancia a los otros descansos del empleado
         if (pool.length === 0) {
             const emergencyCandidates = buildCandidates(shiftStartMs + ms(30), shiftEndMs - ms(20)).filter(t => {
                 for (const pb of personalBreaks) {
                     const ps = new Date(pb.start_time).getTime()
                     const pe = new Date(pb.end_time).getTime()
-                    // Prohibición estricta de encimar o pegar dos descansos a menos de 30 min
                     if (t < pe + ms(30) && (t + durMs) > ps - ms(30)) return false
                 }
                 return true
@@ -1040,7 +1024,6 @@ export function scheduleBreaksWithDemand(shifts: Shift[], rawOperatingHours: Ope
             if (emergencyCandidates.length > 0) {
                 pool = emergencyCandidates
             } else {
-                // Último recurso absoluto: elegir el minuto dentro del turno más alejado de cualquier break existente
                 const allPossible = buildCandidates(hardMinStart, hardMaxEnd)
                 let bestT = allPossible[0] ?? hardMinStart
                 let bestMinDist = -1
@@ -1071,9 +1054,6 @@ export function scheduleBreaksWithDemand(shifts: Shift[], rawOperatingHours: Ope
         return new Date(bestSlot)
     }
 
-    // ────────────────────────────────────────────────────────────────────────
-    //  ORDEN DE PROCESAMIENTO
-    // ────────────────────────────────────────────────────────────────────────
     function countCoolMealSlots(shift: any, shiftStartMs: number): number {
         const sMs = shiftStartMs
         const eMs = shift._effEndMs ?? new Date(shift.end_time).getTime()
@@ -1088,6 +1068,10 @@ export function scheduleBreaksWithDemand(shifts: Shift[], rawOperatingHours: Ope
     }
 
     const processed = [...augmented].sort((a, b) => {
+        const rkA = getRoleKey(a), rkB = getRoleKey(b)
+        const gmA = isGeneralManagerRole(rkA), gmB = isGeneralManagerRole(rkB)
+        if (gmA !== gmB) return gmA ? 1 : -1
+
         const sMsA = new Date(a.start_time).getTime()
         const sMsB = new Date(b.start_time).getTime()
         const eMsA = a._effEndMs ?? new Date(a.end_time).getTime()
@@ -1107,7 +1091,7 @@ export function scheduleBreaksWithDemand(shifts: Shift[], rawOperatingHours: Ope
         const aCool = countCoolMealSlots(a, sMsA)
         const bCool = countCoolMealSlots(b, sMsB)
         if (aCool !== bCool) return aCool - bCool
-        const aCat = getRoleCategory(getRoleKey(a)), bCat = getRoleCategory(getRoleKey(b))
+        const aCat = getRoleCategory(rkA), bCat = getRoleCategory(rkB)
         if (aCat === 'leader' && bCat !== 'leader') return -1
         if (bCat === 'leader' && aCat !== 'leader') return 1
         return String(a.employee_id || a.id || '').localeCompare(String(b.employee_id || b.id || ''))
@@ -1158,14 +1142,16 @@ export function scheduleBreaksWithDemand(shifts: Shift[], rawOperatingHours: Ope
             const best = findSlot(wStartMs, wEndMs, 30, shift.breaks_schedule, shift, true, targetMs, sMs, eMs, bypassHeat)
             const bestEnd = new Date(best.getTime() + ms(30))
             shift.breaks_schedule.push({ type: 'meal_30', start_time: toIso(best), end_time: toIso(bestEnd), status: 'scheduled' })
+            const rk = getRoleKey(shift)
             globalSlots.push({
                 type: 'meal_30',
                 startMs: best.getTime(),
                 endMs: bestEnd.getTime(),
-                roleKey: getRoleKey(shift),
-                category: getRoleCategory(getRoleKey(shift)),
+                roleKey: rk,
+                category: getRoleCategory(rk),
                 empId: shift.employee_id ?? null,
-                shiftId: shift._uid
+                shiftId: shift._uid,
+                isGm: isGeneralManagerRole(rk)
             })
             console.warn(`🍽️ ${shift.employee_name} meal#${globalMealIndex + 1} → ${best.toLocaleTimeString()} (heat=${spanHeat(best.getTime(), bestEnd.getTime(), getHeat).toFixed(2)})`)
         })
@@ -1191,35 +1177,60 @@ export function scheduleBreaksWithDemand(shifts: Shift[], rawOperatingHours: Ope
         const endBuf = eMs - ms(60 * endBufferHrs)
 
         const rk = getRoleKey(shift)
+        const cat = getRoleCategory(rk)
         const dayOfWeek = getLocalDayOfWeek(sMs)
         const cohortIdx = (shift._cohortSize && shift._cohortSize > 1) ? (shift._cohortIdx ?? 0) : 0
-        const cohortStaggerMs = cohortIdx * ms(10)
+        const cohortStaggerMs = allRests.length === 1 ? 0 : cohortIdx * ms(10)
 
         const shiftMeals = sortChron((shift.breaks_schedule as BreakBlock[]).filter(b => b.type === 'meal_30'))
         const firstMeal = shiftMeals[0] || null
         const firstMealStartMs = firstMeal ? new Date(firstMeal.start_time).getTime() : null
         const firstMealEndMs = firstMeal ? new Date(firstMeal.end_time).getTime() : null
 
-        // Regla Slauson: Si el empleado toma su Lunch en las primeras 2h 40m (<=160m, ej. Lunch Pre-Peak a las 10:00-11:30 AM o 6:00-7:30 PM),
-        // AMBOS descansos de 10m van DESPUÉS del Lunch, dividiendo el resto del turno en bloques iguales (~2h).
-        // Si el Lunch es tardío (>160m, ej. Líder que come Post-Peak a la 1:10 PM o 9:20 PM),
-        // el 1er Break de 10m va ANTES del Lunch y el 2do Break de 10m va DESPUÉS del Lunch.
-        const isEarlyMeal = firstMealStartMs !== null && (firstMealStartMs - sMs) <= ms(160)
+        // Consultar si existe preferencia aprendida para el 1er descanso (rest_10#0)
+        // para respetar si el mánager lo entrenó ANTES o DESPUÉS del Lunch:
+        const firstRestPref = findBestLearnedPref(
+            learnedPrefs,
+            rk,
+            dayOfWeek,
+            'rest_10',
+            0,
+            sMs,
+            eMs,
+            cohortIdx
+        )
+
+        let isEarlyMeal = false
+        if (firstMealStartMs !== null && firstMealEndMs !== null) {
+            if (firstRestPref) {
+                const prefRest0Ms = sMs + ms(firstRestPref.offsetMin)
+                if (prefRest0Ms >= firstMealEndMs + ms(15)) {
+                    isEarlyMeal = true
+                } else if (prefRest0Ms <= firstMealStartMs - ms(25) && (firstMealStartMs - sMs) >= ms(140)) {
+                    isEarlyMeal = false
+                } else {
+                    isEarlyMeal = (firstMealStartMs - sMs) <= (cat === 'leader' ? ms(160) : ms(185))
+                }
+            } else {
+                isEarlyMeal = (firstMealStartMs - sMs) <= (cat === 'leader' ? ms(160) : ms(185))
+            }
+        }
 
         for (let i = 0; i < rests.length; i++) {
             const globalRestIndex = manualRestsCount + i
             let segStart = minStart
             let segEnd = endBuf
-            let naturalTargetMs = sMs + (eMs - sMs) * 0.48 + cohortStaggerMs
+            let naturalTargetMs = sMs + (eMs - sMs) * 0.50 + cohortStaggerMs
 
             if (!firstMeal || firstMealStartMs === null || firstMealEndMs === null) {
-                // Turno corto (<= 6h, sin lunch): único break justo a mitad de turno
+                // Turno corto (<= 6h, sin lunch): único break justo a mitad de turno (50%)
                 segStart = minStart
                 segEnd = endBuf
-                const frac = allRests.length === 1 ? 0.48 : (globalRestIndex + 1) / (allRests.length + 1)
+                const frac = allRests.length === 1 ? 0.50 : (globalRestIndex + 1) / (allRests.length + 1)
                 naturalTargetMs = sMs + (eMs - sMs) * frac + cohortStaggerMs
             } else if (isEarlyMeal) {
-                // Lunch temprano (Pre-Peak): todos los rests van después del lunch
+                // Lunch temprano (Pre-Peak): todos los rests van después del lunch,
+                // reservando espacio al final del turno para los rests faltantes (impidiendo que rest#0 se vaya al final)
                 const postMealMinStart = Math.max(minStart, firstMealEndMs + GAP_MR_MS)
                 const existingPostRests = sortChron(
                     (shift.breaks_schedule as BreakBlock[]).filter(
@@ -1232,12 +1243,14 @@ export function scheduleBreaksWithDemand(shifts: Shift[], rawOperatingHours: Ope
                 } else {
                     segStart = postMealMinStart
                 }
-                segEnd = Math.max(segStart + ms(20), endBuf)
+                const remainingRestsAfterThis = Math.max(0, rests.length - 1 - i)
+                const reservedTailMs = remainingRestsAfterThis * (GAP_RR_MS + ms(10))
+                segEnd = Math.max(segStart + ms(30), endBuf - reservedTailMs)
                 const remShiftMs = eMs - firstMealEndMs
                 const idealPoint = firstMealEndMs + remShiftMs * ((globalRestIndex + 1) / (allRests.length + 1)) + cohortStaggerMs
                 naturalTargetMs = Math.max(segStart, Math.min(segEnd - ms(10), idealPoint))
             } else {
-                // Lunch tardío / Post-Peak (ej. Líderes): rest #0 va ANTES del lunch, rests siguientes van DESPUÉS del lunch
+                // Lunch tardío / Post-Peak: rest #0 va ANTES del lunch, rests siguientes van DESPUÉS del lunch
                 const hasPreMealRest = (shift.breaks_schedule as BreakBlock[]).some(
                     b => b.type === 'rest_10' && new Date(b.start_time).getTime() < firstMealStartMs
                 )
@@ -1259,7 +1272,9 @@ export function scheduleBreaksWithDemand(shifts: Shift[], rawOperatingHours: Ope
                     } else {
                         segStart = postMealMinStart
                     }
-                    segEnd = Math.max(segStart + ms(20), endBuf)
+                    const remainingRestsAfterThis = Math.max(0, rests.length - 1 - i)
+                    const reservedTailMs = remainingRestsAfterThis * (GAP_RR_MS + ms(10))
+                    segEnd = Math.max(segStart + ms(30), endBuf - reservedTailMs)
                     const postRestsTotal = Math.max(1, allRests.length - (hasPreMealRest || globalRestIndex > 0 ? 1 : 0))
                     const postIdx = existingPostRests.length
                     const remShiftMs = eMs - firstMealEndMs
@@ -1271,7 +1286,7 @@ export function scheduleBreaksWithDemand(shifts: Shift[], rawOperatingHours: Ope
             let targetMs = naturalTargetMs
             let bypassHeatSnap = false
 
-            // ── PREFERENCES CHECK FOR REST (Acotada estrictamente al segmento válido) ──
+            // ── PREFERENCES CHECK FOR REST ──
             const matchedRestPref = findBestLearnedPref(
                 learnedPrefs,
                 rk,
@@ -1285,8 +1300,7 @@ export function scheduleBreaksWithDemand(shifts: Shift[], rawOperatingHours: Ope
 
             if (matchedRestPref) {
                 const candidateTargetMs = sMs + ms(matchedRestPref.offsetMin)
-                // Verificar que la preferencia aprendida caiga dentro o muy cerca del segmento válido (y no viole descansos previos)
-                if (candidateTargetMs >= segStart - ms(30) && candidateTargetMs <= segEnd + ms(20)) {
+                if (candidateTargetMs >= segStart - ms(30) && candidateTargetMs <= segEnd + ms(30)) {
                     targetMs = Math.max(segStart, Math.min(segEnd - ms(10), candidateTargetMs))
                     bypassHeatSnap = true
                     console.warn(`   → 🧠 LEARNED PREFERENCE applied for ${rk} rest#${globalRestIndex}: offset ${matchedRestPref.offsetMin}m -> target ${new Date(targetMs).toLocaleTimeString()}`)
@@ -1328,19 +1342,19 @@ export function scheduleBreaksWithDemand(shifts: Shift[], rawOperatingHours: Ope
                 startMs: best.getTime(),
                 endMs: bestEnd.getTime(),
                 roleKey: rk,
-                category: getRoleCategory(rk),
+                category: cat,
                 empId: shift.employee_id ?? null,
-                shiftId: shift._uid
+                shiftId: shift._uid,
+                isGm: isGeneralManagerRole(rk)
             })
             console.warn(`☕ ${shift.employee_name} rest#${globalRestIndex + 1} → ${best.toLocaleTimeString()} seg=[${new Date(segStart).toLocaleTimeString()}-${new Date(segEnd).toLocaleTimeString()}] (target=${new Date(targetMs).toLocaleTimeString()})`)
         }
         shift.breaks_schedule = sortChron(shift.breaks_schedule)
     }
 
-    // DIAGNÓSTICO FINAL — usar heat GLOBAL (no per-shift) para comparación uniforme
     getHeat = buildHeatFn(operatingHours)
     console.warn('─'.repeat(60))
-    console.warn('📋 RESUMEN FINAL DE BREAKS ENGINE V27:')
+    console.warn('📋 RESUMEN FINAL DE BREAKS ENGINE V28:')
     let violations = 0
     for (const shift of augmented) {
         const sched = sortChron(shift.breaks_schedule) as BreakBlock[]
