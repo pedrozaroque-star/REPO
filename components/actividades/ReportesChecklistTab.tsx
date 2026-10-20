@@ -32,12 +32,17 @@ import { supabase } from '@/lib/supabase'
 import { useLanguage } from '@/lib/i18n'
 
 import { useAuth } from '@/components/ProtectedRoute'
+import { resolveStoreCatalogActivitiesForDay } from '@/lib/actividades-resolution'
+import { type StoreDayHours } from '@/lib/store-time-offset'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 interface StoreInfo {
   id: number
   name: string
   external_id: string
+  opening_time?: string | null
+  closing_time?: string | null
+  weekly_hours?: StoreDayHours[] | string | null
   has_drive_thru?: boolean
 }
 
@@ -52,10 +57,16 @@ interface CompletionRecord {
 
 interface Procedure {
   id: string
+  activity?: string
+  description?: string
+  start_time?: string
+  duration_minutes?: number
   shift_type: string
+  shift?: string
   frequency: string
   role: string
   store_model?: string
+  overrides?: Record<string, any> | null
 }
 
 interface ShiftStats {
@@ -154,7 +165,8 @@ export default function ReportesChecklistTab() {
   const { user } = useAuth()
 
   const userRole = (user?.role || 'user').toLowerCase()
-  const canChangeStore = userRole !== 'manager'
+  // En reportes comparativos la lectura está abierta para todos los roles con acceso al reporte (Fase 0 item 10)
+  const canChangeStore = true
 
   const [stores, setStores] = useState<StoreInfo[]>([])
   const [selectedStoreId, setSelectedStoreId] = useState<string>('ALL')
@@ -170,24 +182,28 @@ export default function ReportesChecklistTab() {
   // ─── Fetch stores ──────────────────────────────────────────────────────
   useEffect(() => {
     async function load() {
-      const { data } = await supabase.from('stores').select('id, name, external_id, has_drive_thru').order('name')
+      const { data } = await supabase
+        .from('stores')
+        .select('id, name, external_id, opening_time, closing_time, weekly_hours, has_drive_thru')
+        .eq('is_active', true)
+        .order('name')
       if (data) {
         setStores(data as StoreInfo[])
-        if (!canChangeStore && user?.store_id) {
-          const store = data.find(s => String(s.id) === String(user.store_id))
+        if (userRole === 'manager' && user?.store_id) {
+          const store = data.find(s => String(s.id) === String(user.store_id) || s.external_id === String(user.store_id))
           if (store) setSelectedStoreId(String(store.id))
         }
       }
     }
     load()
-  }, [canChangeStore, user])
+  }, [userRole, user])
 
   // ─── Fetch procedures ──────────────────────────────────────────────────
   useEffect(() => {
     async function load() {
       const { data } = await supabase
         .from('operating_procedures')
-        .select('id, shift_type, frequency, role, store_model')
+        .select('id, activity, description, start_time, duration_minutes, shift_type, shift, frequency, role, store_model, overrides')
       if (data) {
         setProcedures(data.filter((p: Procedure) => p.role !== 'ROLES_MODULE'))
       }
@@ -202,6 +218,21 @@ export default function ReportesChecklistTab() {
       const dateRange = viewMode === 'week' ? weekDates : [selectedDate]
       const startDate = dateRange[0]
       const endDate = dateRange[dateRange.length - 1]
+
+      const targetStoreParam =
+        selectedStoreId !== 'ALL'
+          ? stores.find(s => String(s.id) === selectedStoreId)?.external_id || selectedStoreId
+          : 'ALL'
+
+      const apiRes = await fetch(
+        `/api/roles/checklist?store_id=${encodeURIComponent(targetStoreParam)}&start_date=${encodeURIComponent(startDate)}&end_date=${encodeURIComponent(endDate)}`
+      )
+      if (apiRes.ok) {
+        const apiRows = await apiRes.json()
+        setCompletions(Array.isArray(apiRows) ? apiRows : [])
+        setLoading(false)
+        return
+      }
 
       let query = supabase
         .from('checklist_completions')
@@ -231,31 +262,19 @@ export default function ReportesChecklistTab() {
     if (stores.length > 0) fetchCompletions()
   }, [fetchCompletions, stores])
 
-  // ─── Compute report for a specific date + store ────────────────────────
+  // ─── Compute report for a specific date + store (Motor Unificado A01–A05, A07, A26) ──
   const computeDayReportForStore = useCallback((date: string, store: StoreInfo): DayReport => {
-    const dayName = getDayNameForDate(date)
     const shifts = ['Apertura', 'Regular', 'Cierre']
 
     const dayCompletions = completions.filter(c => c.checklist_date === date && c.store_id === store.external_id)
     const completedIds = new Set(dayCompletions.map(c => c.activity_id))
 
-    const hasDriveThru = store.has_drive_thru ?? false
-
     const shiftStats: ShiftStats[] = shifts.map(shift => {
-      const shiftProcs = procedures.filter(p => {
-        if (p.shift_type !== shift) return false
-        if (!isFreqMatch(p.frequency, dayName)) return false
-        
-        // Filtrar por store_model
-        if (p.store_model) {
-          if (hasDriveThru) {
-            if (p.store_model !== 'AMBOS' && p.store_model !== 'DRIVE_THRU') return false;
-          } else {
-            if (p.store_model !== 'AMBOS' && p.store_model !== 'REGULAR') return false;
-          }
-        }
-        
-        return true
+      const shiftProcs = resolveStoreCatalogActivitiesForDay({
+        procedures,
+        store,
+        businessDateStr: date,
+        categoryFilter: shift,
       })
       const completed = shiftProcs.filter(p => completedIds.has(p.id)).length
       const missing = shiftProcs.filter(p => !completedIds.has(p.id)).map(p => p.id)
@@ -441,6 +460,17 @@ export default function ReportesChecklistTab() {
             <option key={s.id} value={String(s.id)}>{s.name}</option>
           ))}
         </select>
+      </div>
+
+      {/* Nota explícita sobre el denominador del catálogo actual (A26) */}
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: '10px',
+        marginBottom: '18px', padding: '10px 16px',
+        background: '#f8fafc', borderRadius: '12px',
+        border: '1px solid #e2e8f0', color: '#475569', fontSize: '12px',
+      }}>
+        <Clock size={15} style={{ color: '#ea580c', flexShrink: 0 }} />
+        <span>{t('actividades.reports.catalog_denominator_note')}</span>
       </div>
 
       {loading ? (

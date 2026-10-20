@@ -1,18 +1,27 @@
-
 /**
  * @module PublishScheduleAPI
- * @description API endpoint to publish weekly employee schedules, send email notifications, and auto-resolve breaks and activities.
+ * @description API endpoint para publicar horarios semanales del Planificador, generar vistas previas
+ * sin efectos secundarios (`preview_only`), enviar notificaciones por correo y adjuntar calendarios (.ics).
+ *
  * @businessRules
- * - Resolves daily tasks dynamically from the global `position_activities` configuration.
- * - Auto-detects store model type (Regular vs DriveThru) based on weekly assignments.
- * - Handles shifts and break calculations.
+ * 1. Autenticación y Autorización Estricta (`A17`):
+ *    - Valida identidad desde el JWT del servidor (`getServerUser`) antes de leer credenciales o mutar datos.
+ *    - Verifica rol (`admin`, `supervisor`, `manager`, `asistente`) y alcance de sucursal (`authorizeStoreScope`).
+ *    - Valida que todos los `shift_ids` pertenezcan a la sucursal y rango de fechas autorizado.
+ *    - Elimina el fallback implícito a cuentas personales y nunca borra tokens OAuth de terceros.
+ * 2. Modo Vista Previa Pura (`preview_only: true`):
+ *    - Calcula exactamente estaciones, actividades con hora efectiva ajustada por sucursal/día, descansos
+ *      y HTML del correo sin enviar correos, sin cambiar `status` a `'published'` y sin mutar la base de datos.
+ * 3. Resolución Unificada de Actividades y Horarios (`A01–A11`, `A25`):
+ *    - Usa `lib/actividades-resolution.ts` y `lib/store-time-offset.ts` (`weekly_hours` + `has_drive_thru`).
+ *    - Usa intervalos semiabiertos `[start, end)` con precisión de minutos sobre la jornada laboral 6:00 AM–5:59 AM.
+ *    - Respeta `is_callback === true` (Ausente/Callback) como condición excluyente de actividades operativas (`A08`).
+ *    - Controla la inclusión operativa de actividades en correos mediante `isStorePilotActiveForActivitiesEmail`
+ *      (Slauson activa en piloto; las 15 sucursales 100% soportadas y verificables).
+ *
  * @dataFlow
- * - Reads from `shifts`, `toast_employees`, `station_assignments`, and `position_activities`.
- * - Updates shifts in database and sends email notifications.
- * @notes
- * - Employs resolvePositionKey helper to dynamically map any employee and station combination to a standard position key.
- * - Resolves roles and activities from Toast job title directly when no manual station assignment is configured.
- * - Integrates robust store model auto-detection checking store name as a fallback for Drive-Thru.
+ * - Reads: `stores`, `shifts`, `toast_employees`, `station_assignments`, `position_activities`, `operating_procedures`.
+ * - Writes (solo cuando `preview_only !== true`): `shifts.status = 'published'`, `shifts.breaks_schedule`, `schedules` sync.
  */
 
 import { NextResponse } from 'next/server'
@@ -29,140 +38,167 @@ import {
     buildGoogleCalendarUrl,
     buildCalendarApiUrl,
     CalendarStoreInfo,
-    CalendarShiftItem
+    CalendarShiftItem,
 } from '@/lib/calendar-helper'
 import { syncPlannerToSchedules } from '@/lib/sync-planner-to-schedules'
+import { getServerUser, authorizeStoreScope } from '@/lib/auth-server'
+import {
+    getHourLA,
+    getShiftOverlappingPeriods,
+    isFreqMatch as sharedIsFreqMatch,
+    isStorePilotActiveForActivitiesEmail,
+    mergeAndDeduplicateActivities,
+    normalizeText as sharedNormalizeText,
+    ResolvedActivityItem,
+    resolveStationActivities,
+} from '@/lib/actividades-resolution'
 
 // Helper to extract California local hour (0-23) immune to UTC server drift
-function getLAHour(d: Date): number {
-  const str = d.toLocaleTimeString('en-US', { hour: 'numeric', hour12: false, timeZone: 'America/Los_Angeles' });
-  const h = parseInt(str, 10);
-  return h === 24 ? 0 : h;
+function getLAHour(d: Date | string): number {
+    if (typeof d === 'string') return getHourLA(d)
+    const str = d.toLocaleTimeString('en-US', {
+        hour: 'numeric',
+        hour12: false,
+        timeZone: 'America/Los_Angeles',
+    })
+    const h = parseInt(str, 10)
+    return h === 24 ? 0 : h
 }
 
-// Helper to translate employee job + station group to the 6 standard roles
+// Helper to translate employee job + station group to standard role keys
 function resolvePositionKey(jobTitle: string, stationName?: string, stationGroup?: string): string {
-  const title = (jobTitle || '').toLowerCase();
-  
-  if (title.includes('manager') && !title.includes('asst') && !title.includes('assist') && !title.includes('asistente') && !title.includes('shift')) {
-    return 'MANAGER';
-  }
-  
-  if (title.includes('asst') || title.includes('assist') || title.includes('asistente')) {
-    return 'ASSISTANT';
-  }
-  
-  if (title.includes('shift') || title.includes('leader') || title.includes('encargado')) {
-    const group = (stationGroup || '').toLowerCase();
-    const station = (stationName || '').toLowerCase();
-    const isKitchen = group === 'kitchen' || ['burritos', 'tortillas', 'tacos', 'carnes', 'preparacion', 'cubrir descansos (cocina)'].some(s => station.includes(s));
-    return isKitchen ? 'SHIFT_LEADER_MALE' : 'SHIFT_LEADER_FEMALE';
-  }
-  
-  if (title.includes('cook') || title.includes('cocinero') || title.includes('prep') || title.includes('preparador') || title.includes('taquero') || title.includes('tortill')) {
-    return 'COOK_MALE';
-  }
-  
-  if (title.includes('cashier') || title.includes('cajera') || title.includes('cajero')) {
-    return 'CASHIER';
-  }
-  
-  const group = (stationGroup || '').toLowerCase();
-  if (group === 'kitchen') {
-    return 'COOK_MALE';
-  }
-  return 'CASHIER';
+    const title = (jobTitle || '').toLowerCase()
+
+    if (
+        title.includes('manager') &&
+        !title.includes('asst') &&
+        !title.includes('assist') &&
+        !title.includes('asistente') &&
+        !title.includes('shift')
+    ) {
+        return 'MANAGER'
+    }
+
+    if (title.includes('asst') || title.includes('assist') || title.includes('asistente')) {
+        return 'ASSISTANT'
+    }
+
+    if (title.includes('shift') || title.includes('leader') || title.includes('encargado')) {
+        const group = (stationGroup || '').toLowerCase()
+        const station = (stationName || '').toLowerCase()
+        const isKitchen =
+            group === 'kitchen' ||
+            [
+                'burritos',
+                'tortillas',
+                'tacos',
+                'carnes',
+                'parrilla',
+                'preparacion',
+                'cubrir descansos (cocina)',
+            ].some((s) => station.includes(s))
+        return isKitchen ? 'SHIFT_LEADER_MALE' : 'SHIFT_LEADER_FEMALE'
+    }
+
+    if (
+        title.includes('cook') ||
+        title.includes('cocinero') ||
+        title.includes('prep') ||
+        title.includes('preparador') ||
+        title.includes('taquero') ||
+        title.includes('tortill')
+    ) {
+        return 'COOK_MALE'
+    }
+
+    if (title.includes('cashier') || title.includes('cajera') || title.includes('cajero')) {
+        return 'CASHIER'
+    }
+
+    const group = (stationGroup || '').toLowerCase()
+    if (group === 'kitchen') {
+        return 'COOK_MALE'
+    }
+    return 'CASHIER'
+}
+
+function mapRoleKeyToCatalogPositionKey(roleKey: string): { mainStation: string; subPosition: string | null } {
+    switch (roleKey) {
+        case 'MANAGER':
+            return { mainStation: 'MANAGER', subPosition: 'LIDERAZGO|Manager' }
+        case 'ASSISTANT':
+            return { mainStation: 'ASSISTANT', subPosition: 'LIDERAZGO|Asistente de Manager' }
+        case 'SHIFT_LEADER_MALE':
+            return { mainStation: 'SHIFT_LEADER_MALE', subPosition: 'LIDERAZGO|Shift Leader' }
+        case 'SHIFT_LEADER_FEMALE':
+            return { mainStation: 'SHIFT_LEADER_FEMALE', subPosition: 'LIDERAZGO|Shift Leader' }
+        case 'COOK_MALE':
+            return { mainStation: 'TACOS', subPosition: null }
+        case 'CASHIER':
+            return { mainStation: 'Caja 1 / Salón', subPosition: null }
+        default:
+            return { mainStation: roleKey, subPosition: null }
+    }
 }
 
 function normalizeText(text: string): string {
-  return (text || '')
-    .toLowerCase()
-    .replace(/[^a-z0-9]/g, '')
-    .trim();
+    return sharedNormalizeText(text)
 }
-
-const STATION_BACKUPS: Record<string, string[]> = {
-  // Kitchen
-  'BURRITOS': ['TACOS', 'CARNES', 'TORTAS/QUESADILLAS', 'PREPARACION'],
-  'TORTILLAS': ['TACOS', 'CARNES', 'BURRITOS', 'PREPARACION'],
-  'TORTAS/QUESADILLAS': ['TORTAS/MULITAS', 'TACOS', 'CARNES'],
-  'TORTAS/MULITAS': ['TORTAS/QUESADILLAS', 'TACOS', 'CARNES'],
-  'TACOS': ['CARNES', 'BURRITOS', 'TORTAS/QUESADILLAS', 'PREPARACION'],
-  'CARNES': ['TACOS', 'BURRITOS', 'TORTAS/QUESADILLAS', 'PREPARACION'],
-  'PREPARACION': ['CARNES', 'TACOS', 'BURRITOS'],
-  'CUBRIR DESCANSOS (COCINA)': ['TACOS', 'CARNES'],
-
-  // Drive-Thru support
-  'TORTAS/QUESADILLAS (DT)': ['TORTAS/QUESADILLAS', 'TACOS/BURRITOS (DT)'],
-  'TACOS/BURRITOS (DT)': ['TACOS', 'BURRITOS', 'TORTAS/QUESADILLAS (DT)'],
-  'CUBRIR DESCANSOS (DT)': ['CUBRIR DESCANSOS (COCINA)', 'CUBRIR DESCANSOS (SALÓN)'],
-
-  // Front / Salon
-  'Ventana 1': ['Ventana 2', 'Ventana 2 (B)', 'Caja 1 / Salón', 'ENTREGA'],
-  'Ventana 2': ['Ventana 1', 'Ventana 2 (B)', 'Caja 1 / Salón', 'ENTREGA'],
-  'Ventana 2 (B)': ['Ventana 2', 'Ventana 1', 'Caja 1 / Salón', 'ENTREGA'],
-  'Caja 1 / Salón': ['Caja 2', 'Caja 3', 'Ventana 1', 'Uber + Salsas'],
-  'Caja 2': ['Caja 1 / Salón', 'Caja 3', 'Uber + Salsas'],
-  'Caja 3': ['Caja 2', 'Caja 1 / Salón', 'Uber + Salsas'],
-  'Caja 4': ['Caja 3', 'Caja 2', 'Caja 1 / Salón'],
-  'Caja 5': ['Caja 4', 'Caja 3', 'Caja 2'],
-  'Uber + Salsas': ['Caja 1 / Salón', 'Caja 2', 'ENTREGA'],
-  'ENTREGA': ['Uber + Salsas', 'Caja 1 / Salón', 'Ventana 1'],
-  'LIMPIEZA': ['Caja 1 / Salón', 'Caja 2', 'Uber + Salsas'],
-  'CUBRIR DESCANSOS (SALÓN)': ['Caja 1 / Salón', 'Ventana 1']
-};
 
 // Initialize clients
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co'
-const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'placeholder'
+const supabaseKey =
+    process.env.SUPABASE_SERVICE_ROLE_KEY ||
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
+    'placeholder'
 const supabase = createClient(supabaseUrl, supabaseKey)
 
-
-// Función para obtener transporte (ESTRICTO: Solo OAuth por Usuario)
-async function getTransporter(userId?: string) {
-    if (!userId) {
+// Función para obtener transporte OAuth2 de Gmail (ESTRICTO: Solo usuario autenticado o cuenta corporativa explícita)
+async function getTransporter(authenticatedUserId: string) {
+    if (!authenticatedUserId) {
         throw new Error('Usuario no identificado. No se pueden enviar correos anónimos.')
     }
 
-    // DEBUG: Check Service Role Key presence (Safe log)
-    const isServiceKey = !!process.env.SUPABASE_SERVICE_ROLE_KEY
-    console.log('🔍 [API] Fetching creds for:', userId, 'Using ServiceKey:', isServiceKey)
-
-    // 1. Intentar obtener credenciales OAuth del usuario
-    const { data: user, error } = await supabase.from('users')
-        .select('google_refresh_token, google_email_connected')
-        .eq('id', userId)
-        .single()
+    const { data: user, error } = await supabase
+        .from('users')
+        .select('id, email, google_refresh_token, google_email_connected')
+        .eq('id', authenticatedUserId)
+        .maybeSingle()
 
     if (error) {
-        console.error('❌ [API] DB Error fetching user:', error)
+        console.error('❌ [API] DB Error fetching user OAuth credentials:', error)
     }
 
-    // AUTO-HEALING: If user not found in public.users but exists in auth.users, create it.
-    if (!user) {
-        console.warn('⚠️ [API] User record missing in public.users. Checking auth.users...')
-        // We can't query auth.users directly via client easily without service role admin magic 
-        // OR we just fail here because if public.users is empty, they haven't run the OAuth flow correctly anyway.
-        // But let's log explicitly.
+    let targetUser = user
+    const delegatedCorporateUserId = process.env.CORPORATE_SCHEDULE_SENDER_USER_ID?.trim()
+
+    if ((!targetUser?.google_refresh_token || !targetUser?.google_email_connected) && delegatedCorporateUserId) {
+        const { data: corpUser } = await supabase
+            .from('users')
+            .select('id, email, google_refresh_token, google_email_connected')
+            .eq('id', delegatedCorporateUserId)
+            .maybeSingle()
+        if (corpUser?.google_refresh_token && corpUser?.google_email_connected) {
+            console.log(
+                `ℹ️ [API] Using explicitly configured corporate sender (${corpUser.google_email_connected}) on behalf of user ${authenticatedUserId}`
+            )
+            targetUser = corpUser
+        }
     }
 
-    if (user?.google_refresh_token && user?.google_email_connected) {
-        console.log(`✅ [API] Found OAuth2 for user ${user.google_email_connected}`)
-
-        // MANUAL TOKEN REFRESH (To fix 535 errors)
+    if (targetUser?.google_refresh_token && targetUser?.google_email_connected) {
         try {
             const tokenUrl = 'https://oauth2.googleapis.com/token'
             const params = new URLSearchParams()
             params.append('client_id', process.env.GOOGLE_CLIENT_ID!)
             params.append('client_secret', process.env.GOOGLE_CLIENT_SECRET!)
-            params.append('refresh_token', user.google_refresh_token)
+            params.append('refresh_token', targetUser.google_refresh_token)
             params.append('grant_type', 'refresh_token')
 
-            console.log('🔄 [API] Refreshing Access Token manually...')
             const refreshRes = await fetch(tokenUrl, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                body: params
+                body: params,
             })
 
             if (!refreshRes.ok) {
@@ -173,237 +209,333 @@ async function getTransporter(userId?: string) {
 
             const tokens = await refreshRes.json()
             const accessToken = tokens.access_token
-            console.log('✅ [API] Access Token refreshed successfully!')
 
-            // FETCH REAL USER PROFILE (To ensure 'user' matches the token owner)
             const profileRes = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
-                headers: { Authorization: `Bearer ${accessToken}` }
+                headers: { Authorization: `Bearer ${accessToken}` },
             })
             const profile = await profileRes.json()
-            const realEmail = profile.email
-            console.log(`✅ [API] Authenticated as Google User: ${realEmail} (Expected: ${user.google_email_connected})`)
+            const realEmail = profile.email || targetUser.google_email_connected
 
             return {
-                accessToken, // EXPOSE TOKEN
-                fromEmail: realEmail
+                accessToken,
+                fromEmail: realEmail,
             }
         } catch (e) {
             console.error('❌ [API] Critical Auth Error during refresh:', e)
             throw new Error('GMAIL_AUTH_FAILED: ' + (e as Error).message)
         }
-    } else {
-        console.warn('⚠️ [API] User found but missing tokens:', JSON.stringify(user))
     }
 
-    // SI LLEGAMOS AQUI: El usuario no tiene credenciales conectadas.
-    // YA NO HACEMOS FALLBACK a la cuenta global por seguridad y política de empresa.
-    throw new Error('GMAIL_NOT_CONNECTED')
+    throw new Error('GMAIL_AUTH_FAILED: GMAIL_NOT_CONNECTED')
 }
 
 export async function POST(req: Request) {
     try {
-        const body = await req.json()
-        const { store_id, start_date, end_date, sender_user_id } = body
-
-        if (!store_id || !start_date || !end_date) {
-            return NextResponse.json({ error: 'Missing required fields: store_id, start_date, end_date' }, { status: 400 })
+        // 0. AUTENTICACIÓN Y AUTORIZACIÓN OBLIGATORIA ANTES DE CUALQUIER EFECTO SECUNDARIO (A17)
+        const authUser = await getServerUser(req)
+        if (!authUser) {
+            return NextResponse.json(
+                { error: 'No autenticado. Inicia sesión para publicar o previsualizar horarios.' },
+                { status: 401 }
+            )
         }
 
-        // 1. Init Credentials
-        let accessToken;
-        let fromEmail;
+        const body = await req.json()
+        const { store_id, start_date, end_date } = body
+        const previewOnly = Boolean(body.preview_only)
 
-        let fallbackUsed = false;
+        if (!store_id || !start_date || !end_date) {
+            return NextResponse.json(
+                { error: 'Missing required fields: store_id, start_date, end_date' },
+                { status: 400 }
+            )
+        }
 
-        try {
-            const creds = await getTransporter(sender_user_id)
-            accessToken = creds.accessToken
-            fromEmail = creds.fromEmail
-        } catch (error: any) {
-            console.warn(`⚠️ [API] Falló la cuenta principal (${error.message}). Intentando fallback a carlos@tacosgavilan.com de emergencia.`)
-            const { data: carlosUser } = await supabase.from('users').select('id').eq('email', 'carlos@tacosgavilan.com').single()
-            
-            if (carlosUser) {
-                try {
-                    const fallbackCreds = await getTransporter(carlosUser.id)
-                    accessToken = fallbackCreds.accessToken
-                    fromEmail = fallbackCreds.fromEmail
-                    fallbackUsed = true;
-                    console.log(`✅ [API] Fallback exitoso. Usando cuenta de Carlos: ${fromEmail}`)
+        if (
+            !/^\d{4}-\d{2}-\d{2}$/.test(String(start_date).trim()) ||
+            !/^\d{4}-\d{2}-\d{2}$/.test(String(end_date).trim()) ||
+            String(start_date).trim() > String(end_date).trim()
+        ) {
+            return NextResponse.json(
+                { error: 'Rango de fechas inválido: start_date y end_date deben ser YYYY-MM-DD con start_date <= end_date.' },
+                { status: 400 }
+            )
+        }
 
-                    // Invalidate manager's account so they are forced to reconnect next time
-                    if (sender_user_id && sender_user_id !== carlosUser.id) {
-                        console.log(`🧹 [API] Limpiando credenciales caducadas del manager: ${sender_user_id}`)
-                        await supabase.from('users').update({ google_email_connected: null, google_refresh_token: null }).eq('id', sender_user_id)
-                    }
+        const scopeAuth = await authorizeStoreScope(authUser, store_id, supabase, {
+            requireWrite: !previewOnly,
+        })
+        if (!scopeAuth.authorized) {
+            return NextResponse.json(
+                { error: scopeAuth.error || 'No tienes permiso sobre esta sucursal.' },
+                { status: scopeAuth.status || 403 }
+            )
+        }
 
-                } catch (fallbackError) {
-                    console.error('❌ [API] Fallback también falló.', fallbackError)
-                    throw error // Lanza el error original para que la UI reaccione correctamente
-                }
-            } else {
-                throw error
+        // Resolver tienda y configuración horaria / Drive-Thru (A02, A09)
+        const isNumericStore = /^\d+$/.test(String(store_id).trim())
+        const storeQuery = supabase
+            .from('stores')
+            .select(
+                'id, external_id, name, address, city, state, zip_code, phone, opening_time, closing_time, weekly_hours, has_drive_thru'
+            )
+        const { data: store } = isNumericStore
+            ? await storeQuery.eq('id', Number(store_id)).maybeSingle()
+            : await storeQuery.eq('external_id', String(store_id).trim()).maybeSingle()
+
+        if (!store) {
+            return NextResponse.json({ error: 'Sucursal no encontrada.' }, { status: 404 })
+        }
+
+        const resolvedStoreGuid = store.external_id || String(store_id).trim()
+        const storeName = store.name || 'Tu Equipo'
+        const hasDT = Boolean(store.has_drive_thru)
+
+        // Validar pertenencia estricta de shift_ids antes de cualquier mutación (A17)
+        const requestedShiftIds: string[] = Array.isArray(body.shift_ids)
+            ? body.shift_ids.map((id: any) => String(id).trim()).filter(Boolean)
+            : []
+
+        if (requestedShiftIds.length > 0) {
+            const { data: verifiedShifts, error: verifyErr } = await supabase
+                .from('shifts')
+                .select('id, store_id, shift_date')
+                .in('id', requestedShiftIds)
+
+            if (verifyErr) {
+                return NextResponse.json(
+                    { error: 'Error verificando shift_ids: ' + verifyErr.message },
+                    { status: 500 }
+                )
+            }
+
+            const invalidShift = (verifiedShifts || []).find(
+                (s: any) =>
+                    String(s.store_id) !== resolvedStoreGuid ||
+                    String(s.shift_date) < String(start_date) ||
+                    String(s.shift_date) > String(end_date)
+            )
+
+            if (
+                invalidShift ||
+                (verifiedShifts || []).length !== requestedShiftIds.length
+            ) {
+                return NextResponse.json(
+                    {
+                        error: 'Acceso denegado: Uno o más shift_ids no pertenecen a la sucursal o semana autorizada.',
+                    },
+                    { status: 403 }
+                )
             }
         }
 
-        // 2. Fetch Published Shifts
-        // FIX RACE CONDITION: When shift_ids are explicitly provided, the client JUST updated
-        // them to 'published' via anon key. To prevent a race where this server-side query
-        // (via service role) runs before the client write propagates, we FIRST ensure the
-        // update is applied atomically here, then query.
-        if (body.shift_ids && Array.isArray(body.shift_ids) && body.shift_ids.length > 0) {
-            console.log(`🔄 [API] Ensuring ${body.shift_ids.length} shifts are marked as 'published' (atomic guarantee)...`)
+        // 1. Obtener credenciales de envío SOLO si no es preview_only
+        let accessToken = ''
+        let fromEmail = authUser.email
+
+        if (!previewOnly) {
+            const creds = await getTransporter(authUser.id)
+            accessToken = creds.accessToken
+            fromEmail = creds.fromEmail
+        }
+
+        // 2. Actualizar estado a 'published' SOLO cuando no es preview_only y con scope estricto de tienda/rango
+        if (!previewOnly && requestedShiftIds.length > 0) {
             const { error: ensureError } = await supabase
                 .from('shifts')
                 .update({ status: 'published' })
-                .in('id', body.shift_ids)
+                .eq('store_id', resolvedStoreGuid)
+                .gte('shift_date', start_date)
+                .lte('shift_date', end_date)
+                .in('id', requestedShiftIds)
+
             if (ensureError) {
                 console.error('❌ [API] Failed to ensure publish status:', ensureError)
+                return NextResponse.json(
+                    { error: 'No se pudieron actualizar los turnos a estado publicado.' },
+                    { status: 500 }
+                )
             }
         }
 
+        // Consultar turnos del periodo (en preview_only incluye borradores para previsualizar antes de publicar)
         let query = supabase
             .from('shifts')
             .select('*')
-            .eq('store_id', store_id)
-            .eq('status', 'published')
+            .eq('store_id', resolvedStoreGuid)
             .gte('shift_date', start_date)
             .lte('shift_date', end_date)
+
+        if (!previewOnly) {
+            query = query.eq('status', 'published')
+        }
+        if (requestedShiftIds.length > 0) {
+            query = query.in('id', requestedShiftIds)
+        }
 
         const { data: shifts, error: shiftError } = await query
 
         if (shiftError) {
             console.error('❌ [API] Error querying shifts:', shiftError)
-            return NextResponse.json({ success: false, error: 'Database error fetching shifts: ' + shiftError.message }, { status: 500 })
+            return NextResponse.json(
+                { success: false, error: 'Database error fetching shifts: ' + shiftError.message },
+                { status: 500 }
+            )
         }
 
         if (!shifts || shifts.length === 0) {
-            console.warn('⚠️ [API] No published shifts found for store:', store_id, 'IDs:', body.shift_ids?.length || 0)
-            return NextResponse.json({ success: true, stats: { email: 0, errors: 0 }, message: 'No published shifts found to notify' })
+            return NextResponse.json({
+                success: true,
+                preview_only: previewOnly,
+                stats: { email: 0, errors: 0 },
+                previews: [],
+                message: 'No shifts found for the specified store and date range',
+            })
         }
 
-        // 🔄 AUTO-SYNC: Sincronizar turnos de Managers y Asistentes con el módulo Horarios (/horarios)
-        try {
-            console.log(`🔄 [API] Sincronizando turnos de liderazgo con Horarios para tienda ${store_id} (${start_date} a ${end_date})...`);
-            const syncResult = await syncPlannerToSchedules({
-                storeExternalId: store_id,
-                startDate: start_date,
-                endDate: end_date,
-                customClient: supabase
-            });
-            console.log(`✅ [API] Horarios sincronizados con éxito: ${syncResult.syncedShiftsCount} turnos para ${syncResult.storeName}`);
-        } catch (syncErr: any) {
-            console.error('⚠️ [API] Advertencia no bloqueante al sincronizar Horarios:', syncErr.message);
+        // Sincronizar turnos de liderazgo solo en publicación real (nunca en preview_only)
+        if (!previewOnly) {
+            try {
+                await syncPlannerToSchedules({
+                    storeExternalId: resolvedStoreGuid,
+                    startDate: start_date,
+                    endDate: end_date,
+                    customClient: supabase,
+                })
+            } catch (syncErr: any) {
+                console.error('⚠️ [API] Advertencia no bloqueante al sincronizar Horarios:', syncErr.message)
+            }
         }
 
-        // 3. Identify Employees (Target explicit list or all in view)
+        // 3. Identify Employees (validando que pertenezcan a los turnos de la sucursal)
+        const shiftEmployeeIds = new Set(shifts.map((s: any) => String(s.employee_id)).filter(Boolean))
         let targetEmployeeIds: string[] = []
         if (body.employee_ids && Array.isArray(body.employee_ids) && body.employee_ids.length > 0) {
             targetEmployeeIds = body.employee_ids
+                .map((id: any) => String(id).trim())
+                .filter((id: string) => shiftEmployeeIds.has(id))
         } else {
-            targetEmployeeIds = [...new Set(shifts.map(s => s.employee_id).filter(Boolean))]
+            targetEmployeeIds = Array.from(shiftEmployeeIds)
         }
 
-        if (targetEmployeeIds.length === 0) return NextResponse.json({ message: 'No employees to notify' })
+        if (targetEmployeeIds.length === 0) {
+            return NextResponse.json({
+                success: true,
+                preview_only: previewOnly,
+                previews: [],
+                message: 'No employees to notify in this store scope',
+            })
+        }
 
-        // 4. Fetch Employee Contact Info
-        const { data: employees, error: empError } = await supabase
-            .from('toast_employees')
-            .select('*')
-            .in('id', targetEmployeeIds)
+        // 4. Fetch Employee Contact Info, Station Assignments, Catalog & Position Mappings
+        const [empRes, assignRes, jobsRes, overridesRes, posActRes, procRes] = await Promise.all([
+            supabase.from('toast_employees').select('*').in('id', targetEmployeeIds),
+            supabase
+                .from('station_assignments')
+                .select('*')
+                .eq('store_id', resolvedStoreGuid)
+                .gte('assignment_date', start_date)
+                .lte('assignment_date', end_date),
+            supabase.from('toast_jobs').select('*'),
+            supabase.from('break_manual_overrides').select('*').eq('store_id', resolvedStoreGuid),
+            supabase
+                .from('position_activities')
+                .select('id, position_key, activity_id, shift, frequency, store_model'),
+            supabase
+                .from('operating_procedures')
+                .select(
+                    'id, activity, description, start_time, duration_minutes, shift_type, shift, frequency, store_model, role, overrides'
+                ),
+        ])
 
-        if (empError) throw empError
+        if (empRes.error) throw empRes.error
+        const employees = empRes.data || []
+        const stationAssignments = assignRes.data || []
+        const allJobs = jobsRes.data || []
+        const storeOverrides = overridesRes.data || []
+        const positionActivities = posActRes.data || []
+        const allProcedures = procRes.data || []
 
-        // --- 5. STATION ASSIGNMENTS FETCH ---
-        const { data: stationAssignments } = await supabase
-            .from('station_assignments')
-            .select('*')
-            .eq('store_id', store_id)
-            .gte('assignment_date', start_date)
-            .lte('assignment_date', end_date)
-
-        // --- 6. SMART BREAKS GENERATION (Fidelity Alignment with Tablet & AI Learning) ---
-        const { data: allJobs } = await supabase.from('toast_jobs').select('*')
-
-        // Fetch learned preferences for this store from break_manual_overrides
-        const { data: storeOverrides } = await supabase
-            .from('break_manual_overrides')
-            .select('*')
-            .eq('store_id', store_id)
-
-        const learnedPrefs: LearnedPreference[] = (storeOverrides || []).map(o => ({
+        // 5. SMART BREAKS GENERATION (solo muta DB cuando previewOnly === false)
+        const learnedPrefs: LearnedPreference[] = storeOverrides.map((o: any) => ({
             role: o.role,
             day_of_week: o.day_of_week,
             break_type: o.break_type,
             break_index: o.break_index,
             offset_from_start_min: o.offset_from_start_min,
             shift_duration_min: o.shift_duration_min,
-            peak_hour: o.peak_hour
+            peak_hour: o.peak_hour,
         }))
 
-        // POR PETICIÓN DEL USUARIO: Forzar el recálculo de TODOS los turnos 
-        // usando el motor inteligente con aprendizaje de preferencias al publicar, y guardarlo en la BD.
-        const needsCalcShifts = shifts;
-
-        if (needsCalcShifts.length > 0) {
-            console.log(`🤖 [API] Recalculando breaks para TODOS los ${needsCalcShifts.length} shifts al Publicar (con ${learnedPrefs.length} preferencias aprendidas)...`)
-            
-            const datesToProcess = [...new Set(needsCalcShifts.map(s => s.shift_date))]
-            
+        if (!previewOnly && shifts.length > 0) {
+            const datesToProcess = [...new Set(shifts.map((s: any) => s.shift_date))]
             for (const dateStr of datesToProcess) {
                 try {
-                    // Fetch current day's complete context to ensure leader/tropa rules
-                    const { data: dayShifts } = await supabase.from('shifts').select('*').eq('store_id', store_id).eq('shift_date', dateStr)
+                    const { data: dayShifts } = await supabase
+                        .from('shifts')
+                        .select('*')
+                        .eq('store_id', resolvedStoreGuid)
+                        .eq('shift_date', dateStr)
                     if (!dayShifts) continue
 
-                    // Get Forecast
-                    const { hours: hoursToDraw } = await generateSmartForecast(store_id, dateStr)
-                    
-                    // Identify employees for this day context
-                    const dayEmpIds = [...new Set(dayShifts.map(s => s.employee_id).filter(Boolean))]
-                    const { data: dayEmployees } = await supabase.from('toast_employees').select('*').in('id', dayEmpIds)
+                    const { hours: hoursToDraw } = await generateSmartForecast(resolvedStoreGuid, dateStr)
+                    const dayEmpIds = [...new Set(dayShifts.map((s: any) => s.employee_id).filter(Boolean))]
+                    const { data: dayEmployees } = await supabase
+                        .from('toast_employees')
+                        .select('*')
+                        .in('id', dayEmpIds)
 
                     const shiftsForAi = dayShifts
-                        .filter((s: any) => s.is_callback !== true) // FIDELITY: Skip absentees in calculation
+                        .filter((s: any) => s.is_callback !== true)
                         .map((s: any) => {
-                            const emp = (dayEmployees || []).find(e => e.id === s.employee_id || e.toast_guid === s.employee_toast_guid)
+                            const emp = (dayEmployees || []).find(
+                                (e: any) => e.id === s.employee_id || e.toast_guid === s.employee_toast_guid
+                            )
                             let extTitle = ''
                             if (emp?.job_references?.[0]) {
-                                const job = (allJobs || []).find((j: any) => j.guid === emp.job_references[0].guid)
+                                const job = allJobs.find((j: any) => j.guid === emp.job_references[0].guid)
                                 if (job) extTitle = job.title
                             }
                             if (!extTitle && s.job_id) {
-                                const shiftJob = (allJobs || []).find((j: any) => j.guid === s.job_id || String(j.id) === String(s.job_id))
+                                const shiftJob = allJobs.find(
+                                    (j: any) => j.guid === s.job_id || String(j.id) === String(s.job_id)
+                                )
                                 if (shiftJob) extTitle = shiftJob.title
                             }
-                            
+
                             const titleLower = extTitle.toLowerCase()
-                            const empNameLower = emp ? `${emp.first_name} ${emp.last_name}`.toLowerCase() : ''
-                            
-                            // FIDELITY LOGIC: Must match app/descansos/page.tsx
-                            const isLeader = titleLower.includes('manager') || 
-                                             titleLower.includes('asst') || 
-                                             titleLower.includes('shift') || 
-                                             titleLower.includes('lead') ||
-                                             titleLower.includes('asistente') ||
-                                             titleLower.includes('assistant') ||
-                                             titleLower.includes('encargado') ||
-                                             empNameLower.includes('alberto romero') ||
-                                             empNameLower.includes('manager');
+                            const empNameLower = emp
+                                ? `${emp.first_name} ${emp.last_name}`.toLowerCase()
+                                : ''
+                            const isLeader =
+                                titleLower.includes('manager') ||
+                                titleLower.includes('asst') ||
+                                titleLower.includes('shift') ||
+                                titleLower.includes('lead') ||
+                                titleLower.includes('asistente') ||
+                                titleLower.includes('assistant') ||
+                                titleLower.includes('encargado') ||
+                                empNameLower.includes('alberto romero') ||
+                                empNameLower.includes('manager')
 
                             return { ...s, is_leader: isLeader, job_title: extTitle }
                         })
 
-                    const augmented = scheduleBreaksWithDemand(shiftsForAi as any, hoursToDraw || [], learnedPrefs)
-                    
-                    // Aplicar y Guardar a TODOS los turnos recalculados
+                    const augmented = scheduleBreaksWithDemand(
+                        shiftsForAi as any,
+                        hoursToDraw || [],
+                        learnedPrefs
+                    )
+
                     for (const aug of augmented) {
-                        const originalIdx = shifts.findIndex(ls => ls.id === aug.id)
+                        const originalIdx = shifts.findIndex((ls: any) => ls.id === aug.id)
                         if (originalIdx !== -1) {
-                            // Forzamos la actualización en memoria para el email
                             shifts[originalIdx].breaks_schedule = aug.breaks_schedule
-                            // Forzamos el guardado en la BD para que quede grabado
-                            await supabase.from('shifts').update({ breaks_schedule: aug.breaks_schedule }).eq('id', aug.id)
+                            await supabase
+                                .from('shifts')
+                                .update({ breaks_schedule: aug.breaks_schedule })
+                                .eq('id', aug.id)
+                                .eq('store_id', resolvedStoreGuid)
                         }
                     }
                 } catch (e) {
@@ -411,75 +543,264 @@ export async function POST(req: Request) {
                 }
             }
         }
-        // --- 5.1 POSITION ACTIVITIES FETCH (New Global position-based rules) ---
-        const { data: positionActivities } = await supabase
-            .from('position_activities')
-            .select(`
-                *,
-                operating_procedures (
-                    id,
-                    activity
-                )
-            `);
 
-        const { data: allProcedures } = await supabase
-            .from('operating_procedures')
-            .select('id, activity, start_time, duration_minutes, shift_type');
+        // Control de piloto por tienda (Slauson activo en producción; en preview_only permite previsualizar cualquier tienda)
+        const isPilotStoreActive = isStorePilotActiveForActivitiesEmail(store)
+        const isActivitiesEnabled =
+            isPilotStoreActive || (previewOnly && body.include_activities_preview !== false)
 
-        // 6. Send Email Notifications (VIA GMAIL API REST - NO SMTP)
         const results = { email: 0, errors: 0 }
+        const employeePreviews: any[] = []
 
-        // Get store info for branding and calendar events
-        const { data: store } = await supabase
-            .from('stores')
-            .select('name, address, city, state, zip_code, phone')
-            .eq('external_id', store_id)
-            .single()
-        const storeName = store?.name || 'Tu Equipo'
+        const isFreqMatch = (paFrequency: string, dayIdxOrDate: string | number): boolean => {
+            return sharedIsFreqMatch(paFrequency, dayIdxOrDate)
+        }
 
-        // --- ACTIVITIES PILOT: Solo tiendas habilitadas reciben actividades en el correo ---
-        // Para habilitar más tiendas, agregar su Toast external_id (GUID) a esta lista.
-        const ACTIVITIES_PILOT_STORES = [
-            '9625621e-1b5e-48d7-87ae-7094fab5a4fd', // Slauson
-        ];
-        const isActivitiesEnabled = ACTIVITIES_PILOT_STORES.includes(store_id);
+        // Función común para resolver puestos y actividades de un turno (compartida por correo, preview y calendario)
+        const resolveShiftContext = (emp: any, s: any) => {
+            const dayStr = s.shift_date
+            const isCallback = Boolean(s.is_callback)
 
-        // CHUNK PROCESSING FUNCTION (Using Nodemailer Stream for Robust Attachments)
+            const job = allJobs.find(
+                (j: any) =>
+                    j.id === s.job_id ||
+                    String(j.guid) === String(s.job_id) ||
+                    String(j.id) === String(s.job_id)
+            )
+            const jobTitle = job?.title || s.job_title || s.role || ''
+
+            // Regla A08: Ausente/Callback es mutuamente excluyente con actividades y roles de trabajo
+            if (isCallback) {
+                return {
+                    isCallback: true,
+                    stationDisplay: 'AUSENTE / CALLBACK',
+                    positionBadgeHtml: `
+                        <div style="margin-top: 4px; font-size: 13px; font-weight: 800; color: #dc2626; background: #fef2f2; padding: 4px 10px; border-radius: 6px; display: inline-block; border: 1px solid #fee2e2;">
+                            AUSENTE / CALLBACK
+                        </div>
+                    `,
+                    tasksHtml: '',
+                    resolvedActivities: [] as ResolvedActivityItem[],
+                    calendarTaskStrings: [] as string[],
+                    overlappingPeriods: [] as Array<'AM' | 'PM'>,
+                }
+            }
+
+            // Regla A06: Intersección de turno con precisión de minutos [start, end)
+            const overlappingPeriods = getShiftOverlappingPeriods(s.start_time, s.end_time)
+            const effectivePeriods: Array<'AM' | 'PM'> =
+                overlappingPeriods.length > 0
+                    ? overlappingPeriods
+                    : [getLAHour(new Date(s.start_time)) >= 17 ? 'PM' : 'AM']
+
+            const myPositions = stationAssignments.filter((a: any) => {
+                if (a.employee_id !== emp.id || a.assignment_date !== dayStr) return false
+                const sub = String(a.sub_position || '')
+                const main = String(a.main_station || '')
+                const isExplicitAM = sub.endsWith('_AM') || main.endsWith('_AM')
+                const isExplicitPM = sub.endsWith('_PM') || main.endsWith('_PM')
+                if (isExplicitAM) return effectivePeriods.includes('AM')
+                if (isExplicitPM) return effectivePeriods.includes('PM')
+                return true
+            })
+
+            const cleanStationLabels: string[] = []
+            for (const pos of myPositions) {
+                const cleanMain = String(pos.main_station || '')
+                    .replace(/\s*_(AM|PM)$/i, '')
+                    .trim()
+                const cleanSub = String(pos.sub_position || '')
+                    .replace(/\s*_(AM|PM)$/i, '')
+                    .trim()
+                const label =
+                    cleanSub && cleanSub.toLowerCase() !== cleanMain.toLowerCase()
+                        ? `${cleanMain} (${cleanSub})`
+                        : cleanMain
+                if (label && !cleanStationLabels.includes(label)) {
+                    cleanStationLabels.push(label)
+                }
+            }
+
+            let stationDisplay =
+                cleanStationLabels.length > 0 ? cleanStationLabels.join(' + ') : jobTitle
+            let positionBadgeHtml = ''
+
+            if (stationDisplay) {
+                positionBadgeHtml = `
+                    <div style="margin-top: 4px; font-size: 13px; font-weight: 800; color: #4f46e5; background: #eef2ff; padding: 4px 10px; border-radius: 6px; display: inline-block; border: 1px solid #c7d2fe;">
+                        <span style="font-size: 10px; color: #6366f1; text-transform: uppercase;">Puesto:</span> ${stationDisplay}
+                    </div>
+                `
+            }
+
+            let resolvedActivities: ResolvedActivityItem[] = []
+
+            if (isActivitiesEnabled) {
+                if (myPositions.length > 0) {
+                    const stationLists: ResolvedActivityItem[][] = []
+                    for (const pos of myPositions) {
+                        const subRaw = String(pos.sub_position || '')
+                        const mainRaw = String(pos.main_station || '')
+                        const cleanMain = mainRaw.replace(/\s*_(AM|PM)$/i, '').trim()
+                        const cleanSub = subRaw.replace(/\s*_(AM|PM)$/i, '').trim()
+
+                        const posPeriods: Array<'AM' | 'PM'> =
+                            subRaw.endsWith('_PM') || mainRaw.endsWith('_PM')
+                                ? ['PM']
+                                : subRaw.endsWith('_AM') || mainRaw.endsWith('_AM')
+                                  ? ['AM']
+                                  : effectivePeriods
+
+                        for (const pShift of posPeriods) {
+                            stationLists.push(
+                                resolveStationActivities({
+                                    mainStation: cleanMain,
+                                    subPosition: cleanSub || null,
+                                    shift: pShift,
+                                    businessDateStr: dayStr,
+                                    store,
+                                    procedures: allProcedures,
+                                    positionActivities,
+                                    legacyTasks: Array.isArray(pos.tasks) ? pos.tasks : [],
+                                    isCallback: false,
+                                    shiftStartTime: s.start_time,
+                                    shiftEndTime: s.end_time,
+                                    enforceShiftWindow: posPeriods.length > 1,
+                                    isClosingShift: Boolean(pos.is_closing),
+                                })
+                            )
+                        }
+                    }
+                    resolvedActivities = mergeAndDeduplicateActivities(stationLists)
+                } else if (jobTitle) {
+                    // Fallback por rol de Toast cuando no hay estación manual asignada (solo si no es ausente)
+                    const roleKey = resolvePositionKey(jobTitle, undefined, undefined)
+                    const mappedStation = mapRoleKeyToCatalogPositionKey(roleKey)
+
+                    const getFriendlyRoleName = (key: string): string => {
+                        switch (key) {
+                            case 'MANAGER':
+                                return 'Gerente / Manager'
+                            case 'ASSISTANT':
+                                return 'Asistente / Assistant'
+                            case 'SHIFT_LEADER_MALE':
+                                return 'Shift Leader - Cocina'
+                            case 'SHIFT_LEADER_FEMALE':
+                                return 'Shift Leader - Servicio'
+                            case 'COOK_MALE':
+                                return 'Cocinero / Cook'
+                            case 'CASHIER':
+                                return 'Cajera / Cashier'
+                            default:
+                                return 'Colaborador'
+                        }
+                    }
+
+                    const displayRoleName = getFriendlyRoleName(roleKey)
+                    stationDisplay = displayRoleName
+                    positionBadgeHtml = `
+                        <div style="margin-top: 4px; font-size: 13px; font-weight: 800; color: #0f766e; background: #f0fdfa; padding: 4px 10px; border-radius: 6px; display: inline-block; border: 1px solid #99f6e4;">
+                            <span style="font-size: 10px; color: #0d9488; text-transform: uppercase;">Rol:</span> ${displayRoleName}
+                        </div>
+                    `
+
+                    const roleLists: ResolvedActivityItem[][] = []
+                    for (const pShift of effectivePeriods) {
+                        roleLists.push(
+                            resolveStationActivities({
+                                mainStation: mappedStation.mainStation,
+                                subPosition: mappedStation.subPosition,
+                                shift: pShift,
+                                businessDateStr: dayStr,
+                                store,
+                                procedures: allProcedures,
+                                positionActivities,
+                                legacyTasks: [],
+                                isCallback: false,
+                                shiftStartTime: s.start_time,
+                                shiftEndTime: s.end_time,
+                                enforceShiftWindow: true,
+                            })
+                        )
+                    }
+                    resolvedActivities = mergeAndDeduplicateActivities(roleLists)
+                }
+            }
+
+            let tasksHtml = ''
+            if (resolvedActivities.length > 0) {
+                const tasksList = resolvedActivities
+                    .map((act) => {
+                        const timePrefix = act.effective_start_time
+                            ? `<strong style="color: #ea580c;">${act.formatted_time}</strong> — `
+                            : ''
+                        const multiStationSuffix =
+                            act.source_stations.length > 1
+                                ? ` <span style="font-size: 9px; color: #64748b;">(${act.source_stations.join(', ')})</span>`
+                                : ''
+                        return `<li style="font-size: 11px; color: #4b5563; margin-bottom: 3px;">${timePrefix}${act.title}${multiStationSuffix}</li>`
+                    })
+                    .join('')
+
+                tasksHtml = `
+                    <div style="margin-top: 8px; text-align: left; background: #f8fafc; padding: 8px 12px; border-radius: 6px; border: 1px solid #e2e8f0;">
+                        <div style="font-size: 10px; color: #64748b; text-transform: uppercase; font-weight: 800; margin-bottom: 4px;">Actividades Asignadas:</div>
+                        <ul style="margin: 0; padding-left: 16px; font-weight: 600; font-size: 11px;">
+                            ${tasksList}
+                        </ul>
+                    </div>
+                `
+            }
+
+            const calendarTaskStrings = resolvedActivities.map((act) =>
+                act.effective_start_time ? `[${act.formatted_time}] ${act.title}` : act.title
+            )
+
+            return {
+                isCallback: false,
+                stationDisplay,
+                positionBadgeHtml,
+                tasksHtml,
+                resolvedActivities,
+                calendarTaskStrings,
+                overlappingPeriods: effectivePeriods,
+            }
+        }
+
         const processChunk = async (chunk: any[]) => {
             const promises = chunk.map(async (emp: any) => {
                 const empShifts = shifts
-                    .filter(s => s.employee_id === emp.id)
-                    .sort((a, b) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime()) // SORT BY DATE
+                    .filter((s: any) => s.employee_id === emp.id)
+                    .sort(
+                        (a: any, b: any) =>
+                            new Date(a.start_time).getTime() - new Date(b.start_time).getTime()
+                    )
 
                 if (empShifts.length === 0) return
 
-                // Prepare structured shifts for iCalendar generation
-                const calendarShifts: CalendarShiftItem[] = empShifts.map((s: any) => {
-                    const dayStr = s.shift_date;
-                    let empShiftType = 'AM';
-                    const startDate = new Date(s.start_time);
-                    if (getLAHour(startDate) >= 17) empShiftType = 'PM';
-                    const shiftSuffix = `_${empShiftType}`;
-                    const myPositions = (stationAssignments || []).filter(a => 
-                        a.employee_id === emp.id && 
-                        a.assignment_date === dayStr &&
-                        (a.sub_position?.endsWith(shiftSuffix) || (!a.sub_position?.includes('_AM') && !a.sub_position?.includes('_PM')))
-                    );
-                    const myPos = myPositions.length > 0 ? myPositions[0] : null;
-                    let posTitle = s.job_title || s.role || '';
-                    if (myPos?.position_name) {
-                        posTitle = myPos.sub_position ? `${myPos.position_name} (${myPos.sub_position.replace(/_AM|_PM/g, '')})` : myPos.position_name;
-                    }
+                const shiftContexts = new Map<string, ReturnType<typeof resolveShiftContext>>()
+                for (const s of empShifts) {
+                    shiftContexts.set(String(s.id), resolveShiftContext(emp, s))
+                }
 
+                // Prepare structured shifts for iCalendar generation (A10: incluye estaciones y tareas resueltas)
+                const calendarShifts: CalendarShiftItem[] = empShifts.map((s: any) => {
+                    const ctx = shiftContexts.get(String(s.id))!
                     return {
                         id: s.id,
                         shift_date: s.shift_date,
                         start_time: s.start_time,
                         end_time: s.end_time,
-                        position_title: posTitle,
-                        breaks: s.breaks_schedule && Array.isArray(s.breaks_schedule) ? s.breaks_schedule : []
-                    };
-                });
+                        position_title: ctx.stationDisplay,
+                        tasks: ctx.calendarTaskStrings,
+                        breaks:
+                            !ctx.isCallback &&
+                            s.breaks_schedule &&
+                            Array.isArray(s.breaks_schedule)
+                                ? s.breaks_schedule
+                                : [],
+                    }
+                })
 
                 const storeInfo: CalendarStoreInfo = {
                     name: storeName,
@@ -487,335 +808,146 @@ export async function POST(req: Request) {
                     city: store?.city || '',
                     state: store?.state || 'CA',
                     zip_code: store?.zip_code || '',
-                    phone: store?.phone || ''
-                };
+                    phone: store?.phone || '',
+                }
 
-                const empFullName = `${emp.chosen_name || emp.first_name || ''} ${emp.last_name || ''}`.trim() || 'Empleado';
+                const empFullName =
+                    `${emp.chosen_name || emp.first_name || ''} ${emp.last_name || ''}`.trim() ||
+                    'Empleado'
 
                 const icsContent = generateScheduleICS({
                     store: storeInfo,
                     employeeName: empFullName,
                     shifts: calendarShifts,
-                    calendarName: `Horario ${storeName}`
-                });
+                    calendarName: `Horario ${storeName}`,
+                })
 
-                const appBaseUrl = process.env.NEXT_PUBLIC_APP_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'https://tacosgavilan.vercel.app');
+                const appBaseUrl =
+                    process.env.NEXT_PUBLIC_APP_URL ||
+                    (process.env.VERCEL_URL
+                        ? `https://${process.env.VERCEL_URL}`
+                        : 'https://tacosgavilan.vercel.app')
+
+                // A20: Enlace de calendario firmado con token HMAC acotado a empleado/tienda/rango
                 const calendarDownloadUrl = buildCalendarApiUrl({
                     baseUrl: appBaseUrl,
                     employeeId: emp.id,
-                    storeId: store_id,
+                    storeId: resolvedStoreGuid,
                     startDate: start_date,
-                    endDate: end_date
-                });
+                    endDate: end_date,
+                })
 
                 // Build shift rows for email table
-                const shiftRows = empShifts.map((s: any) => {
-                    const startDate = new Date(s.start_time)
-                    const endDate = new Date(s.end_time)
+                const shiftRows = empShifts
+                    .map((s: any) => {
+                        const startDate = new Date(s.start_time)
+                        const endDate = new Date(s.end_time)
+                        const ctx = shiftContexts.get(String(s.id))!
 
-                    const dayName = startDate.toLocaleDateString('es-US', { weekday: 'long', timeZone: 'America/Los_Angeles' })
-                    const dayNum = startDate.toLocaleDateString('es-US', { day: 'numeric', timeZone: 'America/Los_Angeles' })
-                    const month = startDate.toLocaleDateString('es-US', { month: 'short', timeZone: 'America/Los_Angeles' })
-                    const start = startDate.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'America/Los_Angeles' })
-                    const end = endDate.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'America/Los_Angeles' })
+                        // Usar la fecha operativa del turno (s.shift_date) para evitar desfase por inicio en madrugada
+                        const businessDayAnchor = new Date(`${s.shift_date}T12:00:00Z`)
+                        const dayName = businessDayAnchor.toLocaleDateString('es-US', {
+                            weekday: 'long',
+                            timeZone: 'UTC',
+                        })
+                        const dayNum = businessDayAnchor.toLocaleDateString('es-US', {
+                            day: 'numeric',
+                            timeZone: 'UTC',
+                        })
+                        const month = businessDayAnchor.toLocaleDateString('es-US', {
+                            month: 'short',
+                            timeZone: 'UTC',
+                        })
+                        const start = startDate.toLocaleTimeString('en-US', {
+                            hour: 'numeric',
+                            minute: '2-digit',
+                            hour12: true,
+                            timeZone: 'America/Los_Angeles',
+                        })
+                        const end = endDate.toLocaleTimeString('en-US', {
+                            hour: 'numeric',
+                            minute: '2-digit',
+                            hour12: true,
+                            timeZone: 'America/Los_Angeles',
+                        })
 
-                    // BUSCAR POSICIONES / STATIONS (un empleado puede tener múltiples posiciones)
-                    const dayStr = s.shift_date; // Usar la fecha del shift mapeada correctamente en DB en vez de la conversión UTC
+                        const positionBadge = ctx.positionBadgeHtml
+                        const tasksHtml = ctx.tasksHtml
 
-                    // Determine shift type from start time using LA timezone
-                    let empShiftType = 'AM';
-                    if (getLAHour(startDate) >= 17) {
-                        empShiftType = 'PM';
-                    }
-                    const shiftSuffix = `_${empShiftType}`;
+                        let breaksHtml = ''
+                        if (
+                            !ctx.isCallback &&
+                            s.breaks_schedule &&
+                            Array.isArray(s.breaks_schedule) &&
+                            s.breaks_schedule.length > 0
+                        ) {
+                            const list = s.breaks_schedule
+                                .map((b: any) => {
+                                    const bTime = new Date(b.start_time).toLocaleTimeString(
+                                        'en-US',
+                                        {
+                                            hour: 'numeric',
+                                            minute: '2-digit',
+                                            hour12: true,
+                                            timeZone: 'America/Los_Angeles',
+                                        }
+                                    )
+                                    const bName = b.type === 'meal_30' ? 'Almuerzo' : 'Descanso'
+                                    const bColor = b.type === 'meal_30' ? '#d97706' : '#059669'
+                                    return `<span style="display: inline-block; font-size: 11px; background: ${bColor}10; color: ${bColor}; padding: 2px 6px; border-radius: 4px; margin: 2px; font-weight: 700;">${bName}: ${bTime}</span>`
+                                })
+                                .join(' ')
 
-                    // Find ALL positions for this employee on this day & shift
-                    const myPositions = (stationAssignments || []).filter(a => 
-                        a.employee_id === emp.id && 
-                        a.assignment_date === dayStr &&
-                        (a.sub_position?.endsWith(shiftSuffix) || (!a.sub_position?.includes('_AM') && !a.sub_position?.includes('_PM')))
-                    );
-                    const myPosition = myPositions.length > 0 ? myPositions[0] : null;
-
-                    let positionBadge = '';
-                    let tasksHtml = '';
-
-                    const laDateStr = startDate.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' });
-                    const jsDay = new Date(laDateStr).getDay(); // 0=Sunday, 6=Saturday
-                    const myDayIndex = jsDay === 0 ? 6 : jsDay - 1; // Mon=0, Tue=1...Sun=6
-
-                    // Helper to match frequency strings (like 'Diario', 'Domingo', 'Jueves y Domingo', '6')
-                    const isFreqMatch = (paFrequency: string, dayIdx: string | number): boolean => {
-                      if (!paFrequency) return false;
-                      const freqLower = paFrequency.toLowerCase();
-                      if (freqLower === 'diario') return true;
-                      if (paFrequency === String(dayIdx)) return true;
-                      
-                      const dayNamesMap: Record<string, string[]> = {
-                        '0': ['lunes'],
-                        '1': ['martes'],
-                        '2': ['miercoles', 'miércoles'],
-                        '3': ['jueves'],
-                        '4': ['viernes'],
-                        '5': ['sabado', 'sábado'],
-                        '6': ['domingo']
-                      };
-                      
-                      const names = dayNamesMap[String(dayIdx)];
-                      if (!names) return false;
-                      
-                      return names.some(name => freqLower.includes(name));
-                    };
-
-                    // Determine if store has Drive-Thru:
-                    // 1. Check if there's any DT station assigned this week
-                    // 2. Fallback: Check storeName against known DT store patterns
-                    let hasDT = (stationAssignments || []).some(a => {
-                        const pos = (a.sub_position || a.main_station || '').toLowerCase();
-                        return pos.includes('(dt)') || pos.includes('ventana');
-                    });
-                    if (!hasDT && storeName) {
-                        const normalizedStore = storeName.toLowerCase();
-                        hasDT = ['norwalk', 'rialto', 'santa ana', 'santaana', 'south gate', 'southgate', 'downey', 'bell', 'lynwood', 'hpark', 'huntington park'].some(sName => normalizedStore.includes(sName));
-                    }
-
-                    const job = (allJobs || []).find((j: any) => j.id === s.job_id || String(j.guid) === String(s.job_id) || String(j.id) === String(s.job_id));
-                    const jobTitle = job?.title || '';
-
-                    // Resolve station display name
-                    const stationNames = myPositions.map(p => p.main_station || p.sub_position?.replace(shiftSuffix, '')).filter(Boolean);
-                    const stationDisplay = stationNames.length > 0 ? stationNames.join(' + ') : jobTitle;
-
-                    if (s.is_callback === true) {
-                        positionBadge = `
-                            <div style="margin-top: 4px; font-size: 13px; font-weight: 800; color: #dc2626; background: #fef2f2; padding: 4px 10px; border-radius: 6px; display: inline-block; border: 1px solid #fee2e2;">
-                                AUSENTE / CALLBACK
-                            </div>
-                        `;
-                        tasksHtml = '';
-                    } else if (stationDisplay) {
-                        positionBadge = `
-                            <div style="margin-top: 4px; font-size: 13px; font-weight: 800; color: #4f46e5; background: #eef2ff; padding: 4px 10px; border-radius: 6px; display: inline-block; border: 1px solid #c7d2fe;">
-                                <span style="font-size: 10px; color: #6366f1; text-transform: uppercase;">Puesto:</span> ${stationDisplay}
-                            </div>
-                        `;
-                    }
-
-                    if (s.is_callback !== true && myPositions.length > 0 && isActivitiesEnabled) {
-                        const shiftType = empShiftType;
-                        const storeModel = hasDT ? 'DRIVE_THRU' : 'REGULAR';
-
-                        // Resolve role key from the first position (for leadership detection)
-                        const shiftStation = myPosition!.sub_position || myPosition!.main_station;
-                        const roleKey = resolvePositionKey(jobTitle, shiftStation, myPosition!.station_group);
-                        const isLeadership = roleKey && ['MANAGER', 'ASSISTANT', 'SHIFT_LEADER_MALE', 'SHIFT_LEADER_FEMALE'].includes(roleKey);
-
-                        // Collect custom tasks from all positions
-                        const allCustomTasks: string[] = [];
-                        myPositions.forEach(pos => {
-                            if (pos.tasks && Array.isArray(pos.tasks)) {
-                                allCustomTasks.push(...pos.tasks.filter(Boolean));
-                            }
-                        });
-
-                        let finalTasks: string[] = [];
-
-                        if (allCustomTasks.length > 0) {
-                            const resolved = allCustomTasks.map((taskText: string) => {
-                                const normText = normalizeText(taskText);
-                                const matchedAct = (allProcedures || []).find((act: any) => normalizeText(act.activity) === normText);
-                                return {
-                                    text: matchedAct ? matchedAct.activity : taskText,
-                                    sort_order: matchedAct?.start_time 
-                                        ? parseInt(matchedAct.start_time.split(':')[0]) * 60 + parseInt(matchedAct.start_time.split(':')[1])
-                                        : 9999
-                                };
-                            });
-                            resolved.sort((a: any, b: any) => a.sort_order - b.sort_order);
-                            finalTasks = resolved.map((r: any) => r.text);
-                        } else {
-                            // Fetch active activities for ALL assigned positions
-                            // Collect station names from all positions
-                            const allStationKeys = myPositions.map(p => p.main_station).filter(Boolean);
-
-                            const activeMappings = (positionActivities || []).filter((item: any) => {
-                                const matchPos = allStationKeys.includes(item.position_key) || (isLeadership && item.position_key === roleKey);
-                                if (!matchPos) return false;
-
-                                const matchShift = item.shift === 'AMBOS' || item.shift === shiftType;
-                                const matchFreq = isFreqMatch(item.frequency, myDayIndex);
-                                const matchModel = item.store_model === 'AMBOS' || item.store_model === storeModel;
-                                return matchShift && matchFreq && matchModel;
-                            });
-
-                            let resolvedActivities = [...activeMappings];
-
-                            // NOTE: Auto-redistribución de estaciones vacantes y herencia de Assistant
-                            // fueron removidas para mantener consistencia con el frontend (Asignación Diaria).
-                            // El correo ahora SOLO muestra actividades directas de la estación/rol asignado.
-
-                            // Deduplicate and sort by sort_order
-                            const seen = new Set<string>();
-                            const uniqueResolved: any[] = [];
-                            resolvedActivities.forEach((item: any) => {
-                                const key = item.activity_id || item.id;
-                                if (item.operating_procedures?.activity && !seen.has(key)) {
-                                    seen.add(key);
-                                    uniqueResolved.push(item);
-                                }
-                            });
-
-                            // Sort by sort_order
-                            uniqueResolved.sort((a: any, b: any) => (a.sort_order || 0) - (b.sort_order || 0));
-
-                            finalTasks = uniqueResolved.map((item: any) => {
-                                return item.operating_procedures?.activity;
-                            }).filter(Boolean);
-                        }
-
-                        if (finalTasks.length > 0) {
-                            const tasksList = finalTasks.map((taskStr: string) => {
-                                return `<li style="font-size: 11px; color: #4b5563; margin-bottom: 2px;">${taskStr}</li>`
-                            }).join('');
-                            
-                            tasksHtml = `
-                                <div style="margin-top: 8px; text-align: left; background: #f8fafc; padding: 8px 12px; border-radius: 6px; border: 1px solid #e2e8f0;">
-                                    <div style="font-size: 10px; color: #64748b; text-transform: uppercase; font-weight: 800; margin-bottom: 4px;">Actividades Asignadas:</div>
-                                    <ul style="margin: 0; padding-left: 16px; font-weight: 600; font-size: 11px;">
-                                        ${tasksList}
-                                    </ul>
+                            breaksHtml = `
+                                <div style="margin-top: 10px; border-top: 1px dashed #e5e7eb; pt: 8px;">
+                                    <div style="font-size: 10px; color: #9ca3af; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 800; margin-bottom: 4px;">Breaks Programados:</div>
+                                    ${list}
                                 </div>
-                            `;
-                        }
-                    } else if (isActivitiesEnabled) {
-                        // Fallback resolution directly from Toast Job Title & Shift Hours (only for pilot stores)
-                        let shiftType = 'AM';
-                        if (getLAHour(startDate) >= 17) {
-                            shiftType = 'PM';
+                            `
                         }
 
-                        const storeModel = hasDT ? 'DRIVE_THRU' : 'REGULAR';
-                        const roleKey = resolvePositionKey(jobTitle, undefined, undefined);
-                        const isLeadership = roleKey && ['MANAGER', 'ASSISTANT', 'SHIFT_LEADER_MALE', 'SHIFT_LEADER_FEMALE'].includes(roleKey);
+                        const detailLines = [
+                            `Turno de trabajo en Tacos Gavilan ${storeName}.`,
+                            `Horario: ${start} - ${end}`,
+                            ...(ctx.stationDisplay ? [`Posición: ${ctx.stationDisplay}`] : []),
+                            ...(ctx.calendarTaskStrings.length > 0
+                                ? [`Actividades:\n• ${ctx.calendarTaskStrings.join('\n• ')}`]
+                                : []),
+                        ]
 
-                        const getFriendlyRoleName = (key: string): string => {
-                            switch (key) {
-                                case 'MANAGER': return 'Gerente / Manager';
-                                case 'ASSISTANT': return 'Asistente / Assistant';
-                                case 'SHIFT_LEADER_MALE': return 'Shift Leader - Cocina';
-                                case 'SHIFT_LEADER_FEMALE': return 'Shift Leader - Servicio';
-                                case 'COOK_MALE': return 'Cocinero / Cook';
-                                case 'CASHIER': return 'Cajera / Cashier';
-                                default: return 'Colaborador';
-                            }
-                        };
+                        const singleGoogleCalUrl = buildGoogleCalendarUrl({
+                            title: `🌮 Turno Tacos Gavilan - ${storeName}${ctx.stationDisplay ? ` (${ctx.stationDisplay})` : ''}`,
+                            details: detailLines.join('\n'),
+                            location: `${storeName}, ${store?.address || ''}, ${store?.city || ''}, CA ${store?.zip_code || ''}`
+                                .replace(/,\s*,/g, ',')
+                                .trim(),
+                            startTime: s.start_time,
+                            endTime: s.end_time,
+                        })
 
-                        const displayRoleName = getFriendlyRoleName(roleKey);
-                        positionBadge = `
-                            <div style="margin-top: 4px; font-size: 13px; font-weight: 800; color: #0f766e; background: #f0fdfa; padding: 4px 10px; border-radius: 6px; display: inline-block; border: 1px solid #99f6e4;">
-                                <span style="font-size: 10px; color: #0d9488; text-transform: uppercase;">Rol:</span> ${displayRoleName}
-                            </div>
-                        `;
+                        return `
+                            <tr>
+                                <td style="padding: 16px; border-bottom: 1px solid #e5e7eb; font-weight: 600; color: #4f46e5; text-transform: capitalize;">
+                                    ${dayName}<br>
+                                    <span style="font-size: 24px; font-weight: 800; color: #1f2937;">${dayNum}</span>
+                                    <span style="font-size: 12px; color: #6b7280; text-transform: uppercase; margin-left: 4px;">${month}</span>
+                                </td>
+                                <td style="padding: 16px; border-bottom: 1px solid #e5e7eb; text-align: center; font-size: 16px; font-weight: 600; color: #1f2937;">
+                                    <div>${start} - ${end}</div>
+                                    ${positionBadge}
+                                    ${tasksHtml}
+                                    ${breaksHtml}
+                                    <div style="margin-top: 10px;">
+                                        <a href="${singleGoogleCalUrl}" target="_blank" style="display: inline-block; font-size: 11px; font-weight: 700; color: #4338ca; background: #e0e7ff; padding: 4px 10px; border-radius: 6px; text-decoration: none; border: 1px solid #c7d2fe;">
+                                            📅 Google Calendar
+                                        </a>
+                                    </div>
+                                </td>
+                            </tr>
+                        `
+                    })
+                    .join('')
 
-                        // Fetch active activities for this position
-                        const activeMappings = (positionActivities || []).filter((item: any) => {
-                            const matchPos = item.position_key === roleKey;
-                            if (!matchPos) return false;
-
-                            const matchShift = item.shift === 'AMBOS' || item.shift === shiftType;
-                            const matchFreq = isFreqMatch(item.frequency, myDayIndex);
-                            const matchModel = item.store_model === 'AMBOS' || item.store_model === storeModel;
-                            return matchShift && matchFreq && matchModel;
-                        });
-
-                        let resolvedActivities = [...activeMappings];
-
-                            // NOTE: Auto-redistribución de estaciones vacantes y herencia de Assistant
-                            // fueron removidas para mantener consistencia con el frontend (Asignación Diaria).
-                            // El correo ahora SOLO muestra actividades directas del rol detectado.
-
-                        // Deduplicate and sort by sort_order
-                        const seen = new Set<string>();
-                        const uniqueResolved: any[] = [];
-                        resolvedActivities.forEach((item: any) => {
-                            const key = item.activity_id || item.id;
-                            if (item.operating_procedures?.activity && !seen.has(key)) {
-                                seen.add(key);
-                                uniqueResolved.push(item);
-                            }
-                        });
-
-                        // Sort by sort_order
-                        uniqueResolved.sort((a: any, b: any) => (a.sort_order || 0) - (b.sort_order || 0));
-
-                        const finalTasks = uniqueResolved.map((item: any) => {
-                            return item.operating_procedures?.activity;
-                        }).filter(Boolean);
-
-                        if (finalTasks.length > 0) {
-                            const tasksList = finalTasks.map((taskStr: string) => {
-                                return `<li style="font-size: 11px; color: #4b5563; margin-bottom: 2px;">${taskStr}</li>`
-                            }).join('');
-                            
-                            tasksHtml = `
-                                <div style="margin-top: 8px; text-align: left; background: #f8fafc; padding: 8px 12px; border-radius: 6px; border: 1px solid #e2e8f0;">
-                                    <div style="font-size: 10px; color: #64748b; text-transform: uppercase; font-weight: 800; margin-bottom: 4px;">Actividades Asignadas:</div>
-                                    <ul style="margin: 0; padding-left: 16px; font-weight: 600; font-size: 11px;">
-                                        ${tasksList}
-                                    </ul>
-                                </div>
-                            `;
-                        }
-                    }
-
-                    let breaksHtml = '';
-                    if (s.breaks_schedule && Array.isArray(s.breaks_schedule) && s.breaks_schedule.length > 0) {
-                        const list = s.breaks_schedule.map((b: any) => {
-                            const bTime = new Date(b.start_time).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'America/Los_Angeles' });
-                            const bName = b.type === 'meal_30' ? 'Almuerzo' : 'Descanso';
-                            const bColor = b.type === 'meal_30' ? '#d97706' : '#059669';
-                            return `<span style="display: inline-block; font-size: 11px; background: ${bColor}10; color: ${bColor}; padding: 2px 6px; border-radius: 4px; margin: 2px; font-weight: 700;">${bName}: ${bTime}</span>`
-                        }).join(' ');
-                        
-                        breaksHtml = `
-                            <div style="margin-top: 10px; border-top: 1px dashed #e5e7eb; pt: 8px;">
-                                <div style="font-size: 10px; color: #9ca3af; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 800; margin-bottom: 4px;">Breaks Programados:</div>
-                                ${list}
-                            </div>
-                        `;
-                    }
-
-                    const singleGoogleCalUrl = buildGoogleCalendarUrl({
-                        title: `🌮 Turno Tacos Gavilan - ${storeName}${myPosition?.position_name ? ` (${myPosition.position_name})` : ''}`,
-                        details: `Turno de trabajo en Tacos Gavilan ${storeName}.\nHorario: ${start} - ${end}${myPosition?.position_name ? `\nPosición: ${myPosition.position_name}` : ''}`,
-                        location: `${storeName}, ${store?.address || ''}, ${store?.city || ''}, CA ${store?.zip_code || ''}`.replace(/,\s*,/g, ',').trim(),
-                        startTime: s.start_time,
-                        endTime: s.end_time
-                    });
-
-                    return `
-                        <tr>
-                            <td style="padding: 16px; border-bottom: 1px solid #e5e7eb; font-weight: 600; color: #4f46e5; text-transform: capitalize;">
-                                ${dayName}<br>
-                                <span style="font-size: 24px; font-weight: 800; color: #1f2937;">${dayNum}</span>
-                                <span style="font-size: 12px; color: #6b7280; text-transform: uppercase; margin-left: 4px;">${month}</span>
-                            </td>
-                            <td style="padding: 16px; border-bottom: 1px solid #e5e7eb; text-align: center; font-size: 16px; font-weight: 600; color: #1f2937;">
-                                <div>${start} - ${end}</div>
-                                ${positionBadge}
-                                ${tasksHtml}
-                                ${breaksHtml}
-                                <div style="margin-top: 10px;">
-                                    <a href="${singleGoogleCalUrl}" target="_blank" style="display: inline-block; font-size: 11px; font-weight: 700; color: #4338ca; background: #e0e7ff; padding: 4px 10px; border-radius: 6px; text-decoration: none; border: 1px solid #c7d2fe;">
-                                        📅 Google Calendar
-                                    </a>
-                                </div>
-                            </td>
-                        </tr>
-                    `
-                }).join('')
-
-                // FULL HTML TEMPLATE (With Phone Calendar Sync Button & Logo)
                 const fullHtml = `
                     <!DOCTYPE html>
                     <html>
@@ -828,7 +960,6 @@ export async function POST(req: Request) {
                         <table role="presentation" style="max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 24px; overflow: hidden; box-shadow: 0 20px 50px rgba(0,0,0,0.2);">
                             <tr>
                                 <td style="background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%); padding: 40px 30px; text-align: center;">
-                                    <!-- LOGO INJECTION -->
                                     <img src="cid:logo" alt="Logo" style="display: block; margin: 0 auto 20px auto; width: 80px; height: auto;" />
                                     <h1 style="margin: 0; color: #ffffff; font-size: 28px; font-weight: 800;">📅 Tu Nuevo Horario</h1>
                                     <p style="margin: 10px 0 0 0; color: rgba(255,255,255,0.9); font-size: 14px;">${storeName}</p>
@@ -840,8 +971,6 @@ export async function POST(req: Request) {
                                     <p style="margin: 0; color: #6b7280; font-size: 16px; line-height: 1.6;">El Gerente (${fromEmail}) ha publicado tus turnos:</p>
                                 </td>
                             </tr>
-
-                            <!-- 📲 PHONE CALENDAR SYNC CTA BUTTON (iOS & Android) -->
                             <tr>
                                 <td style="padding: 0 30px 20px 30px;">
                                     <div style="background: linear-gradient(135deg, #eff6ff 0%, #e0e7ff 100%); border: 2px solid #bfdbfe; border-radius: 16px; padding: 22px 20px; text-align: center;">
@@ -866,7 +995,6 @@ export async function POST(req: Request) {
                                     </div>
                                 </td>
                             </tr>
-
                             <tr>
                                 <td style="padding: 0 30px 20px 30px;">
                                     <table role="presentation" style="width: 100%; border-collapse: collapse; background: #f9fafb; border-radius: 16px; overflow: hidden; border: 2px solid #e5e7eb;">
@@ -890,9 +1018,9 @@ export async function POST(req: Request) {
                                     </div>
                                 </td>
                             </tr>
-                             <tr>
+                            <tr>
                                 <td style="padding: 30px; background: #f9fafb; border-top: 1px solid #e5e7eb; text-align: center;">
-                                    <p style="margin: 0; color: #9ca3af; font-size: 13px;">Enviado por ${fromEmail} a través de Sistema de Monitoreo TEG.</p>
+                                    <p style="margin: 0; color: #9ca3af; font-size: 13px;">Enviado por ${fromEmail} a través de Sistema de Monitoreo Tacos Gavilan.</p>
                                 </td>
                             </tr>
                         </table>
@@ -900,25 +1028,62 @@ export async function POST(req: Request) {
                     </html>
                 `
 
+                if (previewOnly) {
+                    const mappedShiftsPreview = empShifts.map((s: any) => {
+                        const ctx = shiftContexts.get(String(s.id))!
+                        const mappedActs = (ctx.resolvedActivities || []).map((act) => ({
+                            ...act,
+                            activity: act.title,
+                            adjustedTime: act.formatted_time,
+                        }))
+                        return {
+                            shift_id: s.id,
+                            shift_date: s.shift_date,
+                            date: s.shift_date,
+                            start_time: s.start_time,
+                            startTime: s.start_time,
+                            end_time: s.end_time,
+                            endTime: s.end_time,
+                            is_callback: ctx.isCallback,
+                            isCallback: ctx.isCallback,
+                            station_display: ctx.stationDisplay,
+                            position: ctx.stationDisplay,
+                            stations: ctx.stationDisplay ? [ctx.stationDisplay] : [],
+                            overlapping_periods: ctx.overlappingPeriods,
+                            activities: mappedActs,
+                        }
+                    })
+                    employeePreviews.push({
+                        employee_id: emp.id,
+                        employeeId: emp.id,
+                        employee_name: empFullName,
+                        employeeName: empFullName,
+                        email: emp.email || null,
+                        calendar_download_url: calendarDownloadUrl,
+                        shifts: mappedShiftsPreview,
+                        html_preview: fullHtml,
+                    })
+                    return
+                }
+
                 // Prepare Attachments Safely (Logo + Native .ics Calendar File)
                 const attachments: any[] = []
                 const logoPath = path.join(process.cwd(), 'public', 'logo.png')
-
-                // Only attach if file exists (prevents crash on Prod if path differs)
                 if (fs.existsSync(logoPath)) {
                     attachments.push({
                         filename: 'logo.png',
                         path: logoPath,
-                        cid: 'logo'
+                        cid: 'logo',
                     })
                 }
 
-                // Attach Native .ics Calendar File for Instant Phone Recognition
-                const safeStoreName = (storeName || 'Tacos_Gavilan').replace(/\s+/g, '_').replace(/[^a-zA-Z0-9_-]/g, '')
+                const safeStoreName = (storeName || 'Tacos_Gavilan')
+                    .replace(/\s+/g, '_')
+                    .replace(/[^a-zA-Z0-9_-]/g, '')
                 attachments.push({
                     filename: `Horario_${safeStoreName}_${start_date}.ics`,
                     content: icsContent,
-                    contentType: 'text/calendar; charset=utf-8; method=PUBLISH'
+                    contentType: 'text/calendar; charset=utf-8; method=PUBLISH',
                 })
 
                 const mailOptions = {
@@ -926,25 +1091,20 @@ export async function POST(req: Request) {
                     to: emp.email,
                     subject: `📅 Horario: ${storeName}`,
                     html: fullHtml,
-                    attachments
+                    attachments,
                 }
 
-                // COMPILE RAW MESSAGE (Without Sending via SMTP)
                 if (emp.email) {
                     try {
-                        const compiler = nodemailer.createTransport({ streamTransport: true, newline: 'windows' })
+                        const compiler = nodemailer.createTransport({
+                            streamTransport: true,
+                            newline: 'windows',
+                        })
                         const info = await compiler.sendMail(mailOptions)
 
-                        // Convert Nodemailer Output (Stream or Buffer) to Buffer
                         const rawBuffer = await new Promise<Buffer>((resolve, reject) => {
                             const message = info.message as any
-
-                            // If it's already a Buffer, return it
-                            if (Buffer.isBuffer(message)) {
-                                return resolve(message)
-                            }
-
-                            // If it's a stream (most likely)
+                            if (Buffer.isBuffer(message)) return resolve(message)
                             if (typeof message.pipe === 'function') {
                                 const chunks: Buffer[] = []
                                 message.on('data', (chunk: Buffer) => chunks.push(chunk))
@@ -952,32 +1112,34 @@ export async function POST(req: Request) {
                                 message.on('error', (err: Error) => reject(err))
                                 return
                             }
-
-                            // Fallback (shouldn't happen with streamTransport: true)
                             reject(new Error('Nodemailer returned unknown message format'))
                         })
 
-                        const raw = rawBuffer.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+                        const raw = rawBuffer
+                            .toString('base64')
+                            .replace(/\+/g, '-')
+                            .replace(/\//g, '_')
+                            .replace(/=+$/, '')
 
-                        // SEND VIA GMAIL API
-                        const sendRes = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
-                            method: 'POST',
-                            headers: {
-                                'Authorization': `Bearer ${accessToken}`, // Scoped variable
-                                'Content-Type': 'application/json'
-                            },
-                            body: JSON.stringify({ raw })
-                        })
+                        const sendRes = await fetch(
+                            'https://gmail.googleapis.com/gmail/v1/users/me/messages/send',
+                            {
+                                method: 'POST',
+                                headers: {
+                                    Authorization: `Bearer ${accessToken}`,
+                                    'Content-Type': 'application/json',
+                                },
+                                body: JSON.stringify({ raw }),
+                            }
+                        )
 
                         if (!sendRes.ok) {
                             const err = await sendRes.json()
                             throw new Error(JSON.stringify(err))
                         }
 
-                        const resInfo = await sendRes.json()
-                        console.log(`Email sent to ${emp.email} via API: ${resInfo.id}`)
+                        await sendRes.json()
                         results.email++
-
                     } catch (e) {
                         console.error(`Email failed for ${emp.first_name}:`, e)
                         results.errors++
@@ -987,117 +1149,189 @@ export async function POST(req: Request) {
             await Promise.all(promises)
         }
 
-        // --- BATCH PROCESSOR ---
-        const BATCH_SIZE = 5 // Low batch size to be safe
+        const BATCH_SIZE = 5
         for (let i = 0; i < employees.length; i += BATCH_SIZE) {
             const chunk = employees.slice(i, i + BATCH_SIZE)
             await processChunk(chunk)
-            // Small delay to prevent SMTP rate limiting or Serverless timeout issues
-            await new Promise(r => setTimeout(r, 500))
+            if (!previewOnly) {
+                await new Promise((r) => setTimeout(r, 500))
+            }
         }
 
-        // --- 7. SEND CONSOLIDATED REPORT TO MANAGER ---
-        if (results.email > 0) {
-            console.log(`📊 [API] Generating Consolidated Report for Manager: ${fromEmail}`)
-            
-            // Helper for sorting (replicated from lib/utils.ts for API use)
-            const getApiRoleWeight = (title: string, empShifts: any[]) => {
-                const t = (title || '').toLowerCase();
-                if (t.includes('manager') && !t.includes('asst') && !t.includes('assist') && !t.includes('asistente') && !t.includes('shift')) return 10;
-                
-                let totalAmHours = 0;
-                let totalPmHours = 0;
-                empShifts.forEach(s => {
-                    const start = new Date(s.start_time);
-                    const end = new Date(s.end_time);
-                    const startH = getLAHour(start) + (start.getMinutes() / 60);
-                    let endH = getLAHour(end) + (end.getMinutes() / 60);
-                    if (endH < startH) endH += 24;
-                    const overlapAm = Math.max(0, Math.min(endH, 17) - startH);
-                    const overlapPm = Math.max(0, endH - Math.max(startH, 17));
-                    totalAmHours += overlapAm;
-                    totalPmHours += overlapPm;
-                });
-
-                const blockScore = totalPmHours > totalAmHours ? 2000 : 1000;
-                let roleScore = 99;
-                if (t.includes('asst') || t.includes('assist') || t.includes('asistente')) roleScore = 1;
-                else if (t.includes('shift') || t.includes('leader') || t.includes('encargado')) roleScore = 2;
-                else if (t.includes('cashier') || t.includes('cajera')) roleScore = 3;
-                else if (t.includes('cook') || t.includes('cocinero') || t.includes('prep') || t.includes('preparador') || t.includes('taquero') || t.includes('tortill')) roleScore = 4;
-                return blockScore + roleScore;
-            };
-
-            // Fix: ensure we have names for ALL employees in the report shifts
-            const allEmpIdInShifts = [...new Set(shifts.map(s => s.employee_id).filter(Boolean))]
-            const { data: allShiftsEmployees } = await supabase.from('toast_employees').select('id, first_name, last_name, job_references').in('id', allEmpIdInShifts)
-            
-            // Sort employees by Planner Weight
-            const empMap = (allShiftsEmployees || []).sort((a,b) => {
-                const aShifts = shifts.filter(s => s.employee_id === a.id);
-                const bShifts = shifts.filter(s => s.employee_id === b.id);
-                const aJob = a.job_references?.[0]?.title || '';
-                const bJob = b.job_references?.[0]?.title || '';
-                const wA = getApiRoleWeight(aJob, aShifts);
-                const wB = getApiRoleWeight(bJob, bShifts);
-                if (wA !== wB) return wA - wB;
-                return (a.first_name || '').localeCompare(b.first_name || '');
+        if (previewOnly) {
+            const totalShiftsCount = employeePreviews.reduce((acc, ep) => acc + (ep.shifts?.length || 0), 0)
+            const totalActivitiesCount = employeePreviews.reduce(
+                (acc, ep) =>
+                    acc +
+                    (ep.shifts || []).reduce((sAcc: number, sh: any) => sAcc + (sh.activities?.length || 0), 0),
+                0
+            )
+            return NextResponse.json({
+                success: true,
+                preview_only: true,
+                store: {
+                    id: store.id,
+                    external_id: resolvedStoreGuid,
+                    name: storeName,
+                    has_drive_thru: hasDT,
+                    pilot_active: isPilotStoreActive,
+                },
+                summary: {
+                    employeesCount: employeePreviews.length,
+                    shiftsCount: totalShiftsCount,
+                    activitiesCount: totalActivitiesCount,
+                    withEmailCount: employeePreviews.filter((ep) => Boolean(ep.email)).length,
+                    withoutEmailCount: employeePreviews.filter((ep) => !ep.email).length,
+                    pilotActive: isPilotStoreActive,
+                },
+                previews: employeePreviews,
             })
-            
-            // Get unique dates for columns
-            const reportDates = [...new Set(shifts.map(s => s.shift_date))].sort()
-            
-            const tableHeaders = reportDates.map(d => {
-                const dateObj = new Date(d + 'T12:00:00')
-                return `<th style="padding: 6px; border: 1px solid #ddd; font-size: 10px; background: #f1f5f9; text-transform: uppercase;">${dateObj.toLocaleDateString('es-US', { weekday: 'short', day: 'numeric', timeZone: 'America/Los_Angeles' })}</th>`
-            }).join('')
+        }
 
-            const reportRows = empMap.map(emp => {
-                const empShifts = shifts.filter(s => s.employee_id === emp.id)
-                if (empShifts.length === 0) return ''
+        // 7. SEND CONSOLIDATED REPORT TO MANAGER
+        if (results.email > 0) {
+            const getApiRoleWeight = (title: string, empShifts: any[]) => {
+                const t = (title || '').toLowerCase()
+                if (
+                    t.includes('manager') &&
+                    !t.includes('asst') &&
+                    !t.includes('assist') &&
+                    !t.includes('asistente') &&
+                    !t.includes('shift')
+                )
+                    return 10
 
-                const cells = reportDates.map(dateStr => {
-                    const dayShifts = empShifts.filter(s => s.shift_date === dateStr)
-                    if (dayShifts.length === 0) return `<td style="border: 1px solid #eee; background: #fafafa;"></td>`
+                let totalAmHours = 0
+                let totalPmHours = 0
+                empShifts.forEach((s: any) => {
+                    const start = new Date(s.start_time)
+                    const end = new Date(s.end_time)
+                    const startH = getLAHour(start) + start.getMinutes() / 60
+                    let endH = getLAHour(end) + end.getMinutes() / 60
+                    if (endH < startH) endH += 24
+                    const overlapAm = Math.max(0, Math.min(endH, 17) - startH)
+                    const overlapPm = Math.max(0, endH - Math.max(startH, 17))
+                    totalAmHours += overlapAm
+                    totalPmHours += overlapPm
+                })
 
-                    const content = dayShifts.map(s => {
-                        const sTime = new Date(s.start_time).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'America/Los_Angeles' }).replace(':00', '')
-                        const eTime = new Date(s.end_time).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'America/Los_Angeles' }).replace(':00', '')
-                        
-                        let bInfo = ''
-                        if (s.breaks_schedule && Array.isArray(s.breaks_schedule)) {
-                            bInfo = s.breaks_schedule.map((b: any) => {
-                                const bt = new Date(b.start_time).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'America/Los_Angeles' }).replace(':00', '')
-                                // ORANGE for Lunch, GREEN for Break
-                                const color = b.type === 'meal_30' ? '#f97316' : '#22c55e';
-                                return `<div style="font-size: 8px; color: ${color}; font-weight: bold;">${b.type === 'meal_30' ? 'L:' : 'B:'}${bt}</div>`
-                            }).join('')
-                        }
+                const blockScore = totalPmHours > totalAmHours ? 2000 : 1000
+                let roleScore = 99
+                if (t.includes('asst') || t.includes('assist') || t.includes('asistente')) roleScore = 1
+                else if (t.includes('shift') || t.includes('leader') || t.includes('encargado')) roleScore = 2
+                else if (t.includes('cashier') || t.includes('cajera')) roleScore = 3
+                else if (
+                    t.includes('cook') ||
+                    t.includes('cocinero') ||
+                    t.includes('prep') ||
+                    t.includes('preparador') ||
+                    t.includes('taquero') ||
+                    t.includes('tortill')
+                )
+                    roleScore = 4
+                return blockScore + roleScore
+            }
 
-                        return `
-                            <div style="font-size: 9px; font-weight: bold; margin-bottom: 2px;">${sTime}-${eTime}</div>
-                            ${bInfo}
-                        `
-                    }).join('<div style="margin: 4px 0; border-top: 1px solid #eee;"></div>')
+            const allEmpIdInShifts = [...new Set(shifts.map((s: any) => s.employee_id).filter(Boolean))]
+            const { data: allShiftsEmployees } = await supabase
+                .from('toast_employees')
+                .select('id, first_name, last_name, job_references')
+                .in('id', allEmpIdInShifts)
 
-                    return `<td style="padding: 4px; border: 1px solid #eee; vertical-align: top; min-width: 60px;">${content}</td>`
-                }).join('')
+            const empMap = (allShiftsEmployees || []).sort((a: any, b: any) => {
+                const aShifts = shifts.filter((s: any) => s.employee_id === a.id)
+                const bShifts = shifts.filter((s: any) => s.employee_id === b.id)
+                const aJob = a.job_references?.[0]?.title || ''
+                const bJob = b.job_references?.[0]?.title || ''
+                const wA = getApiRoleWeight(aJob, aShifts)
+                const wB = getApiRoleWeight(bJob, bShifts)
+                if (wA !== wB) return wA - wB
+                return (a.first_name || '').localeCompare(b.first_name || '')
+            })
 
-                return `
-                    <tr>
-                        <td style="padding: 6px; border: 1px solid #ddd; font-weight: bold; font-size: 11px; background: #fdfdfd; white-space: nowrap;">${emp.first_name} ${emp.last_name?.charAt(0) || ''}.</td>
-                        ${cells}
-                    </tr>
-                `
-            }).join('')
+            const reportDates = [...new Set(shifts.map((s: any) => s.shift_date))].sort()
+
+            const tableHeaders = reportDates
+                .map((d: string) => {
+                    const dateObj = new Date(d + 'T12:00:00')
+                    return `<th style="padding: 6px; border: 1px solid #ddd; font-size: 10px; background: #f1f5f9; text-transform: uppercase;">${dateObj.toLocaleDateString('es-US', { weekday: 'short', day: 'numeric', timeZone: 'America/Los_Angeles' })}</th>`
+                })
+                .join('')
+
+            const reportRows = empMap
+                .map((emp: any) => {
+                    const empShifts = shifts.filter((s: any) => s.employee_id === emp.id)
+                    if (empShifts.length === 0) return ''
+
+                    const cells = reportDates
+                        .map((dateStr: string) => {
+                            const dayShifts = empShifts.filter((s: any) => s.shift_date === dateStr)
+                            if (dayShifts.length === 0)
+                                return `<td style="border: 1px solid #eee; background: #fafafa;"></td>`
+
+                            const content = dayShifts
+                                .map((s: any) => {
+                                    const sTime = new Date(s.start_time)
+                                        .toLocaleTimeString('en-US', {
+                                            hour: 'numeric',
+                                            minute: '2-digit',
+                                            hour12: true,
+                                            timeZone: 'America/Los_Angeles',
+                                        })
+                                        .replace(':00', '')
+                                    const eTime = new Date(s.end_time)
+                                        .toLocaleTimeString('en-US', {
+                                            hour: 'numeric',
+                                            minute: '2-digit',
+                                            hour12: true,
+                                            timeZone: 'America/Los_Angeles',
+                                        })
+                                        .replace(':00', '')
+
+                                    let bInfo = ''
+                                    if (s.breaks_schedule && Array.isArray(s.breaks_schedule)) {
+                                        bInfo = s.breaks_schedule
+                                            .map((b: any) => {
+                                                const bt = new Date(b.start_time)
+                                                    .toLocaleTimeString('en-US', {
+                                                        hour: 'numeric',
+                                                        minute: '2-digit',
+                                                        hour12: true,
+                                                        timeZone: 'America/Los_Angeles',
+                                                    })
+                                                    .replace(':00', '')
+                                                const color =
+                                                    b.type === 'meal_30' ? '#f97316' : '#22c55e'
+                                                return `<div style="font-size: 8px; color: ${color}; font-weight: bold;">${b.type === 'meal_30' ? 'L:' : 'B:'}${bt}</div>`
+                                            })
+                                            .join('')
+                                    }
+
+                                    return `
+                                        <div style="font-size: 9px; font-weight: bold; margin-bottom: 2px;">${sTime}-${eTime}</div>
+                                        ${bInfo}
+                                    `
+                                })
+                                .join('<div style="margin: 4px 0; border-top: 1px solid #eee;"></div>')
+
+                            return `<td style="padding: 4px; border: 1px solid #eee; vertical-align: top; min-width: 60px;">${content}</td>`
+                        })
+                        .join('')
+
+                    return `
+                        <tr>
+                            <td style="padding: 6px; border: 1px solid #ddd; font-weight: bold; font-size: 11px; background: #fdfdfd; white-space: nowrap;">${emp.first_name} ${emp.last_name?.charAt(0) || ''}.</td>
+                            ${cells}
+                        </tr>
+                    `
+                })
+                .join('')
 
             const managerHtml = `
                 <!DOCTYPE html>
                 <html>
                 <body style="font-family: 'Inter', Arial, sans-serif; color: #1e293b; padding: 0; margin: 0; background-color: #f8fafc;">
                     <div style="max-width: 1100px; margin: 0 auto; background: white; padding: 40px; border: 1px solid #e2e8f0;">
-                        
-                        <!-- PDF HEADER STYLE -->
                         <div style="display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #4f46e5; padding-bottom: 20px; margin-bottom: 30px;">
                             <div style="flex: 1;">
                                 <h1 style="margin: 0; font-size: 24px; font-weight: 900; color: #1e293b; letter-spacing: -0.025em;">REPORTES DE PROGRAMACIÓN</h1>
@@ -1112,8 +1346,6 @@ export async function POST(req: Request) {
                                 </div>
                             </div>
                         </div>
-
-                        <!-- GRID CONTENT -->
                         <table style="width: 100%; border-collapse: collapse; border: 1px solid #e2e8f0; table-layout: fixed;">
                             <thead>
                                 <tr style="background: #f8fafc;">
@@ -1125,145 +1357,194 @@ export async function POST(req: Request) {
                                 ${reportRows}
                             </tbody>
                         </table>
-
-                        <!-- PDF FOOTER -->
                         <div style="margin-top: 40px; padding-top: 20px; border-top: 1px solid #e2e8f0; display: flex; justify-content: space-between; font-size: 10px; color: #94a3b8;">
                             <div>© ${new Date().getFullYear()} Tacos Gavilan - Sistema de Gestión de Labor</div>
                             <div style="font-style: italic;">* L: Lunch (30m) | B: Break (10m)</div>
                             <div>Página 1 de 1</div>
                         </div>
                     </div>
-
-                    <style>
-                        @media print {
-                            body { background: white !important; }
-                            div { border: none !important; padding: 0 !important; }
-                            table { page-break-inside: auto; }
-                            tr { page-break-inside: avoid; page-break-after: auto; }
-                        }
-                    </style>
                 </body>
                 </html>
             `
 
-            // --- PDF ATTACHMENT GENERATION ---
-            const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
-            
-            // Header Content
-            doc.setFontSize(18);
-            doc.setTextColor(79, 70, 229); // #4f46e5
-            doc.text(`HORARIO MAESTRO: ${storeName}`, 14, 20);
-            
-            doc.setFontSize(10);
-            doc.setTextColor(100, 116, 139);
-            const dateRangeStr = reportDates.length > 0 ? `${reportDates[0]} - ${reportDates[reportDates.length-1]}` : '';
-            doc.text(`Periodo: ${dateRangeStr} | Generado por: ${fromEmail}`, 14, 28);
-            doc.text(`Fecha de Publicación: ${new Date().toLocaleString()}`, 14, 33);
+            const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' })
+            doc.setFontSize(18)
+            doc.setTextColor(79, 70, 229)
+            doc.text(`HORARIO MAESTRO: ${storeName}`, 14, 20)
 
-            // Table Data Preparation
-            const head = [['EMPLEADO', ...reportDates.map(d => {
-                const dateObj = new Date(d + 'T12:00:00');
-                return dateObj.toLocaleDateString('es-US', { weekday: 'short', day: 'numeric', timeZone: 'America/Los_Angeles' }).toUpperCase();
-            })]];
+            doc.setFontSize(10)
+            doc.setTextColor(100, 116, 139)
+            const dateRangeStr =
+                reportDates.length > 0
+                    ? `${reportDates[0]} - ${reportDates[reportDates.length - 1]}`
+                    : ''
+            doc.text(`Periodo: ${dateRangeStr} | Generado por: ${fromEmail}`, 14, 28)
+            doc.text(`Fecha de Publicación: ${new Date().toLocaleString()}`, 14, 33)
 
-            const body = empMap.map(emp => {
-                const empShifts = shifts.filter(s => s.employee_id === emp.id);
-                const row = [`${emp.first_name} ${emp.last_name?.charAt(0) || ''}.`];
-                
-                reportDates.forEach(dateStr => {
-                    const dayShifts = empShifts.filter(s => s.shift_date === dateStr);
+            const head = [
+                [
+                    'EMPLEADO',
+                    ...reportDates.map((d: string) => {
+                        const dateObj = new Date(d + 'T12:00:00')
+                        return dateObj
+                            .toLocaleDateString('es-US', {
+                                weekday: 'short',
+                                day: 'numeric',
+                                timeZone: 'America/Los_Angeles',
+                            })
+                            .toUpperCase()
+                    }),
+                ],
+            ]
+
+            const tableBody = empMap.map((emp: any) => {
+                const empShifts = shifts.filter((s: any) => s.employee_id === emp.id)
+                const row = [`${emp.first_name} ${emp.last_name?.charAt(0) || ''}.`]
+
+                reportDates.forEach((dateStr: string) => {
+                    const dayShifts = empShifts.filter((s: any) => s.shift_date === dateStr)
                     if (dayShifts.length === 0) {
-                        row.push('');
+                        row.push('')
                     } else {
-                        const cellText = dayShifts.map(s => {
-                            const sTime = new Date(s.start_time).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'America/Los_Angeles' }).replace(':00', '');
-                            const eTime = new Date(s.end_time).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'America/Los_Angeles' }).replace(':00', '');
-                            let bText = '';
-                            if (s.breaks_schedule && Array.isArray(s.breaks_schedule)) {
-                                bText = '\n' + s.breaks_schedule.map((b: any) => {
-                                    const bt = new Date(b.start_time).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'America/Los_Angeles' }).replace(':00', '');
-                                    return `${b.type === 'meal_30' ? 'L:' : 'B:'}${bt}`;
-                                }).join('  ');
-                            }
-                            return `${sTime}-${eTime}${bText}`;
-                        }).join('\n---\n');
-                        row.push(cellText);
+                        const cellText = dayShifts
+                            .map((s: any) => {
+                                const sTime = new Date(s.start_time)
+                                    .toLocaleTimeString('en-US', {
+                                        hour: 'numeric',
+                                        minute: '2-digit',
+                                        hour12: true,
+                                        timeZone: 'America/Los_Angeles',
+                                    })
+                                    .replace(':00', '')
+                                const eTime = new Date(s.end_time)
+                                    .toLocaleTimeString('en-US', {
+                                        hour: 'numeric',
+                                        minute: '2-digit',
+                                        hour12: true,
+                                        timeZone: 'America/Los_Angeles',
+                                    })
+                                    .replace(':00', '')
+                                let bText = ''
+                                if (s.breaks_schedule && Array.isArray(s.breaks_schedule)) {
+                                    bText =
+                                        '\n' +
+                                        s.breaks_schedule
+                                            .map((b: any) => {
+                                                const bt = new Date(b.start_time)
+                                                    .toLocaleTimeString('en-US', {
+                                                        hour: 'numeric',
+                                                        minute: '2-digit',
+                                                        hour12: true,
+                                                        timeZone: 'America/Los_Angeles',
+                                                    })
+                                                    .replace(':00', '')
+                                                return `${b.type === 'meal_30' ? 'L:' : 'B:'}${bt}`
+                                            })
+                                            .join('  ')
+                                }
+                                return `${sTime}-${eTime}${bText}`
+                            })
+                            .join('\n---\n')
+                        row.push(cellText)
                     }
-                });
-                return row;
-            });
+                })
+                return row
+            })
 
             autoTable(doc, {
                 startY: 40,
-                head: head,
-                body: body,
+                head,
+                body: tableBody,
                 theme: 'grid',
-                styles: { fontSize: 7, cellPadding: 2, overflow: 'linebreak', halign: 'center', valign: 'middle' },
-                headStyles: { fillColor: [79, 70, 229], textColor: 255, halign: 'center', fontStyle: 'bold' },
-                columnStyles: { 0: { fontStyle: 'bold', fontSize: 8, cellWidth: 35, halign: 'left', fillColor: [249, 250, 251] } },
+                styles: {
+                    fontSize: 7,
+                    cellPadding: 2,
+                    overflow: 'linebreak',
+                    halign: 'center',
+                    valign: 'middle',
+                },
+                headStyles: {
+                    fillColor: [79, 70, 229],
+                    textColor: 255,
+                    halign: 'center',
+                    fontStyle: 'bold',
+                },
+                columnStyles: {
+                    0: {
+                        fontStyle: 'bold',
+                        fontSize: 8,
+                        cellWidth: 35,
+                        halign: 'left',
+                        fillColor: [249, 250, 251],
+                    },
+                },
                 alternateRowStyles: { fillColor: [255, 255, 255] },
                 willDrawCell: (data) => {
-                    // Prevent default text drawing for body columns (>0) to allow for colored manual drawing
                     if (data.section === 'body' && data.column.index > 0) {
-                        data.cell.styles.textColor = 255; // White to "hide" but keep spacing logic
-                        // Actually better: just store current text and clear it for default engine
-                        (data.cell as any)._coloredText = data.cell.text;
-                        data.cell.text = [];
+                        data.cell.styles.textColor = 255
+                        ;(data.cell as any)._coloredText = data.cell.text
+                        data.cell.text = []
                     }
                 },
                 didDrawCell: (data) => {
                     if (data.section === 'body' && data.column.index > 0) {
-                        const cell = data.cell;
-                        const lines = (cell as any)._coloredText || [];
-                        if (lines.length === 0) return;
+                        const cell = data.cell
+                        const lines = (cell as any)._coloredText || []
+                        if (lines.length === 0) return
 
-                        let currentY = cell.y + 4;
-                        const centerX = cell.x + cell.width / 2;
+                        let currentY = cell.y + 4
+                        const centerX = cell.x + cell.width / 2
+                        doc.setFontSize(7)
 
-                        doc.setFontSize(7);
-                        
                         lines.forEach((line: string) => {
                             if (line === '---') {
-                                doc.setDrawColor(240);
-                                doc.line(cell.x + 2, currentY, cell.x + cell.width - 2, currentY);
-                                currentY += 4;
-                                return;
+                                doc.setDrawColor(240)
+                                doc.line(cell.x + 2, currentY, cell.x + cell.width - 2, currentY)
+                                currentY += 4
+                                return
                             }
 
                             if (line.includes('L:')) {
-                                doc.setTextColor(249, 115, 22); // Orange #f97316
-                                doc.setFont('helvetica', 'bold');
-                                doc.setFontSize(7);
+                                doc.setTextColor(249, 115, 22)
+                                doc.setFont('helvetica', 'bold')
+                                doc.setFontSize(7)
                             } else if (line.includes('B:')) {
-                                doc.setTextColor(34, 197, 94); // Green #22c55e
-                                doc.setFont('helvetica', 'bold');
-                                doc.setFontSize(7);
+                                doc.setTextColor(34, 197, 94)
+                                doc.setFont('helvetica', 'bold')
+                                doc.setFontSize(7)
                             } else {
-                                doc.setTextColor(30, 41, 59); // Dark blue-gray #1e293b
-                                doc.setFont('helvetica', 'bold');
-                                doc.setFontSize(8);
+                                doc.setTextColor(30, 41, 59)
+                                doc.setFont('helvetica', 'bold')
+                                doc.setFontSize(8)
                             }
-                            
-                            doc.text(line, centerX, currentY, { align: 'center' });
-                            currentY += 4;
-                        });
-                    }
-                }
-            });
 
-            // Footer
-            const pageCount = (doc as any).internal.getNumberOfPages();
+                            doc.text(line, centerX, currentY, { align: 'center' })
+                            currentY += 4
+                        })
+                    }
+                },
+            })
+
+            const pageCount = (doc as any).internal.getNumberOfPages()
             for (let i = 1; i <= pageCount; i++) {
-                doc.setPage(i);
-                doc.setFontSize(8);
-                doc.setTextColor(150);
-                doc.text(`Sistema TEG Tacos Gavilan | Página ${i} de ${pageCount}`, doc.internal.pageSize.width / 2, doc.internal.pageSize.height - 10, { align: 'center' });
+                doc.setPage(i)
+                doc.setFontSize(8)
+                doc.setTextColor(150)
+                doc.text(
+                    `Sistema TEG Tacos Gavilan | Página ${i} de ${pageCount}`,
+                    doc.internal.pageSize.width / 2,
+                    doc.internal.pageSize.height - 10,
+                    { align: 'center' }
+                )
             }
 
-            const pdfBuffer = Buffer.from(doc.output('arraybuffer'));
+            const pdfBuffer = Buffer.from(doc.output('arraybuffer'))
 
             try {
-                const compiler = nodemailer.createTransport({ streamTransport: true, newline: 'windows' })
+                const compiler = nodemailer.createTransport({
+                    streamTransport: true,
+                    newline: 'windows',
+                })
                 const info = await compiler.sendMail({
                     from: `"Sistema TEG" <${fromEmail}>`,
                     to: fromEmail,
@@ -1272,9 +1553,9 @@ export async function POST(req: Request) {
                     attachments: [
                         {
                             filename: `Horario_${storeName.replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}.pdf`,
-                            content: pdfBuffer
-                        }
-                    ]
+                            content: pdfBuffer,
+                        },
+                    ],
                 })
                 const rawBuffer = await new Promise<Buffer>((resolve, reject) => {
                     const message = info.message as any
@@ -1284,23 +1565,32 @@ export async function POST(req: Request) {
                     message.on('end', () => resolve(Buffer.concat(chunks)))
                     message.on('error', (err: Error) => reject(err))
                 })
-                const raw = rawBuffer.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
-                
+                const raw = rawBuffer
+                    .toString('base64')
+                    .replace(/\+/g, '-')
+                    .replace(/\//g, '_')
+                    .replace(/=+$/, '')
+
                 await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
                     method: 'POST',
-                    headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ raw })
+                    headers: {
+                        Authorization: `Bearer ${accessToken}`,
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ raw }),
                 })
-                console.log(`✅ Manager Report (with PDF) sent to ${fromEmail}`)
             } catch (me) {
                 console.error('❌ Failed to send Manager Report:', me)
             }
         }
 
         return NextResponse.json({ success: true, stats: results })
-
     } catch (error: any) {
         console.error('Notification Error:', error)
-        return NextResponse.json({ error: error.message }, { status: 500 })
+        const status =
+            typeof error?.message === 'string' && error.message.includes('GMAIL_AUTH_FAILED')
+                ? 401
+                : 500
+        return NextResponse.json({ error: error.message }, { status })
     }
 }

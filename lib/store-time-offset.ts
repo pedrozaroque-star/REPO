@@ -1,197 +1,420 @@
 /**
  * @module StoreTimeOffset
- * @description Calcula y aplica desfases horarios (time offsets) para los horarios de actividades
- *   de cada tienda, relativo a la tienda base/referencia (Slauson).
- *   Calculates and applies time offsets for store-specific activity schedules
- *   relative to the base/reference store (Slauson).
+ * @description Motor de cálculo de desfases horarios (time offsets) por sucursal y fecha laboral
+ * para el catálogo corporativo de actividades operativas.
+ *
  * @businessRules
- * - Tienda base/referencia: Slauson (abre al público 10:00 AM, cierra 1:00 AM)
- *   Base/reference store: Slauson (opens 10:00 AM to customers, closes 1:00 AM)
- * - El personal llega siempre 1 hora antes de abrir al público
- *   Staff always arrives 1 hour before customer opening
- * - El personal se va siempre 1 hora después de cerrar al público
- *   Staff always departs 1 hour after customer closing
- * - Actividades de Apertura y Regular se recorren por el offset de apertura
- *   Apertura & Regular activities shift by the opening offset
- * - Actividades de Cierre se recorren por el offset de cierre
- *   Cierre activities shift by the closing offset
- * - El cambio de turno a las 5:00 PM es FIJO y nunca se mueve
- *   The 5:00 PM shift change is FIXED and never moves
+ * 1. El catálogo base de actividades (`operating_procedures`) está calibrado con el horario base
+ *    de referencia de Slauson entre semana:
+ *    - Apertura al público: 10:00 AM (preparación inicia 1h antes -> 09:00 AM).
+ *    - Cierre al público: 01:00 AM del día siguiente (limpieza termina 1h después -> 02:00 AM).
+ * 2. Desfase de Apertura (`OPENING` / `OPENING_OFFSET` / `REGULAR_OFFSET`):
+ *    - Aplica a las categorías `Apertura` y `Regular` (comparación case-insensitive).
+ *    - Se calcula como: `(Hora Apertura Sucursal en Fecha) - 10:00 AM`.
+ * 3. Desfase de Cierre (`CLOSING` / `CLOSING_OFFSET`):
+ *    - Aplica a todo el bloque de la categoría `Cierre` (comparación case-insensitive),
+ *      incluyendo tareas pre-cierre que inician antes de cerrar puertas (ej. 11:00 PM / `23:00:00`).
+ *    - Se calcula normalizando horas de madrugada (`00:00` a `05:59` -> `+24h`):
+ *      `(Hora Cierre Sucursal Normalizada en Fecha) - 01:00 AM (25:00)`.
+ * 4. Ancla Temporal Fija (`FIXED` / `FIXED_HANDOFF` - Cambio de Turno 5:00 PM):
+ *    - ÚNICAMENTE las actividades con ancla explícita `FIXED` / `FIXED_HANDOFF` (como el hito
+ *      "Cambio de turno" a las `17:00:00`) permanecen fijas a las 5:00 PM en todas las tiendas.
+ *    - Otras actividades operativas programadas a las `17:00:00` (ej. "Solicitar orden de liquidos
+ *      a la BODEGA y la orden Viele & Sons", categoría `Regular`) usan su ancla `OPENING`
+ *      y se desplazan según la apertura de la tienda (ej. `15:00:00` / `3:00 PM` en LA Central).
+ * 5. Actividades sin hora (`EVENT_NO_TIME`):
+ *    - Si una actividad no tiene `start_time` (`null` o vacío), NO se le inventa hora medianoche (`00:00`).
+ * 6. Horarios Semanales (`stores.weekly_hours`):
+ *    - Para cualquier fecha laboral (`YYYY-MM-DD`), se consulta primero `stores.weekly_hours`
+ *      según el día de la semana (`0` = Domingo ... `5` = Viernes, `6` = Sábado).
+ *    - Si la tienda no tiene entrada válida para ese día en `weekly_hours`, usa `opening_time`
+ *      y `closing_time` generales.
+ * 7. Seguridad ante Configuración Inválida:
+ *    - Si las horas de apertura o cierre son `null`, vacías o mal formadas, devuelve desfase `0`
+ *      y `isValidConfig: false` (nunca `-600` ni `-1500`).
+ *
  * @dataFlow
- * - Lee opening_time y closing_time de la tabla stores en Supabase
- *   Reads opening_time and closing_time from stores table
- * - Se aplica a nivel de presentación/display, NO se modifica la base de datos
- *   Applied at the display/presentation layer, NOT stored in DB
- * @notes
- * - Los tiempos en operating_procedures están calibrados para Slauson
- *   Times in operating_procedures are calibrated for Slauson
- * - Slauson: personal llega 9:00 AM (1h antes de 10 AM), última actividad cierre 2:00 AM (1h después de 1 AM)
+ * - Consumido por: `lib/actividades-resolution.ts`, `AsignacionDiariaTab.tsx`, `ChecklistMode.tsx`,
+ *   `ReportesChecklistTab.tsx`, `/api/notifications/publish-schedule` y `/api/schedule/calendar`.
  */
 
-// ═══════════════════════════════════════════════════════════════
-// Slauson base times (reference store / tienda de referencia)
-// ═══════════════════════════════════════════════════════════════
-const BASE_OPENING_MINUTES = 10 * 60; // 10:00 AM = 600 minutes (apertura al público)
-// Cierre: 1:00 AM = hora 25 en notación 24h+ (1 + 24 = 25), 25 * 60 = 1500
-const BASE_CLOSING_MINUTES = 25 * 60; // 1:00 AM next day = 1500 minutes
+export type TimeAnchor = 'OPENING' | 'CLOSING' | 'FIXED';
+
+export type TemporalPolicy =
+    | 'OPENING_OFFSET'
+    | 'REGULAR_OFFSET'
+    | 'CLOSING_OFFSET'
+    | 'FIXED_HANDOFF'
+    | 'EVENT_NO_TIME';
+
+export interface WeeklyHourConfig {
+    day: number;
+    open: string;
+    close: string;
+}
+
+export type StoreDayHours = WeeklyHourConfig;
+
+export interface StoreScheduleConfig {
+    id?: number | string | null;
+    external_id?: string | null;
+    name?: string | null;
+    opening_time?: string | null;
+    closing_time?: string | null;
+    weekly_hours?: WeeklyHourConfig[] | string | null;
+    has_drive_thru?: boolean | null;
+}
+
+export interface StoreTimeOffsets {
+    openingOffsetMinutes: number;
+    closingOffsetMinutes: number;
+    isValidConfig: boolean;
+    effectiveOpeningTime?: string;
+    effectiveClosingTime?: string;
+    dayOfWeek?: number | null;
+    source?: 'weekly_hours' | 'general' | 'missing';
+}
+
+export type StoreOffsets = StoreTimeOffsets;
+
+export interface TimeOffsetOptions {
+    timeAnchor?: TimeAnchor | TemporalPolicy | string | null;
+    activityTitle?: string | null;
+    baseTimeStr?: string | null;
+    overrides?: Record<string, any> | null;
+    activityId?: string | null;
+}
+
+// Referencias base del catálogo corporativo (Slauson Lunes-Jueves)
+const BASE_OPENING_MINUTES = 10 * 60; // 10:00 AM = 600 min
+const BASE_CLOSING_MINUTES = (1 + 24) * 60; // 01:00 AM (+1 día) = 1500 min
 
 /**
- * Convierte un string de hora (HH:MM:SS o HH:MM) a minutos desde medianoche.
- * Para horas de cierre que caen en la madrugada (< 6:00 AM), suma 24 horas
- * para mantener la continuidad del día laboral TEG (6:00 AM a 5:59 AM).
- *
- * Converts a time string to minutes from midnight.
- * For closing times past midnight (< 6 AM), adds 24 hours to maintain
- * TEG business day continuity (6:00 AM to 5:59 AM).
+ * Valida y convierte un string de hora ("HH:MM:SS" o "HH:MM") a minutos desde las 00:00.
+ * Devuelve `null` si el valor es nulo, vacío o mal formado.
  */
-function parseTimeToMinutes(timeStr: string | null, isClosingTime: boolean = false): number {
-  if (!timeStr) return 0;
-  const parts = timeStr.split(':');
-  let h = parseInt(parts[0], 10);
-  const m = parseInt(parts[1] || '0', 10);
-  if (isNaN(h) || isNaN(m)) return 0;
-  // Para horas de cierre en madrugada (00:00 a 05:59), sumar 24h
-  if (isClosingTime && h < 6) h += 24;
-  return h * 60 + m;
+export function parseTimeToMinutesStrict(timeStr: string | null | undefined): number | null {
+    if (!timeStr || typeof timeStr !== 'string') return null;
+    const clean = timeStr.trim();
+    const match = /^(\d{1,2}):(\d{2})(?::(\d{2}))?$/.exec(clean);
+    if (!match) return null;
+    const hours = Number(match[1]);
+    const minutes = Number(match[2]);
+    if (!Number.isInteger(hours) || !Number.isInteger(minutes)) return null;
+    if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) return null;
+    return hours * 60 + minutes;
 }
 
 /**
- * Interfaz que contiene los dos desfases calculados para una tienda.
- * Interface containing the two calculated offsets for a store.
+ * Convierte minutos del día (con soporte de cruce de medianoche) a formato "HH:MM:SS" (24h).
  */
-export interface StoreOffsets {
-  /** Desfase en minutos para actividades de Apertura y Regular */
-  openingOffsetMinutes: number;
-  /** Desfase en minutos para actividades de Cierre */
-  closingOffsetMinutes: number;
+function minutesToTimeStr(totalMinutes: number): string {
+    const normalized = ((Math.round(totalMinutes) % 1440) + 1440) % 1440;
+    const hours = Math.floor(normalized / 60);
+    const mins = normalized % 60;
+    return `${String(hours).padStart(2, '0')}:${String(mins).padStart(2, '0')}:00`;
 }
 
 /**
- * Calcula los desfases horarios de una tienda relativo a Slauson.
- * Calculates the time offsets for a store relative to Slauson.
- *
- * @param openingTime - Hora de apertura al público de la tienda (ej. "08:00:00")
- * @param closingTime - Hora de cierre al público de la tienda (ej. "02:00:00")
- * @returns StoreOffsets con openingOffsetMinutes y closingOffsetMinutes
- *
- * @example
- * // LA Central: abre 8 AM, cierra 2 AM
- * calculateStoreOffsets("08:00:00", "02:00:00")
- * // → { openingOffsetMinutes: -120, closingOffsetMinutes: 60 }
- * // Apertura/Regular se recorren 2 horas antes, Cierre 1 hora después
- *
- * @example
- * // Slauson (base): abre 10 AM, cierra 1 AM
- * calculateStoreOffsets("10:00:00", "01:00:00")
- * // → { openingOffsetMinutes: 0, closingOffsetMinutes: 0 }
- * // Sin desfase (es la tienda de referencia)
- *
- * @example
- * // Azusa: abre 10 AM, cierra 11 PM
- * calculateStoreOffsets("10:00:00", "23:00:00")
- * // → { openingOffsetMinutes: 0, closingOffsetMinutes: -120 }
- * // Apertura sin cambio, Cierre 2 horas antes
+ * Normaliza minutos de cierre considerando que las horas entre 00:00 y 06:00 AM
+ * pertenecen al cierre de la madrugada del día siguiente (+24 horas = +1440 min).
+ */
+function normalizeClosingMinutes(minutes: number): number {
+    if (minutes <= 6 * 60) {
+        return minutes + 24 * 60;
+    }
+    return minutes;
+}
+
+/**
+ * Obtiene el día de la semana (`0` = Domingo ... `6` = Sábado) para una fecha `YYYY-MM-DD`.
+ * Devuelve `null` si la fecha no tiene formato válido.
+ */
+export function getDayOfWeekFromDateStr(businessDateStr?: string | null): number | null {
+    if (!businessDateStr || typeof businessDateStr !== 'string') return null;
+    const clean = businessDateStr.trim();
+    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(clean);
+    if (!match) return null;
+    const year = Number(match[1]);
+    const month = Number(match[2]);
+    const day = Number(match[3]);
+    if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+    const dt = new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
+    if (
+        Number.isNaN(dt.getTime()) ||
+        dt.getUTCFullYear() !== year ||
+        dt.getUTCMonth() !== month - 1 ||
+        dt.getUTCDate() !== day
+    ) {
+        return null;
+    }
+    return dt.getUTCDay();
+}
+
+/**
+ * Resuelve el horario de apertura y cierre efectivo de una sucursal para una fecha laboral dada,
+ * priorizando `stores.weekly_hours` por día de la semana y usando `opening_time` / `closing_time`
+ * como respaldo.
+ */
+export function resolveStoreHoursForDate(
+    store: StoreScheduleConfig | null | undefined,
+    businessDateStr?: string | null
+): {
+    openingTime: string | null;
+    closingTime: string | null;
+    dayOfWeek: number | null;
+    source: 'weekly_hours' | 'general' | 'missing';
+} {
+    if (!store) {
+        return { openingTime: null, closingTime: null, dayOfWeek: null, source: 'missing' };
+    }
+
+    const dayOfWeek = getDayOfWeekFromDateStr(businessDateStr);
+    let parsedWeeklyHours: WeeklyHourConfig[] | null = null;
+    if (Array.isArray(store.weekly_hours)) {
+        parsedWeeklyHours = store.weekly_hours;
+    } else if (typeof store.weekly_hours === 'string' && store.weekly_hours.trim().startsWith('[')) {
+        try {
+            const parsed = JSON.parse(store.weekly_hours);
+            if (Array.isArray(parsed)) parsedWeeklyHours = parsed;
+        } catch {
+            parsedWeeklyHours = null;
+        }
+    }
+
+    if (dayOfWeek !== null && parsedWeeklyHours && parsedWeeklyHours.length > 0) {
+        const dayEntry = parsedWeeklyHours.find((entry) => Number(entry?.day) === dayOfWeek);
+        if (
+            dayEntry &&
+            parseTimeToMinutesStrict(dayEntry.open) !== null &&
+            parseTimeToMinutesStrict(dayEntry.close) !== null
+        ) {
+            return {
+                openingTime: dayEntry.open.trim(),
+                closingTime: dayEntry.close.trim(),
+                dayOfWeek,
+                source: 'weekly_hours',
+            };
+        }
+    }
+
+    if (
+        parseTimeToMinutesStrict(store.opening_time) !== null &&
+        parseTimeToMinutesStrict(store.closing_time) !== null
+    ) {
+        return {
+            openingTime: store.opening_time!.trim(),
+            closingTime: store.closing_time!.trim(),
+            dayOfWeek,
+            source: 'general',
+        };
+    }
+
+    return {
+        openingTime: store.opening_time ?? null,
+        closingTime: store.closing_time ?? null,
+        dayOfWeek,
+        source: 'missing',
+    };
+}
+
+/**
+ * Calcula los desfases de apertura y cierre en minutos a partir de strings de hora.
+ * Si falta algún horario o tiene formato inválido, devuelve desfase `0` e `isValidConfig: false`.
  */
 export function calculateStoreOffsets(
-  openingTime: string | null,
-  closingTime: string | null
-): StoreOffsets {
-  const storeOpening = parseTimeToMinutes(openingTime, false);
-  const storeClosing = parseTimeToMinutes(closingTime, true);
+    openingTimeStr?: string | null,
+    closingTimeStr?: string | null
+): StoreTimeOffsets {
+    const storeOpenMins = parseTimeToMinutesStrict(openingTimeStr);
+    const storeCloseRawMins = parseTimeToMinutesStrict(closingTimeStr);
 
-  return {
-    openingOffsetMinutes: storeOpening - BASE_OPENING_MINUTES,
-    closingOffsetMinutes: storeClosing - BASE_CLOSING_MINUTES,
-  };
+    if (storeOpenMins === null || storeCloseRawMins === null) {
+        return {
+            openingOffsetMinutes: 0,
+            closingOffsetMinutes: 0,
+            isValidConfig: false,
+        };
+    }
+
+    const storeCloseMins = normalizeClosingMinutes(storeCloseRawMins);
+
+    return {
+        openingOffsetMinutes: storeOpenMins - BASE_OPENING_MINUTES,
+        closingOffsetMinutes: storeCloseMins - BASE_CLOSING_MINUTES,
+        isValidConfig: true,
+    };
 }
 
 /**
- * Aplica el desfase horario a una hora de actividad según su tipo de turno.
- * Applies the time offset to an activity time based on its shift type.
+ * Calcula los desfases horarios de una tienda para una fecha laboral específica (`YYYY-MM-DD`),
+ * utilizando `weekly_hours` cuando esté disponible.
+ */
+export function calculateStoreOffsetsForDate(
+    store: StoreScheduleConfig | null | undefined,
+    businessDateStr?: string | null
+): StoreTimeOffsets {
+    const resolved = resolveStoreHoursForDate(store, businessDateStr);
+    const baseOffsets = calculateStoreOffsets(resolved.openingTime, resolved.closingTime);
+    return {
+        ...baseOffsets,
+        effectiveOpeningTime: resolved.openingTime || undefined,
+        effectiveClosingTime: resolved.closingTime || undefined,
+        dayOfWeek: resolved.dayOfWeek,
+        source: resolved.source,
+    };
+}
+
+/**
+ * Determina el ancla temporal (`OPENING`, `CLOSING`, `FIXED`) de una actividad.
+ */
+export function resolveTimeAnchor(
+    shiftType: string | null | undefined,
+    options?: TimeOffsetOptions | null
+): TimeAnchor {
+    const explicitAnchor = (
+        options?.timeAnchor ||
+        options?.overrides?.time_anchor ||
+        options?.overrides?.temporal_policy ||
+        ''
+    )
+        .toString()
+        .trim()
+        .toUpperCase();
+
+    if (explicitAnchor === 'FIXED' || explicitAnchor === 'FIXED_HANDOFF') {
+        return 'FIXED';
+    }
+    if (explicitAnchor === 'CLOSING' || explicitAnchor === 'CLOSING_OFFSET') {
+        return 'CLOSING';
+    }
+    if (
+        explicitAnchor === 'OPENING' ||
+        explicitAnchor === 'OPENING_OFFSET' ||
+        explicitAnchor === 'REGULAR_OFFSET'
+    ) {
+        return 'OPENING';
+    }
+
+    const normalizedShiftType = (shiftType || '').toString().trim().toLowerCase();
+    if (normalizedShiftType === 'fixed' || normalizedShiftType === 'fixed_handoff') {
+        return 'FIXED';
+    }
+
+    // ID canónico del hito "Cambio de turno" en operating_procedures o coincidencia semántica exacta
+    if (options?.activityId === 'a2b10878-d062-4686-965b-f4ef853ff584') {
+        return 'FIXED';
+    }
+
+    const rawTitle = (options?.activityTitle || '')
+        .toString()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .trim()
+        .toLowerCase();
+    if (rawTitle && /\bcambio\s+de\s+turno\b/.test(rawTitle)) {
+        return 'FIXED';
+    }
+
+    if (normalizedShiftType === 'cierre' || normalizedShiftType === 'closing_offset') {
+        return 'CLOSING';
+    }
+
+    // Política explícita para actividades Regular nocturnas (21:00 a 05:59):
+    // Se anclan al cierre de la sucursal para no desplazarse hacia atrás por aperturas tempranas
+    // ni quedar programadas después de que una tienda de cierre temprano (ej. Azusa 23:00) ya cerró.
+    if (normalizedShiftType === 'regular' && options?.baseTimeStr) {
+        const baseMins = parseTimeToMinutesStrict(options.baseTimeStr);
+        if (baseMins !== null && (baseMins >= 21 * 60 || baseMins < 6 * 60)) {
+            return 'CLOSING';
+        }
+    }
+
+    return 'OPENING';
+}
+
+/**
+ * Resuelve la política temporal explícita (`OPENING_OFFSET`, `REGULAR_OFFSET`, `CLOSING_OFFSET`,
+ * `FIXED_HANDOFF`, `EVENT_NO_TIME`) para trazabilidad del motor de dominio.
+ */
+export function resolveTemporalPolicy(
+    baseTimeStr: string | null | undefined,
+    shiftType: string | null | undefined,
+    options?: TimeOffsetOptions | null
+): TemporalPolicy {
+    if (!baseTimeStr || parseTimeToMinutesStrict(baseTimeStr) === null) {
+        return 'EVENT_NO_TIME';
+    }
+    const anchor = resolveTimeAnchor(shiftType, { ...options, baseTimeStr });
+    if (anchor === 'FIXED') return 'FIXED_HANDOFF';
+    if (anchor === 'CLOSING') return 'CLOSING_OFFSET';
+    const cat = (shiftType || '').toString().trim().toLowerCase();
+    if (cat === 'regular') return 'REGULAR_OFFSET';
+    return 'OPENING_OFFSET';
+}
+
+/**
+ * Aplica el desfase horario de la sucursal a la hora base de una actividad.
  *
- * @param timeStr - Hora original de la actividad (ej. "09:00:00")
- * @param shiftType - Tipo de turno: "Apertura", "Regular", o "Cierre"
- * @param offsets - Desfases calculados por calculateStoreOffsets()
- * @returns Hora ajustada como string "HH:MM:SS", o null si la entrada es null
- *
- * @example
- * const offsets = { openingOffsetMinutes: -120, closingOffsetMinutes: 60 };
- * applyTimeOffset("09:00:00", "Apertura", offsets) // → "07:00:00"
- * applyTimeOffset("14:00:00", "Regular", offsets)  // → "12:00:00"
- * applyTimeOffset("23:00:00", "Cierre", offsets)   // → "00:00:00"
+ * @param baseTimeStr Hora base en el catálogo (ej. "09:00:00", "17:00:00", "23:30:00")
+ * @param shiftType Categoría o ancla de la actividad ('Apertura' | 'Regular' | 'Cierre' | 'FIXED')
+ * @param offsets Desfases calculados de la sucursal
+ * @param options Metadatos opcionales (título de actividad, ancla explícita u overrides)
+ * @returns Hora ajustada en formato "HH:MM:SS"
  */
 export function applyTimeOffset(
-  timeStr: string | null,
-  shiftType: string,
-  offsets: StoreOffsets
-): string | null {
-  if (!timeStr) return timeStr;
+    baseTimeStr: string | null | undefined,
+    shiftType: string | null | undefined,
+    offsets: StoreTimeOffsets | null | undefined,
+    options?: TimeOffsetOptions | null
+): string {
+    if (!baseTimeStr) return '';
+    const baseMins = parseTimeToMinutesStrict(baseTimeStr);
+    if (baseMins === null) return baseTimeStr;
 
-  // Determinar cuál offset aplicar según el tipo de turno
-  const offset =
-    shiftType === 'Cierre'
-      ? offsets.closingOffsetMinutes
-      : offsets.openingOffsetMinutes;
+    if (!offsets || offsets.isValidConfig === false) {
+        return minutesToTimeStr(baseMins);
+    }
 
-  // Si el offset es 0, no hay nada que hacer (misma tienda base o mismo horario)
-  if (offset === 0) return timeStr;
+    const anchor = resolveTimeAnchor(shiftType, { ...options, baseTimeStr });
 
-  // REGLA DE NEGOCIO: El cambio de turno a las 5:00 PM (17:00) es FIJO y NUNCA se mueve
-  // (The 5:00 PM shift change is FIXED and never moves regardless of store offset)
-  const parts0 = timeStr.split(':');
-  const h0 = parseInt(parts0[0], 10);
-  const m0 = parseInt(parts0[1] || '0', 10);
-  if (h0 === 17 && m0 === 0) return timeStr;
+    // Regla de negocio: El hito de cambio de turno (FIXED, 5:00 PM) es inamovible
+    if (anchor === 'FIXED') {
+        return minutesToTimeStr(baseMins);
+    }
 
-  const parts = timeStr.split(':');
-  const h = parseInt(parts[0], 10);
-  const m = parseInt(parts[1] || '0', 10);
-  const s = parts[2] || '00';
+    if (anchor === 'CLOSING') {
+        return minutesToTimeStr(baseMins + (offsets.closingOffsetMinutes || 0));
+    }
 
-  if (isNaN(h) || isNaN(m)) return timeStr;
-
-  let totalMinutes = h * 60 + m + offset;
-
-  // Normalizar al rango 0-1439 (24 horas)
-  while (totalMinutes < 0) totalMinutes += 1440;
-  while (totalMinutes >= 1440) totalMinutes -= 1440;
-
-  const newH = Math.floor(totalMinutes / 60);
-  const newM = totalMinutes % 60;
-
-  return `${String(newH).padStart(2, '0')}:${String(newM).padStart(2, '0')}:${s}`;
+    // Por defecto (OPENING: Apertura y Regular) se desplaza según la apertura
+    return minutesToTimeStr(baseMins + (offsets.openingOffsetMinutes || 0));
 }
 
 /**
- * Verifica si una tienda es la tienda base/referencia (Slauson).
- * Checks if a store is the base/reference store (Slauson).
- * Útil para evitar cálculos innecesarios cuando los offsets son 0.
+ * Formatea una hora "HH:MM:SS" o "HH:MM" a formato legible de 12 horas (ej. "9:00 AM", "11:30 PM").
  */
-export function isBaseStore(openingTime: string | null, closingTime: string | null): boolean {
-  const offsets = calculateStoreOffsets(openingTime, closingTime);
-  return offsets.openingOffsetMinutes === 0 && offsets.closingOffsetMinutes === 0;
+export function formatTime12h(timeStr: string | null | undefined): string {
+    if (!timeStr) return 'Sin hora';
+    const mins = parseTimeToMinutesStrict(timeStr);
+    if (mins === null) return timeStr;
+    const h = Math.floor(mins / 60);
+    const m = mins % 60;
+    const ampm = h >= 12 ? 'PM' : 'AM';
+    const h12 = h % 12 || 12;
+    return `${h12}:${String(m).padStart(2, '0')} ${ampm}`;
 }
 
 /**
- * Formatea una hora con offset aplicado para mostrar en la UI.
- * Formats a time with offset applied for UI display.
- * Convierte "HH:MM:SS" a "H:MM AM/PM".
+ * Aplica el desfase horario de la sucursal y devuelve directamente el texto formateado en 12h.
  */
 export function formatOffsetTime(
-  timeStr: string | null,
-  shiftType: string,
-  offsets: StoreOffsets
+    baseTimeStr: string | null | undefined,
+    shiftType: string | null | undefined,
+    offsets: StoreTimeOffsets | null | undefined,
+    options?: TimeOffsetOptions | null
 ): string {
-  const adjusted = applyTimeOffset(timeStr, shiftType, offsets);
-  if (!adjusted) return '';
-
-  const parts = adjusted.split(':');
-  let h = parseInt(parts[0], 10);
-  const m = parts[1] || '00';
-
-  if (isNaN(h)) return '';
-
-  const ampm = h >= 12 ? 'PM' : 'AM';
-  h = h % 12 || 12;
-  return `${h}:${m} ${ampm}`;
+    if (!baseTimeStr) return '';
+    const adjusted = applyTimeOffset(baseTimeStr, shiftType, offsets, options);
+    return formatTime12h(adjusted);
 }

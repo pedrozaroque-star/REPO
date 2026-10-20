@@ -47,10 +47,10 @@ function PrintProceduresContent() {
   const [loading, setLoading] = useState(true);
 
   // ═══════════════════════════════════════
-  // Sorting: día laboral 6 AM → 5:59 AM
+  // Sorting: día laboral 6 AM → 5:59 AM (sin hora al final: 9999)
   // ═══════════════════════════════════════
   const getSortValue = (timeStr: string) => {
-    if (!timeStr) return 0;
+    if (!timeStr) return 9999;
     const [h, m] = timeStr.split(':').map(Number);
     const effectiveHour = h >= 6 ? h : h + 24;
     return effectiveHour * 60 + m;

@@ -1,17 +1,21 @@
 /**
  * @module CalendarHelper
- * @description Utilities to generate RFC 5545 compliant iCalendar (.ics) files and calendar sync links for employee work shifts.
+ * @description Utilities to generate RFC 5545 compliant iCalendar (.ics) files, signed calendar access tokens,
+ * and calendar sync links for employee work shifts.
  * @businessRules
  * - Compliant with RFC 5545 standard for iOS (Apple Calendar), Android (Google Calendar / Samsung Calendar), Outlook, and webmail.
  * - Formats timestamps in UTC format (YYYYMMDDTHHmmssZ).
  * - Escapes special characters in text fields (commas, semicolons, backslashes, newlines).
- * - Embeds 1-hour display alarms (VALARM) so employees receive reminders prior to shift starts.
- * - Builds direct Google Calendar web links for single shifts.
+ * - Embeds 1-hour and 2-hour display alarms (VALARM) so employees receive reminders prior to shift starts.
+ * - Signs calendar download URLs with HMAC-SHA256 (`signCalendarAccessToken` / `verifyCalendarAccessToken`)
+ *   scoped to `employeeId`, `storeId`, `startDate`, `endDate` (and optional `shiftId`) with expiration (`exp`).
  * @dataFlow
- * - Reads shift records, store locations, employee names, station assignments, and break schedules -> Generates .ics payload / calendar URLs.
+ * - Reads shift records, store locations, employee names, station assignments, and break schedules -> Generates .ics payload / signed calendar URLs.
  * @notes
  * - Uses CRLF (\r\n) line endings as strictly mandated by RFC 5545.
  */
+
+import crypto from 'crypto';
 
 export interface CalendarShiftItem {
     id: string | number;
@@ -40,6 +44,145 @@ export interface CalendarOptions {
     employeeName: string;
     shifts: CalendarShiftItem[];
     calendarName?: string;
+}
+
+export interface CalendarAccessTokenPayload {
+    scope: 'calendar_download';
+    employeeId: string;
+    storeId: string;
+    startDate?: string;
+    endDate?: string;
+    shiftId?: string;
+    exp: number;
+}
+
+function getCalendarSigningSecret(): string | null {
+    const raw =
+        process.env.CALENDAR_TOKEN_SECRET ||
+        process.env.SUPABASE_JWT_SECRET ||
+        process.env.JWT_SECRET ||
+        process.env.SUPABASE_SERVICE_ROLE_KEY;
+    if (!raw || !raw.trim()) return null;
+    return raw.trim().replace(/^"(.*)"$/, '$1');
+}
+
+/**
+ * Genera un token firmado HMAC-SHA256 para descarga segura de calendario (.ics),
+ * acotado a `employeeId`, `storeId`, `startDate`, `endDate` (o `shiftId`) y con expiración (`exp`).
+ */
+export function signCalendarAccessToken(
+    params: {
+        employeeId: string;
+        storeId: string;
+        startDate?: string;
+        endDate?: string;
+        shiftId?: string;
+        expiresInSeconds?: number;
+        expTimestamp?: number;
+    },
+    customSecret?: string
+): string | null {
+    const secret = customSecret || getCalendarSigningSecret();
+    if (!secret) return null;
+
+    const nowSec = Math.floor(Date.now() / 1000);
+    const exp =
+        params.expTimestamp !== undefined
+            ? Number(params.expTimestamp)
+            : nowSec + (params.expiresInSeconds ?? 45 * 24 * 60 * 60); // 45 días por defecto
+
+    const payload: CalendarAccessTokenPayload = {
+        scope: 'calendar_download',
+        employeeId: String(params.employeeId).trim(),
+        storeId: String(params.storeId).trim(),
+        ...(params.startDate ? { startDate: String(params.startDate).trim() } : {}),
+        ...(params.endDate ? { endDate: String(params.endDate).trim() } : {}),
+        ...(params.shiftId ? { shiftId: String(params.shiftId).trim() } : {}),
+        exp,
+    };
+
+    const payloadB64 = Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url');
+    const sig = crypto.createHmac('sha256', secret).update(payloadB64).digest('base64url');
+    return `${payloadB64}.${sig}`;
+}
+
+/**
+ * Verifica un token firmado de calendario y comprueba que coincida exactamente con los
+ * parámetros solicitados (`employeeId`, `storeId`, `startDate`, `endDate`, `shiftId`) y no haya expirado.
+ */
+export function verifyCalendarAccessToken(
+    token: string | null | undefined,
+    requested: {
+        employeeId?: string | null;
+        storeId?: string | null;
+        startDate?: string | null;
+        endDate?: string | null;
+        shiftId?: string | null;
+    },
+    customSecret?: string
+): { valid: boolean; reason?: string; payload?: CalendarAccessTokenPayload } {
+    if (!token || typeof token !== 'string' || !token.includes('.')) {
+        return { valid: false, reason: 'missing_or_malformed_token' };
+    }
+
+    const secret = customSecret || getCalendarSigningSecret();
+    if (!secret) {
+        return { valid: false, reason: 'server_secret_unavailable' };
+    }
+
+    const parts = token.trim().split('.');
+    if (parts.length !== 2) {
+        return { valid: false, reason: 'invalid_token_format' };
+    }
+
+    const [payloadB64, providedSig] = parts;
+    const expectedSig = crypto.createHmac('sha256', secret).update(payloadB64).digest('base64url');
+
+    const sigBufA = Buffer.from(providedSig, 'utf8');
+    const sigBufB = Buffer.from(expectedSig, 'utf8');
+    if (sigBufA.length !== sigBufB.length || !crypto.timingSafeEqual(sigBufA, sigBufB)) {
+        return { valid: false, reason: 'invalid_signature' };
+    }
+
+    let payload: CalendarAccessTokenPayload;
+    try {
+        payload = JSON.parse(Buffer.from(payloadB64, 'base64url').toString('utf8'));
+    } catch {
+        return { valid: false, reason: 'invalid_payload_json' };
+    }
+
+    if (!payload || payload.scope !== 'calendar_download') {
+        return { valid: false, reason: 'invalid_scope' };
+    }
+
+    const nowSec = Math.floor(Date.now() / 1000);
+    if (!Number.isFinite(payload.exp) || payload.exp < nowSec) {
+        return { valid: false, reason: 'token_expired' };
+    }
+
+    if (!requested.employeeId || String(requested.employeeId).trim() !== payload.employeeId) {
+        return { valid: false, reason: 'employee_mismatch' };
+    }
+
+    if (!requested.storeId || String(requested.storeId).trim() !== payload.storeId) {
+        return { valid: false, reason: 'store_mismatch' };
+    }
+
+    if (payload.shiftId) {
+        if (!requested.shiftId || String(requested.shiftId).trim() !== payload.shiftId) {
+            return { valid: false, reason: 'shift_mismatch' };
+        }
+    } else {
+        if (payload.startDate && (!requested.startDate || String(requested.startDate).trim() !== payload.startDate)) {
+            return { valid: false, reason: 'start_date_mismatch' };
+        }
+
+        if (payload.endDate && (!requested.endDate || String(requested.endDate).trim() !== payload.endDate)) {
+            return { valid: false, reason: 'end_date_mismatch' };
+        }
+    }
+
+    return { valid: true, payload };
 }
 
 /**
@@ -217,7 +360,7 @@ export function buildGoogleCalendarUrl(options: {
 }
 
 /**
- * Generates universal direct calendar download / subscription URL.
+ * Generates universal direct calendar download / subscription URL (with HMAC token when secret is available).
  */
 export function buildCalendarApiUrl(params: {
     baseUrl?: string;
@@ -225,13 +368,24 @@ export function buildCalendarApiUrl(params: {
     storeId: string;
     startDate: string;
     endDate: string;
+    token?: string;
 }): string {
     const base = params.baseUrl || (typeof window !== 'undefined' ? window.location.origin : 'https://tacosgavilan.vercel.app');
+    const signedToken =
+        params.token ||
+        signCalendarAccessToken({
+            employeeId: params.employeeId,
+            storeId: params.storeId,
+            startDate: params.startDate,
+            endDate: params.endDate,
+        });
+
     const query = new URLSearchParams({
         employee_id: params.employeeId,
         store_id: params.storeId,
         start_date: params.startDate,
-        end_date: params.endDate
+        end_date: params.endDate,
+        ...(signedToken ? { token: signedToken } : {}),
     });
     return `${base}/api/schedule/calendar?${query.toString()}`;
 }

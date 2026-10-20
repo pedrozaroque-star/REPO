@@ -1,18 +1,22 @@
 /**
  * @module lib/auth-server
- * @description Helper de servidor para autenticar peticiones en rutas de API de Next.js.
- *              Valida el JWT personalizado (teg_token) almacenado en las cookies o headers.
+ * @description Helper de servidor para autenticar y autorizar peticiones en rutas de API de Next.js.
+ *              Valida el JWT personalizado (`teg_token`) almacenado en cookies o headers y verifica
+ *              el alcance por rol (`admin`, `supervisor`, `manager`, `asistente`, `employee`) y sucursal.
  *
  * @businessRules
- * - **Compatibilidad**: Soporta el sistema de JWT personalizado de Tacos Gavilan.
- * - **Seguridad**: Valida la firma del token usando la clave de firma de Supabase (SUPABASE_JWT_SECRET) sin fallbacks inseguros.
- * - **Transición**: Diseñado para funcionar de manera transparente junto al cliente de Supabase Auth.
+ * - **Compatibilidad**: Soporta el sistema de JWT personalizado de Tacos Gavilan (`cookies()`, header `cookie` y `Authorization: Bearer`).
+ * - **Seguridad**: Valida la firma del token usando la clave de firma de Supabase (`SUPABASE_JWT_SECRET`) sin fallbacks inseguros.
+ * - **Alcance de Tienda (`authorizeStoreScope`)**:
+ *   * `admin` y `supervisor` tienen alcance global multitienda.
+ *   * `manager` y `asistente` están restringidos exclusivamente a su `store_id` asignada (resolviendo tanto ID numérico como `external_id` Toast GUID).
+ *   * `employee` solo puede consultar su propia información/tienda cuando el endpoint habilite `allowEmployeeRead`.
  *
  * @dataFlow
- * - Request (Cookie 'teg_token' o Header 'Authorization') -> verifyAdminAuth() / getServerUser() -> jwt.verify() -> AuthSession / User.
+ * - Request (Cookie `teg_token` o Header `Authorization`) -> `getServerUser()` -> `jwt.verify()` -> `ServerUser` -> `authorizeStoreScope()`.
  *
  * @notes
- * - Fail-closed: si no hay secreto JWT configurado en el entorno, rechaza peticiones con error 500 para evitar bypasses.
+ * - Fail-closed: si no hay secreto JWT configurado en el entorno, rechaza peticiones sin permitir bypasses.
  */
 
 import { cookies } from 'next/headers'
@@ -34,38 +38,56 @@ export function getCronSecret(): string | null {
   return secret.trim()
 }
 
-interface ServerUser {
+export interface ServerUser {
   id: string
   email: string
   name: string
+  username?: string
   role: string
   store_id?: string | number
+  store_ids?: string[]
+  store_scope?: any
 }
 
 /**
- * Obtiene el usuario autenticado del lado del servidor leyendo la cookie 'teg_token'.
+ * Obtiene el usuario autenticado del lado del servidor leyendo la cookie 'teg_token' o el header Authorization.
  *
  * @returns ServerUser si el token es válido, null de lo contrario.
  */
 export async function getServerUser(req?: Request): Promise<ServerUser | null> {
   try {
-    let token: string | undefined;
+    const candidateTokens: string[] = []
 
-    try {
-      const cookieStore = await cookies()
-      token = cookieStore.get('teg_token')?.value
-    } catch {
-      // In case cookies() cannot be read in some execution context
-    }
-
-    if (!token && req) {
-      const authHeader = req.headers.get('authorization')
+    if (req) {
+      const authHeader = req.headers.get('authorization') || req.headers.get('Authorization')
       if (authHeader?.startsWith('Bearer ')) {
-        token = authHeader.substring(7)
+        const bearer = authHeader.substring(7).trim()
+        if (bearer) candidateTokens.push(bearer)
       }
     }
 
-    if (!token) {
+    try {
+      const cookieStore = await cookies()
+      const cookieVal = cookieStore.get('teg_token')?.value?.trim()
+      if (cookieVal && !candidateTokens.includes(cookieVal)) {
+        candidateTokens.push(cookieVal)
+      }
+    } catch {
+      // En contextos fuera de request store de Next.js (ej. tests directos), continuar con headers
+    }
+
+    if (req) {
+      const cookieHeader = req.headers.get('cookie') || req.headers.get('Cookie') || ''
+      const match = cookieHeader.match(/(?:^|;\s*)teg_token=([^;]+)/)
+      if (match?.[1]) {
+        const headerCookieVal = decodeURIComponent(match[1].trim())
+        if (headerCookieVal && !candidateTokens.includes(headerCookieVal)) {
+          candidateTokens.push(headerCookieVal)
+        }
+      }
+    }
+
+    if (candidateTokens.length === 0) {
       return null
     }
 
@@ -75,21 +97,237 @@ export async function getServerUser(req?: Request): Promise<ServerUser | null> {
       return null
     }
 
-    const decoded = jwt.verify(token, secret) as any
+    let decoded: any = null
+    for (const candidate of candidateTokens) {
+      try {
+        const verified = jwt.verify(candidate, secret) as any
+        if (verified && verified.sub && verified.email) {
+          decoded = verified
+          break
+        }
+      } catch {
+        // Intentar con el siguiente token candidato si el primero expiró o no es válido
+      }
+    }
+
     if (!decoded || !decoded.sub || !decoded.email) {
       return null
     }
 
+    const resolvedRole = (
+      decoded.user_role ||
+      decoded.user_metadata?.role ||
+      (decoded.role !== 'authenticated' ? decoded.role : '') ||
+      'user'
+    )
+      .toString()
+      .toLowerCase()
+
     return {
-      id: decoded.sub,
-      email: decoded.email,
+      id: String(decoded.sub),
+      email: String(decoded.email),
       name: decoded.user_metadata?.full_name || decoded.email,
-      role: decoded.user_role || 'user',
-      store_id: decoded.user_metadata?.store_id ?? undefined
+      role: resolvedRole,
+      store_id: decoded.user_metadata?.store_id ?? decoded.store_id ?? undefined,
+      store_ids: Array.isArray(decoded.user_metadata?.store_ids)
+        ? decoded.user_metadata.store_ids
+        : undefined,
+      store_scope: decoded.user_metadata?.store_scope ?? undefined
     }
   } catch (err: any) {
     console.error('❌ [getServerUser] Verification failed:', err.message)
     return null
+  }
+}
+
+export interface StoreScopeAuthResult {
+  authorized: boolean
+  status: number
+  error?: string
+  user?: ServerUser
+  isGlobalRole?: boolean
+  resolvedStoreId?: number
+  resolvedStoreGuid?: string
+  canonicalNumericId?: number
+  canonicalExternalId?: string
+}
+
+/**
+ * Verifica que el usuario autenticado tenga autorización sobre la sucursal solicitada (`targetStoreId`),
+ * soportando tanto ID numérico de `stores.id` como `stores.external_id` (Toast GUID).
+ */
+export async function authorizeStoreScope(
+  user: ServerUser | null,
+  targetStoreId: string | number | null | undefined,
+  supabaseClient: any,
+  options?: {
+    requireWrite?: boolean
+    allowEmployeeRead?: boolean
+    allowComparativeAll?: boolean
+  }
+): Promise<StoreScopeAuthResult> {
+  if (!user) {
+    return {
+      authorized: false,
+      status: 401,
+      error: 'No autenticado. Inicia sesión nuevamente.'
+    }
+  }
+
+  const role = (user.role || '').toLowerCase()
+  const isGlobal = role === 'admin' || role === 'supervisor'
+
+  if (isGlobal) {
+    let resolvedStoreId: number | undefined
+    let resolvedStoreGuid: string | undefined
+    const cleanTarget = targetStoreId !== null && targetStoreId !== undefined ? String(targetStoreId).trim() : ''
+    if (cleanTarget && cleanTarget.toUpperCase() !== 'ALL' && supabaseClient) {
+      const isNum = /^\d+$/.test(cleanTarget)
+      const q = supabaseClient.from('stores').select('id, external_id')
+      const { data: st } = isNum
+        ? await q.eq('id', Number(cleanTarget)).maybeSingle()
+        : await q.eq('external_id', cleanTarget).maybeSingle()
+      if (st) {
+        resolvedStoreId = st.id
+        resolvedStoreGuid = st.external_id
+      }
+    }
+    return {
+      authorized: true,
+      status: 200,
+      user,
+      isGlobalRole: true,
+      resolvedStoreId,
+      resolvedStoreGuid,
+      canonicalNumericId: resolvedStoreId,
+      canonicalExternalId: resolvedStoreGuid
+    }
+  }
+
+  const isStoreLeadership = role === 'manager' || role === 'asistente'
+  const isEmployee = role === 'employee'
+
+  if (options?.requireWrite && !isStoreLeadership) {
+    return {
+      authorized: false,
+      status: 403,
+      error: 'Acceso denegado: Tu rol no tiene permisos de escritura sobre asignaciones u horarios.'
+    }
+  }
+
+  if (!isStoreLeadership && !(isEmployee && options?.allowEmployeeRead)) {
+    return {
+      authorized: false,
+      status: 403,
+      error: 'Acceso denegado: Rol no autorizado para esta operación.'
+    }
+  }
+
+  const cleanTarget = targetStoreId !== null && targetStoreId !== undefined ? String(targetStoreId).trim() : ''
+
+  if (!cleanTarget) {
+    return {
+      authorized: true,
+      status: 200,
+      user,
+      isGlobalRole: false
+    }
+  }
+
+  if (cleanTarget.toUpperCase() === 'ALL') {
+    if (options?.allowComparativeAll && !options?.requireWrite) {
+      return {
+        authorized: true,
+        status: 200,
+        user,
+        isGlobalRole: false
+      }
+    }
+    return {
+      authorized: false,
+      status: 403,
+      error: 'Acceso denegado: No tienes permisos globales para operar sobre todas las sucursales.'
+    }
+  }
+
+  if (isEmployee) {
+    const empStores = Array.isArray(user.store_ids) ? user.store_ids.map(String) : []
+    if (empStores.includes(cleanTarget)) {
+      return { authorized: true, status: 200, user, isGlobalRole: false }
+    }
+    if (supabaseClient && empStores.length > 0) {
+      const { data: st } = await supabaseClient
+        .from('stores')
+        .select('id, external_id')
+        .in('external_id', empStores)
+      const matched = (st || []).find(
+        (row: any) => String(row.id) === cleanTarget || String(row.external_id) === cleanTarget
+      )
+      if (matched) {
+        return {
+          authorized: true,
+          status: 200,
+          user,
+          isGlobalRole: false,
+          resolvedStoreId: matched.id,
+          resolvedStoreGuid: matched.external_id,
+          canonicalNumericId: matched.id,
+          canonicalExternalId: matched.external_id
+        }
+      }
+    }
+    return {
+      authorized: false,
+      status: 403,
+      error: 'Acceso denegado: No perteneces a la sucursal solicitada.'
+    }
+  }
+
+  // Para manager o asistente: verificar correspondencia exacta con user.store_id
+  const userStoreRaw = user.store_id !== null && user.store_id !== undefined ? String(user.store_id).trim() : ''
+  if (!userStoreRaw) {
+    return {
+      authorized: false,
+      status: 403,
+      error: 'Acceso denegado: Tu cuenta no tiene una sucursal asignada.'
+    }
+  }
+
+  if (supabaseClient) {
+    const isNumericUserStore = /^\d+$/.test(userStoreRaw)
+    const query = supabaseClient.from('stores').select('id, external_id')
+    const { data: storeRow } = isNumericUserStore
+      ? await query.eq('id', Number(userStoreRaw)).maybeSingle()
+      : await query.eq('external_id', userStoreRaw).maybeSingle()
+
+    if (
+      storeRow &&
+      (String(storeRow.id) === cleanTarget || String(storeRow.external_id) === cleanTarget)
+    ) {
+      return {
+        authorized: true,
+        status: 200,
+        user,
+        isGlobalRole: false,
+        resolvedStoreId: storeRow.id,
+        resolvedStoreGuid: storeRow.external_id,
+        canonicalNumericId: storeRow.id,
+        canonicalExternalId: storeRow.external_id
+      }
+    }
+  } else if (userStoreRaw === cleanTarget) {
+    return {
+      authorized: true,
+      status: 200,
+      user,
+      isGlobalRole: false
+    }
+  }
+
+  return {
+    authorized: false,
+    status: 403,
+    error: 'Acceso denegado: No tienes autorización para acceder o modificar otra sucursal.'
   }
 }
 
@@ -111,7 +349,7 @@ export interface DecodedToken {
 
 /**
  * Verifica un token JWT de autenticación de forma sincrónica.
- * 
+ *
  * @param token El token JWT a verificar.
  * @returns El token decodificado o null si es inválido.
  */
@@ -131,7 +369,6 @@ export function verifyAuthToken(token: string): DecodedToken | null {
     if (!decoded || !decoded.sub || !decoded.email) {
       return null
     }
-    // Map sub (which contains the user/employee ID) to id for backward compatibility
     decoded.id = decoded.sub
     return decoded as DecodedToken
   } catch (err: any) {
@@ -150,12 +387,6 @@ export interface AdminAuthResult {
 /**
  * Valida que una petición HTTP a endpoints administrativos cuente con token JWT válido con rol 'admin',
  * o provenga de un invocador de cron autorizado con CRON_SECRET.
- *
- * Fail-Closed:
- * - Si falta JWT_SECRET en el entorno, rechaza con status 401 sin fallback.
- * - Si falta CRON_SECRET, cualquier intento de cron es rechazado de inmediato.
- * - Si no hay token de autenticación: 401.
- * - Si el usuario no tiene rol 'admin': 403.
  */
 export function verifyAdminAuth(request: Request, options?: { allowCron?: boolean }): AdminAuthResult {
   const allowCron = options?.allowCron ?? true

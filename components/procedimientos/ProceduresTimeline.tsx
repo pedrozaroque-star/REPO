@@ -76,7 +76,7 @@ export default function ProceduresTimeline({ readOnly = false }: { readOnly?: bo
   const { t } = useLanguage();
   // Si readOnly === true (Manager viendo Catálogo), se deshabilitan todos los controles de edición
   // If readOnly === true (Manager viewing Catalog), all edit controls are disabled
-  const isAdmin = !readOnly && ['admin', 'supervisor', 'manager'].includes(user?.role?.toLowerCase() || '');
+  const isAdmin = !readOnly && ['admin', 'supervisor'].includes(user?.role?.toLowerCase() || '');
 
   const [procedures, setProcedures] = useState<Procedure[]>([]);
   const [loading, setLoading] = useState(true);
@@ -158,7 +158,7 @@ export default function ProceduresTimeline({ readOnly = false }: { readOnly?: bo
   // Sorting: día laboral 6 AM → 5:59 AM
   // ═══════════════════════════════════════
   const getSortValue = (timeStr: string) => {
-    if (!timeStr) return 0;
+    if (!timeStr) return 9999;
     const [h, m] = timeStr.split(':').map(Number);
     const effectiveHour = h >= 6 ? h : h + 24;
     return effectiveHour * 60 + m;
@@ -689,10 +689,10 @@ export default function ProceduresTimeline({ readOnly = false }: { readOnly?: bo
                   <option value="Diario">{t('procedures.frequency_options.daily')}</option>
                   <option value="Lunes">{t('procedures.frequency_options.monday')}</option>
                   <option value="Martes">{t('procedures.frequency_options.tuesday')}</option>
-                  <option value="Miercoles">{t('procedures.frequency_options.wednesday')}</option>
+                  <option value="Miércoles">{t('procedures.frequency_options.wednesday')}</option>
                   <option value="Jueves">{t('procedures.frequency_options.thursday')}</option>
                   <option value="Viernes">{t('procedures.frequency_options.friday')}</option>
-                  <option value="Sabado">{t('procedures.frequency_options.saturday')}</option>
+                  <option value="Sábado">{t('procedures.frequency_options.saturday')}</option>
                   <option value="Domingo">{t('procedures.frequency_options.sunday')}</option>
                   <option value="Jueves y Domingo">{t('procedures.frequency_options.thu_and_sun')}</option>
                 </select>
@@ -977,6 +977,11 @@ export default function ProceduresTimeline({ readOnly = false }: { readOnly?: bo
                                   <h3 className="text-sm sm:text-lg font-bold text-slate-800 dark:text-slate-100 leading-tight">
                                     <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-slate-100 dark:bg-slate-700 text-xs font-bold text-slate-500 dark:text-slate-400 mr-2 flex-shrink-0">{globalOffset + idx + 1}</span>
                                     {proc.activity}
+                                    {proc.description && expandedId !== proc.id && (
+                                      <span className="block text-xs text-slate-500 dark:text-slate-400 line-clamp-1 mt-1 pl-8 font-normal">
+                                        {proc.description}
+                                      </span>
+                                    )}
                                   </h3>
                                 )}
                                 

@@ -501,7 +501,7 @@ export default function SchedulePlanner() {
             let userStoreId: any = null
 
             if (user) {
-                const { data: uData } = await supabase.from('users').select('google_refresh_token, google_email_connected, role, store_id').eq('id', user.id).single()
+                const { data: uData } = await supabase.from('users').select('google_email_connected, role, store_id').eq('id', user.id).single()
 
                 if (uData) {
                     if (uData.google_email_connected) {

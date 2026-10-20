@@ -58,13 +58,31 @@ import {
   ClipboardList,
   Calendar,
   Zap,
+  Eye,
+  Mail,
 } from 'lucide-react';
 import { useLanguage } from '@/lib/i18n';
 import { useAuth } from '@/components/ProtectedRoute';
 import { useWakeLock } from '@/lib/use-wake-lock';
 import { purgeTabletStaleCaches } from '@/lib/tablet-cache-cleaner';
 import { supabase } from '@/lib/supabase';
-import { calculateStoreOffsets, applyTimeOffset, formatOffsetTime, type StoreOffsets } from '@/lib/store-time-offset';
+import {
+  calculateStoreOffsetsForDate,
+  applyTimeOffset,
+  type StoreOffsets,
+  type StoreDayHours,
+} from '@/lib/store-time-offset';
+import {
+  doesShiftOverlapPeriod,
+  getPositionMatchCandidates,
+  getStationConfigStatus,
+  getStoreOverrideForProcedure,
+  isFreqMatch as sharedIsFreqMatch,
+  isStoreModelMatch,
+  getBusinessDaySortMinutes,
+  normalizeText,
+  isStorePilotActiveForActivitiesEmail,
+} from '@/lib/actividades-resolution';
 import {
   startOfWeek,
   addDays,
@@ -84,6 +102,10 @@ interface Store {
   id: number;
   name: string;
   external_id: string;
+  opening_time?: string | null;
+  closing_time?: string | null;
+  weekly_hours?: StoreDayHours[] | string | null;
+  has_drive_thru?: boolean | null;
 }
 
 interface ShiftRecord {
@@ -131,9 +153,12 @@ interface PositionActivity {
     start_time: string;
     duration_minutes: number;
     shift_type: string;
+    shift?: string;
     frequency: string;
     role: string;
+    store_model?: string;
     description: string;
+    overrides?: Record<string, any> | null;
   };
 }
 
@@ -509,7 +534,7 @@ export default function AsignacionDiariaTab() {
     if (user?.store_id) return String(user.store_id);
     if (typeof window !== 'undefined') {
       try {
-        const saved = localStorage.getItem('actividades_store_id') || localStorage.getItem('planner_store');
+        const saved = localStorage.getItem('actividades_store_id');
         if (saved) return saved;
       } catch {}
     }
@@ -530,16 +555,37 @@ export default function AsignacionDiariaTab() {
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [shifts, setShifts] = useState<ShiftRecord[]>([]);
   const [assignments, setAssignments] = useState<Assignment[]>([]);
+  const [persistedAssignments, setPersistedAssignments] = useState<Assignment[]>([]);
+  const [assignmentsRevision, setAssignmentsRevision] = useState<string | null>(null);
+  const assignmentsRevisionsByShiftRef = useRef<{ ALL: string | null; AM: string | null; PM: string | null }>({
+    ALL: null,
+    AM: null,
+    PM: null,
+  });
+  const [remoteUpdatePending, setRemoteUpdatePending] = useState(false);
   const [weekShiftEmpIds, setWeekShiftEmpIds] = useState<Set<string>>(new Set());
   const [positionActivities, setPositionActivities] = useState<PositionActivity[]>([]);
   const [driveThruCollapsed, setDriveThruCollapsed] = useState(false);
 
+  // ── Vista Previa de Correo / Publicación (Fase 5) ──
+  const [showPublishPreviewModal, setShowPublishPreviewModal] = useState(false);
+  const [publishPreviewLoading, setPublishPreviewLoading] = useState(false);
+  const [publishPreviewData, setPublishPreviewData] = useState<any | null>(null);
+
+  // ── Secuencias para descartar respuestas obsoletas al cambiar de tienda/fecha (A15) ──
+  const shiftsReqSeqRef = useRef(0);
+  const assignmentsReqSeqRef = useRef(0);
+  const weekShiftsReqSeqRef = useRef(0);
+  const employeesReqSeqRef = useRef(0);
+  const isDirtyRef = useRef(false);
+
   // @notes: Bug 1 - Sync selectedStoreId when user loads for managers to avoid race condition
   useEffect(() => {
-    if (user?.store_id && userRole === 'manager') {
+    if (user?.store_id && (userRole === 'manager' || userRole === 'asistente')) {
       setSelectedStoreId(String(user.store_id));
     }
   }, [user?.store_id, userRole]);
+
   // ── Visual Board States ──
   const [showVisualBoard, setShowVisualBoard] = useState(false);
   const [selectedSlotForCard, setSelectedSlotForCard] = useState<{ label: string; assignee: any; stationKey?: string } | null>(null);
@@ -651,10 +697,11 @@ export default function AsignacionDiariaTab() {
   }, []);
 
   // Centinela cada 15s: reloj en vivo, corte 6:00 AM CA (día + semana + turno AM), corte 5:00 PM CA (turno PM),
-  // auto-retorno tras 2 min de inactividad, y modal de despertar tras 3 horas
+  // auto-retorno tras 2 min de inactividad en modo Tablero (o 15 min en editor sin cambios locales), y modal de despertar tras 3 horas (A05, A14)
   useEffect(() => {
     const INACTIVITY_WAKE_MODAL_MS = 3 * 60 * 60 * 1000; // 3 horas
-    const IDLE_RETURN_TODAY_MS = 2 * 60 * 1000; // 2 minutos
+    const IDLE_RETURN_BOARD_MS = 2 * 60 * 1000; // 2 minutos en modo Tablero
+    const IDLE_RETURN_EDITOR_MS = 15 * 60 * 1000; // 15 minutos en modo Editor (solo si no hay borrador sucio)
 
     const timer = setInterval(() => {
       setLiveNow(new Date());
@@ -665,29 +712,38 @@ export default function AsignacionDiariaTab() {
 
       // Caso 1: Cruce de 6:00 AM en California (Nuevo Día Laboral)
       if (lastBusinessDateRef.current && lastBusinessDateRef.current !== todayBDateStr) {
-        console.log(`[Actividades 24/7] 🌅 Cambio de día laboral detectado: ${lastBusinessDateRef.current} -> ${todayBDateStr}`);
-        lastBusinessDateRef.current = todayBDateStr;
-        lastAutoShiftRef.current = currentShiftNow;
-        setCurrentWeekStart(startOfWeek(todayBDate, { weekStartsOn: 1 }));
-        setSelectedDay(todayBDate);
-        setActiveShift(currentShiftNow);
-        setSelectedSlotForCard(null);
-        setSelectedEmployeeCard(null);
-        setIsReassigning(false);
-        void purgeTabletStaleCaches({ force: true });
+        if (!isDirtyRef.current) {
+          console.log(`[Actividades 24/7] 🌅 Cambio de día laboral detectado: ${lastBusinessDateRef.current} -> ${todayBDateStr}`);
+          lastBusinessDateRef.current = todayBDateStr;
+          lastAutoShiftRef.current = currentShiftNow;
+          setCurrentWeekStart(startOfWeek(todayBDate, { weekStartsOn: 1 }));
+          setSelectedDay(todayBDate);
+          setActiveShift(currentShiftNow);
+          setSelectedSlotForCard(null);
+          setSelectedEmployeeCard(null);
+          setIsReassigning(false);
+          void purgeTabletStaleCaches({ force: true });
+        }
       } else if (lastAutoShiftRef.current !== currentShiftNow) {
         // Caso 2: Cruce automático de turno (ej. 5:00 PM -> cambio automático de AM a PM)
-        console.log(`[Actividades 24/7] 🌇 Cambio automático de turno detectado: ${lastAutoShiftRef.current} -> ${currentShiftNow}`);
         lastAutoShiftRef.current = currentShiftNow;
-        setActiveShift(currentShiftNow);
-        setSelectedSlotForCard(null);
-        setSelectedEmployeeCard(null);
-        setIsReassigning(false);
+        if (!isDirtyRef.current) {
+          console.log(`[Actividades 24/7] 🌇 Cambio automático de turno detectado: -> ${currentShiftNow}`);
+          setActiveShift(currentShiftNow);
+          setSelectedSlotForCard(null);
+          setSelectedEmployeeCard(null);
+          setIsReassigning(false);
+        }
       } else {
         lastBusinessDateRef.current = todayBDateStr;
-        // Caso 3: Si alguien dejó la tableta viendo otro día u otro turno, regresar al día/turno actual tras 2 min sin tocarla
+        // Caso 3: Retorno automático solo si no hay cambios locales sin guardar (A05, A14)
         const viewedDateStr = formatDateISO(selectedDay);
-        if ((viewedDateStr !== todayBDateStr || activeShift !== currentShiftNow) && idleMs >= IDLE_RETURN_TODAY_MS) {
+        const returnThresholdMs = showVisualBoard ? IDLE_RETURN_BOARD_MS : IDLE_RETURN_EDITOR_MS;
+        if (
+          !isDirtyRef.current &&
+          (viewedDateStr !== todayBDateStr || activeShift !== currentShiftNow) &&
+          idleMs >= returnThresholdMs
+        ) {
           console.log(`[Actividades 24/7] 🔄 Retornando automáticamente a Hoy (${todayBDateStr}) y turno ${currentShiftNow}`);
           setCurrentWeekStart(startOfWeek(todayBDate, { weekStartsOn: 1 }));
           setSelectedDay(todayBDate);
@@ -705,31 +761,63 @@ export default function AsignacionDiariaTab() {
     }, 15_000);
 
     return () => clearInterval(timer);
-  }, [selectedDay, activeShift, showWakeUpModal, wakingUpTablet]);
+  }, [selectedDay, activeShift, showVisualBoard, showWakeUpModal, wakingUpTablet]);
 
   // ── Derived ──
   const selectedStore = useMemo(() => {
-    return stores.find((s) => String(s.id) === String(selectedStoreId));
+    return stores.find(
+      (s) => String(s.id) === String(selectedStoreId) || String(s.external_id) === String(selectedStoreId)
+    );
   }, [stores, selectedStoreId]);
 
   const selectedStoreGuid = useMemo(() => {
     return selectedStore?.external_id || '';
   }, [selectedStore]);
 
-  // Calcular desfases horarios de la tienda seleccionada (Calculate store time offsets)
+  const selectedDateStr = useMemo(() => formatDateISO(selectedDay), [selectedDay]);
+
+  // Calcular desfases horarios por tienda y día de la semana (A01, A02, A03)
   const storeOffsets: StoreOffsets = useMemo(() => {
-    if (!selectedStore) return { openingOffsetMinutes: 0, closingOffsetMinutes: 0 };
-    return calculateStoreOffsets(
-      (selectedStore as any).opening_time || null,
-      (selectedStore as any).closing_time || null
-    );
-  }, [selectedStore]);
+    if (!selectedStore) return { openingOffsetMinutes: 0, closingOffsetMinutes: 0, isValidConfig: false };
+    return calculateStoreOffsetsForDate(selectedStore, selectedDateStr);
+  }, [selectedStore, selectedDateStr]);
+
+  // Detectar si existen cambios locales sin guardar en la vista actual (A14)
+  const isDirty = useMemo(() => {
+    const serializeSlice = (list: Assignment[]) =>
+      list
+        .filter(
+          (a) =>
+            a.assignment_date === selectedDateStr &&
+            a.sub_position?.endsWith(`_${activeShift}`) &&
+            Boolean(a.employee_id)
+        )
+        .map((a) => `${a.sub_position}:${a.employee_id}:${a.main_station || ''}:${(a.tasks || []).join(',')}`)
+        .sort()
+        .join('|');
+    return serializeSlice(assignments) !== serializeSlice(persistedAssignments);
+  }, [assignments, persistedAssignments, selectedDateStr, activeShift]);
+
+  useEffect(() => {
+    isDirtyRef.current = isDirty;
+  }, [isDirty]);
+
+  // Advertir antes de cerrar la pestaña del navegador si hay cambios sin guardar
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (isDirtyRef.current) {
+        e.preventDefault();
+        e.returnValue = '';
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, []);
 
   // has_drive_thru desde la base de datos, con fallback a localStorage
-  // (has_drive_thru from database, with localStorage fallback)
   useEffect(() => {
     if (selectedStore) {
-      const dbHasDT = (selectedStore as any).has_drive_thru;
+      const dbHasDT = selectedStore.has_drive_thru;
       if (dbHasDT !== undefined && dbHasDT !== null) {
         setHasDriveThru(Boolean(dbHasDT));
       } else if (selectedStoreGuid) {
@@ -743,8 +831,6 @@ export default function AsignacionDiariaTab() {
     }
   }, [selectedStore, selectedStoreGuid]);
 
-  const selectedDateStr = useMemo(() => formatDateISO(selectedDay), [selectedDay]);
-
   const weekDays = useMemo(() => {
     return Array.from({ length: 7 }, (_, i) => addDays(currentWeekStart, i));
   }, [currentWeekStart]);
@@ -755,31 +841,12 @@ export default function AsignacionDiariaTab() {
     return `${format(start, 'MMM d', { locale })} - ${format(end, 'MMM d, yyyy', { locale })}`;
   }, [currentWeekStart, locale]);
 
-  // Filter shifts for selected day + shift
-  // Uses OVERLAP logic: if a shift spans both AM and PM, it appears in both.
-  // AM window: 6:00 AM - 4:59 PM | PM window: 5:00 PM - 5:59 AM (next day)
+  // Filtrar turnos por traslape real de intervalo con el periodo AM o PM (A06)
+  // AM window: 06:00 - 16:59 | PM window: 17:00 - 05:59 (día siguiente)
   const todayShifts = useMemo(() => {
     return shifts.filter((s) => {
       if (s.shift_date !== selectedDateStr) return false;
-
-      const startH = getHourLA(s.start_time);
-      const endH = getHourLA(s.end_time);
-
-      if (activeShift === 'AM') {
-        // AM window: 6:00 - 16:59
-        // Show if: starts in AM window, OR starts early before 6AM but works into AM (apertura temprana)
-        const startsInAM = startH >= 6 && startH < 17;
-        const earlyOpenIntoAM = startH < 6 && endH >= 6; // @notes: Bug 2 - changed to >= 6 to include 5AM-6AM
-        return startsInAM || earlyOpenIntoAM;
-      } else {
-        // PM window: 17:00 - 5:59
-        // Show if: starts in PM window (after 17:00 or late night graveyard NOT early morning prep), OR starts before PM but ends in/after PM (crosses 5PM boundary)
-        const isEarlyOpenShift = startH < 6 && endH >= 6; // @notes: Bug 2 - changed to >= 6
-        const startsInPM = (startH >= 17 || startH < 6) && !isEarlyOpenShift;
-        const hasEndTime = Boolean(s.end_time);
-        const crossesIntoPM = startH < 17 && startH >= 6 && hasEndTime && (endH >= 17 || endH < startH || endH === 0); // @notes: Bug 2 - Use hasEndTime and check endH === 0
-        return startsInPM || crossesIntoPM;
-      }
+      return doesShiftOverlapPeriod(s.start_time, s.end_time, activeShift);
     });
   }, [shifts, selectedDateStr, activeShift]);
 
@@ -790,7 +857,7 @@ export default function AsignacionDiariaTab() {
       const isAssigned = assignments.some(
         (a) =>
           a.assignment_date === selectedDateStr &&
-          a.employee_id === String(s.employee_id) &&
+          String(a.employee_id) === String(s.employee_id) &&
           a.sub_position?.endsWith(`_${activeShift}`)
       );
       return {
@@ -820,8 +887,6 @@ export default function AsignacionDiariaTab() {
   }, [roster]);
 
   // Employees assigned to this store but NOT scheduled for today (day off / vacation)
-  // Only show employees who have at least one shift this week at this store,
-  // so admins with global store_ids don't pollute the list.
   const offDutyEmployees = useMemo(() => {
     const todayScheduledIds = new Set(shifts.filter(s => s.shift_date === selectedDateStr).map(s => String(s.employee_id)));
     return employees
@@ -844,152 +909,172 @@ export default function AsignacionDiariaTab() {
     return map;
   }, [assignments, selectedDateStr, activeShift]);
 
-  // Activity map: position_key -> activities[] filtered by shift, store model, and selected day frequency
+  // Helper para ajustar la hora de una actividad según los desfases de la sucursal y fecha (A01, A02, A03)
+  const getAdjustedProcTime = useCallback(
+    (proc?: PositionActivity['operating_procedures'] | null): string => {
+      if (!proc) return '';
+      const storeOverride = getStoreOverrideForProcedure(proc as any, selectedStore);
+      const rawStartTime = String(storeOverride?.start_time || proc.start_time || '').trim();
+      if (!rawStartTime) return '';
+      return applyTimeOffset(rawStartTime, proc.shift_type || 'Regular', storeOffsets, {
+        activityId: proc.id,
+        activityTitle: proc.activity,
+        overrides: proc.overrides || null,
+      });
+    },
+    [storeOffsets, selectedStore]
+  );
+
+  // Activity map: station -> activities[] filtradas con el motor compartido (A07, A08, A09, A11)
   const activityMap = useMemo(() => {
     const map: Record<string, PositionActivity[]> = {};
-    
-    // Get current day index (0 = Monday, ..., 6 = Sunday)
-    const jsDay = selectedDay.getDay(); // 0 = Sunday, 1 = Monday, etc.
-    const myDayIndex = jsDay === 0 ? 6 : jsDay - 1;
-
-    // Determine current store model for filtering
     const storeModel = hasDriveThru ? 'DRIVE_THRU' : 'REGULAR';
 
-    // Helper matching frequency strings (like 'Diario', 'Domingo', 'Jueves y Domingo', '6')
-    const isFreqMatch = (paFrequency: string, dayIdx: number): boolean => {
-      if (!paFrequency) return false;
-      const freqLower = paFrequency.toLowerCase();
-      if (freqLower === 'diario') return true;
-      if (paFrequency === String(dayIdx)) return true;
-      
-      const dayNamesMap: Record<string, string[]> = {
-        '0': ['lunes'],
-        '1': ['martes'],
-        '2': ['miercoles', 'miércoles'],
-        '3': ['jueves'],
-        '4': ['viernes'],
-        '5': ['sabado', 'sábado'],
-        '6': ['domingo']
-      };
-      
-      const names = dayNamesMap[String(dayIdx)];
-      if (!names) return false;
-      
-      return names.some(name => freqLower.includes(name));
-    };
+    const allSectionStations = SECTIONS.flatMap((s) => s.stations);
 
     positionActivities.forEach((pa) => {
-      // Filter by shift
-      if (pa.shift !== 'AMBOS' && pa.shift !== activeShift) return;
+      const proc = pa.operating_procedures;
+      if (proc && String(proc.role || '').trim().toUpperCase() === 'ROLES_MODULE') return;
 
-      // Filter by store model (Regular vs Drive-Thru)
-      if (pa.store_model && pa.store_model !== 'AMBOS' && pa.store_model !== storeModel) return;
-      
-      // Filter by frequency matching with selectedDay
-      if (pa.frequency && !isFreqMatch(pa.frequency, myDayIndex)) return;
+      const storeOverride = getStoreOverrideForProcedure(proc as any, selectedStore);
+      if (storeOverride && storeOverride.enabled === false) return;
 
-      if (!map[pa.position_key]) map[pa.position_key] = [];
-      map[pa.position_key].push(pa);
+      const effectiveShiftRule = (pa.shift || proc?.shift || 'AMBOS').toUpperCase().trim();
+      if (effectiveShiftRule !== 'AMBOS' && effectiveShiftRule !== 'ALL' && effectiveShiftRule !== activeShift) return;
+
+      if (!isStoreModelMatch(pa.store_model, storeModel)) return;
+      if (!isStoreModelMatch(proc?.store_model, storeModel)) return;
+
+      const effectiveFreq = String(storeOverride?.frequency || pa.frequency || proc?.frequency || 'Diario').trim();
+      if (effectiveFreq && !sharedIsFreqMatch(effectiveFreq, selectedDateStr, selectedDateStr)) return;
+
+      const candidates = new Set(
+        getPositionMatchCandidates(pa.position_key).map(normalizeText)
+      );
+      // Index under both raw position_key and any canonical station in SECTIONS that matches
+      const targetKeys = new Set<string>([pa.position_key]);
+      for (const st of allSectionStations) {
+        if (candidates.has(normalizeText(st))) {
+          targetKeys.add(st);
+        }
+      }
+
+      targetKeys.forEach((key) => {
+        if (!map[key]) map[key] = [];
+        // Deduplicate by activity_id within the same station
+        const exists = map[key].some((existing) => existing.activity_id === pa.activity_id);
+        if (!exists) {
+          map[key].push(pa);
+        }
+      });
     });
-    return map;
-  }, [positionActivities, activeShift, selectedDay, hasDriveThru]);
 
-  // ── Data Fetching ──
+    // Ordenar cada estación cronológicamente dentro del día operativo (06:00 -> 05:59)
+    Object.keys(map).forEach((key) => {
+      map[key].sort((a, b) => {
+        const timeA = getAdjustedProcTime(a.operating_procedures);
+        const timeB = getAdjustedProcTime(b.operating_procedures);
+        const minA = getBusinessDaySortMinutes(timeA);
+        const minB = getBusinessDaySortMinutes(timeB);
+        if (minA !== minB) return minA - minB;
+        return (a.sort_order ?? 999) - (b.sort_order ?? 999);
+      });
+    });
+
+    return map;
+  }, [positionActivities, activeShift, selectedDateStr, hasDriveThru, getAdjustedProcTime, selectedStore]);
+
+  // ── Data Fetching con protección contra condiciones de carrera (A15) ──
   const fetchStores = useCallback(async () => {
-    const { data } = await supabase.from('stores').select('id, name, external_id, opening_time, closing_time, has_drive_thru').order('name');
+    const { data } = await supabase
+      .from('stores')
+      .select('id, name, external_id, opening_time, closing_time, weekly_hours, has_drive_thru')
+      .order('name');
     if (data) setStores(data as Store[]);
   }, []);
 
   const fetchShifts = useCallback(async () => {
     if (!selectedStoreGuid) return;
-    const { data, error } = await supabase
+    const seq = ++shiftsReqSeqRef.current;
+    const { data } = await supabase
       .from('shifts')
       .select('*')
       .eq('store_id', selectedStoreGuid)
       .eq('shift_date', selectedDateStr);
+    if (seq !== shiftsReqSeqRef.current) return;
     setShifts((data || []) as ShiftRecord[]);
   }, [selectedStoreGuid, selectedDateStr]);
 
   const fetchEmployees = useCallback(async () => {
     if (!selectedStoreGuid) return;
-
-    try {
-      // 1. Fetch all employees (company has ~530 total; paginated to support scale)
-      let allEmps: Employee[] = [];
-      let page = 0;
-      const PAGE_SIZE = 1000;
-      let hasMore = true;
-      while (hasMore) {
-        const { data, error: empErr } = await supabase
-          .from('toast_employees')
-          .select('*')
-          .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
-
-        if (empErr) {
-          console.error('[fetchEmployees] Error loading toast_employees:', empErr.message);
-          break;
-        }
-        if (!data || data.length === 0) break;
-        allEmps = [...allEmps, ...data];
-        if (data.length < PAGE_SIZE) hasMore = false;
-        page++;
-      }
-
-      // 2. Identify employees who have a scheduled shift today OR are assigned to any station
-      const shiftEmpIds = new Set(shifts.map((s) => String(s.employee_id)));
-      const assignEmpIds = new Set(assignments.map((a) => String(a.employee_id)));
-
-      // 3. Filter employees: belongs to this store, has shift today, or is assigned
-      const filtered = allEmps.filter((e: Employee) => {
-        const empIdStr = String(e.id);
-        if (shiftEmpIds.has(empIdStr)) return true;
-        if (assignEmpIds.has(empIdStr)) return true;
-        if (e.deleted) return false;
-
-        let storeIds: string[] = [];
-        if (Array.isArray(e.store_ids)) {
-          storeIds = e.store_ids;
-        } else if (typeof e.store_ids === 'string') {
-          const raw = e.store_ids.trim();
-          if (raw.startsWith('[')) {
-            try {
-              const parsed = JSON.parse(raw);
-              if (Array.isArray(parsed)) storeIds = parsed;
-            } catch {
-              storeIds = [raw];
-            }
-          } else {
-            // PostgreSQL text array format "{uuid1,uuid2}"
-            storeIds = raw.replace(/[{}"']/g, '').split(',').map((s: string) => s.trim());
-          }
-        }
-        return storeIds.includes(selectedStoreGuid);
-      });
-
-      setEmployees(filtered as Employee[]);
-    } catch (err) {
-      console.error('[fetchEmployees] Unexpected error in fetchEmployees:', err);
-    }
-  }, [selectedStoreGuid, shifts, assignments]);
-
-  const fetchAssignments = useCallback(async () => {
-    if (!selectedStoreGuid) return;
+    const seq = ++employeesReqSeqRef.current;
     try {
       const res = await fetch(
-        `/api/roles?store_id=${selectedStoreGuid}&start_date=${selectedDateStr}&end_date=${selectedDateStr}`
+        `/api/roles/employees?store_id=${encodeURIComponent(selectedStoreGuid)}&reference_date=${encodeURIComponent(selectedDateStr)}`
       );
-      if (!res.ok) {
-        console.error(`[fetchAssignments] HTTP ${res.status}:`, await res.text());
-        return;
-      }
-      const data = await res.json();
-      if (Array.isArray(data)) {
-        setAssignments(data as Assignment[]);
+      if (res.ok) {
+        const data = await res.json();
+        if (seq !== employeesReqSeqRef.current) return;
+        if (Array.isArray(data)) {
+          setEmployees(data as Employee[]);
+          return;
+        }
       }
     } catch (err) {
-      console.error('Error fetching assignments:', err);
+      console.error('[fetchEmployees] Error fetching scoped store employees:', err);
     }
   }, [selectedStoreGuid, selectedDateStr]);
+
+  const fetchAssignments = useCallback(
+    async (options?: { forceOverwrite?: boolean }) => {
+      if (!selectedStoreGuid) return;
+      const seq = ++assignmentsReqSeqRef.current;
+      try {
+        const res = await fetch(
+          `/api/roles?store_id=${encodeURIComponent(selectedStoreGuid)}&start_date=${selectedDateStr}&end_date=${selectedDateStr}&include_meta=1`
+        );
+        if (!res.ok) {
+          console.error(`[fetchAssignments] HTTP ${res.status}:`, await res.text());
+          return;
+        }
+        const data = await res.json();
+        if (seq !== assignmentsReqSeqRef.current) return;
+
+        const fetchedList: Assignment[] = Array.isArray(data)
+          ? data
+          : Array.isArray(data?.assignments)
+          ? data.assignments
+          : Array.isArray(data?.data)
+          ? data.data
+          : [];
+        const fetchedRev: string | null =
+          !Array.isArray(data) && typeof data?.revision === 'string' ? data.revision : null;
+
+        setPersistedAssignments(fetchedList);
+        if (fetchedRev) {
+          setAssignmentsRevision(fetchedRev);
+          assignmentsRevisionsByShiftRef.current = {
+            ALL: fetchedRev,
+            AM: typeof data?.revisions?.AM === 'string' ? data.revisions.AM : fetchedRev,
+            PM: typeof data?.revisions?.PM === 'string' ? data.revisions.PM : fetchedRev,
+          };
+        }
+
+        // Si el manager tiene cambios locales sin guardar y es un refresco de fondo (Realtime/heartbeat),
+        // NO sobrescribir su borrador local (A14).
+        if (!options?.forceOverwrite && isDirtyRef.current) {
+          setRemoteUpdatePending(true);
+          return;
+        }
+
+        setAssignments(fetchedList);
+        setRemoteUpdatePending(false);
+      } catch (err) {
+        console.error('Error fetching assignments:', err);
+      }
+    },
+    [selectedStoreGuid, selectedDateStr]
+  );
 
   const fetchPositionActivities = useCallback(async () => {
     try {
@@ -1007,23 +1092,23 @@ export default function AsignacionDiariaTab() {
     }
   }, []);
 
-  // Fetch unique employee IDs that have ANY shift in the last 60 days at this store
-  // Used to populate the "off-duty today" list without including global admins.
-  // 60-day window ensures employees on vacation (even multi-week) still appear.
+  // Ventana histórica centrada en selectedDay (-60 días a +14 días) en lugar de new Date() (A24)
   const fetchWeekShiftEmpIds = useCallback(async () => {
     if (!selectedStoreGuid) return;
-    const lookbackStart = formatDateISO(subDays(new Date(), 60));
-    const lookbackEnd = formatDateISO(addDays(new Date(), 14)); // also include future scheduled shifts
+    const seq = ++weekShiftsReqSeqRef.current;
+    const lookbackStart = formatDateISO(subDays(selectedDay, 60));
+    const lookbackEnd = formatDateISO(addDays(selectedDay, 14));
     const { data } = await supabase
       .from('shifts')
       .select('employee_id')
       .eq('store_id', selectedStoreGuid)
       .gte('shift_date', lookbackStart)
       .lte('shift_date', lookbackEnd);
+    if (seq !== weekShiftsReqSeqRef.current) return;
     if (data) {
       setWeekShiftEmpIds(new Set(data.map((s: { employee_id: string }) => String(s.employee_id))));
     }
-  }, [selectedStoreGuid]);
+  }, [selectedStoreGuid, selectedDay]);
 
   // ── Initial load ──
   useEffect(() => {
@@ -1032,18 +1117,15 @@ export default function AsignacionDiariaTab() {
   }, [fetchStores, fetchPositionActivities]);
 
   // ── Supabase Realtime Subscription & Live Tablet Auto-Sync ──
-  // Ensures that when managers update activities, procedures, assignments or shifts,
-  // the tablet board updates INSTANTLY without manual human intervention.
   useEffect(() => {
     let debounceTimer: NodeJS.Timeout | null = null;
 
     const triggerRefresh = () => {
       if (debounceTimer) clearTimeout(debounceTimer);
       debounceTimer = setTimeout(() => {
-        // Refresco silencioso en segundo plano sin bloquear la UI con spinner
         fetchPositionActivities();
         if (selectedStoreGuid) {
-          fetchAssignments();
+          fetchAssignments({ forceOverwrite: false });
           fetchShifts();
         }
       }, 500);
@@ -1051,7 +1133,6 @@ export default function AsignacionDiariaTab() {
 
     const channel = supabase
       .channel(`actividades-tablero-realtime-${selectedStoreGuid || 'global'}`)
-      // position_activities y operating_procedures son catálogos globales corporativos (sin filtro de tienda)
       .on('postgres_changes', {
         event: '*',
         schema: 'public',
@@ -1062,7 +1143,6 @@ export default function AsignacionDiariaTab() {
         schema: 'public',
         table: 'operating_procedures',
       }, triggerRefresh)
-      // station_assignments y shifts se filtran por tienda para no saturar otras tabletas
       .on('postgres_changes', {
         event: '*',
         schema: 'public',
@@ -1077,11 +1157,10 @@ export default function AsignacionDiariaTab() {
       }, triggerRefresh)
       .subscribe();
 
-    // Heartbeat de respaldo cada 3 minutos por si hay desconexiones temporales de red
     const heartbeat = setInterval(() => {
       fetchPositionActivities();
       if (selectedStoreGuid) {
-        fetchAssignments();
+        fetchAssignments({ forceOverwrite: false });
         fetchShifts();
       }
     }, 3 * 60 * 1000);
@@ -1096,20 +1175,22 @@ export default function AsignacionDiariaTab() {
   // ── When store or date changes ──
   useEffect(() => {
     if (!selectedStoreGuid) return;
+    let cancelled = false;
     const loadData = async () => {
       setLoading(true);
-      await Promise.all([fetchShifts(), fetchAssignments(), fetchWeekShiftEmpIds()]);
-      setLoading(false);
+      await Promise.all([
+        fetchShifts(),
+        fetchAssignments({ forceOverwrite: true }),
+        fetchWeekShiftEmpIds(),
+        fetchEmployees(),
+      ]);
+      if (!cancelled) setLoading(false);
     };
     loadData();
-  }, [selectedStoreGuid, selectedDateStr, fetchShifts, fetchAssignments, fetchWeekShiftEmpIds]);
-
-  // ── Load employees when store, shifts, or assignments change ──
-  useEffect(() => {
-    if (selectedStoreGuid) {
-      fetchEmployees();
-    }
-  }, [selectedStoreGuid, shifts, assignments, fetchEmployees]);
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedStoreGuid, selectedDateStr, fetchShifts, fetchAssignments, fetchWeekShiftEmpIds, fetchEmployees]);
 
   // ── Actions ──
   const getAssignee = useCallback((date: Date, station: string) => {
@@ -1125,7 +1206,6 @@ export default function AsignacionDiariaTab() {
       .filter(Boolean) as string[];
 
     setAssignments((prev) => {
-      // Only clear the current station slot — never remove the employee from other stations
       const filtered = prev.filter(
         (a) => !(a.assignment_date === dateStr && a.sub_position === subPos)
       );
@@ -1162,23 +1242,36 @@ export default function AsignacionDiariaTab() {
     updateAssignment(selectedDateStr, stationName, employeeId, group);
   };
 
-  const handleSave = async () => {
+  const handleDiscardChanges = useCallback(() => {
+    setAssignments(persistedAssignments);
+    setRemoteUpdatePending(false);
+  }, [persistedAssignments]);
+
+  const handleSave = async (forceWithoutRevision = false) => {
     if (!selectedStoreGuid) return;
     setSaving(true);
     setSaveSuccess(false);
 
-    const payload = {
-      assignments: assignments.filter(
-        (a) =>
-          a.assignment_date === selectedDateStr &&
-          a.sub_position?.endsWith(`_${activeShift}`) &&
-          a.employee_id
-      ),
+    const currentSlice = assignments.filter(
+      (a) =>
+        a.assignment_date === selectedDateStr &&
+        a.sub_position?.endsWith(`_${activeShift}`) &&
+        a.employee_id
+    );
+
+    const payload: Record<string, any> = {
+      assignments: currentSlice,
       store_id: selectedStoreGuid,
       start_date: selectedDateStr,
       end_date: selectedDateStr,
       active_shift: activeShift,
     };
+
+    const expectedRevForShift =
+      assignmentsRevisionsByShiftRef.current[activeShift] || assignmentsRevision;
+    if (!forceWithoutRevision && expectedRevForShift) {
+      payload.expected_revision = expectedRevForShift;
+    }
 
     try {
       const res = await fetch('/api/roles', {
@@ -1187,11 +1280,40 @@ export default function AsignacionDiariaTab() {
         body: JSON.stringify(payload),
       });
       const data = await res.json();
+
+      if (res.status === 409) {
+        const shouldReload = confirm(
+          `${t('actividades.daily.conflict_reload_error')}\n\n${
+            language === 'es'
+              ? '¿Deseas recargar los datos actuales del servidor? (Cancelar para mantener tu borrador en pantalla)'
+              : 'Do you want to reload current server data? (Cancel to keep your draft on screen)'
+          }`
+        );
+        if (shouldReload) {
+          await fetchAssignments({ forceOverwrite: true });
+        } else if (data.current_revision) {
+          setAssignmentsRevision(data.current_revision);
+          assignmentsRevisionsByShiftRef.current[activeShift] = data.current_revision;
+        }
+        return;
+      }
+
       if (data.success) {
+        if (data.revision) {
+          setAssignmentsRevision(data.revision);
+          assignmentsRevisionsByShiftRef.current[activeShift] = data.revision;
+        }
+        setPersistedAssignments((prev) => {
+          const otherSlices = prev.filter(
+            (a) => !(a.assignment_date === selectedDateStr && a.sub_position?.endsWith(`_${activeShift}`))
+          );
+          return [...otherSlices, ...currentSlice];
+        });
+        setRemoteUpdatePending(false);
         setSaveSuccess(true);
         setTimeout(() => setSaveSuccess(false), 3000);
       } else {
-        alert(t('actividades.daily.save_error'));
+        alert(data.error || t('actividades.daily.save_error'));
       }
     } catch {
       alert(t('actividades.daily.save_error'));
@@ -1199,6 +1321,33 @@ export default function AsignacionDiariaTab() {
       setSaving(false);
     }
   };
+
+  const handleOpenPublishPreview = useCallback(async () => {
+    if (!selectedStoreGuid) return;
+    setShowPublishPreviewModal(true);
+    setPublishPreviewLoading(true);
+    setPublishPreviewData(null);
+    try {
+      const weekStartStr = formatDateISO(currentWeekStart);
+      const weekEndStr = formatDateISO(addDays(currentWeekStart, 6));
+      const res = await fetch('/api/notifications/publish-schedule', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          store_id: selectedStoreGuid,
+          start_date: weekStartStr,
+          end_date: weekEndStr,
+          preview_only: true,
+        }),
+      });
+      const data = await res.json();
+      setPublishPreviewData(data);
+    } catch (err: any) {
+      setPublishPreviewData({ error: err.message || 'Error al generar vista previa' });
+    } finally {
+      setPublishPreviewLoading(false);
+    }
+  }, [selectedStoreGuid, currentWeekStart]);
 
   const handleCopyPreviousWeek = useCallback(async () => {
     if (!selectedStoreGuid) return;
@@ -1220,8 +1369,6 @@ export default function AsignacionDiariaTab() {
           return;
         }
 
-        // Map previous week assignments to the current day date
-        // Only keep those matching the current active shift (e.g. if we are on PM, copy the PM assignments)
         const prevShiftSuffix = `_${activeShift}`;
         const shiftFiltered = data.filter((a: any) => a.sub_position?.endsWith(prevShiftSuffix));
 
@@ -1232,7 +1379,7 @@ export default function AsignacionDiariaTab() {
         }
 
         const clonedAssignments = shiftFiltered
-          .filter((a: any) => a.employee_id) // @notes: Bug 3 - Filter vacant stations
+          .filter((a: any) => a.employee_id)
           .map((a: any) => {
           const stationActivitiesList = activityMap[a.main_station] || [];
           const defaultTasks = stationActivitiesList
@@ -1241,7 +1388,7 @@ export default function AsignacionDiariaTab() {
 
           return {
             store_id: selectedStoreGuid,
-            employee_id: a.employee_id, // @notes: Bug 3 - Remove String()
+            employee_id: a.employee_id,
             assignment_date: selectedDateStr,
             main_station: a.main_station,
             sub_position: a.sub_position || `${a.main_station}_${activeShift}`,
@@ -1250,16 +1397,14 @@ export default function AsignacionDiariaTab() {
           };
         });
 
-        // Merge with existing assignments for other shifts or overwrite current shift
         setAssignments((prev) => {
-          // Remove current shift assignments first
           const otherShifts = prev.filter(
             (a) => !(a.assignment_date === selectedDateStr && a.sub_position?.endsWith(`_${activeShift}`))
           );
           return [...otherShifts, ...clonedAssignments];
         });
         
-        setSaveSuccess(false); // force manual save
+        setSaveSuccess(false);
         alert(language === 'es' ? '¡Asignaciones de la semana anterior copiadas! Revisa los cambios y haz clic en Guardar Cambios para confirmarlos.' : 'Previous week assignments copied! Review and click Save Changes to confirm.');
       }
     } catch (err) {
@@ -1276,18 +1421,15 @@ export default function AsignacionDiariaTab() {
     
     setCopyingAll(true);
     try {
-      // 1. Calculate previous week date range
       const prevWeekStart = subDays(currentWeekStart, 7);
       const prevWeekEnd = subDays(currentWeekStart, 1);
       const prevWeekStartStr = formatDateISO(prevWeekStart);
       const prevWeekEndStr = formatDateISO(prevWeekEnd);
 
-      // Current week date range
       const currentWeekEnd = addDays(currentWeekStart, 6);
       const currentWeekStartStr = formatDateISO(currentWeekStart);
       const currentWeekEndStr = formatDateISO(currentWeekEnd);
 
-      // 2. Fetch all assignments from previous week
       const res = await fetch(
         `/api/roles?store_id=${selectedStoreGuid}&start_date=${prevWeekStartStr}&end_date=${prevWeekEndStr}`
       );
@@ -1300,15 +1442,14 @@ export default function AsignacionDiariaTab() {
         return;
       }
 
-      // 3. Map assignments to current week dates (adding 7 days)
       const clonedAssignments = data
-        .filter((a: any) => a.employee_id) // @notes: Bug 3 - Filter vacant stations
+        .filter((a: any) => a.employee_id)
         .map((a: any) => {
         const prevAssignDate = new Date(a.assignment_date + 'T00:00:00');
         const nextAssignDate = addDays(prevAssignDate, 7);
         const nextAssignDateStr = formatDateISO(nextAssignDate);
 
-        // Fetch defaults if tasks are missing
+        const rowShift = String(a.sub_position || a.main_station || '').toUpperCase().endsWith('_PM') ? 'PM' : 'AM';
         const stationActivitiesList = activityMap[a.main_station] || [];
         const defaultTasks = stationActivitiesList
           .map(pa => pa.operating_procedures?.activity)
@@ -1316,16 +1457,15 @@ export default function AsignacionDiariaTab() {
 
         return {
           store_id: selectedStoreGuid,
-          employee_id: a.employee_id, // @notes: Bug 3 - Remove String()
+          employee_id: a.employee_id,
           assignment_date: nextAssignDateStr,
           main_station: a.main_station,
-          sub_position: a.sub_position || `${a.main_station}_${activeShift}`,
+          sub_position: a.sub_position || `${a.main_station}_${rowShift}`,
           station_group: a.station_group,
           tasks: a.tasks && a.tasks.length > 0 ? a.tasks : defaultTasks,
         };
       });
 
-      // 4. Send POST request to write it directly to the DB (clearing the entire current week range)
       const saveRes = await fetch('/api/roles', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1334,14 +1474,12 @@ export default function AsignacionDiariaTab() {
           store_id: selectedStoreGuid,
           start_date: currentWeekStartStr,
           end_date: currentWeekEndStr,
-          // Sending without active_shift so it deletes and overwrites both AM and PM shifts for the entire week
         }),
       });
 
       const saveResult = await saveRes.json();
       if (saveResult.success) {
-        // Reload current data
-        await Promise.all([fetchShifts(), fetchAssignments()]);
+        await Promise.all([fetchShifts(), fetchAssignments({ forceOverwrite: true })]);
         setSaveSuccess(true);
         setTimeout(() => setSaveSuccess(false), 3000);
         alert(language === 'es' ? '¡Semana completa clonada y guardada con éxito!' : 'Entire week cloned and saved successfully!');
@@ -1386,7 +1524,7 @@ export default function AsignacionDiariaTab() {
         fetchStores(),
         fetchPositionActivities(),
         fetchShifts(),
-        fetchAssignments(),
+        fetchAssignments({ forceOverwrite: true }),
         fetchWeekShiftEmpIds(),
       ]);
 
@@ -1399,13 +1537,24 @@ export default function AsignacionDiariaTab() {
     }
   }, [wakingUpTablet, wakeLock, fetchStores, fetchPositionActivities, fetchShifts, fetchAssignments, fetchWeekShiftEmpIds]);
 
-  // ── Navigation ──
+  // ── Navigation con confirmación si hay borrador sin guardar (A14) ──
+  const confirmNavigateIfDirty = (): boolean => {
+    if (!isDirtyRef.current) return true;
+    return confirm(
+      language === 'es'
+        ? 'Tienes cambios sin guardar en este turno. ¿Deseas cambiar de vista y descartar los cambios locales?'
+        : 'You have unsaved changes in this shift. Do you want to switch views and discard local changes?'
+    );
+  };
+
   const goToPrevWeek = () => {
+    if (!confirmNavigateIfDirty()) return;
     const newStart = subWeeks(currentWeekStart, 1);
     setCurrentWeekStart(newStart);
     setSelectedDay(newStart);
   };
   const goToNextWeek = () => {
+    if (!confirmNavigateIfDirty()) return;
     const newStart = addWeeks(currentWeekStart, 1);
     setCurrentWeekStart(newStart);
     setSelectedDay(newStart);
@@ -1458,6 +1607,7 @@ export default function AsignacionDiariaTab() {
                 <select
                   value={selectedStoreId}
                   onChange={(e) => {
+                    if (e.target.value !== selectedStoreId && !confirmNavigateIfDirty()) return;
                     setSelectedStoreId(e.target.value);
                     try { localStorage.setItem('actividades_store_id', e.target.value); } catch {}
                   }}
@@ -1505,7 +1655,7 @@ export default function AsignacionDiariaTab() {
                 whileTap={{ scale: 0.98 }}
                 onClick={handleCopyPreviousWeekAll}
                 disabled={copyingAll}
-                className="px-5 py-2.5 rounded-xl text-sm font-bold bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700/50 shadow-sm transition-all flex items-center gap-2 disabled:opacity-60"
+                className="px-4 py-2.5 rounded-xl text-sm font-bold bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700/50 shadow-sm transition-all flex items-center gap-2 disabled:opacity-60"
               >
                 {copyingAll ? (
                   <Loader2 className="w-4 h-4 animate-spin text-indigo-500" />
@@ -1521,7 +1671,7 @@ export default function AsignacionDiariaTab() {
                 whileTap={{ scale: 0.98 }}
                 onClick={handleCopyPreviousWeek}
                 disabled={copying}
-                className="px-5 py-2.5 rounded-xl text-sm font-bold bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700/50 shadow-sm transition-all flex items-center gap-2 disabled:opacity-60"
+                className="px-4 py-2.5 rounded-xl text-sm font-bold bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700/50 shadow-sm transition-all flex items-center gap-2 disabled:opacity-60"
               >
                 {copying ? (
                   <Loader2 className="w-4 h-4 animate-spin text-indigo-500" />
@@ -1529,6 +1679,18 @@ export default function AsignacionDiariaTab() {
                   <Copy className="w-4 h-4 text-indigo-500" />
                 )}
                 {copying ? t('actividades.daily.copying_prev_week') : t('actividades.daily.copy_prev_week')}
+              </motion.button>
+
+              {/* Vista Previa Correo / Publicación */}
+              <motion.button
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                type="button"
+                onClick={handleOpenPublishPreview}
+                className="px-4 py-2.5 rounded-xl text-sm font-bold bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800/60 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 shadow-sm transition-all flex items-center gap-2"
+              >
+                <Eye className="w-4 h-4 text-indigo-500" />
+                <span>{t('actividades.daily.preview_publish_btn')}</span>
               </motion.button>
 
               {/* ☀️ Despertar Tableta */}
@@ -1571,16 +1733,31 @@ export default function AsignacionDiariaTab() {
                 {t('actividades.daily.tablero')}
               </motion.button>
 
+              {/* Descartar cambios (solo cuando hay borrador local) */}
+              {isDirty && (
+                <motion.button
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                  type="button"
+                  onClick={handleDiscardChanges}
+                  className="px-3.5 py-2.5 rounded-xl text-xs font-bold bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-300 border border-rose-200 dark:border-rose-800/60 hover:bg-rose-100 transition-all"
+                >
+                  {t('actividades.daily.discard_changes')}
+                </motion.button>
+              )}
+
               {/* Save */}
               <motion.button
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.98 }}
-                onClick={handleSave}
+                onClick={() => handleSave(false)}
                 disabled={saving}
                 className={`px-5 py-2.5 rounded-xl text-sm font-bold text-white shadow-lg transition-all flex items-center gap-2 ${
                   saveSuccess
                     ? 'bg-gradient-to-r from-green-500 to-emerald-600'
-                    : 'bg-gradient-to-r from-green-500 to-emerald-600 hover:shadow-xl'
+                    : isDirty
+                      ? 'bg-gradient-to-r from-amber-500 to-orange-600 hover:shadow-xl ring-2 ring-amber-400/50'
+                      : 'bg-gradient-to-r from-green-500 to-emerald-600 hover:shadow-xl'
                 } disabled:opacity-60`}
               >
                 {saving ? (
@@ -1628,7 +1805,10 @@ export default function AsignacionDiariaTab() {
                 return (
                   <button
                     key={idx}
-                    onClick={() => setSelectedDay(day)}
+                    onClick={() => {
+                      if (!isSelected && !confirmNavigateIfDirty()) return;
+                      setSelectedDay(day);
+                    }}
                     className={`relative px-2.5 py-1.5 rounded-lg text-xs sm:text-sm font-bold transition-all duration-200 ${
                       isSelected
                         ? 'bg-gradient-to-r from-indigo-500 to-blue-500 text-white shadow-md'
@@ -1651,7 +1831,10 @@ export default function AsignacionDiariaTab() {
               {(['AM', 'PM'] as const).map((shift) => (
                 <button
                   key={shift}
-                  onClick={() => setActiveShift(shift)}
+                  onClick={() => {
+                    if (activeShift !== shift && !confirmNavigateIfDirty()) return;
+                    setActiveShift(shift);
+                  }}
                   className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-bold transition-all duration-200 ${
                     activeShift === shift
                       ? shift === 'AM'
@@ -1673,10 +1856,32 @@ export default function AsignacionDiariaTab() {
             </div>
           </div>
 
-          {/* Date subtitle */}
-          <p className="text-xs text-slate-400 dark:text-slate-500">
-            {format(selectedDay, "EEEE, MMMM d, yyyy", { locale })}
-          </p>
+          {/* Date subtitle & Draft / Remote update indicators */}
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-xs text-slate-400 dark:text-slate-500">
+              {format(selectedDay, "EEEE, MMMM d, yyyy", { locale })}
+            </p>
+            <div className="flex flex-wrap items-center gap-2">
+              {isDirty && (
+                <span className="inline-flex items-center gap-1.5 text-xs font-bold px-2.5 py-1 rounded-lg bg-amber-100 dark:bg-amber-950/50 text-amber-800 dark:text-amber-300 border border-amber-300/60 dark:border-amber-700/50">
+                  <AlertCircle className="w-3.5 h-3.5" />
+                  {t('actividades.daily.unsaved_changes_warning')}
+                </span>
+              )}
+              {remoteUpdatePending && (
+                <button
+                  type="button"
+                  onClick={() => fetchAssignments({ forceOverwrite: true })}
+                  className="inline-flex items-center gap-1.5 text-xs font-bold px-2.5 py-1 rounded-lg bg-blue-100 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300 border border-blue-300/60 dark:border-blue-700/50 hover:bg-blue-200 transition-colors"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  {language === 'es'
+                    ? 'Hay cambios remotos nuevos — clic para actualizar'
+                    : 'New remote changes available — click to reload'}
+                </button>
+              )}
+            </div>
+          </div>
         </div>
       </motion.div>
 
@@ -1894,15 +2099,26 @@ export default function AsignacionDiariaTab() {
 
                               {/* Station name + dropdown */}
                               <div className="p-3 relative">
-                                <div className="flex items-center justify-between mb-2">
-                                  <h3 className="text-xs font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wide">
-                                    {stationName}
-                                  </h3>
+                                <div className="flex items-center justify-between mb-2 gap-1.5">
+                                  <div className="flex items-center gap-1.5 min-w-0 flex-wrap">
+                                    <h3 className="text-xs font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wide">
+                                      {stationName}
+                                    </h3>
+                                    {stationActivities.length === 0 &&
+                                      !getStationConfigStatus(stationName, positionActivities).hasDirectMappings && (
+                                        <span
+                                          title={t('actividades.daily.station_without_catalog_hint')}
+                                          className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-100/90 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border border-amber-300/60 dark:border-amber-700/50 whitespace-nowrap"
+                                        >
+                                          {t('actividades.daily.station_without_catalog_badge')}
+                                        </span>
+                                      )}
+                                  </div>
                                   {assignedEmp && (
                                     <div
                                       className={`w-6 h-6 rounded-full bg-gradient-to-br ${getInitialsGradient(
                                         getDisplayName(assignedEmp)
-                                      )} flex items-center justify-center text-white text-[9px] font-bold shadow-sm`}
+                                      )} flex items-center justify-center text-white text-[9px] font-bold shadow-sm flex-shrink-0`}
                                     >
                                       {getInitials(assignedEmp)}
                                     </div>
@@ -1954,6 +2170,7 @@ export default function AsignacionDiariaTab() {
                                     {stationActivities.slice(0, 5).map((pa) => {
                                       const proc = pa.operating_procedures;
                                       if (!proc) return null;
+                                      const adjTime = getAdjustedProcTime(proc);
                                       return (
                                         <div
                                           key={pa.id}
@@ -1965,11 +2182,11 @@ export default function AsignacionDiariaTab() {
                                           <span className="text-[10px] text-slate-600 dark:text-slate-400 leading-tight flex-1 truncate">
                                             {proc.activity}
                                           </span>
-                                          {proc.start_time && (
+                                          {adjTime && (
                                             <span
                                               className={`text-[9px] font-medium ${sColor.badge} px-1.5 py-0.5 rounded-md whitespace-nowrap`}
                                             >
-                                              {formatActivityTime(proc.start_time)}
+                                              {formatActivityTime(adjTime)}
                                             </span>
                                           )}
                                         </div>
@@ -2048,7 +2265,10 @@ export default function AsignacionDiariaTab() {
                       {(['AM', 'PM'] as const).map((sh) => (
                         <button
                           key={sh}
-                          onClick={() => setActiveShift(sh)}
+                          onClick={() => {
+                            if (activeShift !== sh && !confirmNavigateIfDirty()) return;
+                            setActiveShift(sh);
+                          }}
                           className={`px-4 sm:px-6 py-2 rounded-xl text-xs sm:text-sm font-black transition-all uppercase tracking-wider ${
                             activeShift === sh
                               ? 'bg-indigo-600 text-white shadow-sm'
@@ -2062,7 +2282,10 @@ export default function AsignacionDiariaTab() {
                     <div className="w-px h-6 bg-slate-200 dark:bg-slate-700 hidden sm:block mx-1" />
                     <div className="flex items-center gap-3 px-2 text-slate-800 dark:text-slate-200 font-black uppercase text-sm tracking-tight">
                       <button
-                        onClick={() => setSelectedDay((d) => subDays(d, 1))}
+                        onClick={() => {
+                          if (!confirmNavigateIfDirty()) return;
+                          setSelectedDay((d) => subDays(d, 1));
+                        }}
                         className="w-8 h-8 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg flex items-center justify-center text-slate-400 hover:bg-indigo-50 dark:hover:bg-indigo-950 hover:text-indigo-600 transition-colors shadow-sm"
                       >
                         <ChevronLeft size={18} />
@@ -2071,7 +2294,10 @@ export default function AsignacionDiariaTab() {
                         {format(selectedDay, 'EEEE dd', { locale })}
                       </span>
                       <button
-                        onClick={() => setSelectedDay((d) => addDays(d, 1))}
+                        onClick={() => {
+                          if (!confirmNavigateIfDirty()) return;
+                          setSelectedDay((d) => addDays(d, 1));
+                        }}
                         className="w-8 h-8 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg flex items-center justify-center text-slate-400 hover:bg-indigo-50 dark:hover:bg-indigo-950 hover:text-indigo-600 transition-colors shadow-sm"
                       >
                         <ChevronRight size={18} />
@@ -2118,6 +2344,53 @@ export default function AsignacionDiariaTab() {
 
                 {/* Layout Content */}
                 <div className={`flex-1 p-[2vh] flex flex-col justify-start items-center bg-slate-100/40 dark:bg-slate-950 overflow-y-auto select-none relative ${containerGapClass} ${containerPaddingClass}`}>
+                  {/* Leadership section (A22: Todas las secciones de SECTIONS presentes en Tablero) */}
+                  <div className="flex flex-col gap-[0.2vh] relative z-10 w-full max-w-[96vw] mx-auto">
+                    <div className="flex items-center justify-center gap-[1vh] mb-[0.5vh]">
+                      <h2 className="text-[1.8vh] sm:text-[2.2vh] font-black text-amber-600 dark:text-amber-400 uppercase tracking-[0.4em] italic leading-none">
+                        {t('actividades.daily.section_leadership')}
+                      </h2>
+                    </div>
+                    <div className="w-full grid grid-cols-2 sm:grid-cols-4 gap-[0.3vh] max-w-5xl mx-auto">
+                      <BoardSlot
+                        label="Manager"
+                        stationKey="MANAGER"
+                        group="Liderazgo"
+                        assignee={getAssignee(selectedDay, `MANAGER_${activeShift}`)}
+                        employees={employees}
+                        className={cardHeightClass}
+                        onClick={handleSlotClick}
+                      />
+                      <BoardSlot
+                        label="Assistant"
+                        stationKey="ASSISTANT"
+                        group="Liderazgo"
+                        assignee={getAssignee(selectedDay, `ASSISTANT_${activeShift}`)}
+                        employees={employees}
+                        className={cardHeightClass}
+                        onClick={handleSlotClick}
+                      />
+                      <BoardSlot
+                        label="Shift Leader (H)"
+                        stationKey="SHIFT_LEADER_MALE"
+                        group="Liderazgo"
+                        assignee={getAssignee(selectedDay, `SHIFT_LEADER_MALE_${activeShift}`)}
+                        employees={employees}
+                        className={cardHeightClass}
+                        onClick={handleSlotClick}
+                      />
+                      <BoardSlot
+                        label="Shift Leader (M)"
+                        stationKey="SHIFT_LEADER_FEMALE"
+                        group="Liderazgo"
+                        assignee={getAssignee(selectedDay, `SHIFT_LEADER_FEMALE_${activeShift}`)}
+                        employees={employees}
+                        className={cardHeightClass}
+                        onClick={handleSlotClick}
+                      />
+                    </div>
+                  </div>
+
                   {/* Dining Area section */}
                   <div className="flex flex-col gap-[0.2vh] relative z-10 w-full max-w-[96vw] mx-auto">
                     <div className="flex items-center justify-center gap-[1vh] mb-[0.5vh]">
@@ -2354,6 +2627,32 @@ export default function AsignacionDiariaTab() {
                       </div>
                     </div>
                   )}
+
+                  {/* Extra Activities section (A22: Todas las secciones de SECTIONS presentes en Tablero) */}
+                  <div className="flex flex-col gap-[0.2vh] relative z-10 w-full max-w-[96vw] mx-auto">
+                    <div className="flex items-center justify-center gap-[1vh] mb-[0.5vh]">
+                      <h2 className="text-[1.8vh] sm:text-[2.2vh] font-black text-purple-600 dark:text-purple-400 uppercase tracking-[0.4em] italic leading-none">
+                        {t('actividades.daily.section_extra_activities')}
+                      </h2>
+                    </div>
+                    <div className="w-full grid grid-cols-2 sm:grid-cols-6 gap-[0.3vh]">
+                      {[1, 2, 3, 4, 5, 6].map((num) => {
+                        const stKey = `ACTIVIDADES EXTRA ${num}`;
+                        return (
+                          <BoardSlot
+                            key={stKey}
+                            label={`Extra ${num}`}
+                            stationKey={stKey}
+                            group="Actividades Extra"
+                            assignee={getAssignee(selectedDay, `${stKey}_${activeShift}`)}
+                            employees={employees}
+                            className={cardHeightClass}
+                            onClick={handleSlotClick}
+                          />
+                        );
+                      })}
+                    </div>
+                  </div>
                 </div>
                 {/* Clock Status in bottom right */}
                 <div className="absolute bottom-4 right-6 flex items-end gap-3 opacity-30 pointer-events-none transform scale-75 origin-bottom-right">
@@ -2426,13 +2725,16 @@ export default function AsignacionDiariaTab() {
                       if (!empStationKeys.includes(clickedStation)) {
                         empStationKeys.push(clickedStation);
                       }
-                      // Merge activities from all assigned stations, deduplicated
+                      // Merge activities from all assigned stations, deduplicated by activity_id / normalized title (A11)
                       const seenIds = new Set<string>();
                       const stationActivitiesList: PositionActivity[] = [];
                       empStationKeys.forEach(sk => {
                         const acts = activityMap[sk] || [];
                         acts.forEach(a => {
-                          const key = a.id || a.activity_id || `${sk}_${a.operating_procedures?.activity}`;
+                          const key =
+                            a.activity_id ||
+                            normalizeText(a.operating_procedures?.activity || '') ||
+                            a.id;
                           if (!seenIds.has(key)) {
                             seenIds.add(key);
                             stationActivitiesList.push(a);
@@ -2440,13 +2742,19 @@ export default function AsignacionDiariaTab() {
                         });
                       });
                       
-                      // Sort activities by category: Apertura (1) -> Regular (2) -> Cierre (3)
+                      // Sort activities by category: Apertura (1) -> Regular (2) -> Cierre (3), then chronologically (A11)
                       const sortedActivities = [...stationActivitiesList].sort((a, b) => {
-                        const typeA = (a.operating_procedures?.shift_type || 'REGULAR').toUpperCase();
-                        const typeB = (b.operating_procedures?.shift_type || 'REGULAR').toUpperCase();
+                        const procA = a.operating_procedures;
+                        const procB = b.operating_procedures;
+                        const typeA = (procA?.shift_type || 'REGULAR').toUpperCase();
+                        const typeB = (procB?.shift_type || 'REGULAR').toUpperCase();
                         const orderA = typeA.includes('APE') || typeA.includes('OPEN') ? 1 : typeA.includes('CIE') || typeA.includes('CLOSE') ? 3 : 2;
                         const orderB = typeB.includes('APE') || typeB.includes('OPEN') ? 1 : typeB.includes('CIE') || typeB.includes('CLOSE') ? 3 : 2;
-                        return orderA - orderB;
+                        if (orderA !== orderB) return orderA - orderB;
+                        const minA = getBusinessDaySortMinutes(getAdjustedProcTime(procA));
+                        const minB = getBusinessDaySortMinutes(getAdjustedProcTime(procB));
+                        if (minA !== minB) return minA - minB;
+                        return (procA?.activity || '').localeCompare(procB?.activity || '');
                       });
 
                       const totalActivities = sortedActivities.length;
@@ -2558,6 +2866,7 @@ export default function AsignacionDiariaTab() {
                                     {sortedActivities.map((pa, i) => {
                                       const proc = pa.operating_procedures;
                                       if (!proc) return null;
+                                      const adjTime = getAdjustedProcTime(proc);
                                       
                                       const category = (proc.shift_type || 'REGULAR').toUpperCase();
                                       const isApertura = category.includes('APE') || category.includes('OPEN');
@@ -2573,14 +2882,14 @@ export default function AsignacionDiariaTab() {
                                         <div
                                           key={i}
                                           className={`flex flex-col justify-between ${cardPadding} bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-[1.2vh] hover:bg-indigo-50/30 dark:hover:bg-indigo-950/10 hover:border-indigo-100 dark:hover:border-indigo-900/50 transition-all shadow-sm h-full`}
-                                          title={proc.activity}
+                                          title={proc.description ? `${proc.activity} — ${proc.description}` : proc.activity}
                                         >
                                           <div className="mb-[0.5vh]">
                                             <span className={`inline-block ${badgeSize} font-extrabold px-[0.6vh] py-[0.2vh] rounded border uppercase tracking-wider mb-[0.4vh] ${badgeColor}`}>
                                               {proc.shift_type || 'REGULAR'}
                                             </span>
                                             <span 
-                                              className={`block ${titleFontSize} font-black text-slate-800 dark:text-slate-100 uppercase tracking-tight leading-tight`}
+                                              className={`block ${titleFontSize} font-black text-slate-800 dark:text-slate-100 tracking-tight leading-tight`}
                                               style={{
                                                 display: '-webkit-box',
                                                 WebkitLineClamp: 2,
@@ -2590,13 +2899,26 @@ export default function AsignacionDiariaTab() {
                                             >
                                               {proc.activity}
                                             </span>
+                                            {proc.description && (
+                                              <span
+                                                className="block text-[0.95vh] sm:text-[1.15vh] font-medium text-slate-500 dark:text-slate-400 leading-snug mt-[0.3vh]"
+                                                style={{
+                                                  display: '-webkit-box',
+                                                  WebkitLineClamp: 2,
+                                                  WebkitBoxOrient: 'vertical',
+                                                  overflow: 'hidden'
+                                                }}
+                                              >
+                                                {proc.description}
+                                              </span>
+                                            )}
                                           </div>
                                           <div className="flex items-center justify-between mt-[0.5vh] pt-[0.4vh] border-t border-slate-100 dark:border-slate-800">
-                                            {proc.start_time ? (
+                                            {adjTime ? (
                                               <div className="flex items-center gap-[0.5vh]">
                                                 <Clock className={`${clockIconClass} text-amber-500`} />
                                                 <span className={`${clockSize} font-extrabold text-amber-600 dark:text-amber-400 uppercase tracking-wider`}>
-                                                  {formatActivityTime(proc.start_time)}
+                                                  {formatActivityTime(adjTime)}
                                                 </span>
                                               </div>
                                             ) : (
@@ -2665,42 +2987,53 @@ export default function AsignacionDiariaTab() {
                               .filter((e, idx, arr) => arr.findIndex(x => String(x.id) === String(e.id)) === idx);
 
                             const shiftSuffix = `_${activeShift}`;
+                            const targetStationKey = selectedSlotForCard.stationKey || selectedSlotForCard.label;
+
                             const scheduledButtons = rosterEmployees.map((e) => {
-                            const isBusy = assignments.some(
-                              (a) =>
-                                a.assignment_date === formatDateISO(selectedDay) &&
-                                a.sub_position?.endsWith(shiftSuffix) &&
-                                String(a.employee_id) === String(e.id)
-                            );
-                            if (isBusy && String(e.id) !== String(currentEmp?.id)) return null;
-                            return (
-                              <button
-                                key={e.id}
-                                onClick={() => {
-                                  updateAssignment(
-                                    formatDateISO(selectedDay),
-                                    selectedSlotForCard.stationKey || selectedSlotForCard.label,
-                                    String(e.id),
-                                    currentAssignee?.station_group || 'front'
-                                  );
-                                  setSelectedSlotForCard(null);
-                                }}
-                                className="w-full p-4 rounded-xl sm:rounded-2xl bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700 shadow-sm hover:border-indigo-500 dark:hover:border-indigo-500 hover:bg-indigo-50/30 dark:hover:bg-indigo-950/10 transition-all text-left flex items-center gap-5 group"
-                              >
-                                <div className="w-12 h-12 bg-slate-50 dark:bg-slate-900 rounded-xl flex items-center justify-center text-lg font-black text-slate-400 group-hover:text-indigo-600 shadow-inner">
-                                  {(e.chosen_name || e.first_name)?.[0]?.toUpperCase()}
-                                </div>
-                                <div>
-                                  <p className="text-base font-black text-slate-900 dark:text-white uppercase leading-none mb-1">
-                                    {e.chosen_name || e.first_name}
-                                  </p>
-                                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-                                    {e.last_name}
-                                  </p>
-                                </div>
-                              </button>
-                            );
-                          });
+                              const coveredStations = assignments
+                                .filter(
+                                  (a) =>
+                                    a.assignment_date === formatDateISO(selectedDay) &&
+                                    a.sub_position?.endsWith(shiftSuffix) &&
+                                    String(a.employee_id) === String(e.id) &&
+                                    a.main_station !== targetStationKey
+                                )
+                                .map((a) => a.main_station)
+                                .filter(Boolean);
+
+                              return (
+                                <button
+                                  key={e.id}
+                                  onClick={() => {
+                                    updateAssignment(
+                                      formatDateISO(selectedDay),
+                                      targetStationKey,
+                                      String(e.id),
+                                      currentAssignee?.station_group || 'front'
+                                    );
+                                    setSelectedSlotForCard(null);
+                                  }}
+                                  className="w-full p-4 rounded-xl sm:rounded-2xl bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700 shadow-sm hover:border-indigo-500 dark:hover:border-indigo-500 hover:bg-indigo-50/30 dark:hover:bg-indigo-950/10 transition-all text-left flex items-center gap-5 group"
+                                >
+                                  <div className="w-12 h-12 bg-slate-50 dark:bg-slate-900 rounded-xl flex items-center justify-center text-lg font-black text-slate-400 group-hover:text-indigo-600 shadow-inner">
+                                    {(e.chosen_name || e.first_name)?.[0]?.toUpperCase()}
+                                  </div>
+                                  <div className="flex-1 min-w-0">
+                                    <p className="text-base font-black text-slate-900 dark:text-white uppercase leading-none mb-1">
+                                      {e.chosen_name || e.first_name}
+                                    </p>
+                                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                                      {e.last_name}
+                                    </p>
+                                  </div>
+                                  {coveredStations.length > 0 && (
+                                    <span className="text-[10px] font-bold text-indigo-600 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/50 border border-indigo-200/60 dark:border-indigo-800/50 px-2.5 py-1 rounded-lg uppercase">
+                                      {t('actividades.daily.already_covers')} {coveredStations.join(', ')}
+                                    </span>
+                                  )}
+                                </button>
+                              );
+                            });
 
                             // Off-duty employees (day off / vacation)
                             const offDutyButtons = offDutyEmployees.length > 0 ? (
@@ -2713,20 +3046,24 @@ export default function AsignacionDiariaTab() {
                                   <div className="flex-1 border-t border-dashed border-slate-200 dark:border-slate-700" />
                                 </div>
                                 {offDutyEmployees.map((e) => {
-                                  const isBusy = assignments.some(
-                                    (a) =>
-                                      a.assignment_date === formatDateISO(selectedDay) &&
-                                      a.sub_position?.endsWith(shiftSuffix) &&
-                                      String(a.employee_id) === String(e.id)
-                                  );
-                                  if (isBusy && String(e.id) !== String(currentEmp?.id)) return null;
+                                  const coveredStations = assignments
+                                    .filter(
+                                      (a) =>
+                                        a.assignment_date === formatDateISO(selectedDay) &&
+                                        a.sub_position?.endsWith(shiftSuffix) &&
+                                        String(a.employee_id) === String(e.id) &&
+                                        a.main_station !== targetStationKey
+                                    )
+                                    .map((a) => a.main_station)
+                                    .filter(Boolean);
+
                                   return (
                                     <button
                                       key={`off-${e.id}`}
                                       onClick={() => {
                                         updateAssignment(
                                           formatDateISO(selectedDay),
-                                          selectedSlotForCard.stationKey || selectedSlotForCard.label,
+                                          targetStationKey,
                                           String(e.id),
                                           currentAssignee?.station_group || 'front'
                                         );
@@ -2737,7 +3074,7 @@ export default function AsignacionDiariaTab() {
                                       <div className="w-12 h-12 bg-amber-50 dark:bg-amber-900/20 rounded-xl flex items-center justify-center text-lg font-black text-amber-400 group-hover:text-indigo-600 shadow-inner">
                                         {(e.chosen_name || e.first_name)?.[0]?.toUpperCase()}
                                       </div>
-                                      <div className="flex-1">
+                                      <div className="flex-1 min-w-0">
                                         <p className="text-base font-black text-slate-900 dark:text-white uppercase leading-none mb-1">
                                           {e.chosen_name || e.first_name}
                                         </p>
@@ -2745,6 +3082,11 @@ export default function AsignacionDiariaTab() {
                                           {e.last_name}
                                         </p>
                                       </div>
+                                      {coveredStations.length > 0 && (
+                                        <span className="text-[10px] font-bold text-indigo-600 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/50 border border-indigo-200/60 dark:border-indigo-800/50 px-2.5 py-1 rounded-lg uppercase">
+                                          {t('actividades.daily.already_covers')} {coveredStations.join(', ')}
+                                        </span>
+                                      )}
                                       <span className="text-[9px] font-bold text-amber-500 bg-amber-100 dark:bg-amber-900/30 px-2 py-1 rounded-lg uppercase">
                                         {t('actividades.daily.day_off_badge')}
                                       </span>
@@ -2765,6 +3107,179 @@ export default function AsignacionDiariaTab() {
             </motion.div>
           )}
         </AnimatePresence>,
+        document.body
+      )}
+
+      {/* ═══════════════ MODAL VISTA PREVIA DE PUBLICACIÓN / CORREOS (PORTAL) ═══════════════ */}
+      {typeof document !== 'undefined' && showPublishPreviewModal && createPortal(
+        <div
+          onClick={() => setShowPublishPreviewModal(false)}
+          className="fixed inset-0 z-[10001] bg-slate-950/75 backdrop-blur-sm flex items-center justify-center p-4 sm:p-6"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-4xl max-h-[88vh] rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl flex flex-col overflow-hidden"
+          >
+            {/* Header */}
+            <div className="px-6 py-4 bg-gradient-to-r from-indigo-600 to-blue-600 text-white flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <Mail className="w-5 h-5" />
+                <div>
+                  <h3 className="text-base sm:text-lg font-extrabold">
+                    {t('actividades.daily.preview_publish_title')}
+                  </h3>
+                  <p className="text-xs text-indigo-100">
+                    {selectedStore ? formatStoreName(selectedStore.name) : ''} • {weekRangeLabel}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowPublishPreviewModal(false)}
+                className="p-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-white transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="flex-1 overflow-y-auto p-5 sm:p-6 space-y-4 custom-scrollbar">
+              {/* Pilot Banner */}
+              <div
+                className={`p-3.5 rounded-2xl border flex items-center justify-between gap-3 ${
+                  isStorePilotActiveForActivitiesEmail(selectedStore)
+                    ? 'bg-emerald-50 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-800/50 text-emerald-800 dark:text-emerald-300'
+                    : 'bg-amber-50 dark:bg-amber-950/30 border-amber-200 dark:border-amber-800/50 text-amber-800 dark:text-amber-300'
+                }`}
+              >
+                <div className="flex items-center gap-2.5 text-xs sm:text-sm font-bold">
+                  <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
+                  <span>
+                    {isStorePilotActiveForActivitiesEmail(selectedStore)
+                      ? t('actividades.daily.pilot_active_badge')
+                      : t('actividades.daily.pilot_inactive_badge')}
+                  </span>
+                </div>
+                <span className="text-[11px] font-semibold opacity-80">
+                  {t('actividades.daily.preview_publish_subtitle')}
+                </span>
+              </div>
+
+              {publishPreviewLoading ? (
+                <div className="py-16 flex flex-col items-center justify-center gap-3">
+                  <Loader2 className="w-8 h-8 animate-spin text-indigo-500" />
+                  <p className="text-xs font-semibold text-slate-500">
+                    {t('actividades.daily.loading')}
+                  </p>
+                </div>
+              ) : publishPreviewData?.error ? (
+                <div className="p-4 rounded-2xl bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-300 text-sm font-semibold">
+                  {publishPreviewData.error}
+                </div>
+              ) : (
+                <>
+                  {/* Summary counters */}
+                  {publishPreviewData?.summary && (
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                      <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/60 dark:border-slate-700/60">
+                        <p className="text-[10px] font-bold uppercase text-slate-400">
+                          {language === 'es' ? 'Empleados c/ Turno' : 'Scheduled Staff'}
+                        </p>
+                        <p className="text-lg font-black text-slate-800 dark:text-white">
+                          {publishPreviewData.summary.employeesCount ?? 0}
+                        </p>
+                      </div>
+                      <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/60 dark:border-slate-700/60">
+                        <p className="text-[10px] font-bold uppercase text-slate-400">
+                          {language === 'es' ? 'Con Correo Válido' : 'Valid Emails'}
+                        </p>
+                        <p className="text-lg font-black text-emerald-600 dark:text-emerald-400">
+                          {publishPreviewData.summary.validEmailsCount ?? 0}
+                        </p>
+                      </div>
+                      <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/60 dark:border-slate-700/60">
+                        <p className="text-[10px] font-bold uppercase text-slate-400">
+                          {language === 'es' ? 'Sin Correo' : 'Missing Email'}
+                        </p>
+                        <p className="text-lg font-black text-amber-600 dark:text-amber-400">
+                          {publishPreviewData.summary.missingEmailsCount ?? 0}
+                        </p>
+                      </div>
+                      <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/60 dark:border-slate-700/60">
+                        <p className="text-[10px] font-bold uppercase text-slate-400">
+                          {language === 'es' ? 'Turnos Totales' : 'Total Shifts'}
+                        </p>
+                        <p className="text-lg font-black text-indigo-600 dark:text-indigo-400">
+                          {publishPreviewData.summary.totalShifts ?? 0}
+                        </p>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Per-employee preview list */}
+                  <div className="space-y-3">
+                    {(publishPreviewData?.previews || []).map((empPrev: any) => (
+                      <div
+                        key={empPrev.employeeId}
+                        className="p-4 rounded-2xl bg-slate-50/80 dark:bg-slate-800/50 border border-slate-200/70 dark:border-slate-700/60 space-y-2.5"
+                      >
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div>
+                            <h4 className="text-sm font-black text-slate-900 dark:text-white">
+                              {empPrev.employeeName}
+                            </h4>
+                            <p className="text-xs text-slate-500 dark:text-slate-400">
+                              {empPrev.email || (
+                                <span className="text-rose-500 font-bold">
+                                  ⚠ {language === 'es' ? 'Sin correo registrado (no se enviará a buzón de respaldo)' : 'No email registered (will not fallback)'}
+                                </span>
+                              )}
+                            </p>
+                          </div>
+                          <span className="text-[11px] font-bold px-2.5 py-1 rounded-full bg-indigo-100 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300">
+                            {(empPrev.shifts || []).length} {language === 'es' ? 'turnos' : 'shifts'}
+                          </span>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                          {(empPrev.shifts || []).map((sh: any, sIdx: number) => (
+                            <div
+                              key={sIdx}
+                              className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/60 dark:border-slate-800 text-xs space-y-1"
+                            >
+                              <div className="flex items-center justify-between font-bold text-slate-800 dark:text-slate-200">
+                                <span>{sh.date}</span>
+                                <span>{sh.startTime} - {sh.endTime}</span>
+                              </div>
+                              <div className="text-[11px] font-semibold text-indigo-600 dark:text-indigo-400">
+                                {sh.stations?.length > 0
+                                  ? sh.stations.join(' + ')
+                                  : sh.position || '—'}
+                              </div>
+                              {Array.isArray(sh.activities) && sh.activities.length > 0 && (
+                                <div className="pt-1 border-t border-slate-100 dark:border-slate-800 text-[10px] text-slate-500 dark:text-slate-400">
+                                  {sh.activities.slice(0, 4).map((act: any, aIdx: number) => (
+                                    <div key={aIdx} className="truncate">
+                                      • {act.activity} {act.adjustedTime ? `(${act.adjustedTime.slice(0, 5)})` : ''}
+                                    </div>
+                                  ))}
+                                  {sh.activities.length > 4 && (
+                                    <div className="italic text-slate-400">
+                                      +{sh.activities.length - 4} {t('actividades.daily.more_activities')}
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        </div>,
         document.body
       )}
 

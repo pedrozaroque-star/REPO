@@ -44,6 +44,7 @@ import {
 } from 'lucide-react';
 import { useLanguage } from '@/lib/i18n';
 import { createClient } from '@/lib/supabase-client';
+import { getPositionMatchCandidates, normalizeText } from '@/lib/actividades-resolution';
 
 // ═══════════════════════════════════════════════════════════════
 // Types
@@ -112,14 +113,36 @@ const POSITION_GROUPS: PositionGroup[] = [
     labelKey: 'actividades.config.group_kitchen',
     icon: <Utensils className="w-4 h-4" />,
     color: 'from-orange-500 to-red-500',
-    positions: ['TACOS', 'CARNES', 'BURRITOS', 'TORTILLAS', 'TORTAS/QUESADILLAS', 'TORTAS/MULITAS', 'CUBRIR DESCANSOS (COCINA)', 'PREPARACION', 'ACTIVIDADES EXTRA 1', 'ACTIVIDADES EXTRA 2', 'ACTIVIDADES EXTRA 3', 'ACTIVIDADES EXTRA 4', 'ACTIVIDADES EXTRA 5', 'ACTIVIDADES EXTRA 6'],
+    positions: [
+      'TACOS',
+      'CARNES',
+      'BURRITOS',
+      'TORTILLAS',
+      'TORTAS/QUESADILLAS',
+      'TORTAS/MULITAS',
+      'CUBRIR DESCANSOS (COCINA)',
+      'PREPARACION',
+      'ACTIVIDADES EXTRA 1',
+      'ACTIVIDADES EXTRA 2',
+      'ACTIVIDADES EXTRA 3',
+      'ACTIVIDADES EXTRA 4',
+      'ACTIVIDADES EXTRA 5',
+      'ACTIVIDADES EXTRA 6',
+    ],
   },
   {
     key: 'drive_thru',
     labelKey: 'actividades.config.group_drive_thru',
     icon: <Car className="w-4 h-4" />,
     color: 'from-emerald-500 to-teal-500',
-    positions: ['Ventana 1', 'Ventana 2', 'Ventana 2 (B)', 'TORTAS/QUESADILLAS (DT)', 'TACOS/BURRITOS (DT)', 'CUBRIR DESCANSOS (DT)'],
+    positions: [
+      'Ventana 1',
+      'Ventana 2',
+      'Ventana 2 (B)',
+      'TORTAS/QUESADILLAS (DT)',
+      'TACOS/BURRITOS (DT)',
+      'CUBRIR DESCANSOS (DT)',
+    ],
   },
 ];
 
@@ -279,11 +302,12 @@ export default function ConfigurarPosicionesTab({ readOnly = false }: { readOnly
 
   // ═══════════════ Derived Data ═══════════════
 
-  // Count of assigned activities per position
+  // Count of assigned activities per position (soportando alias TORTILLERA <-> TORTILLAS, A22)
   const activityCountByPosition = useMemo(() => {
     const counts: Record<string, number> = {};
-    for (const pa of positionActivities) {
-      counts[pa.position_key] = (counts[pa.position_key] || 0) + 1;
+    for (const pos of ALL_POSITIONS) {
+      const candidates = new Set(getPositionMatchCandidates(pos).map(normalizeText));
+      counts[pos] = positionActivities.filter(pa => candidates.has(normalizeText(pa.position_key))).length;
     }
     return counts;
   }, [positionActivities]);
@@ -291,8 +315,9 @@ export default function ConfigurarPosicionesTab({ readOnly = false }: { readOnly
   // Assigned activity IDs for the selected position (considering shift + store_model filter)
   const assignedForSelected = useMemo(() => {
     if (!selectedPosition) return [];
+    const candidates = new Set(getPositionMatchCandidates(selectedPosition).map(normalizeText));
     return positionActivities.filter(pa => {
-      if (pa.position_key !== selectedPosition) return false;
+      if (!candidates.has(normalizeText(pa.position_key))) return false;
       // When filtering, show all that match or are AMBOS
       if (filterShift !== 'AMBOS') {
         if (pa.shift !== filterShift && pa.shift !== 'AMBOS') return false;
@@ -722,6 +747,11 @@ export default function ConfigurarPosicionesTab({ readOnly = false }: { readOnly
                                   <p className="text-sm font-bold text-slate-800 dark:text-slate-100 truncate">
                                     {proc.activity}
                                   </p>
+                                  {proc.description && (
+                                    <p className="text-xs text-slate-500 dark:text-slate-400 line-clamp-1 mt-0.5">
+                                      {proc.description}
+                                    </p>
+                                  )}
                                   <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
                                     {proc.start_time && (
                                       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-slate-100 dark:bg-slate-700 text-[10px] font-semibold text-slate-600 dark:text-slate-300">
@@ -801,6 +831,11 @@ export default function ConfigurarPosicionesTab({ readOnly = false }: { readOnly
                                   <p className="text-sm font-bold text-slate-700 dark:text-slate-200 truncate">
                                     {proc.activity}
                                   </p>
+                                  {proc.description && (
+                                    <p className="text-xs text-slate-500 dark:text-slate-400 line-clamp-1 mt-0.5">
+                                      {proc.description}
+                                    </p>
+                                  )}
                                   <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
                                     {proc.start_time && (
                                       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-slate-100 dark:bg-slate-700 text-[10px] font-semibold text-slate-600 dark:text-slate-300">
