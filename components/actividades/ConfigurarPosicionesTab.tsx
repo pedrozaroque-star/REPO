@@ -391,15 +391,29 @@ export default function ConfigurarPosicionesTab({ readOnly = false }: { readOnly
     if (!selectedPosition || actionLoading) return;
     setActionLoading(proc.id);
     try {
+      const effectiveShift = filterShift !== 'AMBOS'
+        ? filterShift
+        : proc.shift_type === 'Apertura'
+          ? 'AM'
+          : proc.shift_type === 'Cierre'
+            ? 'PM'
+            : 'AMBOS';
+      const isDriveThruStation = ['Ventana 1', 'Ventana 2', 'Expiditor DT'].includes(selectedPosition);
+      const effectiveStoreModel = filterStoreModel !== 'AMBOS'
+        ? filterStoreModel
+        : isDriveThruStation || proc.store_model === 'DRIVE_THRU'
+          ? 'DRIVE_THRU'
+          : proc.store_model || 'AMBOS';
+
       const res = await fetch('/api/roles/activities', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           position_key: selectedPosition,
-          shift: filterShift,
+          shift: effectiveShift,
           activity_id: proc.id,
           frequency: proc.frequency || 'Diario',
-          store_model: filterStoreModel,
+          store_model: effectiveStoreModel,
         }),
       });
       if (!res.ok) {

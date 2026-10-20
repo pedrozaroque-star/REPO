@@ -10,7 +10,12 @@
  *   - Cuando el cocinero borra la orden delivery del KDS (pasa de IN_KITCHEN a READY para el estante de empaque), la tableta reproduce automáticamente la campana aguda prolongada de Delivery y el aviso de voz ("Order #100, is ready! Please pack. / Orden #100, ¡ya está! Favor de empacar.") usando las voces calibradas de Supabase Storage.
  *   - Flujo directo sin pasos innecesarios: 1. CONFIRMAR ORDEN COMPLETA Y SELLADA -> 2. Blindar la entrega.
  * @dataFlow Toast -> /api/delivery-armor/orders -> tableta fullscreen + locutor KDS (/api/order-ready/tts) -> /api/delivery-armor/audit -> Supabase.
- * @notes Piloto Slauson (#7) y LA Central (#6).
+ * @notes
+ *   - Piloto Slauson (#7) y LA Central (#6).
+ *   - Blindaje anti-regresión de estatus (Oct 2026):
+ *     1) Separación de lastStorageSyncAtRef (500ms) y lastServerHeartbeatAtRef (15s) en recordCashierActivity() para que el heartbeat al servidor nunca sea bloqueado por toques continuos en pantalla.
+ *     2) Control de secuencia fetchSeqRef y mapa inmutable stickyAuditsRef para impedir que un polling de 4s en vuelo sobrescriba o regrese una orden LISTA o ENTREGADA a EMPACANDO.
+ *     3) Eliminación del botón "Regresar a EMPACANDO" en la tableta para evitar reversiones accidentales por toque involuntario.
  */
 
 'use client'
@@ -436,6 +441,10 @@ export default function BlindajeDeliveryEmpaquePage() {
   const lastActivityAtRef = useRef<number>(Date.now())
   const sessionExpiresAtRef = useRef<number>(0)
   const lastStorageSyncAtRef = useRef<number>(0)
+  const lastServerHeartbeatAtRef = useRef<number>(0)
+  const fetchSeqRef = useRef<number>(0)
+  const stickyAuditsRef = useRef<Map<string, NonNullable<Order['audit']>>>(new Map())
+  const recentActiveOrdersRef = useRef<Map<string, { order: Order; seenAt: number }>>(new Map())
   const effectiveDateRef = useRef<string>(getLAEffectiveBusinessDate())
   const lastTabletInteractionRef = useRef<number>(Date.now())
   const showWakeUpModalRef = useRef<boolean>(false)
@@ -886,6 +895,8 @@ export default function BlindajeDeliveryEmpaquePage() {
       ].forEach(key => sessionStorage.removeItem(key))
       sessionExpiresAtRef.current = 0
       lastActivityAtRef.current = 0
+      lastStorageSyncAtRef.current = 0
+      lastServerHeartbeatAtRef.current = 0
       packerRef.current = null
       setPacker(null)
       setSelected(null)
@@ -909,7 +920,7 @@ export default function BlindajeDeliveryEmpaquePage() {
     [logout, t]
   )
 
-  // Reiniciar el contador de 10 minutos sin actividad ante cualquier interacción real de la cajera en la tableta
+  // Reiniciar el contador de 2 minutos sin actividad ante cualquier interacción real de la cajera en la tableta
   const recordCashierActivity = useCallback((): boolean => {
     const activePacker = packerRef.current
     if (!activePacker) return false
@@ -921,10 +932,11 @@ export default function BlindajeDeliveryEmpaquePage() {
       return false
     }
     const nextExpiresAt = now + PIN_INACTIVITY_TIMEOUT_MS
-    const prevSync = lastStorageSyncAtRef.current
+    const prevStorageSync = lastStorageSyncAtRef.current
+    const prevHeartbeat = lastServerHeartbeatAtRef.current
     lastActivityAtRef.current = now
     sessionExpiresAtRef.current = nextExpiresAt
-    if (now - prevSync >= 500) {
+    if (now - prevStorageSync >= 500) {
       lastStorageSyncAtRef.current = now
       setRemainingMs(PIN_INACTIVITY_TIMEOUT_MS)
       try {
@@ -934,8 +946,9 @@ export default function BlindajeDeliveryEmpaquePage() {
         // ignore storage quota
       }
     }
-    // Sincronizar actividad con el servidor cada 20 segundos y verificar que nadie más haya iniciado sesión en la tienda
-    if (now - prevSync >= 20_000 && activePacker.sessionToken) {
+    // Sincronizar actividad con el servidor cada 15 segundos (usando su propio reloj independiente para que los toques continuos de 500ms nunca bloqueen el heartbeat)
+    if (now - prevHeartbeat >= 15_000 && activePacker.sessionToken) {
+      lastServerHeartbeatAtRef.current = now
       fetch('/api/delivery-armor/verify-pin', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -1124,6 +1137,8 @@ export default function BlindajeDeliveryEmpaquePage() {
       announcedGuidsRef.current = new Set()
     }
     prevKdsStatusRef.current = new Map()
+    stickyAuditsRef.current = new Map()
+    recentActiveOrdersRef.current = new Map()
     initializedStoreRef.current = null
   }, [storeId])
 
@@ -1141,11 +1156,17 @@ export default function BlindajeDeliveryEmpaquePage() {
   )
 
   const fetchOrders = useCallback(async () => {
+    const mySeq = ++fetchSeqRef.current
     setLoading(true)
     try {
       const response = await fetch(`/api/delivery-armor/orders?storeId=${storeId}`, { cache: 'no-store' })
       const data = await response.json()
       if (!response.ok || !data.ok) throw new Error(data.error || t('blindaje_delivery.error_fetch_orders'))
+
+      // Si durante el vuelo de este poll ocurrió una mutación local (markReady / release) o un poll más reciente, descartar respuesta obsoleta
+      if (mySeq < fetchSeqRef.current) {
+        return []
+      }
 
       // Verificar si otra persona inició sesión en esta misma tienda (no puede haber 2 sesiones abiertas)
       const currentPacker = packerRef.current
@@ -1157,33 +1178,8 @@ export default function BlindajeDeliveryEmpaquePage() {
       ) {
         handleSessionReplacedError(data.activeSession.employeeName)
       }
-      const next: Order[] = (data.orders || []).map((raw: any) => ({
-        guid: raw.orderGuid,
-        ticket: raw.displayNumber,
-        diningOption: raw.diningOptionName,
-        platform: raw.platform,
-        customer: raw.customerName,
-        maskedCustomer: raw.maskedCustomerName || 'C•••',
-        platformOrderKey: raw.platformOrderKey || `#${raw.displayNumber}`,
-        shortOrderKey: raw.shortOrderKey || `#${raw.displayNumber}`,
-        assignedDriverHint: raw.assignedDriverHint || null,
-        openedAt: raw.openedDate,
-        kdsStatus: raw.kdsStatus || 'READY',
-        kdsSentAt: raw.kdsSentAt || raw.openedDate,
-        kdsReadyAt: raw.kdsReadyAt || null,
-        kdsPrepSeconds: raw.kdsPrepSeconds ?? null,
-        isVoided: !!raw.isVoided,
-        itemCount: raw.totalItemsCount,
-        hasDrinks: raw.items?.some((item: any) => item.isHighRiskDrink) || false,
-        items: (raw.items || []).map((item: any) => ({
-          id: item.id,
-          name: item.displayName,
-          quantity: item.quantity,
-          price: Number(item.price || 0),
-          modifiers: item.modifiers || [],
-          isDrink: item.isHighRiskDrink
-        })),
-        audit: raw.audit
+      const next: Order[] = (data.orders || []).map((raw: any) => {
+        const incomingAudit: Order['audit'] = raw.audit
           ? {
               status:
                 raw.audit.status === 'DELIVERED'
@@ -1201,7 +1197,56 @@ export default function BlindajeDeliveryEmpaquePage() {
               courierReference: raw.audit.courierOrderReference
             }
           : undefined
-      }))
+
+        // Blindaje anti-regresión en cliente: si la orden ya fue empacada (ready) o entregada (released) en esta sesión,
+        // jamás permitir que una respuesta sin audit la regrese a EMPACANDO
+        const stickyAudit = stickyAuditsRef.current.get(raw.orderGuid)
+        let resolvedAudit: Order['audit'] = incomingAudit
+        if (!resolvedAudit && stickyAudit) {
+          resolvedAudit = stickyAudit
+        } else if (
+          resolvedAudit &&
+          stickyAudit &&
+          stickyAudit.status === 'released' &&
+          resolvedAudit.status !== 'released'
+        ) {
+          // Solo reopenOrder limpia stickyAudit antes de pedir fetchOrders; un poll normal jamás puede degradar 'released'
+          resolvedAudit = stickyAudit
+        }
+
+        if (resolvedAudit && (resolvedAudit.status === 'ready' || resolvedAudit.status === 'released' || resolvedAudit.status === 'unclaimed')) {
+          stickyAuditsRef.current.set(raw.orderGuid, resolvedAudit)
+        }
+
+        return {
+          guid: raw.orderGuid,
+          ticket: raw.displayNumber,
+          diningOption: raw.diningOptionName,
+          platform: raw.platform,
+          customer: raw.customerName,
+          maskedCustomer: raw.maskedCustomerName || 'C•••',
+          platformOrderKey: raw.platformOrderKey || `#${raw.displayNumber}`,
+          shortOrderKey: raw.shortOrderKey || `#${raw.displayNumber}`,
+          assignedDriverHint: raw.assignedDriverHint || null,
+          openedAt: raw.openedDate,
+          kdsStatus: raw.kdsStatus || 'READY',
+          kdsSentAt: raw.kdsSentAt || raw.openedDate,
+          kdsReadyAt: raw.kdsReadyAt || null,
+          kdsPrepSeconds: raw.kdsPrepSeconds ?? null,
+          isVoided: !!raw.isVoided,
+          itemCount: raw.totalItemsCount,
+          hasDrinks: raw.items?.some((item: any) => item.isHighRiskDrink) || false,
+          items: (raw.items || []).map((item: any) => ({
+            id: item.id,
+            name: item.displayName,
+            quantity: item.quantity,
+            price: Number(item.price || 0),
+            modifiers: item.modifiers || [],
+            isDrink: item.isHighRiskDrink
+          })),
+          audit: resolvedAudit
+        }
+      })
 
       // Detectar órdenes que el cocinero acaba de borrar del KDS (IN_KITCHEN -> READY)
       const isInitialFetchForStore = initializedStoreRef.current !== storeId
@@ -1257,6 +1302,36 @@ export default function BlindajeDeliveryEmpaquePage() {
         }
       }
 
+      // Blindaje anti-parpadeo: si un poll aislado viene incompleto por rate-limit o instancia fría,
+      // retener por hasta 15 segundos las órdenes activas recién vistas que no hayan sido entregadas
+      const nowSeenMs = Date.now()
+      const nextByGuid = new Map<string, Order>()
+      for (const item of next) {
+        nextByGuid.set(item.guid, item)
+        if (isOrderCurrentlyActive(item, dismissedVoidedRef.current)) {
+          recentActiveOrdersRef.current.set(item.guid, { order: item, seenAt: nowSeenMs })
+        } else {
+          recentActiveOrdersRef.current.delete(item.guid)
+        }
+      }
+
+      for (const [guid, cachedEntry] of Array.from(recentActiveOrdersRef.current.entries())) {
+        if (nowSeenMs - cachedEntry.seenAt > 15_000) {
+          recentActiveOrdersRef.current.delete(guid)
+          continue
+        }
+        if (!nextByGuid.has(guid)) {
+          const sticky = stickyAuditsRef.current.get(guid)
+          const preservedOrder: Order = sticky ? { ...cachedEntry.order, audit: sticky } : cachedEntry.order
+          if (isOrderCurrentlyActive(preservedOrder, dismissedVoidedRef.current)) {
+            next.push(preservedOrder)
+            nextByGuid.set(guid, preservedOrder)
+          } else {
+            recentActiveOrdersRef.current.delete(guid)
+          }
+        }
+      }
+
       setOrders(next)
       setSelected(current => {
         // Nunca seleccionar ninguna orden automáticamente: solo conservar la que la cajera haya seleccionado manualmente
@@ -1297,6 +1372,8 @@ export default function BlindajeDeliveryEmpaquePage() {
         effectiveDateRef.current = freshBusinessDate
         announcedGuidsRef.current.clear()
         prevKdsStatusRef.current.clear()
+        stickyAuditsRef.current.clear()
+        recentActiveOrdersRef.current.clear()
         clipCacheRef.current.clear()
         initializedStoreRef.current = null
         try {
@@ -1523,6 +1600,7 @@ export default function BlindajeDeliveryEmpaquePage() {
       lastActivityAtRef.current = now
       sessionExpiresAtRef.current = expiresAt
       lastStorageSyncAtRef.current = now
+      lastServerHeartbeatAtRef.current = now
       packerRef.current = next
       setPacker(next)
       setRemainingMs(PIN_INACTIVITY_TIMEOUT_MS)
@@ -1678,12 +1756,25 @@ export default function BlindajeDeliveryEmpaquePage() {
     if (!recordCashierActivity()) return
     void ensureFullscreen()
     const targetGuid = order.guid
+    const confirmedBags = bags[targetGuid] || order.audit?.bags || 1
+    // Invalidar cualquier polling de 4s que haya iniciado antes de este toque
+    fetchSeqRef.current += 1
     setBusy(true)
     setError(null)
     setSuccess(null)
     try {
       await savePackingRecord(order)
       if (!packerRef.current) return
+      const optimisticAudit: NonNullable<Order['audit']> = {
+        status: 'ready',
+        bags: confirmedBags,
+        packedBy: packer.name,
+        packedAt: new Date().toISOString()
+      }
+      stickyAuditsRef.current.set(targetGuid, optimisticAudit)
+      setOrders(prev =>
+        prev.map(o => (o.guid === targetGuid ? { ...o, audit: optimisticAudit } : o))
+      )
       setEditingPacking(prev => ({ ...prev, [targetGuid]: false }))
       setDriverPresentAck(prev => ({ ...prev, [targetGuid]: false }))
       const cooldownUntil = Date.now() + 2500
@@ -1785,6 +1876,10 @@ export default function BlindajeDeliveryEmpaquePage() {
         }
         throw new Error(errMsg || t('blindaje_delivery.error_reopen_order'))
       }
+      const existingSticky = stickyAuditsRef.current.get(targetGuid)
+      if (existingSticky) {
+        stickyAuditsRef.current.set(targetGuid, { ...existingSticky, status: 'ready' })
+      }
       setDriverPresentAck(prev => ({ ...prev, [targetGuid]: false }))
       setSuccess(`${t('blindaje_delivery.reopen_success')}: ${order.customer} (Check #${order.ticket})`)
       await fetchOrders()
@@ -1817,6 +1912,9 @@ export default function BlindajeDeliveryEmpaquePage() {
       setError(t('blindaje_delivery.error_collision_ack_required'))
       return
     }
+    const targetGuid = order.guid
+    // Invalidar cualquier polling de 4s que haya iniciado antes de entregar la orden
+    fetchSeqRef.current += 1
     setBusy(true)
     setError(null)
     setSuccess(null)
@@ -1849,6 +1947,20 @@ export default function BlindajeDeliveryEmpaquePage() {
         }
         throw new Error(errMsg || t('blindaje_delivery.error_release_order'))
       }
+      const releasedAudit: NonNullable<Order['audit']> = {
+        status: 'released',
+        bags: order.audit?.bags || bagCount,
+        packedBy: order.audit?.packedBy || packer.name,
+        packedAt: order.audit?.packedAt,
+        handedBy: data.audit?.handed_by_ronos_name || packer.name,
+        driver: order.assignedDriverHint || t('blindaje_delivery.verified_driver'),
+        courierReference: `${order.customer} (#${order.ticket} • ${order.platformOrderKey})`
+      }
+      stickyAuditsRef.current.set(targetGuid, releasedAudit)
+      recentActiveOrdersRef.current.delete(targetGuid)
+      setOrders(prev =>
+        prev.map(o => (o.guid === targetGuid ? { ...o, audit: releasedAudit } : o))
+      )
       setSuccess(
         `${t('blindaje_delivery.order_of')} ${order.customer} (#${order.ticket}) ${t('blindaje_delivery.success_released')} ${data.audit.handed_by_ronos_name}.`
       )
@@ -1879,7 +1991,7 @@ export default function BlindajeDeliveryEmpaquePage() {
               e.stopPropagation()
               void handleWakeUpTablet()
             }}
-            className="bg-slate-900 border-2 border-amber-500/70 max-w-2xl w-full rounded-[36px] shadow-[0_0_120px_rgba(245,158,11,0.35)] p-6 sm:p-10 md:p-12 flex flex-col items-center text-center relative overflow-hidden"
+            className="bg-slate-900 border-2 border-amber-500/70 max-w-3xl w-full rounded-[36px] shadow-[0_0_120px_rgba(245,158,11,0.35)] p-6 sm:p-10 md:p-12 flex flex-col items-center text-center relative overflow-hidden"
           >
             <div className="w-24 h-24 sm:w-28 sm:h-28 rounded-full bg-amber-500/15 border-2 border-amber-400/50 flex items-center justify-center mb-5 sm:mb-6 shadow-[0_0_40px_rgba(245,158,11,0.3)]">
               <Sun className="w-14 h-14 text-amber-400 animate-spin" style={{ animationDuration: '10s' }} />
@@ -1956,15 +2068,6 @@ export default function BlindajeDeliveryEmpaquePage() {
               {t('blindaje_delivery.tablet_station_header')}
             </span>
             <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => void handleWakeUpTablet()}
-                title={t('prep.wakeUpTabletDesc')}
-                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-500 text-white text-xs sm:text-sm font-black shadow-sm"
-              >
-                <Sun className="w-4 h-4 text-amber-100 animate-spin" style={{ animationDuration: '10s' }} />
-                <span>{t('prep.wakeUpTabletShort')}</span>
-              </button>
               <button
                 type="button"
                 onClick={() => setLanguage(language === 'es' ? 'en' : 'es')}
@@ -2120,15 +2223,6 @@ export default function BlindajeDeliveryEmpaquePage() {
             </div>
           </div>
           <div className="flex items-center gap-2.5">
-            <button
-              type="button"
-              onClick={() => void handleWakeUpTablet()}
-              title={t('prep.wakeUpTabletDesc')}
-              className="inline-flex items-center gap-1.5 px-3 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-500 text-white text-sm font-black shadow-sm"
-            >
-              <Sun className="w-5 h-5 text-amber-100 animate-spin" style={{ animationDuration: '10s' }} />
-              <span className="hidden md:inline">{t('prep.wakeUpTabletShort')}</span>
-            </button>
             <button
               type="button"
               onClick={() => setLanguage(language === 'es' ? 'en' : 'es')}
@@ -2597,24 +2691,14 @@ export default function BlindajeDeliveryEmpaquePage() {
                                   : t('blindaje_delivery.bag_plural')}
                               </span>
                               {!isEditingStep1 && !order.isVoided && (
-                                <>
-                                  <button
-                                    type="button"
-                                    disabled={busy}
-                                    onClick={() => setEditingPacking(prev => ({ ...prev, [order.guid]: true }))}
-                                    className="px-3.5 py-2 rounded-xl bg-white border border-emerald-400 hover:bg-emerald-100 text-emerald-900 text-xs sm:text-sm font-black"
-                                  >
-                                    {t('blindaje_delivery.reconfirm_packing_btn')}
-                                  </button>
-                                  <button
-                                    type="button"
-                                    disabled={busy}
-                                    onClick={undoPacking}
-                                    className="px-3.5 py-2 rounded-xl bg-amber-100 border border-amber-400 hover:bg-amber-200 text-amber-950 text-xs sm:text-sm font-black"
-                                  >
-                                    {t('blindaje_delivery.undo_packing_btn')}
-                                  </button>
-                                </>
+                                <button
+                                  type="button"
+                                  disabled={busy}
+                                  onClick={() => setEditingPacking(prev => ({ ...prev, [order.guid]: true }))}
+                                  className="px-3.5 py-2 rounded-xl bg-white border border-emerald-400 hover:bg-emerald-100 text-emerald-900 text-xs sm:text-sm font-black"
+                                >
+                                  {t('blindaje_delivery.reconfirm_packing_btn')}
+                                </button>
                               )}
                             </div>
                           </div>

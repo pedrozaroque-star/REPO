@@ -18,6 +18,10 @@
  *
  * @notes
  *   - Desarrollado inicialmente para el plan piloto en Slauson (Tienda #7) y LA Central (Tienda #6), extensible a las 15 sucursales de Tacos Gavilan.
+ *   - Blindaje anti-regresión de estatus (Oct 2026):
+ *     1) saveAuditProgress y confirmHandoffToDriver jamás descartan la acción de una cajera con PIN válido en RONOS aunque la sesión en order_ready_settings haya expirado por desfase de heartbeat; renuevan la sesión automáticamente y guardan la orden.
+ *     2) fetchOffPremiseOrders consulta delivery_packing_audits filtrado explícitamente por los GUIDs activos (.in('toast_order_guid', chunk)) para nunca truncar por el límite de 1,000 filas de PostgREST, y mantiene caché de respaldo (lastKnownAuditsByGuid) ante micro-cortes de red.
+ *     3) Ninguna orden con estatus DELIVERED o con historial everDeliveredAt puede regresarse a EMPACANDO ni eliminarse con undoPackingAudit.
  */
 
 import { supabaseAdmin } from './supabase'
@@ -1151,6 +1155,9 @@ export function isHighRiskBeverage(name: string): boolean {
     n.includes('pineapple') ||
     n.includes('fresa') ||
     n.includes('limon') ||
+    n.includes('lemonade') ||
+    n.includes('lemon') ||
+    n.includes('limeade') ||
     n.includes('melon') ||
     n.includes('sandia') ||
     n.includes('pepino') ||
@@ -1176,21 +1183,35 @@ export function isHighRiskBeverage(name: string): boolean {
     n.includes('jugo') ||
     n.includes('coffee') ||
     n.includes('cafe') ||
+    n.includes('iced tea') ||
+    n.includes('sweet tea') ||
     n.includes('mineral') ||
     n.includes('topo chico')
   )
 }
 
 /**
- * Clasifica la plataforma de entrega de acuerdo a la Dining Option y Delivery Service de Toast
+ * Clasifica la plataforma de entrega de acuerdo a la Dining Option, Delivery Service y tabName de Toast
  */
-export function classifyPlatform(diningOptionName: string, deliveryService?: string, source?: string): DeliveryPlatform {
-  const full = `${diningOptionName} ${deliveryService || ''} ${source || ''}`.toLowerCase()
+export function classifyPlatform(
+  diningOptionName: string,
+  deliveryService?: string,
+  source?: string,
+  tabOrCustomerHint?: string
+): DeliveryPlatform {
+  const full = `${diningOptionName} ${deliveryService || ''} ${source || ''} ${tabOrCustomerHint || ''}`.toLowerCase()
+  const hint = (tabOrCustomerHint || '').trim()
 
-  if (full.includes('doordash') || full.includes('dash')) {
+  if (full.includes('doordash') || full.includes('dash') || /\bdd\s+[0-9a-f]{4,}/i.test(hint)) {
     return 'DOORDASH'
   }
-  if (full.includes('uber') || full.includes('eats') || full.includes('postmates')) {
+  if (
+    full.includes('uber') ||
+    full.includes('eats') ||
+    full.includes('postmates') ||
+    /\buber[0-9a-f]{4,}/i.test(hint) ||
+    /\bue-[a-z]/i.test(hint)
+  ) {
     return 'UBER_EATS'
   }
   if (full.includes('grubhub') || full.includes('grub')) {
@@ -1206,48 +1227,65 @@ export function classifyPlatform(diningOptionName: string, deliveryService?: str
  * Determina si una orden pertenece estrictamente a una plataforma de delivery o pedido online.
  * Excluye explícitamente órdenes de mostrador presencial ('To Go'), comedor ('For Here'), kioskos y teléfono.
  */
-export function isDeliveryPlatform(diningOptionName: string, deliveryService?: string, source?: string): boolean {
-  const p = classifyPlatform(diningOptionName, deliveryService, source)
+export function isDeliveryPlatform(
+  diningOptionName: string,
+  deliveryService?: string,
+  source?: string,
+  tabOrCustomerHint?: string
+): boolean {
+  const p = classifyPlatform(diningOptionName, deliveryService, source, tabOrCustomerHint)
   return p !== 'OTHER'
 }
 
 const diningOptionsCache = new Map<string, { at: number; map: Record<string, string> }>()
 const toastRawOrdersCache = new Map<string, { at: number; orders: any[] }>()
 const toastRawOrdersInflight = new Map<string, Promise<any[]>>()
-const TOAST_RAW_CACHE_TTL_MS = 3000 // 3 segundos para detectar de inmediato cuando el cocinero borra del KDS sin causar 429 en Toast API
+const lastKnownAuditsByGuid = new Map<string, any>()
+const TOAST_RAW_CACHE_TTL_MS = 3500 // 3.5 segundos para detectar de inmediato cuando el cocinero borra del KDS sin causar 429 en Toast API
 
 /**
  * Consulta las opciones de comedor (Dining Options) de Toast de forma dinámica (Protocolo Toast API)
  */
 async function fetchDiningOptionsMap(token: string, storeExternalId: string): Promise<Record<string, string>> {
   const cached = diningOptionsCache.get(storeExternalId)
-  if (cached && Date.now() - cached.at < 30 * 60 * 1000) {
+  if (cached && Date.now() - cached.at < 60 * 60 * 1000) {
     return cached.map
   }
-  try {
-    const res = await fetch(`${TOAST_API_HOST}/config/v2/diningOptions`, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Toast-Restaurant-External-ID': storeExternalId
-      }
-    })
-    if (!res.ok) return cached?.map || {}
-    const data = await res.json()
-    const map: Record<string, string> = {}
-    if (Array.isArray(data)) {
-      data.forEach((opt: any) => {
-        if (opt.guid && opt.name) {
-          map[opt.guid] = opt.name
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const res = await fetch(`${TOAST_API_HOST}/config/v2/diningOptions`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Toast-Restaurant-External-ID': storeExternalId
         }
       })
+      if (!res.ok) {
+        if (attempt === 0) {
+          await new Promise(r => setTimeout(r, 300))
+          continue
+        }
+        return cached?.map || {}
+      }
+      const data = await res.json()
+      const map: Record<string, string> = {}
+      if (Array.isArray(data)) {
+        data.forEach((opt: any) => {
+          if (opt.guid && opt.name) {
+            map[opt.guid] = opt.name
+          }
+        })
+      }
+      if (Object.keys(map).length > 0) {
+        diningOptionsCache.set(storeExternalId, { at: Date.now(), map })
+        return map
+      }
+    } catch {
+      if (attempt === 0) {
+        await new Promise(r => setTimeout(r, 300))
+      }
     }
-    if (Object.keys(map).length > 0) {
-      diningOptionsCache.set(storeExternalId, { at: Date.now(), map })
-    }
-    return map
-  } catch {
-    return cached?.map || {}
   }
+  return cached?.map || {}
 }
 
 /**
@@ -1347,7 +1385,7 @@ export async function fetchOffPremiseOrders(storeId: number, targetBusinessDate?
                 formatToastIso(startInstant)
               )}&endDate=${encodeURIComponent(formatToastIso(endInstant))}&pageSize=100&page=${page}`
 
-          const oRes = await fetch(ordersUrl, {
+          let oRes = await fetch(ordersUrl, {
             cache: 'no-store',
             headers: {
               Authorization: `Bearer ${token}`,
@@ -1355,16 +1393,29 @@ export async function fetchOffPremiseOrders(storeId: number, targetBusinessDate?
             }
           })
 
+          // Si Toast devuelve 429 (rate-limit) o error transitorio en cualquier página (ej. page 2 donde están las órdenes más nuevas),
+          // reintentar una vez tras 380ms antes de abortar.
+          if (!oRes.ok) {
+            await new Promise(r => setTimeout(r, 380))
+            oRes = await fetch(ordersUrl, {
+              cache: 'no-store',
+              headers: {
+                Authorization: `Bearer ${token}`,
+                'Toast-Restaurant-External-ID': store.external_id
+              }
+            })
+          }
+
           if (!oRes.ok) {
             abortedByError = true
+            // CRÍTICO: Toast ordena ordersBulk de la más vieja (page 1) a la más reciente (page 2+).
+            // Si falla page 2+, JAMÁS debemos devolver solo page 1 (porque page 1 solo tiene órdenes de hace 2-3 horas ya entregadas
+            // y haría desaparecer de la tableta las 5 o 6 órdenes activas actuales).
             if (cachedRaw?.orders?.length) {
               return cachedRaw.orders
             }
-            if (page === 1) {
-              const errText = await oRes.text().catch(() => '')
-              throw new Error(`Error consultando órdenes en Toast API (${oRes.status}): ${errText.substring(0, 150)}`)
-            }
-            break
+            const errText = await oRes.text().catch(() => '')
+            throw new Error(`Error consultando página ${page} de órdenes en Toast API (${oRes.status}): ${errText.substring(0, 150)}`)
           }
 
           const chunk: any[] = await oRes.json()
@@ -1375,8 +1426,7 @@ export async function fetchOffPremiseOrders(storeId: number, targetBusinessDate?
           page++
         }
 
-        // Nunca sobrescribir el caché si una página intermedia falló por rate-limit (evita mostrar órdenes viejas #200)
-        if (!abortedByError || !cachedRaw?.orders?.length) {
+        if (!abortedByError) {
           toastRawOrdersCache.set(cacheKey, { at: Date.now(), orders: fetched })
         }
         return fetched
@@ -1391,17 +1441,36 @@ export async function fetchOffPremiseOrders(storeId: number, targetBusinessDate?
   // 4. Cambiar automáticamente a UNCLAIMED_2H las auditorías que cumplan >= 2 horas sin ser recogidas por ningún chofer
   await autoExpireUnclaimedAudits(storeId, nowMs)
 
-  const { data: existingAudits } = await supabaseAdmin
-    .from('delivery_packing_audits')
-    .select('*')
-    .eq('store_id', storeId)
-    .order('created_at', { ascending: false })
-    .limit(1000)
-
   const auditsMap = new Map<string, any>()
-  existingAudits?.forEach(a => {
-    auditsMap.set(a.toast_order_guid, a)
-  })
+  // Precargar respaldo en memoria de la tienda para que un hipo momentáneo de red NUNCA regrese una orden entregada a EMPACANDO
+  for (const [guid, cachedAudit] of lastKnownAuditsByGuid.entries()) {
+    if (Number(cachedAudit?.store_id) === storeId) {
+      auditsMap.set(guid, cachedAudit)
+    }
+  }
+
+  const rawOrderGuids = Array.from(
+    new Set(rawOrders.map((o: any) => String(o?.guid || '').trim()).filter(Boolean))
+  )
+
+  // Consultar exactamente las auditorías de los GUIDs presentes en rawOrders (evita el techo de 1,000 filas de PostgREST)
+  for (let i = 0; i < rawOrderGuids.length; i += 200) {
+    const chunkGuids = rawOrderGuids.slice(i, i + 200)
+    const { data: chunkAudits, error: chunkErr } = await supabaseAdmin
+      .from('delivery_packing_audits')
+      .select('*')
+      .eq('store_id', storeId)
+      .in('toast_order_guid', chunkGuids)
+
+    if (!chunkErr && Array.isArray(chunkAudits)) {
+      chunkAudits.forEach(a => {
+        if (a?.toast_order_guid) {
+          auditsMap.set(a.toast_order_guid, a)
+          lastKnownAuditsByGuid.set(a.toast_order_guid, a)
+        }
+      })
+    }
+  }
 
   // 5. Filtrar órdenes relevantes (excluir comedor Dine-In tradicional)
   const offPremiseOrders: OffPremiseOrder[] = []
@@ -1425,21 +1494,22 @@ export async function fetchOffPremiseOrders(storeId: number, targetBusinessDate?
       }
     }
 
-    const dGuid = o.diningOption?.guid || ''
+    const dGuid = o.diningOption?.guid || o.checks?.[0]?.diningOption?.guid || ''
     const dName = diningOptionsMap[dGuid] || o.diningOption?.name || 'Mostrador'
     const deliveryService = o.deliveryService?.name || ''
     const source = typeof o.source === 'string' ? o.source : (o.source?.name || '')
+    const firstCheck = o.checks?.[0] || {}
+    const custObj = o.customer || firstCheck.customer || {}
+    const tabOrCustomerHint = `${firstCheck.tabName || ''} ${custObj.firstName || ''} ${custObj.name || ''}`
 
     // EL MÓDULO ES ESTRICTAMENTE DELIVERY: Descartar todo lo presencial (For Here, To Go, Kiosk, Phone)
-    if (!isDeliveryPlatform(dName, deliveryService, source)) {
+    if (!isDeliveryPlatform(dName, deliveryService, source, tabOrCustomerHint)) {
       continue
     }
 
-    const platform = classifyPlatform(dName, deliveryService, source)
+    const platform = classifyPlatform(dName, deliveryService, source, tabOrCustomerHint)
 
     // Extraer datos reales del cliente y la Clave Oficial de la Plataforma desde checks[0].tabName y customer
-    const firstCheck = o.checks?.[0] || {}
-    const custObj = o.customer || firstCheck.customer || {}
     const displayNumStr = String(o.displayNumber || o.orderNumber || 'S/N')
 
     const identity = extractPlatformOrderIdentity({
@@ -1659,16 +1729,6 @@ export async function saveAuditProgress(params: {
     evidencePolicy
   } = params
 
-  if (sessionToken) {
-    const sessionCheck = await touchActiveStorePinSession(storeId, sessionToken)
-    if (!sessionCheck.valid) {
-      if (sessionCheck.replacedBy) {
-        throw new Error(`SESSION_REPLACED:${sessionCheck.replacedBy}`)
-      }
-      throw new Error('SESSION_EXPIRED')
-    }
-  }
-
   if (!Number.isInteger(expectedBagCount) || expectedBagCount < 1 || expectedBagCount > 20) {
     throw new Error('La cantidad esperada de bolsas es inválida.')
   }
@@ -1682,6 +1742,20 @@ export async function saveAuditProgress(params: {
   const verifiedPacker = await verifyRonosPin(storeId, packerPin)
   if (!verifiedPacker.valid || !verifiedPacker.employeeUserId || !verifiedPacker.fullName) {
     throw new Error(verifiedPacker.error || 'No fue posible validar al colaborador en RONOS.')
+  }
+
+  // NUNCA rechazar ni descartar el guardado del empaque por SESSION_EXPIRED cuando el colaborador tiene un PIN válido de RONOS:
+  // Si el token sigue activo lo renovamos; si había expirado en segundo plano, renovamos automáticamente la sesión.
+  if (sessionToken) {
+    const sessionCheck = await touchActiveStorePinSession(storeId, sessionToken)
+    if (!sessionCheck.valid && !sessionCheck.replacedBy) {
+      await registerExclusiveStorePinSession({
+        storeId,
+        employeeUserId: verifiedPacker.employeeUserId,
+        employeeName: verifiedPacker.fullName,
+        jobTitle: verifiedPacker.jobTitle || 'Colaborador'
+      }).catch(() => {})
+    }
   }
 
   const status: AuditStatus = 'PACKED_AND_SEALED'
@@ -1732,6 +1806,9 @@ export async function saveAuditProgress(params: {
       .single()
 
     if (error) throw new Error(`Error actualizando auditoría: ${error.message}`)
+    if (updated?.toast_order_guid) {
+      lastKnownAuditsByGuid.set(updated.toast_order_guid, updated)
+    }
     return updated
   } else {
     const { data: inserted, error } = await supabaseAdmin
@@ -1741,6 +1818,9 @@ export async function saveAuditProgress(params: {
       .single()
 
     if (error) throw new Error(`Error registrando auditoría: ${error.message}`)
+    if (inserted?.toast_order_guid) {
+      lastKnownAuditsByGuid.set(inserted.toast_order_guid, inserted)
+    }
     return inserted
   }
 }
@@ -1773,19 +1853,22 @@ export async function confirmHandoffToDriver(params: {
     livePickupConfirmed
   } = params
 
-  if (sessionToken) {
-    const sessionCheck = await touchActiveStorePinSession(storeId, sessionToken)
-    if (!sessionCheck.valid) {
-      if (sessionCheck.replacedBy) {
-        throw new Error(`SESSION_REPLACED:${sessionCheck.replacedBy}`)
-      }
-      throw new Error('SESSION_EXPIRED')
-    }
-  }
-
   const verifiedEmployee = await verifyRonosPin(storeId, handedPin)
   if (!verifiedEmployee.valid || !verifiedEmployee.employeeUserId || !verifiedEmployee.fullName) {
     throw new Error(verifiedEmployee.error || 'No fue posible validar al colaborador en RONOS.')
+  }
+
+  // NUNCA descartar ni abortar una entrega al chofer por SESSION_EXPIRED cuando el colaborador tiene un PIN válido de RONOS
+  if (sessionToken) {
+    const sessionCheck = await touchActiveStorePinSession(storeId, sessionToken)
+    if (!sessionCheck.valid && !sessionCheck.replacedBy) {
+      await registerExclusiveStorePinSession({
+        storeId,
+        employeeUserId: verifiedEmployee.employeeUserId,
+        employeeName: verifiedEmployee.fullName,
+        jobTitle: verifiedEmployee.jobTitle || 'Colaborador'
+      }).catch(() => {})
+    }
   }
   if (!driverConfirmed || !livePickupConfirmed || !courierOrderReference.trim()) {
     throw new Error('Debe observarse la confirmación en vivo y registrarse la referencia de la orden.')
@@ -1811,18 +1894,24 @@ export async function confirmHandoffToDriver(params: {
     throw new Error('La cantidad de bolsas no está confirmada.')
   }
 
+  const handedIso = new Date().toISOString()
   const payload = {
     handed_by_ronos_user_id: verifiedEmployee.employeeUserId,
     handed_by_ronos_name: verifiedEmployee.fullName,
     handed_pin: null,
-    handed_at: new Date().toISOString(),
+    handed_at: handedIso,
     driver_name: driverName || 'Repartidor Verificado',
     driver_confirmed: driverConfirmed,
     courier_verification_method: verificationMethod,
     courier_order_reference: courierOrderReference.trim().slice(0, 32),
     live_pickup_confirmed: livePickupConfirmed,
+    quick_checks: {
+      ...(current.quick_checks || {}),
+      everDeliveredAt: handedIso,
+      everDeliveredBy: verifiedEmployee.fullName
+    },
     status: 'DELIVERED' as AuditStatus,
-    updated_at: new Date().toISOString()
+    updated_at: handedIso
   }
 
   const { data: updated, error } = await supabaseAdmin
@@ -1834,6 +1923,9 @@ export async function confirmHandoffToDriver(params: {
     .single()
 
   if (error) throw new Error(`Error confirmando entrega de orden: ${error.message}`)
+  if (updated?.toast_order_guid) {
+    lastKnownAuditsByGuid.set(updated.toast_order_guid, updated)
+  }
   return updated
 }
 
@@ -1856,27 +1948,28 @@ export async function reopenDeliveredAudit(params: {
   const { storeId, pin, sessionToken, reopenedByEmployee } = params
   const toastOrderGuid = params.toastOrderGuid || params.orderGuid || ''
 
-  if (sessionToken) {
-    const sessionCheck = await touchActiveStorePinSession(storeId, sessionToken)
-    if (!sessionCheck.valid) {
-      if (sessionCheck.replacedBy) {
-        throw new Error(`SESSION_REPLACED:${sessionCheck.replacedBy}`)
-      }
-      throw new Error('SESSION_EXPIRED')
-    }
-  }
-
   if (!reopenedByEmployee) {
     if (!pin) throw new Error('Se requiere el PIN del colaborador para reabrir la orden.')
     const verifiedEmployee = await verifyRonosPin(storeId, pin)
     if (!verifiedEmployee.valid || !verifiedEmployee.employeeUserId || !verifiedEmployee.fullName) {
       throw new Error(verifiedEmployee.error || 'No fue posible validar al colaborador en RONOS.')
     }
+    if (sessionToken) {
+      const sessionCheck = await touchActiveStorePinSession(storeId, sessionToken)
+      if (!sessionCheck.valid && !sessionCheck.replacedBy) {
+        await registerExclusiveStorePinSession({
+          storeId,
+          employeeUserId: verifiedEmployee.employeeUserId,
+          employeeName: verifiedEmployee.fullName,
+          jobTitle: verifiedEmployee.jobTitle || 'Colaborador'
+        }).catch(() => {})
+      }
+    }
   }
 
   const { data: current, error: currentError } = await supabaseAdmin
     .from('delivery_packing_audits')
-    .select('id, store_id, status')
+    .select('id, store_id, status, handed_at, quick_checks')
     .eq('toast_order_guid', toastOrderGuid)
     .maybeSingle()
 
@@ -1887,6 +1980,7 @@ export async function reopenDeliveredAudit(params: {
     throw new Error('La orden no pertenece a la sucursal activa.')
   }
 
+  const nowIso = new Date().toISOString()
   const { data: updated, error } = await supabaseAdmin
     .from('delivery_packing_audits')
     .update({
@@ -1897,13 +1991,21 @@ export async function reopenDeliveredAudit(params: {
       handed_at: null,
       driver_confirmed: false,
       live_pickup_confirmed: false,
-      updated_at: new Date().toISOString()
+      quick_checks: {
+        ...(current.quick_checks || {}),
+        everDeliveredAt: current.handed_at || current.quick_checks?.everDeliveredAt || nowIso,
+        reopenedAt: nowIso
+      },
+      updated_at: nowIso
     })
     .eq('id', current.id)
     .select('*')
     .single()
 
   if (error) throw new Error(`Error reabriendo orden: ${error.message}`)
+  if (updated?.toast_order_guid) {
+    lastKnownAuditsByGuid.set(updated.toast_order_guid, updated)
+  }
   return updated
 }
 
@@ -1926,27 +2028,28 @@ export async function undoPackingAudit(params: {
   const { storeId, pin, sessionToken, undoneByEmployee } = params
   const toastOrderGuid = params.toastOrderGuid || params.orderGuid || ''
 
-  if (sessionToken) {
-    const sessionCheck = await touchActiveStorePinSession(storeId, sessionToken)
-    if (!sessionCheck.valid) {
-      if (sessionCheck.replacedBy) {
-        throw new Error(`SESSION_REPLACED:${sessionCheck.replacedBy}`)
-      }
-      throw new Error('SESSION_EXPIRED')
-    }
-  }
-
   if (!undoneByEmployee) {
     if (!pin) throw new Error('Se requiere el PIN del colaborador para deshacer el empaque.')
     const verifiedEmployee = await verifyRonosPin(storeId, pin)
     if (!verifiedEmployee.valid || !verifiedEmployee.employeeUserId || !verifiedEmployee.fullName) {
       throw new Error(verifiedEmployee.error || 'No fue posible validar al colaborador en RONOS.')
     }
+    if (sessionToken) {
+      const sessionCheck = await touchActiveStorePinSession(storeId, sessionToken)
+      if (!sessionCheck.valid && !sessionCheck.replacedBy) {
+        await registerExclusiveStorePinSession({
+          storeId,
+          employeeUserId: verifiedEmployee.employeeUserId,
+          employeeName: verifiedEmployee.fullName,
+          jobTitle: verifiedEmployee.jobTitle || 'Colaborador'
+        }).catch(() => {})
+      }
+    }
   }
 
   const { data: current, error: currentError } = await supabaseAdmin
     .from('delivery_packing_audits')
-    .select('id, store_id, status')
+    .select('id, store_id, status, handed_at, quick_checks')
     .eq('toast_order_guid', toastOrderGuid)
     .maybeSingle()
 
@@ -1956,8 +2059,8 @@ export async function undoPackingAudit(params: {
   if (Number(current.store_id) !== storeId) {
     throw new Error('La orden no pertenece a la sucursal activa.')
   }
-  if (current.status === 'DELIVERED') {
-    throw new Error('La orden ya figura como entregada; primero reábrela a LISTA.')
+  if (current.status === 'DELIVERED' || current.handed_at || current.quick_checks?.everDeliveredAt) {
+    throw new Error('Una orden que ya fue entregada no puede regresar a estatus EMPACANDO.')
   }
 
   const { error } = await supabaseAdmin
@@ -1966,6 +2069,7 @@ export async function undoPackingAudit(params: {
     .eq('id', current.id)
 
   if (error) throw new Error(`Error al regresar la orden a EMPACANDO: ${error.message}`)
+  lastKnownAuditsByGuid.delete(toastOrderGuid)
   return true
 }
 

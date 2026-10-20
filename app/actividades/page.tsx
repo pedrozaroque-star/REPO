@@ -2,26 +2,26 @@
 
 /**
  * @module ActividadesPage
- * @description Módulo unificado "Actividades" que fusiona ROLES + PROCEDIMIENTOS en 3 pestañas simples.
+ * @description Módulo unificado "Actividades" que fusiona ROLES + PROCEDIMIENTOS + CHECKLIST + REPORTES en 4 pestañas.
  * @businessRules
  * - Pestaña 1 (Catálogo): Librería maestra de actividades (operating_procedures)
- * - Pestaña 2 (Configurar Posiciones): Mapea actividades a puestos/estaciones (position_activities) — se hace UNA VEZ
- * - Pestaña 3 (Asignación Diaria): Asigna personas a posiciones cada día (station_assignments) — las actividades se heredan automáticamente
+ * - Pestaña 2 (Configurar Posiciones): Mapea actividades a puestos/estaciones (position_activities)
+ * - Pestaña 3 (Asignación Diaria): Asigna personas a posiciones cada día (station_assignments) + Tablero Operativo Fullscreen
+ * - Pestaña 4 (Reportes): Cumplimiento diario/semanal por turno, ranking de sucursales y patrones de actividades omitidas
  * @dataFlow
- * - Catálogo → ProceduresTimeline (componente existente, reutilizado)
+ * - Catálogo → ProceduresTimeline + ChecklistMode
  * - Configurar → position_activities + operating_procedures
  * - Asignación → station_assignments + shifts + toast_employees + position_activities
- * @notes
- * - El manager Jesus de Slauson ya tiene datos en position_activities — se respetan 100%
- * - Este módulo NO modifica los módulos existentes (ROLES, PROCEDIMIENTOS) — coexisten
+ * - Reportes → /api/roles/checklist + operating_procedures + stores
  */
 
 import React, { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { ClipboardList, Settings, CalendarDays, BarChart3, Info, X } from 'lucide-react'
+import { ClipboardList, ClipboardCheck, Settings, CalendarDays, BarChart3, Info, X } from 'lucide-react'
 import { useLanguage } from '@/lib/i18n'
 import { useAuth } from '@/components/ProtectedRoute'
 import dynamic from 'next/dynamic'
+import ChecklistMode from '@/components/actividades/ChecklistMode'
 
 // Lazy load tabs for performance
 const CatalogoTab = dynamic(() => import('@/components/actividades/CatalogoTab'), {
@@ -52,6 +52,7 @@ export default function ActividadesPage() {
   const { user } = useAuth()
   const [activeTab, setActiveTab] = useState<TabKey>('asignacion')
   const [showHelpModal, setShowHelpModal] = useState(false)
+  const [showChecklistModal, setShowChecklistModal] = useState(false)
 
   // Permisos: Admin y Supervisor pueden editar catálogo y configurar posiciones, Manager solo puede ver
   // Permissions: Admin & Supervisor can edit catalog and configure positions, Manager is read-only
@@ -108,6 +109,13 @@ export default function ActividadesPage() {
               </p>
             </div>
             <div className="flex items-center gap-2">
+              <button
+                onClick={() => setShowChecklistModal(true)}
+                className="inline-flex items-center gap-1.5 text-xs sm:text-sm font-bold px-3.5 py-2 rounded-xl bg-gradient-to-r from-orange-600 to-amber-500 hover:from-orange-700 hover:to-amber-600 text-white shadow-md shadow-orange-500/20 transition-all active:scale-95"
+              >
+                <ClipboardCheck size={16} />
+                <span>{t('actividades.checklist.btn')}</span>
+              </button>
               <span className="hidden sm:inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-lg bg-gradient-to-r from-orange-100 to-red-100 dark:from-orange-900/30 dark:to-red-900/30 text-orange-700 dark:text-orange-300 border border-orange-200/50 dark:border-orange-800/30">
                 {t('actividades.badge_operations')}
               </span>
@@ -287,6 +295,9 @@ export default function ActividadesPage() {
           </div>
         )}
       </AnimatePresence>
+      {showChecklistModal && (
+        <ChecklistMode onClose={() => setShowChecklistModal(false)} />
+      )}
     </div>
   )
 }

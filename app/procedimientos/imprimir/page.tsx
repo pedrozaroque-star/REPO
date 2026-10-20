@@ -159,7 +159,13 @@ function PrintProceduresContent() {
       {/* ══════ Actions Bar (Hidden on Print) ══════ */}
       <div className="print:hidden flex justify-between items-center mb-6 pb-4 border-b border-slate-200">
         <button
-          onClick={() => window.close()}
+          onClick={() => {
+            if (window.opener || window.history.length <= 1) {
+              window.close();
+            } else {
+              window.history.back();
+            }
+          }}
           className="flex items-center gap-2 px-4 py-2 border border-slate-300 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-50 transition-colors shadow-sm"
         >
           <ArrowLeft size={14} /> Volver / Cerrar

@@ -12,7 +12,8 @@
 
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
-import { getServerUser } from '@/lib/auth-server'
+import { authorizeStoreScope, getServerUser } from '@/lib/auth-server'
+import { filterApprovedPositionActivities } from '@/lib/actividades-resolution'
 
 function computeSortOrderFromTime(startTime?: string | null): number {
     if (!startTime) return 9999
@@ -56,7 +57,7 @@ export async function GET(req: Request) {
 
         if (error) throw error
 
-        return NextResponse.json(data || [])
+        return NextResponse.json(filterApprovedPositionActivities(data || []))
     } catch (error: any) {
         console.error('FETCH POSITION ACTIVITIES ERROR:', error)
         return NextResponse.json({ error: error.message }, { status: 500 })
@@ -66,14 +67,14 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
     try {
         const user = await getServerUser(req)
-        if (!user) {
-            return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
-        }
-
-        if (user.role !== 'admin' && user.role !== 'supervisor') {
+        const authScope = await authorizeStoreScope(user, null, supabaseAdmin, {
+            action: 'manage_catalog',
+            allowedRoles: ['admin', 'supervisor'],
+        })
+        if (!authScope.authorized) {
             return NextResponse.json(
-                { error: 'Acceso denegado: Se requiere rol admin o supervisor' },
-                { status: 403 }
+                { error: authScope.error || 'Acceso denegado: Se requiere rol admin o supervisor' },
+                { status: authScope.status }
             )
         }
 

@@ -17,8 +17,8 @@
  *   en todas las familias (Asada=Rojo, Pastor=Naranja, Pollo=Ámbar, Cabeza=Rose, Lengua=Morado, Carnitas=Cobre,
  *   Buche=Teal, Chorizo=Guinda, Vegetariano/Queso=Esmeralda, Bebidas Large 32oz=Azul Rey, Medium 22oz=Celeste).
  * - **Modificadores Conversacionales agrupados por color**:
- *   🔴 Sin / Quitar (Exclusiones en rojo coral) · 🟢 Extras con Cargo (+$ en verde esmeralda) ·
- *   🔵 Preparación, Tortilla y Salsa (en slate/azul) · 🟣 Mitad y Mitad · 📝 Notas Frecuentes.
+ *   Sin / Quitar (Exclusiones en rojo coral) · Extras con Cargo (+$ en verde esmeralda) ·
+ *   Preparación, Tortilla y Salsa (en slate/azul) · Mitad y Mitad · Notas Frecuentes.
  * - **Cobro Rápido en 1 Toque (Fast Cash & Smart Denominations)**: Botones directos de Efectivo Exacto, 3 denominaciones
  *   inteligentes superiores al total (calculando y mostrando el CAMBIO A ENTREGAR al instante), Tarjeta 1-Toque y
  *   EBT 0% Tax 1-Toque, además del modal completo de Pago Dividido.
@@ -43,10 +43,10 @@ import { useLanguage } from '@/lib/i18n'
 import {
     REGISTER_FAMILIES, MATRIX_COLUMNS, PROTEIN_ORDER, DISCOUNT_PRESETS,
     requiredRulesFor, requiredStatusForLine, cartHasUnmetRequired, groupLinesByPlate, plateWord,
-    lineUnitPrice, lineTotal, nextPlateNumber, normalizeText, itemVisualStyle, classifyModifierBucket,
-    smartCashDenominations,
+    lineUnitPrice, lineTotal, nextPlateNumber, normalizeText, itemVisualStyle, formatRegisterCardLabels, classifyModifierBucket,
+    smartCashDenominations, classifyBeverageItem, groupBeveragesByFlavor, findCounterpartBeverageSize,
     type RegisterCartLine, type RegisterCatalogItem, type RegisterModifierOption, type RegisterFamilyKey,
-    type DiningMode, type DiscountType, type RegisterLineModifier,
+    type DiningMode, type DiscountType, type RegisterLineModifier, type BeverageViewFilter, type BeverageFlavorPair,
 } from '@/lib/gavilan-pos/register-layout'
 
 const CATALOG_CACHE_KEY = 'gavilan_pos_register_catalog_v1'
@@ -62,10 +62,13 @@ const QUICK_COMPLEMENT_NAMES = [
     'large pina',
     'large coke',
     'chips',
-    'side order guacamole',
-    'side order rice',
-    'side order beans',
     'side order nacho cheese',
+    'side order guacamole',
+    'guacamole',
+    'side order rice',
+    'rice',
+    'side order beans',
+    'beans',
 ]
 
 export interface CashierRegisterTotals {
@@ -163,6 +166,7 @@ export default function CashierRegister(props: CashierRegisterProps) {
 
     // ------------------------------------------------------------------ ui state
     const [activeTab, setActiveTab] = useState<'quick' | RegisterFamilyKey>('tacos')
+    const [beverageViewFilter, setBeverageViewFilter] = useState<BeverageViewFilter>('PAIRED')
     const [pendingQty, setPendingQty] = useState<number | null>(null)
     const [customQtyOpen, setCustomQtyOpen] = useState(false)
     const [customQtyDraft, setCustomQtyDraft] = useState('')
@@ -248,6 +252,8 @@ export default function CashierRegister(props: CashierRegisterProps) {
     const totalItemUnits = useMemo(() => cart.reduce((s, l) => s + l.qty, 0), [cart])
     const unmetRequired = cartHasUnmetRequired(cart)
     const cashDenominations = useMemo(() => smartCashDenominations(totals.total), [totals.total])
+    const bebidasItems = useMemo(() => itemsByFamily.get('bebidas') || [], [itemsByFamily])
+    const groupedBeverages = useMemo(() => groupBeveragesByFlavor(bebidasItems), [bebidasItems])
 
     // ------------------------------------------------------------------ cart operations
     const defaultRequiredMods = useCallback((item: RegisterCatalogItem): RegisterLineModifier[] => {
@@ -313,6 +319,21 @@ export default function CashierRegister(props: CashierRegisterProps) {
         if (!selectedLine) return
         changeQty(selectedLine.id, 1)
     }
+
+    /** 1-Tap Size Swap (Medium 22oz ⇄ Large 32oz) preserving qty, plate, and ice modifiers */
+    const swapBeverageLineSize = useCallback((lineId: string) => {
+        const line = cart.find(l => l.id === lineId)
+        if (!line) return
+        const counterpart = findCounterpartBeverageSize(line.name, bebidasItems)
+        if (!counterpart || !counterpart.inStock) return
+        updateLine(lineId, l => ({
+            ...l,
+            guid: counterpart.guid,
+            name: counterpart.name,
+            unitPrice: counterpart.price,
+            family: 'bebidas',
+        }))
+    }, [cart, bebidasItems, updateLine])
 
     const toggleChip = (opt: RegisterModifierOption) => {
         if (!selectedLine) return
@@ -426,6 +447,7 @@ export default function CashierRegister(props: CashierRegisterProps) {
     // ------------------------------------------------------------------ rendering helpers
     const renderItemButton = (item: RegisterCatalogItem, compactLabel?: string, compactHeight?: boolean) => {
         const vStyle = itemVisualStyle(item)
+        const cardLabels = formatRegisterCardLabels(item, isEs)
         return (
             <button
                 key={item.guid}
@@ -433,28 +455,29 @@ export default function CashierRegister(props: CashierRegisterProps) {
                 disabled={!item.inStock}
                 onClick={() => addItem(item)}
                 aria-label={`${item.name} ${money(item.price)}`}
-                className={`relative ${compactHeight ? 'min-h-[72px] px-2.5 py-2' : 'min-h-[92px] px-3 py-2.5'} rounded-xl border-2 text-left flex flex-col justify-between transition active:scale-[0.97] active:brightness-95 select-none shadow-2xs ${
-                    item.inStock ? `${vStyle.cardCls} hover:shadow-md cursor-pointer` : 'bg-slate-100 border-slate-200 opacity-50 cursor-not-allowed'
+                className={`relative ${compactHeight ? 'min-h-[68px] px-3 py-2' : 'min-h-[82px] px-3.5 py-2.5'} rounded-xl border text-left flex flex-col justify-between transition active:scale-[0.98] active:brightness-96 select-none shadow-2xs ${
+                    item.inStock ? `${vStyle.cardCls} hover:shadow-sm cursor-pointer` : 'bg-slate-100 border-slate-200 opacity-50 cursor-not-allowed'
                 }`}
             >
-                <div className="flex items-start justify-between gap-1.5">
-                    <span className={`px-1.5 py-0.5 rounded text-[10px] font-black uppercase tracking-wider leading-none ${vStyle.badgeCls}`}>
-                        {vStyle.tagLabel}
+                <div className="flex items-center justify-between gap-2">
+                    <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-slate-500 truncate">
+                        <span className={`h-2 w-2 rounded-full shrink-0 ${vStyle.dotCls || 'bg-slate-400'}`} aria-hidden />
+                        <span className="truncate">{cardLabels.subtitle}</span>
                     </span>
-                    {pendingQty && item.inStock && (
-                        <span className="px-1.5 py-0.5 rounded bg-blue-600 text-white text-[11px] font-black leading-none">
-                            ×{pendingQty}
+                    <div className="flex items-center gap-1 shrink-0">
+                        {pendingQty && item.inStock && (
+                            <span className="px-1.5 py-0.5 rounded bg-blue-600 text-white text-[10px] font-semibold leading-none">
+                                ×{pendingQty}
+                            </span>
+                        )}
+                        <span className={`text-[13px] font-medium tabular-nums ${vStyle.priceCls}`}>
+                            {money(item.price)}
                         </span>
-                    )}
+                        {!item.inStock && <span className="px-1.5 py-0.5 rounded bg-rose-600 text-white text-[10px] font-semibold">86</span>}
+                    </div>
                 </div>
-                <span className={`${compactHeight ? 'text-[14px]' : 'text-[16px]'} font-black leading-tight text-slate-900 line-clamp-2 mt-1`}>
-                    {compactLabel || item.name}
-                </span>
-                <span className="flex items-center justify-between mt-1.5">
-                    <span className={`px-2 py-0.5 rounded-md text-[13px] font-black tabular-nums ${vStyle.priceCls}`}>
-                        {money(item.price)}
-                    </span>
-                    {!item.inStock && <span className="px-1.5 py-0.5 rounded bg-rose-600 text-white text-[11px] font-black">86</span>}
+                <span className={`${compactHeight ? 'text-[14px]' : 'text-[15.5px]'} font-semibold tracking-tight leading-snug text-slate-900 line-clamp-2 mt-1`}>
+                    {compactLabel || cardLabels.primaryTitle}
                 </span>
             </button>
         )
@@ -469,7 +492,7 @@ export default function CashierRegister(props: CashierRegisterProps) {
                     <tr>
                         <th className="w-24" />
                         {MATRIX_COLUMNS.map(col => (
-                            <th key={col} className="text-[12px] font-black uppercase tracking-wider text-slate-700 bg-slate-100 rounded-lg py-1.5 px-2">
+                            <th key={col} className="text-[11.5px] font-semibold uppercase tracking-wide text-slate-600 bg-slate-100 rounded-lg py-1.5 px-2">
                                 {tr(`families.${col}`)}
                             </th>
                         ))}
@@ -478,12 +501,12 @@ export default function CashierRegister(props: CashierRegisterProps) {
                 <tbody>
                     {PROTEIN_ORDER.map(p => (
                         <tr key={p}>
-                            <th className="text-left text-[13px] font-black uppercase tracking-wide text-slate-800 pr-1">{proteinLabel(p)}</th>
+                            <th className="text-left text-[12.5px] font-semibold uppercase tracking-wide text-slate-700 pr-1">{proteinLabel(p)}</th>
                             {MATRIX_COLUMNS.map(col => {
                                 const it = (itemsByFamily.get(col) || []).find(i => i.protein === p && !i.secondary)
                                 return (
                                     <td key={col} className="align-top">
-                                        {it ? renderItemButton(it, `${tr(`families_singular.${col}`)} ${proteinLabel(p)}`, true) : <div className="min-h-[72px] rounded-xl border-2 border-dashed border-slate-200" />}
+                                        {it ? renderItemButton(it, `${tr(`families_singular.${col}`)} ${proteinLabel(p)}`, true) : <div className="min-h-[68px] rounded-xl border border-dashed border-slate-200" />}
                                     </td>
                                 )
                             })}
@@ -494,11 +517,171 @@ export default function CashierRegister(props: CashierRegisterProps) {
         </div>
     )
 
+    const renderPairedFlavorCard = (pair: BeverageFlavorPair) => {
+        if (pair.singleItem && !pair.mediumItem && !pair.largeItem) {
+            return renderItemButton(pair.singleItem, isEs ? pair.displayEs : pair.displayEn)
+        }
+        return (
+            <div
+                key={pair.flavorKey}
+                className={`rounded-xl border border-l-4 p-2.5 flex flex-col justify-between gap-2 shadow-2xs ${pair.cardTintCls} ${pair.accentBorderCls}`}
+            >
+                <span className="text-[15px] font-semibold text-slate-900 leading-tight truncate">
+                    {isEs ? pair.displayEs : pair.displayEn}
+                </span>
+
+                <div className="grid grid-cols-2 gap-1.5">
+                    {pair.mediumItem ? (
+                        <button
+                            type="button"
+                            disabled={!pair.mediumItem.inStock}
+                            onClick={() => addItem(pair.mediumItem!)}
+                            title={`${pair.mediumItem.name} (${money(pair.mediumItem.price)})`}
+                            className="min-h-[42px] rounded-lg border border-sky-300 bg-white/95 hover:bg-sky-50 active:scale-[0.98] px-2 flex items-center justify-center transition cursor-pointer disabled:opacity-40"
+                        >
+                            <span className="text-[16px] font-semibold text-sky-900 leading-none">M</span>
+                        </button>
+                    ) : (
+                        <div className="min-h-[42px] rounded-lg border border-dashed border-slate-200" />
+                    )}
+
+                    {pair.largeItem ? (
+                        <button
+                            type="button"
+                            disabled={!pair.largeItem.inStock}
+                            onClick={() => addItem(pair.largeItem!)}
+                            title={`${pair.largeItem.name} (${money(pair.largeItem.price)})`}
+                            className="min-h-[42px] rounded-lg border border-blue-600 bg-blue-600 hover:bg-blue-700 active:scale-[0.98] px-2 flex items-center justify-center text-white shadow-2xs transition cursor-pointer disabled:opacity-40"
+                        >
+                            <span className="text-[16px] font-semibold text-white leading-none">L</span>
+                        </button>
+                    ) : (
+                        <div className="min-h-[42px] rounded-lg border border-dashed border-slate-200" />
+                    )}
+                </div>
+            </div>
+        )
+    }
+
+    const renderBeveragesStation = () => {
+        const { aguasFrescas, sodasFountain, hotAndBottled } = groupedBeverages
+        const filterOpts: { key: BeverageViewFilter; label: string; activeCls: string }[] = [
+            { key: 'PAIRED', label: tr('bev_filter_paired'), activeCls: 'bg-slate-900 border-slate-900 text-white font-semibold' },
+            { key: 'LARGE_ONLY', label: tr('bev_filter_large'), activeCls: 'bg-blue-600 border-blue-700 text-white font-semibold' },
+            { key: 'MEDIUM_ONLY', label: tr('bev_filter_medium'), activeCls: 'bg-sky-600 border-sky-700 text-white font-semibold' },
+            { key: 'HOT_ONLY', label: tr('bev_filter_hot'), activeCls: 'bg-amber-800 border-amber-900 text-white font-semibold' },
+        ]
+
+        const pickSingleSize = (pairs: BeverageFlavorPair[], size: 'LARGE' | 'MEDIUM') =>
+            pairs
+                .map(p => ({ pair: p, item: size === 'LARGE' ? p.largeItem : p.mediumItem }))
+                .filter((x): x is { pair: BeverageFlavorPair; item: RegisterCatalogItem } => Boolean(x.item))
+
+        return (
+            <div className="space-y-3.5">
+                {/* Drive-Thru Instant Size & Subcategory Filter Bar */}
+                <div className="flex flex-wrap items-center gap-1.5 bg-white p-1.5 rounded-xl border border-slate-200 shadow-2xs">
+                    {filterOpts.map(f => {
+                        const active = beverageViewFilter === f.key
+                        return (
+                            <button
+                                key={f.key}
+                                type="button"
+                                aria-pressed={active}
+                                onClick={() => setBeverageViewFilter(f.key)}
+                                className={`flex-1 min-w-[140px] min-h-[40px] px-3 rounded-lg border text-[12.5px] transition cursor-pointer ${
+                                    active ? `${f.activeCls} shadow-2xs` : 'bg-slate-50 border-slate-200 text-slate-600 font-medium hover:bg-slate-100'
+                                }`}
+                            >
+                                {f.label}
+                            </button>
+                        )
+                    })}
+                </div>
+
+                {/* SECTION 1: AGUAS FRESCAS CASERAS (Horchata -> Jamaica -> Piña -> Tamarindo) */}
+                {beverageViewFilter !== 'HOT_ONLY' && aguasFrescas.length > 0 && (
+                    <div className="space-y-2">
+                        <div className="flex items-center justify-between px-1">
+                            <span className="text-[12px] font-semibold uppercase tracking-wide text-slate-600 flex items-center gap-1.5">
+                                <span className="h-2 w-2 rounded-full bg-rose-500" />
+                                {tr('bev_sec_aguas')}
+                            </span>
+                            <span className="text-[11.5px] font-normal text-slate-500 tabular-nums">
+                                {beverageViewFilter === 'PAIRED' ? 'M $3.59  ·  L $4.09' : ''}
+                            </span>
+                        </div>
+                        {beverageViewFilter === 'PAIRED' ? (
+                            <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
+                                {aguasFrescas.map(pair => renderPairedFlavorCard(pair))}
+                            </div>
+                        ) : (
+                            <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
+                                {pickSingleSize(aguasFrescas, beverageViewFilter === 'LARGE_ONLY' ? 'LARGE' : 'MEDIUM').map(({ pair, item }) =>
+                                    renderItemButton(
+                                        item,
+                                        isEs ? pair.displayEs : pair.displayEn
+                                    )
+                                )}
+                            </div>
+                        )}
+                    </div>
+                )}
+
+                {/* SECTION 2: SODAS Y DISPENSADOR COCA-COLA (Coke -> Sprite -> Fanta Naranja -> Fanta Fresa -> Limonada -> Iced Tea -> Diet -> Zero) */}
+                {beverageViewFilter !== 'HOT_ONLY' && sodasFountain.length > 0 && (
+                    <div className="space-y-2 pt-1.5 border-t border-slate-200/80">
+                        <div className="flex items-center justify-between px-1">
+                            <span className="text-[12px] font-semibold uppercase tracking-wide text-slate-600 flex items-center gap-1.5">
+                                <span className="h-2 w-2 rounded-full bg-red-500" />
+                                {tr('bev_sec_sodas')}
+                            </span>
+                        </div>
+                        {beverageViewFilter === 'PAIRED' ? (
+                            <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
+                                {sodasFountain.map(pair => renderPairedFlavorCard(pair))}
+                            </div>
+                        ) : (
+                            <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
+                                {pickSingleSize(sodasFountain, beverageViewFilter === 'LARGE_ONLY' ? 'LARGE' : 'MEDIUM').map(({ pair, item }) =>
+                                    renderItemButton(
+                                        item,
+                                        isEs ? pair.displayEs : pair.displayEn
+                                    )
+                                )}
+                            </div>
+                        )}
+                    </div>
+                )}
+
+                {/* SECTION 3: CALIENTES, AGUA EMBOTELLADA Y OLLAS */}
+                {(beverageViewFilter === 'PAIRED' || beverageViewFilter === 'HOT_ONLY') && hotAndBottled.length > 0 && (
+                    <div className="space-y-2 pt-1.5 border-t border-slate-200/80">
+                        <div className="flex items-center justify-between px-1">
+                            <span className="text-[12px] font-semibold uppercase tracking-wide text-slate-600 flex items-center gap-1.5">
+                                <span className="h-2 w-2 rounded-full bg-amber-600" />
+                                {tr('bev_sec_hot')}
+                            </span>
+                        </div>
+                        <div className="grid grid-cols-3 lg:grid-cols-6 gap-2">
+                            {hotAndBottled.map(pair =>
+                                pair.singleItem ? renderItemButton(pair.singleItem, isEs ? pair.displayEs : pair.displayEn, true) : null
+                            )}
+                        </div>
+                    </div>
+                )}
+            </div>
+        )
+    }
+
     const renderFamilyGrid = (family: RegisterFamilyKey) => {
+        if (family === 'bebidas') {
+            return renderBeveragesStation()
+        }
         const list = itemsByFamily.get(family) || []
         const primary = list.filter(i => !i.secondary)
         const secondary = list.filter(i => i.secondary)
-        const showComplementStrip = family !== 'bebidas' && family !== 'sides' && family !== 'postres' && quickComplementItems.length > 0
+        const showComplementStrip = family !== 'sides' && family !== 'postres' && quickComplementItems.length > 0
 
         return (
             <div className="space-y-4">
@@ -507,7 +690,7 @@ export default function CashierRegister(props: CashierRegisterProps) {
                 </div>
                 {secondary.length > 0 && (
                     <div>
-                        <button type="button" onClick={() => setShowMore(s => !s)} className="min-h-[44px] px-4 rounded-xl border-2 border-slate-300 bg-white text-[13px] font-black text-slate-700 hover:bg-slate-100">
+                        <button type="button" onClick={() => setShowMore(s => !s)} className="min-h-[40px] px-3.5 rounded-xl border border-slate-200 bg-white text-[12.5px] font-medium text-slate-600 hover:bg-slate-50">
                             {showMore ? tr('less') : tr('more', { count: secondary.length })}
                         </button>
                         {showMore && <div className="mt-2.5 grid grid-cols-3 lg:grid-cols-4 2xl:grid-cols-5 gap-2.5">{secondary.map(it => renderItemButton(it))}</div>}
@@ -517,15 +700,15 @@ export default function CashierRegister(props: CashierRegisterProps) {
 
                 {/* 1-Tap Cross-Sell Drinks & Sides Strip (eliminates empty white canvas and saves tab switches) */}
                 {showComplementStrip && (
-                    <div className="pt-3 border-t-2 border-dashed border-slate-200">
+                    <div className="pt-3 border-t border-slate-200/80">
                         <div className="flex items-center gap-1.5 mb-2">
-                            <Sparkles size={15} className="text-sky-600" />
-                            <span className="text-[12px] font-black uppercase tracking-wider text-slate-600">
+                            <Sparkles size={14} className="text-sky-600" />
+                            <span className="text-[11.5px] font-semibold uppercase tracking-wide text-slate-500">
                                 {tr('quick_sides_drinks')}
                             </span>
                         </div>
                         <div className="grid grid-cols-3 lg:grid-cols-5 gap-2">
-                            {quickComplementItems.map(it => renderItemButton(it, undefined, true))}
+                            {quickComplementItems.slice(0, 10).map(it => renderItemButton(it, undefined, true))}
                         </div>
                     </div>
                 )}
@@ -535,7 +718,7 @@ export default function CashierRegister(props: CashierRegisterProps) {
 
     const renderModifierPanel = () => {
         if (!selectedLine) {
-            return <p className="text-[14px] font-semibold text-slate-500 py-2">{tr('select_line_hint')}</p>
+            return <p className="text-[13.5px] font-normal text-slate-500 py-1.5">{tr('select_line_hint')}</p>
         }
         const fam = selectedLine.family
         const famMods = fam ? (modsByFamily.get(fam) || []) : []
@@ -549,42 +732,62 @@ export default function CashierRegister(props: CashierRegisterProps) {
         const isOn = (m: RegisterModifierOption) => selectedLine.modifiers.some(x => x.kind === m.kind && x.groupKey === m.groupKey && x.name === m.label)
 
         const bucketChipCls = (bucket: 'NO' | 'EXTRA' | 'PREP' | 'HALF' | 'NOTE', on: boolean) => {
-            const base = 'min-h-[44px] px-3 rounded-xl border-2 text-[13px] font-extrabold transition active:scale-[0.97] select-none cursor-pointer'
+            const base = `min-h-[42px] px-3 rounded-xl border text-[13px] ${on ? 'font-semibold' : 'font-medium'} transition active:scale-[0.98] select-none cursor-pointer`
             if (bucket === 'NO') {
-                return `${base} ${on ? 'bg-red-600 border-red-700 text-white shadow-xs' : 'bg-red-50/80 border-red-200 text-red-900 hover:bg-red-100'}`
+                return `${base} ${on ? 'bg-red-600 border-red-700 text-white shadow-2xs' : 'bg-red-50/70 border-red-200 text-red-900 hover:bg-red-100/70'}`
             }
             if (bucket === 'EXTRA') {
-                return `${base} ${on ? 'bg-emerald-700 border-emerald-800 text-white shadow-xs' : 'bg-emerald-50/80 border-emerald-300 text-emerald-950 hover:bg-emerald-100'}`
+                return `${base} ${on ? 'bg-emerald-700 border-emerald-800 text-white shadow-2xs' : 'bg-emerald-50/70 border-emerald-200 text-emerald-950 hover:bg-emerald-100/70'}`
             }
             if (bucket === 'HALF') {
-                return `${base} ${on ? 'bg-purple-700 border-purple-800 text-white shadow-xs' : 'bg-purple-50/70 border-purple-200 text-purple-950 hover:bg-purple-100'}`
+                return `${base} ${on ? 'bg-purple-700 border-purple-800 text-white shadow-2xs' : 'bg-purple-50/60 border-purple-200 text-purple-950 hover:bg-purple-100/60'}`
             }
             if (bucket === 'NOTE') {
-                return `${base} border-dashed ${on ? 'bg-indigo-700 border-indigo-800 text-white' : 'bg-indigo-50/60 border-indigo-200 text-indigo-950 hover:bg-indigo-100'}`
+                return `${base} border-dashed ${on ? 'bg-indigo-700 border-indigo-800 text-white' : 'bg-indigo-50/50 border-indigo-200 text-indigo-950 hover:bg-indigo-100/60'}`
             }
-            return `${base} ${on ? 'bg-slate-900 border-slate-900 text-white shadow-xs' : 'bg-slate-50 border-slate-300 text-slate-900 hover:bg-slate-100'}`
+            return `${base} ${on ? 'bg-slate-900 border-slate-900 text-white shadow-2xs' : 'bg-slate-50 border-slate-200 text-slate-800 hover:bg-slate-100'}`
         }
+
+        const beverageCounterpart = findCounterpartBeverageSize(selectedLine.name, bebidasItems)
+        const selectedBevMeta = classifyBeverageItem(selectedLine.name)
 
         return (
             <div className="space-y-2.5">
                 <div className="flex items-center justify-between gap-2 border-b border-slate-100 pb-1.5">
                     <div className="flex items-center gap-2 min-w-0">
-                        <span className="px-2 py-0.5 rounded-md bg-blue-600 text-white text-[12px] font-black tabular-nums">
+                        <span className="px-2 py-0.5 rounded-md bg-blue-600 text-white text-[12px] font-semibold tabular-nums">
                             {selectedLine.qty}×
                         </span>
-                        <p className="text-[15px] font-black text-slate-900 truncate">{selectedLine.name}</p>
+                        <p className="text-[15px] font-semibold text-slate-900 truncate">{selectedLine.name}</p>
                     </div>
-                    <span className="text-[13px] font-black text-slate-700 tabular-nums">{money(lineUnitPrice(selectedLine))} c/u</span>
+                    <div className="flex items-center gap-2 shrink-0">
+                        {beverageCounterpart && beverageCounterpart.inStock && (
+                            <button
+                                type="button"
+                                onClick={() => swapBeverageLineSize(selectedLine.id)}
+                                className={`min-h-[34px] px-3 rounded-lg border text-[12px] font-semibold transition active:scale-[0.98] cursor-pointer ${
+                                    selectedBevMeta.size === 'MEDIUM'
+                                        ? 'bg-blue-600 border-blue-700 text-white hover:bg-blue-700 shadow-2xs'
+                                        : 'bg-sky-50 border-sky-300 text-sky-900 hover:bg-sky-100'
+                                }`}
+                            >
+                                {selectedBevMeta.size === 'MEDIUM'
+                                    ? tr('bev_swap_to_large', { price: money(beverageCounterpart.price) })
+                                    : tr('bev_swap_to_medium', { price: money(beverageCounterpart.price) })}
+                            </button>
+                        )}
+                        <span className="text-[13px] font-medium text-slate-600 tabular-nums">{money(lineUnitPrice(selectedLine))} c/u</span>
+                    </div>
                 </div>
 
                 {/* Required modifier groups */}
                 {statuses.map(st => {
                     const opts = famMods.filter(m => m.kind === 'REQUIRED' && m.groupKey === st.rule.optionGroup)
                     return (
-                        <div key={st.rule.groupKey} className={`rounded-xl border-2 p-2.5 ${st.satisfied ? 'border-emerald-300 bg-emerald-50/50' : 'border-amber-400 bg-amber-50'}`}>
+                        <div key={st.rule.groupKey} className={`rounded-xl border p-2.5 ${st.satisfied ? 'border-emerald-300 bg-emerald-50/50' : 'border-amber-400 bg-amber-50'}`}>
                             <div className="flex items-center gap-1.5 mb-1.5">
                                 {st.satisfied ? <CheckCircle2 size={15} className="text-emerald-600" /> : <AlertTriangle size={15} className="text-amber-600" />}
-                                <span className="text-[12px] font-black uppercase tracking-wide text-slate-800">
+                                <span className="text-[12px] font-semibold uppercase tracking-wide text-slate-800">
                                     {tr(`required.${st.rule.labelKey}`)} · {tr('required_count', { picked: st.picked, min: st.rule.min, max: st.rule.max })}
                                 </span>
                             </div>
@@ -598,7 +801,7 @@ export default function CashierRegister(props: CashierRegisterProps) {
                                                 {o.label}{picked && (picked.count || 1) > 1 ? ` ×${picked.count}` : ''}{o.price > 0 ? ` +${money(o.price)}` : ''}
                                             </button>
                                             {picked && st.rule.allowRepeat && (
-                                                <button type="button" aria-label={tr('remove_one')} onClick={() => pickRequired(st.rule.groupKey, st.rule.max, st.rule.allowRepeat, o, -1)} className="ml-1 min-h-[44px] w-10 rounded-xl border-2 border-slate-300 bg-white flex items-center justify-center">
+                                                <button type="button" aria-label={tr('remove_one')} onClick={() => pickRequired(st.rule.groupKey, st.rule.max, st.rule.allowRepeat, o, -1)} className="ml-1 min-h-[44px] w-10 rounded-xl border border-slate-300 bg-white flex items-center justify-center">
                                                     <Minus size={15} />
                                                 </button>
                                             )}
@@ -613,7 +816,7 @@ export default function CashierRegister(props: CashierRegisterProps) {
                 {/* Semantic Row 1: SIN / QUITAR (Red Coral) */}
                 {noChips.length > 0 && (
                     <div className="flex flex-wrap items-center gap-1.5">
-                        <span className="px-2 py-1 rounded-lg bg-red-100 text-red-900 text-[11px] font-black uppercase tracking-wider">
+                        <span className="px-2 py-1 rounded-lg bg-red-100 text-red-900 text-[11px] font-semibold uppercase tracking-wider">
                             {tr('mod_group_no')}
                         </span>
                         {noChips.map(m => (
@@ -627,7 +830,7 @@ export default function CashierRegister(props: CashierRegisterProps) {
                 {/* Semantic Row 2: EXTRAS CON CARGO (Emerald Green) */}
                 {extraChips.length > 0 && (
                     <div className="flex flex-wrap items-center gap-1.5">
-                        <span className="px-2 py-1 rounded-lg bg-emerald-100 text-emerald-950 text-[11px] font-black uppercase tracking-wider">
+                        <span className="px-2 py-1 rounded-lg bg-emerald-100 text-emerald-950 text-[11px] font-semibold uppercase tracking-wider">
                             {tr('mod_group_extra')}
                         </span>
                         {extraChips.map(m => (
@@ -641,7 +844,7 @@ export default function CashierRegister(props: CashierRegisterProps) {
                 {/* Semantic Row 3: PREPARACIÓN, TORTILLA Y SALSA (Slate/Blue) */}
                 {prepChips.length > 0 && (
                     <div className="flex flex-wrap items-center gap-1.5">
-                        <span className="px-2 py-1 rounded-lg bg-slate-200 text-slate-800 text-[11px] font-black uppercase tracking-wider">
+                        <span className="px-2 py-1 rounded-lg bg-slate-200 text-slate-800 text-[11px] font-semibold uppercase tracking-wider">
                             {tr('mod_group_prep')}
                         </span>
                         {prepChips.map(m => (
@@ -655,7 +858,7 @@ export default function CashierRegister(props: CashierRegisterProps) {
                 {/* Semantic Row 4: MITAD Y MITAD (Purple) */}
                 {half.length > 0 && (
                     <div className="flex flex-wrap items-center gap-1.5">
-                        <span className="px-2 py-1 rounded-lg bg-purple-100 text-purple-950 text-[11px] font-black uppercase tracking-wider">
+                        <span className="px-2 py-1 rounded-lg bg-purple-100 text-purple-950 text-[11px] font-semibold uppercase tracking-wider">
                             {tr('half_label')}
                         </span>
                         {half.map(m => (
@@ -669,7 +872,7 @@ export default function CashierRegister(props: CashierRegisterProps) {
                 {/* Semantic Row 5: NOTAS FRECUENTES (Indigo Dashed) */}
                 {notes.length > 0 && (
                     <div className="flex flex-wrap items-center gap-1.5">
-                        <span className="px-2 py-1 rounded-lg bg-indigo-100 text-indigo-950 text-[11px] font-black uppercase tracking-wider">
+                        <span className="px-2 py-1 rounded-lg bg-indigo-100 text-indigo-950 text-[11px] font-semibold uppercase tracking-wider">
                             {tr('notes_label')}
                         </span>
                         {notes.map(m => (
@@ -685,8 +888,8 @@ export default function CashierRegister(props: CashierRegisterProps) {
 
     // ------------------------------------------------------------------ layout
     const wrapperCls = fullscreen
-        ? 'fixed inset-0 z-[60] bg-slate-100 flex flex-col'
-        : 'bg-slate-100 rounded-2xl border border-slate-200 flex flex-col min-h-[calc(100vh-160px)]'
+        ? 'fixed inset-0 z-[60] bg-slate-100 flex flex-col overflow-hidden'
+        : 'bg-slate-100 rounded-2xl border border-slate-200 flex flex-col h-[calc(100vh-116px)] max-h-[calc(100vh-116px)] overflow-hidden'
     const flagLabel = diningOption === 'FOR HERE' ? tr('flag_to_go') : tr('flag_for_here')
     const pWord = plateWord(diningOption, isEs)
 
@@ -700,31 +903,31 @@ export default function CashierRegister(props: CashierRegisterProps) {
                         type="button"
                         aria-pressed={diningOption === mode}
                         onClick={() => setDiningOption(mode)}
-                        className={`min-h-[48px] px-3.5 rounded-xl border-2 text-[14px] font-black flex items-center gap-1.5 cursor-pointer ${
-                            diningOption === mode ? 'bg-red-600 border-red-700 text-white shadow-xs' : 'bg-white border-slate-200 text-slate-800 hover:bg-slate-50'
+                        className={`min-h-[46px] px-3.5 rounded-xl border text-[13.5px] flex items-center gap-1.5 cursor-pointer transition ${
+                            diningOption === mode ? 'bg-red-600 border-red-700 text-white font-semibold shadow-xs' : 'bg-white border-slate-200 text-slate-700 font-medium hover:bg-slate-50'
                         }`}
                     >
-                        {mode === 'FOR HERE' ? <UtensilsCrossed size={17} /> : mode === 'TO GO' ? <ShoppingBag size={17} /> : <Car size={17} />}
+                        {mode === 'FOR HERE' ? <UtensilsCrossed size={16} /> : mode === 'TO GO' ? <ShoppingBag size={16} /> : <Car size={16} />}
                         {tr(`mode_${mode === 'FOR HERE' ? 'for_here' : mode === 'TO GO' ? 'to_go' : 'drive_thru'}`)}
                     </button>
                 ))}
-                <span className="px-3 py-2 rounded-xl bg-slate-900 text-white text-[15px] font-black tabular-nums">#{orderNumber}</span>
+                <span className="px-3 py-2 rounded-xl bg-slate-900 text-white text-[14px] font-semibold tabular-nums">#{orderNumber}</span>
                 <input
                     value={customerName}
                     onChange={e => setCustomerName(e.target.value.slice(0, 40))}
                     placeholder={diningOption === 'DRIVE-THRU' ? tr('car_or_name_placeholder') : tr('name_placeholder')}
-                    className="min-h-[46px] w-44 px-3 rounded-xl border-2 border-slate-200 text-[14px] font-bold text-slate-900 bg-slate-50 focus:bg-white"
+                    className="min-h-[44px] w-44 px-3 rounded-xl border border-slate-200 text-[13.5px] font-normal text-slate-900 placeholder:text-slate-400 bg-slate-50 focus:bg-white focus:border-slate-400 outline-none"
                     aria-label={tr('name_placeholder')}
                 />
 
                 {/* Instant PLU / Dish Search Bar */}
                 <div className="relative flex-1 min-w-[200px] max-w-xs">
-                    <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                    <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
                     <input
                         value={searchQuery}
                         onChange={e => setSearchQuery(e.target.value)}
                         placeholder={tr('search_placeholder')}
-                        className="w-full min-h-[46px] pl-9 pr-8 rounded-xl border-2 border-slate-200 text-[14px] font-bold text-slate-900 bg-slate-50 focus:bg-white"
+                        className="w-full min-h-[44px] pl-9 pr-8 rounded-xl border border-slate-200 text-[13.5px] font-normal text-slate-900 placeholder:text-slate-400 bg-slate-50 focus:bg-white focus:border-slate-400 outline-none"
                         aria-label={tr('search_placeholder')}
                     />
                     {searchQuery && (
@@ -743,43 +946,43 @@ export default function CashierRegister(props: CashierRegisterProps) {
                     <div className="flex flex-wrap items-center gap-1">
                         {VEHICLE_COLORS.map(c => (
                             <button key={c} type="button" aria-pressed={vehicleColor === c} onClick={() => setVehicleColor(vehicleColor === c ? '' : c)}
-                                className={`min-h-[42px] px-2.5 rounded-lg border-2 text-[12px] font-bold ${vehicleColor === c ? 'bg-slate-900 text-white border-slate-900' : 'bg-white border-slate-200 text-slate-700'}`}>
+                                className={`min-h-[40px] px-2.5 rounded-lg border text-[12px] font-medium ${vehicleColor === c ? 'bg-slate-900 text-white border-slate-900 font-semibold' : 'bg-white border-slate-200 text-slate-700'}`}>
                                 {tr(`vehicle_colors.${c}`)}
                             </button>
                         ))}
                         {VEHICLE_TYPES.map(v => (
                             <button key={v} type="button" aria-pressed={vehicleType === v} onClick={() => setVehicleType(vehicleType === v ? '' : v)}
-                                className={`min-h-[42px] px-2.5 rounded-lg border-2 text-[12px] font-bold ${vehicleType === v ? 'bg-slate-900 text-white border-slate-900' : 'bg-white border-slate-200 text-slate-700'}`}>
+                                className={`min-h-[40px] px-2.5 rounded-lg border text-[12px] font-medium ${vehicleType === v ? 'bg-slate-900 text-white border-slate-900 font-semibold' : 'bg-white border-slate-200 text-slate-700'}`}>
                                 {tr(`vehicle_types.${v}`)}
                             </button>
                         ))}
                     </div>
                 )}
                 <div className="ml-auto flex items-center gap-1.5">
-                    {catalogState === 'cache' && <span className="px-2 py-1 rounded-lg bg-amber-100 text-amber-900 text-[12px] font-black">{tr('catalog_offline')}</span>}
+                    {catalogState === 'cache' && <span className="px-2 py-1 rounded-lg bg-amber-100 text-amber-900 text-[12px] font-semibold">{tr('catalog_offline')}</span>}
                     {canVoidLastOrder && onVoidLastOrder && (
-                        <button type="button" onClick={() => setApproval({ kind: 'VOID', isWaste: true })} className="min-h-[46px] px-3 rounded-xl border-2 border-rose-200 bg-rose-50 text-rose-800 text-[13px] font-black flex items-center gap-1.5 cursor-pointer">
+                        <button type="button" onClick={() => setApproval({ kind: 'VOID', isWaste: true })} className="min-h-[44px] px-3 rounded-xl border border-rose-200 bg-rose-50 text-rose-800 text-[13px] font-medium flex items-center gap-1.5 cursor-pointer hover:bg-rose-100">
                             <Ban size={15} /> {tr('void_last_order')}
                         </button>
                     )}
-                    <button type="button" onClick={() => setPinSetupOpen(true)} className="min-h-[46px] px-3 rounded-xl border-2 border-slate-200 bg-white text-slate-700 text-[13px] font-black flex items-center gap-1.5 cursor-pointer" aria-label={tr('pin_setup_title')}>
+                    <button type="button" onClick={() => setPinSetupOpen(true)} className="min-h-[44px] px-3 rounded-xl border border-slate-200 bg-white text-slate-700 text-[13px] font-medium flex items-center gap-1.5 cursor-pointer hover:bg-slate-50" aria-label={tr('pin_setup_title')}>
                         <KeyRound size={15} /> {tr('my_pin')}
                     </button>
-                    <button type="button" onClick={() => setFullscreen(f => !f)} className="min-h-[46px] w-11 rounded-xl border-2 border-slate-200 bg-white flex items-center justify-center cursor-pointer" aria-label={fullscreen ? tr('exit_fullscreen') : tr('fullscreen')}>
+                    <button type="button" onClick={() => setFullscreen(f => !f)} className="min-h-[44px] w-11 rounded-xl border border-slate-200 bg-white flex items-center justify-center cursor-pointer hover:bg-slate-50" aria-label={fullscreen ? tr('exit_fullscreen') : tr('fullscreen')}>
                         {fullscreen ? <Minimize2 size={17} /> : <Maximize2 size={17} />}
                     </button>
                 </div>
             </div>
 
             {flash && (
-                <div className={`mx-3 mt-1.5 px-3 py-1.5 rounded-xl text-[13px] font-bold ${flash.tone === 'ok' ? 'bg-emerald-50 text-emerald-900 border border-emerald-200' : 'bg-rose-50 text-rose-900 border border-rose-200'}`} role="status">
+                <div className={`mx-3 mt-1.5 px-3 py-1.5 rounded-xl text-[13px] font-medium ${flash.tone === 'ok' ? 'bg-emerald-50 text-emerald-900 border border-emerald-200' : 'bg-rose-50 text-rose-900 border border-rose-200'}`} role="status">
                     {flash.text}
                 </div>
             )}
 
             {lastCashChangeBanner && (
-                <div className="mx-3 mt-1.5 px-4 py-2 rounded-xl bg-emerald-600 text-white text-[15px] font-black flex items-center justify-between shadow-sm" role="status">
-                    <span>💵 {tr('change_due_banner', { tendered: money(lastCashChangeBanner.tendered), change: money(lastCashChangeBanner.change) })}</span>
+                <div className="mx-3 mt-1.5 px-4 py-2 rounded-xl bg-emerald-600 text-white text-[14.5px] font-semibold flex items-center justify-between shadow-sm" role="status">
+                    <span>{tr('change_due_banner', { tendered: money(lastCashChangeBanner.tendered), change: money(lastCashChangeBanner.change) })}</span>
                     <button type="button" onClick={() => setLastCashChangeBanner(null)} className="h-7 w-7 rounded-lg bg-emerald-700 flex items-center justify-center">
                         <X size={15} />
                     </button>
@@ -792,16 +995,16 @@ export default function CashierRegister(props: CashierRegisterProps) {
                 <section className="min-h-0 flex flex-col bg-white border-r border-slate-200" aria-label={tr('ticket')}>
                     {/* Ticket Summary Header */}
                     {cart.length > 0 && (
-                        <div className="px-3 py-1.5 bg-slate-900 text-white flex items-center justify-between text-[12px] font-black uppercase tracking-wider">
+                        <div className="px-3 py-1.5 bg-slate-900 text-white flex items-center justify-between text-[12px] font-medium uppercase tracking-wider">
                             <span>{tr('items_count_summary', { items: totalItemUnits, plates: Math.max(1, plateCount), plateWord: pWord })}</span>
-                            <span className="px-2 py-0.5 rounded bg-red-600 text-white text-[11px]">
+                            <span className="px-2 py-0.5 rounded bg-red-600 text-white text-[11px] font-semibold">
                                 {pWord} #{currentPlate}
                             </span>
                         </div>
                     )}
 
                     <div className="flex-1 min-h-0 overflow-y-auto p-2 space-y-2">
-                        {cart.length === 0 && <p className="py-10 text-center text-[15px] font-semibold text-slate-400">{tr('empty_ticket')}</p>}
+                        {cart.length === 0 && <p className="py-10 text-center text-[14px] font-normal text-slate-400">{tr('empty_ticket')}</p>}
                         {plateGroups.map(group => {
                             const isTargetPlate = group.plate === currentPlate
                             return (
@@ -810,35 +1013,53 @@ export default function CashierRegister(props: CashierRegisterProps) {
                                         <button
                                             type="button"
                                             onClick={() => setCurrentPlate(group.plate)}
-                                            className={`w-full px-2.5 py-1 rounded-lg text-[12px] font-black tracking-wide flex items-center justify-between cursor-pointer transition ${
+                                            className={`w-full px-2.5 py-1 rounded-lg text-[12px] font-semibold tracking-wide flex items-center justify-between cursor-pointer transition ${
                                                 isTargetPlate ? 'bg-red-600 text-white shadow-2xs' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
                                             }`}
                                         >
                                             <span>{pWord} {group.plate}</span>
-                                            {isTargetPlate && <span className="text-[11px] font-extrabold opacity-95">{tr('active_plate_badge')}</span>}
+                                            {isTargetPlate && <span className="text-[11px] font-medium opacity-95">{tr('active_plate_badge')}</span>}
                                         </button>
                                     )}
                                     {group.lines.map(line => {
                                         const sel = line.id === selectedLineId
                                         const unmet = requiredStatusForLine(line).some(s => !s.satisfied)
+                                        const lineBevCounterpart = findCounterpartBeverageSize(line.name, bebidasItems)
+                                        const lineBevMeta = lineBevCounterpart ? classifyBeverageItem(line.name) : null
                                         return (
                                             <div key={line.id} onClick={() => { setSelectedLineId(line.id); setCurrentPlate(line.plate || 1) }}
-                                                className={`rounded-xl border-2 p-2 cursor-pointer transition ${sel ? 'border-blue-600 bg-blue-50/70 shadow-2xs' : unmet ? 'border-amber-400 bg-amber-50' : 'border-slate-100 hover:bg-slate-50'}`}>
+                                                className={`rounded-xl border p-2 cursor-pointer transition ${sel ? 'border-blue-600 bg-blue-50/60 shadow-2xs ring-1 ring-blue-500/20' : unmet ? 'border-amber-400 bg-amber-50' : 'border-slate-200/80 hover:bg-slate-50'}`}>
                                                 <div className="flex items-center gap-2">
                                                     <div className="flex items-center rounded-lg border border-slate-300 bg-white">
-                                                        <button type="button" aria-label={tr('qty_minus')} onClick={e => { e.stopPropagation(); changeQty(line.id, -1) }} className="h-9 w-9 flex items-center justify-center hover:bg-slate-100"><Minus size={15} /></button>
-                                                        <span className="w-7 text-center text-[15px] font-black tabular-nums">{line.qty}</span>
-                                                        <button type="button" aria-label={tr('qty_plus')} onClick={e => { e.stopPropagation(); changeQty(line.id, 1) }} className="h-9 w-9 flex items-center justify-center hover:bg-slate-100"><Plus size={15} /></button>
+                                                        <button type="button" aria-label={tr('qty_minus')} onClick={e => { e.stopPropagation(); changeQty(line.id, -1) }} className="h-8 w-8 flex items-center justify-center hover:bg-slate-100 text-slate-600"><Minus size={14} /></button>
+                                                        <span className="w-7 text-center text-[14px] font-semibold tabular-nums text-slate-900">{line.qty}</span>
+                                                        <button type="button" aria-label={tr('qty_plus')} onClick={e => { e.stopPropagation(); changeQty(line.id, 1) }} className="h-8 w-8 flex items-center justify-center hover:bg-slate-100 text-slate-600"><Plus size={14} /></button>
                                                     </div>
-                                                    <span className="flex-1 text-[15px] font-extrabold text-slate-900 leading-tight">{line.name}</span>
-                                                    <span className="text-[15px] font-black tabular-nums text-slate-900">{money(lineTotal(line))}</span>
+                                                    <span className="flex-1 text-[14.5px] font-semibold text-slate-900 leading-tight">{line.name}</span>
+                                                    {lineBevCounterpart && lineBevCounterpart.inStock && lineBevMeta && (
+                                                        <button
+                                                            type="button"
+                                                            onClick={e => { e.stopPropagation(); swapBeverageLineSize(line.id) }}
+                                                            title={lineBevMeta.size === 'MEDIUM'
+                                                                ? tr('bev_swap_to_large', { price: money(lineBevCounterpart.price) })
+                                                                : tr('bev_swap_to_medium', { price: money(lineBevCounterpart.price) })}
+                                                            className={`px-2 py-1 rounded-lg border text-[11px] font-semibold shrink-0 cursor-pointer transition active:scale-[0.96] ${
+                                                                lineBevMeta.size === 'MEDIUM'
+                                                                    ? 'bg-blue-600 border-blue-700 text-white hover:bg-blue-700'
+                                                                    : 'bg-sky-100 border-sky-400 text-sky-950 hover:bg-sky-200'
+                                                            }`}
+                                                        >
+                                                            {lineBevMeta.size === 'MEDIUM' ? tr('bev_swap_short_l') : tr('bev_swap_short_m')}
+                                                        </button>
+                                                    )}
+                                                    <span className="text-[14.5px] font-semibold tabular-nums text-slate-900">{money(lineTotal(line))}</span>
                                                 </div>
                                                 {line.modifiers.length > 0 && (
                                                     <div className="mt-1.5 pl-2 flex flex-wrap gap-1">
                                                         {line.modifiers.map((m, i) => (
                                                             <span
                                                                 key={`${m.name}-${i}`}
-                                                                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[12px] font-bold border ${
+                                                                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[12px] font-medium border ${
                                                                     m.isAlert
                                                                         ? 'bg-red-50 border-red-200 text-red-800'
                                                                         : m.price > 0
@@ -861,7 +1082,7 @@ export default function CashierRegister(props: CashierRegisterProps) {
                                                         ))}
                                                     </div>
                                                 )}
-                                                {unmet && <p className="mt-1 pl-2 text-[12px] font-black text-amber-700">{tr('needs_required')}</p>}
+                                                {unmet && <p className="mt-1 pl-2 text-[12px] font-semibold text-amber-700">{tr('needs_required')}</p>}
                                             </div>
                                         )
                                     })}
@@ -872,17 +1093,17 @@ export default function CashierRegister(props: CashierRegisterProps) {
 
                     {/* line actions */}
                     <div className="grid grid-cols-4 gap-1.5 px-2 py-1.5 border-t border-slate-200 bg-slate-50/50">
-                        <button type="button" disabled={!selectedLine} onClick={repeatSelected} className="min-h-[46px] rounded-xl border-2 border-slate-200 bg-white text-[12px] font-black text-slate-800 disabled:opacity-40 flex flex-col items-center justify-center cursor-pointer"><Copy size={15} />{tr('repeat')}</button>
-                        <button type="button" disabled={!selectedLine || diningOption === 'DRIVE-THRU'} onClick={toggleToGoFlag} className="min-h-[46px] rounded-xl border-2 border-slate-200 bg-white text-[12px] font-black text-slate-800 disabled:opacity-40 flex flex-col items-center justify-center cursor-pointer"><ShoppingBag size={15} />{flagLabel}</button>
-                        <button type="button" disabled={!selectedLine} onClick={() => setNoteOpen(true)} className="min-h-[46px] rounded-xl border-2 border-slate-200 bg-white text-[12px] font-black text-slate-800 disabled:opacity-40 flex flex-col items-center justify-center cursor-pointer"><StickyNote size={15} />{tr('note')}</button>
-                        <button type="button" disabled={!selectedLine} onClick={removeSelected} className="min-h-[46px] rounded-xl border-2 border-rose-200 bg-rose-50 text-[12px] font-black text-rose-800 disabled:opacity-40 flex flex-col items-center justify-center cursor-pointer"><Trash2 size={15} />{tr('remove')}</button>
+                        <button type="button" disabled={!selectedLine} onClick={repeatSelected} className="min-h-[44px] rounded-xl border border-slate-200 bg-white text-[12px] font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40 flex flex-col items-center justify-center gap-0.5 cursor-pointer"><Copy size={14} />{tr('repeat')}</button>
+                        <button type="button" disabled={!selectedLine || diningOption === 'DRIVE-THRU'} onClick={toggleToGoFlag} className="min-h-[44px] rounded-xl border border-slate-200 bg-white text-[12px] font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40 flex flex-col items-center justify-center gap-0.5 cursor-pointer"><ShoppingBag size={14} />{flagLabel}</button>
+                        <button type="button" disabled={!selectedLine} onClick={() => setNoteOpen(true)} className="min-h-[44px] rounded-xl border border-slate-200 bg-white text-[12px] font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40 flex flex-col items-center justify-center gap-0.5 cursor-pointer"><StickyNote size={14} />{tr('note')}</button>
+                        <button type="button" disabled={!selectedLine} onClick={removeSelected} className="min-h-[44px] rounded-xl border border-rose-200 bg-rose-50 text-[12px] font-medium text-rose-800 hover:bg-rose-100 disabled:opacity-40 flex flex-col items-center justify-center gap-0.5 cursor-pointer"><Trash2 size={14} />{tr('remove')}</button>
                     </div>
 
                     {/* discounts */}
                     <div className="px-2 pb-1.5 flex flex-wrap items-center gap-1.5 bg-slate-50/50">
                         {appliedDiscount ? (
-                            <div className="flex-1 flex items-center justify-between gap-2 rounded-xl bg-indigo-50 border-2 border-indigo-200 px-3 py-1.5">
-                                <span className="text-[13px] font-black text-indigo-900">
+                            <div className="flex-1 flex items-center justify-between gap-2 rounded-xl bg-indigo-50 border border-indigo-200 px-3 py-1.5">
+                                <span className="text-[12.5px] font-semibold text-indigo-900">
                                     <BadgePercent size={15} className="inline mr-1" />
                                     {tr(`discount_${appliedDiscount.type.toLowerCase()}`)} {appliedDiscount.pct}% · {tr('approved_by', { name: appliedDiscount.approverName })}
                                 </span>
@@ -890,10 +1111,10 @@ export default function CashierRegister(props: CashierRegisterProps) {
                             </div>
                         ) : (
                             <>
-                                <button type="button" disabled={cart.length === 0} onClick={() => setApproval({ kind: 'DISCOUNT', type: 'EMPLEADO', pct: DISCOUNT_PRESETS.EMPLEADO.defaultPct })} className="flex-1 min-h-[42px] rounded-xl border-2 border-indigo-200 bg-indigo-50 text-indigo-900 text-[13px] font-black disabled:opacity-40 cursor-pointer">
+                                <button type="button" disabled={cart.length === 0} onClick={() => setApproval({ kind: 'DISCOUNT', type: 'EMPLEADO', pct: DISCOUNT_PRESETS.EMPLEADO.defaultPct })} className="flex-1 min-h-[40px] rounded-xl border border-indigo-200 bg-indigo-50/70 hover:bg-indigo-100 text-indigo-900 text-[12.5px] font-medium disabled:opacity-40 cursor-pointer">
                                     {tr('discount_empleado')} {DISCOUNT_PRESETS.EMPLEADO.defaultPct}%
                                 </button>
-                                <button type="button" disabled={cart.length === 0} onClick={() => setApproval({ kind: 'DISCOUNT', type: 'POLICIA', pct: DISCOUNT_PRESETS.POLICIA.defaultPct })} className="flex-1 min-h-[42px] rounded-xl border-2 border-indigo-200 bg-indigo-50 text-indigo-900 text-[13px] font-black disabled:opacity-40 cursor-pointer">
+                                <button type="button" disabled={cart.length === 0} onClick={() => setApproval({ kind: 'DISCOUNT', type: 'POLICIA', pct: DISCOUNT_PRESETS.POLICIA.defaultPct })} className="flex-1 min-h-[40px] rounded-xl border border-indigo-200 bg-indigo-50/70 hover:bg-indigo-100 text-indigo-900 text-[12.5px] font-medium disabled:opacity-40 cursor-pointer">
                                     {tr('discount_policia')}
                                 </button>
                             </>
@@ -902,13 +1123,13 @@ export default function CashierRegister(props: CashierRegisterProps) {
 
                     {/* totals + 1-Tap Fast Cash / Quick Tender + Charge */}
                     <div className="px-3 py-2 border-t border-slate-200 bg-slate-50 space-y-1.5">
-                        <div className="flex justify-between text-[13px] font-bold text-slate-600">
+                        <div className="flex justify-between text-[12.5px] font-medium text-slate-600 tabular-nums">
                             <span>{tr('subtotal')} { money(totals.rawSubtotal) } · {tr('tax', { rate: taxRatePct })} { money(totals.tax) }</span>
-                            {totals.totalDiscount > 0 && <span className="text-emerald-700 font-black">−{money(totals.totalDiscount)}</span>}
+                            {totals.totalDiscount > 0 && <span className="text-emerald-700 font-semibold">−{money(totals.totalDiscount)}</span>}
                         </div>
                         <div className="flex justify-between items-baseline">
-                            <span className="text-[22px] font-black text-slate-900 leading-none">{tr('total')}</span>
-                            <span className="text-[30px] font-black tabular-nums text-red-600 leading-none">{money(totals.total)}</span>
+                            <span className="text-[20px] font-bold text-slate-900 leading-none">{tr('total')}</span>
+                            <span className="text-[28px] font-bold tabular-nums text-red-600 leading-none">{money(totals.total)}</span>
                         </div>
 
                         {/* 1-Tap Fast Cash & Quick Tender Strip (Toast Quick Order / Square Fast Cash standard) */}
@@ -918,10 +1139,10 @@ export default function CashierRegister(props: CashierRegisterProps) {
                                     type="button"
                                     disabled={chargeBusy}
                                     onClick={() => triggerQuickTender('CASH', totals.total)}
-                                    className="min-h-[42px] rounded-lg border-2 border-emerald-300 bg-emerald-50 hover:bg-emerald-100 text-emerald-950 text-[11px] font-black flex flex-col items-center justify-center leading-tight cursor-pointer"
+                                    className="min-h-[42px] rounded-lg border border-emerald-300 bg-emerald-50 hover:bg-emerald-100 text-emerald-950 text-[11px] font-semibold flex flex-col items-center justify-center leading-tight cursor-pointer"
                                 >
                                     <span className="flex items-center gap-0.5"><Banknote size={12} /> {tr('fast_exact')}</span>
-                                    <span className="tabular-nums text-[12px]">{money(totals.total)}</span>
+                                    <span className="tabular-nums text-[12px] font-medium">{money(totals.total)}</span>
                                 </button>
                                 {cashDenominations.slice(0, 2).map(bill => (
                                     <button
@@ -929,9 +1150,9 @@ export default function CashierRegister(props: CashierRegisterProps) {
                                         type="button"
                                         disabled={chargeBusy}
                                         onClick={() => triggerQuickTender('CASH', bill)}
-                                        className="min-h-[42px] rounded-lg border-2 border-emerald-300 bg-emerald-50 hover:bg-emerald-100 text-emerald-950 text-[12px] font-black flex flex-col items-center justify-center leading-tight cursor-pointer"
+                                        className="min-h-[42px] rounded-lg border border-emerald-300 bg-emerald-50 hover:bg-emerald-100 text-emerald-950 text-[12px] font-semibold flex flex-col items-center justify-center leading-tight cursor-pointer"
                                     >
-                                        <span className="text-[10px] font-bold text-emerald-700">CASH</span>
+                                        <span className="text-[10px] font-medium text-emerald-700">CASH</span>
                                         <span className="tabular-nums text-[13px]">${bill}</span>
                                     </button>
                                 ))}
@@ -939,7 +1160,7 @@ export default function CashierRegister(props: CashierRegisterProps) {
                                     type="button"
                                     disabled={chargeBusy}
                                     onClick={() => triggerQuickTender('CARD')}
-                                    className="min-h-[42px] rounded-lg border-2 border-blue-300 bg-blue-50 hover:bg-blue-100 text-blue-950 text-[11px] font-black flex flex-col items-center justify-center leading-tight cursor-pointer"
+                                    className="min-h-[42px] rounded-lg border border-blue-300 bg-blue-50 hover:bg-blue-100 text-blue-950 text-[11px] font-semibold flex flex-col items-center justify-center leading-tight cursor-pointer"
                                 >
                                     <CreditCard size={13} />
                                     <span>{tr('fast_card')}</span>
@@ -948,7 +1169,7 @@ export default function CashierRegister(props: CashierRegisterProps) {
                                     type="button"
                                     disabled={chargeBusy}
                                     onClick={() => triggerQuickTender('EBT_FOOD')}
-                                    className="min-h-[42px] rounded-lg border-2 border-teal-300 bg-teal-50 hover:bg-teal-100 text-teal-950 text-[11px] font-black flex flex-col items-center justify-center leading-tight cursor-pointer"
+                                    className="min-h-[42px] rounded-lg border border-teal-300 bg-teal-50 hover:bg-teal-100 text-teal-950 text-[11px] font-semibold flex flex-col items-center justify-center leading-tight cursor-pointer"
                                 >
                                     <Landmark size={13} />
                                     <span>{tr('fast_ebt')}</span>
@@ -957,7 +1178,7 @@ export default function CashierRegister(props: CashierRegisterProps) {
                         )}
 
                         <div className="grid grid-cols-[1fr_1fr_2.4fr] gap-1.5 pt-0.5">
-                            <button type="button" onClick={clearTicket} disabled={cart.length === 0} className="min-h-[54px] rounded-xl border-2 border-slate-300 bg-white text-[12px] font-black text-slate-700 disabled:opacity-40 cursor-pointer">{tr('clear')}</button>
+                            <button type="button" onClick={clearTicket} disabled={cart.length === 0} className="min-h-[52px] rounded-xl border border-slate-300 bg-white text-[12.5px] font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40 cursor-pointer">{tr('clear')}</button>
                             <button
                                 type="button"
                                 onClick={() => {
@@ -966,10 +1187,10 @@ export default function CashierRegister(props: CashierRegisterProps) {
                                     else onCharge()
                                 }}
                                 disabled={cart.length === 0 || chargeBusy}
-                                className="min-h-[54px] rounded-xl border-2 border-indigo-300 bg-indigo-50 hover:bg-indigo-100 text-[12px] font-black text-indigo-950 disabled:opacity-40 cursor-pointer flex flex-col items-center justify-center leading-tight"
+                                className="min-h-[52px] rounded-xl border border-indigo-300 bg-indigo-50 hover:bg-indigo-100 text-[12px] font-semibold text-indigo-950 disabled:opacity-40 cursor-pointer flex flex-col items-center justify-center leading-tight"
                             >
-                                <span>🔀 {tr('fast_split')}</span>
-                                <span className="text-[10px] font-bold text-indigo-700">Multi-Método</span>
+                                <span>{tr('fast_split')}</span>
+                                <span className="text-[10px] font-normal text-indigo-700">Multi-Método</span>
                             </button>
                             <button
                                 type="button"
@@ -978,7 +1199,7 @@ export default function CashierRegister(props: CashierRegisterProps) {
                                     onCharge()
                                 }}
                                 disabled={cart.length === 0 || chargeBusy}
-                                className={`min-h-[54px] rounded-xl text-[17px] font-black text-white shadow-sm disabled:bg-slate-300 cursor-pointer ${unmetRequired ? 'bg-amber-500' : 'bg-emerald-600 hover:bg-emerald-700'}`}
+                                className={`min-h-[52px] rounded-xl text-[16.5px] font-bold text-white shadow-sm disabled:bg-slate-300 cursor-pointer ${unmetRequired ? 'bg-amber-500' : 'bg-emerald-600 hover:bg-emerald-700'}`}
                             >
                                 {unmetRequired ? tr('complete_required') : tr('charge', { total: money(totals.total) })}
                             </button>
@@ -992,13 +1213,13 @@ export default function CashierRegister(props: CashierRegisterProps) {
                         type="button"
                         aria-pressed={activeTab === 'quick'}
                         onClick={() => { setActiveTab('quick'); setSearchQuery('') }}
-                        className={`w-full min-h-[46px] rounded-xl px-2.5 text-left text-[13px] font-black flex items-center justify-center gap-1.5 border-2 transition cursor-pointer ${
+                        className={`w-full min-h-[44px] rounded-xl px-2.5 text-left text-[13px] flex items-center justify-center gap-1.5 border transition cursor-pointer ${
                             activeTab === 'quick' && !searchQuery
-                                ? 'bg-slate-900 border-slate-900 text-white shadow-xs'
-                                : 'bg-white border-slate-200 text-slate-800 hover:bg-slate-50'
+                                ? 'bg-slate-900 border-slate-900 text-white font-semibold shadow-xs'
+                                : 'bg-white border-slate-200 text-slate-700 font-medium hover:bg-slate-50'
                         }`}
                     >
-                        <Zap size={15} className={activeTab === 'quick' && !searchQuery ? 'text-amber-400' : 'text-amber-500'} />
+                        <Zap size={14} className={activeTab === 'quick' && !searchQuery ? 'text-amber-400' : 'text-amber-500'} />
                         <span>{tr('tab_quick')} (8×7)</span>
                     </button>
 
@@ -1011,14 +1232,14 @@ export default function CashierRegister(props: CashierRegisterProps) {
                                     type="button"
                                     aria-pressed={isActive}
                                     onClick={() => { setActiveTab(f.key); setShowMore(false); setSearchQuery('') }}
-                                    className={`min-h-[50px] rounded-xl px-2 py-1.5 text-left text-[12px] font-black flex items-center gap-1.5 border-2 transition cursor-pointer ${
+                                    className={`min-h-[48px] rounded-xl px-2 py-1.5 text-left text-[12.5px] flex items-center gap-1.5 border transition cursor-pointer ${
                                         isActive
-                                            ? 'bg-slate-900 border-slate-900 text-white shadow-xs'
-                                            : 'bg-white border-slate-200 text-slate-800 hover:border-slate-300 hover:bg-slate-50'
+                                            ? 'bg-slate-900 border-slate-900 text-white font-semibold shadow-xs'
+                                            : 'bg-white border-slate-200 text-slate-700 font-medium hover:border-slate-300 hover:bg-slate-50'
                                     }`}
                                 >
-                                    <span className={`h-7 w-1.5 rounded-full shrink-0 ${f.accent}`} aria-hidden />
-                                    <span className="leading-tight line-clamp-2">{tr(`families.${f.labelKey}`)}</span>
+                                    <span className={`h-6 w-1.5 rounded-full shrink-0 ${f.accent}`} aria-hidden />
+                                    <span className="leading-snug line-clamp-2">{tr(`families.${f.labelKey}`)}</span>
                                 </button>
                             )
                         })}
@@ -1029,10 +1250,10 @@ export default function CashierRegister(props: CashierRegisterProps) {
                 <section className="min-h-0 flex flex-col bg-slate-50/60">
                     {/* Quantity Multiplier Bar + Custom Qty + Separate Plate/Bag */}
                     <div className="flex flex-wrap items-center gap-1.5 px-3 py-2 bg-white border-b border-slate-200">
-                        <span className="text-[12px] font-black uppercase text-slate-500 mr-0.5">{tr('qty_label')}</span>
+                        <span className="text-[11.5px] font-medium uppercase tracking-wide text-slate-500 mr-0.5">{tr('qty_label')}</span>
                         {QTY_PRESETS.map(q => (
                             <button key={q} type="button" aria-pressed={pendingQty === q} onClick={() => setPendingQty(pendingQty === q ? null : q)}
-                                className={`min-h-[44px] min-w-[44px] px-2 rounded-xl border-2 text-[15px] font-black cursor-pointer transition ${pendingQty === q ? 'bg-blue-600 border-blue-700 text-white shadow-xs' : 'bg-white border-slate-200 text-slate-800 hover:bg-slate-50'}`}>
+                                className={`min-h-[40px] min-w-[42px] px-2 rounded-xl border text-[14px] tabular-nums cursor-pointer transition ${pendingQty === q ? 'bg-blue-600 border-blue-700 text-white font-semibold shadow-xs' : 'bg-white border-slate-200 text-slate-700 font-medium hover:bg-slate-50'}`}>
                                 ×{q}
                             </button>
                         ))}
@@ -1040,7 +1261,7 @@ export default function CashierRegister(props: CashierRegisterProps) {
                             <button
                                 type="button"
                                 onClick={() => setPendingQty(null)}
-                                className="min-h-[44px] px-3 rounded-xl border-2 bg-blue-600 border-blue-700 text-white text-[15px] font-black"
+                                className="min-h-[40px] px-3 rounded-xl border bg-blue-600 border-blue-700 text-white text-[14px] font-semibold"
                             >
                                 ×{pendingQty} ✕
                             </button>
@@ -1048,35 +1269,35 @@ export default function CashierRegister(props: CashierRegisterProps) {
                         <button
                             type="button"
                             onClick={() => { setCustomQtyDraft(pendingQty ? String(pendingQty) : ''); setCustomQtyOpen(true) }}
-                            className="min-h-[44px] px-3 rounded-xl border-2 border-slate-300 bg-slate-100 hover:bg-slate-200 text-slate-800 text-[13px] font-black flex items-center gap-1 cursor-pointer"
+                            className="min-h-[40px] px-3 rounded-xl border border-slate-300 bg-slate-100 hover:bg-slate-200 text-slate-700 text-[12.5px] font-medium flex items-center gap-1 cursor-pointer"
                         >
-                            <Hash size={14} /> {tr('custom_qty')}
+                            <Hash size={13} /> {tr('custom_qty')}
                         </button>
 
                         <button type="button" onClick={separatePlate} disabled={cart.length === 0}
-                            className="ml-auto min-h-[46px] px-3.5 rounded-xl border-2 border-red-300 bg-red-50 hover:bg-red-100 text-red-900 text-[14px] font-black flex items-center gap-2 disabled:opacity-40 cursor-pointer">
-                            <Scissors size={16} /> {tr('separate_plate', { word: pWord })}
-                            <span className="px-2 py-0.5 rounded-lg bg-red-600 text-white text-[12px]">{currentPlate}</span>
+                            className="ml-auto min-h-[42px] px-3.5 rounded-xl border border-red-200 bg-red-50 hover:bg-red-100 text-red-900 text-[13px] font-semibold flex items-center gap-2 disabled:opacity-40 cursor-pointer">
+                            <Scissors size={15} /> {tr('separate_plate', { word: pWord })}
+                            <span className="px-2 py-0.5 rounded-lg bg-red-600 text-white text-[11.5px] font-semibold">{currentPlate}</span>
                         </button>
                     </div>
 
                     {/* Main Item Grid / Search Results / Quick Matrix */}
                     <div className="flex-1 min-h-0 overflow-y-auto p-3">
                         {catalogState === 'loading' && (
-                            <div className="flex items-center gap-2 text-slate-500 text-[15px] font-semibold"><RefreshCw size={16} className="animate-spin" /> {tr('loading_catalog')}</div>
+                            <div className="flex items-center gap-2 text-slate-500 text-[14px] font-medium"><RefreshCw size={16} className="animate-spin" /> {tr('loading_catalog')}</div>
                         )}
                         {catalogState === 'error' && (
-                            <div className="rounded-xl border-2 border-rose-200 bg-rose-50 p-4 text-rose-900">
-                                <p className="font-black">{tr('catalog_error')}</p>
+                            <div className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-rose-900">
+                                <p className="font-semibold">{tr('catalog_error')}</p>
                                 <p className="text-sm mt-1">{catalogError}</p>
-                                <button type="button" onClick={loadCatalog} className="mt-3 min-h-[48px] px-4 rounded-xl bg-rose-600 text-white font-black">{tr('retry')}</button>
+                                <button type="button" onClick={loadCatalog} className="mt-3 min-h-[44px] px-4 rounded-xl bg-rose-600 text-white font-semibold">{tr('retry')}</button>
                             </div>
                         )}
                         {(catalogState === 'live' || catalogState === 'cache') && (
                             searchQuery.trim() ? (
                                 <div className="space-y-2.5">
                                     <div className="flex items-center justify-between">
-                                        <span className="text-[13px] font-black uppercase text-slate-600">
+                                        <span className="text-[12.5px] font-semibold uppercase tracking-wide text-slate-500">
                                             {tr('search_results_title', { count: searchResults.length })}
                                         </span>
                                     </div>

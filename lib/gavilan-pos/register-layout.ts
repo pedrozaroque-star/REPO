@@ -335,6 +335,8 @@ export interface ItemVisualStyle {
     cardCls: string
     /** Badge background & text */
     badgeCls: string
+    /** Small indicator dot color class */
+    dotCls?: string
     /** Short uppercase protein / variant tag for rapid visual scanning */
     tagLabel: string
     /** Price pill styling */
@@ -343,52 +345,60 @@ export interface ItemVisualStyle {
 
 export const PROTEIN_VISUAL_STYLES: Record<ProteinKey, ItemVisualStyle> = {
     asada: {
-        cardCls: 'bg-red-50/90 border-red-200 border-l-[6px] border-l-red-600 hover:bg-red-100/80',
+        cardCls: 'bg-red-50/70 border-red-200/90 border-l-4 border-l-red-500 hover:bg-red-50',
         badgeCls: 'bg-red-600 text-white',
+        dotCls: 'bg-red-500',
         tagLabel: 'ASADA',
-        priceCls: 'bg-white/90 text-red-900 border border-red-200',
+        priceCls: 'text-slate-700',
     },
     pastor: {
-        cardCls: 'bg-orange-50/90 border-orange-200 border-l-[6px] border-l-orange-500 hover:bg-orange-100/80',
+        cardCls: 'bg-orange-50/70 border-orange-200/90 border-l-4 border-l-orange-500 hover:bg-orange-50',
         badgeCls: 'bg-orange-600 text-white',
+        dotCls: 'bg-orange-500',
         tagLabel: 'PASTOR',
-        priceCls: 'bg-white/90 text-orange-900 border border-orange-200',
+        priceCls: 'text-slate-700',
     },
     pollo: {
-        cardCls: 'bg-amber-50/90 border-amber-200 border-l-[6px] border-l-amber-500 hover:bg-amber-100/80',
+        cardCls: 'bg-amber-50/70 border-amber-200/90 border-l-4 border-l-amber-500 hover:bg-amber-50',
         badgeCls: 'bg-amber-500 text-slate-950',
+        dotCls: 'bg-amber-500',
         tagLabel: 'POLLO',
-        priceCls: 'bg-white/90 text-amber-950 border border-amber-200',
+        priceCls: 'text-slate-700',
     },
     cabeza: {
-        cardCls: 'bg-rose-50/90 border-rose-200 border-l-[6px] border-l-rose-600 hover:bg-rose-100/80',
+        cardCls: 'bg-rose-50/70 border-rose-200/90 border-l-4 border-l-rose-500 hover:bg-rose-50',
         badgeCls: 'bg-rose-700 text-white',
+        dotCls: 'bg-rose-500',
         tagLabel: 'CABEZA',
-        priceCls: 'bg-white/90 text-rose-900 border border-rose-200',
+        priceCls: 'text-slate-700',
     },
     lengua: {
-        cardCls: 'bg-purple-50/90 border-purple-200 border-l-[6px] border-l-purple-600 hover:bg-purple-100/80',
+        cardCls: 'bg-purple-50/70 border-purple-200/90 border-l-4 border-l-purple-500 hover:bg-purple-50',
         badgeCls: 'bg-purple-700 text-white',
+        dotCls: 'bg-purple-500',
         tagLabel: 'LENGUA',
-        priceCls: 'bg-white/90 text-purple-900 border border-purple-200',
+        priceCls: 'text-slate-700',
     },
     carnitas: {
-        cardCls: 'bg-yellow-50/90 border-yellow-300 border-l-[6px] border-l-yellow-700 hover:bg-yellow-100/80',
+        cardCls: 'bg-yellow-50/75 border-yellow-200/90 border-l-4 border-l-yellow-600 hover:bg-yellow-50',
         badgeCls: 'bg-yellow-800 text-white',
+        dotCls: 'bg-yellow-600',
         tagLabel: 'CARNITAS',
-        priceCls: 'bg-white/90 text-yellow-950 border border-yellow-300',
+        priceCls: 'text-slate-700',
     },
     buche: {
-        cardCls: 'bg-teal-50/90 border-teal-200 border-l-[6px] border-l-teal-600 hover:bg-teal-100/80',
+        cardCls: 'bg-teal-50/70 border-teal-200/90 border-l-4 border-l-teal-500 hover:bg-teal-50',
         badgeCls: 'bg-teal-700 text-white',
+        dotCls: 'bg-teal-500',
         tagLabel: 'BUCHE',
-        priceCls: 'bg-white/90 text-teal-900 border border-teal-200',
+        priceCls: 'text-slate-700',
     },
     chorizo: {
-        cardCls: 'bg-red-100/70 border-red-300 border-l-[6px] border-l-red-900 hover:bg-red-100',
+        cardCls: 'bg-red-50/80 border-red-200/90 border-l-4 border-l-red-800 hover:bg-red-100/60',
         badgeCls: 'bg-red-900 text-white',
+        dotCls: 'bg-red-800',
         tagLabel: 'CHORIZO',
-        priceCls: 'bg-white/90 text-red-950 border border-red-300',
+        priceCls: 'text-slate-700',
     },
 }
 
@@ -403,66 +413,140 @@ export function itemVisualStyle(item: Pick<RegisterCatalogItem, 'name' | 'family
     const n = normalizeText(item.name)
     if (/\b(vegetariano|no carne|frijol y queso|queso)\b/.test(n)) {
         return {
-            cardCls: 'bg-emerald-50/90 border-emerald-200 border-l-[6px] border-l-emerald-600 hover:bg-emerald-100/80',
+            cardCls: 'bg-emerald-50/70 border-emerald-200/90 border-l-4 border-l-emerald-500 hover:bg-emerald-50',
             badgeCls: 'bg-emerald-700 text-white',
+            dotCls: 'bg-emerald-500',
             tagLabel: /\bqueso\b/.test(n) && !/\bno carne\b/.test(n) ? 'QUESO' : 'VEGETARIANO',
-            priceCls: 'bg-white/90 text-emerald-950 border border-emerald-200',
+            priceCls: 'text-slate-700',
         }
     }
     if (/\bcubana\b/.test(n)) {
         return {
-            cardCls: 'bg-amber-100/80 border-amber-300 border-l-[6px] border-l-amber-700 hover:bg-amber-100',
+            cardCls: 'bg-amber-50/80 border-amber-200/90 border-l-4 border-l-amber-600 hover:bg-amber-50',
             badgeCls: 'bg-amber-800 text-white',
+            dotCls: 'bg-amber-600',
             tagLabel: 'ESPECIAL',
-            priceCls: 'bg-white/90 text-amber-950 border border-amber-300',
+            priceCls: 'text-slate-700',
         }
     }
     if (/\bmilanesa\b/.test(n)) {
         return {
-            cardCls: 'bg-orange-50/90 border-orange-200 border-l-[6px] border-l-orange-600 hover:bg-orange-100/80',
+            cardCls: 'bg-orange-50/70 border-orange-200/90 border-l-4 border-l-orange-500 hover:bg-orange-50',
             badgeCls: 'bg-orange-700 text-white',
+            dotCls: 'bg-orange-500',
             tagLabel: 'MILANESA',
-            priceCls: 'bg-white/90 text-orange-950 border border-orange-200',
+            priceCls: 'text-slate-700',
         }
     }
     if (/\b(jamon|salchicha)\b/.test(n)) {
         return {
-            cardCls: 'bg-pink-50/90 border-pink-200 border-l-[6px] border-l-pink-600 hover:bg-pink-100/80',
+            cardCls: 'bg-pink-50/70 border-pink-200/90 border-l-4 border-l-pink-500 hover:bg-pink-50',
             badgeCls: 'bg-pink-700 text-white',
+            dotCls: 'bg-pink-500',
             tagLabel: /\bjamon\b/.test(n) ? 'JAMÓN' : 'SALCHICHA',
-            priceCls: 'bg-white/90 text-pink-950 border border-pink-200',
+            priceCls: 'text-slate-700',
         }
     }
     if (item.family === 'bebidas') {
+        const bMeta = classifyBeverageItem(item.name)
         if (/^large\b/.test(n)) {
             return {
-                cardCls: 'bg-blue-50/90 border-blue-200 border-l-[6px] border-l-blue-600 hover:bg-blue-100/80',
+                cardCls: `${bMeta.cardTintCls} border-l-4 ${bMeta.accentBorderCls} hover:brightness-98`,
                 badgeCls: 'bg-blue-700 text-white',
+                dotCls: 'bg-blue-600',
                 tagLabel: 'LARGE 32oz',
-                priceCls: 'bg-white/90 text-blue-950 border border-blue-200',
+                priceCls: 'text-blue-900',
             }
         }
         if (/^medium\b/.test(n)) {
             return {
-                cardCls: 'bg-sky-50/90 border-sky-200 border-l-[6px] border-l-sky-500 hover:bg-sky-100/80',
+                cardCls: `${bMeta.cardTintCls} border-l-4 ${bMeta.accentBorderCls} hover:brightness-98`,
                 badgeCls: 'bg-sky-600 text-white',
+                dotCls: 'bg-sky-500',
                 tagLabel: 'MEDIUM 22oz',
-                priceCls: 'bg-white/90 text-sky-950 border border-sky-200',
+                priceCls: 'text-sky-900',
             }
         }
         return {
-            cardCls: 'bg-cyan-50/90 border-cyan-200 border-l-[6px] border-l-cyan-600 hover:bg-cyan-100/80',
-            badgeCls: 'bg-cyan-700 text-white',
+            cardCls: `${bMeta.cardTintCls} border-l-4 ${bMeta.accentBorderCls} hover:brightness-98`,
+            badgeCls: bMeta.flavorBadgeCls,
+            dotCls: 'bg-cyan-600',
             tagLabel: 'BEBIDA',
-            priceCls: 'bg-white/90 text-cyan-950 border border-cyan-200',
+            priceCls: 'text-slate-700',
         }
     }
     const fam = REGISTER_FAMILIES.find(f => f.key === item.family)
     return {
-        cardCls: `${fam?.tile || 'bg-slate-50 border-slate-200'} border-l-[6px] border-l-slate-600 hover:brightness-98`,
+        cardCls: `${fam?.tile || 'bg-white border-slate-200'} border-l-4 border-l-slate-400 hover:brightness-98`,
         badgeCls: 'bg-slate-700 text-white',
+        dotCls: 'bg-slate-400',
         tagLabel: (fam?.labelKey || 'ITEM').toUpperCase().slice(0, 10),
-        priceCls: 'bg-white/90 text-slate-900 border border-slate-200',
+        priceCls: 'text-slate-700',
+    }
+}
+
+/**
+ * Formats an item's display into a calm, non-redundant hierarchy:
+ * - `subtitle`: subtle category/size descriptor (e.g. 'Taco', 'Super Burrito', 'Grande · 32 oz', 'Complemento')
+ * - `primaryTitle`: the distinguishing protein/flavor/dish name (e.g. 'Asada', 'Horchata', 'Cubana')
+ */
+export function formatRegisterCardLabels(
+    item: Pick<RegisterCatalogItem, 'name' | 'family' | 'protein'>,
+    isEs = true
+): { subtitle: string; primaryTitle: string } {
+    const clean = String(item.name || '').replace(/\s*\(In Store\)\s*$/i, '').trim()
+    if (item.family === 'bebidas') {
+        const bMeta = classifyBeverageItem(clean)
+        const cleanFlavor = isEs ? bMeta.displayEs : bMeta.displayEn
+        if (bMeta.size === 'LARGE') {
+            return {
+                subtitle: 'L',
+                primaryTitle: cleanFlavor,
+            }
+        }
+        if (bMeta.size === 'MEDIUM') {
+            return {
+                subtitle: 'M',
+                primaryTitle: cleanFlavor,
+            }
+        }
+        return {
+            subtitle: isEs ? 'Bebida' : 'Drink',
+            primaryTitle: cleanFlavor,
+        }
+    }
+
+    const prefixPatterns: { re: RegExp; subEs: string; subEn: string }[] = [
+        { re: /^Meat Only Super Burrito\s+/i, subEs: 'S. Burrito Pura Carne', subEn: 'Meat Only S. Burrito' },
+        { re: /^Super Burrito\s+/i, subEs: 'Super Burrito', subEn: 'Super Burrito' },
+        { re: /^Burrito\s+/i, subEs: 'Burrito', subEn: 'Burrito' },
+        { re: /^Super Quesadilla\s+/i, subEs: 'Super Quesadilla', subEn: 'Super Quesadilla' },
+        { re: /^Quesadilla\s+/i, subEs: 'Quesadilla', subEn: 'Quesadilla' },
+        { re: /^Super Mulita\s+/i, subEs: 'Super Mulita', subEn: 'Super Mulita' },
+        { re: /^Mulita\s+/i, subEs: 'Mulita', subEn: 'Mulita' },
+        { re: /^Super Nachos\s+/i, subEs: 'Super Nachos', subEn: 'Super Nachos' },
+        { re: /^Taco\s+/i, subEs: 'Taco', subEn: 'Taco' },
+        { re: /^Torta\s+/i, subEs: 'Torta', subEn: 'Torta' },
+        { re: /^Sope\s+/i, subEs: 'Sope', subEn: 'Sope' },
+        { re: /^Plato\s+/i, subEs: 'Plato', subEn: 'Plate' },
+        { re: /^Side Order\s+/i, subEs: 'Complemento', subEn: 'Side Order' },
+    ]
+    for (const p of prefixPatterns) {
+        if (p.re.test(clean)) {
+            const remainder = clean.replace(p.re, '').trim()
+            if (remainder) {
+                return {
+                    subtitle: isEs ? p.subEs : p.subEn,
+                    primaryTitle: remainder,
+                }
+            }
+        }
+    }
+
+    const fam = REGISTER_FAMILIES.find(f => f.key === item.family)
+    return {
+        subtitle: fam ? (isEs ? fam.labelKey.replace(/_/g, ' ') : fam.labelKey.replace(/_/g, ' ')) : 'Platillo',
+        primaryTitle: clean,
     }
 }
 
@@ -581,31 +665,31 @@ export const SPLIT_TENDER_METHOD_META: Record<SplitTenderMethod, {
         shortEs: 'Tarjeta / NFC',
         shortEn: 'Card / NFC',
         badgeCls: 'bg-blue-100 text-blue-900 border-blue-300',
-        iconEmoji: '💳',
+        iconEmoji: '',
     },
     CASH: {
         shortEs: 'Efectivo',
         shortEn: 'Cash',
         badgeCls: 'bg-emerald-100 text-emerald-900 border-emerald-300',
-        iconEmoji: '💵',
+        iconEmoji: '',
     },
     EBT_FOOD: {
         shortEs: 'EBT Food (0% Tax)',
         shortEn: 'EBT Food (0% Tax)',
         badgeCls: 'bg-teal-100 text-teal-900 border-teal-300',
-        iconEmoji: '🏛️',
+        iconEmoji: '',
     },
     EBT_CASH: {
         shortEs: 'EBT Cash',
         shortEn: 'EBT Cash',
         badgeCls: 'bg-purple-100 text-purple-900 border-purple-300',
-        iconEmoji: '🏧',
+        iconEmoji: '',
     },
     GIFT_CARD: {
         shortEs: 'Gift Card',
         shortEn: 'Gift Card',
         badgeCls: 'bg-amber-100 text-amber-900 border-amber-300',
-        iconEmoji: '🎁',
+        iconEmoji: '',
     },
 }
 
@@ -895,7 +979,7 @@ const BEVERAGE_FLAVOR_DEFINITIONS: FlavorDefinition[] = [
         category: 'AGUAS_FRESCAS',
         displayEs: 'Horchata',
         displayEn: 'Horchata',
-        emoji: '🥛',
+        emoji: '',
         accentBorderCls: 'border-l-amber-600',
         cardTintCls: 'bg-amber-50/75 border-amber-200',
         flavorBadgeCls: 'bg-amber-600 text-white',
@@ -907,7 +991,7 @@ const BEVERAGE_FLAVOR_DEFINITIONS: FlavorDefinition[] = [
         category: 'AGUAS_FRESCAS',
         displayEs: 'Jamaica',
         displayEn: 'Hibiscus (Jamaica)',
-        emoji: '🌺',
+        emoji: '',
         accentBorderCls: 'border-l-rose-700',
         cardTintCls: 'bg-rose-50/75 border-rose-200',
         flavorBadgeCls: 'bg-rose-700 text-white',
@@ -919,7 +1003,7 @@ const BEVERAGE_FLAVOR_DEFINITIONS: FlavorDefinition[] = [
         category: 'AGUAS_FRESCAS',
         displayEs: 'Piña',
         displayEn: 'Pineapple (Piña)',
-        emoji: '🍍',
+        emoji: '',
         accentBorderCls: 'border-l-yellow-500',
         cardTintCls: 'bg-yellow-50/80 border-yellow-300',
         flavorBadgeCls: 'bg-yellow-500 text-slate-950',
@@ -931,7 +1015,7 @@ const BEVERAGE_FLAVOR_DEFINITIONS: FlavorDefinition[] = [
         category: 'AGUAS_FRESCAS',
         displayEs: 'Tamarindo',
         displayEn: 'Tamarind',
-        emoji: '🤎',
+        emoji: '',
         accentBorderCls: 'border-l-orange-800',
         cardTintCls: 'bg-orange-50/75 border-orange-200',
         flavorBadgeCls: 'bg-orange-800 text-white',
@@ -945,7 +1029,7 @@ const BEVERAGE_FLAVOR_DEFINITIONS: FlavorDefinition[] = [
         category: 'SODAS_FOUNTAIN',
         displayEs: 'Coke Zero',
         displayEn: 'Coke Zero',
-        emoji: '⚫',
+        emoji: '',
         accentBorderCls: 'border-l-slate-900',
         cardTintCls: 'bg-slate-100/85 border-slate-300',
         flavorBadgeCls: 'bg-slate-900 text-white',
@@ -957,7 +1041,7 @@ const BEVERAGE_FLAVOR_DEFINITIONS: FlavorDefinition[] = [
         category: 'SODAS_FOUNTAIN',
         displayEs: 'Diet Coke',
         displayEn: 'Diet Coke',
-        emoji: '🥤',
+        emoji: '',
         accentBorderCls: 'border-l-slate-500',
         cardTintCls: 'bg-slate-50 border-slate-300',
         flavorBadgeCls: 'bg-slate-600 text-white',
@@ -969,7 +1053,7 @@ const BEVERAGE_FLAVOR_DEFINITIONS: FlavorDefinition[] = [
         category: 'SODAS_FOUNTAIN',
         displayEs: 'Coca-Cola',
         displayEn: 'Coca-Cola (Coke)',
-        emoji: '🥤',
+        emoji: '',
         accentBorderCls: 'border-l-red-600',
         cardTintCls: 'bg-red-50/75 border-red-200',
         flavorBadgeCls: 'bg-red-600 text-white',
@@ -981,7 +1065,7 @@ const BEVERAGE_FLAVOR_DEFINITIONS: FlavorDefinition[] = [
         category: 'SODAS_FOUNTAIN',
         displayEs: 'Sprite',
         displayEn: 'Sprite',
-        emoji: '🍋',
+        emoji: '',
         accentBorderCls: 'border-l-emerald-600',
         cardTintCls: 'bg-emerald-50/75 border-emerald-200',
         flavorBadgeCls: 'bg-emerald-600 text-white',
@@ -993,7 +1077,7 @@ const BEVERAGE_FLAVOR_DEFINITIONS: FlavorDefinition[] = [
         category: 'SODAS_FOUNTAIN',
         displayEs: 'Fanta Naranja',
         displayEn: 'Orange Fanta',
-        emoji: '🍊',
+        emoji: '',
         accentBorderCls: 'border-l-orange-500',
         cardTintCls: 'bg-orange-50/80 border-orange-200',
         flavorBadgeCls: 'bg-orange-500 text-white',
@@ -1005,7 +1089,7 @@ const BEVERAGE_FLAVOR_DEFINITIONS: FlavorDefinition[] = [
         category: 'SODAS_FOUNTAIN',
         displayEs: 'Fanta Fresa',
         displayEn: 'Strawberry Fanta',
-        emoji: '🍓',
+        emoji: '',
         accentBorderCls: 'border-l-pink-600',
         cardTintCls: 'bg-pink-50/80 border-pink-200',
         flavorBadgeCls: 'bg-pink-600 text-white',
@@ -1017,7 +1101,7 @@ const BEVERAGE_FLAVOR_DEFINITIONS: FlavorDefinition[] = [
         category: 'SODAS_FOUNTAIN',
         displayEs: 'Limonada',
         displayEn: 'Lemonade',
-        emoji: '🍋',
+        emoji: '',
         accentBorderCls: 'border-l-amber-400',
         cardTintCls: 'bg-amber-50/75 border-amber-200',
         flavorBadgeCls: 'bg-amber-500 text-slate-950',
@@ -1029,7 +1113,7 @@ const BEVERAGE_FLAVOR_DEFINITIONS: FlavorDefinition[] = [
         category: 'SODAS_FOUNTAIN',
         displayEs: 'Té Helado (Iced Tea)',
         displayEn: 'Iced Tea',
-        emoji: '🧊',
+        emoji: '',
         accentBorderCls: 'border-l-amber-700',
         cardTintCls: 'bg-amber-50/70 border-amber-200',
         flavorBadgeCls: 'bg-amber-800 text-white',
@@ -1043,7 +1127,7 @@ const BEVERAGE_FLAVOR_DEFINITIONS: FlavorDefinition[] = [
         category: 'HOT_BOTTLED_OLLA',
         displayEs: 'Agua Embotellada',
         displayEn: 'Bottled Water',
-        emoji: '💧',
+        emoji: '',
         accentBorderCls: 'border-l-cyan-500',
         cardTintCls: 'bg-cyan-50/85 border-cyan-200',
         flavorBadgeCls: 'bg-cyan-600 text-white',
@@ -1055,7 +1139,7 @@ const BEVERAGE_FLAVOR_DEFINITIONS: FlavorDefinition[] = [
         category: 'HOT_BOTTLED_OLLA',
         displayEs: 'Champurrado (16oz)',
         displayEn: 'Champurrado (16oz)',
-        emoji: '🍫',
+        emoji: '',
         accentBorderCls: 'border-l-amber-900',
         cardTintCls: 'bg-amber-100/70 border-amber-300',
         flavorBadgeCls: 'bg-amber-900 text-white',
@@ -1067,7 +1151,7 @@ const BEVERAGE_FLAVOR_DEFINITIONS: FlavorDefinition[] = [
         category: 'HOT_BOTTLED_OLLA',
         displayEs: 'Café de Olla (16oz)',
         displayEn: 'Café de Olla (16oz)',
-        emoji: '☕',
+        emoji: '',
         accentBorderCls: 'border-l-amber-800',
         cardTintCls: 'bg-amber-50/85 border-amber-200',
         flavorBadgeCls: 'bg-amber-800 text-white',
@@ -1079,7 +1163,7 @@ const BEVERAGE_FLAVOR_DEFINITIONS: FlavorDefinition[] = [
         category: 'HOT_BOTTLED_OLLA',
         displayEs: 'Café Regular (16oz)',
         displayEn: 'Regular Coffee (16oz)',
-        emoji: '☕',
+        emoji: '',
         accentBorderCls: 'border-l-stone-700',
         cardTintCls: 'bg-stone-100/80 border-stone-300',
         flavorBadgeCls: 'bg-stone-700 text-white',
@@ -1091,7 +1175,7 @@ const BEVERAGE_FLAVOR_DEFINITIONS: FlavorDefinition[] = [
         category: 'HOT_BOTTLED_OLLA',
         displayEs: 'Olla Champurrado',
         displayEn: 'Champurrado Pot (Olla)',
-        emoji: '🍯',
+        emoji: '',
         accentBorderCls: 'border-l-purple-700',
         cardTintCls: 'bg-purple-50/80 border-purple-200',
         flavorBadgeCls: 'bg-purple-700 text-white',
@@ -1103,7 +1187,7 @@ const BEVERAGE_FLAVOR_DEFINITIONS: FlavorDefinition[] = [
         category: 'HOT_BOTTLED_OLLA',
         displayEs: 'Olla Café de Olla',
         displayEn: 'Café de Olla Pot (Olla)',
-        emoji: '🍯',
+        emoji: '',
         accentBorderCls: 'border-l-purple-700',
         cardTintCls: 'bg-purple-50/80 border-purple-200',
         flavorBadgeCls: 'bg-purple-700 text-white',
@@ -1133,7 +1217,7 @@ export function classifyBeverageItem(itemName: string): BeverageFlavorMeta {
                 size,
                 displayEs: def.displayEs,
                 displayEn: def.displayEn,
-                emoji: def.emoji,
+                emoji: '',
                 accentBorderCls: def.accentBorderCls,
                 cardTintCls: def.cardTintCls,
                 flavorBadgeCls: def.flavorBadgeCls,
@@ -1149,7 +1233,7 @@ export function classifyBeverageItem(itemName: string): BeverageFlavorMeta {
         size,
         displayEs: stripped || itemName,
         displayEn: stripped || itemName,
-        emoji: '🥤',
+        emoji: '',
         accentBorderCls: 'border-l-sky-600',
         cardTintCls: 'bg-sky-50/75 border-sky-200',
         flavorBadgeCls: 'bg-sky-700 text-white',

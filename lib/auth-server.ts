@@ -7,9 +7,15 @@
  * @businessRules
  * - **Compatibilidad**: Soporta el sistema de JWT personalizado de Tacos Gavilan (`cookies()`, header `cookie` y `Authorization: Bearer`).
  * - **Seguridad**: Valida la firma del token usando la clave de firma de Supabase (`SUPABASE_JWT_SECRET`) sin fallbacks inseguros.
+ * - **Permisos por Acción (`StoreScopeAction`)**:
+ *   * `view`: `admin`, `supervisor`, `manager`, `asistente`/`assistant`, `shift_leader` (y `employee` solo cuando `allowEmployeeRead: true`).
+ *   * `complete_checklist`: `admin`, `supervisor`, `manager`, `asistente`/`assistant`, `shift_leader` (restringido a su sucursal).
+ *   * `edit_assignments`: `admin`, `supervisor`, `manager`, `asistente`/`assistant` (`shift_leader` NO puede editar asignaciones de estación).
+ *   * `publish_schedule`: `admin`, `supervisor`, `manager`, `asistente`/`assistant` (`shift_leader` NO puede publicar horarios).
+ *   * `manage_catalog`: `admin`, `supervisor` (y `DELETE` restringido a `admin`).
  * - **Alcance de Tienda (`authorizeStoreScope`)**:
  *   * `admin` y `supervisor` tienen alcance global multitienda.
- *   * `manager` y `asistente` están restringidos exclusivamente a su `store_id` asignada (resolviendo tanto ID numérico como `external_id` Toast GUID).
+ *   * `manager`, `asistente` y `shift_leader` están restringidos exclusivamente a su `store_id` asignada (resolviendo tanto ID numérico como `external_id` Toast GUID).
  *   * `employee` solo puede consultar su propia información/tienda cuando el endpoint habilite `allowEmployeeRead`.
  *
  * @dataFlow
@@ -140,6 +146,39 @@ export async function getServerUser(req?: Request): Promise<ServerUser | null> {
   }
 }
 
+export type StoreScopeAction =
+  | 'view'
+  | 'complete_checklist'
+  | 'edit_assignments'
+  | 'publish_schedule'
+  | 'manage_catalog'
+
+export const ACTION_ALLOWED_ROLES: Record<StoreScopeAction, readonly string[]> = {
+  view: [
+    'admin',
+    'supervisor',
+    'manager',
+    'asistente',
+    'assistant',
+    'shift_leader',
+    'shift leader',
+    'shiftleader',
+  ],
+  complete_checklist: [
+    'admin',
+    'supervisor',
+    'manager',
+    'asistente',
+    'assistant',
+    'shift_leader',
+    'shift leader',
+    'shiftleader',
+  ],
+  edit_assignments: ['admin', 'supervisor', 'manager', 'asistente', 'assistant'],
+  publish_schedule: ['admin', 'supervisor', 'manager', 'asistente', 'assistant'],
+  manage_catalog: ['admin', 'supervisor'],
+}
+
 export interface StoreScopeAuthResult {
   authorized: boolean
   status: number
@@ -154,7 +193,8 @@ export interface StoreScopeAuthResult {
 
 /**
  * Verifica que el usuario autenticado tenga autorización sobre la sucursal solicitada (`targetStoreId`),
- * soportando tanto ID numérico de `stores.id` como `stores.external_id` (Toast GUID).
+ * soportando tanto ID numérico de `stores.id` como `stores.external_id` (Toast GUID), y validando
+ * permisos granulares por acción (`view`, `complete_checklist`, `edit_assignments`, `publish_schedule`, `manage_catalog`).
  */
 export async function authorizeStoreScope(
   user: ServerUser | null,
@@ -164,6 +204,8 @@ export async function authorizeStoreScope(
     requireWrite?: boolean
     allowEmployeeRead?: boolean
     allowComparativeAll?: boolean
+    action?: StoreScopeAction
+    allowedRoles?: string[]
   }
 ): Promise<StoreScopeAuthResult> {
   if (!user) {
@@ -174,7 +216,35 @@ export async function authorizeStoreScope(
     }
   }
 
-  const role = (user.role || '').toLowerCase()
+  const role = (user.role || '').trim().toLowerCase()
+
+  if (Array.isArray(options?.allowedRoles) && options!.allowedRoles.length > 0) {
+    const normalizedAllowed = options!.allowedRoles.map((r) => r.trim().toLowerCase())
+    if (!normalizedAllowed.includes(role)) {
+      return {
+        authorized: false,
+        status: 403,
+        error: 'Acceso denegado: Tu rol no tiene permiso para ejecutar esta acción.'
+      }
+    }
+  }
+
+  const effectiveAction: StoreScopeAction | undefined =
+    options?.action ?? (options?.requireWrite ? 'edit_assignments' : undefined)
+
+  if (effectiveAction) {
+    const allowedForAction = ACTION_ALLOWED_ROLES[effectiveAction]
+    const employeeReadPermitted =
+      effectiveAction === 'view' && Boolean(options?.allowEmployeeRead) && role === 'employee'
+    if (!allowedForAction.includes(role) && !employeeReadPermitted) {
+      return {
+        authorized: false,
+        status: 403,
+        error: `Acceso denegado: Tu rol (${role}) no tiene permiso para la acción '${effectiveAction}'.`
+      }
+    }
+  }
+
   const isGlobal = role === 'admin' || role === 'supervisor'
 
   if (isGlobal) {
@@ -204,22 +274,30 @@ export async function authorizeStoreScope(
     }
   }
 
-  const isStoreLeadership = role === 'manager' || role === 'asistente'
+  const isStoreLeadership =
+    role === 'manager' ||
+    role === 'asistente' ||
+    role === 'assistant'
+  const isShiftLeader =
+    role === 'shift_leader' ||
+    role === 'shift leader' ||
+    role === 'shiftleader'
   const isEmployee = role === 'employee'
 
-  if (options?.requireWrite && !isStoreLeadership) {
-    return {
-      authorized: false,
-      status: 403,
-      error: 'Acceso denegado: Tu rol no tiene permisos de escritura sobre asignaciones u horarios.'
-    }
-  }
+  const canPerformAction =
+    effectiveAction === 'complete_checklist'
+      ? isStoreLeadership || isShiftLeader
+      : options?.requireWrite || effectiveAction === 'edit_assignments' || effectiveAction === 'publish_schedule'
+        ? isStoreLeadership
+        : effectiveAction === 'manage_catalog'
+          ? false
+          : isStoreLeadership || isShiftLeader || (isEmployee && Boolean(options?.allowEmployeeRead))
 
-  if (!isStoreLeadership && !(isEmployee && options?.allowEmployeeRead)) {
+  if (!canPerformAction) {
     return {
       authorized: false,
       status: 403,
-      error: 'Acceso denegado: Rol no autorizado para esta operación.'
+      error: 'Acceso denegado: Tu rol no tiene permisos para ejecutar esta operación.'
     }
   }
 

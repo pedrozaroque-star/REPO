@@ -1496,15 +1496,6 @@ export default function DescansosPage() {
                             <RefreshCw size={20} className={isRefreshingToast ? 'animate-spin' : ''} />
                         </button>
                     )}
-                    <button
-                        onClick={() => triggerAiRecalculation(absentEmpIds, null, true, true)}
-                        disabled={calculating}
-                        className="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2.5 rounded-xl text-base font-black shadow-md transition-all flex items-center gap-2 border border-indigo-700 disabled:opacity-50"
-                        title="Recalcular descansos con la IA para todo el día"
-                    >
-                        <Zap size={20} className={calculating ? 'animate-spin' : ''} />
-                        <span>RECALCULAR IA</span>
-                    </button>
 
                     <button
                         onClick={() => setShowRealPunches(!showRealPunches)}

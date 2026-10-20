@@ -47,6 +47,7 @@ import {
     getShiftOverlappingPeriods,
     isFreqMatch as sharedIsFreqMatch,
     isStorePilotActiveForActivitiesEmail,
+    isValidCalendarDateISO,
     mergeAndDeduplicateActivities,
     normalizeText as sharedNormalizeText,
     ResolvedActivityItem,
@@ -252,18 +253,22 @@ export async function POST(req: Request) {
         }
 
         if (
-            !/^\d{4}-\d{2}-\d{2}$/.test(String(start_date).trim()) ||
-            !/^\d{4}-\d{2}-\d{2}$/.test(String(end_date).trim()) ||
+            !isValidCalendarDateISO(String(start_date).trim()) ||
+            !isValidCalendarDateISO(String(end_date).trim()) ||
             String(start_date).trim() > String(end_date).trim()
         ) {
             return NextResponse.json(
-                { error: 'Rango de fechas inválido: start_date y end_date deben ser YYYY-MM-DD con start_date <= end_date.' },
+                { error: 'Rango de fechas inválido: start_date y end_date deben ser fechas reales YYYY-MM-DD con start_date <= end_date.' },
                 { status: 400 }
             )
         }
 
         const scopeAuth = await authorizeStoreScope(authUser, store_id, supabase, {
             requireWrite: !previewOnly,
+            action: previewOnly ? 'view' : 'publish_schedule',
+            allowedRoles: previewOnly
+                ? ['admin', 'supervisor', 'manager', 'asistente', 'assistant', 'shift_leader', 'shift leader', 'shiftleader']
+                : ['admin', 'supervisor', 'manager', 'asistente', 'assistant'],
         })
         if (!scopeAuth.authorized) {
             return NextResponse.json(
@@ -738,7 +743,10 @@ export async function POST(req: Request) {
                             act.source_stations.length > 1
                                 ? ` <span style="font-size: 9px; color: #64748b;">(${act.source_stations.join(', ')})</span>`
                                 : ''
-                        return `<li style="font-size: 11px; color: #4b5563; margin-bottom: 3px;">${timePrefix}${act.title}${multiStationSuffix}</li>`
+                        const descHtml = act.description
+                            ? `<div style="font-size: 10px; font-weight: 500; color: #64748b; margin-top: 2px; line-height: 1.35;">${act.description}</div>`
+                            : ''
+                        return `<li style="font-size: 11px; color: #4b5563; margin-bottom: 5px;">${timePrefix}${act.title}${multiStationSuffix}${descHtml}</li>`
                     })
                     .join('')
 
@@ -752,9 +760,10 @@ export async function POST(req: Request) {
                 `
             }
 
-            const calendarTaskStrings = resolvedActivities.map((act) =>
-                act.effective_start_time ? `[${act.formatted_time}] ${act.title}` : act.title
-            )
+            const calendarTaskStrings = resolvedActivities.map((act) => {
+                const base = act.effective_start_time ? `[${act.formatted_time}] ${act.title}` : act.title
+                return act.description ? `${base}: ${act.description}` : base
+            })
 
             return {
                 isCallback: false,

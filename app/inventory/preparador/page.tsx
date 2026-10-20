@@ -753,26 +753,27 @@ export default function PreparadorPage() {
 
         try {
             const calledAt = new Date().toISOString()
-            // 1. Enviar impulso por WebSocket broadcast si el canal está activo
-            let clientSent = false
-            if (realtimeChannelRef.current) {
-                await realtimeChannelRef.current.send({
-                    type: 'broadcast',
-                    event: 'call_order',
-                    payload: {
-                        order_id: order.id,
-                        order_number: order.order_number,
-                        store_code: storeCode,
-                        dining_option: order.dining_option,
-                        store_name: currentStore?.name || storeCode,
-                        called_at: calledAt
-                    }
-                })
-                clientSent = true
-            }
+            // Disparar en paralelo el broadcast WebSocket de cliente y el endpoint REST de persistencia/redundancia,
+            // de modo que si el WebSocket del tablet está reconectando en la noche, el POST salga en 0ms sin bloquearse.
+            const wsPromise = realtimeChannelRef.current
+                ? Promise.race([
+                      realtimeChannelRef.current.send({
+                          type: 'broadcast',
+                          event: 'call_order',
+                          payload: {
+                              order_id: order.id,
+                              order_number: order.order_number,
+                              store_code: storeCode,
+                              dining_option: order.dining_option,
+                              store_name: currentStore?.name || storeCode,
+                              called_at: calledAt
+                          }
+                      }),
+                      new Promise((resolve) => setTimeout(resolve, 1500))
+                  ])
+                : Promise.resolve()
 
-            // 2. Invocar endpoint REST para persistencia en DB y redundancia de broadcast (marcando fromClientBroadcast y calledAt idéntico)
-            await fetch('/api/order-ready/call', {
+            const apiPromise = fetch('/api/order-ready/call', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -781,10 +782,12 @@ export default function PreparadorPage() {
                     storeCode: storeCode,
                     diningOption: order.dining_option,
                     storeName: currentStore?.name || storeCode,
-                    fromClientBroadcast: clientSent,
+                    fromClientBroadcast: Boolean(realtimeChannelRef.current),
                     calledAt
                 })
             })
+
+            await Promise.allSettled([wsPromise, apiPromise])
         } catch (err) {
             console.error('Error enviando impulso de orden desde tableta:', err)
         } finally {
@@ -1724,14 +1727,6 @@ export default function PreparadorPage() {
 
                 <div className="flex items-center gap-1.5 shrink-0">
                     <button 
-                        onClick={handleWakeUpTablet}
-                        className="flex items-center gap-1 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-500 text-white font-black px-2.5 py-1.5 rounded-xl text-[11px] shadow-sm shadow-orange-500/20 active:scale-95 transition-all cursor-pointer border border-amber-300/30"
-                        title={t('prep.wakeUpTabletDesc')}
-                    >
-                        <Sun size={14} className="animate-spin text-amber-100" style={{ animationDuration: '10s' }} />
-                        <span className="uppercase tracking-tight">{t('prep.wakeUpTabletShort')}</span>
-                    </button>
-                    <button 
                         onClick={() => setShowMobileSettingsDrawer(true)}
                         className="p-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 cursor-pointer active:scale-95 transition-transform"
                         title={t('prep.ajustes')}
@@ -1751,14 +1746,6 @@ export default function PreparadorPage() {
                     >
                         {isFullscreen ? <Minimize size={18} /> : <Maximize size={18} />}
                         <span className="font-extrabold uppercase">{isFullscreen ? t('prep.exit') : t('prep.tablet')}</span>
-                    </button>
-                    <button 
-                        onClick={handleWakeUpTablet}
-                        className="flex items-center gap-2 bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600 hover:from-amber-400 hover:to-orange-500 text-white font-black px-3.5 py-2 rounded-xl text-xs md:text-sm shadow-md shadow-orange-500/20 active:scale-95 transition-all cursor-pointer border border-amber-300/30"
-                        title={t('prep.wakeUpTabletDesc')}
-                    >
-                        <Sun size={18} className="animate-spin text-amber-100" style={{ animationDuration: '10s' }} />
-                        <span className="tracking-wide uppercase">{t('prep.wakeUpTablet')}</span>
                     </button>
                     <div>
                         <h1 className="font-black text-lg md:text-xl text-slate-800 dark:text-white uppercase tracking-wider">{t('prep.title')}</h1>

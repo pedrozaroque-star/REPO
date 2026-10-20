@@ -1480,9 +1480,9 @@ export default function GavilanPosEcosystemPage() {
                             }}
                             className="bg-transparent text-[11px] font-extrabold outline-none cursor-pointer"
                         >
-                            <option value="ONLINE_AC">🟢 Fibra + Luz AC 120V ({batteryStatus.levelPct}% Bat)</option>
-                            <option value="CELLULAR_5G_UPS">🟡 Sin Fibra → 5G Backup + UPS ({batteryStatus.backupHoursEstimated}h)</option>
-                            <option value="OFFLINE_BATTERY">🟠 Apagón Total → 100% Offline + Batería Tablet/UPS</option>
+                            <option value="ONLINE_AC">Fibra + Luz AC 120V ({batteryStatus.levelPct}% Bat)</option>
+                            <option value="CELLULAR_5G_UPS">Sin Fibra → 5G Backup + UPS ({batteryStatus.backupHoursEstimated}h)</option>
+                            <option value="OFFLINE_BATTERY">Apagón Total → 100% Offline + Batería Tablet/UPS</option>
                         </select>
                     </div>
 
@@ -2135,7 +2135,7 @@ export default function GavilanPosEcosystemPage() {
                                                                 ? 'bg-cyan-50 text-cyan-700 border-cyan-200'
                                                                 : 'bg-amber-50 text-amber-700 border-amber-200'
                                                 }`}>
-                                                    🔥 KDS: {item.prepStation}
+                                                    KDS: {item.prepStation}
                                                 </span>
                                                 <span className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-slate-50 text-slate-600 border border-slate-200">
                                                     Tax: {item.taxInherited ? 'Heredado (0% en EBT)' : 'Personalizado'}
@@ -2241,11 +2241,11 @@ export default function GavilanPosEcosystemPage() {
                                                                 }}
                                                                 className="px-2.5 py-1 rounded-lg border border-slate-200 bg-white text-xs font-bold text-slate-800 cursor-pointer"
                                                             >
-                                                                <option value="PARRILLA">🔥 PARRILLA / TAQUERO (KDS HDMI)</option>
-                                                                <option value="LINEA">🥗 LÍNEA / PREPARACIÓN (KDS HDMI)</option>
-                                                                <option value="TORTILLAS">🫓 TORTILLAS (KDS HDMI)</option>
-                                                                <option value="BEBIDAS">🥤 AGUAS / BEBIDAS</option>
-                                                                <option value="NONE">🚫 NO ENVIAR A KDS COCINA</option>
+                                                                <option value="PARRILLA">PARRILLA / TAQUERO (KDS HDMI)</option>
+                                                                <option value="LINEA">LÍNEA / PREPARACIÓN (KDS HDMI)</option>
+                                                                <option value="TORTILLAS">TORTILLAS (KDS HDMI)</option>
+                                                                <option value="BEBIDAS">AGUAS / BEBIDAS</option>
+                                                                <option value="NONE">NO ENVIAR A KDS COCINA</option>
                                                             </select>
                                                         </td>
                                                         <td className="py-2.5 px-3 text-center">
@@ -2393,11 +2393,11 @@ export default function GavilanPosEcosystemPage() {
                                                     onChange={(e) => setEditingItem({ ...editingItem, prepStation: e.target.value as any })}
                                                     className="w-full mt-1 px-3 py-2 rounded-xl border border-slate-200 text-sm font-bold text-slate-900"
                                                 >
-                                                    <option value="PARRILLA">🔥 PARRILLA / TAQUERO (KDS Principal + Monitor Espejo HDMI — 0% Papel)</option>
-                                                    <option value="LINEA">🥗 LÍNEA / PREPARACIÓN (KDS Principal HDMI)</option>
-                                                    <option value="TORTILLAS">🫓 TORTILLAS (KDS HDMI)</option>
-                                                    <option value="BEBIDAS">🥤 AGUAS / BEBIDAS</option>
-                                                    <option value="NONE">🚫 NO ENVIAR A KDS COCINA</option>
+                                                    <option value="PARRILLA">PARRILLA / TAQUERO (KDS Principal + Monitor Espejo HDMI — 0% Papel)</option>
+                                                    <option value="LINEA">LÍNEA / PREPARACIÓN (KDS Principal HDMI)</option>
+                                                    <option value="TORTILLAS">TORTILLAS (KDS HDMI)</option>
+                                                    <option value="BEBIDAS">AGUAS / BEBIDAS</option>
+                                                    <option value="NONE">NO ENVIAR A KDS COCINA</option>
                                                 </select>
                                             </div>
                                         </div>
@@ -2521,11 +2521,11 @@ export default function GavilanPosEcosystemPage() {
                                             </label>
                                             <div className="grid grid-cols-2 gap-2">
                                                 {[
-                                                    { id: 'CARD', label: '💳 Tarjeta / Apple Pay / Google Pay', sub: 'Interchange++ (Durbin 0.05%)' },
-                                                    { id: 'EBT_FOOD', label: '🏛️ EBT CalFresh RMP (100% Comida)', sub: 'Elimina Sales Tax a $0.00 auto' },
-                                                    { id: 'SPLIT_EBT_MIXED', label: '🔀 Pago Dividido Universal & Multi-Método (4 Modalidades)', sub: 'Por Monto Libre • Partes Iguales (÷N) • Por Plato/Bolsa • Por Artículos (Efectivo, Múltiples Tarjetas, EBT 0% Tax, Gift Card)' },
-                                                    { id: 'EBT_CASH', label: '💵 EBT Cash (CalWORKs)', sub: 'Con PIN en lector PAX A35' },
-                                                    { id: 'CASH', label: '💶 Efectivo (Cash Drawer)', sub: 'Pulso ESC p abre cajón APG' }
+                                                    { id: 'CARD', label: 'Tarjeta / Apple Pay / Google Pay', sub: 'Interchange++ (Durbin 0.05%)' },
+                                                    { id: 'EBT_FOOD', label: 'EBT CalFresh RMP (100% Comida)', sub: 'Elimina Sales Tax a $0.00 auto' },
+                                                    { id: 'SPLIT_EBT_MIXED', label: 'Pago Dividido Universal & Multi-Método (4 Modalidades)', sub: 'Por Monto Libre • Partes Iguales (÷N) • Por Plato/Bolsa • Por Artículos (Efectivo, Múltiples Tarjetas, EBT 0% Tax, Gift Card)' },
+                                                    { id: 'EBT_CASH', label: 'EBT Cash (CalWORKs)', sub: 'Con PIN en lector PAX A35' },
+                                                    { id: 'CASH', label: 'Efectivo (Cash Drawer)', sub: 'Pulso ESC p abre cajón APG' }
                                                 ].map(tnd => (
                                                     <button
                                                         key={tnd.id}
@@ -2611,7 +2611,7 @@ export default function GavilanPosEcosystemPage() {
                                                                         }}
                                                                         className="px-2.5 py-1 rounded-lg bg-teal-50 hover:bg-teal-100 border border-teal-300 text-teal-950 font-black text-[11px] cursor-pointer"
                                                                     >
-                                                                        🏛️+💵 EBT $15 + Efectivo
+                                                                        EBT $15 + Efectivo
                                                                     </button>
                                                                     <button
                                                                         type="button"
@@ -2627,7 +2627,7 @@ export default function GavilanPosEcosystemPage() {
                                                                         }}
                                                                         className="px-2.5 py-1 rounded-lg bg-amber-50 hover:bg-amber-100 border border-amber-300 text-amber-950 font-black text-[11px] cursor-pointer"
                                                                     >
-                                                                        🎁+💳 Gift Card $10 + Tarjeta
+                                                                        Gift Card $10 + Tarjeta
                                                                     </button>
                                                                     <button
                                                                         type="button"
@@ -2643,7 +2643,7 @@ export default function GavilanPosEcosystemPage() {
                                                                         }}
                                                                         className="px-2.5 py-1 rounded-lg bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 text-emerald-950 font-black text-[11px] cursor-pointer"
                                                                     >
-                                                                        💵+💳 Efectivo $20 + Tarjeta
+                                                                        Efectivo $20 + Tarjeta
                                                                     </button>
                                                                     <button
                                                                         type="button"
@@ -2663,7 +2663,7 @@ export default function GavilanPosEcosystemPage() {
                                                                         }}
                                                                         className="px-2.5 py-1 rounded-lg bg-indigo-50 hover:bg-indigo-100 border border-indigo-300 text-indigo-950 font-black text-[11px] cursor-pointer"
                                                                     >
-                                                                        🏛️+💵+💳 Triple (EBT + Cash + Card)
+                                                                        Triple (EBT + Cash + Card)
                                                                     </button>
                                                                 </div>
                                                             </div>
@@ -2678,11 +2678,11 @@ export default function GavilanPosEcosystemPage() {
                                                                             onChange={(e) => setNewLegMethod(e.target.value as SplitTenderMethod)}
                                                                             className="w-full mt-0.5 px-2 py-1.5 rounded-lg border border-slate-300 bg-white font-bold text-slate-900"
                                                                         >
-                                                                            <option value="EBT_FOOD">🏛️ EBT Food (0% Tax)</option>
-                                                                            <option value="CASH">💵 Efectivo (Abre Cajón)</option>
-                                                                            <option value="CARD_NFC">💳 Tarjeta / Apple Pay</option>
-                                                                            <option value="GIFT_CARD">🎁 Tarjeta de Regalo (Gift Card)</option>
-                                                                            <option value="EBT_CASH">🏧 EBT Cash (CalWORKs)</option>
+                                                                            <option value="EBT_FOOD">EBT Food (0% Tax)</option>
+                                                                            <option value="CASH">Efectivo (Abre Cajón)</option>
+                                                                            <option value="CARD_NFC">Tarjeta / Apple Pay</option>
+                                                                            <option value="GIFT_CARD">Tarjeta de Regalo (Gift Card)</option>
+                                                                            <option value="EBT_CASH">EBT Cash (CalWORKs)</option>
                                                                         </select>
                                                                     </div>
                                                                     <div>
@@ -2848,11 +2848,11 @@ export default function GavilanPosEcosystemPage() {
                                                                                 onChange={(e) => setEqualShareMethods(prev => ({ ...prev, [idx]: e.target.value as SplitTenderMethod }))}
                                                                                 className="px-2 py-1 rounded-lg border border-slate-300 bg-white font-bold text-xs text-slate-900"
                                                                             >
-                                                                                <option value="CARD_NFC">💳 Tarjeta #{idx + 1}</option>
-                                                                                <option value="CASH">💵 Efectivo</option>
-                                                                                <option value="EBT_FOOD">🏛️ EBT Food (0% Tax)</option>
-                                                                                <option value="GIFT_CARD">🎁 Gift Card</option>
-                                                                                <option value="EBT_CASH">🏧 EBT Cash</option>
+                                                                                <option value="CARD_NFC">Tarjeta #{idx + 1}</option>
+                                                                                <option value="CASH">Efectivo</option>
+                                                                                <option value="EBT_FOOD">EBT Food (0% Tax)</option>
+                                                                                <option value="GIFT_CARD">Gift Card</option>
+                                                                                <option value="EBT_CASH">EBT Cash</option>
                                                                             </select>
                                                                             <span className="min-w-[68px] text-right font-black text-sm tabular-nums text-slate-900">
                                                                                 ${leg.amount.toFixed(2)}
@@ -2891,11 +2891,11 @@ export default function GavilanPosEcosystemPage() {
                                                                                     onChange={(e) => setPlateMethods(prev => ({ ...prev, [pg.plate]: e.target.value as SplitTenderMethod }))}
                                                                                     className="px-2 py-1 rounded-lg border border-slate-300 bg-white font-bold text-xs text-slate-900"
                                                                                 >
-                                                                                    <option value="CARD_NFC">💳 Tarjeta / NFC</option>
-                                                                                    <option value="CASH">💵 Efectivo</option>
-                                                                                    <option value="EBT_FOOD">🏛️ EBT Food (0% Tax)</option>
-                                                                                    <option value="GIFT_CARD">🎁 Gift Card</option>
-                                                                                    <option value="EBT_CASH">🏧 EBT Cash</option>
+                                                                                    <option value="CARD_NFC">Tarjeta / NFC</option>
+                                                                                    <option value="CASH">Efectivo</option>
+                                                                                    <option value="EBT_FOOD">EBT Food (0% Tax)</option>
+                                                                                    <option value="GIFT_CARD">Gift Card</option>
+                                                                                    <option value="EBT_CASH">EBT Cash</option>
                                                                                 </select>
                                                                                 <span className="min-w-[68px] text-right font-black text-sm tabular-nums text-slate-900">
                                                                                     ${(leg?.amount || 0).toFixed(2)}
@@ -2956,11 +2956,11 @@ export default function GavilanPosEcosystemPage() {
                                                                                     onChange={(e) => setItemPayerMethods(prev => ({ ...prev, [payerNum]: e.target.value as SplitTenderMethod }))}
                                                                                     className="px-2 py-1 rounded-lg border border-slate-300 bg-white font-bold text-xs text-slate-900"
                                                                                 >
-                                                                                    <option value="CARD_NFC">💳 Tarjeta / NFC</option>
-                                                                                    <option value="CASH">💵 Efectivo</option>
-                                                                                    <option value="EBT_FOOD">🏛️ EBT Food (0% Tax)</option>
-                                                                                    <option value="GIFT_CARD">🎁 Gift Card</option>
-                                                                                    <option value="EBT_CASH">🏧 EBT Cash</option>
+                                                                                    <option value="CARD_NFC">Tarjeta / NFC</option>
+                                                                                    <option value="CASH">Efectivo</option>
+                                                                                    <option value="EBT_FOOD">EBT Food (0% Tax)</option>
+                                                                                    <option value="GIFT_CARD">Gift Card</option>
+                                                                                    <option value="EBT_CASH">EBT Cash</option>
                                                                                 </select>
                                                                                 <span className="min-w-[68px] text-right font-black text-sm tabular-nums text-slate-900">
                                                                                     ${leg.amount.toFixed(2)}
@@ -2998,7 +2998,7 @@ export default function GavilanPosEcosystemPage() {
                                                                     <div key={leg.id} className="flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg bg-slate-50 border border-slate-200">
                                                                         <div className="flex items-center gap-2 min-w-0">
                                                                             <span className={`px-2 py-0.5 rounded text-[10px] font-black border shrink-0 ${meta.badgeCls}`}>
-                                                                                {meta.iconEmoji} {meta.shortEs}
+                                                                                {meta.shortEs}
                                                                             </span>
                                                                             <span className="font-bold text-slate-800 truncate">{leg.label}</span>
                                                                         </div>
@@ -3038,7 +3038,7 @@ export default function GavilanPosEcosystemPage() {
                                                             <div className="flex items-center gap-2">
                                                                 {multiTenderSummary.changeDue > 0 && (
                                                                     <span className="px-2 py-0.5 rounded-md bg-emerald-100 border border-emerald-300 text-emerald-950 font-black text-[11px]">
-                                                                        💵 CAMBIO: ${multiTenderSummary.changeDue.toFixed(2)}
+                                                                        CAMBIO: ${multiTenderSummary.changeDue.toFixed(2)}
                                                                     </span>
                                                                 )}
                                                                 {multiTenderSummary.remainingDue > 0.009 ? (
@@ -3060,7 +3060,7 @@ export default function GavilanPosEcosystemPage() {
                                         {/* Loyalty Gavilan Rewards */}
                                         <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 flex flex-wrap items-center justify-between gap-2 text-xs">
                                             <div className="flex items-center gap-1.5">
-                                                <span className="text-[10px] font-extrabold uppercase text-amber-700">⭐ Gavilan Rewards / Teléfono:</span>
+                                                <span className="text-[10px] font-extrabold uppercase text-amber-700">Gavilan Rewards / Teléfono:</span>
                                                 <input
                                                     type="text"
                                                     value={loyaltyPhoneInput}

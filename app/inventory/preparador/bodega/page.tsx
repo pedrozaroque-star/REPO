@@ -1126,14 +1126,6 @@ export default function BodegaPWA() {
 
                 <div className="flex items-center gap-3 md:gap-5 w-full md:w-auto justify-center md:justify-end">
                     <button 
-                        onClick={handleWakeUpTablet}
-                        className="flex items-center gap-2 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-500 text-white font-black px-3.5 py-2 rounded-xl text-xs md:text-sm shadow-md shadow-amber-500/20 active:scale-95 transition-all cursor-pointer border border-amber-300/30"
-                        title={t('prep.wakeUpTabletDesc')}
-                    >
-                        <Sun size={18} className="text-amber-100 animate-spin" style={{ animationDuration: '10s' }} />
-                        <span className="tracking-wide uppercase">{t('prep.wakeUpTablet')}</span>
-                    </button>
-                    <button 
                         onClick={toggleFullscreen}
                         className={`p-3 rounded-full transition-colors ${isFullscreen ? 'bg-white/20 text-white' : 'bg-white/10 text-white hover:bg-white/20'}`}
                         title="Tablet Mode (Fullscreen)"

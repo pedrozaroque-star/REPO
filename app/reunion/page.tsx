@@ -1,3 +1,17 @@
+/**
+ * @module ReunionPage
+ * @description Presentación ejecutiva de Homologación de Procedimientos y Ecosistema Digital de Tacos Gavilan
+ *   para Supervisores y Gerentes de Sucursal.
+ * @businessRules
+ *   - Nombre oficial de la marca: Tacos Gavilan (sin tilde)
+ *   - 2 Modelos de Tienda: Modelo A (Regular, 9 tiendas) y Modelo B (Con Drive-Thru, 6 tiendas)
+ *   - Fases 1, 2 y 3 activas en toda la cadena (Manual Digital, Checklist Operativo con Estación/Responsable, Reportes y Patrones de Omisión)
+ * @dataFlow
+ *   - Página informativa estática de alineación corporativa y estado real de módulos en producción.
+ * @notes
+ *   - Actualizado para reflejar las 5 Tabletas Operativas + Pantalla TV Order Ready, Caja Fuerte, Uniformes,
+ *     Orden Automática Bodega/QuickBooks & Viele & Sons, Basecamp y Fases 1-3 activas.
+ */
 export default function ReunionPage() {
   return (
     <div style={{
@@ -35,7 +49,7 @@ export default function ReunionPage() {
             fontSize: '0.875rem', color: 'rgba(255,255,255,0.85)',
             margin: 0, fontWeight: 500,
           }}>
-            30 de Mayo 2026 — Tacos Gavilán
+            Tacos Gavilan — Despliegue Corporativo (15 Sucursales)
           </p>
           <div style={{
             marginTop: '1rem',
@@ -75,7 +89,7 @@ export default function ReunionPage() {
             fontSize: '1.05rem', fontWeight: 700, color: '#064e3b',
             margin: 0, lineHeight: 1.5,
           }}>
-            Que TODAS las tiendas de Tacos Gavilán operen bajo los MISMOS procedimientos, con las MISMAS actividades, en los MISMOS horarios, con el MISMO nivel de calidad.
+            Que TODAS las tiendas de Tacos Gavilan operen bajo los MISMOS procedimientos, con las MISMAS actividades, en los MISMOS horarios, con el MISMO nivel de calidad.
           </p>
         </section>
 
@@ -131,7 +145,7 @@ export default function ReunionPage() {
             fontSize: '1rem', fontWeight: 700, color: 'white',
             margin: 0, lineHeight: 1.5,
           }}>
-            💡 Un empleado que entra a <u>cualquier</u> tienda de Tacos Gavilán debe saber exactamente qué hacer, a qué hora, y cómo hacerlo — porque es <strong>IGUAL en todas</strong>.
+            💡 Un empleado que entra a <u>cualquier</u> tienda de Tacos Gavilan debe saber exactamente qué hacer, a qué hora, y cómo hacerlo — porque es <strong>IGUAL en todas</strong>.
           </p>
         </div>
 
@@ -327,12 +341,12 @@ export default function ReunionPage() {
             fontSize: '1.1rem', fontWeight: 800, color: '#0f172a',
             margin: '0 0 0.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem',
           }}>
-            🌐 Ecosistema Digital Tacos Gavilán
+            🌐 Ecosistema Digital Tacos Gavilan
           </h2>
           <p style={{
             fontSize: '0.85rem', color: '#64748b', margin: '0 0 1.25rem', lineHeight: 1.5,
           }}>
-            El Manual de Operaciones es solo una pieza de un ecosistema completo que se está construyendo para profesionalizar y escalar la empresa. Varios módulos <strong style={{ color: '#16a34a' }}>ya están concluidos y en producción</strong>:
+            El Manual de Operaciones es solo una pieza de un ecosistema completo que se está construyendo para profesionalizar y escalar la empresa. Todos los módulos clave de operación <strong style={{ color: '#16a34a' }}>ya están concluidos y en producción</strong>:
           </p>
 
           {/* ── MÓDULOS CONCLUIDOS ── */}
@@ -364,8 +378,8 @@ export default function ReunionPage() {
               },
               {
                 emoji: '🎭',
-                title: 'Roles y Posiciones',
-                desc: 'Gestión centralizada de roles por tienda. Define quién hace qué: cocineros, cajeros, taqueros, preparadores. Asignación visual con colores y organización automática por prioridad de puesto.',
+                title: 'Roles y Posiciones (Tablero Operativo)',
+                desc: 'Gestión centralizada de estaciones por tienda (Salón, Cocina y Drive-Thru). Define quién hace qué con herencia automática de las 140 actividades del catálogo y modo Tablero a pantalla completa.',
                 color: '#16a34a',
                 bgColor: '#faf5ff',
                 borderColor: '#ddd6fe',
@@ -376,11 +390,23 @@ export default function ReunionPage() {
               },
               {
                 emoji: '🥩',
-                title: 'Preparador de Bodega',
-                desc: 'Módulo para el equipo de preparación. Control de carnes, salsas y preparación de ingredientes. Cada preparador ve exactamente qué debe preparar, en qué cantidades y en qué orden.',
+                title: 'Preparador de Parrilla y Bodega',
+                desc: 'Proyección en tiempo real de libras de carne en parrilla por bloques de 30 minutos y preparación en bodega (salsas, frijol, arroz) con acelerador intraday conectado a Toast.',
                 color: '#16a34a',
                 bgColor: '#fef2f2',
                 borderColor: '#fecaca',
+                status: '✅ Concluido',
+                statusColor: '#16a34a',
+                statusBg: '#f0fdf4',
+                statusBorder: '#bbf7d0',
+              },
+              {
+                emoji: '🛡️',
+                title: 'Blindaje Delivery & Pantalla Order Ready',
+                desc: 'Estación de empaque con verificación fotográfica IA para órdenes de Uber Eats / DoorDash y pantalla de TV en comedor para avisar a clientes y repartidores cuando su pedido está listo.',
+                color: '#16a34a',
+                bgColor: '#fff7ed',
+                borderColor: '#fed7aa',
                 status: '✅ Concluido',
                 statusColor: '#16a34a',
                 statusBg: '#f0fdf4',
@@ -414,6 +440,66 @@ export default function ReunionPage() {
                 emoji: '🔍',
                 title: 'Inspecciones de Supervisores',
                 desc: 'Los propios supervisores cuentan con formularios de inspección digital para evaluar la operación de cada tienda: limpieza, presentación, cumplimiento de procedimientos y calidad del servicio.',
+                color: '#16a34a',
+                bgColor: '#ecfdf5',
+                borderColor: '#a7f3d0',
+                status: '✅ Concluido',
+                statusColor: '#16a34a',
+                statusBg: '#f0fdf4',
+                statusBorder: '#bbf7d0',
+              },
+              {
+                emoji: '📦',
+                title: 'Orden Automática de Productos (Bodega & Viele & Sons)',
+                desc: 'Sistema inteligente de pedidos diarios a La Bodega (sincronizado con QuickBooks) y a Viele & Sons basado en consumo real, PAR ideal y conteo físico de sobrantes.',
+                color: '#16a34a',
+                bgColor: '#fffbeb',
+                borderColor: '#fde68a',
+                status: '✅ Concluido',
+                statusColor: '#16a34a',
+                statusBg: '#f0fdf4',
+                statusBorder: '#bbf7d0',
+              },
+              {
+                emoji: '🔐',
+                title: 'Control de Caja Fuerte',
+                desc: 'Registro y seguimiento digital de movimientos de efectivo y denominaciones con calculadora integrada, historial de capturas, auditoría por turno y alertas de diferencias.',
+                color: '#16a34a',
+                bgColor: '#f0f9ff',
+                borderColor: '#bae6fd',
+                status: '✅ Concluido',
+                statusColor: '#16a34a',
+                statusBg: '#f0fdf4',
+                statusBorder: '#bbf7d0',
+              },
+              {
+                emoji: '👕',
+                title: 'Control de Uniformes',
+                desc: 'Registro digital de uniformes entregados a cada empleado: tallas, cantidad, inventario en tienda y solicitudes de reposición.',
+                color: '#16a34a',
+                bgColor: '#faf5ff',
+                borderColor: '#ddd6fe',
+                status: '✅ Concluido',
+                statusColor: '#16a34a',
+                statusBg: '#f0fdf4',
+                statusBorder: '#bbf7d0',
+              },
+              {
+                emoji: '🎬',
+                title: 'Basecamp: Videos de Entrenamiento y Certificación',
+                desc: 'Centro de capacitación digital con videos paso a paso, manuales interactivos y seguimiento de progreso para certificar al personal.',
+                color: '#16a34a',
+                bgColor: '#fef2f2',
+                borderColor: '#fecaca',
+                status: '✅ Concluido',
+                statusColor: '#16a34a',
+                statusBg: '#f0fdf4',
+                statusBorder: '#bbf7d0',
+              },
+              {
+                emoji: '🌍',
+                title: 'Nueva Página Web Oficial',
+                desc: 'Portal web moderno de Tacos Gavilan con menú interactivo, localizador de las 15 sucursales, historia de la marca, catering y empleos.',
                 color: '#16a34a',
                 bgColor: '#ecfdf5',
                 borderColor: '#a7f3d0',
@@ -462,7 +548,7 @@ export default function ReunionPage() {
             ))}
           </div>
 
-          {/* Tabletas en prueba */}
+          {/* 5 Tabletas Operativas + Pantalla Order Ready */}
           <div style={{
             marginTop: '1rem',
             background: 'linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%)',
@@ -475,18 +561,20 @@ export default function ReunionPage() {
             <h3 style={{
               fontSize: '1rem', fontWeight: 800, color: '#1d4ed8', margin: '0 0 0.5rem',
             }}>
-              4 Tabletas Nuevas en Pruebas
+              5 Tabletas Operativas + Pantalla TV Order Ready
             </h3>
             <p style={{
               fontSize: '0.85rem', color: '#475569', margin: 0, lineHeight: 1.6,
             }}>
-              Se están realizando pruebas con <strong style={{ color: '#1d4ed8' }}>4 tabletas nuevas</strong> en la <strong style={{ color: '#0f172a' }}>Sucursal Slauson</strong> (tienda piloto), cada una dedicada a una función específica:
+              Ecosistema de <strong style={{ color: '#1d4ed8' }}>5 tabletas operativas en tienda</strong> con protocolo inteligente 24/7 (Wake Lock y ahorro de energía automático):
             </p>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginTop: '0.75rem', textAlign: 'left' }}>
               {[
-                { qty: '2', label: 'Preparador de Bodega', desc: 'Control de carnes, salsas y preparación de ingredientes en tiempo real', icon: '🥩' },
-                { qty: '1', label: 'Tablero de Roles', desc: 'Asignación visual de posiciones por turno', icon: '🎭' },
-                { qty: '1', label: 'Breaks & Lunches AI', desc: 'Descansos inteligentes optimizados por volumen de ventas', icon: '🧠' },
+                { qty: '1', label: 'Preparador de Parrilla (Carnes)', desc: 'Proyección de libras crudas cada 30 min para Asada, Pastor, Pollo, Cabeza y Lengua', icon: '🔥' },
+                { qty: '1', label: 'Preparador de Bodega', desc: 'Control de lotes de salsas, frijol, arroz y aguas frescas en tiempo real', icon: '🥩' },
+                { qty: '1', label: 'Tablero de Roles y Checklist', desc: 'Mapa visual de estaciones por turno y checklist interactivo de actividades', icon: '🎭' },
+                { qty: '1', label: 'Breaks & Lunches AI', desc: 'Descansos inteligentes optimizados por volumen de ventas y ley laboral CA', icon: '🧠' },
+                { qty: '1', label: 'Blindaje Delivery (Empaque IA)', desc: 'Verificación fotográfica de pedidos de delivery + Pantalla TV Order Ready', icon: '🛡️' },
               ].map((t, i) => (
                 <div key={i} style={{
                   display: 'flex', alignItems: 'center', gap: '0.75rem',
@@ -520,23 +608,14 @@ export default function ReunionPage() {
             display: 'flex', alignItems: 'center', gap: '0.5rem',
           }}>
             <span style={{ fontSize: '0.85rem' }}>🚧</span>
-            <span style={{ fontSize: '0.8rem', fontWeight: 800, color: '#d97706' }}>EN DESARROLLO Y PRÓXIMAMENTE</span>
+            <span style={{ fontSize: '0.8rem', fontWeight: 800, color: '#d97706' }}>PRÓXIMOS LANZAMIENTOS CORPORATIVOS</span>
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
             {[
               {
-                emoji: '🎬',
-                title: 'Videos de Entrenamiento, Capacitación y Certificación',
-                desc: 'Videos profesionales paso a paso para capacitar al personal. Al terminar cada módulo, el empleado responde un cuestionario sobre lo aprendido y recibe su certificación digital.',
-                color: '#dc2626',
-                bgColor: '#fef2f2',
-                borderColor: '#fecaca',
-                status: 'En Producción',
-              },
-              {
                 emoji: '📱',
-                title: 'App Tacos Gavilán (Android & iPhone)',
+                title: 'App Tacos Gavilan (Android & iPhone)',
                 desc: 'Aplicación propia para los clientes. Podrán ver el menú, hacer pedidos, ordenar para recoger o a domicilio, y recibir promociones exclusivas desde su celular.',
                 color: '#2563eb',
                 bgColor: '#eff6ff',
@@ -544,45 +623,9 @@ export default function ReunionPage() {
                 status: 'En Desarrollo',
               },
               {
-                emoji: '🌍',
-                title: 'Nueva Página Web',
-                desc: 'Se está construyendo la nueva página web de Tacos Gavilán con menú, ubicaciones, historia y pedidos en línea.',
-                color: '#059669',
-                bgColor: '#ecfdf5',
-                borderColor: '#a7f3d0',
-                status: 'En Desarrollo',
-              },
-              {
-                emoji: '📦',
-                title: 'Orden Automática de Productos',
-                desc: 'Sistema automatizado de pedidos a Viele & Sons y a la Bodega. Basado en consumo real, sin inventarios manuales ni faltantes de último minuto.',
-                color: '#d97706',
-                bgColor: '#fffbeb',
-                borderColor: '#fde68a',
-                status: 'Próximamente',
-              },
-              {
-                emoji: '👔',
-                title: 'Control de Uniformes',
-                desc: 'Registro digital de uniformes entregados a cada empleado: tallas, cantidad, estado y renovación. Sin pérdidas ni confusiones.',
-                color: '#7c3aed',
-                bgColor: '#faf5ff',
-                borderColor: '#ddd6fe',
-                status: 'Próximamente',
-              },
-              {
-                emoji: '🔐',
-                title: 'Control de Caja Fuerte',
-                desc: 'Registro y seguimiento de movimientos de efectivo: quién abrió, cuánto se depositó, cuánto se retiró y cuándo. Incluye una calculadora en pantalla para que el encargado (Manager/Asistente) haga sus sumatorias en el mismo módulo, con históricos de captura y sumatorias inteligentes.',
-                color: '#0369a1',
-                bgColor: '#f0f9ff',
-                borderColor: '#bae6fd',
-                status: 'Próximamente',
-              },
-              {
                 emoji: '🏛️',
                 title: 'Cultura Empresarial',
-                desc: 'Sección dedicada a los objetivos, metas, visión y misión de Tacos Gavilán. Para que todo el equipo sepa hacia dónde vamos y por qué hacemos lo que hacemos.',
+                desc: 'Sección dedicada a los objetivos, metas, visión y misión de Tacos Gavilan. Para que todo el equipo sepa hacia dónde vamos y por qué hacemos lo que hacemos.',
                 color: '#b45309',
                 bgColor: '#fffbeb',
                 borderColor: '#fde68a',
@@ -724,31 +767,31 @@ export default function ReunionPage() {
 
           {[
             {
-              phase: 'FASE 1', status: 'HOY', color: '#16a34a', bgColor: '#f0fdf4',
+              phase: 'FASE 1', status: '✅ ACTIVO EN LAS 15 TIENDAS', color: '#16a34a', bgColor: '#f0fdf4',
               borderColor: '#bbf7d0',
               items: [
-                '✅ Manual de Operaciones centralizado',
-                '✅ Actividades estandarizadas para todas las tiendas',
-                '✅ Filtros por turno y día',
-                '✅ Identificación visual de tareas especiales',
+                '✅ Manual de Operaciones centralizado (140 actividades homologadas)',
+                '✅ Actividades estandarizadas por modelo (Regular y Con Drive-Thru)',
+                '✅ Filtros por turno (AM / PM) y día de la semana',
+                '✅ Identificación visual en púrpura de tareas especiales (Lunes, Miércoles, Fin de mes)',
               ]
             },
             {
-              phase: 'FASE 2', status: 'PRÓXIMAMENTE', color: '#d97706', bgColor: '#fffbeb',
-              borderColor: '#fde68a',
+              phase: 'FASE 2', status: '✅ ACTIVO EN LAS 15 TIENDAS', color: '#16a34a', bgColor: '#f0fdf4',
+              borderColor: '#bbf7d0',
               items: [
-                '⬜ Checklist digital: marcar actividades como completadas',
-                '⬜ Registro de quién completó qué y a qué hora',
-                '⬜ Alertas si una actividad no se marcó como hecha',
+                '✅ Checklist digital interactivo vinculado a Estación y Responsable del turno',
+                '✅ Registro en tiempo real de quién completó qué y a qué hora',
+                '✅ Alertas visuales automáticas si una actividad supera +30 min sin marcarse',
               ]
             },
             {
-              phase: 'FASE 3', status: 'FUTURO', color: '#7c3aed', bgColor: '#faf5ff',
-              borderColor: '#ddd6fe',
+              phase: 'FASE 3', status: '✅ ACTIVO EN LAS 15 TIENDAS', color: '#16a34a', bgColor: '#f0fdf4',
+              borderColor: '#bbf7d0',
               items: [
-                '⬜ Reportes de cumplimiento por tienda',
-                '⬜ Ranking de tiendas por nivel de cumplimiento',
-                '⬜ Identificar patrones de actividades omitidas',
+                '✅ Reportes de cumplimiento diario y semanal por tienda y por turno',
+                '✅ Ranking comparativo de tiendas por nivel de cumplimiento',
+                '✅ Detección automática de patrones de actividades omitidas',
               ]
             },
           ].map((phase, i) => (
@@ -857,7 +900,7 @@ export default function ReunionPage() {
               fontSize: '0.95rem', color: '#334155',
               margin: '0 0 1rem', lineHeight: 1.6,
             }}>
-              Un cliente debe recibir la <strong style={{ color: '#0f172a' }}>misma experiencia</strong> en cualquier Tacos Gavilán, sin importar cuál visite.
+              Un cliente debe recibir la <strong style={{ color: '#0f172a' }}>misma experiencia</strong> en cualquier Tacos Gavilan, sin importar cuál visite.
             </p>
             <p style={{
               fontSize: '0.8rem', color: '#94a3b8', margin: 0,
@@ -873,7 +916,7 @@ export default function ReunionPage() {
           fontSize: '0.75rem',
           color: '#94a3b8',
         }}>
-          Sistema SM TEG — Tacos Gavilán © 2026
+          Sistema SM TEG — Tacos Gavilan © 2026
         </footer>
       </main>
     </div>

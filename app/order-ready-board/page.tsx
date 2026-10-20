@@ -768,9 +768,17 @@ function OrderReadyBoardContent() {
           resolve()
           return
         }
-        // Tras horas de inactividad el navegador puede suspender el AudioContext: reintentar reanudarlo
+        // Tras horas de inactividad el navegador puede suspender el AudioContext: reintentar reanudarlo con timeout estricto de 400ms
+        // para que nunca congele la cola de audio si Chrome bloquea resume() fuera de un clic directo.
         if (ctx.state === 'suspended') {
-          await ctx.resume().catch(() => {})
+          await Promise.race([
+            ctx.resume().catch(() => {}),
+            new Promise((r) => setTimeout(r, 400))
+          ])
+        }
+        if (ctx.state !== 'running') {
+          resolve()
+          return
         }
 
         const now = ctx.currentTime
@@ -1137,29 +1145,37 @@ function OrderReadyBoardContent() {
           const ctx = audioCtxRef.current
           if (ctx) {
             if (ctx.state === 'suspended') {
-              await ctx.resume().catch(() => {})
+              await Promise.race([
+                ctx.resume().catch(() => {}),
+                new Promise((r) => setTimeout(r, 400))
+              ])
             }
-            const res = await fetch(url)
-            if (res.ok) {
-              const arrayBuf = await res.arrayBuffer()
-              if (arrayBuf.byteLength > 44) {
-                const audioBuffer = await ctx.decodeAudioData(arrayBuf.slice(0))
-                const source = ctx.createBufferSource()
-                const gainNode = ctx.createGain()
-                source.buffer = audioBuffer
-                gainNode.gain.setValueAtTime(targetVol, ctx.currentTime)
-                source.connect(gainNode)
-                gainNode.connect(ctx.destination)
-                const timer = setTimeout(() => {
-                  try { source.stop() } catch {}
-                  finish(false)
-                }, 15000)
-                source.onended = () => {
-                  clearTimeout(timer)
-                  finish(true)
+            // Solo usar Web Audio API si el AudioContext está efectivamente en estado 'running'.
+            // Si sigue 'suspended' (ej. pestaña en segundo plano o ahorro de energía en la noche),
+            // pasar de inmediato al motor HTMLAudioElement en 0ms en lugar de esperar 15s en silencio.
+            if (ctx.state === 'running') {
+              const res = await fetch(url)
+              if (res.ok) {
+                const arrayBuf = await res.arrayBuffer()
+                if (arrayBuf.byteLength > 44) {
+                  const audioBuffer = await ctx.decodeAudioData(arrayBuf.slice(0))
+                  const source = ctx.createBufferSource()
+                  const gainNode = ctx.createGain()
+                  source.buffer = audioBuffer
+                  gainNode.gain.setValueAtTime(targetVol, ctx.currentTime)
+                  source.connect(gainNode)
+                  gainNode.connect(ctx.destination)
+                  const timer = setTimeout(() => {
+                    try { source.stop() } catch {}
+                    finish(false)
+                  }, 15000)
+                  source.onended = () => {
+                    clearTimeout(timer)
+                    finish(true)
+                  }
+                  source.start(0)
+                  return
                 }
-                source.start(0)
-                return
               }
             }
           }
@@ -1753,13 +1769,14 @@ function OrderReadyBoardContent() {
           })
 
           // Capa 4 de Redundancia (Polling Fallback):
-          // Si el WebSocket y Postgres Changes fallaron o se desconectaron momentáneamente,
-          // el polling periódico cada 4s detecta si una orden (en READY o en IN_PROGRESS) fue llamada en los últimos 10 segundos
-          // y dispara el anuncio ÚNICAMENTE si ese impulso no ha sonado ya por las Capas 1-3.
+          // Si el WebSocket y Postgres Changes fallaron o se desconectaron momentáneamente en la noche,
+          // el polling periódico detecta si una orden fue llamada en los últimos 45 segundos
+          // (cubriendo latencias de Toast sync >10s o throttling de pestaña en segundo plano)
+          // y dispara el anuncio ÚNICAMENTE si ese impulso exacto (annMs) no ha sonado ya por las Capas 1-3.
           ;[...ready, ...inProgress, ...bevCalls].forEach(ord => {
             if (ord.announced_at) {
               const annMs = Date.parse(ord.announced_at)
-              if (!isNaN(annMs) && (Date.now() - annMs) < 10000) {
+              if (!isNaN(annMs) && (Date.now() - annMs) < 45000) {
                 const storeKey = `${String(ord.store_code || selectedStore).toUpperCase()}:${ord.order_number}`
                 const lastCall = lastImpulseTimeRef.current.get(storeKey) || 0
                 const lastAnnMs = lastAnnouncedAtMsRef.current.get(storeKey) || 0
@@ -1837,84 +1854,125 @@ function OrderReadyBoardContent() {
     void getBeverageClipUrl('CHAMPURRADO', 'Champurrado pendiente ya está listo', selectedVoice)
   }, [getBeverageClipUrl, selectedVoice])
 
-  // Suscripción a Supabase Realtime (órdenes y configuración global de voz de la cadena)
+  // Suscripción a Supabase Realtime con reconexión automática ante microcortes nocturnos de red/Wi-Fi
   useEffect(() => {
-    const channel = supabase
-      .channel('order-ready-realtime')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'order_ready_announcements'
-        },
-        (payload) => {
-          const newRow = payload.new as any
-          const oldRow = payload.old as any
-          const row = (newRow || oldRow) as OrderItem
-          if (row && row.store_code === selectedStore) {
-            // Capa 3 de Redundancia (PostgreSQL Replication Fallback):
-            // Si la llamada fue persistida en base de datos con un announced_at reciente (<10s)
-            // y ese impulso aún no ha sido reproducido por las Capas 1 o 2, activar el llamado.
-            if (newRow && newRow.announced_at) {
-              const announcedMs = Date.parse(newRow.announced_at)
-              if (!isNaN(announcedMs) && (Date.now() - announcedMs) < 10000) {
-                const storeKey = `${String(newRow.store_code || selectedStore).toUpperCase()}:${newRow.order_number}`
-                const lastCall = lastImpulseTimeRef.current.get(storeKey) || 0
-                const lastAnnMs = lastAnnouncedAtMsRef.current.get(storeKey) || 0
-                const isSameTap = lastAnnMs > 0 && Math.abs(announcedMs - lastAnnMs) < 2500
-                const isRecentCall = lastCall > 0 && (Date.now() - lastCall) < 6000
-                if (isSameTap || isRecentCall) {
-                  if (isRecentCall && (lastAnnMs === 0 || Math.abs(announcedMs - lastAnnMs) < 5000)) {
-                    lastAnnouncedAtMsRef.current.set(storeKey, announcedMs)
+    let unmounted = false
+    let activeChannel: any = null
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null
+
+    const setupChannel = () => {
+      if (unmounted) return
+      if (activeChannel) {
+        supabase.removeChannel(activeChannel).catch(() => {})
+        activeChannel = null
+      }
+
+      const channel = supabase
+        .channel('order-ready-realtime')
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'order_ready_announcements'
+          },
+          (payload) => {
+            const newRow = payload.new as any
+            const oldRow = payload.old as any
+            const row = (newRow || oldRow) as OrderItem
+            if (row && row.store_code === selectedStore) {
+              // Capa 3 de Redundancia (PostgreSQL Replication Fallback):
+              // Si la llamada fue persistida en base de datos con un announced_at reciente (<45s)
+              // y ese impulso aún no ha sido reproducido por las Capas 1 o 2, activar el llamado.
+              if (newRow && newRow.announced_at) {
+                const announcedMs = Date.parse(newRow.announced_at)
+                if (!isNaN(announcedMs) && (Date.now() - announcedMs) < 45000) {
+                  const storeKey = `${String(newRow.store_code || selectedStore).toUpperCase()}:${newRow.order_number}`
+                  const lastCall = lastImpulseTimeRef.current.get(storeKey) || 0
+                  const lastAnnMs = lastAnnouncedAtMsRef.current.get(storeKey) || 0
+                  const isSameTap = lastAnnMs > 0 && Math.abs(announcedMs - lastAnnMs) < 2500
+                  const isRecentCall = lastCall > 0 && (Date.now() - lastCall) < 6000
+                  if (isSameTap || isRecentCall) {
+                    if (isRecentCall && (lastAnnMs === 0 || Math.abs(announcedMs - lastAnnMs) < 5000)) {
+                      lastAnnouncedAtMsRef.current.set(storeKey, announcedMs)
+                    }
+                  } else {
+                    handleImpulseRef.current?.({
+                      order_id: newRow.id,
+                      order_number: newRow.order_number,
+                      store_code: newRow.store_code,
+                      dining_option: newRow.dining_option,
+                      store_name: newRow.store_name,
+                      called_at: newRow.announced_at
+                    })
                   }
-                } else {
-                  handleImpulseRef.current?.({
-                    order_id: newRow.id,
-                    order_number: newRow.order_number,
-                    store_code: newRow.store_code,
-                    dining_option: newRow.dining_option,
-                    store_name: newRow.store_name,
-                    called_at: newRow.announced_at
-                  })
                 }
               }
-            }
-            fetchOrdersRef.current?.(false)
-          }
-        }
-      )
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'order_ready_settings'
-        },
-        (payload) => {
-          const newRow = payload.new as any
-          if (newRow && newRow.id === 'global' && newRow.voice && isValidVoice(newRow.voice)) {
-            setSelectedVoice(newRow.voice)
-            if (typeof window !== 'undefined') {
-              localStorage.setItem('teg_order_ready_voice', newRow.voice)
+              fetchOrdersRef.current?.(false)
             }
           }
-        }
-      )
-      .on(
-        'broadcast',
-        { event: 'call_order' },
-        (payload) => {
-          const data = payload?.payload
-          if (!data) return
-          if (String(data.store_code || '').toUpperCase() !== String(selectedStore || '').toUpperCase()) return
-          handleImpulseRef.current?.(data)
-        }
-      )
-      .subscribe()
+        )
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'order_ready_settings'
+          },
+          (payload) => {
+            const newRow = payload.new as any
+            if (newRow && newRow.id === 'global' && newRow.voice && isValidVoice(newRow.voice)) {
+              setSelectedVoice(newRow.voice)
+              if (typeof window !== 'undefined') {
+                localStorage.setItem('teg_order_ready_voice', newRow.voice)
+              }
+            }
+          }
+        )
+        .on(
+          'broadcast',
+          { event: 'call_order' },
+          (payload) => {
+            const data = payload?.payload
+            if (!data) return
+            if (String(data.store_code || '').toUpperCase() !== String(selectedStore || '').toUpperCase()) return
+            handleImpulseRef.current?.(data)
+          }
+        )
+        .subscribe((status: string) => {
+          if (unmounted) return
+          if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+            if (reconnectTimer) clearTimeout(reconnectTimer)
+            reconnectTimer = setTimeout(() => {
+              if (!unmounted) {
+                setupChannel()
+                fetchOrdersRef.current?.(false)
+              }
+            }, 2500)
+          }
+        })
+
+      activeChannel = channel
+    }
+
+    setupChannel()
+
+    const handleResumeConnection = () => {
+      if (!unmounted && (typeof document === 'undefined' || document.visibilityState === 'visible')) {
+        fetchOrdersRef.current?.(false)
+      }
+    }
+    window.addEventListener('online', handleResumeConnection)
+    document.addEventListener('visibilitychange', handleResumeConnection)
 
     return () => {
-      supabase.removeChannel(channel)
+      unmounted = true
+      if (reconnectTimer) clearTimeout(reconnectTimer)
+      window.removeEventListener('online', handleResumeConnection)
+      document.removeEventListener('visibilitychange', handleResumeConnection)
+      if (activeChannel) {
+        supabase.removeChannel(activeChannel).catch(() => {})
+      }
     }
   }, [selectedStore])
 

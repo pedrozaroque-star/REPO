@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 import { getServerUser, authorizeStoreScope } from '@/lib/auth-server'
+import { isValidCalendarDateISO } from '@/lib/actividades-resolution'
 
 /**
  * @module StoreEmployeesRosterAPI
@@ -14,8 +15,6 @@ import { getServerUser, authorizeStoreScope } from '@/lib/auth-server'
  * @notes
  * - Creado en la remediación integral de ACTIVIDADES (Hallazgo A24, 2026-10-19).
  */
-
-const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 
 function addDaysISO(dateStr: string, days: number): string {
     const d = new Date(`${dateStr}T12:00:00Z`)
@@ -38,9 +37,14 @@ export async function GET(req: Request) {
             return NextResponse.json({ error: 'Falta parámetro store_id' }, { status: 400 })
         }
 
+        if (rawRefDate && !isValidCalendarDateISO(rawRefDate)) {
+            return NextResponse.json({ error: 'Parámetro reference_date inválido (use YYYY-MM-DD real)' }, { status: 400 })
+        }
+
         const authScope = await authorizeStoreScope(user, store_id, supabaseAdmin, {
             allowEmployeeRead: true,
             requireWrite: false,
+            action: 'view',
         })
         if (!authScope.authorized) {
             return NextResponse.json({ error: authScope.error || 'Acceso denegado a esta sucursal' }, { status: authScope.status })
@@ -50,7 +54,7 @@ export async function GET(req: Request) {
         const canonicalStoreNum = authScope.canonicalNumericId
 
         const referenceDate =
-            rawRefDate && ISO_DATE_RE.test(rawRefDate)
+            rawRefDate && isValidCalendarDateISO(rawRefDate)
                 ? rawRefDate
                 : new Date().toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' })
 

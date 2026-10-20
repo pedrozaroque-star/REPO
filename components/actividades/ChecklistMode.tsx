@@ -22,8 +22,9 @@
  *   - Modo CLARO (light mode) por preferencia del cliente
  *   - Fix: Se filtra correctamente por `store_model` considerando si la tienda tiene drive thru o no.
  *   - Fix: Selector de tienda está deshabilitado para rol `manager`.
- *   - Fix: No se guarda `shift_type: "Todos"` en DB, usa shift correcto (PM/AM) en completions.
- *   - Fix: Se eliminó duplicación de la definición y uso de `fetchProcedures`.
+ *   - Fix: Identidad compuesta `(store_id, checklist_date, shift_type, activity_id)` con categoría única (`effective_category`).
+ *   - Fix: Responsabilidad por actividad (`AM` vs `PM`) derivada del horario efectivo (`resolveChecklistActivityResponsibility`), sin forzar `Regular` nocturno/vespertino a `AM`.
+ *   - Fix: Sanitización de instrucciones químicas y distintivo visual para procedimientos sensibles sujetos a validación Safety/Manager.
  */
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
@@ -35,7 +36,11 @@ import { useLanguage } from '@/lib/i18n'
 import { useWakeLock } from '@/lib/use-wake-lock'
 import { purgeTabletStaleCaches } from '@/lib/tablet-cache-cleaner'
 import { calculateStoreOffsetsForDate, type StoreOffsets } from '@/lib/store-time-offset'
-import { resolveStoreCatalogActivitiesForDay } from '@/lib/actividades-resolution'
+import {
+  resolveStoreCatalogActivitiesForDay,
+  resolveChecklistActivityResponsibility,
+  filterApprovedPositionActivities,
+} from '@/lib/actividades-resolution'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 interface Procedure {
@@ -45,15 +50,23 @@ interface Procedure {
   activity: string
   description?: string | null
   shift_type: string
+  raw_shift_type?: string
+  effective_category?: 'Apertura' | 'Regular' | 'Cierre'
+  effective_start_time?: string
+  requires_safety_review?: boolean
+  safety_review_categories?: string[]
+  needs_review?: boolean
   frequency: string
   role: string
   store_model?: string
+  shift?: string | null
   overrides?: { order_index?: number; time_anchor?: string }
 }
 
 interface Completion {
   id: string
   activity_id: string
+  shift_type?: string | null
   completed_at: string
   completed_by_name: string
 }
@@ -66,6 +79,27 @@ interface StoreInfo {
   closing_time?: string
   weekly_hours?: any
   has_drive_thru?: boolean
+}
+
+interface PositionActivityRow {
+  id?: string
+  position_key: string
+  activity_id: string
+  shift?: string | null
+  store_model?: string | null
+}
+
+interface StationAssignmentRow {
+  sub_position: string
+  employee_id: string
+  assignment_date: string
+}
+
+interface EmployeeRow {
+  id: number | string
+  first_name?: string
+  last_name?: string
+  preferred_name?: string
 }
 
 interface ChecklistModeProps {
@@ -178,12 +212,25 @@ export default function ChecklistMode({ onClose }: ChecklistModeProps) {
 
   const userRole = (user?.role || 'user').toLowerCase()
   const canChangeStore = userRole === 'admin' || userRole === 'supervisor'
+  const canToggleChecklist = [
+    'admin',
+    'supervisor',
+    'manager',
+    'asistente',
+    'assistant',
+    'shift_leader',
+    'shift leader',
+    'shiftleader',
+  ].includes(userRole)
 
   // State
   const [stores, setStores] = useState<StoreInfo[]>([])
   const [selectedStoreId, setSelectedStoreId] = useState<string>('')
   const [procedures, setProcedures] = useState<Procedure[]>([])
   const [completions, setCompletions] = useState<Completion[]>([])
+  const [positionActivities, setPositionActivities] = useState<PositionActivityRow[]>([])
+  const [todayAssignments, setTodayAssignments] = useState<StationAssignmentRow[]>([])
+  const [storeEmployees, setStoreEmployees] = useState<EmployeeRow[]>([])
   const [shiftFilter, setShiftFilter] = useState<string>(getCurrentShift())
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState<string | null>(null)
@@ -335,7 +382,7 @@ export default function ChecklistMode({ onClose }: ChecklistModeProps) {
       }
       const { data, error } = await supabase
         .from('checklist_completions')
-        .select('id, activity_id, completed_at, completed_by_name')
+        .select('id, activity_id, shift_type, completed_at, completed_by_name')
         .eq('store_id', selectedStore.external_id)
         .eq('checklist_date', businessDate)
       if (error) {
@@ -351,15 +398,55 @@ export default function ChecklistMode({ onClose }: ChecklistModeProps) {
   }, [selectedStore, businessDate])
 
   const fetchProcedures = useCallback(async () => {
-    const { data } = await supabase
-      .from('operating_procedures')
-      .select('id, start_time, duration_minutes, activity, shift_type, frequency, role, description, overrides, store_model, shift')
-      .order('start_time', { ascending: true })
-    if (data) {
-      const filtered = data.filter((p: Procedure) => p.role !== 'ROLES_MODULE')
+    const [{ data: procData }, { data: posData }] = await Promise.all([
+      supabase
+        .from('operating_procedures')
+        .select('id, start_time, duration_minutes, activity, shift_type, frequency, role, description, overrides, store_model, shift')
+        .order('start_time', { ascending: true }),
+      supabase
+        .from('position_activities')
+        .select('id, position_key, activity_id, shift, store_model'),
+    ])
+    if (procData) {
+      const filtered = procData.filter((p: Procedure) => p.role !== 'ROLES_MODULE')
       setProcedures(filtered)
     }
+    if (posData) {
+      setPositionActivities(filterApprovedPositionActivities(posData as PositionActivityRow[]))
+    }
   }, [])
+
+  const fetchStoreAssignmentsAndEmployees = useCallback(async () => {
+    if (!selectedStore?.external_id) return
+    try {
+      const storeGuid = selectedStore.external_id
+      const [assignRes, empRes] = await Promise.all([
+        fetch(`/api/roles?store_id=${encodeURIComponent(storeGuid)}&start_date=${encodeURIComponent(businessDate)}&end_date=${encodeURIComponent(businessDate)}`),
+        fetch(`/api/roles/employees?store_id=${encodeURIComponent(storeGuid)}&reference_date=${encodeURIComponent(businessDate)}`),
+      ])
+
+      if (assignRes.ok) {
+        const assignData = await assignRes.json()
+        const list: StationAssignmentRow[] = Array.isArray(assignData)
+          ? assignData
+          : Array.isArray(assignData?.assignments)
+          ? assignData.assignments
+          : Array.isArray(assignData?.data)
+          ? assignData.data
+          : []
+        setTodayAssignments(list)
+      }
+
+      if (empRes.ok) {
+        const empData = await empRes.json()
+        if (Array.isArray(empData)) {
+          setStoreEmployees(empData as EmployeeRow[])
+        }
+      }
+    } catch (err) {
+      console.warn('Error fetching store station assignments for checklist:', err)
+    }
+  }, [selectedStore, businessDate])
 
   // ─── Initial Fetch ────────────────────────────────────────────────────────
   useEffect(() => {
@@ -369,9 +456,9 @@ export default function ChecklistMode({ onClose }: ChecklistModeProps) {
   useEffect(() => {
     if (selectedStore) {
       setLoading(true)
-      fetchCompletions().finally(() => setLoading(false))
+      Promise.all([fetchCompletions(), fetchStoreAssignmentsAndEmployees()]).finally(() => setLoading(false))
     }
-  }, [selectedStore, fetchCompletions])
+  }, [selectedStore, fetchCompletions, fetchStoreAssignmentsAndEmployees])
 
   // ─── Supabase Realtime Live Sync for Tablet Checklist ────────────────────
   useEffect(() => {
@@ -382,6 +469,7 @@ export default function ChecklistMode({ onClose }: ChecklistModeProps) {
       debounceTimer = setTimeout(() => {
         fetchProcedures()
         fetchCompletions()
+        fetchStoreAssignmentsAndEmployees()
       }, 500)
     }
 
@@ -399,11 +487,18 @@ export default function ChecklistMode({ onClose }: ChecklistModeProps) {
         table: 'checklist_completions',
         ...(storeGuid ? { filter: `store_id=eq.${storeGuid}` } : {}),
       }, triggerRefresh)
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'station_assignments',
+        ...(storeGuid ? { filter: `store_id=eq.${storeGuid}` } : {}),
+      }, triggerRefresh)
       .subscribe()
 
     const heartbeat = setInterval(() => {
       fetchProcedures()
       fetchCompletions()
+      fetchStoreAssignmentsAndEmployees()
     }, 3 * 60 * 1000)
 
     return () => {
@@ -411,9 +506,9 @@ export default function ChecklistMode({ onClose }: ChecklistModeProps) {
       clearInterval(heartbeat)
       supabase.removeChannel(channel)
     }
-  }, [fetchProcedures, fetchCompletions, selectedStore])
+  }, [fetchProcedures, fetchCompletions, fetchStoreAssignmentsAndEmployees, selectedStore])
 
-  // ─── Filter procedures (Motor Unificado A01–A05, A07, A25) ───────────────
+  // ─── Filter procedures (Motor Unificado A01–A05, A07, A25, Hallazgo 5) ─────
   const filteredProcedures = useMemo(() => {
     return resolveStoreCatalogActivitiesForDay({
       procedures,
@@ -424,33 +519,51 @@ export default function ChecklistMode({ onClose }: ChecklistModeProps) {
     })
   }, [procedures, selectedStore, businessDate, shiftFilter, storeOffsets])
 
-  // ─── Completion map ──────────────────────────────────────────────────────
+  // ─── Mapa de Estación y Responsable Asignado por Actividad (Hallazgo 4) ────
+  const activityResponsibilityMap = useMemo(() => {
+    return resolveChecklistActivityResponsibility({
+      procedures: filteredProcedures,
+      positionActivities,
+      assignments: todayAssignments,
+      employees: storeEmployees,
+      businessDateStr: businessDate,
+      hasDriveThru,
+      fallbackShift: shiftFilter === 'Cierre' ? 'PM' : 'AM',
+    })
+  }, [filteredProcedures, positionActivities, todayAssignments, storeEmployees, hasDriveThru, shiftFilter, businessDate])
+
+  // ─── Completion map (Hallazgo 5: identidad compuesta shift_type::activity_id) ─
   const completionMap = useMemo(() => {
     const map = new Map<string, Completion>()
-    completions.forEach(c => map.set(c.activity_id, c))
+    completions.forEach(c => {
+      const cat = String(c.shift_type || 'Regular').trim()
+      map.set(`${cat}::${c.activity_id}`, c)
+    })
     return map
   }, [completions])
 
+  const getCompletionForProcedure = useCallback((proc: Procedure): Completion | undefined => {
+    const effCat = String(proc.effective_category || proc.shift_type || 'Regular').trim()
+    return completionMap.get(`${effCat}::${proc.id}`)
+  }, [completionMap])
+
   const completedCount = useMemo(() => {
-    return filteredProcedures.filter(p => completionMap.has(p.id)).length
-  }, [filteredProcedures, completionMap])
+    return filteredProcedures.filter(p => Boolean(getCompletionForProcedure(p))).length
+  }, [filteredProcedures, getCompletionForProcedure])
 
   const progressPercent = filteredProcedures.length > 0
     ? Math.round((completedCount / filteredProcedures.length) * 100)
     : 0
 
-  // ─── Toggle completion (vía servidor autenticado Fase 0 item 9) ──────────
-  const toggleCompletion = useCallback(async (activityId: string) => {
-    if (!selectedStore || saving) return
+  // ─── Toggle completion (vía servidor autenticado + identidad compuesta) ────
+  const toggleCompletion = useCallback(async (proc: Procedure) => {
+    if (!canToggleChecklist || !selectedStore || saving) return
+    const activityId = proc.id
+    const effectiveCategory = String(proc.effective_category || proc.shift_type || 'Regular').trim()
     setSaving(activityId)
 
     try {
-      const existing = completionMap.get(activityId)
-      const currentShiftType = (() => {
-        const h = getLATime().getHours()
-        return (h >= 17 || h < 6) ? 'PM' : 'AM'
-      })()
-      const procShiftType = procedures.find(p => p.id === activityId)?.shift_type || currentShiftType
+      const existing = getCompletionForProcedure(proc)
 
       const res = await fetch('/api/roles/checklist', {
         method: 'POST',
@@ -460,7 +573,7 @@ export default function ChecklistMode({ onClose }: ChecklistModeProps) {
           store_id: selectedStore.external_id,
           checklist_date: businessDate,
           activity_id: activityId,
-          shift_type: procShiftType,
+          shift_type: effectiveCategory,
         }),
       })
 
@@ -475,7 +588,7 @@ export default function ChecklistMode({ onClose }: ChecklistModeProps) {
     } finally {
       setSaving(null)
     }
-  }, [selectedStore, saving, completionMap, businessDate, shiftFilter, user, fetchCompletions, procedures])
+  }, [canToggleChecklist, selectedStore, saving, getCompletionForProcedure, businessDate, fetchCompletions])
 
   // ─── Group by time (Regla A25: Nunca inventar 00:00 para actividades sin hora) ──
   const groupedByTime = useMemo(() => {
@@ -540,7 +653,7 @@ export default function ChecklistMode({ onClose }: ChecklistModeProps) {
       setHasScrolled(false)
       setShowStoreDropdown(false)
 
-      await Promise.all([fetchProcedures(), fetchCompletions()])
+      await Promise.all([fetchProcedures(), fetchCompletions(), fetchStoreAssignmentsAndEmployees()])
 
       setTabletWakeSuccess(true)
       setTimeout(() => setTabletWakeSuccess(false), 4000)
@@ -549,7 +662,7 @@ export default function ChecklistMode({ onClose }: ChecklistModeProps) {
     } finally {
       setWakingUpTablet(false)
     }
-  }, [wakingUpTablet, wakeLock, fetchProcedures, fetchCompletions])
+  }, [wakingUpTablet, wakeLock, fetchProcedures, fetchCompletions, fetchStoreAssignmentsAndEmployees])
 
   // ─── Shift labels ───────────────────────────────────────────────────────
   const SHIFTS = [
@@ -590,39 +703,6 @@ export default function ChecklistMode({ onClose }: ChecklistModeProps) {
             </div>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-            <button
-              type="button"
-              onClick={handleWakeUpTablet}
-              disabled={wakingUpTablet}
-              title={t('prep.wakeUpTabletDesc')}
-              style={{
-                background: tabletWakeSuccess
-                  ? '#059669'
-                  : wakingUpTablet
-                    ? '#f59e0b'
-                    : 'rgba(255,255,255,0.95)',
-                color: tabletWakeSuccess ? '#fff' : '#9a3412',
-                border: 'none',
-                borderRadius: '10px',
-                padding: '7px 12px',
-                fontSize: '12px',
-                fontWeight: 800,
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
-                cursor: 'pointer',
-                boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
-              }}
-            >
-              <RefreshCw size={14} className={wakingUpTablet ? 'animate-spin' : ''} />
-              <span>
-                {wakingUpTablet
-                  ? t('prep.wakingUpTablet')
-                  : tabletWakeSuccess
-                    ? t('prep.tabletAwakeSuccess')
-                    : t('prep.wakeUpTabletShort')}
-              </span>
-            </button>
             <div style={{
               background: 'rgba(0,0,0,0.2)', borderRadius: '10px', padding: '5px 12px',
               fontFamily: "'JetBrains Mono', 'Courier New', monospace",
@@ -907,18 +987,20 @@ export default function ChecklistMode({ onClose }: ChecklistModeProps) {
           {/* Activity cards */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
             {group.items.map(proc => {
-              const isCompleted = completionMap.has(proc.id)
-              const completion = completionMap.get(proc.id)
+              const completion = getCompletionForProcedure(proc)
+              const isCompleted = Boolean(completion)
               const minutesOverdue = getMinutesOverdue(proc.start_time)
               const isOverdue = !isCompleted && minutesOverdue > 0
               const isSaving = saving === proc.id
+              const isSpecialTask = Boolean(proc.frequency && proc.frequency.trim().toLowerCase() !== 'diario')
+              const responsibility = activityResponsibilityMap.get(proc.id)
 
               return (
                 <button
-                  key={proc.id}
+                  key={`${proc.effective_category || proc.shift_type || 'Regular'}::${proc.id}`}
                   className={`checklist-card ${isOverdue ? 'checklist-overdue' : ''}`}
-                  onClick={() => toggleCompletion(proc.id)}
-                  disabled={isSaving}
+                  onClick={() => toggleCompletion(proc)}
+                  disabled={isSaving || !canToggleChecklist}
                   style={{
                     display: 'flex', alignItems: 'center', gap: '12px',
                     width: '100%', textAlign: 'left',
@@ -928,13 +1010,17 @@ export default function ChecklistMode({ onClose }: ChecklistModeProps) {
                       ? '2px solid #86efac'
                       : isOverdue
                       ? '2px solid #fca5a5'
+                      : isSpecialTask
+                      ? '2px solid #c084fc'
                       : '2px solid #e2e8f0',
                     background: isCompleted
                       ? '#f0fdf4'
                       : isOverdue
                       ? undefined // handled by animation
+                      : isSpecialTask
+                      ? '#faf5ff'
                       : '#fff',
-                    cursor: isSaving ? 'wait' : 'pointer',
+                    cursor: isSaving ? 'wait' : canToggleChecklist ? 'pointer' : 'default',
                     transition: 'all 0.2s',
                     opacity: isSaving ? 0.6 : 1,
                     minHeight: '60px',
@@ -942,6 +1028,8 @@ export default function ChecklistMode({ onClose }: ChecklistModeProps) {
                       ? 'none'
                       : isOverdue
                       ? 'none'
+                      : isSpecialTask
+                      ? '0 2px 8px rgba(147,51,234,0.08)'
                       : '0 1px 3px rgba(0,0,0,0.06)',
                   }}
                 >
@@ -953,11 +1041,15 @@ export default function ChecklistMode({ onClose }: ChecklistModeProps) {
                       ? 'linear-gradient(135deg, #22c55e, #16a34a)'
                       : isOverdue
                       ? '#fef2f2'
+                      : isSpecialTask
+                      ? '#f3e8ff'
                       : '#f8fafc',
                     border: isCompleted
                       ? 'none'
                       : isOverdue
                       ? '2px solid #ef4444'
+                      : isSpecialTask
+                      ? '2px solid #a855f7'
                       : '2px solid #cbd5e1',
                     transition: 'all 0.3s',
                   }}>
@@ -970,14 +1062,43 @@ export default function ChecklistMode({ onClose }: ChecklistModeProps) {
 
                   {/* Text */}
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <p style={{
-                      color: isCompleted ? '#a3a3a3' : '#1e293b',
-                      fontSize: '14px', fontWeight: 600, margin: 0,
-                      textDecoration: isCompleted ? 'line-through' : 'none',
-                      lineHeight: 1.3,
-                    }}>
-                      {proc.activity}
-                    </p>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                      <p style={{
+                        color: isCompleted ? '#a3a3a3' : isSpecialTask ? '#581c87' : '#1e293b',
+                        fontSize: '14px', fontWeight: 600, margin: 0,
+                        textDecoration: isCompleted ? 'line-through' : 'none',
+                        lineHeight: 1.3,
+                      }}>
+                        {proc.activity}
+                      </p>
+                      {isSpecialTask && (
+                        <span style={{
+                          fontSize: '10px', fontWeight: 700, color: '#7e22ce',
+                          background: '#f3e8ff', border: '1px solid #d8b4fe',
+                          borderRadius: '6px', padding: '1px 7px',
+                        }}>
+                          🟣 {proc.frequency}
+                        </span>
+                      )}
+                      {proc.requires_safety_review && (
+                        <span style={{
+                          fontSize: '10px', fontWeight: 700, color: '#b45309',
+                          background: '#fffbeb', border: '1px solid #fde68a',
+                          borderRadius: '6px', padding: '1px 7px',
+                        }}>
+                          🛡️ {t('actividades.checklist.safety_review_badge')}
+                        </span>
+                      )}
+                      {proc.needs_review && !proc.requires_safety_review && (
+                        <span style={{
+                          fontSize: '10px', fontWeight: 700, color: '#9a3412',
+                          background: '#ffedd5', border: '1px solid #fdba74',
+                          borderRadius: '6px', padding: '1px 7px',
+                        }}>
+                          ⏳ {t('actividades.checklist.pending_review_badge')}
+                        </span>
+                      )}
+                    </div>
                     {proc.description && (
                       <p style={{
                         color: isCompleted ? '#cbd5e1' : '#64748b',
@@ -988,14 +1109,32 @@ export default function ChecklistMode({ onClose }: ChecklistModeProps) {
                       </p>
                     )}
 
-                    {/* Metadata row */}
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '3px', flexWrap: 'wrap' }}>
+                    {/* Metadata row: Duration, Station, Assigned Employee, Completion, Overdue */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '5px', flexWrap: 'wrap' }}>
                       {proc.duration_minutes > 0 && (
                         <span style={{
                           fontSize: '10px', color: '#94a3b8',
                           background: '#f1f5f9', borderRadius: '5px', padding: '1px 6px',
                         }}>
                           ⏱ {proc.duration_minutes} min
+                        </span>
+                      )}
+                      {responsibility && responsibility.stations.length > 0 && (
+                        <span style={{
+                          fontSize: '10px', fontWeight: 600, color: '#0369a1',
+                          background: '#f0f9ff', border: '1px solid #bae6fd',
+                          borderRadius: '5px', padding: '1px 6px',
+                        }}>
+                          📍 {responsibility.stations.join(' / ')}
+                        </span>
+                      )}
+                      {responsibility && responsibility.employees.length > 0 && (
+                        <span style={{
+                          fontSize: '10px', fontWeight: 700, color: '#047857',
+                          background: '#ecfdf5', border: '1px solid #a7f3d0',
+                          borderRadius: '5px', padding: '1px 6px',
+                        }}>
+                          👤 {responsibility.employees.join(', ')}
                         </span>
                       )}
                       {isCompleted && completion && (

@@ -25,6 +25,7 @@ import {
 import {
     getShiftOverlappingPeriods,
     isStorePilotActiveForActivitiesEmail,
+    isValidCalendarDateISO,
     mergeAndDeduplicateActivities,
     resolveStationActivities,
 } from '@/lib/actividades-resolution'
@@ -42,6 +43,17 @@ export async function GET(req: NextRequest) {
         if (!employeeId || !storeId) {
             return new NextResponse(
                 'Parámetros faltantes: employee_id y store_id son requeridos.',
+                { status: 400 }
+            )
+        }
+
+        if (
+            (startDate && !isValidCalendarDateISO(startDate)) ||
+            (endDate && !isValidCalendarDateISO(endDate)) ||
+            (startDate && endDate && startDate > endDate)
+        ) {
+            return new NextResponse(
+                'Rango de fechas inválido (start_date y end_date deben ser fechas reales YYYY-MM-DD con start_date <= end_date).',
                 { status: 400 }
             )
         }
@@ -293,11 +305,12 @@ export async function GET(req: NextRequest) {
                 ? mergeAndDeduplicateActivities(stationActivityLists)
                 : []
 
-            const formattedTasks = mergedActivities.map((act) =>
-                act.effective_start_time
+            const formattedTasks = mergedActivities.map((act) => {
+                const base = act.effective_start_time
                     ? `[${act.formatted_time}] ${act.title}`
                     : act.title
-            )
+                return act.description ? `${base}: ${act.description}` : base
+            })
 
             return {
                 id: s.id,

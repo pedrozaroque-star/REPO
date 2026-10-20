@@ -109,13 +109,13 @@ export async function GET(request: Request) {
       o.order_number !== 'CHAMPURRADO'
     const filteredOrders = (orders || []).filter(isAllowedDining)
 
-    // Consultar impulsos recientes de Café / Champurrado (últimos 15s) para Capa 4 de Redundancia (Polling Fallback)
-    const recentBeverageCutoff = new Date(Date.now() - 15000).toISOString()
+    // Consultar TODOS los impulsos recientes (órdenes o Café/Champurrado de los últimos 45s) para Capa 4 de Redundancia (Polling Fallback),
+    // garantizando que incluso si una orden tiene >45 min de creada o si syncStoreFromToast tardó >10s en la noche, el llamado nunca se pierda.
+    const recentBeverageCutoff = new Date(Date.now() - 45000).toISOString()
     const { data: beverageCalls } = await supabaseAdmin
       .from('order_ready_announcements')
       .select('id, store_code, store_name, order_number, dining_option, announced_at')
       .eq('store_code', storeCode)
-      .in('order_number', ['CAFE', 'CHAMPURRADO'])
       .gte('announced_at', recentBeverageCutoff)
 
     // Regla de Negocio Tacos Gavilan: Las órdenes listas se retiran tras 20 minutos para mantener limpia la pantalla

@@ -21,6 +21,11 @@ import { Clock, Users, Calendar, Filter, ChevronDown, ChevronRight, PlayCircle, 
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/components/ProtectedRoute';
 import { useLanguage } from '@/lib/i18n';
+import {
+  evaluateProcedureSafetyReview,
+  sanitizeUnsafeProcedureDescription,
+  filterApprovedPositionActivities,
+} from '@/lib/actividades-resolution';
 
 interface Procedure {
   id: string;
@@ -109,7 +114,7 @@ export default function ProceduresTimeline({ readOnly = false }: { readOnly?: bo
         .from('position_activities')
         .select('*');
       if (error) throw error;
-      setPositionActivities(data || []);
+      setPositionActivities(filterApprovedPositionActivities((data || []) as any));
     } catch (e) {
       console.error('Error fetching position activities:', e);
     }
@@ -186,7 +191,8 @@ export default function ProceduresTimeline({ readOnly = false }: { readOnly?: bo
         overrides: { ...(proc.overrides || {}), order_index: index }
       }));
       
-      return sortProcedures([...otherShifts, ...updatedOrder]);
+      const updatedById = new Map(updatedOrder.map(p => [p.id, p]));
+      return sortProcedures(prev.map(p => updatedById.get(p.id) || p));
     });
 
     // 2. Persist changes to backend asynchronously
@@ -977,9 +983,18 @@ export default function ProceduresTimeline({ readOnly = false }: { readOnly?: bo
                                   <h3 className="text-sm sm:text-lg font-bold text-slate-800 dark:text-slate-100 leading-tight">
                                     <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-slate-100 dark:bg-slate-700 text-xs font-bold text-slate-500 dark:text-slate-400 mr-2 flex-shrink-0">{globalOffset + idx + 1}</span>
                                     {proc.activity}
+                                    {(() => {
+                                      const sr = evaluateProcedureSafetyReview(proc);
+                                      if (!sr.requiresSafetyReview && !sr.needsReview) return null;
+                                      return (
+                                        <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-700 align-middle">
+                                          {sr.requiresSafetyReview ? t('actividades.checklist.safety_review_badge') : t('actividades.checklist.pending_review_badge')}
+                                        </span>
+                                      );
+                                    })()}
                                     {proc.description && expandedId !== proc.id && (
                                       <span className="block text-xs text-slate-500 dark:text-slate-400 line-clamp-1 mt-1 pl-8 font-normal">
-                                        {proc.description}
+                                        {sanitizeUnsafeProcedureDescription(proc.description)}
                                       </span>
                                     )}
                                   </h3>
@@ -1196,7 +1211,7 @@ export default function ProceduresTimeline({ readOnly = false }: { readOnly?: bo
                                       />
                                     ) : (
                                       <p className="text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
-                                        {proc.description || t('procedures.no_description')}
+                                        {sanitizeUnsafeProcedureDescription(proc.description) || t('procedures.no_description')}
                                       </p>
                                     )}
                                   </div>

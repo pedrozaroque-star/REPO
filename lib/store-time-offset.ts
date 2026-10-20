@@ -36,6 +36,11 @@
  * @dataFlow
  * - Consumido por: `lib/actividades-resolution.ts`, `AsignacionDiariaTab.tsx`, `ChecklistMode.tsx`,
  *   `ReportesChecklistTab.tsx`, `/api/notifications/publish-schedule` y `/api/schedule/calendar`.
+ *
+ * @notes
+ * - Las actividades `Regular` siguen siempre el ancla `OPENING` (`REGULAR_OFFSET`), incluso en
+ *   horario nocturno (9:00 PM - 5:59 AM), salvo que el procedimiento tenga un override explícito
+ *   `time_anchor = 'CLOSING'`. No se convierten automáticamente en `CLOSING`.
  */
 
 export type TimeAnchor = 'OPENING' | 'CLOSING' | 'FIXED';
@@ -320,16 +325,8 @@ export function resolveTimeAnchor(
         return 'CLOSING';
     }
 
-    // Política explícita para actividades Regular nocturnas (21:00 a 05:59):
-    // Se anclan al cierre de la sucursal para no desplazarse hacia atrás por aperturas tempranas
-    // ni quedar programadas después de que una tienda de cierre temprano (ej. Azusa 23:00) ya cerró.
-    if (normalizedShiftType === 'regular' && options?.baseTimeStr) {
-        const baseMins = parseTimeToMinutesStrict(options.baseTimeStr);
-        if (baseMins !== null && (baseMins >= 21 * 60 || baseMins < 6 * 60)) {
-            return 'CLOSING';
-        }
-    }
-
+    // Regla aprobada: Las actividades Regular mantienen su ancla OPENING (REGULAR_OFFSET)
+    // independientemente de su hora base, salvo que tengan override explícito (evaluado arriba).
     return 'OPENING';
 }
 

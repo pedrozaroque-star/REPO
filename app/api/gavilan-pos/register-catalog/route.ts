@@ -28,6 +28,7 @@ import {
     isSecondaryItem,
     proteinOf,
     proteinSortKey,
+    beverageSortKey,
     type RegisterCatalogItem,
     type RegisterModifierOption,
     type RegisterFamilyKey,
@@ -94,6 +95,11 @@ export async function GET(req: Request) {
         items.sort((a, b) => {
             if (a.family !== b.family) return a.family.localeCompare(b.family)
             if (a.secondary !== b.secondary) return a.secondary ? 1 : -1
+            if (a.family === 'bebidas') {
+                const ba = beverageSortKey(a.name)
+                const bb = beverageSortKey(b.name)
+                if (ba !== bb) return ba - bb
+            }
             const pa = proteinSortKey(a.name)
             const pb = proteinSortKey(b.name)
             if (pa !== pb) return pa - pb

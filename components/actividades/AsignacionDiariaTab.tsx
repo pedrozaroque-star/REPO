@@ -25,6 +25,9 @@
  *   - Usa `supabase` importado directamente de @/lib/supabase para queries client-side.
  *   - El componente exporta default y no recibe props.
  *   - i18n keys bajo namespace `actividades.daily.*` y `prep.*` para controles de despertar tableta.
+ *   - Fix: Motor unificado `resolveStationActivities` compartido con Correo, Calendario y Checklist.
+ *   - Fix: Visibilidad completa en Tablero Visual (`showVisualBoard`) para Liderazgo (`MANAGER`, `ASSISTANT`, `SHIFT_LEADER_MALE`, `SHIFT_LEADER_FEMALE`) y `ACTIVIDADES EXTRA 1..6`.
+ *   - Fix: Restricción de edición de asignaciones (`canEditAssignments`) para que `shift_leader` consulte el tablero sin permisos de escritura sobre asignaciones.
  */
 
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
@@ -74,14 +77,14 @@ import {
 } from '@/lib/store-time-offset';
 import {
   doesShiftOverlapPeriod,
-  getPositionMatchCandidates,
   getStationConfigStatus,
   getStoreOverrideForProcedure,
-  isFreqMatch as sharedIsFreqMatch,
-  isStoreModelMatch,
   getBusinessDaySortMinutes,
   normalizeText,
   isStorePilotActiveForActivitiesEmail,
+  resolveStationActivities,
+  filterApprovedPositionActivities,
+  sanitizeUnsafeProcedureDescription,
 } from '@/lib/actividades-resolution';
 import {
   startOfWeek,
@@ -527,6 +530,7 @@ export default function AsignacionDiariaTab() {
   // Admin y Supervisor pueden cambiar a cualquier tienda; Manager solo su tienda
   const userRole = (user?.role || '').toLowerCase();
   const canChangeStore = ['admin', 'supervisor'].includes(userRole);
+  const canEditAssignments = ['admin', 'supervisor', 'manager', 'asistente', 'assistant'].includes(userRole);
 
   // ── State ──
   const [stores, setStores] = useState<Store[]>([]);
@@ -592,6 +596,41 @@ export default function AsignacionDiariaTab() {
   const [selectedEmployeeCard, setSelectedEmployeeCard] = useState<Employee | null>(null);
   const [isReassigning, setIsReassigning] = useState(false);
   const [hasDriveThru, setHasDriveThru] = useState(true);
+  const activitiesScrollRef = useRef<HTMLDivElement | null>(null);
+  const [canScrollDownActivities, setCanScrollDownActivities] = useState(false);
+
+  const checkActivitiesScroll = useCallback(() => {
+    const el = activitiesScrollRef.current;
+    if (!el) {
+      setCanScrollDownActivities(false);
+      return;
+    }
+    setCanScrollDownActivities(el.scrollHeight - el.scrollTop - el.clientHeight > 12);
+  }, []);
+
+  useEffect(() => {
+    if (!selectedSlotForCard || isReassigning) {
+      setCanScrollDownActivities(false);
+      return;
+    }
+    const t1 = window.setTimeout(checkActivitiesScroll, 50);
+    const t2 = window.setTimeout(checkActivitiesScroll, 220);
+    window.addEventListener('resize', checkActivitiesScroll);
+    let ro: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== 'undefined' && activitiesScrollRef.current) {
+      ro = new ResizeObserver(() => checkActivitiesScroll());
+      ro.observe(activitiesScrollRef.current);
+      if (activitiesScrollRef.current.firstElementChild) {
+        ro.observe(activitiesScrollRef.current.firstElementChild);
+      }
+    }
+    return () => {
+      window.clearTimeout(t1);
+      window.clearTimeout(t2);
+      window.removeEventListener('resize', checkActivitiesScroll);
+      if (ro) ro.disconnect();
+    };
+  }, [selectedSlotForCard, isReassigning, activeShift, selectedDay, positionActivities, assignments, checkActivitiesScroll]);
 
   // ── Auto-Reconfiguración 24/7 y Modal de 3h de Inactividad ──
   const [liveNow, setLiveNow] = useState<Date>(() => new Date());
@@ -909,80 +948,99 @@ export default function AsignacionDiariaTab() {
     return map;
   }, [assignments, selectedDateStr, activeShift]);
 
-  // Helper para ajustar la hora de una actividad según los desfases de la sucursal y fecha (A01, A02, A03)
+  // Helper para obtener la hora efectiva ya resuelta por `resolveStationActivities` (sin doble offset)
   const getAdjustedProcTime = useCallback(
     (proc?: PositionActivity['operating_procedures'] | null): string => {
       if (!proc) return '';
-      const storeOverride = getStoreOverrideForProcedure(proc as any, selectedStore);
-      const rawStartTime = String(storeOverride?.start_time || proc.start_time || '').trim();
-      if (!rawStartTime) return '';
-      return applyTimeOffset(rawStartTime, proc.shift_type || 'Regular', storeOffsets, {
-        activityId: proc.id,
-        activityTitle: proc.activity,
-        overrides: proc.overrides || null,
-      });
+      return String(proc.start_time || '').trim();
     },
-    [storeOffsets, selectedStore]
+    []
   );
 
-  // Activity map: station -> activities[] filtradas con el motor compartido (A07, A08, A09, A11)
+  const approvedPositionActivities = useMemo(() => {
+    return filterApprovedPositionActivities(positionActivities);
+  }, [positionActivities]);
+
+  // Activity map: station -> activities[] resueltas con el motor compartido `resolveStationActivities` (Hallazgo 6)
   const activityMap = useMemo(() => {
     const map: Record<string, PositionActivity[]> = {};
-    const storeModel = hasDriveThru ? 'DRIVE_THRU' : 'REGULAR';
-
     const allSectionStations = SECTIONS.flatMap((s) => s.stations);
+    const storeContext = selectedStore
+      ? { ...selectedStore, has_drive_thru: hasDriveThru }
+      : { has_drive_thru: hasDriveThru };
 
-    positionActivities.forEach((pa) => {
-      const proc = pa.operating_procedures;
-      if (proc && String(proc.role || '').trim().toUpperCase() === 'ROLES_MODULE') return;
-
-      const storeOverride = getStoreOverrideForProcedure(proc as any, selectedStore);
-      if (storeOverride && storeOverride.enabled === false) return;
-
-      const effectiveShiftRule = (pa.shift || proc?.shift || 'AMBOS').toUpperCase().trim();
-      if (effectiveShiftRule !== 'AMBOS' && effectiveShiftRule !== 'ALL' && effectiveShiftRule !== activeShift) return;
-
-      if (!isStoreModelMatch(pa.store_model, storeModel)) return;
-      if (!isStoreModelMatch(proc?.store_model, storeModel)) return;
-
-      const effectiveFreq = String(storeOverride?.frequency || pa.frequency || proc?.frequency || 'Diario').trim();
-      if (effectiveFreq && !sharedIsFreqMatch(effectiveFreq, selectedDateStr, selectedDateStr)) return;
-
-      const candidates = new Set(
-        getPositionMatchCandidates(pa.position_key).map(normalizeText)
-      );
-      // Index under both raw position_key and any canonical station in SECTIONS that matches
-      const targetKeys = new Set<string>([pa.position_key]);
-      for (const st of allSectionStations) {
-        if (candidates.has(normalizeText(st))) {
-          targetKeys.add(st);
-        }
+    const procById = new Map<string, NonNullable<PositionActivity['operating_procedures']>>();
+    for (const pa of approvedPositionActivities) {
+      if (pa.operating_procedures?.id && !procById.has(pa.operating_procedures.id)) {
+        procById.set(pa.operating_procedures.id, pa.operating_procedures);
       }
+    }
+    const catalogProcs = Array.from(procById.values());
 
-      targetKeys.forEach((key) => {
-        if (!map[key]) map[key] = [];
-        // Deduplicate by activity_id within the same station
-        const exists = map[key].some((existing) => existing.activity_id === pa.activity_id);
-        if (!exists) {
-          map[key].push(pa);
-        }
-      });
-    });
+    for (const stationName of allSectionStations) {
+      const subPos = `${stationName}_${activeShift}`;
+      const assigned = assignmentMap[subPos];
+      const empShift = assigned?.employee_id
+        ? todayShifts.find(
+            (s) =>
+              String(s.employee_id) === String(assigned.employee_id) &&
+              !s.is_callback
+          )
+        : undefined;
 
-    // Ordenar cada estación cronológicamente dentro del día operativo (06:00 -> 05:59)
-    Object.keys(map).forEach((key) => {
-      map[key].sort((a, b) => {
-        const timeA = getAdjustedProcTime(a.operating_procedures);
-        const timeB = getAdjustedProcTime(b.operating_procedures);
-        const minA = getBusinessDaySortMinutes(timeA);
-        const minB = getBusinessDaySortMinutes(timeB);
-        if (minA !== minB) return minA - minB;
-        return (a.sort_order ?? 999) - (b.sort_order ?? 999);
+      const resolvedItems = resolveStationActivities({
+        mainStation: stationName,
+        subPosition: subPos,
+        shift: activeShift,
+        businessDateStr: selectedDateStr,
+        store: storeContext,
+        procedures: catalogProcs as any,
+        positionActivities: approvedPositionActivities as any,
+        legacyTasks: assigned?.tasks || null,
+        storeOffsets,
+        shiftStartTime: empShift?.start_time || null,
+        shiftEndTime: empShift?.end_time || null,
+        enforceShiftWindow: Boolean(empShift?.start_time && empShift?.end_time),
       });
-    });
+
+      map[stationName] = resolvedItems.map((item) => {
+        const rawProc = item.activity_id ? procById.get(item.activity_id) : undefined;
+        return {
+          id: item.occurrence_key,
+          position_key: stationName,
+          shift: item.shift,
+          activity_id: item.activity_id || item.occurrence_key,
+          frequency: item.frequency,
+          store_model: item.store_model,
+          sort_order: item.order_index ?? 999,
+          operating_procedures: {
+            id: item.activity_id || item.occurrence_key,
+            activity: item.title,
+            start_time: item.effective_start_time || '',
+            duration_minutes: item.duration_minutes ?? rawProc?.duration_minutes ?? 15,
+            shift_type: item.category,
+            shift: item.shift,
+            frequency: item.frequency,
+            role: rawProc?.role || 'STAFF',
+            store_model: item.store_model,
+            description: sanitizeUnsafeProcedureDescription(item.description),
+            overrides: rawProc?.overrides || null,
+          },
+        };
+      });
+    }
 
     return map;
-  }, [positionActivities, activeShift, selectedDateStr, hasDriveThru, getAdjustedProcTime, selectedStore]);
+  }, [
+    approvedPositionActivities,
+    activeShift,
+    selectedDateStr,
+    hasDriveThru,
+    selectedStore,
+    storeOffsets,
+    assignmentMap,
+    todayShifts,
+  ]);
 
   // ── Data Fetching con protección contra condiciones de carrera (A15) ──
   const fetchStores = useCallback(async () => {
@@ -1199,6 +1257,7 @@ export default function AsignacionDiariaTab() {
   }, [assignments]);
 
   const updateAssignment = useCallback((dateStr: string, station: string, employeeId: string, group: string) => {
+    if (!canEditAssignments) return;
     const subPos = `${station}_${activeShift}`;
     const stationActivitiesList = activityMap[station] || [];
     const defaultTasks = stationActivitiesList
@@ -1225,7 +1284,7 @@ export default function AsignacionDiariaTab() {
         },
       ];
     });
-  }, [selectedStoreGuid, activeShift, activityMap]);
+  }, [canEditAssignments, selectedStoreGuid, activeShift, activityMap]);
 
   const handleSlotClick = useCallback((stationKey: string, label: string, group: string, emp: any, assignee: any) => {
     setSelectedSlotForCard({ 
@@ -1238,6 +1297,7 @@ export default function AsignacionDiariaTab() {
   }, []);
 
   const handleAssignEmployee = (stationName: string, employeeId: string) => {
+    if (!canEditAssignments) return;
     const group = getSectionForStation(stationName);
     updateAssignment(selectedDateStr, stationName, employeeId, group);
   };
@@ -1248,7 +1308,7 @@ export default function AsignacionDiariaTab() {
   }, [persistedAssignments]);
 
   const handleSave = async (forceWithoutRevision = false) => {
-    if (!selectedStoreGuid) return;
+    if (!canEditAssignments || !selectedStoreGuid) return;
     setSaving(true);
     setSaveSuccess(false);
 
@@ -1650,74 +1710,54 @@ export default function AsignacionDiariaTab() {
               </div>
 
               {/* Clonar Semana Completa */}
-              <motion.button
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
-                onClick={handleCopyPreviousWeekAll}
-                disabled={copyingAll}
-                className="px-4 py-2.5 rounded-xl text-sm font-bold bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700/50 shadow-sm transition-all flex items-center gap-2 disabled:opacity-60"
-              >
-                {copyingAll ? (
-                  <Loader2 className="w-4 h-4 animate-spin text-indigo-500" />
-                ) : (
-                  <Calendar className="w-4 h-4 text-indigo-500" />
-                )}
-                {copyingAll ? t('actividades.daily.copying_prev_week_all') : t('actividades.daily.copy_prev_week_all')}
-              </motion.button>
+              {canEditAssignments && (
+                <motion.button
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                  onClick={handleCopyPreviousWeekAll}
+                  disabled={copyingAll}
+                  className="px-4 py-2.5 rounded-xl text-sm font-bold bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700/50 shadow-sm transition-all flex items-center gap-2 disabled:opacity-60"
+                >
+                  {copyingAll ? (
+                    <Loader2 className="w-4 h-4 animate-spin text-indigo-500" />
+                  ) : (
+                    <Calendar className="w-4 h-4 text-indigo-500" />
+                  )}
+                  {copyingAll ? t('actividades.daily.copying_prev_week_all') : t('actividades.daily.copy_prev_week_all')}
+                </motion.button>
+              )}
 
               {/* Clonar por Día y Turno */}
-              <motion.button
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
-                onClick={handleCopyPreviousWeek}
-                disabled={copying}
-                className="px-4 py-2.5 rounded-xl text-sm font-bold bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700/50 shadow-sm transition-all flex items-center gap-2 disabled:opacity-60"
-              >
-                {copying ? (
-                  <Loader2 className="w-4 h-4 animate-spin text-indigo-500" />
-                ) : (
-                  <Copy className="w-4 h-4 text-indigo-500" />
-                )}
-                {copying ? t('actividades.daily.copying_prev_week') : t('actividades.daily.copy_prev_week')}
-              </motion.button>
+              {canEditAssignments && (
+                <motion.button
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                  onClick={handleCopyPreviousWeek}
+                  disabled={copying}
+                  className="px-4 py-2.5 rounded-xl text-sm font-bold bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700/50 shadow-sm transition-all flex items-center gap-2 disabled:opacity-60"
+                >
+                  {copying ? (
+                    <Loader2 className="w-4 h-4 animate-spin text-indigo-500" />
+                  ) : (
+                    <Copy className="w-4 h-4 text-indigo-500" />
+                  )}
+                  {copying ? t('actividades.daily.copying_prev_week') : t('actividades.daily.copy_prev_week')}
+                </motion.button>
+              )}
 
               {/* Vista Previa Correo / Publicación */}
-              <motion.button
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
-                type="button"
-                onClick={handleOpenPublishPreview}
-                className="px-4 py-2.5 rounded-xl text-sm font-bold bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800/60 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 shadow-sm transition-all flex items-center gap-2"
-              >
-                <Eye className="w-4 h-4 text-indigo-500" />
-                <span>{t('actividades.daily.preview_publish_btn')}</span>
-              </motion.button>
-
-              {/* ☀️ Despertar Tableta */}
-              <motion.button
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
-                type="button"
-                onClick={handleWakeUpTablet}
-                disabled={wakingUpTablet}
-                title={t('prep.wakeUpTabletDesc')}
-                className={`px-4 py-2.5 rounded-xl text-sm font-black border shadow-sm transition-all flex items-center gap-2 ${
-                  tabletWakeSuccess
-                    ? 'bg-emerald-600 text-white border-emerald-500 shadow-emerald-500/20'
-                    : wakingUpTablet
-                      ? 'bg-amber-500 text-slate-950 border-amber-400 animate-pulse'
-                      : 'bg-amber-50 dark:bg-amber-950/30 hover:bg-amber-100 dark:hover:bg-amber-900/40 text-amber-800 dark:text-amber-300 border-amber-300 dark:border-amber-700/60'
-                }`}
-              >
-                <RefreshCw className={`w-4 h-4 ${wakingUpTablet ? 'animate-spin' : ''}`} />
-                <span>
-                  {wakingUpTablet
-                    ? t('prep.wakingUpTablet')
-                    : tabletWakeSuccess
-                      ? t('prep.tabletAwakeSuccess')
-                      : t('prep.wakeUpTabletShort')}
-                </span>
-              </motion.button>
+              {canEditAssignments && (
+                <motion.button
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                  type="button"
+                  onClick={handleOpenPublishPreview}
+                  className="px-4 py-2.5 rounded-xl text-sm font-bold bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800/60 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 shadow-sm transition-all flex items-center gap-2"
+                >
+                  <Eye className="w-4 h-4 text-indigo-500" />
+                  <span>{t('actividades.daily.preview_publish_btn')}</span>
+                </motion.button>
+              )}
 
               {/* Tablero */}
               <motion.button
@@ -1734,7 +1774,7 @@ export default function AsignacionDiariaTab() {
               </motion.button>
 
               {/* Descartar cambios (solo cuando hay borrador local) */}
-              {isDirty && (
+              {canEditAssignments && isDirty && (
                 <motion.button
                   whileHover={{ scale: 1.02 }}
                   whileTap={{ scale: 0.98 }}
@@ -1747,32 +1787,34 @@ export default function AsignacionDiariaTab() {
               )}
 
               {/* Save */}
-              <motion.button
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
-                onClick={() => handleSave(false)}
-                disabled={saving}
-                className={`px-5 py-2.5 rounded-xl text-sm font-bold text-white shadow-lg transition-all flex items-center gap-2 ${
-                  saveSuccess
-                    ? 'bg-gradient-to-r from-green-500 to-emerald-600'
-                    : isDirty
-                      ? 'bg-gradient-to-r from-amber-500 to-orange-600 hover:shadow-xl ring-2 ring-amber-400/50'
-                      : 'bg-gradient-to-r from-green-500 to-emerald-600 hover:shadow-xl'
-                } disabled:opacity-60`}
-              >
-                {saving ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : saveSuccess ? (
-                  <CheckCircle2 className="w-4 h-4" />
-                ) : (
-                  <Save className="w-4 h-4" />
-                )}
-                {saving
-                  ? t('actividades.daily.saving')
-                  : saveSuccess
-                  ? t('actividades.daily.saved')
-                  : t('actividades.daily.save')}
-              </motion.button>
+              {canEditAssignments && (
+                <motion.button
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                  onClick={() => handleSave(false)}
+                  disabled={saving}
+                  className={`px-5 py-2.5 rounded-xl text-sm font-bold text-white shadow-lg transition-all flex items-center gap-2 ${
+                    saveSuccess
+                      ? 'bg-gradient-to-r from-green-500 to-emerald-600'
+                      : isDirty
+                        ? 'bg-gradient-to-r from-amber-500 to-orange-600 hover:shadow-xl ring-2 ring-amber-400/50'
+                        : 'bg-gradient-to-r from-green-500 to-emerald-600 hover:shadow-xl'
+                  } disabled:opacity-60`}
+                >
+                  {saving ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : saveSuccess ? (
+                    <CheckCircle2 className="w-4 h-4" />
+                  ) : (
+                    <Save className="w-4 h-4" />
+                  )}
+                  {saving
+                    ? t('actividades.daily.saving')
+                    : saveSuccess
+                    ? t('actividades.daily.saved')
+                    : t('actividades.daily.save')}
+                </motion.button>
+              )}
             </div>
           </div>
 
@@ -2105,7 +2147,7 @@ export default function AsignacionDiariaTab() {
                                       {stationName}
                                     </h3>
                                     {stationActivities.length === 0 &&
-                                      !getStationConfigStatus(stationName, positionActivities).hasDirectMappings && (
+                                      !getStationConfigStatus(stationName, approvedPositionActivities).hasDirectMappings && (
                                         <span
                                           title={t('actividades.daily.station_without_catalog_hint')}
                                           className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-100/90 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border border-amber-300/60 dark:border-amber-700/50 whitespace-nowrap"
@@ -2127,6 +2169,7 @@ export default function AsignacionDiariaTab() {
 
                                 {/* Employee selector */}
                                 <select
+                                  disabled={!canEditAssignments}
                                   value={assignment?.employee_id || ''}
                                   onChange={(e) =>
                                     handleAssignEmployee(stationName, e.target.value)
@@ -2135,7 +2178,7 @@ export default function AsignacionDiariaTab() {
                                     isVacant
                                       ? 'bg-red-50 dark:bg-red-950/30 border-red-300 dark:border-red-700/50 text-red-600 dark:text-red-400'
                                       : 'bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-200'
-                                  } focus:ring-2 focus:ring-indigo-500/30 cursor-pointer`}
+                                  } focus:ring-2 focus:ring-indigo-500/30 ${canEditAssignments ? 'cursor-pointer' : 'cursor-not-allowed opacity-75'}`}
                                 >
                                   <option value="">
                                     {isVacant
@@ -2218,21 +2261,21 @@ export default function AsignacionDiariaTab() {
       {typeof document !== 'undefined' && createPortal(
         <AnimatePresence>
           {showVisualBoard && (() => {
-            const cardHeightClass = hasDriveThru ? 'h-[9vh] sm:h-[11vh]' : 'h-[12vh] sm:h-[15.5vh]';
-            const containerGapClass = hasDriveThru ? 'gap-[1.5vh] sm:gap-[2.5vh]' : 'gap-[3vh] sm:gap-[5vh]';
+            const cardHeightClass = hasDriveThru ? 'h-[10.5vh] sm:h-[11.5vh]' : 'h-[14vh] sm:h-[16vh]';
+            const containerGapClass = hasDriveThru ? 'gap-[1.5vh] sm:gap-[2.2vh]' : 'gap-[2.5vh] sm:gap-[4vh]';
             const containerPaddingClass = hasDriveThru 
-              ? 'pt-[2vh] pb-[10vh] sm:pt-[3vh] sm:pb-[15vh]' 
-              : 'pt-[3vh] pb-[10vh] sm:pt-[6vh] sm:pb-[15vh]';
+              ? 'pt-[1.5vh] pb-[2vh] px-[1.5vw]' 
+              : 'pt-[2vh] pb-[3vh] px-[1.5vw]';
 
             return (
               <motion.div
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
-                className="fixed inset-0 z-[9999] bg-white dark:bg-slate-950 flex flex-col overflow-hidden text-slate-950 dark:text-white"
+                className="fixed inset-0 z-[9999] w-screen h-[100dvh] bg-white dark:bg-slate-950 flex flex-col overflow-hidden text-slate-950 dark:text-white"
               >
                 {/* Header */}
-                <div className="bg-slate-50 dark:bg-slate-900 border-b-2 border-black/5 dark:border-white/5 px-6 py-3 flex items-center justify-between flex-shrink-0">
+                <div className="bg-slate-50 dark:bg-slate-900 border-b-2 border-black/5 dark:border-white/5 px-[2vw] py-[1vh] flex items-center justify-between flex-shrink-0">
                   <div className="flex items-center gap-4">
                     <div className="bg-indigo-600 p-2 rounded-xl text-white">
                       <LayoutTemplate size={20} />
@@ -2305,108 +2348,38 @@ export default function AsignacionDiariaTab() {
                     </div>
                   </div>
 
-                  {/* Wake Up Tablet + Close */}
+                  {/* Close */}
                   <div className="flex items-center gap-2.5">
-                    <button
-                      type="button"
-                      onClick={handleWakeUpTablet}
-                      disabled={wakingUpTablet}
-                      title={t('prep.wakeUpTabletDesc')}
-                      className={`px-4 py-2.5 rounded-full font-black text-xs uppercase tracking-widest border transition-all flex items-center gap-2 active:scale-95 ${
-                        tabletWakeSuccess
-                          ? 'bg-emerald-600 text-white border-emerald-500 shadow-lg shadow-emerald-500/20'
-                          : wakingUpTablet
-                            ? 'bg-amber-500 text-slate-950 border-amber-400 animate-pulse'
-                            : 'bg-amber-50 dark:bg-amber-950/40 hover:bg-amber-100 dark:hover:bg-amber-900/50 text-amber-800 dark:text-amber-300 border-amber-300 dark:border-amber-700/60'
-                      }`}
-                    >
-                      <RefreshCw size={14} className={wakingUpTablet ? 'animate-spin' : ''} />
-                      <span>
-                        {wakingUpTablet
-                          ? t('prep.wakingUpTablet')
-                          : tabletWakeSuccess
-                            ? t('prep.tabletAwakeSuccess')
-                            : t('prep.wakeUpTabletShort')}
-                      </span>
-                    </button>
-
                     <button
                       onClick={() => {
                         setShowVisualBoard(false);
                         exitFullscreen();
                       }}
-                      className="bg-black dark:bg-white text-white dark:text-black px-6 py-2.5 rounded-full font-black text-xs uppercase tracking-widest transition-all hover:bg-slate-800 dark:hover:bg-slate-200 active:scale-95"
+                      className="bg-black dark:bg-white text-white dark:text-black px-6 py-2 rounded-full font-black text-xs uppercase tracking-widest transition-all hover:bg-slate-800 dark:hover:bg-slate-200 active:scale-95"
                     >
                       {t('actividades.daily.close_board')}
                     </button>
                   </div>
                 </div>
 
-                {/* Layout Content */}
-                <div className={`flex-1 p-[2vh] flex flex-col justify-start items-center bg-slate-100/40 dark:bg-slate-950 overflow-y-auto select-none relative ${containerGapClass} ${containerPaddingClass}`}>
-                  {/* Leadership section (A22: Todas las secciones de SECTIONS presentes en Tablero) */}
-                  <div className="flex flex-col gap-[0.2vh] relative z-10 w-full max-w-[96vw] mx-auto">
-                    <div className="flex items-center justify-center gap-[1vh] mb-[0.5vh]">
-                      <h2 className="text-[1.8vh] sm:text-[2.2vh] font-black text-amber-600 dark:text-amber-400 uppercase tracking-[0.4em] italic leading-none">
-                        {t('actividades.daily.section_leadership')}
-                      </h2>
-                    </div>
-                    <div className="w-full grid grid-cols-2 sm:grid-cols-4 gap-[0.3vh] max-w-5xl mx-auto">
-                      <BoardSlot
-                        label="Manager"
-                        stationKey="MANAGER"
-                        group="Liderazgo"
-                        assignee={getAssignee(selectedDay, `MANAGER_${activeShift}`)}
-                        employees={employees}
-                        className={cardHeightClass}
-                        onClick={handleSlotClick}
-                      />
-                      <BoardSlot
-                        label="Assistant"
-                        stationKey="ASSISTANT"
-                        group="Liderazgo"
-                        assignee={getAssignee(selectedDay, `ASSISTANT_${activeShift}`)}
-                        employees={employees}
-                        className={cardHeightClass}
-                        onClick={handleSlotClick}
-                      />
-                      <BoardSlot
-                        label="Shift Leader (H)"
-                        stationKey="SHIFT_LEADER_MALE"
-                        group="Liderazgo"
-                        assignee={getAssignee(selectedDay, `SHIFT_LEADER_MALE_${activeShift}`)}
-                        employees={employees}
-                        className={cardHeightClass}
-                        onClick={handleSlotClick}
-                      />
-                      <BoardSlot
-                        label="Shift Leader (M)"
-                        stationKey="SHIFT_LEADER_FEMALE"
-                        group="Liderazgo"
-                        assignee={getAssignee(selectedDay, `SHIFT_LEADER_FEMALE_${activeShift}`)}
-                        employees={employees}
-                        className={cardHeightClass}
-                        onClick={handleSlotClick}
-                      />
-                    </div>
-                  </div>
-
+                {/* Layout Content — Physical Workstation Floor Map (Salón, Cocina, Drive-Thru) */}
+                <div className={`flex-1 min-h-0 flex flex-col justify-center items-center bg-slate-100/40 dark:bg-slate-950 overflow-y-auto select-none relative w-full ${containerGapClass} ${containerPaddingClass}`}>
                   {/* Dining Area section */}
-                  <div className="flex flex-col gap-[0.2vh] relative z-10 w-full max-w-[96vw] mx-auto">
-                    <div className="flex items-center justify-center gap-[1vh] mb-[0.5vh]">
+                  <div className="flex flex-col gap-[0.3vh] relative z-10 w-full max-w-[98vw] mx-auto">
+                    <div className="flex items-center justify-center gap-[1vh] mb-[0.4vh]">
                       <h2 className="text-[1.8vh] sm:text-[2.2vh] font-black text-indigo-600 dark:text-indigo-400 uppercase tracking-[0.4em] italic leading-none">
                         {t('actividades.daily.section_salon')}
                       </h2>
                     </div>
-                    <div className="flex flex-col items-center gap-[0.2vh]">
-                      <div className="flex gap-[0.5vh] w-full max-w-2xl md:max-w-4xl">
+                    <div className="flex flex-col items-center gap-[0.2vh] w-full">
+                      <div className="grid grid-cols-2 gap-[0.5vh] w-full max-w-4xl mx-auto">
                         <BoardSlot
                           label="Limpieza"
                           stationKey="LIMPIEZA"
                           group="Salón"
                           assignee={getAssignee(selectedDay, `LIMPIEZA_${activeShift}`)}
                           employees={employees}
-                          className={`flex-1 ${cardHeightClass}`}
+                          className={cardHeightClass}
                           onClick={handleSlotClick}
                         />
                         <BoardSlot
@@ -2415,7 +2388,7 @@ export default function AsignacionDiariaTab() {
                           group="Salón"
                           assignee={getAssignee(selectedDay, `CUBRIR DESCANSOS (SALÓN)_${activeShift}`)}
                           employees={employees}
-                          className={`flex-1 ${cardHeightClass}`}
+                          className={cardHeightClass}
                           onClick={handleSlotClick}
                         />
                       </div>
@@ -2423,15 +2396,15 @@ export default function AsignacionDiariaTab() {
                   </div>
 
                   {/* Kitchen section */}
-                  <div className="flex flex-col gap-[0.2vh] relative z-10 w-full max-w-[96vw] mx-auto">
-                    <div className="flex items-center justify-center gap-[1vh] mb-[0.5vh]">
+                  <div className="flex flex-col gap-[0.3vh] relative z-10 w-full max-w-[98vw] mx-auto">
+                    <div className="flex items-center justify-center gap-[1vh] mb-[0.4vh]">
                       <h2 className="text-[1.8vh] sm:text-[2.2vh] font-black text-indigo-600 dark:text-indigo-400 uppercase tracking-[0.4em] italic leading-none text-center">
                         {t('actividades.daily.section_kitchen')}
                       </h2>
                     </div>
-                    <div className="w-full flex flex-col items-center gap-[0.2vh]">
+                    <div className="w-full flex flex-col items-center gap-[0.3vh]">
                       {/* Counter Line */}
-                      <div className="w-full grid grid-cols-2 sm:grid-cols-7 gap-[0.2vh]">
+                      <div className="w-full grid grid-cols-2 sm:grid-cols-7 gap-[0.3vh]">
                         <BoardSlot
                           label="Delivery"
                           stationKey="Uber + Salsas"
@@ -2498,7 +2471,7 @@ export default function AsignacionDiariaTab() {
                       </div>
 
                       {/* Back Kitchen Line */}
-                      <div className="w-full grid grid-cols-2 sm:grid-cols-4 gap-[0.2vh] mt-[0.2vh]">
+                      <div className="w-full grid grid-cols-2 sm:grid-cols-4 gap-[0.3vh] mt-[0.2vh]">
                         <BoardSlot
                           label="Carnes"
                           stationKey="CARNES"
@@ -2538,7 +2511,7 @@ export default function AsignacionDiariaTab() {
                       </div>
 
                       {/* Kitchen Bottom Line */}
-                      <div className="w-full grid grid-cols-1 sm:grid-cols-3 gap-[0.2vh]">
+                      <div className="w-full grid grid-cols-1 sm:grid-cols-3 gap-[0.3vh]">
                         <BoardSlot
                           label="Preparación"
                           stationKey="PREPARACION"
@@ -2563,20 +2536,20 @@ export default function AsignacionDiariaTab() {
 
                   {/* Drive Thru section */}
                   {hasDriveThru && (
-                    <div className="flex flex-col gap-[0.2vh] relative z-10 w-full max-w-[96vw] mx-auto">
-                      <div className="flex items-center justify-center gap-[1vh] mb-[0.5vh] w-full">
+                    <div className="flex flex-col gap-[0.3vh] relative z-10 w-full max-w-[98vw] mx-auto">
+                      <div className="flex items-center justify-center gap-[1vh] mb-[0.4vh] w-full">
                         <h2 className="text-[1.8vh] sm:text-[2.2vh] font-black text-indigo-600 dark:text-indigo-400 uppercase tracking-[0.4em] italic leading-none">
                           {t('actividades.daily.section_drive_thru')}
                         </h2>
                       </div>
-                      <div className="w-full grid grid-cols-2 sm:grid-cols-7 gap-[0.2vh] items-stretch">
+                      <div className="w-full grid grid-cols-2 sm:grid-cols-7 gap-[0.3vh] items-stretch">
                         <BoardSlot
                           label="Ventanilla 1"
                           stationKey="Ventana 1"
                           group="Drive-Thru"
                           assignee={getAssignee(selectedDay, `Ventana 1_${activeShift}`)}
                           employees={employees}
-                          className="col-span-2 sm:col-span-1 sm:row-span-2 h-[9vh] sm:h-auto w-full"
+                          className="col-span-2 sm:col-span-1 sm:row-span-2 h-[10.5vh] sm:h-auto w-full"
                           onClick={handleSlotClick}
                         />
                         <BoardSlot
@@ -2627,35 +2600,9 @@ export default function AsignacionDiariaTab() {
                       </div>
                     </div>
                   )}
-
-                  {/* Extra Activities section (A22: Todas las secciones de SECTIONS presentes en Tablero) */}
-                  <div className="flex flex-col gap-[0.2vh] relative z-10 w-full max-w-[96vw] mx-auto">
-                    <div className="flex items-center justify-center gap-[1vh] mb-[0.5vh]">
-                      <h2 className="text-[1.8vh] sm:text-[2.2vh] font-black text-purple-600 dark:text-purple-400 uppercase tracking-[0.4em] italic leading-none">
-                        {t('actividades.daily.section_extra_activities')}
-                      </h2>
-                    </div>
-                    <div className="w-full grid grid-cols-2 sm:grid-cols-6 gap-[0.3vh]">
-                      {[1, 2, 3, 4, 5, 6].map((num) => {
-                        const stKey = `ACTIVIDADES EXTRA ${num}`;
-                        return (
-                          <BoardSlot
-                            key={stKey}
-                            label={`Extra ${num}`}
-                            stationKey={stKey}
-                            group="Actividades Extra"
-                            assignee={getAssignee(selectedDay, `${stKey}_${activeShift}`)}
-                            employees={employees}
-                            className={cardHeightClass}
-                            onClick={handleSlotClick}
-                          />
-                        );
-                      })}
-                    </div>
-                  </div>
                 </div>
                 {/* Clock Status in bottom right */}
-                <div className="absolute bottom-4 right-6 flex items-end gap-3 opacity-30 pointer-events-none transform scale-75 origin-bottom-right">
+                <div className="absolute bottom-2 right-4 flex items-end gap-3 opacity-30 pointer-events-none transform scale-75 origin-bottom-right">
                   <div className="text-right">
                     <p className="text-[8px] font-black uppercase tracking-[0.1em] text-zinc-400 font-mono">SYS STATUS: OK</p>
                   </div>
@@ -2681,29 +2628,29 @@ export default function AsignacionDiariaTab() {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="fixed inset-0 z-[10000] bg-slate-50 dark:bg-slate-900 flex flex-col overflow-hidden text-slate-900 dark:text-white cursor-default"
+              className="fixed inset-0 z-[10000] w-screen h-[100dvh] bg-slate-100 dark:bg-slate-950 flex flex-col overflow-hidden text-slate-900 dark:text-white cursor-default"
             >
-              {/* Header */}
-              <div className="bg-indigo-600 p-5 sm:p-6 text-white relative flex-shrink-0">
+              {/* Header — Viewport-Adaptive Full Screen Width */}
+              <div className="bg-indigo-600 px-[2vw] py-[1.4vh] text-white relative flex-shrink-0 shadow-md">
                 <button
                   onClick={() => setSelectedSlotForCard(null)}
-                  className="absolute top-4 right-4 sm:top-5 sm:right-6 p-2 bg-white/10 hover:bg-white/20 text-white rounded-xl transition-all z-30"
+                  className="absolute top-1/2 -translate-y-1/2 right-[2vw] p-[1vh] bg-white/15 hover:bg-white/25 text-white rounded-xl transition-all z-30"
                 >
-                  <X size={20} />
+                  <X className="w-[2.4vh] h-[2.4vh] min-w-[20px] min-h-[20px]" />
                 </button>
-                <div className="max-w-7xl mx-auto w-full">
-                  <p className="text-[10px] sm:text-xs font-black uppercase tracking-[0.4em] opacity-75 mb-1">
-                    {t('actividades.daily.operational_control')}
-                  </p>
-                  <h3 className="text-2xl sm:text-4xl md:text-5xl font-black uppercase tracking-tight">
+                <div className="w-full max-w-none pr-14 flex items-center">
+                  <h3
+                    className="font-black uppercase tracking-tight leading-none"
+                    style={{ fontSize: 'clamp(22px, 3.6vh, 48px)' }}
+                  >
                     {selectedSlotForCard.label}
                   </h3>
                 </div>
               </div>
 
-              {/* Content */}
-              <div className="flex-1 overflow-y-auto md:overflow-hidden custom-scrollbar p-4 sm:p-6 md:p-8 flex flex-col min-h-0">
-                <div className="max-w-7xl mx-auto w-full flex-1 flex flex-col min-h-0">
+              {/* Content — 100% Viewport-Coupled (Adapts dynamically to screen height & width) */}
+              <div className="flex-1 overflow-y-auto md:overflow-hidden custom-scrollbar px-[1.5vw] py-[1.5vh] flex flex-col min-h-0 w-full max-w-none">
+                <div className="w-full max-w-none flex-1 flex flex-col min-h-0">
                   {(() => {
                     const shiftStationKey = `${selectedSlotForCard.stationKey}_${activeShift}`;
                     const currentAssignee = getAssignee(selectedDay, shiftStationKey);
@@ -2711,14 +2658,16 @@ export default function AsignacionDiariaTab() {
                       ? employees.find((e) => String(e.id) === String(currentAssignee.employee_id)) || (currentAssignee as any).toast_employees
                       : null;
 
-                    if (currentEmp && !isReassigning) {
-                      // Display Employee Profile + Activities
+                    if ((currentEmp && !isReassigning) || !canEditAssignments) {
+                      // Display Employee Profile (or Station Header if vacant & read-only) + Activities
                       // Collect activities from ALL stations this employee is assigned to (not just the clicked one)
-                      const empAssignments = assignments.filter(a => 
-                        a.assignment_date === selectedDateStr && 
-                        a.employee_id === String(currentEmp.id) &&
-                        a.sub_position?.endsWith(`_${activeShift}`)
-                      );
+                      const empAssignments = currentEmp
+                        ? assignments.filter(a => 
+                            a.assignment_date === selectedDateStr && 
+                            a.employee_id === String(currentEmp.id) &&
+                            a.sub_position?.endsWith(`_${activeShift}`)
+                          )
+                        : [];
                       const empStationKeys = empAssignments.map(a => a.main_station).filter(Boolean);
                       // Ensure current station is included
                       const clickedStation = selectedSlotForCard.stationKey || selectedSlotForCard.label;
@@ -2759,108 +2708,168 @@ export default function AsignacionDiariaTab() {
 
                       const totalActivities = sortedActivities.length;
                       
-                      // Calculate columns and rows count dynamically to auto-fit
-                      const numCols = totalActivities > 20 ? 5 : totalActivities > 12 ? 4 : 3;
-                      const numRows = Math.ceil(totalActivities / numCols);
-                      
-                      let gridColsClass = "grid-cols-2 md:grid-cols-3";
-                      let cardPadding = "p-[1.4vh] sm:p-[1.8vh]";
-                      let titleFontSize = "text-[1.4vh] sm:text-[1.8vh]";
-                      let gapClass = "gap-[1.2vh] sm:gap-[1.6vh]";
-                      let badgeSize = "text-[0.9vh] sm:text-[1.1vh]";
-                      let clockSize = "text-[1.1vh] sm:text-[1.3vh]";
-                      let clockIconClass = "w-[1.2vh] h-[1.2vh] sm:w-[1.5vh] sm:h-[1.5vh]";
-                      let checkIconClass = "w-[1.6vh] h-[1.6vh] sm:w-[2vh] sm:h-[2vh]";
+                      // Dynamic grid columns & rows coupled to activity count + screen aspect ratio
+                      const numCols =
+                        totalActivities <= 2
+                          ? Math.max(1, totalActivities)
+                          : totalActivities <= 4
+                          ? 2
+                          : totalActivities <= 9
+                          ? 3
+                          : totalActivities <= 16
+                          ? 4
+                          : 5;
+                      const numRows = Math.max(1, Math.ceil(totalActivities / numCols));
 
-                      if (totalActivities > 12) {
-                        gridColsClass = "grid-cols-2 md:grid-cols-4";
-                        cardPadding = "p-[1.1vh] sm:p-[1.4vh]";
-                        titleFontSize = "text-[1.2vh] sm:text-[1.5vh]";
-                        gapClass = "gap-[0.9vh] sm:gap-[1.2vh]";
-                        badgeSize = "text-[0.8vh] sm:text-[1vh]";
-                        clockSize = "text-[1vh] sm:text-[1.2vh]";
-                        clockIconClass = "w-[1vh] h-[1vh] sm:w-[1.3vh] sm:h-[1.3vh]";
-                        checkIconClass = "w-[1.4vh] h-[1.4vh] sm:w-[1.8vh] sm:h-[1.8vh]";
-                      }
-                      if (totalActivities > 20) {
-                        gridColsClass = "grid-cols-3 md:grid-cols-5";
-                        cardPadding = "p-[0.8vh] sm:p-[1.1vh]";
-                        titleFontSize = "text-[1vh] sm:text-[1.2vh]";
-                        gapClass = "gap-[0.7vh] sm:gap-[0.9vh]";
-                        badgeSize = "text-[0.7vh] sm:text-[0.9vh]";
-                        clockSize = "text-[0.9vh] sm:text-[1vh]";
-                        clockIconClass = "w-[0.9vh] h-[0.9vh] sm:w-[1.1vh] sm:h-[1.1vh]";
-                        checkIconClass = "w-[1.2vh] h-[1.2vh] sm:w-[1.5vh] sm:h-[1.5vh]";
-                      }
+                      // Fluid viewport-coupled typography (`clamp(min, vh/vw, max)`) scaled by numRows
+                      // so that whether running on a 768p tablet, 1080p desktop, or 4K TV, all cards fit the screen cleanly
+                      const titleFontStyle =
+                        numRows <= 2
+                          ? 'clamp(16px, 2.3vh, 28px)'
+                          : numRows === 3
+                          ? 'clamp(14px, 1.95vh, 23px)'
+                          : numRows === 4
+                          ? 'clamp(13px, 1.65vh, 19px)'
+                          : 'clamp(12px, 1.4vh, 17px)';
+
+                      const descFontStyle =
+                        numRows <= 2
+                          ? 'clamp(13px, 1.8vh, 22px)'
+                          : numRows === 3
+                          ? 'clamp(12px, 1.5vh, 18px)'
+                          : numRows === 4
+                          ? 'clamp(11px, 1.3vh, 15.5px)'
+                          : 'clamp(10.5px, 1.15vh, 14px)';
+
+                      const badgeFontStyle =
+                        numRows <= 2
+                          ? 'clamp(10px, 1.2vh, 15px)'
+                          : numRows === 3
+                          ? 'clamp(9.5px, 1.05vh, 13px)'
+                          : 'clamp(9px, 0.95vh, 12px)';
+
+                      const clockFontStyle =
+                        numRows <= 2
+                          ? 'clamp(12px, 1.5vh, 19px)'
+                          : numRows === 3
+                          ? 'clamp(11px, 1.3vh, 16px)'
+                          : 'clamp(10px, 1.15vh, 14px)';
+
+                      const cardPaddingStyle =
+                        numRows <= 2
+                          ? 'clamp(12px, 1.8vh, 24px)'
+                          : numRows === 3
+                          ? 'clamp(10px, 1.4vh, 18px)'
+                          : 'clamp(8px, 1.1vh, 14px)';
+
+                      const gridGapStyle =
+                        numRows <= 2
+                          ? 'clamp(10px, 1.5vh, 20px)'
+                          : numRows === 3
+                          ? 'clamp(8px, 1.2vh, 16px)'
+                          : 'clamp(6px, 0.9vh, 12px)';
 
                       return (
-                        <div className="grid grid-cols-1 md:grid-cols-12 gap-[2vh] sm:gap-[3vh] flex-1 min-h-0 h-full">
-                          {/* Profile Info & Actions Column */}
-                          <div className="md:col-span-3 flex flex-col h-full flex-shrink-0">
-                            <div className="bg-white dark:bg-slate-800 p-[2vh] rounded-[2vh] shadow-md border border-slate-100 dark:border-slate-800/80 flex flex-col justify-around h-full py-[3vh]">
+                        <div className="flex flex-col md:flex-row gap-[1.5vw] flex-1 min-h-0 h-full w-full">
+                          {/* Profile Info & Actions Column — Viewport-coupled width (18vw, clamped 210px..290px) */}
+                          <div
+                            className="w-full md:w-[18vw] md:min-w-[210px] md:max-w-[290px] flex flex-col h-auto md:h-full flex-shrink-0"
+                          >
+                            <div className="bg-white dark:bg-slate-800 p-[2vh] rounded-[2vh] shadow-md border border-slate-200/80 dark:border-slate-800/80 flex flex-col justify-between h-full">
                               {/* Profile section */}
-                              <div className="flex flex-col items-center text-center">
-                                <div className="w-[8vh] h-[8vh] sm:w-[10vh] sm:h-[10vh] bg-indigo-600 rounded-[1.8vh] flex items-center justify-center text-[3.5vh] sm:text-[4.5vh] font-black text-white shadow-md italic mb-[1.5vh]">
-                                  {(currentEmp.chosen_name || currentEmp.first_name)?.[0]?.toUpperCase()}
+                              <div className="flex flex-col items-center text-center my-auto py-[1.5vh]">
+                                <div
+                                  className={`${currentEmp ? 'bg-indigo-600' : 'bg-slate-400 dark:bg-slate-700'} rounded-[2vh] flex items-center justify-center font-black text-white shadow-lg italic mb-[1.5vh]`}
+                                  style={{
+                                    width: 'clamp(56px, 8.5vh, 100px)',
+                                    height: 'clamp(56px, 8.5vh, 100px)',
+                                    fontSize: 'clamp(24px, 4vh, 48px)',
+                                  }}
+                                >
+                                  {currentEmp ? (currentEmp.chosen_name || currentEmp.first_name)?.[0]?.toUpperCase() : '—'}
                                 </div>
-                                <h4 className="text-[2vh] sm:text-[2.6vh] font-black text-slate-900 dark:text-white uppercase leading-tight mb-[0.4vh]">
-                                  {currentEmp.chosen_name || currentEmp.first_name}
+                                <h4
+                                  className="font-black text-slate-900 dark:text-white uppercase leading-tight mb-[0.4vh] break-words w-full"
+                                  style={{ fontSize: 'clamp(18px, 2.5vh, 30px)' }}
+                                >
+                                  {currentEmp ? (currentEmp.chosen_name || currentEmp.first_name) : t('actividades.daily.vacant')}
                                 </h4>
-                                <p className="text-[1.1vh] sm:text-[1.4vh] font-bold text-slate-400 uppercase tracking-widest">
-                                  {currentEmp.last_name}
+                                <p
+                                  className="font-bold text-slate-400 uppercase tracking-widest truncate w-full"
+                                  style={{ fontSize: 'clamp(11px, 1.35vh, 16px)' }}
+                                >
+                                  {currentEmp ? currentEmp.last_name : selectedSlotForCard.label}
                                 </p>
                               </div>
 
                               {/* Action Buttons section */}
-                              <div className="flex flex-col gap-[1.2vh]">
-                                <button
-                                  onClick={() => {
-                                    updateAssignment(
-                                      formatDateISO(selectedDay),
-                                      selectedSlotForCard.stationKey || selectedSlotForCard.label,
-                                      '',
-                                      currentAssignee?.station_group || 'front'
-                                    );
-                                    setSelectedSlotForCard(null);
-                                  }}
-                                  className="w-full flex items-center justify-center gap-[1vh] py-[1.2vh] px-[1.6vh] bg-red-500 hover:bg-red-600 text-white rounded-[1vh] font-bold uppercase tracking-wider text-[1.1vh] sm:text-[1.3vh] transition-all shadow-sm active:scale-95"
-                                >
-                                  <UserMinus className="w-[1.5vh] h-[1.5vh] sm:w-[1.8vh] sm:h-[1.8vh]" />
-                                  {t('actividades.daily.mark_absent')}
-                                </button>
-                                <button
-                                  onClick={() => setIsReassigning(true)}
-                                  className="w-full flex items-center justify-center gap-[1vh] py-[1.2vh] px-[1.6vh] bg-indigo-600 hover:bg-indigo-700 text-white rounded-[1vh] font-bold uppercase tracking-wider text-[1.1vh] sm:text-[1.3vh] transition-all shadow-sm active:scale-95"
-                                >
-                                  <RefreshCw className="w-[1.5vh] h-[1.5vh] sm:w-[1.8vh] sm:h-[1.8vh]" />
-                                  {t('actividades.daily.change_person')}
-                                </button>
-                              </div>
+                              {canEditAssignments && (
+                                <div className="flex flex-col gap-[1.2vh] mt-[1.5vh]">
+                                  {currentEmp && (
+                                    <button
+                                      onClick={() => {
+                                        updateAssignment(
+                                          formatDateISO(selectedDay),
+                                          selectedSlotForCard.stationKey || selectedSlotForCard.label,
+                                          '',
+                                          currentAssignee?.station_group || 'front'
+                                        );
+                                        setSelectedSlotForCard(null);
+                                      }}
+                                      className="w-full flex items-center justify-center gap-2 py-[1.3vh] px-3 bg-red-500 hover:bg-red-600 text-white rounded-[1.2vh] font-black uppercase tracking-wider transition-all shadow-sm active:scale-95"
+                                      style={{ fontSize: 'clamp(11px, 1.3vh, 15px)' }}
+                                    >
+                                      <UserMinus className="w-[1.8vh] h-[1.8vh] min-w-[15px] min-h-[15px] flex-shrink-0" />
+                                      {t('actividades.daily.mark_absent')}
+                                    </button>
+                                  )}
+                                  <button
+                                    onClick={() => setIsReassigning(true)}
+                                    className="w-full flex items-center justify-center gap-2 py-[1.3vh] px-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-[1.2vh] font-black uppercase tracking-wider transition-all shadow-sm active:scale-95"
+                                    style={{ fontSize: 'clamp(11px, 1.3vh, 15px)' }}
+                                  >
+                                    <RefreshCw className="w-[1.8vh] h-[1.8vh] min-w-[15px] min-h-[15px] flex-shrink-0" />
+                                    {t('actividades.daily.change_person')}
+                                  </button>
+                                </div>
+                              )}
                             </div>
                           </div>
 
-                          {/* Activities checklist */}
-                          <div className="md:col-span-9 flex flex-col min-h-0 h-full">
-                            <div className="bg-white dark:bg-slate-800 p-[2vh] rounded-[2vh] shadow-md border border-slate-100 dark:border-slate-800/80 h-full flex flex-col min-h-0">
-                              <div className="flex items-center justify-between mb-[1.5vh] pb-[1vh] border-b border-slate-100 dark:border-slate-700 flex-shrink-0">
+                          {/* Activities checklist — Auto-fits 100% of remaining viewport width & height */}
+                          <div className="flex-1 min-w-0 flex flex-col min-h-0 h-full">
+                            <div className="relative overflow-hidden bg-white dark:bg-slate-800 p-[1.8vh] sm:p-[2.2vh] rounded-[2vh] shadow-md border border-slate-200/80 dark:border-slate-800/80 h-full flex flex-col min-h-0">
+                              <div className="flex items-center justify-between mb-[1.2vh] pb-[1vh] border-b border-slate-100 dark:border-slate-700 flex-shrink-0">
                                 <div className="flex items-center gap-[1vh]">
-                                  <div className="p-[0.8vh] bg-indigo-600 text-white rounded-[0.8vh] shadow">
-                                    <ClipboardList className="w-[1.6vh] h-[1.6vh] sm:w-[2vh] sm:h-[2vh]" />
+                                  <div className="p-[0.8vh] bg-indigo-600 text-white rounded-[0.9vh] shadow">
+                                    <ClipboardList className="w-[2vh] h-[2vh] min-w-[18px] min-h-[18px]" />
                                   </div>
-                                  <h5 className="text-[1.6vh] sm:text-[2.2vh] font-black text-slate-900 dark:text-white uppercase tracking-tight">
+                                  <h5
+                                    className="font-black text-slate-900 dark:text-white uppercase tracking-tight"
+                                    style={{ fontSize: 'clamp(16px, 2.2vh, 26px)' }}
+                                  >
                                     {t('actividades.daily.activities_label')}
                                   </h5>
                                 </div>
-                                <span className="bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 py-[0.4vh] px-[1.2vh] rounded-full text-[1vh] sm:text-[1.2vh] font-black uppercase tracking-widest">
+                                <span
+                                  className="bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 py-[0.5vh] px-[1.4vh] rounded-full font-black uppercase tracking-widest"
+                                  style={{ fontSize: 'clamp(10px, 1.25vh, 15px)' }}
+                                >
                                   {format(selectedDay, 'EEEE dd', { locale })}
                                 </span>
                               </div>
-                              <div className="flex-grow overflow-y-auto md:overflow-hidden custom-scrollbar pr-1 min-h-0 pb-2">
+                              <div
+                                ref={activitiesScrollRef}
+                                onScroll={checkActivitiesScroll}
+                                className="flex-1 overflow-y-auto custom-scrollbar pr-0.5 min-h-0 pb-2"
+                              >
                                 {sortedActivities.length > 0 ? (
                                   <div 
-                                    className={`grid ${gridColsClass} ${gapClass} h-full`}
+                                    className="grid h-full min-h-full"
                                     style={{
-                                      gridTemplateRows: `repeat(${numRows}, 1fr)`
+                                      gap: gridGapStyle,
+                                      gridTemplateColumns: `repeat(${numCols}, minmax(0, 1fr))`,
+                                      gridTemplateRows: `repeat(${numRows}, minmax(max-content, 1fr))`
                                     }}
                                   >
                                     {sortedActivities.map((pa, i) => {
@@ -2873,65 +2882,63 @@ export default function AsignacionDiariaTab() {
                                       const isCierre = category.includes('CIE') || category.includes('CLOSE');
                                       
                                       const badgeColor = isApertura
-                                        ? 'bg-amber-100 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400 border-amber-200/50'
+                                        ? 'bg-amber-100 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 border-amber-300/60'
                                         : isCierre
-                                        ? 'bg-purple-100 dark:bg-purple-950/40 text-purple-700 dark:text-purple-400 border-purple-200/50'
-                                        : 'bg-blue-100 dark:bg-blue-950/40 text-blue-700 dark:text-blue-400 border-blue-200/50';
+                                        ? 'bg-purple-100 dark:bg-purple-950/40 text-purple-800 dark:text-purple-300 border-purple-300/60'
+                                        : 'bg-blue-100 dark:bg-blue-950/40 text-blue-800 dark:text-blue-300 border-blue-300/60';
 
                                       return (
                                         <div
                                           key={i}
-                                          className={`flex flex-col justify-between ${cardPadding} bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-[1.2vh] hover:bg-indigo-50/30 dark:hover:bg-indigo-950/10 hover:border-indigo-100 dark:hover:border-indigo-900/50 transition-all shadow-sm h-full`}
-                                          title={proc.description ? `${proc.activity} — ${proc.description}` : proc.activity}
+                                          style={{ padding: cardPaddingStyle }}
+                                          className="flex flex-col justify-between bg-slate-50/90 dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-[1.4vh] hover:bg-indigo-50/40 dark:hover:bg-indigo-950/20 hover:border-indigo-200 dark:hover:border-indigo-800 transition-all shadow-sm h-full min-h-0"
                                         >
-                                          <div className="mb-[0.5vh]">
-                                            <span className={`inline-block ${badgeSize} font-extrabold px-[0.6vh] py-[0.2vh] rounded border uppercase tracking-wider mb-[0.4vh] ${badgeColor}`}>
-                                              {proc.shift_type || 'REGULAR'}
-                                            </span>
-                                            <span 
-                                              className={`block ${titleFontSize} font-black text-slate-800 dark:text-slate-100 tracking-tight leading-tight`}
-                                              style={{
-                                                display: '-webkit-box',
-                                                WebkitLineClamp: 2,
-                                                WebkitBoxOrient: 'vertical',
-                                                overflow: 'hidden'
-                                              }}
+                                          <div className="mb-[0.6vh]">
+                                            <div className="flex items-center justify-between gap-2 mb-[0.5vh]">
+                                              <span
+                                                style={{ fontSize: badgeFontStyle }}
+                                                className={`inline-block px-[0.8vh] py-[0.2vh] font-extrabold rounded border uppercase tracking-wider ${badgeColor}`}
+                                              >
+                                                {proc.shift_type || 'REGULAR'}
+                                              </span>
+                                            </div>
+                                            <span
+                                              style={{ fontSize: titleFontStyle }}
+                                              className="block font-black text-slate-900 dark:text-slate-100 tracking-tight leading-snug"
                                             >
                                               {proc.activity}
                                             </span>
                                             {proc.description && (
                                               <span
-                                                className="block text-[0.95vh] sm:text-[1.15vh] font-medium text-slate-500 dark:text-slate-400 leading-snug mt-[0.3vh]"
-                                                style={{
-                                                  display: '-webkit-box',
-                                                  WebkitLineClamp: 2,
-                                                  WebkitBoxOrient: 'vertical',
-                                                  overflow: 'hidden'
-                                                }}
+                                                style={{ fontSize: descFontStyle }}
+                                                className="block font-medium text-slate-600 dark:text-slate-300 leading-snug mt-[0.5vh]"
                                               >
-                                                {proc.description}
+                                                {sanitizeUnsafeProcedureDescription(proc.description)}
                                               </span>
                                             )}
                                           </div>
-                                          <div className="flex items-center justify-between mt-[0.5vh] pt-[0.4vh] border-t border-slate-100 dark:border-slate-800">
+                                          <div className="flex items-center justify-between mt-[0.6vh] pt-[0.6vh] border-t border-slate-200/70 dark:border-slate-800 flex-shrink-0">
                                             {adjTime ? (
-                                              <div className="flex items-center gap-[0.5vh]">
-                                                <Clock className={`${clockIconClass} text-amber-500`} />
-                                                <span className={`${clockSize} font-extrabold text-amber-600 dark:text-amber-400 uppercase tracking-wider`}>
+                                              <div className="flex items-center gap-[0.6vh]">
+                                                <Clock className="w-[1.6vh] h-[1.6vh] min-w-[13px] min-h-[13px] text-amber-500 flex-shrink-0" />
+                                                <span
+                                                  style={{ fontSize: clockFontStyle }}
+                                                  className="font-extrabold text-amber-600 dark:text-amber-400 uppercase tracking-wider"
+                                                >
                                                   {formatActivityTime(adjTime)}
                                                 </span>
                                               </div>
                                             ) : (
                                               <div />
                                             )}
-                                            <CheckCircle2 className={`${checkIconClass} text-indigo-300 dark:text-indigo-700`} />
+                                            <CheckCircle2 className="w-[2vh] h-[2vh] min-w-[16px] min-h-[16px] text-indigo-400 dark:text-indigo-600 flex-shrink-0" />
                                           </div>
                                         </div>
                                       );
                                     })}
                                   </div>
                                 ) : (
-                                  <div className="py-16 flex flex-col items-center justify-center opacity-30">
+                                  <div className="py-16 flex flex-col items-center justify-center opacity-30 h-full">
                                     <ClipboardList size={48} className="mb-3" />
                                     <p className="text-sm font-black text-slate-400 uppercase italic tracking-widest">
                                       {t('actividades.daily.no_activities_assigned')}
@@ -2939,29 +2946,58 @@ export default function AsignacionDiariaTab() {
                                   </div>
                                 )}
                               </div>
+
+                              {/* Animated Downward Scroll Indicator when there are more activities below */}
+                              <AnimatePresence>
+                                {canScrollDownActivities && (
+                                  <>
+                                    <div className="pointer-events-none absolute inset-x-0 bottom-0 h-20 bg-gradient-to-t from-white via-white/85 to-transparent dark:from-slate-800 dark:via-slate-800/85 z-10" />
+                                    <motion.button
+                                      type="button"
+                                      initial={{ opacity: 0, y: 12 }}
+                                      animate={{ opacity: 1, y: 0 }}
+                                      exit={{ opacity: 0, y: 12 }}
+                                      onClick={() => {
+                                        const el = activitiesScrollRef.current;
+                                        if (el) {
+                                          el.scrollBy({
+                                            top: Math.max(240, el.clientHeight * 0.72),
+                                            behavior: 'smooth',
+                                          });
+                                        }
+                                      }}
+                                      className="absolute bottom-3 left-1/2 -translate-x-1/2 z-20 flex items-center gap-2 px-5 py-2.5 rounded-full bg-indigo-600 hover:bg-indigo-700 text-white font-black text-xs sm:text-sm uppercase tracking-wider shadow-[0_8px_25px_rgba(79,70,229,0.45)] border-2 border-white/80 dark:border-slate-700 cursor-pointer active:scale-95 transition-all"
+                                    >
+                                      <ChevronDown className="w-5 h-5 animate-bounce stroke-[3]" />
+                                      <span>{t('actividades.daily.scroll_more_activities')}</span>
+                                      <ChevronDown className="w-5 h-5 animate-bounce stroke-[3]" />
+                                    </motion.button>
+                                  </>
+                                )}
+                              </AnimatePresence>
                             </div>
                           </div>
                         </div>
                       );
                     }
 
-                    // Reassignment select panel
+                    // Reassignment select panel — Full screen responsive grid
                     return (
-                      <div className="space-y-6 max-w-4xl mx-auto w-full flex-1 flex flex-col min-h-0">
+                      <div className="space-y-5 w-full max-w-none flex-1 flex flex-col min-h-0">
                         <div className="flex items-center justify-between flex-shrink-0">
-                          <h4 className="text-lg sm:text-xl font-black text-slate-400 uppercase tracking-widest italic">
+                          <h4 className="text-xl sm:text-2xl font-black text-slate-500 dark:text-slate-400 uppercase tracking-widest italic">
                             {t('actividades.daily.reassign_position')}
                           </h4>
                           {currentEmp && (
                             <button
                               onClick={() => setIsReassigning(false)}
-                              className="text-xs font-bold text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-950 px-3.5 py-1.5 rounded-lg transition-all"
+                              className="text-sm font-bold text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-950 px-4 py-2 rounded-xl transition-all border border-indigo-200 dark:border-indigo-800/50"
                             >
                               {t('actividades.daily.back_to_profile')}
                             </button>
                           )}
                         </div>
-                        <div className="flex-1 overflow-y-auto space-y-2.5 pr-2 custom-scrollbar min-h-0">
+                        <div className="flex-1 overflow-y-auto space-y-4 pr-2 custom-scrollbar min-h-0">
                           <button
                             onClick={() => {
                               updateAssignment(
@@ -2972,9 +3008,9 @@ export default function AsignacionDiariaTab() {
                               );
                               setSelectedSlotForCard(null);
                             }}
-                            className="w-full p-4 rounded-xl sm:rounded-2xl border border-dashed border-slate-300 dark:border-slate-700 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 font-black uppercase tracking-widest text-sm hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-all text-left flex items-center gap-4"
+                            className="w-full p-4 rounded-2xl border border-dashed border-slate-300 dark:border-slate-700 text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 font-black uppercase tracking-widest text-sm sm:text-base hover:bg-white dark:hover:bg-slate-800/50 transition-all text-left flex items-center gap-4"
                           >
-                            <X size={18} />
+                            <X size={20} />
                             <span>{t('actividades.daily.leave_vacant')}</span>
                           </button>
                           {(() => {
@@ -3013,21 +3049,21 @@ export default function AsignacionDiariaTab() {
                                     );
                                     setSelectedSlotForCard(null);
                                   }}
-                                  className="w-full p-4 rounded-xl sm:rounded-2xl bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700 shadow-sm hover:border-indigo-500 dark:hover:border-indigo-500 hover:bg-indigo-50/30 dark:hover:bg-indigo-950/10 transition-all text-left flex items-center gap-5 group"
+                                  className="w-full p-4 rounded-2xl bg-white dark:bg-slate-800 border border-slate-200/80 dark:border-slate-700 shadow-sm hover:border-indigo-500 dark:hover:border-indigo-500 hover:bg-indigo-50/30 dark:hover:bg-indigo-950/10 transition-all text-left flex items-center gap-4 group"
                                 >
-                                  <div className="w-12 h-12 bg-slate-50 dark:bg-slate-900 rounded-xl flex items-center justify-center text-lg font-black text-slate-400 group-hover:text-indigo-600 shadow-inner">
+                                  <div className="w-12 h-12 bg-slate-100 dark:bg-slate-900 rounded-xl flex items-center justify-center text-lg font-black text-slate-500 group-hover:text-indigo-600 shadow-inner flex-shrink-0">
                                     {(e.chosen_name || e.first_name)?.[0]?.toUpperCase()}
                                   </div>
                                   <div className="flex-1 min-w-0">
-                                    <p className="text-base font-black text-slate-900 dark:text-white uppercase leading-none mb-1">
+                                    <p className="text-base sm:text-lg font-black text-slate-900 dark:text-white uppercase leading-tight mb-0.5 truncate">
                                       {e.chosen_name || e.first_name}
                                     </p>
-                                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                                    <p className="text-xs font-bold text-slate-400 uppercase tracking-widest truncate">
                                       {e.last_name}
                                     </p>
                                   </div>
                                   {coveredStations.length > 0 && (
-                                    <span className="text-[10px] font-bold text-indigo-600 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/50 border border-indigo-200/60 dark:border-indigo-800/50 px-2.5 py-1 rounded-lg uppercase">
+                                    <span className="text-[11px] font-bold text-indigo-600 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/50 border border-indigo-200/60 dark:border-indigo-800/50 px-2.5 py-1 rounded-lg uppercase">
                                       {t('actividades.daily.already_covers')} {coveredStations.join(', ')}
                                     </span>
                                   )}
@@ -3038,12 +3074,12 @@ export default function AsignacionDiariaTab() {
                             // Off-duty employees (day off / vacation)
                             const offDutyButtons = offDutyEmployees.length > 0 ? (
                               <>
-                                <div className="w-full flex items-center gap-3 py-2 mt-1">
-                                  <div className="flex-1 border-t border-dashed border-slate-200 dark:border-slate-700" />
-                                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest whitespace-nowrap">
+                                <div className="col-span-full w-full flex items-center gap-3 py-2 mt-2">
+                                  <div className="flex-1 border-t border-dashed border-slate-300 dark:border-slate-700" />
+                                  <span className="text-xs font-bold text-slate-400 uppercase tracking-widest whitespace-nowrap">
                                     🌙 {t('actividades.daily.off_duty')}
                                   </span>
-                                  <div className="flex-1 border-t border-dashed border-slate-200 dark:border-slate-700" />
+                                  <div className="flex-1 border-t border-dashed border-slate-300 dark:border-slate-700" />
                                 </div>
                                 {offDutyEmployees.map((e) => {
                                   const coveredStations = assignments
@@ -3069,25 +3105,25 @@ export default function AsignacionDiariaTab() {
                                         );
                                         setSelectedSlotForCard(null);
                                       }}
-                                      className="w-full p-4 rounded-xl sm:rounded-2xl bg-amber-50/50 dark:bg-amber-950/10 border border-dashed border-amber-200 dark:border-amber-800/40 shadow-sm hover:border-indigo-500 dark:hover:border-indigo-500 hover:bg-indigo-50/30 dark:hover:bg-indigo-950/10 transition-all text-left flex items-center gap-5 group"
+                                      className="w-full p-4 rounded-2xl bg-amber-50/50 dark:bg-amber-950/10 border border-dashed border-amber-200 dark:border-amber-800/40 shadow-sm hover:border-indigo-500 dark:hover:border-indigo-500 hover:bg-indigo-50/30 dark:hover:bg-indigo-950/10 transition-all text-left flex items-center gap-4 group"
                                     >
-                                      <div className="w-12 h-12 bg-amber-50 dark:bg-amber-900/20 rounded-xl flex items-center justify-center text-lg font-black text-amber-400 group-hover:text-indigo-600 shadow-inner">
+                                      <div className="w-12 h-12 bg-amber-50 dark:bg-amber-900/20 rounded-xl flex items-center justify-center text-lg font-black text-amber-500 group-hover:text-indigo-600 shadow-inner flex-shrink-0">
                                         {(e.chosen_name || e.first_name)?.[0]?.toUpperCase()}
                                       </div>
                                       <div className="flex-1 min-w-0">
-                                        <p className="text-base font-black text-slate-900 dark:text-white uppercase leading-none mb-1">
+                                        <p className="text-base sm:text-lg font-black text-slate-900 dark:text-white uppercase leading-tight mb-0.5 truncate">
                                           {e.chosen_name || e.first_name}
                                         </p>
-                                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                                        <p className="text-xs font-bold text-slate-400 uppercase tracking-widest truncate">
                                           {e.last_name}
                                         </p>
                                       </div>
                                       {coveredStations.length > 0 && (
-                                        <span className="text-[10px] font-bold text-indigo-600 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/50 border border-indigo-200/60 dark:border-indigo-800/50 px-2.5 py-1 rounded-lg uppercase">
+                                        <span className="text-[11px] font-bold text-indigo-600 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/50 border border-indigo-200/60 dark:border-indigo-800/50 px-2.5 py-1 rounded-lg uppercase">
                                           {t('actividades.daily.already_covers')} {coveredStations.join(', ')}
                                         </span>
                                       )}
-                                      <span className="text-[9px] font-bold text-amber-500 bg-amber-100 dark:bg-amber-900/30 px-2 py-1 rounded-lg uppercase">
+                                      <span className="text-[10px] font-bold text-amber-600 bg-amber-100 dark:bg-amber-900/30 px-2.5 py-1 rounded-lg uppercase">
                                         {t('actividades.daily.day_off_badge')}
                                       </span>
                                     </button>
@@ -3096,7 +3132,12 @@ export default function AsignacionDiariaTab() {
                               </>
                             ) : null;
 
-                            return <>{scheduledButtons}{offDutyButtons}</>;
+                            return (
+                              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+                                {scheduledButtons}
+                                {offDutyButtons}
+                              </div>
+                            );
                           })()}
                         </div>
                       </div>

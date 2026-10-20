@@ -95,22 +95,25 @@ export async function POST(request: Request) {
       console.warn('Advertencia actualizando announced_at en DB:', dbErr)
     }
 
-    // 2. Redundancia de Servidor: Emitir SIEMPRE el broadcast por el canal canónico 'order-ready-realtime'.
-    // El tablero del manager cuenta con un debounce acústico de 6 segundos por orden, por lo que emitir
-    // desde el servidor garantiza que el altavoz suene incluso si el WebSocket del tablet falló o parpadeó.
+    // 2. Redundancia de Servidor: Emitir SIEMPRE el broadcast por el canal 'order-ready-realtime' vía HTTP REST API de Supabase Realtime.
+    // Usar el endpoint REST /realtime/v1/api/broadcast evita colisiones de WebSocket en el singleton supabaseAdmin
+    // cuando el preparador toca 2 o 3 órdenes seguidas en menos de 1 segundo (ej. #700 y #701 con 0.5s de diferencia).
     try {
-      await new Promise<void>((resolve) => {
-        const channel = supabaseAdmin.channel('order-ready-realtime')
-        const timer = setTimeout(() => {
-          supabaseAdmin.removeChannel(channel).catch(() => {})
-          resolve()
-        }, 1500)
-
-        channel.subscribe(async (status) => {
-          if (status === 'SUBSCRIBED') {
-            try {
-              await channel.send({
-                type: 'broadcast',
+      const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
+      const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
+      if (supabaseUrl && serviceKey) {
+        await fetch(`${supabaseUrl.replace(/\/$/, '')}/realtime/v1/api/broadcast`, {
+          method: 'POST',
+          headers: {
+            apikey: serviceKey,
+            Authorization: `Bearer ${serviceKey}`,
+            'Content-Type': 'application/json'
+          },
+          signal: AbortSignal.timeout(2500),
+          body: JSON.stringify({
+            messages: [
+              {
+                topic: 'realtime:order-ready-realtime',
                 event: 'call_order',
                 payload: {
                   order_id: orderId,
@@ -120,19 +123,13 @@ export async function POST(request: Request) {
                   store_name: storeName || normalizedStoreCode,
                   called_at: nowIso
                 }
-              })
-            } catch (e) {
-              console.warn('Error sending broadcast:', e)
-            } finally {
-              clearTimeout(timer)
-              await supabaseAdmin.removeChannel(channel).catch(() => {})
-              resolve()
-            }
-          }
+              }
+            ]
+          })
         })
-      })
+      }
     } catch (realtimeErr) {
-      console.warn('Advertencia emitiendo broadcast desde servidor:', realtimeErr)
+      console.warn('Advertencia emitiendo broadcast REST desde servidor:', realtimeErr)
     }
 
     return NextResponse.json({

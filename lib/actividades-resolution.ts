@@ -94,6 +94,8 @@ export type ActivityOriginSource =
     | 'manual_task'
     | 'legacy_snapshot';
 
+export type SafetyReviewCategory = 'roof' | 'chemicals' | 'cash_alarm';
+
 export interface ResolvedActivityItem {
     activity_id: string;
     occurrence_key: string;
@@ -117,6 +119,8 @@ export interface ResolvedActivityItem {
     origin: ActivityOriginSource;
     is_manual_or_legacy: boolean;
     needs_review: boolean;
+    requires_safety_review?: boolean;
+    safety_review_categories?: SafetyReviewCategory[];
     config_version: string;
     source_stations: string[];
     sort_minutes: number;
@@ -175,6 +179,9 @@ function makeStationDef(params: {
 /**
  * Catálogo único canónico de las 31 estaciones operativas del sistema (A21, A22),
  * alineado con `station_assignments.main_station` y `position_activities.position_key` en Supabase.
+ * Nota: `defaultDisposition` es la disposición cuando la estación NO tiene mappings reales aprobados
+ * en `position_activities`. Una estación solo pasa a `configured` en `getStationConfigStatus` cuando
+ * `directCount > 0` con mappings reales aprobados.
  */
 export const CANONICAL_STATIONS_CATALOG: CanonicalStationDefinition[] = [
     // SALÓN / SERVICIO (7)
@@ -182,43 +189,43 @@ export const CANONICAL_STATIONS_CATALOG: CanonicalStationDefinition[] = [
         station: 'Caja 1 / Salón',
         group: 'front',
         label: 'Caja 1 / Salón',
-        defaultDisposition: 'configured',
-        dispositionReason: 'Estación principal de caja configurada en position_activities.',
+        defaultDisposition: 'pending_operational_decision',
+        dispositionReason: 'Estación principal de caja; requiere relaciones aprobadas en position_activities.',
     }),
     makeStationDef({
         station: 'Caja 2',
         group: 'front',
         label: 'Caja 2',
-        defaultDisposition: 'configured',
-        dispositionReason: 'Segunda estación de caja configurada en position_activities.',
+        defaultDisposition: 'pending_operational_decision',
+        dispositionReason: 'Segunda estación de caja; requiere relaciones aprobadas en position_activities.',
     }),
     makeStationDef({
         station: 'Caja 3',
         group: 'front',
         label: 'Caja 3',
         defaultDisposition: 'pending_operational_decision',
-        dispositionReason: 'Caja de apoyo en horas pico; sin actividades fijas configuradas (pendiente decisión operativa).',
+        dispositionReason: 'Tercera estación de caja sin mapeo propio aprobado; pendiente de decisión operativa.',
     }),
     makeStationDef({
         station: 'Uber + Salsas',
         group: 'front',
         label: 'Uber + Salsas',
-        defaultDisposition: 'configured',
-        dispositionReason: 'Configurada en position_activities.',
+        defaultDisposition: 'pending_operational_decision',
+        dispositionReason: 'Estación de entrega y barra de salsas; requiere relaciones aprobadas en position_activities.',
     }),
     makeStationDef({
         station: 'ENTREGA',
         group: 'front',
         label: 'Entrega',
-        defaultDisposition: 'configured',
-        dispositionReason: 'Configurada en position_activities.',
+        defaultDisposition: 'pending_operational_decision',
+        dispositionReason: 'Estación de entrega en mostrador; requiere relaciones aprobadas en position_activities.',
     }),
     makeStationDef({
         station: 'LIMPIEZA',
         group: 'front',
         label: 'Limpieza',
-        defaultDisposition: 'configured',
-        dispositionReason: 'Configurada en position_activities.',
+        defaultDisposition: 'pending_operational_decision',
+        dispositionReason: 'Estación de limpieza de salón; requiere relaciones aprobadas en position_activities.',
     }),
     makeStationDef({
         station: 'CUBRIR DESCANSOS (SALÓN)',
@@ -233,57 +240,57 @@ export const CANONICAL_STATIONS_CATALOG: CanonicalStationDefinition[] = [
         station: 'TACOS',
         group: 'kitchen',
         label: 'Tacos',
-        defaultDisposition: 'configured',
-        dispositionReason: 'Configurada en position_activities.',
+        defaultDisposition: 'pending_operational_decision',
+        dispositionReason: 'Estación de línea de tacos; requiere relaciones aprobadas en position_activities.',
     }),
     makeStationDef({
         station: 'CARNES',
         group: 'kitchen',
         label: 'Carnes',
-        defaultDisposition: 'configured',
-        dispositionReason: 'Configurada en position_activities.',
+        defaultDisposition: 'pending_operational_decision',
+        dispositionReason: 'Estación de parrilla y carnes; requiere relaciones aprobadas en position_activities.',
     }),
     makeStationDef({
         station: 'BURRITOS',
         group: 'kitchen',
         label: 'Burritos',
-        defaultDisposition: 'configured',
-        dispositionReason: 'Configurada en position_activities.',
+        defaultDisposition: 'pending_operational_decision',
+        dispositionReason: 'Estación de línea de burritos; requiere relaciones aprobadas en position_activities.',
     }),
     makeStationDef({
         station: 'TORTILLAS',
         group: 'kitchen',
         label: 'Tortillas',
         defaultDisposition: 'pending_operational_decision',
-        dispositionReason: 'Estación operativa sin mapeos propios en position_activities; pendiente de decisión operativa.',
+        dispositionReason: 'Estación de tortillera sin mapeo propio aprobado; pendiente de decisión operativa.',
     }),
     makeStationDef({
         station: 'TORTAS/QUESADILLAS',
         group: 'kitchen',
         label: 'Tortas / Quesadillas',
-        defaultDisposition: 'configured',
-        dispositionReason: 'Configurada en position_activities.',
+        defaultDisposition: 'pending_operational_decision',
+        dispositionReason: 'Estación de tortas y quesadillas; requiere relaciones aprobadas en position_activities.',
     }),
     makeStationDef({
         station: 'TORTAS/MULITAS',
         group: 'kitchen',
         label: 'Tortas / Mulitas',
         defaultDisposition: 'pending_operational_decision',
-        dispositionReason: 'Estación operativa sin mapeos propios en position_activities; pendiente de decisión operativa.',
+        dispositionReason: 'Variante histórica/alternativa sin mapeo propio aprobado; pendiente de decisión operativa.',
     }),
     makeStationDef({
         station: 'CUBRIR DESCANSOS (COCINA)',
         group: 'kitchen',
         label: 'Cubrir Descansos (Cocina)',
-        defaultDisposition: 'configured',
-        dispositionReason: 'Configurada en position_activities.',
+        defaultDisposition: 'break_coverage_inherits_target',
+        dispositionReason: 'Puesto comodín para relevo de descansos en cocina; configurable en position_activities.',
     }),
     makeStationDef({
         station: 'PREPARACION',
         group: 'kitchen',
         label: 'Preparación',
-        defaultDisposition: 'configured',
-        dispositionReason: 'Configurada en position_activities.',
+        defaultDisposition: 'pending_operational_decision',
+        dispositionReason: 'Estación de preparación; requiere relaciones aprobadas en position_activities.',
     }),
     ...[1, 2, 3, 4, 5, 6].map((num) =>
         makeStationDef({
@@ -303,7 +310,7 @@ export const CANONICAL_STATIONS_CATALOG: CanonicalStationDefinition[] = [
         label: 'Ventanilla 1',
         storeModel: 'DRIVE_THRU',
         defaultDisposition: 'pending_operational_decision',
-        dispositionReason: 'Estación DT sin actividades configuradas en position_activities; pendiente de decisión operativa.',
+        dispositionReason: 'Estación Drive-Thru pendiente de homologación y aprobación operativa en position_activities.',
     }),
     makeStationDef({
         station: 'Ventana 2',
@@ -311,7 +318,7 @@ export const CANONICAL_STATIONS_CATALOG: CanonicalStationDefinition[] = [
         label: 'Ventanilla 2',
         storeModel: 'DRIVE_THRU',
         defaultDisposition: 'pending_operational_decision',
-        dispositionReason: 'Estación DT sin actividades configuradas en position_activities; pendiente de decisión operativa.',
+        dispositionReason: 'Estación Drive-Thru pendiente de homologación y aprobación operativa en position_activities.',
     }),
     makeStationDef({
         station: 'Ventana 2 (B)',
@@ -319,7 +326,7 @@ export const CANONICAL_STATIONS_CATALOG: CanonicalStationDefinition[] = [
         label: 'Ventanilla 2 (B)',
         storeModel: 'DRIVE_THRU',
         defaultDisposition: 'pending_operational_decision',
-        dispositionReason: 'Ventanilla DT de apoyo en hora pico; sin checklist fijo configurado.',
+        dispositionReason: 'Subestación de apoyo en Drive-Thru pendiente de aprobación operativa en position_activities.',
     }),
     makeStationDef({
         station: 'TORTAS/QUESADILLAS (DT)',
@@ -327,7 +334,7 @@ export const CANONICAL_STATIONS_CATALOG: CanonicalStationDefinition[] = [
         label: 'Tortas / Quesadillas (DT)',
         storeModel: 'DRIVE_THRU',
         defaultDisposition: 'pending_operational_decision',
-        dispositionReason: 'Estación de línea DT sin actividades configuradas en position_activities.',
+        dispositionReason: 'Estación de cocina Drive-Thru pendiente de aprobación operativa en position_activities.',
     }),
     makeStationDef({
         station: 'TACOS/BURRITOS (DT)',
@@ -335,7 +342,7 @@ export const CANONICAL_STATIONS_CATALOG: CanonicalStationDefinition[] = [
         label: 'Tacos / Burritos (DT)',
         storeModel: 'DRIVE_THRU',
         defaultDisposition: 'pending_operational_decision',
-        dispositionReason: 'Estación de línea DT sin actividades configuradas en position_activities.',
+        dispositionReason: 'Estación de cocina Drive-Thru pendiente de aprobación operativa en position_activities.',
     }),
     makeStationDef({
         station: 'CUBRIR DESCANSOS (DT)',
@@ -352,34 +359,133 @@ export const CANONICAL_STATIONS_CATALOG: CanonicalStationDefinition[] = [
         group: 'leadership',
         label: 'Manager',
         isLeadership: true,
-        defaultDisposition: 'configured',
-        dispositionReason: 'Configurada en position_activities.',
+        defaultDisposition: 'pending_operational_decision',
+        dispositionReason: 'Puesto de gerencia; requiere relaciones aprobadas en position_activities.',
     }),
     makeStationDef({
         station: 'ASSISTANT',
         group: 'leadership',
         label: 'Asistente',
         isLeadership: true,
-        defaultDisposition: 'configured',
-        dispositionReason: 'Configurada en position_activities.',
+        defaultDisposition: 'pending_operational_decision',
+        dispositionReason: 'Puesto de asistente de gerencia; requiere relaciones aprobadas en position_activities.',
     }),
     makeStationDef({
         station: 'SHIFT_LEADER_MALE',
         group: 'leadership',
         label: 'Shift Leader (M)',
         isLeadership: true,
-        defaultDisposition: 'configured',
-        dispositionReason: 'Configurada en position_activities.',
+        defaultDisposition: 'pending_operational_decision',
+        dispositionReason: 'Puesto de líder de turno; requiere relaciones aprobadas en position_activities.',
     }),
     makeStationDef({
         station: 'SHIFT_LEADER_FEMALE',
         group: 'leadership',
         label: 'Shift Leader (F)',
         isLeadership: true,
-        defaultDisposition: 'configured',
-        dispositionReason: 'Configurada en position_activities.',
+        defaultDisposition: 'pending_operational_decision',
+        dispositionReason: 'Puesto de líder de turno; requiere relaciones aprobadas en position_activities.',
     }),
 ];
+
+/**
+ * IDs de relaciones sintéticas insertadas el 2026-10-20 sin aprobación operativa de gerencia.
+ * Se excluyen por defecto en código (sin ejecutar DELETE en base de datos) para preservar
+ * únicamente las 120 relaciones reales aprobadas y no marcar falsamente como `configured`
+ * estaciones pendientes de decisión operativa (`Caja 3`, `TORTILLAS`, `TORTAS/MULITAS`, `Drive-Thru`).
+ */
+export const UNAPPROVED_SYNTHETIC_MAPPING_IDS_20261020: ReadonlySet<string> = new Set([
+    '5a9dcea5-e675-4a81-87ee-34ea2d08b97d',
+    'a36075d9-4b28-4a16-90f7-a2169c9659ab',
+    '9ab49465-9ada-4335-a92b-26ddcf959c75',
+    'a7707a52-e84e-4a07-b346-915e611f9872',
+    '7422effb-52f2-490d-86a6-fbb65b7ad039',
+    'd7cb4dc0-4df9-4c7d-837a-cb4c36cdb49b',
+    'c2a6cf19-0d4f-4644-9771-4bde154651c1',
+    '2c57a70c-bce1-4789-bf3f-84ceee0ca9ea',
+    '5f432c70-be8c-420d-802a-1eb973d44fa1',
+    'b86779de-88ae-40ca-af20-40a6f62b6ad0',
+    '16a3e717-8765-4cde-9f2e-36f6456426bd',
+    'cb7069c2-d5c9-4dec-9317-4ed53614a08d',
+    '6ff60cae-985e-4ca6-9da3-8ce82c9b003d',
+    'd0a0522e-4d27-420a-8054-8611780b039f',
+    '5edbfcc1-6f69-4d14-9fa3-29a3242ffbf6',
+    'e3a2805c-7871-4cb4-8e52-1884d3c4e3ca',
+    '47460bfd-4f72-4379-b879-a29dcc260d7f',
+    'badfe80f-be20-477e-ba59-12ca6079a337',
+    '2d27c545-f49b-4359-b7a0-6c31be8e9869',
+    '746323bf-97ef-4bad-9871-ecf9c1440f59',
+    '8b2c4974-4816-4bf8-be7a-bacd1057af52',
+    '2e1b7135-5832-4a48-b130-840308f7db61',
+    '0b4611ed-b456-4c53-93eb-b990b3121f7f',
+    '475677b9-9176-4da0-8570-01d2377ae1b6',
+    '03538031-433d-45c5-8854-5e569833cb6c',
+    'bf5ca4ea-0061-4020-9133-f4519407ee2c',
+    '11cf0ddc-c06a-431c-9ee2-adfc0a511c1d',
+    'db5ea3ba-f124-458a-8ae2-dea9a58b9ead',
+    '308fd0ae-1dc6-4749-8441-fe11c4b2e271',
+    'e3107880-9395-45ee-ba18-aa9680b8f65a',
+    '939e4753-8b0e-4fa7-9b80-5d9d6bdbfa4e',
+    '103bedc0-7cb2-48e3-a286-2eb9a1df9685',
+    '1d6ffc2f-90a5-40f3-a175-dbe8f42d0516',
+    'df4b8e85-e6e6-4cec-9e2c-2b5bdc32ae00',
+    'ae8e5513-d864-43fc-a7da-a45cac59573e',
+    '35211661-e79e-4974-95a2-93065f2006ef',
+    'd7f995b5-b892-486b-b1bf-9b3a42d18c7a',
+    '44611609-62a8-49df-9189-c1e0d46d6b4f',
+    'aa21740d-a786-46a3-8f66-179093f5255a',
+    'f5f2d1b4-be77-4f4f-be7c-6e431235f18a',
+    '0e7e5a5a-10f5-4d57-9aff-aee95243f820',
+    '4607941a-35b4-428a-8ce1-df6d1ebdf12b',
+    'c8456c1a-31fd-46c4-99e7-4f251d47f410',
+    '1e3f9b1b-31f7-43bd-b8a1-f3fc8679ea37',
+    'ef4043db-a0ca-43cd-a156-faa9a8c8ca8a',
+    '9ff9f5ea-d09d-49b9-ad90-00206861d539',
+    '13cac2bc-fb55-472c-8cea-c4f85eebbc2a',
+    'abebcc90-faea-4925-afa3-5eaacb83011d',
+    '75376f24-6c9b-42e9-8ded-c99529d5410f',
+    '4e1800c7-621d-4d74-89ff-6d6b7a2edb06',
+    '09b0024d-a88e-4951-b1a7-8dfcefe24279',
+    'e0a8c0c4-7774-4cd5-a930-dc51c22ea057',
+    'b942eccf-2055-449e-820f-3b09b300b821',
+    'ca0bbe31-35f7-4902-a8b9-dd8cdaee76ba',
+    'c4e28991-8f92-4b2e-a549-39c8b3d8b625',
+    'af3f7c1f-c482-4369-8b60-1fad34ea6317',
+    '5f948d06-9be7-47b5-8783-1b2d0f98c324',
+    'ae4410fa-383a-4c22-8444-91ac5c9cf9d7',
+    'fd2b3c90-7c8c-4f64-a3f6-86751c7dbdc5',
+    '4ab3b099-7416-4753-b2d3-a40368c3eea9',
+    '56e07a41-6a39-4107-940c-9a15bd962d9d',
+    'f3ed8269-8204-4972-9d22-662bbbcc17f0',
+    '27037427-e3d9-4a19-86ce-6bc12f917454',
+    '17232f31-d9fd-448c-97fc-987f782d8d7b',
+    '2e7bcbe7-2112-4c1d-b030-5b287c4956bc',
+    'f1ef47ba-8e60-411a-bd90-b766954fc07c',
+    '0314e164-41a7-47d4-aa42-72d817c3aca2',
+    'ab6ac044-f82f-4c52-bdcd-61d4cd7528ae',
+    'a8e8bf2a-4129-4d48-9e77-cba370318ca4',
+    '477a7f00-86f1-4652-b620-296c936eca80',
+    'ef40e651-d524-403b-8043-226ee19741e1',
+    '8dfa1022-8891-47cf-9a51-9e4b981a8e8a',
+]);
+
+/**
+ * Filtra las relaciones de `position_activities` excluyendo el lote sintético no aprobado
+ * del 2026-10-20, salvo que se habilite explícitamente por configuración.
+ */
+export function filterApprovedPositionActivities<T extends PositionActivityMappingRecord>(
+    rows: T[] | null | undefined,
+    includeUnapprovedSyntheticBatch: boolean = false
+): T[] {
+    if (!Array.isArray(rows) || rows.length === 0) return [];
+    if (
+        includeUnapprovedSyntheticBatch ||
+        process.env.ACTIVIDADES_INCLUDE_UNAPPROVED_20261020_MAPPINGS === 'true'
+    ) {
+        return rows;
+    }
+    return rows.filter((row) => !row?.id || !UNAPPROVED_SYNTHETIC_MAPPING_IDS_20261020.has(String(row.id)));
+}
 
 /**
  * Mapa bidireccional de alias de estaciones para garantizar compatibilidad total
@@ -462,22 +568,25 @@ export function normalizePhrase(str?: string | null): string {
         .trim();
 }
 
+export const DEFAULT_PILOT_STORES_ACTIVIDADES = 'Slauson,7,9625621e-1b5e-48d7-87ae-7094fab5a4fd';
+
 /**
  * Verifica si una sucursal tiene habilitado el envío operativo de actividades en el correo
- * de publicación de horarios (Feature Flag de despliegue gradual).
- * Por defecto únicamente Slauson (`id: 7`, `9625621e-1b5e-48d7-87ae-7094fab5a4fd`) está activa
- * en producción hasta que se autorice cada tienda adicional vía `ACTIVIDADES_EMAIL_ENABLED_STORES`.
+ * de publicación de horarios y calendario .ics (Feature Flag de despliegue controlado).
+ * Por defecto está cerrado EXCLUSIVAMENTE para Slauson (`Slauson,7,9625621e-1b5e-48d7-87ae-7094fab5a4fd`)
+ * cuando no existe configuración explícita. Solo permite `'ALL'` cuando se configura explícitamente.
  */
 export function isStorePilotActiveForActivitiesEmail(
     store: StoreScheduleConfig | null | undefined,
     overrideEnabledStoresEnv?: string
 ): boolean {
     if (!store) return false;
-    const rawFlag = (
-        overrideEnabledStoresEnv ??
-        process.env.ACTIVIDADES_EMAIL_ENABLED_STORES ??
-        'Slauson,7,9625621e-1b5e-48d7-87ae-7094fab5a4fd'
+    const configured = (
+        overrideEnabledStoresEnv !== undefined
+            ? overrideEnabledStoresEnv
+            : process.env.ACTIVIDADES_EMAIL_ENABLED_STORES ?? ''
     ).trim();
+    const rawFlag = configured || DEFAULT_PILOT_STORES_ACTIVIDADES;
     if (rawFlag.toUpperCase() === 'ALL' || rawFlag === '*') return true;
 
     const allowedTokens = rawFlag
@@ -494,6 +603,138 @@ export function isStorePilotActiveForActivitiesEmail(
     return storeTokens.some((tok) =>
         allowedTokens.some((allowed) => tok === allowed || (allowed.length >= 5 && tok.includes(allowed)))
     );
+}
+
+/**
+ * Valida estrictamente que una fecha tenga formato ISO `YYYY-MM-DD` y corresponda a un día real
+ * del calendario (rechazando fechas inexistentes como `2026-02-31` o `2026-13-01`).
+ */
+export function isValidCalendarDateISO(dateStr: string | null | undefined): boolean {
+    if (!dateStr || typeof dateStr !== 'string') return false;
+    const clean = dateStr.trim();
+    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(clean);
+    if (!match) return false;
+    const year = Number(match[1]);
+    const month = Number(match[2]);
+    const day = Number(match[3]);
+    if (year < 2020 || year > 2100 || month < 1 || month > 12 || day < 1 || day > 31) return false;
+    const dt = new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
+    return (
+        !Number.isNaN(dt.getTime()) &&
+        dt.getUTCFullYear() === year &&
+        dt.getUTCMonth() === month - 1 &&
+        dt.getUTCDate() === day
+    );
+}
+
+export const ALLOWED_STATION_GROUPS: ReadonlySet<string> = new Set([
+    'front',
+    'kitchen',
+    'drive-thru',
+    'drivethru',
+    'leadership',
+    'extras',
+    'salon',
+    'cocina',
+]);
+
+export function isValidStationGroup(group: string | null | undefined): boolean {
+    if (!group || typeof group !== 'string') return false;
+    return ALLOWED_STATION_GROUPS.has(group.trim().toLowerCase());
+}
+
+/**
+ * Detecta si un texto sugiere mezclar cloro (hipoclorito) con otros productos químicos
+ * (desengrasante, ácido, amoníaco o jabón/detergente en la misma aplicación).
+ */
+export function hasUnsafeChemicalMixture(text: string | null | undefined): boolean {
+    if (!text || typeof text !== 'string') return false;
+    const norm = normalizePhrase(text);
+    if (!/\bcloro\b/.test(norm)) return false;
+    // Si ya contiene advertencia explícita de NO mezclar cloro, es seguro
+    if (/\bnunca\s+mezclar\s+cloro\b|\bno\s+mezclar\s+cloro\b/.test(norm)) return false;
+    return /\b(desengrasante|acido|amoniaco|jabon|detergente)\b/.test(norm);
+}
+
+/**
+ * Sanitiza descripciones operativas para garantizar que NUNCA se sugiera mezclar cloro
+ * con desengrasante, ácido, jabón u otros químicos.
+ */
+export function sanitizeUnsafeProcedureDescription(description: string | null | undefined): string {
+    if (!description || typeof description !== 'string') return '';
+    let sanitized = description.trim();
+    if (!hasUnsafeChemicalMixture(sanitized)) return sanitized;
+
+    sanitized = sanitized
+        .replace(
+            /tallar con cepillo,\s*cloro y desengrasante/gi,
+            'tallar con cepillo y desengrasante aprobado (NUNCA mezclar cloro con desengrasante ni otros químicos)'
+        )
+        .replace(
+            /agua,\s*jab[oó]n y cloro/gi,
+            'agua y desengrasante/detergente aprobado (si se desinfecta con cloro diluido, enjuagar antes; NUNCA mezclar cloro con otros químicos)'
+        )
+        .replace(
+            /cloro y desengrasante/gi,
+            'desengrasante aprobado (NUNCA mezclar cloro con otros químicos)'
+        )
+        .replace(
+            /desengrasante y cloro/gi,
+            'desengrasante aprobado (NUNCA mezclar cloro con otros químicos)'
+        );
+
+    if (hasUnsafeChemicalMixture(sanitized)) {
+        sanitized = `${sanitized.replace(/\bcloro\b/gi, 'sanitizante aprobado')} (NUNCA mezclar cloro con otros químicos).`;
+    }
+    return sanitized;
+}
+
+/**
+ * Evalúa si un procedimiento involucra instrucciones sensibles (azotea/roof, químicos/ácido/cloro,
+ * o caja fuerte/efectivo/alarma) o carece de validación de Manager/Safety.
+ */
+export function evaluateProcedureSafetyReview(proc: {
+    id?: string | null;
+    activity?: string | null;
+    description?: string | null;
+    overrides?: Record<string, any> | null;
+}): {
+    requiresSafetyReview: boolean;
+    categories: SafetyReviewCategory[];
+    isApprovedBySafetyOrManager: boolean;
+    needsReview: boolean;
+    hadUnsafeChemicalText: boolean;
+} {
+    const rawText = `${proc?.activity || ''} ${proc?.description || ''}`;
+    const norm = normalizePhrase(rawText);
+    const categories: SafetyReviewCategory[] = [];
+
+    if (/\b(roof|azotea|techo|escalera)\b/.test(norm)) {
+        categories.push('roof');
+    }
+    if (/\b(acido|cloro|desengrasante|quimico|quimicos|sanitizante)\b/.test(norm)) {
+        categories.push('chemicals');
+    }
+    if (/\b(caja fuerte|cash drop|retiro de efectivo|alarma|deposito bancario|fondo de caja|corte de caja|cortes de caja)\b/.test(norm)) {
+        categories.push('cash_alarm');
+    }
+
+    const hadUnsafeChemicalText = hasUnsafeChemicalMixture(proc?.description);
+    const explicitPendingReview = Boolean(
+        proc?.overrides?.needs_manager_safety_review ||
+            proc?.overrides?.pending_safety_approval
+    );
+    const requiresSafetyReview = categories.length > 0 || hadUnsafeChemicalText || explicitPendingReview;
+    const isApprovedBySafetyOrManager =
+        Boolean(proc?.overrides?.safety_approved_by) && !hadUnsafeChemicalText && !explicitPendingReview;
+
+    return {
+        requiresSafetyReview,
+        categories,
+        isApprovedBySafetyOrManager,
+        needsReview: requiresSafetyReview && !isApprovedBySafetyOrManager,
+        hadUnsafeChemicalText,
+    };
 }
 
 /**
@@ -827,6 +1068,21 @@ export function isFreqMatch(
     if (f === 'entre semana' || f === 'lunes a viernes') return dayIdx >= 0 && dayIdx <= 4;
     if (f === 'fin de semana') return dayIdx === 5 || dayIdx === 6;
 
+    // Fin de mes / Último día del mes
+    if (f.includes('fin de mes') || f.includes('ultimo dia')) {
+        if (rawDateCandidate) {
+            const [yStr, mStr, dStr] = rawDateCandidate.split('-');
+            const y = Number(yStr);
+            const m = Number(mStr);
+            const dom = Number(dStr);
+            if (Number.isFinite(y) && Number.isFinite(m) && Number.isFinite(dom)) {
+                const lastDayOfMonth = new Date(Date.UTC(y, m, 0)).getUTCDate();
+                return dom === lastDayOfMonth;
+            }
+        }
+        return false;
+    }
+
     // Mensual / Día del mes
     if (f.includes('mensual') || /\bdia\s+\d{1,2}\b/.test(f)) {
         const dayNumMatch = /\bdia\s+(\d{1,2})\b/.exec(f);
@@ -907,7 +1163,30 @@ export function getEffectiveShiftForChecklist(
 }
 
 /**
+ * Resuelve la categoría única efectiva (`'Apertura' | 'Regular' | 'Cierre'`) de una actividad
+ * para Checklist y Reportes, garantizando una partición 100% disjunta (cero duplicados entre
+ * categorías). Si una actividad `Regular` ocurre en el bloque de mañana/apertura (`06:00–11:59 AM`),
+ * su categoría efectiva única pasa a ser `'Apertura'` y deja de contarse en `'Regular'`.
+ */
+export function resolveEffectiveChecklistCategory(
+    rawShiftType: string | null | undefined,
+    effectiveTimeStr?: string | null
+): 'Apertura' | 'Regular' | 'Cierre' {
+    const procCatLower = (rawShiftType || 'Regular').toString().trim().toLowerCase();
+    if (procCatLower === 'apertura') return 'Apertura';
+    if (procCatLower === 'cierre') return 'Cierre';
+
+    const sortMins = getBusinessDaySortMinutes(effectiveTimeStr);
+    if (procCatLower === 'regular' && sortMins >= 360 && sortMins < 720) {
+        return 'Apertura';
+    }
+    return 'Regular';
+}
+
+/**
  * Determina si una actividad pertenece a la vista actual del Checklist (`Apertura`, `Regular`, `Cierre` o `Todos`).
+ * Cada actividad pertenece a UNA SOLA categoría efectiva (`resolveEffectiveChecklistCategory`),
+ * evitando que una actividad Regular desplazada a horario de Apertura se cuente en ambas categorías.
  * Soporta tanto firma posicional `(shiftType, effectiveTimeStr, categoryFilter)` como objeto `{ proc, effectiveTimeStr, shiftFilter, categoryFilter }`.
  */
 export function doesActivityBelongToChecklistView(
@@ -951,17 +1230,8 @@ export function doesActivityBelongToChecklistView(
     const catFilterLower = categoryFilter.toLowerCase();
     if (catFilterLower === 'all' || catFilterLower === 'todos') return true;
 
-    const procCatLower = procCat.toLowerCase();
-    if (procCatLower === catFilterLower) return true;
-
-    // Regla A04: Si una actividad Regular fue desplazada antes de las 12:00 PM (ej. 10:00 AM en LA Central)
-    // y el usuario está viendo el bloque de Apertura (6:00 AM - 11:59 AM), hacerla visible para que no quede oculta.
-    const sortMins = getBusinessDaySortMinutes(effectiveTimeStr);
-    if (catFilterLower === 'apertura' && procCatLower === 'regular' && sortMins >= 360 && sortMins < 720) {
-        return true;
-    }
-
-    return false;
+    const singleEffectiveCategory = resolveEffectiveChecklistCategory(procCat, effectiveTimeStr).toLowerCase();
+    return singleEffectiveCategory === catFilterLower;
 }
 
 /**
@@ -1016,7 +1286,8 @@ export function resolvePositionKey(
 }
 
 /**
- * Obtiene el estado de configuración explícito de cualquier estación del catálogo (incluyendo las 10 sin mapeo, A21).
+ * Obtiene el estado de configuración explícito de cualquier estación del catálogo.
+ * Una estación solo se marca como `configured` si tiene mappings reales aprobados (`directCount > 0`).
  */
 export function getStationConfigStatus(
     mainStation: string,
@@ -1031,9 +1302,10 @@ export function getStationConfigStatus(
     dispositionReason: string;
 } {
     const cleanMain = (mainStation || '').replace(/\s*_(AM|PM)$/i, '').trim();
-    const positionActivities: PositionActivityMappingRecord[] = Array.isArray(subPositionOrActivities)
+    const rawPositionActivities: PositionActivityMappingRecord[] = Array.isArray(subPositionOrActivities)
         ? subPositionOrActivities
         : maybeActivities || [];
+    const positionActivities = filterApprovedPositionActivities(rawPositionActivities);
 
     const candidateNorms = new Set(getPositionMatchCandidates(cleanMain).map(normalizeText));
 
@@ -1053,16 +1325,21 @@ export function getStationConfigStatus(
             hasInheritedMainMappings: false,
             mappingCount: directCount,
             disposition: 'configured',
-            dispositionReason: `Configurada con ${directCount} relación(es) en position_activities.`,
+            dispositionReason: `Configurada con ${directCount} relación(es) aprobada(s) en position_activities.`,
         };
     }
+
+    const fallbackDisposition =
+        catalogEntry?.defaultDisposition && catalogEntry.defaultDisposition !== 'configured'
+            ? catalogEntry.defaultDisposition
+            : 'pending_operational_decision';
 
     return {
         positionKey: catalogEntry?.station || cleanMain,
         hasDirectMappings: false,
         hasInheritedMainMappings: false,
         mappingCount: 0,
-        disposition: catalogEntry?.defaultDisposition || 'pending_operational_decision',
+        disposition: fallbackDisposition,
         dispositionReason:
             catalogEntry?.dispositionReason ||
             'Estación sin relaciones configuradas en position_activities; pendiente de decisión operativa.',
@@ -1089,15 +1366,23 @@ export function getStoreOverrideForProcedure(
     proc: CatalogProcedureRecord | null | undefined,
     store: StoreScheduleConfig | null | undefined
 ): ProcedureStoreOverride | undefined {
-    const storesMap = proc?.overrides?.stores;
-    if (!storesMap || !store) return undefined;
-    if (store.external_id && storesMap[String(store.external_id)]) {
-        return storesMap[String(store.external_id)];
-    }
-    if (store.id !== null && store.id !== undefined && storesMap[String(store.id)]) {
-        return storesMap[String(store.id)];
-    }
-    return undefined;
+    if (!proc?.overrides || !store) return undefined;
+    const storesMap = proc.overrides.stores;
+    const extKey = store.external_id ? String(store.external_id) : '';
+    const numKey = store.id !== null && store.id !== undefined ? String(store.id) : '';
+
+    const rawOv =
+        (extKey && storesMap?.[extKey]) ||
+        (numKey && storesMap?.[numKey]) ||
+        (extKey && typeof proc.overrides[extKey] === 'object' ? proc.overrides[extKey] : undefined) ||
+        (numKey && typeof proc.overrides[numKey] === 'object' ? proc.overrides[numKey] : undefined);
+
+    if (!rawOv || typeof rawOv !== 'object') return undefined;
+
+    return {
+        ...rawOv,
+        start_time: rawOv.start_time ?? rawOv.startTime,
+    };
 }
 
 /**
@@ -1132,13 +1417,13 @@ export function resolveStationActivities(params: {
         businessDateStr,
         store,
         procedures,
-        positionActivities,
         legacyTasks,
         shiftStartTime,
         shiftEndTime,
         enforceShiftWindow,
         isClosingShift,
     } = params;
+    const positionActivities = filterApprovedPositionActivities(params.positionActivities);
 
     const cleanMain = (mainStation || '').replace(/\s*_(AM|PM)$/i, '').trim();
     if (!cleanMain || /^ausente\b/i.test(cleanMain)) {
@@ -1260,7 +1545,6 @@ export function resolveStationActivities(params: {
 
         // Si NO viene de un mapeo explícito AMBOS en position_activities (ej. tarea legacy sólo en catálogo)
         // y tiene hora efectiva específica (y no es el hito de 17:00), respetar su bloque natural (AM vs PM).
-        // Si en position_activities está configurada explícitamente como shift='AMBOS', aplica a AM y PM.
         const hasExplicitAmbosMapping = Boolean(
             mapping?.shift && ['AMBOS', 'ALL'].includes(mapping.shift.toString().trim().toUpperCase())
         );
@@ -1279,11 +1563,10 @@ export function resolveStationActivities(params: {
             }
         }
 
-        // Intersección temporal con el turno del empleado cuando enforceShiftWindow está activo (M-02 / A06),
-        // excepto para actividades continuas de estación mapeadas explícitamente como AMBOS con hora base de apertura (10:00).
+        // Hallazgo 6: Una asignación AMBOS NO debe saltarse las horas reales de disponibilidad
+        // del empleado (`[shiftStartTime, shiftEndTime)`) cuando `enforceShiftWindow` está activo.
         if (
             enforceShiftWindow &&
-            !hasExplicitAmbosMapping &&
             shiftStartTime &&
             shiftEndTime &&
             !doesActivityIntersectShiftWindow({
@@ -1307,11 +1590,20 @@ export function resolveStationActivities(params: {
                 ? Number(rawOrderIdx)
                 : 999;
 
+        const rawDescription = (storeOv?.description || proc.description || '').trim();
+        const safeDescription = sanitizeUnsafeProcedureDescription(rawDescription);
+        const safetyEval = evaluateProcedureSafetyReview({
+            id: proc.id,
+            activity: title,
+            description: rawDescription,
+            overrides: proc.overrides,
+        });
+
         return {
             activity_id: proc.id,
             occurrence_key: occurrenceKey,
             title,
-            description: (storeOv?.description || proc.description || '').trim(),
+            description: safeDescription,
             category,
             shift: effectiveShiftRule,
             base_start_time: baseStartTime,
@@ -1334,7 +1626,9 @@ export function resolveStationActivities(params: {
             requires_photo: Boolean(proc.requires_photo ?? proc.overrides?.requires_photo),
             origin,
             is_manual_or_legacy: origin !== 'catalog_mapping',
-            needs_review: false,
+            needs_review: safetyEval.needsReview,
+            requires_safety_review: safetyEval.requiresSafetyReview,
+            safety_review_categories: safetyEval.categories,
             config_version: configVersion,
             source_stations: [stationLabel],
             sort_minutes: getBusinessDaySortMinutes(effectiveStartTime),
@@ -1458,7 +1752,8 @@ export function classifyLegacyTasksSnapshot(params: {
     matchedCatalogOnly: string[];
     unclassifiedOrManualPreserved: string[];
 } {
-    const { mainStation, subPosition, tasks, procedures, positionActivities } = params;
+    const { mainStation, subPosition, tasks, procedures } = params;
+    const positionActivities = filterApprovedPositionActivities(params.positionActivities);
     if (!Array.isArray(tasks) || tasks.length === 0) {
         return {
             matchedActiveMapping: [],
@@ -1531,7 +1826,8 @@ export function classifyLegacyTasksSnapshot(params: {
  * - Evaluación de frecuencia (`isFreqMatch` con fecha ISO exacta)
  * - Evaluación de modelo de tienda (`isStoreModelMatch` con `stores.has_drive_thru`)
  * - Desplazamientos horarios por fecha (`calculateStoreOffsetsForDate` / `weekly_hours` + `applyTimeOffset`)
- * - Visibilidad en ventana de Apertura para actividades `Regular` desplazadas antes de las 12:00 PM (A04)
+ * - Partición única por categoría (`resolveEffectiveChecklistCategory`: cero duplicados entre Apertura y Regular)
+ * - Sanitización de descripciones químicas y banderas de validación de seguridad (`evaluateProcedureSafetyReview`)
  * - Ordenamiento cronológico de jornada laboral (`06:00 -> 05:59`, `EVENT_NO_TIME` al final sin inventar `00:00`)
  */
 export function resolveStoreCatalogActivitiesForDay<T extends CatalogProcedureRecord>(params: {
@@ -1540,12 +1836,30 @@ export function resolveStoreCatalogActivitiesForDay<T extends CatalogProcedureRe
     businessDateStr: string;
     categoryFilter?: 'Apertura' | 'Regular' | 'Cierre' | 'ALL' | 'Todos' | string;
     storeOffsets?: StoreTimeOffsets;
-}): Array<T & { effective_start_time: string; effective_category: string }> {
+}): Array<
+    T & {
+        effective_start_time: string;
+        effective_category: 'Apertura' | 'Regular' | 'Cierre';
+        raw_shift_type: string;
+        requires_safety_review: boolean;
+        safety_review_categories: SafetyReviewCategory[];
+        needs_review: boolean;
+    }
+> {
     const { procedures, store, businessDateStr, categoryFilter = 'ALL' } = params;
     const hasDriveThru = Boolean(store?.has_drive_thru);
     const offsets = params.storeOffsets || calculateStoreOffsetsForDate(store, businessDateStr);
 
-    const results: Array<T & { effective_start_time: string; effective_category: string }> = [];
+    const results: Array<
+        T & {
+            effective_start_time: string;
+            effective_category: 'Apertura' | 'Regular' | 'Cierre';
+            raw_shift_type: string;
+            requires_safety_review: boolean;
+            safety_review_categories: SafetyReviewCategory[];
+            needs_review: boolean;
+        }
+    > = [];
 
     for (const p of procedures) {
         if (!p || p.role === 'ROLES_MODULE') continue;
@@ -1559,34 +1873,47 @@ export function resolveStoreCatalogActivitiesForDay<T extends CatalogProcedureRe
         const effectiveModel = p.store_model || 'AMBOS';
         if (!isStoreModelMatch(effectiveModel, hasDriveThru)) continue;
 
-        const effectiveCategory = (storeOv?.shift_type || p.shift_type || 'Regular').toString().trim();
+        const rawCategory = (storeOv?.shift_type || p.shift_type || 'Regular').toString().trim();
         const effectiveTitle = (storeOv?.activity || p.activity || '').toString().trim();
-        const effectiveDesc = (storeOv?.description ?? p.description ?? '').toString();
+        const rawDesc = (storeOv?.description ?? p.description ?? '').toString();
+        const effectiveDesc = sanitizeUnsafeProcedureDescription(rawDesc);
         const rawBaseStart = storeOv?.start_time ?? p.start_time ?? null;
         const hasValidBaseTime = parseTimeToMinutesStrict(rawBaseStart) !== null;
         const baseStartTime = hasValidBaseTime ? rawBaseStart!.trim() : '';
 
         const adjustedTime = baseStartTime
-            ? applyTimeOffset(baseStartTime, effectiveCategory, offsets, {
+            ? applyTimeOffset(baseStartTime, rawCategory, offsets, {
                   activityId: p.id,
                   activityTitle: effectiveTitle,
                   overrides: p.overrides,
               })
             : '';
 
-        if (!doesActivityBelongToChecklistView(effectiveCategory, adjustedTime, categoryFilter)) {
+        if (!doesActivityBelongToChecklistView(rawCategory, adjustedTime, categoryFilter)) {
             continue;
         }
+
+        const singleEffectiveCategory = resolveEffectiveChecklistCategory(rawCategory, adjustedTime);
+        const safetyEval = evaluateProcedureSafetyReview({
+            id: p.id,
+            activity: effectiveTitle,
+            description: rawDesc,
+            overrides: p.overrides,
+        });
 
         results.push({
             ...p,
             activity: effectiveTitle || p.activity,
             description: effectiveDesc,
-            shift_type: effectiveCategory,
+            shift_type: singleEffectiveCategory,
+            raw_shift_type: rawCategory,
             frequency: effectiveFreq,
             start_time: adjustedTime,
             effective_start_time: adjustedTime,
-            effective_category: effectiveCategory,
+            effective_category: singleEffectiveCategory,
+            requires_safety_review: safetyEval.requiresSafetyReview,
+            safety_review_categories: safetyEval.categories,
+            needs_review: safetyEval.needsReview,
         });
     }
 
@@ -1601,4 +1928,127 @@ export function resolveStoreCatalogActivitiesForDay<T extends CatalogProcedureRe
     });
 
     return results;
+}
+
+/**
+ * Resuelve por actividad del Checklist el turno operativo responsable (`'AM' | 'PM'`)
+ * desde su horario efectivo (`getEffectiveShiftForChecklist`) y cruza estaciones/empleados
+ * asignados en dicho turno (Hallazgo 4: evita asignar actividades Regular de PM/noche a AM por defecto).
+ */
+export function resolveChecklistActivityResponsibility(params: {
+    procedures: Array<{
+        id: string;
+        shift_type?: string | null;
+        raw_shift_type?: string | null;
+        shift?: string | null;
+        start_time?: string | null;
+        effective_start_time?: string | null;
+    }>;
+    positionActivities: PositionActivityMappingRecord[];
+    assignments: Array<{
+        assignment_date: string;
+        sub_position?: string | null;
+        main_station?: string | null;
+        employee_id?: string | number | null;
+    }>;
+    employees: Array<{
+        id: string | number;
+        first_name?: string | null;
+        last_name?: string | null;
+        preferred_name?: string | null;
+        chosen_name?: string | null;
+    }>;
+    businessDateStr: string;
+    hasDriveThru: boolean;
+    fallbackShift?: 'AM' | 'PM';
+}): Map<string, { shift: 'AM' | 'PM'; stations: string[]; employees: string[] }> {
+    const {
+        procedures,
+        assignments,
+        employees,
+        businessDateStr,
+        hasDriveThru,
+        fallbackShift = 'AM',
+    } = params;
+    const approvedMappings = filterApprovedPositionActivities(params.positionActivities);
+    const storeModel = hasDriveThru ? 'DRIVE_THRU' : 'REGULAR';
+
+    const empNameMap = new Map<string, string>();
+    for (const emp of employees || []) {
+        const first = emp.preferred_name || emp.chosen_name || emp.first_name || '';
+        const displayName = `${first} ${emp.last_name || ''}`.trim();
+        if (displayName) empNameMap.set(String(emp.id), displayName);
+    }
+
+    const stationToEmployeeNamesByShift: Record<'AM' | 'PM', Map<string, string[]>> = {
+        AM: new Map<string, string[]>(),
+        PM: new Map<string, string[]>(),
+    };
+
+    for (const a of assignments || []) {
+        if (a.assignment_date !== businessDateStr || !a.employee_id) continue;
+        const rawPos = String(a.sub_position || a.main_station || '').trim();
+        if (!rawPos) continue;
+        const isPM = /_PM$/i.test(rawPos);
+        const isAM = /_AM$/i.test(rawPos);
+        if (!isAM && !isPM) continue;
+        const shiftBucket: 'AM' | 'PM' = isPM ? 'PM' : 'AM';
+        const baseStation = rawPos.replace(/_(AM|PM)$/i, '').trim();
+        const empName = empNameMap.get(String(a.employee_id));
+        if (!empName) continue;
+        const normKey = normalizeText(baseStation);
+        const bucketMap = stationToEmployeeNamesByShift[shiftBucket];
+        const list = bucketMap.get(normKey) || [];
+        if (!list.includes(empName)) list.push(empName);
+        bucketMap.set(normKey, list);
+    }
+
+    const result = new Map<string, { shift: 'AM' | 'PM'; stations: string[]; employees: string[] }>();
+
+    for (const proc of procedures || []) {
+        const effectiveTime = proc.effective_start_time ?? proc.start_time ?? null;
+        const rawShift = getEffectiveShiftForChecklist(
+            {
+                shift_type: proc.raw_shift_type || proc.shift_type,
+                shift: proc.shift,
+            },
+            effectiveTime
+        );
+        const responsibleShift: 'AM' | 'PM' =
+            rawShift === 'AM' || rawShift === 'PM' ? rawShift : fallbackShift;
+
+        const stations: string[] = [];
+        const assignedEmployees: string[] = [];
+        const bucketMap = stationToEmployeeNamesByShift[responsibleShift];
+
+        for (const pa of approvedMappings) {
+            if (pa.activity_id !== proc.id) continue;
+            if (!isStoreModelMatch(pa.store_model || undefined, storeModel)) continue;
+            const paShift = String(pa.shift || 'AMBOS').toUpperCase().trim();
+            if (paShift !== 'AMBOS' && paShift !== 'ALL' && paShift !== responsibleShift) continue;
+
+            const posKey = String(pa.position_key || pa.position_name || '').trim();
+            if (posKey && !stations.includes(posKey)) {
+                stations.push(posKey);
+            }
+
+            const candidates = getPositionMatchCandidates(posKey).map(normalizeText);
+            for (const cand of candidates) {
+                const names = bucketMap.get(cand) || [];
+                for (const name of names) {
+                    if (!assignedEmployees.includes(name)) {
+                        assignedEmployees.push(name);
+                    }
+                }
+            }
+        }
+
+        result.set(proc.id, {
+            shift: responsibleShift,
+            stations,
+            employees: assignedEmployees,
+        });
+    }
+
+    return result;
 }

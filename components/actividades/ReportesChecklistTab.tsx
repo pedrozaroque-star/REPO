@@ -21,6 +21,7 @@
  *   - Fix: Se filtra correctamente el total de actividades por `store_model` al calcular el cumplimiento.
  *   - Fix: Soporte para consolidación 'ALL' con cálculo independiente de `has_drive_thru` por tienda.
  *   - Fix: Integración con `useAuth()` para restringir cambio de tienda según rol.
+ *   - Fix: Identidad compuesta `(store_id, checklist_date, shift_type, activity_id)` y categoría única (`resolveEffectiveChecklistCategory`) para evitar duplicados o porcentajes >100%.
  */
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react'
@@ -69,12 +70,31 @@ interface Procedure {
   overrides?: Record<string, any> | null
 }
 
+interface MissingActivityItem {
+  id: string
+  activity: string
+  start_time?: string
+  frequency?: string
+  shift: string
+}
+
+interface CompletedActivityItem {
+  id: string
+  activity: string
+  start_time?: string
+  completed_by_name: string
+  completed_at: string
+  shift: string
+}
+
 interface ShiftStats {
   shift: string
   total: number
   completed: number
   percent: number
   missing: string[]
+  missingItems: MissingActivityItem[]
+  completedItems: CompletedActivityItem[]
 }
 
 interface DayReport {
@@ -175,6 +195,7 @@ export default function ReportesChecklistTab() {
   const [selectedDate, setSelectedDate] = useState(getBusinessDate())
   const [loading, setLoading] = useState(true)
   const [viewMode, setViewMode] = useState<'day' | 'week'>('day')
+  const [expandedShiftView, setExpandedShiftView] = useState<Record<string, 'missing' | 'completed' | null>>({})
 
   const todayBizDate = useMemo(() => getBusinessDate(), [])
   const weekDates = useMemo(() => getWeekDates(selectedDate), [selectedDate])
@@ -262,12 +283,16 @@ export default function ReportesChecklistTab() {
     if (stores.length > 0) fetchCompletions()
   }, [fetchCompletions, stores])
 
-  // ─── Compute report for a specific date + store (Motor Unificado A01–A05, A07, A26) ──
+  // ─── Compute report for a specific date + store (Motor Unificado A01–A05, A07, A26, Hallazgo 5) ──
   const computeDayReportForStore = useCallback((date: string, store: StoreInfo): DayReport => {
     const shifts = ['Apertura', 'Regular', 'Cierre']
 
     const dayCompletions = completions.filter(c => c.checklist_date === date && c.store_id === store.external_id)
-    const completedIds = new Set(dayCompletions.map(c => c.activity_id))
+    const completionByCompositeKey = new Map<string, CompletionRecord>()
+    dayCompletions.forEach(c => {
+      const cat = String(c.shift_type || 'Regular').trim()
+      completionByCompositeKey.set(`${cat}::${c.activity_id}`, c)
+    })
 
     const shiftStats: ShiftStats[] = shifts.map(shift => {
       const shiftProcs = resolveStoreCatalogActivitiesForDay({
@@ -276,14 +301,37 @@ export default function ReportesChecklistTab() {
         businessDateStr: date,
         categoryFilter: shift,
       })
-      const completed = shiftProcs.filter(p => completedIds.has(p.id)).length
-      const missing = shiftProcs.filter(p => !completedIds.has(p.id)).map(p => p.id)
+      const completedProcs = shiftProcs.filter(p => completionByCompositeKey.has(`${shift}::${p.id}`))
+      const missingProcs = shiftProcs.filter(p => !completionByCompositeKey.has(`${shift}::${p.id}`))
+
+      const missingItems: MissingActivityItem[] = missingProcs.map(p => ({
+        id: p.id,
+        activity: p.activity || p.description || p.id,
+        start_time: p.start_time,
+        frequency: p.frequency,
+        shift,
+      }))
+
+      const completedItems: CompletedActivityItem[] = completedProcs.map(p => {
+        const comp = completionByCompositeKey.get(`${shift}::${p.id}`)!
+        return {
+          id: p.id,
+          activity: p.activity || p.description || p.id,
+          start_time: p.start_time,
+          completed_by_name: comp.completed_by_name || 'Staff',
+          completed_at: comp.completed_at,
+          shift,
+        }
+      })
+
       return {
         shift,
         total: shiftProcs.length,
-        completed,
-        percent: shiftProcs.length > 0 ? Math.round((completed / shiftProcs.length) * 100) : 0,
-        missing,
+        completed: completedProcs.length,
+        percent: shiftProcs.length > 0 ? Math.min(100, Math.round((completedProcs.length / shiftProcs.length) * 100)) : 0,
+        missing: missingProcs.map(p => p.id),
+        missingItems,
+        completedItems,
       }
     })
 
@@ -294,7 +342,7 @@ export default function ReportesChecklistTab() {
       date,
       totalActivities,
       totalCompleted,
-      percent: totalActivities > 0 ? Math.round((totalCompleted / totalActivities) * 100) : 0,
+      percent: totalActivities > 0 ? Math.min(100, Math.round((totalCompleted / totalActivities) * 100)) : 0,
       shifts: shiftStats,
     }
   }, [procedures, completions])
@@ -312,19 +360,36 @@ export default function ReportesChecklistTab() {
     const aggregatedShifts = shifts.map(shift => {
       let total = 0
       let completed = 0
+      const missingCountById = new Map<string, { item: MissingActivityItem; count: number }>()
       allReports.forEach(r => {
         const s = r.shifts.find(x => x.shift === shift)
         if (s) {
           total += s.total
           completed += s.completed
+          s.missingItems.forEach(mi => {
+            const prev = missingCountById.get(mi.id)
+            if (prev) {
+              prev.count += 1
+            } else {
+              missingCountById.set(mi.id, { item: mi, count: 1 })
+            }
+          })
         }
       })
+      const aggregatedMissingItems = Array.from(missingCountById.values())
+        .sort((a, b) => b.count - a.count)
+        .map(({ item, count }) => ({
+          ...item,
+          activity: `${item.activity} (${count}/${stores.length})`,
+        }))
       return {
         shift,
         total,
         completed,
         percent: total > 0 ? Math.round((completed / total) * 100) : 0,
-        missing: []
+        missing: aggregatedMissingItems.map(x => x.id),
+        missingItems: aggregatedMissingItems,
+        completedItems: [],
       }
     })
 
@@ -360,6 +425,57 @@ export default function ReportesChecklistTab() {
       return { store, ...report }
     }).sort((a, b) => b.percent - a.percent)
   }, [stores, selectedDate, selectedStoreId, computeDayReport])
+
+  // ─── Weekly All-Stores Comparison (Phase 3) ────────────────────────────
+  const weeklyStoreComparison = useMemo(() => {
+    if (selectedStoreId !== 'ALL') return []
+    return stores.map(store => {
+      let totalActivities = 0
+      let totalCompleted = 0
+      weekDates.forEach(d => {
+        const rep = computeDayReportForStore(d, store)
+        totalActivities += rep.totalActivities
+        totalCompleted += rep.totalCompleted
+      })
+      const percent = totalActivities > 0 ? Math.round((totalCompleted / totalActivities) * 100) : 0
+      return { store, totalActivities, totalCompleted, percent }
+    }).sort((a, b) => b.percent - a.percent)
+  }, [stores, weekDates, selectedStoreId, computeDayReportForStore])
+
+  // ─── Omitted Activity Patterns (Phase 3) ───────────────────────────────
+  const omittedPatterns = useMemo(() => {
+    const counts = new Map<string, { id: string; activity: string; shift: string; start_time?: string; count: number; maxPossible: number }>()
+    const targetDates = viewMode === 'week' ? weekDates : [selectedDate]
+    const targetStores = selectedStoreId === 'ALL' ? stores : selectedStore ? [selectedStore] : []
+
+    targetDates.forEach(date => {
+      targetStores.forEach(store => {
+        const rep = computeDayReportForStore(date, store)
+        rep.shifts.forEach(s => {
+          s.missingItems.forEach(mi => {
+            const prev = counts.get(mi.id)
+            if (prev) {
+              prev.count += 1
+              prev.maxPossible += 1
+            } else {
+              counts.set(mi.id, {
+                id: mi.id,
+                activity: mi.activity,
+                shift: mi.shift,
+                start_time: mi.start_time,
+                count: 1,
+                maxPossible: targetDates.length * targetStores.length,
+              })
+            }
+          })
+        })
+      })
+    })
+
+    return Array.from(counts.values())
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 12)
+  }, [viewMode, weekDates, selectedDate, selectedStoreId, stores, selectedStore, computeDayReportForStore])
 
   // ─── Navigation ────────────────────────────────────────────────────────
   const navigateDate = (offset: number) => {
@@ -562,10 +678,96 @@ export default function ReportesChecklistTab() {
                     width: `${s.percent}%`, transition: 'width 0.5s ease',
                   }} />
                 </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: '#94a3b8' }}>
-                  <span>✅ {s.completed} {t('actividades.reports.completed').toLowerCase()}</span>
-                  <span>❌ {s.total - s.completed} {t('actividades.reports.pending').toLowerCase()}</span>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: '#94a3b8', gap: '8px', flexWrap: 'wrap' }}>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setExpandedShiftView(prev => ({
+                        ...prev,
+                        [s.shift]: prev[s.shift] === 'completed' ? null : 'completed',
+                      }))
+                    }
+                    style={{
+                      background: expandedShiftView[s.shift] === 'completed' ? '#dcfce7' : '#f0fdf4',
+                      border: '1px solid #bbf7d0', borderRadius: '8px', padding: '4px 10px',
+                      color: '#166534', fontSize: '12px', fontWeight: 600, cursor: 'pointer',
+                    }}
+                  >
+                    ✅ {s.completed} {t('actividades.reports.completed').toLowerCase()}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setExpandedShiftView(prev => ({
+                        ...prev,
+                        [s.shift]: prev[s.shift] === 'missing' ? null : 'missing',
+                      }))
+                    }
+                    style={{
+                      background: expandedShiftView[s.shift] === 'missing' ? '#fee2e2' : '#fef2f2',
+                      border: '1px solid #fecaca', borderRadius: '8px', padding: '4px 10px',
+                      color: '#991b1b', fontSize: '12px', fontWeight: 600, cursor: 'pointer',
+                    }}
+                  >
+                    ❌ {s.total - s.completed} {t('actividades.reports.pending').toLowerCase()}
+                  </button>
                 </div>
+
+                {/* Expandable Omitted / Completed Detail */}
+                {expandedShiftView[s.shift] === 'missing' && (
+                  <div style={{
+                    marginTop: '12px', paddingTop: '12px', borderTop: '1px solid #f1f5f9',
+                    maxHeight: '220px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '6px',
+                  }}>
+                    {s.missingItems.length === 0 ? (
+                      <div style={{ fontSize: '12px', color: '#16a34a', fontWeight: 600 }}>
+                        {t('actividades.reports.no_omitted_activities')}
+                      </div>
+                    ) : (
+                      s.missingItems.map(mi => (
+                        <div key={mi.id} style={{
+                          fontSize: '12px', color: '#7f1d1d', background: '#fef2f2',
+                          border: '1px solid #fecaca', borderRadius: '8px', padding: '6px 10px',
+                          display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px',
+                        }}>
+                          <span style={{ fontWeight: 600, flex: 1 }}>{mi.activity}</span>
+                          {mi.start_time && (
+                            <span style={{ fontSize: '11px', color: '#dc2626', fontFamily: 'monospace', flexShrink: 0 }}>
+                              {mi.start_time}
+                            </span>
+                          )}
+                        </div>
+                      ))
+                    )}
+                  </div>
+                )}
+
+                {expandedShiftView[s.shift] === 'completed' && (
+                  <div style={{
+                    marginTop: '12px', paddingTop: '12px', borderTop: '1px solid #f1f5f9',
+                    maxHeight: '220px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '6px',
+                  }}>
+                    {s.completedItems.length === 0 ? (
+                      <div style={{ fontSize: '12px', color: '#94a3b8' }}>
+                        {t('actividades.reports.no_data')}
+                      </div>
+                    ) : (
+                      s.completedItems.map(ci => (
+                        <div key={ci.id} style={{
+                          fontSize: '12px', color: '#14532d', background: '#f0fdf4',
+                          border: '1px solid #bbf7d0', borderRadius: '8px', padding: '6px 10px',
+                        }}>
+                          <div style={{ fontWeight: 600 }}>{ci.activity}</div>
+                          <div style={{ fontSize: '11px', color: '#15803d', marginTop: '2px' }}>
+                            ✓ {ci.completed_by_name} · {new Date(ci.completed_at).toLocaleTimeString('en-US', {
+                              hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'America/Los_Angeles',
+                            })}
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                )}
               </div>
             ))}
           </div>
@@ -737,7 +939,119 @@ export default function ReportesChecklistTab() {
               </tbody>
             </table>
           </div>
+
+          {/* ─── Weekly Store Ranking (when ALL stores selected) ─── */}
+          {selectedStoreId === 'ALL' && weeklyStoreComparison.length > 0 && (
+            <div style={{
+              marginTop: '24px', background: '#fff', borderRadius: '16px', padding: '24px',
+              border: '1px solid #e2e8f0', boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+            }}>
+              <h3 style={{ fontSize: '16px', fontWeight: 700, color: '#1e293b', margin: '0 0 16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <TrendingUp size={18} style={{ color: '#ea580c' }} />
+                {t('actividades.reports.weekly_store_ranking')}
+              </h3>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                {weeklyStoreComparison.map((sc, idx) => (
+                  <div key={sc.store.id} style={{
+                    display: 'flex', alignItems: 'center', gap: '12px',
+                    padding: '10px 14px', borderRadius: '10px',
+                    background: idx === 0 ? '#f0fdf4' : idx < 3 ? '#fefce8' : '#f8fafc',
+                    border: idx === 0 ? '1px solid #86efac' : '1px solid #e2e8f0',
+                  }}>
+                    <span style={{
+                      width: '28px', height: '28px', borderRadius: '8px', display: 'flex',
+                      alignItems: 'center', justifyContent: 'center', fontSize: '13px', fontWeight: 700,
+                      background: idx === 0 ? '#dcfce7' : '#f1f5f9',
+                      color: idx === 0 ? '#16a34a' : '#64748b',
+                    }}>
+                      {idx === 0 ? '🏆' : `#${idx + 1}`}
+                    </span>
+                    <span style={{ flex: 1, fontSize: '14px', fontWeight: 600, color: '#1e293b' }}>
+                      {sc.store.name}
+                    </span>
+                    <div style={{ width: '120px', height: '6px', borderRadius: '99px', background: '#f1f5f9', overflow: 'hidden' }}>
+                      <div style={{
+                        height: '100%', borderRadius: '99px',
+                        background: getPercentColor(sc.percent),
+                        width: `${sc.percent}%`,
+                      }} />
+                    </div>
+                    <span style={{
+                      fontSize: '14px', fontWeight: 700, color: getPercentColor(sc.percent),
+                      minWidth: '45px', textAlign: 'right',
+                    }}>
+                      {sc.percent}%
+                    </span>
+                    <span style={{ fontSize: '11px', color: '#94a3b8' }}>
+                      {sc.totalCompleted}/{sc.totalActivities}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </>
+      )}
+
+      {/* ═══════════════ OMITTED ACTIVITY PATTERNS (PHASE 3) ═══════════════ */}
+      {!loading && (
+        <div style={{
+          marginTop: '24px', background: '#fff', borderRadius: '16px', padding: '24px',
+          border: '1px solid #e2e8f0', boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+        }}>
+          <div style={{ marginBottom: '16px' }}>
+            <h3 style={{ fontSize: '16px', fontWeight: 700, color: '#1e293b', margin: '0 0 4px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <AlertCircle size={18} style={{ color: '#dc2626' }} />
+              {t('actividades.reports.omitted_patterns_title')}
+            </h3>
+            <p style={{ fontSize: '12px', color: '#64748b', margin: 0 }}>
+              {t('actividades.reports.omitted_patterns_subtitle')}
+            </p>
+          </div>
+          {omittedPatterns.length === 0 ? (
+            <div style={{
+              padding: '16px', borderRadius: '12px', background: '#f0fdf4',
+              border: '1px solid #86efac', color: '#166534', fontSize: '14px', fontWeight: 600,
+              textAlign: 'center',
+            }}>
+              🎉 {t('actividades.reports.no_omitted_activities')}
+            </div>
+          ) : (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '10px' }}>
+              {omittedPatterns.map((op, idx) => (
+                <div key={op.id} style={{
+                  display: 'flex', alignItems: 'center', gap: '10px',
+                  padding: '10px 12px', borderRadius: '10px',
+                  background: '#fef2f2', border: '1px solid #fecaca',
+                }}>
+                  <span style={{
+                    width: '26px', height: '26px', borderRadius: '7px',
+                    background: '#fee2e2', color: '#b91c1c',
+                    fontSize: '12px', fontWeight: 700, display: 'flex',
+                    alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+                  }}>
+                    #{idx + 1}
+                  </span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: '13px', fontWeight: 600, color: '#7f1d1d', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {op.activity}
+                    </div>
+                    <div style={{ fontSize: '11px', color: '#b91c1c', marginTop: '2px' }}>
+                      {shiftEmoji[op.shift]} {shiftLabel[op.shift]} {op.start_time ? `· ${op.start_time}` : ''}
+                    </div>
+                  </div>
+                  <span style={{
+                    fontSize: '12px', fontWeight: 700, color: '#dc2626',
+                    background: '#fff', border: '1px solid #fca5a5',
+                    borderRadius: '99px', padding: '2px 8px', flexShrink: 0,
+                  }}>
+                    {op.count} {t('actividades.reports.omitted_times')}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       )}
     </div>
   )

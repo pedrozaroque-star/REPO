@@ -1,28 +1,32 @@
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 import { getServerUser, authorizeStoreScope } from '@/lib/auth-server'
-import { CANONICAL_STATIONS_CATALOG, getPositionMatchCandidates, normalizeText } from '@/lib/actividades-resolution'
+import {
+    CANONICAL_STATIONS_CATALOG,
+    getPositionMatchCandidates,
+    isValidCalendarDateISO,
+    isValidStationGroup,
+    normalizeText,
+} from '@/lib/actividades-resolution'
 
 /**
  * @module RolesAPI
  * @description API de lectura y persistencia transaccional de asignaciones de estaciones (`station_assignments`).
  * @businessRules
- * - GET requiere sesión autenticada y alcance autorizado sobre `store_id` (empleados pueden leer su tienda en modo tableta/kiosco).
- * - POST requiere sesión autenticada con permisos de escritura (`admin`, `supervisor`, `manager`, `asistente` de la tienda).
- * - Validación estricta de rango de fechas (`start_date <= end_date`, sin `Math.abs`, máximo 14 días en escritura).
+ * - GET requiere sesión autenticada y alcance autorizado sobre `store_id` (`action: 'view'`, empleados pueden leer su tienda en modo tableta/kiosco).
+ * - POST requiere sesión autenticada con permisos explícitos `edit_assignments` (`admin`, `supervisor`, `manager`, `asistente`/`assistant` de la tienda; `shift_leader` NO tiene permiso para editar asignaciones).
+ * - Validación estricta de fechas reales de calendario (`isValidCalendarDateISO`), `station_group` y arreglo `tasks`.
  * - Reemplazo 100% atómico en PostgreSQL mediante `replace_station_assignments_atomic` con control de concurrencia optimista (`expected_revision` -> HTTP 409 en conflicto).
  * @dataFlow
  * - Lee/escribe `public.station_assignments` vía RPC transaccional.
  * @notes
- * - Remediación integral de hallazgos A12, A13, A16 y A18 (2026-10-19).
+ * - Remediación integral de hallazgos A12, A13, A16, A18 y Hallazgo 2 de permisos/validación (2026-10-20).
  */
-
-const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 
 const VALID_CANONICAL_STATIONS_NORM = new Set(
     CANONICAL_STATIONS_CATALOG.flatMap(s => [
         normalizeText(s.station),
-        ...Array.from(getPositionMatchCandidates(s.station)),
+        ...Array.from(getPositionMatchCandidates(s.station)).map(normalizeText),
     ])
 )
 
@@ -44,8 +48,8 @@ export async function GET(req: Request) {
             return NextResponse.json({ error: 'Faltan parámetros requeridos (store_id, start_date, end_date)' }, { status: 400 })
         }
 
-        if (!ISO_DATE_RE.test(start_date) || !ISO_DATE_RE.test(end_date)) {
-            return NextResponse.json({ error: 'Formato de fecha inválido (use YYYY-MM-DD)' }, { status: 400 })
+        if (!isValidCalendarDateISO(start_date) || !isValidCalendarDateISO(end_date)) {
+            return NextResponse.json({ error: 'Fecha inválida o inexistente en el calendario (use YYYY-MM-DD)' }, { status: 400 })
         }
 
         if (start_date > end_date) {
@@ -55,6 +59,7 @@ export async function GET(req: Request) {
         const authScope = await authorizeStoreScope(user, store_id, supabaseAdmin, {
             allowEmployeeRead: true,
             requireWrite: false,
+            action: 'view',
         })
         if (!authScope.authorized) {
             return NextResponse.json({ error: authScope.error || 'Acceso denegado a esta sucursal' }, { status: authScope.status })
@@ -151,9 +156,9 @@ export async function POST(req: Request) {
             )
         }
 
-        if (!ISO_DATE_RE.test(String(start_date)) || !ISO_DATE_RE.test(String(end_date))) {
+        if (!isValidCalendarDateISO(String(start_date)) || !isValidCalendarDateISO(String(end_date))) {
             return NextResponse.json(
-                { error: 'Formato de fecha inválido en start_date o end_date (use YYYY-MM-DD)' },
+                { error: 'Fecha inválida o inexistente en start_date o end_date (use YYYY-MM-DD)' },
                 { status: 400 }
             )
         }
@@ -186,6 +191,8 @@ export async function POST(req: Request) {
         const authScope = await authorizeStoreScope(user, store_id, supabaseAdmin, {
             allowEmployeeRead: false,
             requireWrite: true,
+            action: 'edit_assignments',
+            allowedRoles: ['admin', 'supervisor', 'manager', 'asistente', 'assistant'],
         })
         if (!authScope.authorized) {
             return NextResponse.json({ error: authScope.error || 'Acceso denegado a esta tienda' }, { status: authScope.status })
@@ -194,7 +201,7 @@ export async function POST(req: Request) {
         const canonicalStoreGuid = authScope.canonicalExternalId || String(store_id)
         const canonicalStoreNum = authScope.canonicalNumericId
 
-        // Validar cada elemento de assignments antes de tocar la base de datos (A16)
+        // Validar cada elemento de assignments antes de tocar la base de datos (A16 / Hallazgo 2)
         const distinctEmployeeIds = new Set<string>()
         const processedAssignments: Array<{
             employee_id: string
@@ -202,7 +209,7 @@ export async function POST(req: Request) {
             main_station: string
             sub_position: string
             station_group: string
-            tasks: any[]
+            tasks: string[]
         }> = []
 
         for (let i = 0; i < assignments.length; i++) {
@@ -221,9 +228,9 @@ export async function POST(req: Request) {
                 return NextResponse.json({ error: `Falta employee_id en asignación #${i + 1}` }, { status: 400 })
             }
 
-            if (!ISO_DATE_RE.test(assignDate) || assignDate < start_date || assignDate > end_date) {
+            if (!isValidCalendarDateISO(assignDate) || assignDate < start_date || assignDate > end_date) {
                 return NextResponse.json(
-                    { error: `La fecha de asignación (${assignDate}) está fuera del rango autorizado [${start_date}, ${end_date}]` },
+                    { error: `La fecha de asignación (${assignDate}) es inválida o está fuera del rango autorizado [${start_date}, ${end_date}]` },
                     { status: 400 }
                 )
             }
@@ -268,13 +275,50 @@ export async function POST(req: Request) {
                 }
             }
 
+            if (a.station_group !== undefined && a.station_group !== null && String(a.station_group).trim() !== '') {
+                if (!isValidStationGroup(String(a.station_group))) {
+                    return NextResponse.json(
+                        { error: `station_group inválido ("${a.station_group}") en asignación #${i + 1}` },
+                        { status: 400 }
+                    )
+                }
+            }
+
+            if (a.tasks !== undefined && a.tasks !== null) {
+                if (!Array.isArray(a.tasks) || a.tasks.length > 100) {
+                    return NextResponse.json(
+                        { error: `Formato de tasks inválido o excede el límite permitido (máx 100) en asignación #${i + 1}` },
+                        { status: 400 }
+                    )
+                }
+                for (let tIdx = 0; tIdx < a.tasks.length; tIdx++) {
+                    const taskItem = a.tasks[tIdx]
+                    if (typeof taskItem !== 'string' || taskItem.trim().length > 300) {
+                        return NextResponse.json(
+                            { error: `Tarea inválida en asignación #${i + 1}, índice ${tIdx}` },
+                            { status: 400 }
+                        )
+                    }
+                }
+            }
+
             // Normalizar station_group en minúsculas ('front', 'kitchen', 'drivethru', 'leadership', 'extras')
             const canonicalEntry = CANONICAL_STATIONS_CATALOG.find(
                 s => normalizeText(s.station) === normMain
             )
-            const normalizedGroup = String(
+            const rawGroup = String(
                 a.station_group || canonicalEntry?.group || 'front'
             ).trim().toLowerCase()
+            const normalizedGroup =
+                rawGroup === 'salon'
+                    ? 'front'
+                    : rawGroup === 'cocina'
+                      ? 'kitchen'
+                      : rawGroup
+
+            const sanitizedTasks: string[] = Array.isArray(a.tasks)
+                ? a.tasks.map((t: string) => t.trim()).filter(Boolean)
+                : []
 
             distinctEmployeeIds.add(empId)
             processedAssignments.push({
@@ -283,7 +327,7 @@ export async function POST(req: Request) {
                 main_station: cleanMainStation,
                 sub_position: rawSubPosition,
                 station_group: normalizedGroup,
-                tasks: Array.isArray(a.tasks) ? a.tasks : [],
+                tasks: sanitizedTasks,
             })
         }
 
