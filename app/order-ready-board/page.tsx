@@ -39,7 +39,7 @@
  *   - Audio neuronal Gemini TTS vía `/api/order-ready/announcement-tts` con caché permanente en Supabase Storage y fallback seguro al sintetizador del navegador con bloqueo absoluto anti-Raul.
  *   - Prioridad de órdenes: los llamados de pedidos tienen prioridad absoluta; el anuncio espera a que concluyan para no interrumpir el flujo.
  * - **Impulso de Llamada desde Tableta de Preparador (Entregador de Cocina)**:
- *   - La tableta de preparación (`/inventory/preparador`) en la pestaña "ÓRDENES" permite al entregador tocar una orden en preparación con el dedo para llamar al cliente al mostrador.
+ *   - La tableta de preparación (`/inventory/preparador`) en la pestaña "ÓRDENES" permite al entregador tocar una orden en preparación con el dedo para llamar al cliente al mostrador, así como tocar los botones permanentes de **Café** (`"Café pendiente ya está listo"`) y **Champurrado** (`"Champurrado pendiente ya está listo"`).
  *   - El tablero del Manager recibe el impulso instantáneo vía Supabase Realtime (evento `call_order`) y reproduce la campanilla Ding-Dong + locutor natural, destacando la tarjeta en la pantalla con un badge ámbar pulsante ("Llamada desde Preparador").
  * - **Resiliencia de Red (Offline Mode)**: Detección proactiva de conectividad de red con aviso visual y caída suave a audio en caché/síntesis local si se corta la conexión a internet.
  * 
@@ -987,6 +987,34 @@ function OrderReadyBoardContent() {
           return
         }
 
+        // Anuncios especiales de bebidas pendientes listas desde tableta de Preparador (Café / Champurrado)
+        const bevKey = String(num || '').toUpperCase()
+        const bevSpeech =
+          bevKey === 'CAFE'
+            ? 'Café pendiente ya está listo'
+            : bevKey === 'CHAMPURRADO'
+            ? 'Champurrado pendiente ya está listo'
+            : null
+
+        if (bevSpeech) {
+          setActiveSpeech(`☕ ${bevSpeech}`)
+          const uttBev = new SpeechSynthesisUtterance(bevSpeech)
+          uttBev.rate = voiceSpeed
+          uttBev.volume = isMuted ? 0 : voiceVolume
+          if (chosenEs && !isForbiddenRaulVoice(chosenEs.name)) {
+            uttBev.voice = chosenEs
+            uttBev.lang = chosenEs.lang || 'es-MX'
+          } else {
+            uttBev.voice = chosenEn
+            uttBev.lang = chosenEn.lang || 'en-US'
+          }
+          safeSpeak(uttBev, () => {
+            setActiveSpeech(null)
+            setTimeout(resolve, 300)
+          }, true)
+          return
+        }
+
         const displayPhrase = `Order #${num} is ready, orden #${num}, ¡ya está!`
         setActiveSpeech(displayPhrase)
 
@@ -1168,10 +1196,107 @@ function OrderReadyBoardContent() {
     [isMuted, voiceVolume, unlockAudio]
   )
 
+  // Obtener y cachear en memoria (Blob URL) el clip neuronal de Café / Champurrado pendiente ya está listo
+  // Prioriza los archivos WAV estáticos pre-generados en /audio/order-ready/ para latencia de 0ms sin depender de red/compilación.
+  const getBeverageClipUrl = useCallback((bevKey: string, phrase: string, voiceOverride?: VoiceId): Promise<string | null> => {
+    const voice = voiceOverride || selectedVoice
+    const staticUrl =
+      bevKey === 'CAFE'
+        ? '/audio/order-ready/cafe-listo.wav'
+        : bevKey === 'CHAMPURRADO'
+        ? '/audio/order-ready/champurrado-listo.wav'
+        : null
+
+    const key = `bev:${voice}:es:${bevKey}`
+    const cached = clipCacheRef.current.get(key)
+    if (cached) return cached
+
+    const job = (async (): Promise<string | null> => {
+      // 1. Para voz Kore (por defecto) o como carga primaria ultrarrápida, convertir el WAV estático local a Blob URL en RAM
+      if (voice === 'Kore' && staticUrl) {
+        try {
+          const res = await fetch(staticUrl, { cache: 'force-cache' })
+          if (res.ok) {
+            const blob = await res.blob()
+            if (blob.size >= 1000) {
+              return URL.createObjectURL(blob)
+            }
+          }
+        } catch {}
+        return staticUrl
+      }
+
+      // 2. Si el admin configuró otra voz neuronal, intentar obtener su WAV de Storage/TTS con fallback inmediato al WAV estático
+      try {
+        const res = await fetch(
+          `/api/order-ready/announcement-tts?text=${encodeURIComponent(phrase)}&lang=es&voice=${voice}`,
+          { signal: AbortSignal.timeout(4000) }
+        )
+        if (res.ok) {
+          const blob = await res.blob()
+          if (blob.size >= 1000) {
+            return URL.createObjectURL(blob)
+          }
+        }
+      } catch (e) {
+        console.warn(`[order-ready] Beverage TTS fallback a WAV estático (${voice}:${bevKey}):`, e)
+      }
+
+      if (staticUrl) {
+        try {
+          const res = await fetch(staticUrl, { cache: 'force-cache' })
+          if (res.ok) {
+            const blob = await res.blob()
+            if (blob.size >= 1000) {
+              return URL.createObjectURL(blob)
+            }
+          }
+        } catch {}
+      }
+      clipCacheRef.current.delete(key)
+      return staticUrl
+    })()
+    clipCacheRef.current.set(key, job)
+    return job
+  }, [selectedVoice])
+
   // Anuncia la orden con la voz natural seleccionada; si falla algún idioma individual, reintenta y respalda ese idioma sin omitir el español
   const speakOrder = useCallback(
     async (order: OrderItem, repeats: number = 1, voiceOverride?: VoiceId): Promise<void> => {
       const voice = voiceOverride || selectedVoice
+      const bevKey = String(order.order_number || '').toUpperCase()
+      const bevSpeech =
+        bevKey === 'CAFE'
+          ? 'Café pendiente ya está listo'
+          : bevKey === 'CHAMPURRADO'
+          ? 'Champurrado pendiente ya está listo'
+          : null
+
+      if (bevSpeech) {
+        let clipUrl = await getBeverageClipUrl(bevKey, bevSpeech, voice)
+        if (!clipUrl) return speakOrderBrowser(order, voice, 'es')
+
+        for (let rep = 0; rep < repeats; rep++) {
+          setActiveSpeech(`☕ ${bevSpeech}`)
+          let ok = clipUrl ? await playClip(clipUrl) : false
+          if (!ok) {
+            clipCacheRef.current.delete(`bev:${voice}:es:${bevKey}`)
+            clipCacheRef.current.delete(`bev:Kore:es:${bevKey}`)
+            clipUrl = await getBeverageClipUrl(bevKey, bevSpeech, 'Kore')
+            if (clipUrl) {
+              ok = await playClip(clipUrl)
+            }
+          }
+          if (!ok) {
+            await speakOrderBrowser(order, voice, 'es')
+          }
+          setActiveSpeech(null)
+          if (rep < repeats - 1) await new Promise((r) => setTimeout(r, 700))
+        }
+        await new Promise((r) => setTimeout(r, 400))
+        return
+      }
+
       const isNumeric = /^\d{1,6}$/.test(order.order_number)
       if (!isNumeric) return speakOrderBrowser(order, voice)
 
@@ -1211,7 +1336,7 @@ function OrderReadyBoardContent() {
       }
       await new Promise((r) => setTimeout(r, 400))
     },
-    [clipLangs, getClipUrl, playClip, speakOrderBrowser, selectedVoice]
+    [clipLangs, getClipUrl, getBeverageClipUrl, playClip, speakOrderBrowser, selectedVoice]
   )
 
   // Procesador de la cola de audio - Campanilla Ding-Dong + voz natural seleccionada, en orden de cierre
@@ -1233,7 +1358,11 @@ function OrderReadyBoardContent() {
 
         try {
           // Descargar los clips mientras suena la campanilla (si ya están precargados es inmediato)
-          if (/^\d{1,6}$/.test(nextOrder.order_number)) {
+          const bevKey = String(nextOrder.order_number || '').toUpperCase()
+          if (bevKey === 'CAFE' || bevKey === 'CHAMPURRADO') {
+            const bevPhrase = bevKey === 'CAFE' ? 'Café pendiente ya está listo' : 'Champurrado pendiente ya está listo'
+            void getBeverageClipUrl(bevKey, bevPhrase, selectedVoice)
+          } else if (/^\d{1,6}$/.test(nextOrder.order_number)) {
             const num = String(parseInt(nextOrder.order_number, 10))
             clipLangs().forEach((l) => { void getClipUrl(l, num, selectedVoice) })
           }
@@ -1305,7 +1434,7 @@ function OrderReadyBoardContent() {
         processAudioQueue()
       }
     }
-  }, [isMuted, enableChime, playChime, speakOrder, clipLangs, getClipUrl, selectedVoice])
+  }, [isMuted, enableChime, playChime, speakOrder, clipLangs, getClipUrl, getBeverageClipUrl, selectedVoice])
 
   // Encolar una orden lista. La cola se mantiene ORDENADA por hora real de cierre (ready_at ascendente)
   const enqueueAnnouncement = useCallback(
@@ -1585,6 +1714,7 @@ function OrderReadyBoardContent() {
 
         const ready: OrderItem[] = data.readyOrders || []
         const inProgress: OrderItem[] = data.inProgressOrders || []
+        const bevCalls: OrderItem[] = Array.isArray(data.beverageCalls) ? data.beverageCalls : []
 
         setReadyOrders(ready)
         readyOrdersRef.current = ready
@@ -1603,7 +1733,7 @@ function OrderReadyBoardContent() {
           ready.forEach(ord => {
             announcedIdsRef.current.add(ord.id)
           })
-          ;[...ready, ...inProgress].forEach(ord => {
+          ;[...ready, ...inProgress, ...bevCalls].forEach(ord => {
             if (ord.announced_at) {
               const annMs = Date.parse(ord.announced_at)
               if (!isNaN(annMs)) {
@@ -1626,7 +1756,7 @@ function OrderReadyBoardContent() {
           // Si el WebSocket y Postgres Changes fallaron o se desconectaron momentáneamente,
           // el polling periódico cada 4s detecta si una orden (en READY o en IN_PROGRESS) fue llamada en los últimos 10 segundos
           // y dispara el anuncio ÚNICAMENTE si ese impulso no ha sonado ya por las Capas 1-3.
-          ;[...ready, ...inProgress].forEach(ord => {
+          ;[...ready, ...inProgress, ...bevCalls].forEach(ord => {
             if (ord.announced_at) {
               const annMs = Date.parse(ord.announced_at)
               if (!isNaN(annMs) && (Date.now() - annMs) < 10000) {
@@ -1700,6 +1830,12 @@ function OrderReadyBoardContent() {
       }
     })()
   }, [inProgressOrders, clipLangs, getClipUrl, selectedVoice])
+
+  // Precargar los clips de Café y Champurrado al montar o cambiar de voz para reproducción en 0ms
+  useEffect(() => {
+    void getBeverageClipUrl('CAFE', 'Café pendiente ya está listo', selectedVoice)
+    void getBeverageClipUrl('CHAMPURRADO', 'Champurrado pendiente ya está listo', selectedVoice)
+  }, [getBeverageClipUrl, selectedVoice])
 
   // Suscripción a Supabase Realtime (órdenes y configuración global de voz de la cadena)
   useEffect(() => {

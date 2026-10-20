@@ -359,18 +359,31 @@ export async function getAnnouncementSpeech(
   if (existing && !forceRegenerate) return existing
 
   const job = (async () => {
-    const stylePrompt =
-      lang === 'es'
-        ? 'cheerful, energetic, warm and enthusiastic Mexican restaurant counter announcement, speaking with a warm natural Mexican Spanish accent'
-        : 'cheerful, upbeat, warm and friendly counter announcement'
-    const wav = await generateTextWithGemini(clean, lang, selectedVoice, stylePrompt)
     try {
-      await ensureBucket()
-      await supabaseAdmin.storage.from(BUCKET).upload(path, wav, { contentType: 'audio/wav', upsert: true })
-    } catch (e) {
-      console.warn('[order-ready-tts] no se pudo cachear anuncio en Storage:', e)
+      const stylePrompt =
+        lang === 'es'
+          ? 'cheerful, energetic, warm and enthusiastic Mexican restaurant counter announcement, speaking with a warm natural Mexican Spanish accent'
+          : 'cheerful, upbeat, warm and friendly counter announcement'
+      const wav = await generateTextWithGemini(clean, lang, selectedVoice, stylePrompt)
+      try {
+        await ensureBucket()
+        await supabaseAdmin.storage.from(BUCKET).upload(path, wav, { contentType: 'audio/wav', upsert: true })
+      } catch (e) {
+        console.warn('[order-ready-tts] no se pudo cachear anuncio en Storage:', e)
+      }
+      return wav
+    } catch (genErr) {
+      if (selectedVoice !== DEFAULT_VOICE) {
+        const koreHash = createHash('md5').update(`${DEFAULT_VOICE}:${lang}:${clean.toLowerCase()}`).digest('hex')
+        const korePath = `announcements/${DEFAULT_VOICE}/${lang}/${koreHash}.wav`
+        const koreHit = await supabaseAdmin.storage.from(BUCKET).download(korePath)
+        if (koreHit.data) {
+          console.warn(`[order-ready-tts] Fallback a voz oficial ${DEFAULT_VOICE} para anuncio "${clean.slice(0, 40)}"`)
+          return Buffer.from(await koreHit.data.arrayBuffer())
+        }
+      }
+      throw genErr
     }
-    return wav
   })()
 
   inflight.set(path, job)

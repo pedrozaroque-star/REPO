@@ -19,6 +19,8 @@
 
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
+import { getCaliforniaBusinessDate } from '@/lib/business-date'
+import { STORE_GUID_BY_CODE } from '@/lib/order-ready-sync'
 
 export const dynamic = 'force-dynamic'
 
@@ -72,6 +74,21 @@ export async function POST(request: Request) {
             .update({ announced_at: nowIso })
             .eq('id', latestRow.id)
           if (updErr) console.warn('Advertencia actualizando announced_at por order_number:', updErr.message)
+        } else if (orderNumber === 'CAFE' || orderNumber === 'CHAMPURRADO') {
+          const { error: insErr } = await supabaseAdmin
+            .from('order_ready_announcements')
+            .insert({
+              store_code: normalizedStoreCode,
+              store_id: STORE_GUID_BY_CODE[normalizedStoreCode] || normalizedStoreCode,
+              store_name: storeName || normalizedStoreCode,
+              order_number: String(orderNumber),
+              dining_option: 'TOGO',
+              status: 'COMPLETED',
+              announced: true,
+              announced_at: nowIso,
+              business_date: getCaliforniaBusinessDate()
+            })
+          if (insErr) console.warn('Advertencia insertando registro centinela de bebida:', insErr.message)
         }
       }
     } catch (dbErr) {

@@ -13,7 +13,8 @@
  *   - **Pestaña ÓRDENES (Órdenes en Preparación / Send)**: Muestra las órdenes enviadas por la cajera (`status: 'IN_PROGRESS'`)
  *     tras completar el cobro (fulfillmentStatus: 'SENT' en Toast).
  *     Presenta una cuadrícula táctil limpia con números de orden gigantes, canal de venta (`FOR_HERE` / `TOGO`), tiempo transcurrido
- *     y botón táctil para llamar a la orden por altavoz.
+ *     y botón táctil para llamar a la orden por altavoz, además de dos botones táctiles permanentes de llamado por voz para **Café**
+ *     (`"Café pendiente ya está listo"`) y **Champurrado** (`"Champurrado pendiente ya está listo"`).
  *   - **Filtro de Bebidas y Postres**: Las órdenes que SOLO contienen bebidas (horchata, café, sodas, etc.) o postres
  *     (flan, cheesecake) se atienden directamente en mostrador/caja y NO se muestran en la pantalla de preparación.
  *   - **Emisión Exclusiva de Voz en PC (Cero Duplicación de Voces)**:
@@ -47,7 +48,7 @@ import {
     X, Loader2, Play, Maximize, Minimize, HelpCircle, CheckCircle2, TrendingDown, 
     Calendar, FileText, BookOpen, Sun, ChevronLeft, ChevronRight, Store, Flame, 
     BarChart3, SlidersHorizontal, ShoppingBag, Utensils, Volume2, RefreshCw, Megaphone,
-    CupSoda 
+    CupSoda, Coffee 
 } from 'lucide-react'
 import { useAuth } from '@/components/ProtectedRoute'
 import { createClient } from '@/lib/supabase-client'
@@ -2248,6 +2249,94 @@ export default function PreparadorPage() {
                                         <RefreshCw size={16} className={loadingReadyOrders ? 'animate-spin text-emerald-600' : ''} />
                                     </button>
                                 </div>
+                            </div>
+
+                            {/* Botones de Anuncio por Voz de Bebidas Calientes (Café y Champurrado) junto a las órdenes */}
+                            <div className="grid grid-cols-2 gap-2.5 sm:gap-3.5 pb-3 mb-3 border-b border-slate-200 dark:border-slate-800 shrink-0">
+                                {[
+                                    {
+                                        id: 'bev-cafe',
+                                        order_number: 'CAFE',
+                                        dining_option: 'TOGO',
+                                        label: t('prep.callCafeBtn'),
+                                        speech: t('prep.cafeReadySpeech'),
+                                        idleBg: 'border-amber-300 dark:border-amber-700/80 bg-gradient-to-br from-amber-50 to-orange-50/70 dark:from-amber-950/40 dark:to-slate-900 hover:border-amber-500',
+                                        badgeBg: 'bg-amber-100 text-amber-900 dark:bg-amber-900/60 dark:text-amber-200',
+                                        btnBg: 'bg-amber-700 group-hover:bg-amber-800 text-white'
+                                    },
+                                    {
+                                        id: 'bev-champurrado',
+                                        order_number: 'CHAMPURRADO',
+                                        dining_option: 'TOGO',
+                                        label: t('prep.callChampurradoBtn'),
+                                        speech: t('prep.champurradoReadySpeech'),
+                                        idleBg: 'border-orange-300 dark:border-orange-700/80 bg-gradient-to-br from-orange-50 to-amber-50/70 dark:from-orange-950/40 dark:to-slate-900 hover:border-orange-500',
+                                        badgeBg: 'bg-orange-100 text-orange-900 dark:bg-orange-900/60 dark:text-orange-200',
+                                        btnBg: 'bg-orange-700 group-hover:bg-orange-800 text-white'
+                                    }
+                                ].map((bev) => {
+                                    const isCalling = callingOrderIds.has(bev.id)
+                                    const isSuccess = callSuccessOrderIds.has(bev.id)
+                                    return (
+                                        <button
+                                            key={bev.id}
+                                            type="button"
+                                            onClick={() => handleCallOrderImpulse(bev)}
+                                            disabled={isCalling}
+                                            className={`group relative rounded-2xl px-3 sm:px-4 py-2.5 sm:py-3.5 text-left transition-all active:scale-[0.97] cursor-pointer flex flex-col justify-between select-none shadow-sm hover:shadow-md border-2 overflow-hidden ${
+                                                isCalling
+                                                    ? 'ring-4 ring-emerald-500 scale-[0.98] border-emerald-500 bg-emerald-50 dark:bg-emerald-950/80 shadow-lg'
+                                                    : isSuccess
+                                                    ? 'border-emerald-500 bg-emerald-50/70 dark:bg-emerald-950/50 shadow-emerald-500/20'
+                                                    : bev.idleBg
+                                            }`}
+                                        >
+                                            <div className="flex items-center justify-between gap-2 w-full mb-1">
+                                                <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] sm:text-xs font-black uppercase tracking-wider truncate ${bev.badgeBg}`}>
+                                                    <Coffee size={12} className="shrink-0" />
+                                                    <span className="truncate">{t('prep.beverageVoiceCallBadge')}</span>
+                                                </span>
+                                            </div>
+                                            <div className="my-1 flex items-center gap-2">
+                                                <Coffee size={22} className={isCalling ? 'text-emerald-600 dark:text-emerald-400 animate-bounce shrink-0' : 'text-amber-800 dark:text-amber-300 shrink-0'} />
+                                                <div className="min-w-0 flex-1">
+                                                    <div className={`text-base sm:text-xl font-black tracking-tight truncate leading-tight ${
+                                                        isCalling ? 'text-emerald-700 dark:text-emerald-300' : 'text-slate-900 dark:text-white'
+                                                    }`}>
+                                                        {bev.label}
+                                                    </div>
+                                                    <p className="text-[10px] sm:text-xs font-semibold text-slate-500 dark:text-slate-400 truncate">
+                                                        &ldquo;{bev.speech}&rdquo;
+                                                    </p>
+                                                </div>
+                                            </div>
+                                            <div className={`mt-1.5 w-full py-2 sm:py-2.5 px-2.5 rounded-xl flex items-center justify-center gap-1.5 font-black text-xs sm:text-sm tracking-wide transition-all shadow-sm ${
+                                                isCalling
+                                                    ? 'bg-emerald-600 text-white animate-pulse shadow-md'
+                                                    : isSuccess
+                                                    ? 'bg-emerald-700 text-white'
+                                                    : bev.btnBg
+                                            }`}>
+                                                {isCalling ? (
+                                                    <>
+                                                        <Megaphone size={15} className="animate-bounce shrink-0" />
+                                                        <span className="truncate">{t('prep.callingOrder')}</span>
+                                                    </>
+                                                ) : isSuccess ? (
+                                                    <>
+                                                        <CheckCircle2 size={15} className="shrink-0" />
+                                                        <span className="truncate">{t('prep.orderCallSent')}</span>
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        <Volume2 size={15} className="shrink-0" />
+                                                        <span className="truncate">{bev.label}</span>
+                                                    </>
+                                                )}
+                                            </div>
+                                        </button>
+                                    )
+                                })}
                             </div>
 
                             {/* Contenedor con scroll para las tarjetas de órdenes */}

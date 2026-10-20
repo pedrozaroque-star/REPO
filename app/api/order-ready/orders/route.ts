@@ -102,9 +102,21 @@ export async function GET(request: Request) {
     }
 
     // Regla de Negocio Tacos Gavilan: El Order Ready Board es exclusivo para comedor (FOR_HERE) y para llevar (TOGO).
-    // Se descartan por completo órdenes de Drive-Thru y Delivery de plataformas.
-    const isAllowedDining = (o: any) => o.dining_option === 'FOR_HERE' || o.dining_option === 'TOGO'
+    // Se descartan por completo órdenes de Drive-Thru y Delivery de plataformas, así como registros centinela de bebidas (CAFE/CHAMPURRADO).
+    const isAllowedDining = (o: any) =>
+      (o.dining_option === 'FOR_HERE' || o.dining_option === 'TOGO') &&
+      o.order_number !== 'CAFE' &&
+      o.order_number !== 'CHAMPURRADO'
     const filteredOrders = (orders || []).filter(isAllowedDining)
+
+    // Consultar impulsos recientes de Café / Champurrado (últimos 15s) para Capa 4 de Redundancia (Polling Fallback)
+    const recentBeverageCutoff = new Date(Date.now() - 15000).toISOString()
+    const { data: beverageCalls } = await supabaseAdmin
+      .from('order_ready_announcements')
+      .select('id, store_code, store_name, order_number, dining_option, announced_at')
+      .eq('store_code', storeCode)
+      .in('order_number', ['CAFE', 'CHAMPURRADO'])
+      .gte('announced_at', recentBeverageCutoff)
 
     // Regla de Negocio Tacos Gavilan: Las órdenes listas se retiran tras 20 minutos para mantener limpia la pantalla
     const nowMs = Date.now()
@@ -153,7 +165,8 @@ export async function GET(request: Request) {
       },
       readyOrders,
       inProgressOrders,
-      allOrders: filteredOrders
+      allOrders: filteredOrders,
+      beverageCalls: beverageCalls || []
     })
   } catch (err: any) {
     return NextResponse.json({ error: err.message || 'Internal Server Error' }, { status: 500 })
