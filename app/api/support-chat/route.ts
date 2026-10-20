@@ -521,7 +521,7 @@ CRITICAL RULES:
   * SI NO HAY DATOS EN EL SISTEMA: Dilo con total honestidad ("No hay datos de ventas registrados para esas fechas en el sistema"). NUNCA rellenes la tabla con números ficticios o estimados.
   * VENTAS SEMANALES POR TIENDA / EXPORTACIONES MULTISEMANA: Cuando el usuario pida ventas semanales por tienda (ej. "ventas por semana de todas las tiendas", "últimas 5 semanas", "últimas 10 semanas", "todas las semanas del año"), LLAMA a "query_sales" pasando el rango completo (date_from y date_to). La herramienta "query_sales" genera automáticamente la Matriz Semanal por Tienda (semanas Lunes–Domingo) ordenada de mayor a menor por la semana más reciente. Si necesitas usar "execute_custom_sql" sobre "sales_daily_cache", usa directamente la columna "store_name" que YA viene en "sales_daily_cache" (NO necesitas hacer JOIN con "stores", y si lo haces, une SIEMPRE "sales_daily_cache.store_id::text = stores.external_id::text").
   * CERO FILTRACIÓN DE ERRORES TÉCNICOS O SQL AL USUARIO: ESTÁ ESTRICTAMENTE PROHIBIDO mencionar errores técnicos como "operator does not exist: text = bigint", errores de sintaxis SQL, nombres de columnas, o decir "voy a escalar este problema al equipo técnico". Si una consulta falla, corrígela en silencio usando las herramientas oficiales ("query_sales", "query_labor", "query_violations_budgets") y entrega los datos reales al usuario.
-  * EXPORTACIÓN DIRECTA DE TABLAS Y ARCHIVOS CSV / EXCEL EN EL CHAT: El chat cuenta con botones interactivos automáticos de "⬇️ Descargar CSV (Excel)" y "📋 Copiar" arriba de CADA tabla Markdown y de cada bloque de código CSV. NUNCA digas "no puedo adjuntar un archivo", "no puedo generar un enlace de descarga" ni "no puedo exportar directamente". Cuando el usuario pida exportar a CSV o Excel (o pida una tabla descargable), presenta la tabla completa en formato Markdown (y/o un bloque \`\`\`csv con los datos separados por comas) e indícale claramente: "Aquí tienes la tabla lista. Haz clic en el botón ⬇️ Descargar CSV (Excel) que aparece arriba de la tabla para descargar el archivo directamente."
+  * EXPORTACIÓN DIRECTA DE TABLAS Y ARCHIVOS CSV / EXCEL EN EL CHAT: El chat cuenta con botones y enlaces interactivos automáticos de "[⬇️ Descargar CSV (Excel)](#download-csv)" y "📋 Copiar" tanto arriba como abajo de CADA tabla Markdown y de cada bloque de código CSV. NUNCA digas "no puedo adjuntar un archivo", "no puedo generar un enlace de descarga" ni "no puedo exportar directamente", y NUNCA uses etiquetas HTML crudas como "<br>". Cuando el usuario pida exportar a CSV o Excel, o pida un link de descarga, presenta la tabla completa en formato Markdown (o bloque \`\`\`csv) e incluye siempre en tu texto el enlace clicable en formato Markdown: "[⬇️ Descargar archivo CSV (Excel)](#download-csv)".
   * PROHIBIDO RECORTAR O RESUMIR TABLAS GRANDES: Cuando el usuario pida "todas las semanas del año", "últimas 10 semanas", "todos los registros" o "exportar toda la tabla", ESTÁ ESTRICTAMENTE PROHIBIDO decir "Dado que es una gran cantidad de datos / sería muy difícil de leer, te mostraré solo las últimas 5 semanas". SIEMPRE debes incluir la tabla Markdown COMPLETA con todas las semanas, columnas y filas que devuelve la herramienta (incluyendo la WEEKLY SALES MATRIX BY STORE completa), porque la ventana del chat tiene scroll horizontal/vertical automático y el botón ⬇️ Descargar CSV (Excel) descarga exactamente la tabla completa que renderices.
 - ALWAYS use your tools to answer questions. If there is a specialized tool, prefer it. If the question requires cross-table joining, complex filters, aggregates or schema lookups, IMMEDIATELY call "execute_custom_sql" to query the system behind the scenes.
 - SMART FALLBACK MANDATE: If a specialized query tool returns NO results or empty data for a request, you MUST NOT give up. You MUST IMMEDIATELY fall back to calling "execute_custom_sql" to perform a broad, direct SELECT query on the corresponding tables to inspect raw records. Synthesize the findings into natural Spanish/English for the user.
@@ -992,6 +992,9 @@ export async function POST(req: NextRequest) {
       finalReply = 'I reached the maximum number of data queries. Please try a more specific question.';
     }
 
+    // Strip any raw <br> HTML tags so ReactMarkdown renders clean line breaks
+    finalReply = finalReply.replace(/<br\s*\/?>/gi, '\n');
+
     // Server-side guarantee: if a tool produced a large Markdown table (e.g. 42-week matrix or SQL export)
     // and the model omitted the table or truncated it to a 5-week summary, inject the complete table automatically!
     if (lastToolMarkdownTable) {
@@ -999,8 +1002,8 @@ export async function POST(req: NextRequest) {
       const hasCsvFence = /```csv[\s\S]+?```/i.test(finalReply);
       const replyTableLen = replyTableMatch ? replyTableMatch[1].length : 0;
       const isTruncatedLargeTable = lastToolMarkdownTable.length > 1500 && replyTableLen < lastToolMarkdownTable.length * 0.45 && !hasCsvFence;
-      if ((!replyTableMatch && !hasCsvFence && /(export|csv|excel|tabla|semanas|todas)/i.test(lastUserMsg)) || isTruncatedLargeTable) {
-        finalReply = `${finalReply}\n\n### 📊 Tabla Completa (Lista para Descargar en CSV / Excel)\nHaz clic en el botón **⬇️ Descargar CSV (Excel)** arriba de la tabla:\n\n${lastToolMarkdownTable}`;
+      if ((!replyTableMatch && !hasCsvFence && /(export|csv|excel|tabla|semanas|todas|link|descarga)/i.test(lastUserMsg)) || isTruncatedLargeTable) {
+        finalReply = `${finalReply}\n\n### 📊 Tabla Completa (Lista para Descargar en CSV / Excel)\n[⬇️ Descargar archivo CSV (Excel)](#download-csv)\n\n${lastToolMarkdownTable}`;
       }
     }
 
