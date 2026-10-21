@@ -6,18 +6,21 @@
  *   1. Versión 1
  *   2. Versión 2
  *   3. Comparar Lado a Lado (Versión 1 vs Versión 2)
+ *   4. TEST FULLSCREEN (Vista Teléfono Real 100% al ras sin barras del sistema TEG)
  *
  * @businessRules
  * - **Marca Oficial**: Tacos Gavilan (presentación 1:1 de marca y colores corporativos #50050a y #FDC82F).
  * - **Integración en Panel Derecho**: Se renderiza dentro del área de trabajo principal a la derecha de `AppSidebar`
- *   (igual que Centro de Actividades y Sitio Web), y ofrece además un modo opcional de Pantalla Completa (`?fullscreen=1`).
+ *   (igual que Centro de Actividades y Sitio Web), y ofrece además el modo **TEST FULLSCREEN** (`?fullscreen=1` o `?test=1`)
+ *   diseñado para verse al 100% de la pantalla en el teléfono real de Carlos sin marcos simulados ni barras de TEG.
  * - **Preservación Total de Versión 1**: La Versión 1 carga intacto `/app/index.html?nosplash=1`.
  *
  * @dataFlow
- * - Lee `?v=1|2|compare` y `?fullscreen=1` desde `useSearchParams()` -> Renderiza el panel derecho con pestañas o vista fullscreen.
+ * - Lee `?v=1|2|compare` y `?fullscreen=1|test=1` desde `useSearchParams()` -> Renderiza el panel derecho con pestañas o vista TEST FULLSCREEN.
  *
  * @notes
- * - Incluye controles rápidos en la columna izquierda del área de trabajo para saltar a cualquier lámina o etapa de la Versión 2.
+ * - Incluye controles rápidos en la columna izquierda del área de trabajo y un cajón móvil flotante dentro de TEST FULLSCREEN
+ *   para saltar a cualquiera de las 12 pantallas de la Versión 2 directamente desde el teléfono.
  */
 
 'use client'
@@ -29,8 +32,8 @@ import {
   Sparkles,
   Columns,
   Play,
-  ExternalLink,
   Maximize2,
+  Minimize2,
   RotateCcw,
   CheckCircle2,
   Bell,
@@ -41,6 +44,9 @@ import {
   Hand,
   Info,
   ArrowLeft,
+  SlidersHorizontal,
+  EyeOff,
+  X,
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useLanguage } from '@/lib/i18n'
@@ -59,7 +65,8 @@ function AppClientesWorkspaceContent() {
   const isEn = language === 'en'
 
   const vParam = searchParams.get('v')
-  const isFullscreenMode = searchParams.get('fullscreen') === '1'
+  const fullscreenParam =
+    searchParams.get('fullscreen') === '1' || searchParams.get('test') === '1'
 
   const [activeTab, setActiveTab] = useState<ActiveVersionTab>(() => {
     if (vParam === '1') return 'v1'
@@ -67,7 +74,14 @@ function AppClientesWorkspaceContent() {
     return 'v2'
   })
 
-  // Controls to jump to any stage/slide/auth sheet of Version 2 from the left control column
+  const [isFullscreenMode, setIsFullscreenMode] = useState<boolean>(fullscreenParam)
+  // In fullscreen mode: true = 100% edge-to-edge native mobile view (default on phones); false = centered phone frame on desktop
+  const [fullscreenEdgeToEdge, setFullscreenEdgeToEdge] = useState<boolean>(true)
+  // Floating TEST drawer & pill visibility in Fullscreen mode
+  const [showTestDrawer, setShowTestDrawer] = useState<boolean>(false)
+  const [hideFloatingPill, setHideFloatingPill] = useState<boolean>(false)
+
+  // Controls to jump to any stage/slide/auth sheet of Version 2
   const [v2Stage, setV2Stage] = useState<V2Stage | null>('stories')
   const [v2StoryIdx, setV2StoryIdx] = useState<number | null>(0)
   const [v2MainTab, setV2MainTab] = useState<MainTab | null>('home')
@@ -82,6 +96,38 @@ function AppClientesWorkspaceContent() {
     else if (vParam === '2') setActiveTab('v2')
     else if (vParam === 'compare') setActiveTab('compare')
   }, [vParam])
+
+  useEffect(() => {
+    setIsFullscreenMode(fullscreenParam)
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new Event('teg-fullscreen-change'))
+    }
+  }, [fullscreenParam])
+
+  const enterTestFullscreen = (targetVersion?: 'v1' | 'v2') => {
+    const ver = targetVersion || (activeTab === 'v1' ? 'v1' : 'v2')
+    setActiveTab(ver)
+    setIsFullscreenMode(true)
+    const vQuery = ver === 'v1' ? '1' : '2'
+    router.replace(`/app?v=${vQuery}&fullscreen=1`, { scroll: false })
+    if (typeof window !== 'undefined') {
+      setTimeout(() => {
+        window.dispatchEvent(new Event('teg-fullscreen-change'))
+      }, 20)
+    }
+  }
+
+  const exitTestFullscreen = () => {
+    setIsFullscreenMode(false)
+    setShowTestDrawer(false)
+    const vQuery = activeTab === 'v1' ? '1' : '2'
+    router.replace(`/app?v=${vQuery}`, { scroll: false })
+    if (typeof window !== 'undefined') {
+      setTimeout(() => {
+        window.dispatchEvent(new Event('teg-fullscreen-change'))
+      }, 20)
+    }
+  }
 
   const handleSelectTab = (tab: ActiveVersionTab) => {
     setActiveTab(tab)
@@ -103,31 +149,279 @@ function AppClientesWorkspaceContent() {
     setV2AuthSheet(authSheet)
     setV2LoggedInDemo(loggedInDemo)
     setControlTick((t) => t + 1)
+    setShowTestDrawer(false)
   }
 
-  // Modo Pantalla Completa Dedicado (?fullscreen=1)
+  // =========================================================================
+  // MODO TEST FULLSCREEN DEDICADO (?fullscreen=1 o ?test=1)
+  // Optimizado para que en el teléfono real se vea 100% pantalla completa nativa
+  // =========================================================================
   if (isFullscreenMode) {
+    const fullscreenVersion = activeTab === 'v1' ? 'v1' : 'v2'
     return (
-      <div className="fixed inset-0 w-full h-full bg-[#50050a] overflow-hidden flex items-center justify-center select-none">
-        <div className="fixed top-3 right-3 z-50 flex items-center gap-2">
+      <div className="fixed inset-0 z-[9999] w-screen h-[100dvh] bg-[#09090b] overflow-hidden flex items-center justify-center select-none">
+        {/* Botón Flotante Compacto TEST (o punto discreto si se oculta) */}
+        {hideFloatingPill ? (
           <button
             type="button"
-            onClick={() => router.push(`/app?v=${activeTab === 'v1' ? '1' : '2'}`)}
-            className="flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-[#50050a]/95 hover:bg-[#3d0307] text-white border border-[#FDC82F]/70 shadow-2xl text-xs font-bold cursor-pointer"
+            onClick={() => setHideFloatingPill(false)}
+            title={isEn ? 'Show Test Controls' : 'Mostrar controles TEST'}
+            className="fixed top-2 left-2 z-[10020] w-7 h-7 rounded-full bg-black/45 hover:bg-black/80 border border-white/25 text-[#FDC82F] flex items-center justify-center text-[10px] font-black backdrop-blur-md shadow-lg cursor-pointer"
           >
-            <ArrowLeft size={14} className="text-[#FDC82F]" />
-            <span>{isEn ? 'Back to App Lab' : 'Volver al Panel de Versiones'}</span>
+            T
           </button>
-        </div>
-
-        {activeTab === 'v1' ? (
-          <iframe
-            src="/app/index.html?nosplash=1"
-            className="w-full h-full border-0"
-            title="Tacos Gavilan App V1"
-          />
         ) : (
-          <CustomerAppV2Pro />
+          <div className="fixed top-2.5 left-1/2 -translate-x-1/2 z-[10020] flex items-center gap-1.5 px-2 py-1 rounded-full bg-black/80 border border-[#FDC82F]/50 shadow-[0_8px_30px_rgba(0,0,0,0.65)] backdrop-blur-md">
+            <button
+              type="button"
+              onClick={exitTestFullscreen}
+              className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-[#50050a] hover:bg-red-800 text-white text-[11px] font-black transition-all cursor-pointer"
+            >
+              <ArrowLeft size={12} className="text-[#FDC82F]" />
+              <span>{isEn ? 'Exit' : 'Salir'}</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setShowTestDrawer((prev) => !prev)}
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#FDC82F] hover:bg-amber-400 text-[#121212] text-[11px] font-black transition-all cursor-pointer"
+            >
+              <SlidersHorizontal size={12} />
+              <span>{isEn ? 'TEST Screens (1-12)' : 'Pantallas TEST (1-12)'}</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setHideFloatingPill(true)}
+              title={isEn ? 'Hide bar for clean screen' : 'Ocultar barra para vista limpia'}
+              className="w-6 h-6 rounded-full bg-white/10 hover:bg-white/20 text-white/80 flex items-center justify-center cursor-pointer"
+            >
+              <EyeOff size={12} />
+            </button>
+          </div>
+        )}
+
+        {/* Cajón Inferior de Salto Rápido entre Pantallas #1-#12 en Modo Fullscreen */}
+        <AnimatePresence>
+          {showTestDrawer && (
+            <motion.div
+              key="fullscreen-test-drawer"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowTestDrawer(false)}
+              className="fixed inset-0 z-[10030] bg-black/70 backdrop-blur-xs flex items-end justify-center"
+            >
+              <motion.div
+                initial={{ y: 320 }}
+                animate={{ y: 0 }}
+                exit={{ y: 320 }}
+                transition={{ type: 'spring', damping: 26, stiffness: 260 }}
+                onClick={(e) => e.stopPropagation()}
+                className="w-full max-w-[460px] max-h-[82dvh] bg-[#161618] border-t border-white/15 rounded-t-3xl p-4 text-white flex flex-col shadow-2xl"
+              >
+                <div className="flex items-center justify-between pb-3 border-b border-white/10">
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-widest text-[#FDC82F]">
+                      {isEn ? 'MOBILE FULLSCREEN TESTER' : 'PROBADOR FULLSCREEN EN TELÉFONO'}
+                    </p>
+                    <h3 className="text-sm font-black text-white">
+                      {isEn ? 'Jump to Any Screen or Version' : 'Saltar a Cualquier Pantalla o Versión'}
+                    </h3>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowTestDrawer(false)}
+                    className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white cursor-pointer"
+                  >
+                    <X size={16} />
+                  </button>
+                </div>
+
+                {/* Conmutador Versión 2 / Versión 1 + Modo Borde */}
+                <div className="grid grid-cols-2 gap-2 my-3">
+                  <button
+                    type="button"
+                    onClick={() => enterTestFullscreen('v2')}
+                    className={`py-2 px-3 rounded-xl text-xs font-black border transition-all cursor-pointer ${
+                      fullscreenVersion === 'v2'
+                        ? 'bg-gradient-to-r from-[#50050a] to-red-700 text-[#FDC82F] border-[#FDC82F]'
+                        : 'bg-white/5 text-white/70 border-white/10'
+                    }`}
+                  >
+                    {isEn ? 'Version 2 (Active)' : 'Versión 2'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => enterTestFullscreen('v1')}
+                    className={`py-2 px-3 rounded-xl text-xs font-black border transition-all cursor-pointer ${
+                      fullscreenVersion === 'v1'
+                        ? 'bg-white text-black border-white'
+                        : 'bg-white/5 text-white/70 border-white/10'
+                    }`}
+                  >
+                    {isEn ? 'Version 1' : 'Versión 1'}
+                  </button>
+                </div>
+
+                {/* Lista de las 12 Pantallas de Versión 2 */}
+                <div className="overflow-y-auto space-y-1.5 pr-1 pb-2">
+                  <button
+                    type="button"
+                    onClick={() => jumpToV2State('stories', 0)}
+                    className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-left text-xs font-bold"
+                  >
+                    <span>{isEn ? '1. Slide 1: White Bag "Ya está."' : '1. Lámina 1: Bolsa Blanca "Ya está."'}</span>
+                    <span className="text-[10px] text-[#FDC82F] font-mono">00:03</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => jumpToV2State('stories', 1)}
+                    className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-left text-xs font-bold"
+                  >
+                    <span>{isEn ? '2. Slide 2: Order Notification Alerts' : '2. Lámina 2: Notificaciones de Orden'}</span>
+                    <span className="text-[10px] text-[#FDC82F] font-mono">00:08</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => jumpToV2State('stories', 2)}
+                    className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-left text-xs font-bold"
+                  >
+                    <span>{isEn ? '3. Slide 3: "MUST. FIND. TACOS. FAST." (GPS)' : '3. Lámina 3: "URGENTE. TACOS. YA." (GPS)'}</span>
+                    <span className="text-[10px] text-[#FDC82F] font-mono">00:13</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => jumpToV2State('stories', 3)}
+                    className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-left text-xs font-bold"
+                  >
+                    <span>{isEn ? '4. Slide 4: Fast-Pass QR Card' : '4. Lámina 4: Tarjeta QR Fast-Pass'}</span>
+                    <span className="text-[10px] text-[#FDC82F] font-mono">00:16</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => jumpToV2State('stories', 4)}
+                    className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-left text-xs font-bold"
+                  >
+                    <span>{isEn ? '5. Slide 5: Order Ahead + "GET STARTED!"' : '5. Lámina 5: Pide sin Fila + "¡EMPEZAR!"'}</span>
+                    <span className="text-[10px] text-[#FDC82F] font-mono">00:24</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => jumpToV2State('hello', 0, 'home', null, false)}
+                    className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl bg-[#FDC82F]/15 hover:bg-[#FDC82F]/25 border border-[#FDC82F]/50 text-left text-xs font-black text-[#FDC82F]"
+                  >
+                    <span>{isEn ? '6. Welcome Gate: "HELLO!" (Apple + Android)' : '6. Portada "¡HOLA!" (Apple + Google Android)'}</span>
+                    <span className="text-[10px] font-mono">02:05</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => jumpToV2State('hello', 0, 'home', 'apple-sheet', false)}
+                    className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-left text-xs font-bold"
+                  >
+                    <span>{isEn ? '7. Apple Sign-In (iOS Face ID Sheet)' : '7. Acceso con Apple (iOS Face ID)'}</span>
+                    <span className="text-[10px] text-white/60 font-mono">iOS</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => jumpToV2State('hello', 0, 'home', 'google-sheet', false)}
+                    className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-left text-xs font-bold"
+                  >
+                    <span>{isEn ? '8. Google Sign-In (Android Account Sheet)' : '8. Acceso con Google (Android)'}</span>
+                    <span className="text-[10px] text-blue-400 font-mono">Android</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => jumpToV2State('hello', 0, 'home', 'login', false)}
+                    className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-left text-xs font-bold"
+                  >
+                    <span>{isEn ? '9. "Log In" Card Modal (Email + Password)' : '9. Modal "Iniciar Sesión" (Correo + Clave)'}</span>
+                    <span className="text-[10px] text-white/60 font-mono">02:05</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => jumpToV2State('hello', 0, 'home', 'signup', false)}
+                    className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-left text-xs font-bold"
+                  >
+                    <span>{isEn ? '10. "Sign Up" Form (Full Registration)' : '10. Formulario "Crear Cuenta" (Registro)'}</span>
+                    <span className="text-[10px] text-white/60 font-mono">02:14</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => jumpToV2State('hello', 0, 'home', 'verify-email', false)}
+                    className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-left text-xs font-bold"
+                  >
+                    <span>{isEn ? '11. Email Verification + Push Banner' : '11. Verificación de Correo + Notificación'}</span>
+                    <span className="text-[10px] text-white/60 font-mono">02:15</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => jumpToV2State('main', 0, 'home', null, true)}
+                    className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl bg-gradient-to-r from-[#50050a] to-red-700 text-[#FDC82F] border border-[#FDC82F]/50 text-left text-xs font-black"
+                  >
+                    <span>{isEn ? '12. Logged-In Home ("Good Afternoon, CARLOS")' : '12. Home Logueado ("Buenas tardes, CARLOS")'}</span>
+                    <span className="text-[10px] font-mono">02:16</span>
+                  </button>
+                </div>
+
+                {/* Opción Solo Desktop: Alternar 100% Al Ras vs Marco 430px */}
+                <div className="hidden md:flex items-center justify-between pt-3 mt-2 border-t border-white/10 text-xs">
+                  <span className="text-white/60">
+                    {isEn ? 'Desktop Container Width:' : 'Ancho en Computadora:'}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setFullscreenEdgeToEdge((v) => !v)}
+                    className="px-3 py-1 rounded-lg bg-white/10 hover:bg-white/20 text-white font-bold cursor-pointer"
+                  >
+                    {fullscreenEdgeToEdge
+                      ? isEn
+                        ? 'Switch to 430px Phone Frame'
+                        : 'Ver en Marco de 430px'
+                      : isEn
+                      ? 'Switch to 100% Full Width'
+                      : 'Ver 100% Ancho Completo'}
+                  </button>
+                </div>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Contenido Principal Fullscreen (100% Al Ras en Teléfono) */}
+        {fullscreenVersion === 'v1' ? (
+          <div
+            className={
+              fullscreenEdgeToEdge
+                ? 'w-full h-full bg-white overflow-hidden'
+                : 'w-full h-full md:max-w-[430px] md:h-[94dvh] md:rounded-[40px] bg-white overflow-hidden shadow-2xl'
+            }
+          >
+            <iframe
+              key={`fs-v1-${v1ReloadKey}`}
+              src="/app/index.html?nosplash=1"
+              className="w-full h-full border-0"
+              title="Tacos Gavilan App V1 Fullscreen"
+            />
+          </div>
+        ) : (
+          <div
+            className={
+              fullscreenEdgeToEdge
+                ? 'w-full h-full md:max-w-[430px] md:h-full overflow-hidden'
+                : 'w-full h-full overflow-hidden'
+            }
+          >
+            <CustomerAppV2Pro
+              fullscreenNative={fullscreenEdgeToEdge}
+              externalStage={v2Stage}
+              externalStoryIndex={v2StoryIdx}
+              externalTab={v2MainTab}
+              externalAuthSheet={v2AuthSheet}
+              externalLoggedInDemo={v2LoggedInDemo}
+              controlTick={controlTick}
+            />
+          </div>
         )}
       </div>
     )
@@ -135,6 +429,54 @@ function AppClientesWorkspaceContent() {
 
   return (
     <div className="space-y-5 pb-10">
+      {/* =====================================================================
+          BANNER SUPERIOR MÓVIL: ACCESO DE 1 TOQUE A TEST FULLSCREEN EN TELÉFONO
+         ===================================================================== */}
+      <div className="bg-gradient-to-r from-[#50050a] via-[#6b0910] to-[#3d0307] rounded-2xl border-2 border-[#FDC82F] p-4 shadow-lg flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <div className="w-11 h-11 rounded-2xl bg-[#FDC82F] text-[#121212] flex items-center justify-center shrink-0 shadow-md">
+            <Maximize2 size={22} strokeWidth={2.5} />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="px-2 py-0.5 rounded-md bg-[#FDC82F] text-[#121212] text-[10px] font-black uppercase tracking-wider">
+                {isEn ? 'PHONE NATIVE VIEW' : 'VISTA TELÉFONO REAL'}
+              </span>
+              <h2 className="text-sm sm:text-base font-black text-white">
+                {isEn
+                  ? 'TEST FULLSCREEN (100% Phone Screen)'
+                  : 'TEST FULLSCREEN (Pantalla Completa en tu Teléfono)'}
+              </h2>
+            </div>
+            <p className="text-xs text-white/85 mt-0.5">
+              {isEn
+                ? 'Hides the TEG sidebar and phone bezels so the app fills 100% of your smartphone screen.'
+                : 'Oculta el menú lateral de TEG y los bordes simulados para que la app ocupe el 100% de la pantalla de tu teléfono.'}
+            </p>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2 shrink-0">
+          <button
+            type="button"
+            onClick={() => enterTestFullscreen('v2')}
+            className="flex-1 sm:flex-initial inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-[#FDC82F] hover:bg-amber-400 text-[#121212] text-xs sm:text-sm font-black shadow-md transition-all cursor-pointer"
+          >
+            <Maximize2 size={15} strokeWidth={2.5} />
+            <span>{isEn ? 'TEST FULLSCREEN (V2)' : 'ABRIR TEST FULLSCREEN (V2)'}</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => enterTestFullscreen('v1')}
+            className="inline-flex items-center justify-center gap-1.5 px-3.5 py-2.5 rounded-xl bg-white/15 hover:bg-white/25 text-white border border-white/30 text-xs font-bold transition-all cursor-pointer"
+          >
+            <Smartphone size={14} />
+            <span>{isEn ? 'Fullscreen V1' : 'Fullscreen V1'}</span>
+          </button>
+        </div>
+      </div>
+
       {/* =====================================================================
           ENCABEZADO Y PESTAÑAS DE MÓDULO (Estilo idéntico a Centro de Actividades)
          ===================================================================== */}
@@ -176,18 +518,16 @@ function AppClientesWorkspaceContent() {
 
             <button
               type="button"
-              onClick={() =>
-                router.push(`/app?v=${activeTab === 'v1' ? '1' : '2'}&fullscreen=1`)
-              }
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 text-xs font-bold transition-all cursor-pointer"
+              onClick={() => enterTestFullscreen(activeTab === 'v1' ? 'v1' : 'v2')}
+              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#FDC82F] hover:bg-amber-400 text-[#121212] border border-amber-500 text-xs font-black shadow-sm transition-all cursor-pointer"
             >
-              <Maximize2 size={13} />
-              <span>{isEn ? 'Fullscreen Mode' : 'Pantalla Completa'}</span>
+              <Maximize2 size={14} strokeWidth={2.5} />
+              <span>{isEn ? 'TEST FULLSCREEN' : 'TEST FULLSCREEN'}</span>
             </button>
           </div>
         </div>
 
-        {/* Barra de Pestañas (Versión 1 | Versión 2 | Comparar) */}
+        {/* Barra de Pestañas (Versión 1 | Versión 2 | Comparar | TEST FULLSCREEN) */}
         <div className="px-6 border-t border-slate-100 dark:border-slate-800/80 flex items-center gap-6 overflow-x-auto no-scrollbar">
           <button
             type="button"
@@ -228,6 +568,15 @@ function AppClientesWorkspaceContent() {
             <span>
               {isEn ? 'Compare (Version 1 vs Version 2)' : 'Comparar (Versión 1 vs Versión 2)'}
             </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => enterTestFullscreen(activeTab === 'v1' ? 'v1' : 'v2')}
+            className="flex items-center gap-2 py-3.5 text-xs sm:text-sm font-black border-b-2 border-transparent text-[#50050a] dark:text-[#FDC82F] hover:text-orange-600 transition-all whitespace-nowrap cursor-pointer"
+          >
+            <Maximize2 size={15} />
+            <span>{isEn ? 'TEST FULLSCREEN (Phone)' : 'TEST FULLSCREEN (Teléfono)'}</span>
           </button>
         </div>
       </div>
@@ -336,6 +685,33 @@ function AppClientesWorkspaceContent() {
                 )}
               </div>
             </div>
+
+            {/* Opción 4: TEST FULLSCREEN (Vista Teléfono Real 100%) */}
+            <button
+              type="button"
+              onClick={() => enterTestFullscreen(activeTab === 'v1' ? 'v1' : 'v2')}
+              className="w-full p-3.5 rounded-xl border-2 border-[#FDC82F] bg-gradient-to-r from-[#50050a] to-red-800 hover:from-[#3d0307] hover:to-red-900 text-left shadow-md transition-all cursor-pointer"
+            >
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-9 h-9 rounded-xl bg-[#FDC82F] text-[#121212] flex items-center justify-center font-black text-xs shadow-xs shrink-0">
+                    <Maximize2 size={17} strokeWidth={2.5} />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-black text-[#FDC82F]">
+                      {isEn
+                        ? 'TEST FULLSCREEN (Phone View)'
+                        : 'TEST FULLSCREEN (Vista Teléfono)'}
+                    </h3>
+                    <p className="text-[11px] text-white/90">
+                      {isEn
+                        ? 'Open 100% fullscreen without bezels for mobile testing'
+                        : 'Abrir al 100% sin bordes para probar directo en tu celular'}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </button>
           </div>
 
           {/* Controles Rápidos para Saltar a Cualquier Pantalla de la Versión 2 */}
@@ -553,9 +929,14 @@ function AppClientesWorkspaceContent() {
                   <span className="px-2.5 py-1 rounded-full bg-slate-200 dark:bg-slate-800 text-slate-800 dark:text-slate-200 text-xs font-black">
                     {isEn ? 'Version 1' : 'Versión 1'}
                   </span>
-                  <span className="text-xs text-slate-500">
-                    {isEn ? 'Interactive live preview' : 'Vista interactiva en vivo'}
-                  </span>
+                  <button
+                    type="button"
+                    onClick={() => enterTestFullscreen('v1')}
+                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-[#FDC82F] hover:bg-amber-400 text-[#121212] text-[11px] font-black cursor-pointer"
+                  >
+                    <Maximize2 size={11} />
+                    <span>TEST FULLSCREEN</span>
+                  </button>
                 </div>
                 <button
                   type="button"
@@ -585,6 +966,14 @@ function AppClientesWorkspaceContent() {
                   <span className="px-2.5 py-1 rounded-full bg-gradient-to-r from-[#50050a] to-red-700 text-[#FDC82F] text-xs font-black">
                     {isEn ? 'Version 2' : 'Versión 2'}
                   </span>
+                  <button
+                    type="button"
+                    onClick={() => enterTestFullscreen('v2')}
+                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-[#FDC82F] hover:bg-amber-400 text-[#121212] text-[11px] font-black cursor-pointer"
+                  >
+                    <Maximize2 size={11} />
+                    <span>TEST FULLSCREEN</span>
+                  </button>
                 </div>
                 <button
                   type="button"
@@ -615,9 +1004,19 @@ function AppClientesWorkspaceContent() {
               {/* Lado Izquierdo: Versión 1 */}
               <div className="flex flex-col items-center w-full max-w-[390px]">
                 <div className="mb-3 flex items-center justify-between w-full">
-                  <span className="px-2.5 py-1 rounded-full bg-slate-200 dark:bg-slate-800 text-slate-800 dark:text-slate-200 text-xs font-black">
-                    {isEn ? 'Version 1' : 'Versión 1'}
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className="px-2.5 py-1 rounded-full bg-slate-200 dark:bg-slate-800 text-slate-800 dark:text-slate-200 text-xs font-black">
+                      {isEn ? 'Version 1' : 'Versión 1'}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => enterTestFullscreen('v1')}
+                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-900 dark:bg-slate-700 text-white text-[10px] font-bold cursor-pointer"
+                    >
+                      <Maximize2 size={10} />
+                      <span>Fullscreen</span>
+                    </button>
+                  </div>
                   <button
                     type="button"
                     onClick={() => setV1ReloadKey((k) => k + 1)}
@@ -636,12 +1035,22 @@ function AppClientesWorkspaceContent() {
                 </div>
               </div>
 
-              {/* Lado Derecho: Versión 2 PRO */}
+              {/* Lado Derecho: Versión 2 */}
               <div className="flex flex-col items-center w-full max-w-[390px]">
                 <div className="mb-3 flex items-center justify-between w-full">
-                  <span className="px-2.5 py-1 rounded-full bg-gradient-to-r from-[#50050a] to-red-700 text-[#FDC82F] text-xs font-black">
-                    {isEn ? 'Version 2' : 'Versión 2'}
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className="px-2.5 py-1 rounded-full bg-gradient-to-r from-[#50050a] to-red-700 text-[#FDC82F] text-xs font-black">
+                      {isEn ? 'Version 2' : 'Versión 2'}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => enterTestFullscreen('v2')}
+                      className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-[#FDC82F] hover:bg-amber-400 text-[#121212] text-[10px] font-black cursor-pointer"
+                    >
+                      <Maximize2 size={10} />
+                      <span>TEST FULLSCREEN</span>
+                    </button>
+                  </div>
                   <button
                     type="button"
                     onClick={() => jumpToV2State('stories', 0)}

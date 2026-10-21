@@ -542,6 +542,7 @@ export interface V2UserProfile {
 
 interface CustomerAppV2ProProps {
   embedded?: boolean
+  fullscreenNative?: boolean
   externalStage?: V2Stage | null
   externalStoryIndex?: number | null
   externalTab?: MainTab | null
@@ -576,6 +577,7 @@ function getLaTimeGreeting(lang: 'es' | 'en'): string {
 
 export default function CustomerAppV2Pro({
   embedded = false,
+  fullscreenNative = false,
   externalStage = null,
   externalStoryIndex = null,
   externalTab = null,
@@ -1103,13 +1105,15 @@ export default function CustomerAppV2Pro({
   return (
     <div
       className={
-        embedded
+        fullscreenNative
+          ? 'relative w-full h-full bg-[#121212] flex items-center justify-center overflow-hidden font-sans select-none'
+          : embedded
           ? 'relative w-full h-full bg-[#121212] flex items-center justify-center overflow-hidden font-sans select-none rounded-[38px]'
           : 'relative w-full h-full bg-[#09090b] flex items-center justify-center overflow-hidden font-sans select-none'
       }
     >
       {/* Ambient Desktop Studio Backdrop */}
-      {!embedded && (
+      {!embedded && !fullscreenNative && (
         <>
           <div
             className="hidden md:block absolute inset-0 bg-cover bg-center opacity-25 blur-3xl scale-110 pointer-events-none"
@@ -1122,7 +1126,7 @@ export default function CustomerAppV2Pro({
       {/* Mobile Phone Shell Container */}
       <div
         className={
-          embedded
+          embedded || fullscreenNative
             ? 'relative w-full h-full bg-[#121212] overflow-hidden flex flex-col'
             : 'relative w-full h-full md:max-w-[430px] md:h-[92vh] md:max-h-[900px] md:rounded-[44px] bg-[#121212] md:shadow-[0_30px_100px_rgba(0,0,0,0.85)] md:ring-1 md:ring-white/15 overflow-hidden flex flex-col'
         }

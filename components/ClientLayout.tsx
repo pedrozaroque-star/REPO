@@ -102,11 +102,25 @@ export default function ClientLayout({
     // Dedicated kiosk / TV mode for order-ready-board or fullscreen app preview via query param
     const [isDedicatedKiosk, setIsDedicatedKiosk] = useState(false)
     useEffect(() => {
-        if (typeof window !== 'undefined' && (pathname === '/order-ready-board' || pathname === '/app')) {
-            const params = new URLSearchParams(window.location.search)
-            setIsDedicatedKiosk(params.get('tv') === '1' || params.get('kiosk') === '1' || params.get('fullscreen') === '1')
-        } else {
-            setIsDedicatedKiosk(false)
+        const evaluateFullscreen = () => {
+            if (typeof window !== 'undefined' && (pathname === '/order-ready-board' || pathname === '/app')) {
+                const params = new URLSearchParams(window.location.search)
+                setIsDedicatedKiosk(
+                    params.get('tv') === '1' ||
+                    params.get('kiosk') === '1' ||
+                    params.get('fullscreen') === '1' ||
+                    params.get('test') === '1'
+                )
+            } else {
+                setIsDedicatedKiosk(false)
+            }
+        }
+        evaluateFullscreen()
+        window.addEventListener('popstate', evaluateFullscreen)
+        window.addEventListener('teg-fullscreen-change', evaluateFullscreen)
+        return () => {
+            window.removeEventListener('popstate', evaluateFullscreen)
+            window.removeEventListener('teg-fullscreen-change', evaluateFullscreen)
         }
     }, [pathname])
 

@@ -881,6 +881,18 @@ function InicioHubContent() {
                                 <Sparkles size={11} />
                                 <span>{t('items.customer_app_v2') || 'Versión 2'}</span>
                             </button>
+                            <button
+                                type="button"
+                                onClick={(e) => {
+                                    e.preventDefault()
+                                    e.stopPropagation()
+                                    window.location.href = '/app?v=2&fullscreen=1'
+                                }}
+                                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-black bg-[#FDC82F] hover:bg-amber-400 text-[#121212] border border-amber-500 shadow-sm transition-all cursor-pointer"
+                            >
+                                <Smartphone size={11} />
+                                <span>TEST FULLSCREEN</span>
+                            </button>
                         </div>
                     )}
                 </div>
