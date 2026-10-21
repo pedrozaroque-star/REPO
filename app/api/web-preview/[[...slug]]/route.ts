@@ -93,21 +93,21 @@ interface StoreCatalogEntry {
 }
 
 const STORES_CATALOG: StoreCatalogEntry[] = [
-    { id: 6, uuid: '8685e942-3f07-403a-afb6-faec697cd2cb', name: 'LA Central', crossStreets: 'Central/Washington', phone: '(213) 742-6677', toastUrl: 'https://order.online/store/tacos-gavilan-los-angeles-260847' },
-    { id: 14, uuid: '80a1ec95-bc73-402e-8884-e5abbe9343e6', name: 'Lynwood', crossStreets: 'Imperial/Long Beach', phone: '(424) 785-5535', toastUrl: 'https://order.online/store/tacos-gavilan-lynwood-727877' },
-    { id: 5, uuid: '475bc112-187d-4b9c-884d-1f6a041698ce', name: 'LA Broadway', crossStreets: 'Vernon/Broadway', phone: '(323) 233-2302', toastUrl: 'https://order.online/store/tacos-gavilan-los-angeles-260769' },
-    { id: 12, uuid: '42ed15a6-106b-466a-9076-1e8f72451f6b', name: 'Norwalk', crossStreets: 'Rosecrans/Studebaker', phone: '(562) 651-0045', toastUrl: 'https://order.online/store/tacos-gavilan-norwalk-1327857' },
-    { id: 7, uuid: '9625621e-1b5e-48d7-87ae-7094fab5a4fd', name: 'Slauson', crossStreets: 'Slauson/Broadway', phone: '(323) 615-0084', toastUrl: 'https://order.online/store/tacos-gavilan-slauson-broadway-23989119' },
-    { id: 1, uuid: 'acf15327-54c8-4da4-8d0d-3ac0544dc422', name: 'Rialto', crossStreets: 'Baseline/Riverside', phone: '(909) 562-0430', toastUrl: 'https://order.online/store/tacos-gavilan-rialto-841931' },
-    { id: 3, uuid: '5f4a006e-9a6e-4bcf-b5bd-7f5e9d801a02', name: 'West Covina', crossStreets: '10 FWY/Azusa', phone: '(626) 917-2662', toastUrl: 'https://order.online/store/tacos-gavilan-west-covina-725035' },
-    { id: 15, uuid: '95866cfc-eeb8-4af9-9586-f78931e1ea04', name: 'South Gate', crossStreets: 'Firestone/Garfield', phone: '(562) 806-1200', toastUrl: 'https://order.online/store/tacos-gavilan-south-gate-846517' },
-    { id: 16, uuid: 'b7f63b01-f089-4ad7-a346-afdb1803dc1a', name: 'Downey', crossStreets: 'Florence/Paramount', phone: '(562) 927-7486', toastUrl: 'https://order.online/store/tacos-gavilan-downey-302620' },
-    { id: 8, uuid: '5fbb58f5-283c-4ea4-9415-04100ee6978b', name: 'Hollywood', crossStreets: 'Sunset/La Brea', phone: '(323) 963-7993', toastUrl: 'https://order.online/store/tacos-gavilan-los-angeles-551916' },
-    { id: 9, uuid: '3c2d8251-c43c-43b8-8306-387e0a4ed7c2', name: 'Santa Ana', crossStreets: '17th/Grand', phone: '(714) 480-0713', toastUrl: 'https://order.online/store/tacos-gavilan-santa-ana-724574' },
-    { id: 11, uuid: '47256ade-2cd4-4073-9632-84567ad9e2c8', name: 'Huntington Park', crossStreets: 'Florence/Santa Fe', phone: '(323) 581-7309', toastUrl: 'https://order.online/store/tacos-gavilan-huntington-park-260849' },
-    { id: 10, uuid: '3a803939-eb13-4def-a1a4-462df8e90623', name: 'La Puente', crossStreets: '605 FWY/Valley', phone: '(626) 336-3000', toastUrl: 'https://order.online/store/tacos-gavilan-la-puente-963464' },
-    { id: 4, uuid: 'e0345b1f-d6d6-40b2-bd06-5f9f4fd944e8', name: 'Azusa', crossStreets: 'Azusa/Arrow', phone: '(626) 969-1011', toastUrl: 'https://order.online/store/tacos-gavilan-azusa-718169' },
-    { id: 13, uuid: 'a83901db-2431-4283-834e-9502a2ba4b3b', name: 'Bell', crossStreets: 'Florence/Atlantic', phone: '(323) 771-1722', toastUrl: 'https://order.online/store/tacos-gavilan-bell-260912' },
+    { id: 6, uuid: '8685e942-3f07-403a-afb6-faec697cd2cb', name: 'LA Central', crossStreets: 'Central & Washington', phone: '(213) 742-6677', toastUrl: 'https://order.online/store/tacos-gavilan-los-angeles-260847' },
+    { id: 14, uuid: '80a1ec95-bc73-402e-8884-e5abbe9343e6', name: 'Lynwood', crossStreets: 'Imperial & Long Beach', phone: '(424) 785-5535', toastUrl: 'https://order.online/store/tacos-gavilan-lynwood-727877' },
+    { id: 5, uuid: '475bc112-187d-4b9c-884d-1f6a041698ce', name: 'LA Broadway', crossStreets: 'Vernon & Broadway', phone: '(323) 233-2302', toastUrl: 'https://order.online/store/tacos-gavilan-los-angeles-260769' },
+    { id: 12, uuid: '42ed15a6-106b-466a-9076-1e8f72451f6b', name: 'Norwalk', crossStreets: 'Rosecrans & Studebaker', phone: '(562) 651-0045', toastUrl: 'https://order.online/store/tacos-gavilan-norwalk-1327857' },
+    { id: 7, uuid: '9625621e-1b5e-48d7-87ae-7094fab5a4fd', name: 'Slauson', crossStreets: 'Slauson & Broadway', phone: '(323) 615-0084', toastUrl: 'https://order.online/store/tacos-gavilan-slauson-broadway-23989119' },
+    { id: 1, uuid: 'acf15327-54c8-4da4-8d0d-3ac0544dc422', name: 'Rialto', crossStreets: 'Baseline & Riverside', phone: '(909) 562-0430', toastUrl: 'https://order.online/store/tacos-gavilan-rialto-841931' },
+    { id: 3, uuid: '5f4a006e-9a6e-4bcf-b5bd-7f5e9d801a02', name: 'West Covina', crossStreets: '10 FWY & Azusa', phone: '(626) 917-2662', toastUrl: 'https://order.online/store/tacos-gavilan-west-covina-725035' },
+    { id: 15, uuid: '95866cfc-eeb8-4af9-9586-f78931e1ea04', name: 'South Gate', crossStreets: 'Firestone & Garfield', phone: '(562) 806-1200', toastUrl: 'https://order.online/store/tacos-gavilan-south-gate-846517' },
+    { id: 16, uuid: 'b7f63b01-f089-4ad7-a346-afdb1803dc1a', name: 'Downey', crossStreets: 'Florence & Paramount', phone: '(562) 927-7486', toastUrl: 'https://order.online/store/tacos-gavilan-downey-302620' },
+    { id: 8, uuid: '5fbb58f5-283c-4ea4-9415-04100ee6978b', name: 'Hollywood', crossStreets: 'Sunset & La Brea', phone: '(323) 963-7993', toastUrl: 'https://order.online/store/tacos-gavilan-los-angeles-551916' },
+    { id: 9, uuid: '3c2d8251-c43c-43b8-8306-387e0a4ed7c2', name: 'Santa Ana', crossStreets: '17th & Grand', phone: '(714) 480-0713', toastUrl: 'https://order.online/store/tacos-gavilan-santa-ana-724574' },
+    { id: 11, uuid: '47256ade-2cd4-4073-9632-84567ad9e2c8', name: 'Huntington Park', crossStreets: 'Florence & Santa Fe', phone: '(323) 581-7309', toastUrl: 'https://order.online/store/tacos-gavilan-huntington-park-260849' },
+    { id: 10, uuid: '3a803939-eb13-4def-a1a4-462df8e90623', name: 'La Puente', crossStreets: '605 FWY & Valley', phone: '(626) 336-3000', toastUrl: 'https://order.online/store/tacos-gavilan-la-puente-963464' },
+    { id: 4, uuid: 'e0345b1f-d6d6-40b2-bd06-5f9f4fd944e8', name: 'Azusa', crossStreets: 'Azusa & Arrow', phone: '(626) 969-1011', toastUrl: 'https://order.online/store/tacos-gavilan-azusa-718169' },
+    { id: 13, uuid: 'a83901db-2431-4283-834e-9502a2ba4b3b', name: 'Bell', crossStreets: 'Florence & Atlantic', phone: '(323) 771-1722', toastUrl: 'https://order.online/store/tacos-gavilan-bell-260912' },
 ]
 
 export interface StorefrontOrderRecord {
