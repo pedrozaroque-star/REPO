@@ -1,3 +1,19 @@
+/**
+ * @module app/clientes/page
+ * @description Portal público bilingüe de retroalimentación y calificación de experiencia (NPS + CSAT) para comensales de Tacos Gavilan.
+ *
+ * @businessRules
+ * - Inicia con el Splash Screen oficial de Tacos Gavilan (logo con círculo blanco al ras y sin borde amarillo + "¡Ya está!").
+ * - Permite detectar la sucursal más cercana vía GPS (radio máximo de 2.5 millas / 4.02 km) o seleccionarla manualmente.
+ * - Captura calificaciones de 1 a 5 estrellas (Servicio en Caja, Entrega, Calidad, Limpieza), puntaje NPS (0-10), comentarios y hasta 5 fotos/videos.
+ *
+ * @dataFlow
+ * - GET `stores` (REST API Supabase) -> Formulario -> `uploadPhotos` (`feedback-photos`) -> POST `customer_feedback`.
+ *
+ * @notes
+ * - Clasifica automáticamente el NPS en `promoter` (9-10), `passive` (7-8) o `detractor` (0-6).
+ */
+
 'use client'
 
 import { useState, useEffect } from 'react'
@@ -322,11 +338,9 @@ export default function ClientesFeedbackPage() {
                 duration: 4.5
               }
             }}
-            className="w-48 h-48 rounded-full bg-gradient-to-br from-[#fdc82f] to-[#e69b00] p-1.5 shadow-[0_0_60px_rgba(253,200,47,0.4)] relative"
+            className="w-48 h-48 rounded-full shadow-[0_16px_45px_rgba(0,0,0,0.45)] relative flex items-center justify-center"
           >
-            <div className="w-full h-full rounded-full bg-white flex items-center justify-center overflow-hidden border-4 border-[#fffbeb]">
-              <img src="/logo.png" alt="TAG" className="w-[85%] h-[85%] object-contain" />
-            </div>
+            <img src="/logo.png" alt="Tacos Gavilan" className="w-full h-full rounded-full object-contain" />
 
             {/* Ripple Effect */}
             <motion.div
@@ -392,15 +406,13 @@ export default function ClientesFeedbackPage() {
       {/* Logo y título superior */}
       <div className="w-full max-w-md z-10 mt-8 mb-6">
         <div className="text-center flex flex-col items-center mb-6">
-          {/* Círculo blanco para resaltar el logo */}
-          <div className="w-32 h-32 bg-white rounded-full flex items-center justify-center shadow-lg mb-4 p-2">
-            <div className="w-28 h-28 flex items-center justify-center">
-              <img
-                src="/logo.png"
-                alt="Logo Tacos Gavilan"
-                className="w-full h-full object-contain"
-              />
-            </div>
+          {/* Círculo blanco al ras del logo oficial */}
+          <div className="w-32 h-32 rounded-full flex items-center justify-center shadow-lg mb-4">
+            <img
+              src="/logo.png"
+              alt="Logo Tacos Gavilan"
+              className="w-full h-full rounded-full object-contain"
+            />
           </div>
 
           {/* Imagen del Eslogan */}

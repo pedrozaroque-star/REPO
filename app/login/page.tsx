@@ -159,7 +159,7 @@ export default function LoginPage() {
         <div className="absolute inset-0 opacity-10 bg-[url('https://grainy-gradients.vercel.app/noise.svg')]"></div>
 
         <div className="relative z-10 flex flex-col items-center">
-          {/* Main Logo Container - Drop In Animation */}
+          {/* Main Logo Container - Drop In Animation (sin borde amarillo, círculo blanco al ras) */}
           <motion.div
             initial={{ y: -800, opacity: 0, rotateY: 0 }}
             animate={{
@@ -173,15 +173,13 @@ export default function LoginPage() {
                 duration: 4.5
               }
             }}
-            className="w-48 h-48 rounded-full bg-gradient-to-br from-[#fdc82f] to-[#e69b00] p-1.5 shadow-[0_0_60px_rgba(253,200,47,0.4)] relative"
+            className="w-48 h-48 rounded-full shadow-[0_16px_45px_rgba(0,0,0,0.45)] relative flex items-center justify-center"
           >
-            <div className="w-full h-full rounded-full bg-white flex items-center justify-center overflow-hidden border-4 border-[#fffbeb]">
-              <img src="/logo.png" alt="TAG" className="w-[85%] h-[85%] object-contain" />
-            </div>
+            <img src="/logo.png" alt="Tacos Gavilan" className="w-full h-full rounded-full object-contain" />
 
             {/* Ripple Effect */}
             <motion.div
-              className="absolute inset-0 rounded-full border border-white/50"
+              className="absolute inset-0 rounded-full border border-white/50 pointer-events-none"
               initial={{ scale: 0, opacity: 0.8 }}
               animate={{
                 scale: 3,
@@ -234,10 +232,8 @@ export default function LoginPage() {
 
         {/* Logo + ¡Ya está! at top */}
         <div className="relative z-10 flex flex-col items-center mb-6">
-          <div className="w-28 h-28 sm:w-32 sm:h-32 rounded-full bg-gradient-to-br from-[#fdc82f] to-[#e69b00] p-1.5 shadow-[0_0_50px_rgba(253,200,47,0.35)] relative">
-            <div className="w-full h-full rounded-full bg-white flex items-center justify-center overflow-hidden border-4 border-[#fffbeb]">
-              <img src="/logo.png" alt="Tacos Gavilan" className="w-[85%] h-[85%] object-contain" />
-            </div>
+          <div className="w-28 h-28 sm:w-32 sm:h-32 rounded-full shadow-[0_16px_40px_rgba(0,0,0,0.45)] relative flex items-center justify-center">
+            <img src="/logo.png" alt="Tacos Gavilan" className="w-full h-full rounded-full object-contain" />
           </div>
 
           <div className="mt-3 w-44 h-14 flex items-center justify-center">
@@ -362,15 +358,13 @@ export default function LoginPage() {
 
         {/* LOGO Y ESLOGAN */}
         <div className="text-center mb-8 flex flex-col items-center">
-          {/* Círculo blanco para resaltar el logo */}
-          <div className="w-32 h-32 bg-white rounded-full flex items-center justify-center shadow-lg mb-4 p-2">
-            <div className="w-28 h-28 flex items-center justify-center">
-              <img
-                src="/logo.png"
-                alt="Logo Tacos Gavilan"
-                className="w-full h-full object-contain"
-              />
-            </div>
+          {/* Círculo blanco al ras del logo oficial */}
+          <div className="w-32 h-32 rounded-full flex items-center justify-center shadow-lg mb-4">
+            <img
+              src="/logo.png"
+              alt="Logo Tacos Gavilan"
+              className="w-full h-full rounded-full object-contain"
+            />
           </div>
 
           {/* Imagen del Eslogan */}
