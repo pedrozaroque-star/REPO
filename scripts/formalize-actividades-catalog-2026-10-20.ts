@@ -622,7 +622,7 @@ const CATALOG_UPDATES_BY_ID: Record<string, ProcedureUpdateSpec> = {
   '15436a28-707c-46d0-8ee9-12858313e1e9': {
     activity: 'Lavar Coladeras de Piso',
     description:
-      'Quitar las rejillas de todas las coladeras de piso, retirar residuos sólidos, tallar con cepillo, cloro y desengrasante y volver a colocarlas.',
+      'Quitar las rejillas de todas las coladeras de piso, retirar residuos sólidos, tallar con cepillo y desengrasante, enjuagar con abundante agua y volver a colocarlas (nunca mezclar cloro con desengrasante o jabón).',
   },
   '71ae953b-ca22-4d0d-bdae-7b72c6996bb8': {
     activity: 'Limpiar Vidrios de Línea (Cierre)',
@@ -937,7 +937,7 @@ const CATALOG_UPDATES_BY_ID: Record<string, ProcedureUpdateSpec> = {
   '98ca37c0-a3f2-4a33-9ad3-42b2b0e088fb': {
     activity: 'Lavar Botes de Basura',
     description:
-      'Lavar con agua, jabón y cloro los contenedores y botes de basura de la tienda.',
+      'Lavar con agua y jabón desengrasante los contenedores y botes de basura de la tienda, enjuagando por completo antes de desinfectar (nunca mezclar cloro con jabón o desengrasante).',
   },
   'd27ef765-d510-4079-aa13-4b99892df793': {
     activity: 'Limpiar Campana de Extracción',
@@ -1062,6 +1062,10 @@ const CATALOG_UPDATES_BY_ID: Record<string, ProcedureUpdateSpec> = {
 };
 
 async function main() {
+  if (process.env.ALLOW_CATALOG_DB_MUTATION !== 'true') {
+    console.error('🛑 BLOQUEADO POR SEGURIDAD: Este script modifica datos en producción. Requiere ALLOW_CATALOG_DB_MUTATION=true y autorización explícita.');
+    process.exit(1);
+  }
   console.log('═══════════════════════════════════════════════════════════════════════════');
   console.log('✨ ESTANDARIZACIÓN DE NOMBRES CORTOS + DETALLES — CATÁLOGO DE ACTIVIDADES');
   console.log('═══════════════════════════════════════════════════════════════════════════\n');

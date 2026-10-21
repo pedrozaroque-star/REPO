@@ -1564,11 +1564,25 @@ export function resolveStationActivities(params: {
         }
 
         // Hallazgo 6: Una asignación AMBOS NO debe saltarse las horas reales de disponibilidad
-        // del empleado (`[shiftStartTime, shiftEndTime)`) cuando `enforceShiftWindow` está activo.
+        // del empleado (`[shiftStartTime, shiftEndTime)`) cuando `enforceShiftWindow` está activo,
+        // salvo cuando un procedimiento del catálogo con hora base matutina (06:00-16:59) fue asignado
+        // explícitamente en `position_activities` a `PM` o `AMBOS` y se resuelve para el turno `PM`.
+        const actSortMins = getBusinessDaySortMinutes(effectiveStartTime);
+        const isPmReusedMorningCatalogTask =
+            shift === 'PM' &&
+            Boolean(
+                mapping?.shift &&
+                    ['PM', 'AMBOS', 'ALL'].includes(mapping.shift.toString().trim().toUpperCase())
+            ) &&
+            actSortMins >= 360 &&
+            actSortMins < 1020 &&
+            doesShiftOverlapPeriod(shiftStartTime, shiftEndTime, 'PM');
+
         if (
             enforceShiftWindow &&
             shiftStartTime &&
             shiftEndTime &&
+            !isPmReusedMorningCatalogTask &&
             !doesActivityIntersectShiftWindow({
                 effectiveStartTime,
                 shiftStartTime,

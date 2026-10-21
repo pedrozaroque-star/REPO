@@ -570,6 +570,7 @@ export default function AsignacionDiariaTab() {
   const [remoteUpdatePending, setRemoteUpdatePending] = useState(false);
   const [weekShiftEmpIds, setWeekShiftEmpIds] = useState<Set<string>>(new Set());
   const [positionActivities, setPositionActivities] = useState<PositionActivity[]>([]);
+  const [allProcedures, setAllProcedures] = useState<Array<NonNullable<PositionActivity['operating_procedures']>>>([]);
   const [driveThruCollapsed, setDriveThruCollapsed] = useState(false);
 
   // ── Vista Previa de Correo / Publicación (Fase 5) ──
@@ -971,6 +972,11 @@ export default function AsignacionDiariaTab() {
       : { has_drive_thru: hasDriveThru };
 
     const procById = new Map<string, NonNullable<PositionActivity['operating_procedures']>>();
+    for (const proc of allProcedures) {
+      if (proc?.id) {
+        procById.set(proc.id, proc);
+      }
+    }
     for (const pa of approvedPositionActivities) {
       if (pa.operating_procedures?.id && !procById.has(pa.operating_procedures.id)) {
         procById.set(pa.operating_procedures.id, pa.operating_procedures);
@@ -989,6 +995,9 @@ export default function AsignacionDiariaTab() {
           )
         : undefined;
 
+      // En las tarjetas por estación de un turno (AM o PM), SIEMPRE se deben mostrar
+      // todas las actividades configuradas para esa estación en ese turno (`enforceShiftWindow: false`),
+      // igual que en `/api/notifications/publish-schedule` y `/api/schedule/calendar`.
       const resolvedItems = resolveStationActivities({
         mainStation: stationName,
         subPosition: subPos,
@@ -1001,7 +1010,7 @@ export default function AsignacionDiariaTab() {
         storeOffsets,
         shiftStartTime: empShift?.start_time || null,
         shiftEndTime: empShift?.end_time || null,
-        enforceShiftWindow: Boolean(empShift?.start_time && empShift?.end_time),
+        enforceShiftWindow: false,
       });
 
       map[stationName] = resolvedItems.map((item) => {
@@ -1033,6 +1042,7 @@ export default function AsignacionDiariaTab() {
 
     return map;
   }, [
+    allProcedures,
     approvedPositionActivities,
     activeShift,
     selectedDateStr,
@@ -1137,14 +1147,24 @@ export default function AsignacionDiariaTab() {
 
   const fetchPositionActivities = useCallback(async () => {
     try {
-      const res = await fetch('/api/roles/activities');
-      if (!res.ok) {
-        console.error(`[fetchPositionActivities] HTTP ${res.status}:`, await res.text());
-        return;
+      const [paRes, procRes] = await Promise.all([
+        fetch('/api/roles/activities'),
+        fetch('/api/procedimientos'),
+      ]);
+      if (paRes.ok) {
+        const data = await paRes.json();
+        if (Array.isArray(data)) {
+          setPositionActivities(data as PositionActivity[]);
+        }
+      } else {
+        console.error(`[fetchPositionActivities] HTTP ${paRes.status}:`, await paRes.text());
       }
-      const data = await res.json();
-      if (Array.isArray(data)) {
-        setPositionActivities(data as PositionActivity[]);
+      if (procRes.ok) {
+        const procJson = await procRes.json();
+        const procList = Array.isArray(procJson) ? procJson : procJson?.procedures || [];
+        if (Array.isArray(procList)) {
+          setAllProcedures(procList);
+        }
       }
     } catch (err) {
       console.error('Error fetching position activities:', err);
