@@ -853,7 +853,7 @@ export default function DescansosPage() {
     useEffect(() => {
         setCurrentTime(new Date())
         const INACTIVITY_WAKE_MODAL_MS = 3 * 60 * 60 * 1000 // 3 horas
-        const IDLE_RETURN_TODAY_MS = 2 * 60 * 1000 // 2 minutos
+        const IDLE_RETURN_TODAY_MS = 10 * 60 * 1000 // 10 minutos
 
         const timer = setInterval(() => {
             const now = new Date()

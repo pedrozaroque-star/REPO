@@ -740,7 +740,7 @@ export default function AsignacionDiariaTab() {
   // auto-retorno tras 2 min de inactividad en modo Tablero (o 15 min en editor sin cambios locales), y modal de despertar tras 3 horas (A05, A14)
   useEffect(() => {
     const INACTIVITY_WAKE_MODAL_MS = 3 * 60 * 60 * 1000; // 3 horas
-    const IDLE_RETURN_BOARD_MS = 2 * 60 * 1000; // 2 minutos en modo Tablero
+    const IDLE_RETURN_BOARD_MS = 10 * 60 * 1000; // 10 minutos en modo Tablero
     const IDLE_RETURN_EDITOR_MS = 15 * 60 * 1000; // 15 minutos en modo Editor (solo si no hay borrador sucio)
 
     const timer = setInterval(() => {

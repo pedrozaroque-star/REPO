@@ -348,13 +348,13 @@ assert.equal(
   'La tableta de empaque debe estar 100% traducida con useLanguage() e incluir botón de cambio de idioma ES/EN'
 )
 assert.equal(
-  empaqueSource.includes('PIN_INACTIVITY_TIMEOUT_MS = 2 * 60 * 1000') &&
+  empaqueSource.includes('PIN_INACTIVITY_TIMEOUT_MS = 10 * 60 * 1000') &&
     empaqueSource.includes('recordCashierActivity') &&
     empaqueSource.includes('blindaje_packer_last_activity_at') &&
     empaqueSource.includes('handleSessionReplacedError') &&
     empaqueSource.includes('blindaje_packer_session_token'),
   true,
-  'La sesión del PIN de la cajera debe cerrarse tras 2 min sin actividad o cuando alguien más inicia sesión en esa tienda (no puede haber 2 sesiones abiertas)'
+  'La sesión del PIN de la cajera debe cerrarse tras 10 min sin actividad o cuando alguien más inicia sesión en esa tienda (no puede haber 2 sesiones abiertas)'
 )
 assert.equal(
   empaqueSource.includes('setIsMuted') || empaqueSource.includes('VolumeX'),

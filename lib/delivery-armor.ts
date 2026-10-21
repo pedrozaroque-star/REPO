@@ -974,7 +974,7 @@ export async function verifyRonosPin(storeId: number, pin: string): Promise<{
   }
 }
 
-export const PIN_INACTIVITY_TIMEOUT_MS = 2 * 60 * 1000 // 2 minutos sin actividad
+export const PIN_INACTIVITY_TIMEOUT_MS = 10 * 60 * 1000 // 10 minutos sin actividad
 
 export interface ActiveStorePinSession {
   storeId: number
@@ -995,7 +995,7 @@ function getStoreSessionRowId(storeId: number): string {
 
 /**
  * Obtiene la sesión única activa de PIN para una sucursal desde PostgreSQL.
- * Si ya cumplió 2 minutos sin actividad, devuelve null.
+ * Si ya cumplió 10 minutos sin actividad, devuelve null.
  */
 export async function getActiveStorePinSession(storeId: number): Promise<ActiveStorePinSession | null> {
   try {

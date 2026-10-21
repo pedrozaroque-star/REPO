@@ -3,7 +3,7 @@
  * @description Estación vertical Fullscreen de Entrega Blindada para validar el empaque y liberar cada bolsa al chofer correcto identificando por Nombre + Apellido/Inicial y blindando contra nombres duplicados o muy parecidos desde KDS.
  * @businessRules
  *   - Siempre en modo Fullscreen (tanto al pedir PIN, al iniciar sesión con PIN, durante la operación y al cerrarse/expirar la sesión de PIN).
- *   - Acceso de la cajera/empacador con PIN de 4 dígitos de RONOS con cierre automático de sesión tras 2 minutos sin actividad (inactividad). Cualquier interacción real de la cajera reinicia el contador de 2 minutos.
+ *   - Acceso de la cajera/empacador con PIN de 4 dígitos de RONOS con cierre automático de sesión tras 10 minutos sin actividad (inactividad). Cualquier interacción real de la cajera reinicia el contador de 10 minutos.
  *   - Identificación principal por Nombre + Apellido/Inicial del cliente (si existe), acompañado de #Check y Clave de Plataforma.
  *   - Blindaje estricto contra colisión de nombres desde que entran por KDS: alerta de alto énfasis si existen dos órdenes con el mismo nombre exacto, el mismo primer nombre con apellido diferente, o nombres fonética/visualmente muy parecidos.
  *   - Mide automáticamente el tiempo de preparación en cocina desde que llega al KDS hasta que el cocinero borra la orden (READY).
@@ -54,7 +54,7 @@ const STORES = [
   { id: 6, name: 'LA Central (#6)' }
 ]
 
-const PIN_INACTIVITY_TIMEOUT_MS = 2 * 60 * 1000 // 2 minutos sin actividad para cerrar sesión del PIN de la cajera
+const PIN_INACTIVITY_TIMEOUT_MS = 10 * 60 * 1000 // 10 minutos sin actividad para cerrar sesión del PIN de la cajera
 const PIN_SESSION_DURATION_MS = PIN_INACTIVITY_TIMEOUT_MS
 const KDS_POLL_INTERVAL_MS = 4000 // 4 segundos para detectar al instante cuando el cocinero borra del KDS antes de que la cajera cierre el empaque
 const UNCLAIMED_DRIVER_TIMEOUT_MS = 2 * 60 * 60 * 1000 // 2 horas (120 min) sin que ningún chofer recoja la orden
@@ -426,7 +426,7 @@ export default function BlindajeDeliveryEmpaquePage() {
   const [wakingUpTablet, setWakingUpTablet] = useState(false)
   const [wakeToast, setWakeToast] = useState(false)
 
-  // Referencias del motor de audio, rastreo de KDS e inactividad de sesión PIN (2 min) y de tableta (3 horas)
+  // Referencias del motor de audio, rastreo de KDS e inactividad de sesión PIN (10 min) y de tableta (3 horas)
   const audioCtxRef = useRef<AudioContext | null>(null)
   const clipCacheRef = useRef<Map<string, Promise<ArrayBuffer | null>>>(new Map())
   const audioQueueRef = useRef<Order[]>([])
@@ -930,7 +930,7 @@ export default function BlindajeDeliveryEmpaquePage() {
     [logout, t]
   )
 
-  // Reiniciar el contador de 2 minutos sin actividad ante cualquier interacción real de la cajera en la tableta
+  // Reiniciar el contador de 10 minutos sin actividad ante cualquier interacción real de la cajera en la tableta
   const recordCashierActivity = useCallback((): boolean => {
     const activePacker = packerRef.current
     if (!activePacker) return false
