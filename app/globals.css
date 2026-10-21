@@ -53,3 +53,29 @@ body {
     -ms-overflow-style: none;
     scrollbar-width: none;
 }
+
+/* Optimización global de sensibilidad táctil para las 5 tabletas operativas (Preparador, Descansos, Actividades, Delivery, Cocina Trasera):
+ * Elimina retardo de 300ms de doble-tap zoom y mejora respuesta con guantes/dedos húmedos. */
+button,
+[role="button"],
+[role="tab"],
+[role="checkbox"],
+[role="switch"],
+input,
+select,
+textarea,
+label,
+summary,
+a,
+[data-order-card="true"],
+[data-touch-tap="true"],
+.cursor-pointer,
+.checklist-card {
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+}
+
+/* Feedback visual instantáneo (0ms al contacto del dedo) gestionado por TabletTouchBooster */
+[data-touch-pressing="true"] {
+    filter: brightness(0.95);
+}

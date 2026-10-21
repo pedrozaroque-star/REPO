@@ -35,7 +35,10 @@ export default function IdleTimer() {
     }
 
     const resetTimer = () => {
-        lastActivityRef.current = Date.now()
+        const now = Date.now()
+        // Throttle timer resets so rapid touch/pointer activity never floods main thread
+        if (now - lastActivityRef.current < 5000 && timerRef.current) return
+        lastActivityRef.current = now
         if (timerRef.current) clearTimeout(timerRef.current)
         timerRef.current = setTimeout(handleLogout, ASSISTANT_TIMEOUT)
     }
@@ -53,13 +56,13 @@ export default function IdleTimer() {
     }
 
     useEffect(() => {
-        const events = ['mousemove', 'mousedown', 'click', 'scroll', 'keypress', 'touchstart', 'touchmove']
+        const events = ['pointerdown', 'keydown', 'click']
 
         // Initial setup
         resetTimer()
 
-        // Activity Listeners
-        events.forEach(event => window.addEventListener(event, resetTimer))
+        // Passive Activity Listeners (never block touch compositor thread)
+        events.forEach(event => window.addEventListener(event, resetTimer, { passive: true }))
 
         // Background/Minimize Listener
         document.addEventListener('visibilitychange', handleVisibilityChange)

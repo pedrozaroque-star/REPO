@@ -226,12 +226,13 @@ export function useWakeLock(enabled: boolean): UseWakeLockResult {
 
     const isActive = nativeActive || videoActive
 
-    // Si el bloqueo se perdió (ej. autoplay bloqueado), reintentar en el siguiente toque
+    // Si el bloqueo se perdió (ej. autoplay bloqueado), reintentar al finalizar el toque
+    // (se usa pointerup en lugar de pointerdown para no disparar setState ni re-renders a mitad de un toque)
     useEffect(() => {
         if (!enabled || isActive) return
         const onTap = () => { acquire() }
-        document.addEventListener('pointerdown', onTap, { passive: true })
-        return () => document.removeEventListener('pointerdown', onTap)
+        document.addEventListener('pointerup', onTap, { passive: true })
+        return () => document.removeEventListener('pointerup', onTap)
     }, [enabled, isActive, acquire])
 
     // Limpieza total al desmontar la página

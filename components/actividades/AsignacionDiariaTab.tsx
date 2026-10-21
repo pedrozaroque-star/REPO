@@ -455,8 +455,9 @@ const BoardSlot: React.FC<BoardSlotProps> = ({
 
   return (
     <div
+      data-touch-tap="true"
       onClick={() => onClick(stationKey, label, group, emp, assignee)}
-      className={`p-[0.15vh] flex flex-col h-full cursor-pointer group active:scale-95 transition-all ${className}`}
+      className={`p-[0.15vh] flex flex-col h-full cursor-pointer group active:scale-95 transition-all select-none touch-manipulation ${className}`}
     >
       <div
         className={`w-full h-full ${paddingClass} rounded-[1.2vh] sm:rounded-[1.6vh] transition-all duration-300 overflow-hidden relative flex flex-col items-center justify-center border-[0.25vh] ${

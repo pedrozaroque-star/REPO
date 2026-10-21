@@ -4,6 +4,7 @@ import "./globals.css";
 import ClientLayout from "@/components/ClientLayout";
 import IdleTimer from "@/components/IdleTimer";
 import { SystemUpdateDetector } from "@/components/SystemUpdateDetector";
+import TabletTouchBooster from "@/components/TabletTouchBooster";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -49,6 +50,7 @@ export default function RootLayout({
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
         <ClientLayout>
+          <TabletTouchBooster />
           <IdleTimer />
           <SystemUpdateDetector />
           {children}

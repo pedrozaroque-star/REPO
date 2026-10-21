@@ -334,8 +334,8 @@ export default function PreparadorPage() {
     const hasInitializedRef = useRef(false)
     const prevCurrentBucketIndexRef = useRef<number>(-1)
 
-    const [touchStart, setTouchStart] = useState<number | null>(null)
-    const [touchEnd, setTouchEnd] = useState<number | null>(null)
+    const touchStartRef = useRef<number | null>(null)
+    const touchEndRef = useRef<number | null>(null)
     const [showInfoModal, setShowInfoModal] = useState(false)
     const [wakeToast, setWakeToast] = useState(false)
     const [mobileTab, setMobileTab] = useState<'parrilla' | 'insumos' | 'resumen'>('parrilla')
@@ -736,6 +736,31 @@ export default function PreparadorPage() {
             }
         } catch {}
     }
+
+    const prepPointerStartRef = useRef<{ x: number; y: number; key: string; at: number } | null>(null)
+    const prepLastTouchAtRef = useRef<number>(0)
+
+    const bindPrepForgivingTap = (key: string, action: () => void) => ({
+        onPointerDown: (e: React.PointerEvent) => {
+            if (e.pointerType === 'mouse' && e.button !== 0) return
+            prepPointerStartRef.current = { x: e.clientX, y: e.clientY, key, at: Date.now() }
+        },
+        onPointerUp: (e: React.PointerEvent) => {
+            const start = prepPointerStartRef.current
+            prepPointerStartRef.current = null
+            if (!start || start.key !== key) return
+            const dist = Math.hypot(e.clientX - start.x, e.clientY - start.y)
+            const elapsed = Date.now() - start.at
+            if (dist <= 28 && elapsed <= 650) {
+                prepLastTouchAtRef.current = Date.now()
+                action()
+            }
+        },
+        onClick: () => {
+            if (Date.now() - prepLastTouchAtRef.current < 450) return
+            action()
+        }
+    })
 
     // Acción de llamado de orden (impulso táctil enviado a la PC del Manager; la voz suena EXCLUSIVAMENTE en la PC)
     const handleCallOrderImpulse = async (order: any) => {
@@ -1938,17 +1963,17 @@ export default function PreparadorPage() {
                             ref={carouselContainerRef}
                             className="flex-1 flex flex-col items-center justify-center gap-4 sm:gap-6 xl:gap-8 overflow-hidden py-1 sm:py-4 px-1 sm:px-2 w-full relative"
                             onTouchStart={(e) => {
-                                setTouchEnd(null)
-                                setTouchStart(e.targetTouches[0].clientY)
+                                touchEndRef.current = null
+                                touchStartRef.current = e.targetTouches[0].clientY
                             }}
                             onTouchMove={(e) => {
-                                setTouchEnd(e.targetTouches[0].clientY)
+                                touchEndRef.current = e.targetTouches[0].clientY
                             }}
                             onTouchEnd={() => {
-                                if (!touchStart || !touchEnd) return
-                                const distance = touchStart - touchEnd
-                                const isSwipeUp = distance > 50
-                                const isSwipeDown = distance < -50
+                                if (touchStartRef.current === null || touchEndRef.current === null) return
+                                const distance = touchStartRef.current - touchEndRef.current
+                                const isSwipeUp = distance > 28
+                                const isSwipeDown = distance < -28
                                 
                                 if (isSwipeUp && activeIndex < carouselBuckets.length - 1) {
                                     setScrollDirection(1)
@@ -1958,6 +1983,8 @@ export default function PreparadorPage() {
                                     setScrollDirection(-1)
                                     setActiveIndex(prev => prev - 1)
                                 }
+                                touchStartRef.current = null
+                                touchEndRef.current = null
                             }}
                         >
                             {(() => {
@@ -2268,9 +2295,9 @@ export default function PreparadorPage() {
                                         <button
                                             key={bev.id}
                                             type="button"
-                                            onClick={() => handleCallOrderImpulse(bev)}
+                                            {...bindPrepForgivingTap(`bev:${bev.id}`, () => handleCallOrderImpulse(bev))}
                                             disabled={isCalling}
-                                            className={`group relative rounded-2xl px-3 sm:px-4 py-2.5 sm:py-3.5 text-left transition-all active:scale-[0.97] cursor-pointer flex flex-col justify-between select-none shadow-sm hover:shadow-md border-2 overflow-hidden ${
+                                            className={`group relative rounded-2xl px-3 sm:px-4 py-2.5 sm:py-3.5 text-left transition-all active:scale-[0.97] cursor-pointer flex flex-col justify-between select-none touch-manipulation shadow-sm hover:shadow-md border-2 overflow-hidden ${
                                                 isCalling
                                                     ? 'ring-4 ring-emerald-500 scale-[0.98] border-emerald-500 bg-emerald-50 dark:bg-emerald-950/80 shadow-lg'
                                                     : isSuccess
@@ -2370,9 +2397,9 @@ export default function PreparadorPage() {
                                                 <button
                                                     key={order.id}
                                                     type="button"
-                                                    onClick={() => handleCallOrderImpulse(order)}
+                                                    {...bindPrepForgivingTap(`ord:${order.id}`, () => handleCallOrderImpulse(order))}
                                                     disabled={isCalling}
-                                                    className={`group relative rounded-2xl sm:rounded-3xl px-3.5 sm:px-4 py-4 sm:py-5 text-left transition-all active:scale-[0.97] cursor-pointer flex flex-col justify-between min-h-[220px] sm:min-h-[250px] select-none shadow-sm hover:shadow-lg border-2 sm:border-3 overflow-hidden ${
+                                                    className={`group relative rounded-2xl sm:rounded-3xl px-3.5 sm:px-4 py-4 sm:py-5 text-left transition-all active:scale-[0.97] cursor-pointer flex flex-col justify-between min-h-[220px] sm:min-h-[250px] select-none touch-manipulation shadow-sm hover:shadow-lg border-2 sm:border-3 overflow-hidden ${
                                                         isCalling
                                                             ? 'ring-4 ring-emerald-500 scale-[0.98] border-emerald-500 bg-emerald-50 dark:bg-emerald-950/80 shadow-lg'
                                                             : isSuccess

@@ -1648,11 +1648,14 @@ export default function DescansosPage() {
 
                             return (
                                 <div key={emp.id} className="flex hover:bg-slate-50 transition-colors group relative z-10 focus-within:z-50 hover:z-50">
-                                    <div className="w-64 shrink-0 border-r border-slate-100 p-3 flex flex-col justify-center bg-white backdrop-blur">
+                                    <div
+                                        data-touch-tap="true"
+                                        onClick={() => setAbsentModalEmp(emp)}
+                                        title="Click para marcar Ausente o Editar"
+                                        className="w-64 shrink-0 border-r border-slate-100 p-3 flex flex-col justify-center bg-white backdrop-blur cursor-pointer active:bg-indigo-50/70 transition-colors select-none touch-manipulation"
+                                    >
                                         <div
-                                            className={`text-lg leading-tight font-black truncate cursor-pointer transition-colors ${absentEmpIds.has(String(emp.id)) ? 'text-red-500 line-through opacity-80' : 'text-slate-800 hover:text-indigo-600'}`}
-                                            onClick={() => setAbsentModalEmp(emp)}
-                                            title="Click para marcar Ausente o Editar"
+                                            className={`text-lg leading-tight font-black truncate transition-colors ${absentEmpIds.has(String(emp.id)) ? 'text-red-500 line-through opacity-80' : 'text-slate-800 group-hover:text-indigo-600'}`}
                                         >
                                             {emp.first_name} {emp.last_name}
                                         </div>
@@ -2089,6 +2092,9 @@ function DraggableBreakBlock({ b, idx, shift, isMeal, relativeLeft, relativeWidt
     return (
         <motion.div
             tabIndex={0}
+            onPointerDown={(e) => {
+                try { (e.currentTarget as HTMLElement).focus({ preventScroll: true }) } catch {}
+            }}
             drag={isTabletMode ? false : "x"}
             dragMomentum={false}
             onDragStart={() => {

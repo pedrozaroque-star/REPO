@@ -445,6 +445,9 @@ export default function BlindajeDeliveryEmpaquePage() {
   const fetchSeqRef = useRef<number>(0)
   const stickyAuditsRef = useRef<Map<string, NonNullable<Order['audit']>>>(new Map())
   const recentActiveOrdersRef = useRef<Map<string, { order: Order; seenAt: number }>>(new Map())
+  const lastDirectTouchAtRef = useRef<number>(0)
+  const pointerStartRef = useRef<{ x: number; y: number; key: string; at: number } | null>(null)
+  const isPointerPressedRef = useRef<boolean>(false)
   const effectiveDateRef = useRef<string>(getLAEffectiveBusinessDate())
   const lastTabletInteractionRef = useRef<number>(Date.now())
   const showWakeUpModalRef = useRef<boolean>(false)
@@ -846,7 +849,12 @@ export default function BlindajeDeliveryEmpaquePage() {
     const onFullscreenChange = () => {
       setIsFullscreen(!!(doc.fullscreenElement || doc.webkitFullscreenElement))
     }
+    const onPointerDownTrack = () => {
+      isPointerPressedRef.current = true
+      unlockAudio()
+    }
     const onUserInteraction = () => {
+      isPointerPressedRef.current = false
       unlockAudio()
       if (!doc.fullscreenElement && !doc.webkitFullscreenElement) {
         void ensureFullscreen()
@@ -857,14 +865,16 @@ export default function BlindajeDeliveryEmpaquePage() {
 
     document.addEventListener('fullscreenchange', onFullscreenChange)
     document.addEventListener('webkitfullscreenchange', onFullscreenChange)
-    window.addEventListener('pointerdown', onUserInteraction, { passive: true })
-    window.addEventListener('touchstart', onUserInteraction, { passive: true })
+    window.addEventListener('pointerdown', onPointerDownTrack, { passive: true })
+    window.addEventListener('pointerup', onUserInteraction, { passive: true })
+    window.addEventListener('pointercancel', onUserInteraction, { passive: true })
     window.addEventListener('keydown', onUserInteraction, { passive: true })
     return () => {
       document.removeEventListener('fullscreenchange', onFullscreenChange)
       document.removeEventListener('webkitfullscreenchange', onFullscreenChange)
-      window.removeEventListener('pointerdown', onUserInteraction)
-      window.removeEventListener('touchstart', onUserInteraction)
+      window.removeEventListener('pointerdown', onPointerDownTrack)
+      window.removeEventListener('pointerup', onUserInteraction)
+      window.removeEventListener('pointercancel', onUserInteraction)
       window.removeEventListener('keydown', onUserInteraction)
     }
   }, [ensureFullscreen, unlockAudio])
@@ -938,7 +948,7 @@ export default function BlindajeDeliveryEmpaquePage() {
     sessionExpiresAtRef.current = nextExpiresAt
     if (now - prevStorageSync >= 500) {
       lastStorageSyncAtRef.current = now
-      setRemainingMs(PIN_INACTIVITY_TIMEOUT_MS)
+      // No llamar setRemainingMs de forma síncrona durante pointerdown/touchstart para evitar re-renderizar el DOM a mitad del toque táctil
       try {
         sessionStorage.setItem('blindaje_packer_last_activity_at', String(now))
         sessionStorage.setItem('blindaje_packer_expires_at', String(nextExpiresAt))
@@ -1094,8 +1104,8 @@ export default function BlindajeDeliveryEmpaquePage() {
       const inactiveMs = now - lastActivityAtRef.current
       if (left <= 0 || inactiveMs >= PIN_INACTIVITY_TIMEOUT_MS) {
         logout(t('blindaje_delivery.pin_session_expired'))
-      } else {
-        setRemainingMs(left)
+      } else if (!isPointerPressedRef.current) {
+        setRemainingMs(prev => (Math.ceil(prev / 1000) === Math.ceil(left / 1000) ? prev : left))
       }
     }
     const onUserActivity = () => {
@@ -1672,15 +1682,53 @@ export default function BlindajeDeliveryEmpaquePage() {
   }
 
   function handleKeypadDigit(digit: string) {
-    void ensureFullscreen()
     setError(null)
     setPin(prev => (prev.length < 4 ? `${prev}${digit}` : prev))
   }
 
   function handleKeypadBackspace() {
-    void ensureFullscreen()
     setError(null)
     setPin(prev => prev.slice(0, -1))
+  }
+
+  // Respuesta táctil instantánea (0ms al contacto) para botones fijos (teclado PIN, +/- bolsas, casillas de verificación)
+  function bindInstantTouch(action: () => void) {
+    return {
+      onPointerDown: (e: React.PointerEvent) => {
+        if (e.pointerType === 'mouse' && e.button !== 0) return
+        lastDirectTouchAtRef.current = Date.now()
+        action()
+      },
+      onClick: () => {
+        if (Date.now() - lastDirectTouchAtRef.current < 450) return
+        action()
+      }
+    }
+  }
+
+  // Tolerancia de deslizamiento táctil (hasta 28px de movimiento del dedo) para tarjetas y botones dentro de áreas con scroll
+  function bindForgivingTap(key: string, action: () => void) {
+    return {
+      onPointerDown: (e: React.PointerEvent) => {
+        if (e.pointerType === 'mouse' && e.button !== 0) return
+        pointerStartRef.current = { x: e.clientX, y: e.clientY, key, at: Date.now() }
+      },
+      onPointerUp: (e: React.PointerEvent) => {
+        const start = pointerStartRef.current
+        pointerStartRef.current = null
+        if (!start || start.key !== key) return
+        const dist = Math.hypot(e.clientX - start.x, e.clientY - start.y)
+        const elapsed = Date.now() - start.at
+        if (dist <= 28 && elapsed <= 650) {
+          lastDirectTouchAtRef.current = Date.now()
+          action()
+        }
+      },
+      onClick: () => {
+        if (Date.now() - lastDirectTouchAtRef.current < 450) return
+        action()
+      }
+    }
   }
 
   async function savePackingRecord(targetOrder: Order) {
@@ -2134,40 +2182,40 @@ export default function BlindajeDeliveryEmpaquePage() {
             className="w-full h-20 sm:h-24 rounded-2xl border-2 border-slate-300 mt-4 text-center text-5xl sm:text-6xl font-black tracking-[.55em] bg-white"
           />
 
-          {/* TECLADO NUMÉRICO TÁCTIL DE GRAN TAMAÑO PARA TABLETA EN FULLSCREEN */}
-          <div className="grid grid-cols-3 gap-3 mt-4">
+          {/* TECLADO NUMÉRICO TÁCTIL DE GRAN TAMAÑO PARA TABLETA EN FULLSCREEN (DISPARO INSTANTÁNEO 0MS AL CONTACTO) */}
+          <div className="grid grid-cols-3 gap-3 mt-4 touch-manipulation">
             {['1', '2', '3', '4', '5', '6', '7', '8', '9'].map(digit => (
               <button
                 key={digit}
                 type="button"
-                onClick={() => handleKeypadDigit(digit)}
-                className="h-16 sm:h-20 rounded-2xl bg-slate-100 hover:bg-slate-200 active:bg-slate-300 text-3xl sm:text-4xl font-black text-slate-900 transition-colors"
+                {...bindInstantTouch(() => handleKeypadDigit(digit))}
+                className="h-16 sm:h-20 rounded-2xl bg-slate-100 hover:bg-slate-200 active:bg-slate-300 active:scale-[0.97] text-3xl sm:text-4xl font-black text-slate-900 transition-all touch-manipulation"
               >
                 {digit}
               </button>
             ))}
             <button
               type="button"
-              onClick={() => {
-                void ensureFullscreen()
+              {...bindInstantTouch(() => {
+                setError(null)
                 setPin('')
-              }}
-              className="h-16 sm:h-20 rounded-2xl bg-slate-200 hover:bg-slate-300 text-base sm:text-lg font-black text-slate-700"
+              })}
+              className="h-16 sm:h-20 rounded-2xl bg-slate-200 hover:bg-slate-300 active:scale-[0.97] text-base sm:text-lg font-black text-slate-700 touch-manipulation"
             >
               {t('blindaje_delivery.keypad_clear')}
             </button>
             <button
               key="0"
               type="button"
-              onClick={() => handleKeypadDigit('0')}
-              className="h-16 sm:h-20 rounded-2xl bg-slate-100 hover:bg-slate-200 active:bg-slate-300 text-3xl sm:text-4xl font-black text-slate-900 transition-colors"
+              {...bindInstantTouch(() => handleKeypadDigit('0'))}
+              className="h-16 sm:h-20 rounded-2xl bg-slate-100 hover:bg-slate-200 active:bg-slate-300 active:scale-[0.97] text-3xl sm:text-4xl font-black text-slate-900 transition-all touch-manipulation"
             >
               0
             </button>
             <button
               type="button"
-              onClick={handleKeypadBackspace}
-              className="h-16 sm:h-20 rounded-2xl bg-slate-200 hover:bg-slate-300 flex items-center justify-center text-slate-700"
+              {...bindInstantTouch(handleKeypadBackspace)}
+              className="h-16 sm:h-20 rounded-2xl bg-slate-200 hover:bg-slate-300 active:scale-[0.97] flex items-center justify-center text-slate-700 touch-manipulation"
               title={t('blindaje_delivery.keypad_delete')}
             >
               <Delete className="w-8 h-8" />
@@ -2362,13 +2410,12 @@ export default function BlindajeDeliveryEmpaquePage() {
                     key={value.guid}
                     type="button"
                     data-order-card="true"
-                    onClick={() => {
-                      void ensureFullscreen()
+                    {...bindForgivingTap(`card:${value.guid}`, () => {
                       setSelected(prev => (prev === value.guid ? null : value.guid))
                       setError(null)
                       setSuccess(null)
-                    }}
-                    className={`min-w-[245px] sm:min-w-[275px] landscape:min-w-0 landscape:w-full lg:min-w-0 lg:w-full p-4 rounded-2xl border-2 text-left flex-shrink-0 transition-all ${
+                    })}
+                    className={`min-w-[245px] sm:min-w-[275px] landscape:min-w-0 landscape:w-full lg:min-w-0 lg:w-full p-4 rounded-2xl border-2 text-left flex-shrink-0 transition-all active:scale-[0.98] touch-manipulation ${
                       isSelected ? stageInfo.cardSelectedClass : stageInfo.cardClass
                     } ${hasCollision ? 'ring-4 ring-red-600/80 border-red-600' : ''}`}
                   >
@@ -2614,10 +2661,10 @@ export default function BlindajeDeliveryEmpaquePage() {
                             <button
                               type="button"
                               disabled={order.audit?.status === 'released' || order.isVoided}
-                              onClick={() =>
+                              {...bindInstantTouch(() =>
                                 setBags(previous => ({ ...previous, [order.guid]: Math.max(1, bagCount - 1) }))
-                              }
-                              className="w-14 h-14 rounded-2xl bg-slate-200 text-2xl font-black disabled:opacity-30"
+                              )}
+                              className="w-14 h-14 rounded-2xl bg-slate-200 active:scale-95 text-2xl font-black disabled:opacity-30 touch-manipulation"
                             >
                               −
                             </button>
@@ -2625,10 +2672,10 @@ export default function BlindajeDeliveryEmpaquePage() {
                             <button
                               type="button"
                               disabled={order.audit?.status === 'released' || order.isVoided}
-                              onClick={() =>
+                              {...bindInstantTouch(() =>
                                 setBags(previous => ({ ...previous, [order.guid]: Math.min(20, bagCount + 1) }))
-                              }
-                              className="w-14 h-14 rounded-2xl bg-slate-950 text-white text-2xl font-black disabled:opacity-30"
+                              )}
+                              className="w-14 h-14 rounded-2xl bg-slate-950 active:scale-95 text-white text-2xl font-black disabled:opacity-30 touch-manipulation"
                             >
                               +
                             </button>
@@ -2661,9 +2708,11 @@ export default function BlindajeDeliveryEmpaquePage() {
                         {order.audit?.status !== 'released' && !order.isVoided && (!isOrderPacked || isEditingStep1) && (
                           <button
                             type="button"
-                            onClick={markReady}
+                            {...bindForgivingTap(`markReady:${order.guid}`, () => {
+                              void markReady()
+                            })}
                             disabled={busy || isInKitchenBlocked}
-                            className="w-full h-16 sm:h-20 rounded-2xl bg-slate-950 text-white text-xl sm:text-2xl font-black disabled:opacity-30"
+                            className="w-full h-16 sm:h-20 rounded-2xl bg-slate-950 active:scale-[0.98] text-white text-xl sm:text-2xl font-black disabled:opacity-30 transition-transform touch-manipulation"
                           >
                             {isOrderPacked
                               ? `${t('blindaje_delivery.update_bags_and_reconfirm_btn')} (${cashierShortName})`
@@ -2728,10 +2777,10 @@ export default function BlindajeDeliveryEmpaquePage() {
                         {isOrderPacked && !hasBagCountChanged && order.audit?.status !== 'released' && !order.isVoided && (
                           <button
                             type="button"
-                            onClick={() =>
+                            {...bindInstantTouch(() =>
                               setDriverPresentAck(prev => ({ ...prev, [order.guid]: !prev[order.guid] }))
-                            }
-                            className={`w-full p-4 rounded-2xl border-2 text-left transition-all flex items-center gap-3 ${
+                            )}
+                            className={`w-full p-4 rounded-2xl border-2 text-left transition-all active:scale-[0.99] flex items-center gap-3 touch-manipulation ${
                               isDriverPresentConfirmed
                                 ? 'bg-emerald-50 border-emerald-600 text-emerald-950'
                                 : 'bg-slate-50 border-slate-300 text-slate-900 hover:bg-slate-100'
@@ -2741,7 +2790,7 @@ export default function BlindajeDeliveryEmpaquePage() {
                               type="checkbox"
                               checked={isDriverPresentConfirmed}
                               readOnly
-                              className="w-7 h-7 accent-emerald-600 flex-shrink-0"
+                              className="w-7 h-7 accent-emerald-600 flex-shrink-0 pointer-events-none"
                             />
                             <span className="text-base sm:text-lg font-black leading-snug">
                               {t('blindaje_delivery.driver_present_checkbox')} — {order.customer} (Check #{order.ticket})
@@ -2753,10 +2802,10 @@ export default function BlindajeDeliveryEmpaquePage() {
                         {currentCollisions.length > 0 && order.audit?.status !== 'released' && (
                           <button
                             type="button"
-                            onClick={() =>
+                            {...bindInstantTouch(() =>
                               setCollisionAck(prev => ({ ...prev, [order.guid]: !prev[order.guid] }))
-                            }
-                            className={`w-full p-4 rounded-2xl border-2 text-left transition-all flex items-start gap-3 ${
+                            )}
+                            className={`w-full p-4 rounded-2xl border-2 text-left transition-all active:scale-[0.99] flex items-start gap-3 touch-manipulation ${
                               isCollisionConfirmed
                                 ? 'bg-emerald-50 border-emerald-600 text-emerald-950'
                                 : 'bg-red-50 border-red-600 text-red-950 animate-pulse'
@@ -2766,7 +2815,7 @@ export default function BlindajeDeliveryEmpaquePage() {
                               type="checkbox"
                               checked={isCollisionConfirmed}
                               readOnly
-                              className="w-7 h-7 mt-0.5 accent-emerald-600 flex-shrink-0"
+                              className="w-7 h-7 mt-0.5 accent-emerald-600 flex-shrink-0 pointer-events-none"
                             />
                             <div className="text-base sm:text-lg font-black leading-snug">
                               {t('blindaje_delivery.collision_checkbox_prefix')} &ldquo;{order.customer}&rdquo; (CHECK #{order.ticket} •{' '}
@@ -2800,7 +2849,9 @@ export default function BlindajeDeliveryEmpaquePage() {
                         ) : (
                           <button
                             type="button"
-                            onClick={release}
+                            {...bindForgivingTap(`release:${order.guid}`, () => {
+                              void release()
+                            })}
                             disabled={
                               busy ||
                               order.isVoided ||
@@ -2810,7 +2861,7 @@ export default function BlindajeDeliveryEmpaquePage() {
                               !isDriverPresentConfirmed ||
                               !isCollisionConfirmed
                             }
-                            className="w-full h-16 sm:h-20 rounded-2xl bg-red-600 text-white text-xl sm:text-2xl font-black disabled:bg-slate-300 disabled:text-slate-600 flex items-center justify-center gap-3"
+                            className="w-full h-16 sm:h-20 rounded-2xl bg-red-600 active:scale-[0.98] text-white text-xl sm:text-2xl font-black disabled:bg-slate-300 disabled:text-slate-600 flex items-center justify-center gap-3 transition-transform touch-manipulation"
                           >
                             {isOrderPacked &&
                             !hasBagCountChanged &&

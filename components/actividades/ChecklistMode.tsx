@@ -253,16 +253,28 @@ export default function ChecklistMode({ onClose }: ChecklistModeProps) {
   const dayName = useMemo(() => getDayName(), [businessDate])
 
   // ─── Live clock & 24/7 Auto-Reconfiguration + 3-Hour Wake Modal ──────────
+  const isPointerPressedRef = useRef<boolean>(false)
   useEffect(() => {
     const markInteraction = () => {
       lastInteractionAtRef.current = Date.now()
     }
-    window.addEventListener('pointerdown', markInteraction, { passive: true })
+    const onPointerDown = () => {
+      isPointerPressedRef.current = true
+      lastInteractionAtRef.current = Date.now()
+    }
+    const onPointerUpOrCancel = () => {
+      isPointerPressedRef.current = false
+    }
+    window.addEventListener('pointerdown', onPointerDown, { passive: true })
+    window.addEventListener('pointerup', onPointerUpOrCancel, { passive: true })
+    window.addEventListener('pointercancel', onPointerUpOrCancel, { passive: true })
     window.addEventListener('keydown', markInteraction, { passive: true })
     window.addEventListener('touchstart', markInteraction, { passive: true })
     window.addEventListener('wheel', markInteraction, { passive: true })
     return () => {
-      window.removeEventListener('pointerdown', markInteraction)
+      window.removeEventListener('pointerdown', onPointerDown)
+      window.removeEventListener('pointerup', onPointerUpOrCancel)
+      window.removeEventListener('pointercancel', onPointerUpOrCancel)
       window.removeEventListener('keydown', markInteraction)
       window.removeEventListener('touchstart', markInteraction)
       window.removeEventListener('wheel', markInteraction)
@@ -280,7 +292,11 @@ export default function ChecklistMode({ onClose }: ChecklistModeProps) {
   useEffect(() => {
     const INACTIVITY_WAKE_MODAL_MS = 3 * 60 * 60 * 1000 // 3 horas
     const interval = setInterval(() => {
-      setClock(getLATime())
+      // Never re-render the 100+ checklist buttons while a finger is actively touching the screen
+      if (isPointerPressedRef.current) return
+      const now = getLATime()
+      // Only trigger React state update when the displayed minute changes (clockStr only shows HH:MM)
+      setClock(prev => (prev.getMinutes() === now.getMinutes() && prev.getHours() === now.getHours() ? prev : now))
       const currentBDate = getBusinessDate()
       const currentShiftNow = getCurrentShift()
       const idleMs = Date.now() - lastInteractionAtRef.current

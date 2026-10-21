@@ -57,10 +57,13 @@ assert.equal(classifyPlatform('DOORDASH - DELIVERY'), 'DOORDASH')
 assert.equal(classifyPlatform('Uber Eats'), 'UBER_EATS')
 assert.equal(classifyPlatform('Postmates'), 'UBER_EATS')
 assert.equal(classifyPlatform('GrubHub Delivery'), 'GRUBHUB')
+assert.equal(classifyPlatform('Mostrador', '', 'API', 'UBER60A07 Jovita G.'), 'UBER_EATS')
+assert.equal(classifyPlatform('Mostrador', '', 'API', 'DD fafae52b clifford s'), 'DOORDASH')
+assert.equal(isDeliveryPlatform('Mostrador', '', 'API', 'UBER60A07 Jovita G.'), true)
 assert.equal(isDeliveryPlatform('To Go'), false)
 assert.equal(isDeliveryPlatform('For Here'), false)
 
-for (const drink of ['Limón', 'Limon', 'Sangría', 'Sangria', 'CAFÉ', 'Cafe', 'Horchata', 'Large Piña', 'Champurrado']) {
+for (const drink of ['Limón', 'Limon', 'Medium Lemonade', 'Large Limeade', 'Iced Tea', 'Sangría', 'Sangria', 'CAFÉ', 'Cafe', 'Horchata', 'Large Piña', 'Champurrado']) {
   assert.equal(isHighRiskBeverage(drink), true, drink)
 }
 assert.equal(isHighRiskBeverage('Taco Asada'), false)
@@ -360,19 +363,13 @@ assert.equal(
 )
 
 assert.equal(
-  empaqueSource.includes('getOrderOperationalPriority') &&
-    empaqueSource.includes('hasBagCountChanged') &&
-    empaqueSource.includes('isEditingStep1') &&
-    empaqueSource.includes('isInKitchenBlocked') &&
-    empaqueSource.includes('isReleaseInCooldown') &&
-    empaqueSource.includes('driverPresentAck') &&
-    empaqueSource.includes('undoPacking') &&
-    empaqueSource.includes('reopenOrder') &&
-    empaqueSource.includes('showHistoryRef.current') &&
-    empaqueSource.includes('voided_packed_banner_title') &&
-    !empaqueSource.includes('readyAgeMs <= 20 * 60 * 1000'),
+  empaqueSource.includes('lastServerHeartbeatAtRef') &&
+    empaqueSource.includes('fetchSeqRef') &&
+    empaqueSource.includes('stickyAuditsRef') &&
+    empaqueSource.includes('recentActiveOrdersRef') &&
+    !empaqueSource.includes('onClick={undoPacking}'),
   true,
-  'Debe garantizar continuidad total entre cajeras y los 7 blindajes operativos en tienda'
+  'Debe separar el reloj de heartbeat al servidor (15s), blindar el polling con fetchSeqRef + stickyAuditsRef + recentActiveOrdersRef y eliminar el botón de regresar a EMPACANDO en la tableta'
 )
 
 assert.equal(
@@ -441,6 +438,8 @@ import {
   clearActiveStorePinSession,
   reopenDeliveredAudit,
   undoPackingAudit,
+  saveAuditProgress,
+  confirmHandoffToDriver,
   syncStoreRonosRoster,
   verifyRonosPin,
   getRonosCompanyId
@@ -574,17 +573,84 @@ import { supabaseAdmin } from '../lib/supabase'
     assert.equal(reopened.handed_at, null, 'handed_at debe limpiarse al reabrir la orden')
     assert.equal(reopened.packer_ronos_name, 'Jennifer Test', 'Debe conservar quién empacó originalmente la orden')
 
-    const undone = await undoPackingAudit({
-      orderGuid: testOrderGuid,
-      storeId: 7,
-      undoneByEmployee: {
-        id: 2457,
-        fullName: 'Abigail Test',
-        jobTitle: 'Cashier',
-        storeId: 7
+    // Verificar que una orden que YA FUE ENTREGADA (aunque se haya reabierto a LISTA) JAMÁS puede regresarse a EMPACANDO
+    let blockedUndoOnDelivered = false
+    try {
+      await undoPackingAudit({
+        orderGuid: testOrderGuid,
+        storeId: 7,
+        undoneByEmployee: {
+          id: 2457,
+          fullName: 'Abigail Test',
+          jobTitle: 'Cashier',
+          storeId: 7
+        }
+      })
+    } catch {
+      blockedUndoOnDelivered = true
+    }
+    assert.equal(
+      blockedUndoOnDelivered,
+      true,
+      'PROHIBIDO regresar a EMPACANDO una orden que ya había sido entregada al chofer'
+    )
+
+    // 4B. Simulación del Caso Real 18 de Octubre (Orden #133 y #299 en Slauson #7):
+    // Si la sesión en order_ready_settings expiró pero la cajera tiene su PIN válido en la tableta y presiona CONFIRMAR EMPAQUE o ENTREGAR,
+    // el sistema DEBE guardar el cambio en base de datos y renovar la sesión automáticamente (JAMÁS descartar el toque con SESSION_EXPIRED)
+    if (activeSample) {
+      const oct18OrderGuid = `test-oct18-regression-${Date.now()}`
+      try {
+        await clearActiveStorePinSession(7)
+        const savedWithExpiredToken = await saveAuditProgress({
+          storeId: 7,
+          toastOrderGuid: oct18OrderGuid,
+          toastDisplayNumber: '133',
+          platform: 'UBER_EATS',
+          diningOptionName: 'Uber Eats - Delivery',
+          customerName: 'Saraye E.',
+          orderOpenedAt: new Date().toISOString(),
+          itemsJson: [],
+          matchedItems: ['CONTROL:foodComplete', 'CONTROL:drinksComplete', 'CONTROL:bagCountCorrect', 'CONTROL:bagSealed'],
+          matchCompleted: true,
+          packerPin: activeSample.pin,
+          sessionToken: 'expired-or-missing-token-from-tablet',
+          quickChecks: { foodComplete: true, drinksComplete: true, bagCountCorrect: true, bagSealed: true },
+          expectedBagCount: 1,
+          confirmedBagCount: 1,
+          riskLevel: 'NORMAL',
+          riskReasons: [],
+          evidencePolicy: 'NONE'
+        })
+        assert.equal(
+          savedWithExpiredToken.status,
+          'PACKED_AND_SEALED',
+          'Aunque el token de sesión haya expirado, un PIN activo de RONOS debe guardar PACKED_AND_SEALED sin perder el toque de la cajera'
+        )
+
+        await clearActiveStorePinSession(7)
+        const deliveredWithExpiredToken = await confirmHandoffToDriver({
+          toastOrderGuid: oct18OrderGuid,
+          storeId: 7,
+          handedByRonosUserId: activeSample.employeeUserId,
+          handedByRonosName: activeSample.fullName,
+          handedPin: activeSample.pin,
+          sessionToken: 'expired-or-missing-token-from-tablet-2',
+          driverName: 'Uber Driver',
+          driverConfirmed: true,
+          verificationMethod: 'PLATFORM_ORDER_ID',
+          courierOrderReference: 'Saraye E. (#133)',
+          livePickupConfirmed: true
+        })
+        assert.equal(
+          deliveredWithExpiredToken.status,
+          'DELIVERED',
+          'Aunque el token de sesión haya expirado al momento de entregar, un PIN activo de RONOS debe guardar DELIVERED sin regresar la orden a EMPACANDO'
+        )
+      } finally {
+        await supabaseAdmin.from('delivery_packing_audits').delete().eq('toast_order_guid', oct18OrderGuid)
       }
-    })
-    assert.equal(undone, true, 'undoPackingAudit debe regresar la orden a EMPACANDO eliminando el registro prematuro')
+    }
 
     // 5. Limpieza final con el token activo
     const clearedByNew = await clearActiveStorePinSession(testStoreId, s2.sessionToken)

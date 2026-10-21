@@ -277,9 +277,9 @@ export default function BodegaPWA() {
     const [carouselBuckets, setCarouselBuckets] = useState<{ id: string, name?: string, isPeak?: boolean, duration?: number, label: string, data: any[], isCurrent: boolean }[]>([])
     const [activeIndex, setActiveIndex] = useState(0)
     
-    // Touch handlers for carousel swipe
-    const [touchStart, setTouchStart] = useState<number | null>(null)
-    const [touchEnd, setTouchEnd] = useState<number | null>(null)
+    // Touch handlers for carousel swipe (stored in refs so touchmove never triggers React re-renders)
+    const touchStartRef = useRef<number | null>(null)
+    const touchEndRef = useRef<number | null>(null)
     const [showInfoModal, setShowInfoModal] = useState(false)
 
     // Snap back timer: si mueves el carrusel, a los 15 seg regresa solito al bloque actual (AHORA)
@@ -1213,17 +1213,17 @@ export default function BodegaPWA() {
                                     ref={bodegaCarouselRef}
                                     className="flex-1 flex flex-col items-center justify-center gap-6 xl:gap-8 overflow-hidden touch-none py-4 px-2 w-full relative"
                                     onTouchStart={(e) => {
-                                        setTouchEnd(null)
-                                        setTouchStart(e.targetTouches[0].clientY)
+                                        touchEndRef.current = null
+                                        touchStartRef.current = e.targetTouches[0].clientY
                                     }}
                                     onTouchMove={(e) => {
-                                        setTouchEnd(e.targetTouches[0].clientY)
+                                        touchEndRef.current = e.targetTouches[0].clientY
                                     }}
                                     onTouchEnd={() => {
-                                        if (!touchStart || !touchEnd) return
-                                        const distance = touchStart - touchEnd
-                                        const isSwipeUp = distance > 50
-                                        const isSwipeDown = distance < -50
+                                        if (touchStartRef.current === null || touchEndRef.current === null) return
+                                        const distance = touchStartRef.current - touchEndRef.current
+                                        const isSwipeUp = distance > 28
+                                        const isSwipeDown = distance < -28
                                         
                                         if (isSwipeUp && activeIndex < carouselBuckets.length - 1) {
                                             setScrollDirection(1)
@@ -1233,6 +1233,8 @@ export default function BodegaPWA() {
                                             setScrollDirection(-1)
                                             setActiveIndex(prev => prev - 1)
                                         }
+                                        touchStartRef.current = null
+                                        touchEndRef.current = null
                                     }}
                                 >
                                     {(() => {
@@ -1392,6 +1394,17 @@ export default function BodegaPWA() {
                                 {/* Accion */}
                                 <div className="bg-black/20 p-8 md:p-14 flex items-center justify-center md:w-[400px]">
                                     <button 
+                                        data-touch-tap="true"
+                                        onPointerDown={(e) => {
+                                            if (e.pointerType === 'touch' || e.pointerType === 'pen') {
+                                                e.preventDefault()
+                                                if ((req as any).is_sys) {
+                                                    handleAcknowledgeBeverage(req)
+                                                } else {
+                                                    handleAcknowledge(req.id)
+                                                }
+                                            }
+                                        }}
                                         onClick={() => {
                                             if ((req as any).is_sys) {
                                                 handleAcknowledgeBeverage(req)
@@ -1399,7 +1412,7 @@ export default function BodegaPWA() {
                                                 handleAcknowledge(req.id)
                                             }
                                         }}
-                                        className="w-full h-full min-h-[150px] md:min-h-full rounded-3xl bg-emerald-500 hover:bg-emerald-400 active:bg-emerald-600 border-4 border-emerald-400 shadow-[0_0_40px_rgba(16,185,129,0.5)] flex flex-col items-center justify-center gap-4 text-white hover:scale-[1.02] transition-transform active:scale-95"
+                                        className="w-full h-full min-h-[150px] md:min-h-full rounded-3xl bg-emerald-500 hover:bg-emerald-400 active:bg-emerald-600 border-4 border-emerald-400 shadow-[0_0_40px_rgba(16,185,129,0.5)] flex flex-col items-center justify-center gap-4 text-white hover:scale-[1.02] transition-transform active:scale-95 touch-manipulation"
                                     >
                                         <CheckCircle2 size={80} strokeWidth={3} />
                                         <span className="font-black text-4xl uppercase tracking-tighter">{t('prep.acknowledge')}</span>
