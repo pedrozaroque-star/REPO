@@ -95,6 +95,13 @@ type MenuItem = {
     badgeIcon?: React.ReactNode
     badgePosition?: 'inline' | 'below'
     badgeStyle?: 'default' | 'hazard-tape'
+    subItems?: {
+        name: string
+        path: string
+        badgeText?: string
+        openInNewTab?: boolean
+        tooltip?: string
+    }[]
 }
 
 type MenuGroup = {
@@ -143,6 +150,7 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
     const { user } = useAuth()
     const { t, language, setLanguage } = useLanguage()
 
+    const [expandedSubItems, setExpandedSubItems] = useState<Record<string, boolean>>({})
     const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({
         analisis: true,
         finanzas: true,
@@ -643,7 +651,6 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
                     path: '/app',
                     icon: <Smartphone size={20} />,
                     roles: ['asistente', 'manager', 'supervisor', 'admin'],
-                    openInNewTab: true,
                     badgeIcon: <HazardTapeIcon size={16} />,
                     tooltip: language === 'en'
                         ? 'Opens in a new tab: Customer mobile ordering app preview and menu consultation (App móvil de pedidos y consulta para clientes)'
@@ -781,6 +788,108 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
         const badgeBubbleClass = isBuildingBadge
             ? 'bg-amber-500/20 dark:bg-amber-500/25 border-amber-500/40 text-amber-900 dark:text-amber-200 px-1.5 py-1'
             : 'bg-blue-600 dark:bg-blue-500 border-blue-400/30 text-white text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5'
+
+        if (item.subItems && item.subItems.length > 0) {
+            const isSubOpen = Boolean(expandedSubItems[item.path])
+            return (
+                <div key={item.path} className="space-y-1">
+                    <button
+                        type="button"
+                        onClick={() => {
+                            if (isCollapsed && !isMobile) {
+                                setIsCollapsed(false)
+                                setExpandedSubItems(prev => ({ ...prev, [item.path]: true }))
+                            } else {
+                                setExpandedSubItems(prev => ({ ...prev, [item.path]: !prev[item.path] }))
+                            }
+                        }}
+                        title={item.tooltip || (typeof item.name === 'string' ? item.name : item.plainName) || ''}
+                        className={`w-full group/item relative flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-all duration-200 border-l-[3px] cursor-pointer ${
+                            isActive || isSubOpen
+                                ? `${colors.activeBg} ${colors.activeBorder} font-semibold text-slate-900 dark:text-white`
+                                : 'border-l-transparent text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800/50 hover:text-slate-900 dark:hover:text-slate-200'
+                        } ${isCollapsed && !isMobile ? 'justify-center px-2' : ''}`}
+                    >
+                        <div className={`flex-shrink-0 transition-transform duration-200 ${
+                            isActive || isSubOpen ? `${colors.icon} scale-110` : `${colors.icon} opacity-70 group-hover/item:opacity-100`
+                        }`}>
+                            {React.cloneElement(item.icon as any, { size: 18, strokeWidth: isActive || isSubOpen ? 2.5 : 2 })}
+                        </div>
+                        {(!isCollapsed || isMobile) ? (
+                            <div className="flex flex-col min-w-0 flex-1 text-left">
+                                <div className="flex items-center justify-between w-full min-w-0">
+                                    <span className="truncate">{item.name}</span>
+                                    <div className="flex items-center gap-1.5 ml-1.5 shrink-0">
+                                        {hasAnyBadge && badgePosition === 'inline' && (
+                                            <span className={`new-badge-animated ${badgeBubbleClass} rounded shadow-sm shrink-0 inline-flex items-center gap-1.5 border leading-none`}>
+                                                {badgeIcon}
+                                                {badgeText && <span>{badgeText}</span>}
+                                            </span>
+                                        )}
+                                        <ChevronDown size={13} className={`text-slate-400 transition-transform duration-200 ${isSubOpen ? 'rotate-180 text-amber-500' : ''}`} />
+                                    </div>
+                                </div>
+                            </div>
+                        ) : (
+                            hasAnyBadge && (
+                                <span className={`absolute top-1.5 right-1.5 w-2 h-2 ${hasNewBadge ? 'bg-blue-500' : 'bg-amber-500'} rounded-full shadow-sm animate-ping new-badge-animated`} />
+                            )
+                        )}
+                    </button>
+                    <AnimatePresence initial={false}>
+                        {isSubOpen && (!isCollapsed || isMobile) && (
+                            <motion.div
+                                initial={{ height: 0, opacity: 0 }}
+                                animate={{ height: 'auto', opacity: 1 }}
+                                exit={{ height: 0, opacity: 0 }}
+                                transition={{ duration: 0.18 }}
+                                className="overflow-hidden pl-7 pr-1 space-y-1"
+                            >
+                                {item.subItems.map((sub) => {
+                                    const isV2 = sub.path.includes('v=2')
+                                    return (
+                                        <Link
+                                            key={sub.path}
+                                            href={sub.path}
+                                            target={sub.openInNewTab ? '_blank' : undefined}
+                                            rel={sub.openInNewTab ? 'noopener noreferrer' : undefined}
+                                            onClick={() => {
+                                                if (isMobile) setMobileDrawerOpen(false)
+                                            }}
+                                            title={sub.tooltip || sub.name}
+                                            className={`group/sub flex items-center justify-between gap-2 rounded-lg px-2.5 py-1.5 text-xs font-medium transition-all border ${
+                                                isV2
+                                                    ? 'bg-gradient-to-r from-[#50050a]/10 to-amber-500/10 dark:from-[#50050a]/40 dark:to-amber-500/15 border-amber-500/40 text-slate-900 dark:text-amber-100 hover:border-amber-500'
+                                                    : 'bg-slate-50/70 dark:bg-slate-900/50 border-slate-200/70 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+                                            }`}
+                                        >
+                                            <span className="truncate flex items-center gap-1.5">
+                                                <span className={`w-1.5 h-1.5 rounded-full ${isV2 ? 'bg-amber-500 animate-pulse' : 'bg-slate-400'}`} />
+                                                {sub.name}
+                                            </span>
+                                            <span className="flex items-center gap-1 shrink-0">
+                                                {sub.badgeText && (
+                                                    <span className={`text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded ${
+                                                        isV2
+                                                            ? 'bg-gradient-to-r from-[#50050a] to-red-700 text-[#FDC82F] border border-[#FDC82F]/50 shadow-xs'
+                                                            : 'bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300'
+                                                    }`}>
+                                                        {sub.badgeText}
+                                                    </span>
+                                                )}
+                                                {sub.openInNewTab && (
+                                                    <ExternalLink size={10} className="text-slate-400 group-hover/sub:text-amber-500 transition-colors" />
+                                                )}
+                                            </span>
+                                        </Link>
+                                    )
+                                })}
+                            </motion.div>
+                        )}
+                    </AnimatePresence>
+                </div>
+            )
+        }
 
         return (
             <Link

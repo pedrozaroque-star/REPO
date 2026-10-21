@@ -80,7 +80,10 @@ export default function ClientLayout({
         '/login', 
         '/', 
         '/auth/login', 
-        '/app',
+        '/app/privacy',
+        '/app/terms',
+        '/app/support',
+        '/app/delete-account',
         '/ordenar',
         '/clientes', 
         '/evaluacion/kiosk', 
@@ -96,12 +99,12 @@ export default function ClientLayout({
         '/gavilan-pos'
     ]
 
-    // Dedicated kiosk / TV mode for order-ready-board via query param (?tv=1 or ?kiosk=1)
+    // Dedicated kiosk / TV mode for order-ready-board or fullscreen app preview via query param
     const [isDedicatedKiosk, setIsDedicatedKiosk] = useState(false)
     useEffect(() => {
-        if (typeof window !== 'undefined' && pathname === '/order-ready-board') {
+        if (typeof window !== 'undefined' && (pathname === '/order-ready-board' || pathname === '/app')) {
             const params = new URLSearchParams(window.location.search)
-            setIsDedicatedKiosk(params.get('tv') === '1' || params.get('kiosk') === '1')
+            setIsDedicatedKiosk(params.get('tv') === '1' || params.get('kiosk') === '1' || params.get('fullscreen') === '1')
         } else {
             setIsDedicatedKiosk(false)
         }
@@ -110,7 +113,7 @@ export default function ClientLayout({
     const isPublicPage = publicRoutes.some(r => pathname === r || pathname.startsWith(r + '/')) || pathname.startsWith('/mantenimiento/registro') || pathname.startsWith('/tablet') || isDedicatedKiosk
 
     // Full-width routes (large tables, schedules, etc.)
-    const fullWidthRoutes = ['/horarios', '/admin/plantillas', '/order-ready-board', '/admin/blindaje-delivery/empaque']
+    const fullWidthRoutes = ['/horarios', '/admin/plantillas', '/order-ready-board', '/admin/blindaje-delivery/empaque', '/app']
 
     const isFullWidth = fullWidthRoutes.some(route => pathname.startsWith(route))
 

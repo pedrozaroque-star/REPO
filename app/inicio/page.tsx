@@ -681,7 +681,6 @@ function InicioHubContent() {
                     icon: <Smartphone size={20} />,
                     iconColorClass: 'bg-rose-500/10 text-rose-600 dark:bg-rose-500/20 dark:text-rose-400 border-rose-500/20',
                     roles: ['asistente', 'manager', 'supervisor', 'admin'],
-                    openInNewTab: true,
                     badgeType: 'building',
                 },
                 {
@@ -856,6 +855,34 @@ function InicioHubContent() {
                     <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 leading-snug line-clamp-2">
                         {item.description}
                     </p>
+
+                    {item.id === 'customer_app' && (
+                        <div className="mt-2.5 flex flex-wrap items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                            <button
+                                type="button"
+                                onClick={(e) => {
+                                    e.preventDefault()
+                                    e.stopPropagation()
+                                    window.location.href = '/app?v=1'
+                                }}
+                                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-bold bg-slate-200/80 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-300/70 dark:border-slate-700 transition-all cursor-pointer"
+                            >
+                                <span>{t('items.customer_app_v1') || 'Versión 1'}</span>
+                            </button>
+                            <button
+                                type="button"
+                                onClick={(e) => {
+                                    e.preventDefault()
+                                    e.stopPropagation()
+                                    window.location.href = '/app?v=2'
+                                }}
+                                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-black bg-gradient-to-r from-[#50050a] to-red-700 hover:from-[#3d0307] hover:to-red-800 text-[#FDC82F] border border-[#FDC82F]/60 shadow-sm transition-all cursor-pointer"
+                            >
+                                <Sparkles size={11} />
+                                <span>{t('items.customer_app_v2') || 'Versión 2'}</span>
+                            </button>
+                        </div>
+                    )}
                 </div>
 
                 {/* Right: Star (Quick Pin) + Chevron */}
