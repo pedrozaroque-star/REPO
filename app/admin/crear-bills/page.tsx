@@ -59,6 +59,25 @@ export function formatCurrency(val: number): string {
     return currencyFormatter.format(val || 0);
 }
 
+/**
+ * Formatea una fecha ISO (YYYY-MM-DD) al estándar de Los Angeles, USA: MM-DD-YYYY (mm-dd-aaaa).
+ */
+export function formatLaDate(dateStr: string | null | undefined): string {
+    if (!dateStr) return '';
+    const clean = String(dateStr).trim().split('T')[0];
+    const parts = clean.split('-');
+    if (parts.length === 3 && parts[0].length === 4) {
+        const [yyyy, mm, dd] = parts;
+        return `${mm.padStart(2, '0')}-${dd.padStart(2, '0')}-${yyyy}`;
+    }
+    const slashParts = clean.split('/');
+    if (slashParts.length === 3 && slashParts[2].length === 4) {
+        const [mm, dd, yyyy] = slashParts;
+        return `${mm.padStart(2, '0')}-${dd.padStart(2, '0')}-${yyyy}`;
+    }
+    return clean;
+}
+
 export default function CrearBillsPage() {
     const { t, language } = useLanguage();
 
@@ -268,7 +287,11 @@ export default function CrearBillsPage() {
                 const rawAmt = (inv.totalAmount ?? 0).toString();
                 const formattedAmt = formatCurrency(inv.totalAmount ?? 0).toLowerCase().replace(/[$,]/g, '');
                 const matchAmount = rawAmt.includes(term) || formattedAmt.includes(term);
-                const matchDate = (inv.txnDate || '').toLowerCase().includes(term) || (inv.dueDate || '').toLowerCase().includes(term);
+                const matchDate =
+                    (inv.txnDate || '').toLowerCase().includes(term) ||
+                    (inv.dueDate || '').toLowerCase().includes(term) ||
+                    formatLaDate(inv.txnDate).includes(term) ||
+                    formatLaDate(inv.dueDate).includes(term);
                 const matchBill = inv.bill ? (
                     (inv.bill.billId || '').toLowerCase().includes(term) ||
                     (inv.bill.docNumber || '').toLowerCase().includes(term)
@@ -1140,14 +1163,14 @@ export default function CrearBillsPage() {
                                                 </div>
                                             </td>
 
-                                            {/* Invoice Date */}
-                                            <td className="p-4 text-slate-600 dark:text-slate-300 font-medium">
-                                                {inv.txnDate}
+                                            {/* Invoice Date (LA-USA MM-DD-YYYY) */}
+                                            <td className="p-4 text-slate-600 dark:text-slate-300 font-medium font-mono text-xs">
+                                                {formatLaDate(inv.txnDate)}
                                             </td>
 
-                                            {/* Due Date */}
-                                            <td className="p-4 text-slate-500 dark:text-slate-400 text-xs">
-                                                {inv.dueDate}
+                                            {/* Due Date (LA-USA MM-DD-YYYY) */}
+                                            <td className="p-4 text-slate-500 dark:text-slate-400 font-mono text-xs">
+                                                {formatLaDate(inv.dueDate)}
                                             </td>
 
                                             {/* Store / Location */}
@@ -1307,31 +1330,41 @@ export default function CrearBillsPage() {
                                 </div>
                             </div>
 
-                            {/* Dates Configuration */}
+                            {/* Dates Configuration (LA-USA MM-DD-YYYY) */}
                             <div className="grid grid-cols-2 gap-3 pt-2">
                                 <div>
                                     <label htmlFor="input-bill-date" className="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1">
-                                        {t('create_bills.field_bill_date') || 'Bill Date'}
+                                        {t('create_bills.field_bill_date') || 'Bill Date'} (MM-DD-YYYY)
                                     </label>
-                                    <input
-                                        id="input-bill-date"
-                                        type="date"
-                                        value={confirmModal.billDate}
-                                        onChange={(e) => setConfirmModal({ ...confirmModal, billDate: e.target.value })}
-                                        className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-semibold text-slate-900 dark:text-white"
-                                    />
+                                    <label className="relative flex items-center justify-between w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-mono font-bold text-slate-900 dark:text-white cursor-pointer">
+                                        <span>{formatLaDate(confirmModal.billDate)}</span>
+                                        <Calendar className="w-3.5 h-3.5 text-slate-400" />
+                                        <input
+                                            id="input-bill-date"
+                                            type="date"
+                                            value={confirmModal.billDate}
+                                            onChange={(e) => setConfirmModal({ ...confirmModal, billDate: e.target.value })}
+                                            onClick={(e) => (e.currentTarget as any).showPicker?.()}
+                                            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                                        />
+                                    </label>
                                 </div>
                                 <div>
                                     <label htmlFor="input-due-date" className="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1">
-                                        {t('create_bills.field_due_date') || 'Due Date'}
+                                        {t('create_bills.field_due_date') || 'Due Date'} (MM-DD-YYYY)
                                     </label>
-                                    <input
-                                        id="input-due-date"
-                                        type="date"
-                                        value={confirmModal.dueDate}
-                                        onChange={(e) => setConfirmModal({ ...confirmModal, dueDate: e.target.value })}
-                                        className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-semibold text-slate-900 dark:text-white"
-                                    />
+                                    <label className="relative flex items-center justify-between w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-mono font-bold text-slate-900 dark:text-white cursor-pointer">
+                                        <span>{formatLaDate(confirmModal.dueDate)}</span>
+                                        <Calendar className="w-3.5 h-3.5 text-slate-400" />
+                                        <input
+                                            id="input-due-date"
+                                            type="date"
+                                            value={confirmModal.dueDate}
+                                            onChange={(e) => setConfirmModal({ ...confirmModal, dueDate: e.target.value })}
+                                            onClick={(e) => (e.currentTarget as any).showPicker?.()}
+                                            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                                        />
+                                    </label>
                                 </div>
                             </div>
                         </div>
@@ -1532,16 +1565,16 @@ export default function CrearBillsPage() {
                                     <span className="text-slate-500 dark:text-slate-400">
                                         {t('create_bills.field_bill_date') || 'Fecha'}:
                                     </span>
-                                    <span className="font-semibold text-slate-900 dark:text-white">
-                                        {viewBillModal.invoice.bill?.txnDate}
+                                    <span className="font-mono font-semibold text-slate-900 dark:text-white">
+                                        {formatLaDate(viewBillModal.invoice.bill?.txnDate)}
                                     </span>
                                 </div>
                                 <div className="flex justify-between items-center">
                                     <span className="text-slate-500 dark:text-slate-400">
                                         {t('create_bills.field_due_date') || 'Vencimiento'}:
                                     </span>
-                                    <span className="font-semibold text-slate-900 dark:text-white">
-                                        {viewBillModal.invoice.bill?.dueDate}
+                                    <span className="font-mono font-semibold text-slate-900 dark:text-white">
+                                        {formatLaDate(viewBillModal.invoice.bill?.dueDate)}
                                     </span>
                                 </div>
                                 <div className="border-t border-slate-200 dark:border-slate-700 pt-2 flex justify-between items-center">

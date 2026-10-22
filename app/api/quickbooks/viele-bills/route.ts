@@ -46,13 +46,15 @@ export async function GET(request: NextRequest) {
         const storeId = searchParams.get('storeId') || 'all';
         const status = (searchParams.get('status') || 'all') as 'all' | 'pending' | 'created';
         const category = (searchParams.get('category') || 'all') as 'all' | VieleInvoiceCategory;
+        const refresh = searchParams.get('refresh') === 'true';
 
         const { records, storeStatuses } = await fetchVieleWholesailInvoicesWithBillStatus({
             startDate,
             endDate,
             storeId,
             status,
-            category
+            category,
+            refresh
         });
 
         const totalInvoices = records.length;

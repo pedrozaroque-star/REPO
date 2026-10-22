@@ -115,6 +115,14 @@
         {
             "path": "/api/cron/process-mobile-outbox",
             "schedule": "* * * * *"
+        },
+        {
+            "path": "/api/cron/sync-viele-bills",
+            "schedule": "0 23 * * *"
+        },
+        {
+            "path": "/api/cron/sync-viele-bills",
+            "schedule": "0 0 * * *"
         }
     ]
 }

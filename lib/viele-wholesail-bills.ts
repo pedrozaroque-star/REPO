@@ -59,6 +59,29 @@ import {
 
 const WHOLESAIL_API_BASE = 'https://app.paywholesail.com/api/v1';
 const WHOLESAIL_SERVICE_NAME = 'wholesail_viele';
+const CLEARNINE_BASE = 'https://shop.vieleandsons.com';
+
+/**
+ * Mapa completo de facturas 50xxxxx (PO: CHEMICAL / órdenes manuales Imperial Chemical)
+ * emitidas en Septiembre y Octubre 2026 para las 15 sucursales de Tacos Gavilan.
+ */
+export const KNOWN_SEP_OCT_50X_BY_STORE: Record<number, string[]> = {
+    1: ['5025141', '5026777', '5028109', '5029590', '5031167', '5032663', '5034151', '5035640'],
+    3: ['5031161', '5032662', '5034154', '5035642'],
+    4: ['5025174', '5025175', '5026816', '5026817', '5028119', '5028120', '5029633', '5029634', '5031156', '5032658', '5034180'],
+    5: ['5026768', '5028112', '5029584', '5031164', '5031595', '5032664', '5034113', '5035637'],
+    6: ['5025171', '5026813', '5028107', '5029626', '5031160', '5032667', '5034155', '5035708'],
+    7: ['5025178', '5026818', '5028108', '5029628', '5031157', '5032656', '5034179', '5035726'],
+    8: ['5025177', '5026824', '5028461', '5029627', '5031162', '5032657', '5034153', '5035641'],
+    9: ['5025176', '5026814', '5026815', '5028116', '5029630', '5029631', '5031154', '5032661', '5034159', '5035723'],
+    10: ['5031155', '5032666', '5034156', '5035643'],
+    11: ['5025170', '5026812', '5028117', '5029629', '5031159', '5032660', '5034157', '5035721'],
+    12: ['5025139', '5025140', '5026775', '5026776', '5028103', '5028104', '5029591', '5029592', '5031165', '5032669', '5032670', '5034144', '5035636'],
+    13: ['5025172', '5026810', '5028105', '5029521', '5031166', '5032659', '5034178', '5035553'],
+    14: ['5025142', '5026769', '5028455', '5029632', '5031058', '5032671', '5034158', '5035724'],
+    15: ['5025290', '5026893', '5028337', '5029751', '5031318', '5032831', '5033957', '5034360', '5035788'],
+    16: ['5025173', '5026767', '5028458', '5029568', '5031163', '5032665', '5034149', '5035638']
+};
 
 /**
  * Token semilla de 2 años para LA Broadway (#5 - EL GAVILAN #2 BRDWY, CustomerID: ELG4 / 00ELG4)
@@ -221,9 +244,11 @@ export function matchWholesailCompanyToStoreId(customerId?: string, companyName?
  */
 export async function getWholesailStoreConnections(): Promise<{
     connectionsByStoreId: Map<number, StoredWholesailConnection>;
+    cachedInvoicesByStoreId: Map<number, VieleWholesailInvoiceRecord[]>;
     storeStatuses: WholesailStoreConnectionStatus[];
 }> {
     const connectionsByStoreId = new Map<number, StoredWholesailConnection>();
+    const cachedInvoicesByStoreId = new Map<number, VieleWholesailInvoiceRecord[]>();
 
     // Always seed default Broadway connection in memory first
     connectionsByStoreId.set(DEFAULT_BROADWAY_WHOLESAIL_CONNECTION.storeId, {
@@ -234,21 +259,65 @@ export async function getWholesailStoreConnections(): Promise<{
         const { data: rows, error } = await supabaseAdmin
             .from('integrations')
             .select('*')
-            .eq('service_name', WHOLESAIL_SERVICE_NAME);
+            .in('service_name', [WHOLESAIL_SERVICE_NAME, 'viele_store_invoices_cache']);
 
         if (!error && Array.isArray(rows)) {
             let hasBroadwayInDb = false;
             for (const row of rows) {
-                const storeId = Number(row.realm_id);
-                if (!isNaN(storeId) && storeId > 0 && row.access_token && row.refresh_token) {
-                    if (storeId === 5) hasBroadwayInDb = true;
-                    connectionsByStoreId.set(storeId, {
-                        storeId,
-                        buyerId: String(row.refresh_token).trim(),
-                        token: String(row.access_token).trim(),
-                        tokenType: String(row.token_type || 'RESTRICTED'),
-                        expiresAt: row.expires_at ? new Date(row.expires_at).toISOString() : DEFAULT_BROADWAY_WHOLESAIL_CONNECTION.expiresAt
-                    });
+                if (row.service_name === WHOLESAIL_SERVICE_NAME && row.access_token) {
+                    const rawToken = String(row.access_token).trim();
+                    if (rawToken.startsWith('{')) {
+                        try {
+                            const mapObj = JSON.parse(rawToken);
+                            for (const [k, val] of Object.entries(mapObj)) {
+                                const sid = Number(k);
+                                const v = val as any;
+                                if (!isNaN(sid) && sid > 0 && v?.token && v?.buyerId) {
+                                    if (sid === 5) hasBroadwayInDb = true;
+                                    connectionsByStoreId.set(sid, {
+                                        storeId: sid,
+                                        buyerId: String(v.buyerId),
+                                        token: String(v.token),
+                                        tokenType: String(v.tokenType || 'RESTRICTED'),
+                                        expiresAt: v.expiresAt || DEFAULT_BROADWAY_WHOLESAIL_CONNECTION.expiresAt
+                                    });
+                                }
+                            }
+                        } catch {
+                            // Ignore malformed JSON
+                        }
+                    } else {
+                        const storeId = Number(row.realm_id);
+                        if (!isNaN(storeId) && storeId > 0 && row.refresh_token) {
+                            if (storeId === 5) hasBroadwayInDb = true;
+                            connectionsByStoreId.set(storeId, {
+                                storeId,
+                                buyerId: String(row.refresh_token).trim(),
+                                token: rawToken,
+                                tokenType: String(row.token_type || 'RESTRICTED'),
+                                expiresAt: row.expires_at ? new Date(row.expires_at).toISOString() : DEFAULT_BROADWAY_WHOLESAIL_CONNECTION.expiresAt
+                            });
+                        }
+                    }
+                } else if (row.service_name === 'viele_store_invoices_cache' && row.access_token) {
+                    try {
+                        const parsed = JSON.parse(String(row.access_token));
+                        if (Array.isArray(parsed)) {
+                            const sid = Number(row.realm_id);
+                            if (!isNaN(sid) && sid > 0) {
+                                cachedInvoicesByStoreId.set(sid, parsed);
+                            }
+                        } else if (parsed && typeof parsed === 'object') {
+                            for (const [k, arr] of Object.entries(parsed)) {
+                                const sid = Number(k);
+                                if (!isNaN(sid) && sid > 0 && Array.isArray(arr)) {
+                                    cachedInvoicesByStoreId.set(sid, arr as VieleWholesailInvoiceRecord[]);
+                                }
+                            }
+                        }
+                    } catch {
+                        // Ignore malformed cache JSON
+                    }
                 }
             }
 
@@ -272,19 +341,20 @@ export async function getWholesailStoreConnections(): Promise<{
         .sort((a, b) => a.storeName.localeCompare(b.storeName))
         .map((store) => {
             const conn = connectionsByStoreId.get(store.storeId);
+            const hasCache = cachedInvoicesByStoreId.has(store.storeId);
             const isExpired = conn?.expiresAt ? new Date(conn.expiresAt) <= new Date() : false;
             return {
                 storeId: store.storeId,
                 storeName: store.storeName,
                 sageCustomerCode: store.sageCustomerCode,
-                connected: Boolean(conn && !isExpired),
+                connected: Boolean((conn && !isExpired) || hasCache),
                 buyerId: conn?.buyerId || WHOLESAIL_STORE_BUYER_IDS[store.storeId]?.buyerId,
-                tokenType: conn?.tokenType,
+                tokenType: conn?.tokenType || (hasCache ? 'CLEARNINE_SYNC' : undefined),
                 expiresAt: conn?.expiresAt
             };
         });
 
-    return { connectionsByStoreId, storeStatuses };
+    return { connectionsByStoreId, cachedInvoicesByStoreId, storeStatuses };
 }
 
 /**
@@ -318,6 +388,8 @@ export async function registerWholesailLinkOrToken(
     const companiesObj = data?.companies || {};
     const connectedStores: Array<{ storeId: number; storeName: string; buyerId: string; customerId?: string }> = [];
 
+    const { connectionsByStoreId } = await getWholesailStoreConnections();
+
     for (const [compId, compVal] of Object.entries(companiesObj)) {
         const comp = compVal as any;
         if (!comp || compId === WHOLESAIL_VIELE_SELLER_ID) continue;
@@ -336,41 +408,54 @@ export async function registerWholesailLinkOrToken(
                 customerId: comp.customerId
             });
 
-            // Upsert in integrations table
-            const { data: existing } = await supabaseAdmin
-                .from('integrations')
-                .select('id')
-                .eq('service_name', WHOLESAIL_SERVICE_NAME)
-                .eq('realm_id', String(matchedStoreId))
-                .maybeSingle();
-
-            if (existing?.id) {
-                await supabaseAdmin
-                    .from('integrations')
-                    .update({
-                        access_token: token,
-                        refresh_token: compId,
-                        token_type: tokenType,
-                        expires_at: expiresAt,
-                        updated_at: new Date().toISOString()
-                    })
-                    .eq('id', existing.id);
-            } else {
-                await supabaseAdmin.from('integrations').insert({
-                    service_name: WHOLESAIL_SERVICE_NAME,
-                    realm_id: String(matchedStoreId),
-                    access_token: token,
-                    refresh_token: compId,
-                    token_type: tokenType,
-                    expires_at: expiresAt,
-                    updated_at: new Date().toISOString()
-                });
-            }
+            connectionsByStoreId.set(matchedStoreId, {
+                storeId: matchedStoreId,
+                buyerId: compId,
+                token,
+                tokenType,
+                expiresAt
+            });
         }
     }
 
     if (connectedStores.length === 0) {
         throw new Error('El token de Wholesail es válido pero no se pudo asociar a ninguna sucursal de Tacos Gavilan.');
+    }
+
+    // Persist map of all connected stores in the single WHOLESAIL_SERVICE_NAME row
+    const serializedMap: Record<string, StoredWholesailConnection> = {};
+    for (const [sid, conn] of connectionsByStoreId.entries()) {
+        serializedMap[String(sid)] = conn;
+    }
+
+    const { data: existing } = await supabaseAdmin
+        .from('integrations')
+        .select('id')
+        .eq('service_name', WHOLESAIL_SERVICE_NAME)
+        .maybeSingle();
+
+    if (existing?.id) {
+        await supabaseAdmin
+            .from('integrations')
+            .update({
+                realm_id: 'all_wholesail_stores',
+                access_token: JSON.stringify(serializedMap),
+                refresh_token: 'MULTI_STORE_MAP',
+                token_type: tokenType,
+                expires_at: expiresAt,
+                updated_at: new Date().toISOString()
+            })
+            .eq('id', existing.id);
+    } else {
+        await supabaseAdmin.from('integrations').insert({
+            service_name: WHOLESAIL_SERVICE_NAME,
+            realm_id: 'all_wholesail_stores',
+            access_token: JSON.stringify(serializedMap),
+            refresh_token: 'MULTI_STORE_MAP',
+            token_type: tokenType,
+            expires_at: expiresAt,
+            updated_at: new Date().toISOString()
+        });
     }
 
     return { connectedStores };
@@ -457,9 +542,11 @@ export function classifyVieleInvoiceLines(params: {
     const totalAmount = Number(Number(params.totalAmount || 0).toFixed(2));
     const poUpper = String(params.poNumber || '').trim().toUpperCase();
     const activeLines = (params.lineItems || []).filter((l) => Number(l.totalAmount || 0) > 0);
+    // Excluir renglones de cargos administrativos/combustible (ej. '/FUEL') al evaluar si todos los artículos son Sodas o Químicos
+    const productLines = activeLines.filter((l) => !String(l.productId || '').trim().startsWith('/'));
 
-    // 1. ¿Todas las líneas positivas son Sodas (BIB 5 Gal)? -> 50001 COGS Purchases:Beverages (ID: '103')
-    const allSodas = activeLines.length > 0 && activeLines.every((l) => l.isSoda);
+    // 1. ¿Todas las líneas de producto positivas son Sodas (BIB 5 Gal)? -> 50001 COGS Purchases:Beverages (ID: '103')
+    const allSodas = productLines.length > 0 && productLines.every((l) => l.isSoda);
     if (allSodas) {
         return {
             category: 'SODAS',
@@ -473,8 +560,8 @@ export function classifyVieleInvoiceLines(params: {
         };
     }
 
-    // 2. ¿Es una factura de Químicos (PO contiene CHEM / CHEMICAL o todas las líneas son químicos)? -> 51170 Janitorial Supplies (ID: '79')
-    const allChemicals = activeLines.length > 0 && activeLines.every((l) => l.isChemical);
+    // 2. ¿Es una factura de Químicos (PO contiene CHEM / CHEMICAL o todas las líneas de producto son químicos)? -> 51170 Janitorial Supplies (ID: '79')
+    const allChemicals = productLines.length > 0 && productLines.every((l) => l.isChemical);
     if (poUpper.includes('CHEM') || allChemicals) {
         return {
             category: 'CHEMICALS',
@@ -664,6 +751,370 @@ async function fetchStoreInvoicesFromWholesail(
     return records;
 }
 
+function cleanClearNineHtml(val: any): string {
+    if (!val) return '';
+    return String(val).replace(/<[^>]+>/g, '').trim();
+}
+
+function parseClearNineMoney(val: any): number {
+    const c = cleanClearNineHtml(val).replace(/[$,\s]/g, '');
+    const n = Number(c);
+    return isNaN(n) ? 0 : n;
+}
+
+function mmddyyyyToIso(dateStr: string): string {
+    const clean = cleanClearNineHtml(dateStr);
+    const parts = clean.split('/');
+    if (parts.length === 3) {
+        const [m, d, y] = parts;
+        const year = y.length === 2 ? `20${y}` : y;
+        return `${year}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
+    }
+    return clean;
+}
+
+async function loginClearNineStore(email: string, password: string): Promise<{ success: boolean; cookieHeader: string }> {
+    const params = new URLSearchParams();
+    params.append('UserID', email);
+    params.append('Password', password);
+    params.append('RememberMe', 'RememberMe');
+    params.append('submit', 'User Login');
+
+    const res = await fetch(`${CLEARNINE_BASE}/login/`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
+            Origin: CLEARNINE_BASE,
+            Referer: `${CLEARNINE_BASE}/login/`
+        },
+        body: params.toString(),
+        redirect: 'manual'
+    });
+
+    const setCookies = res.headers.getSetCookie ? res.headers.getSetCookie() : [];
+    const cookieHeader = setCookies.map((c) => c.split(';')[0]).join('; ');
+    return { success: res.status === 302 || res.status === 200, cookieHeader };
+}
+
+/**
+ * Sincroniza directamente las 15 sucursales desde el portal de Viele & Sons (ClearNine) y Wholesail,
+ * incluyendo tanto las facturas Wxxxxxx (Sodas e Insumos) como las facturas 50xxxxx (PO: CHEMICAL),
+ * reutilizando detalles en caché para facturas históricas ya descargadas y descubriendo automáticamente
+ * nuevas facturas 50xxxxx semanales. Actualiza `viele_store_invoices_cache` en Supabase (`integrations`).
+ */
+export async function syncAllVieleStoresFromClearNine(
+    minDate = '2026-07-01',
+    targetStoreId?: number,
+    forceFullResync = false
+): Promise<Record<string, VieleWholesailInvoiceRecord[]>> {
+    const rawSecrets = process.env.VIELE_STORE_ACCOUNTS_JSON;
+    if (!rawSecrets) {
+        throw new Error('VIELE_STORE_ACCOUNTS_JSON no está configurado en el servidor.');
+    }
+    const secrets: Record<string, { email: string; password: string }> = JSON.parse(rawSecrets);
+
+    // 1. Leer conexiones de Wholesail y caché actual
+    const { connectionsByStoreId, cachedInvoicesByStoreId } = await getWholesailStoreConnections();
+    const allStoresCache: Record<string, VieleWholesailInvoiceRecord[]> = {};
+    for (const [sid, list] of cachedInvoicesByStoreId.entries()) {
+        allStoresCache[String(sid)] = list;
+    }
+
+    const storeIds = targetStoreId
+        ? [targetStoreId]
+        : Object.keys(VIELE_PUBLIC_STORES).map(Number);
+
+    // 2. Consultar en paralelo las facturas vivas de Wholesail para las tiendas conectadas
+    const wholesailByStore = new Map<number, VieleWholesailInvoiceRecord[]>();
+    const new50xAnchors: Array<{ docNum: number; txnDate: string }> = [];
+
+    await Promise.all(
+        storeIds.map(async (sid) => {
+            const conn = connectionsByStoreId.get(sid);
+            if (!conn) return;
+            try {
+                const wsList = await fetchStoreInvoicesFromWholesail(conn, minDate);
+                wholesailByStore.set(sid, wsList);
+                for (const rec of wsList) {
+                    if (/^50\d{5}$/.test(rec.docNumber) && rec.txnDate > '2026-10-21') {
+                        const num = Number(rec.docNumber);
+                        if (!isNaN(num)) {
+                            new50xAnchors.push({ docNum: num, txnDate: rec.txnDate });
+                        }
+                    }
+                }
+            } catch (err) {
+                console.warn(`[VieleSync] Warning fetching Wholesail for store ${sid}:`, err);
+            }
+        })
+    );
+
+    // 3. Sincronizar las 15 tiendas en lotes paralelos de 5 con ClearNine + fusionar con Wholesail y caché existente
+    const storeBatchSize = 5;
+    for (let sIdx = 0; sIdx < storeIds.length; sIdx += storeBatchSize) {
+        const storeChunk = storeIds.slice(sIdx, sIdx + storeBatchSize);
+        await Promise.all(
+            storeChunk.map(async (storeId) => {
+                const storeInfo = VIELE_PUBLIC_STORES[storeId];
+                const acc = secrets[String(storeId)];
+                const qbMapping = STORE_QB_MAPPINGS_BY_STORE_ID[String(storeId)];
+                if (!storeInfo || !acc || !qbMapping) return;
+
+                const existingList = cachedInvoicesByStoreId.get(storeId) || [];
+                const existingByDoc = new Map<string, VieleWholesailInvoiceRecord>();
+                for (const oldRec of existingList) {
+                    if (oldRec?.docNumber) {
+                        existingByDoc.set(oldRec.docNumber, oldRec);
+                    }
+                }
+
+                const invoiceTargets = new Map<string, string>();
+
+                // Preservar todos los docNumbers ya conocidos en caché (>= minDate)
+                for (const [docNo, oldRec] of existingByDoc.entries()) {
+                    if (!oldRec.txnDate || oldRec.txnDate >= minDate) {
+                        invoiceTargets.set(docNo, oldRec.txnDate || '');
+                    }
+                }
+
+                // Agregar facturas 50xxxxx históricas conocidas de Septiembre y Octubre
+                const known50x = KNOWN_SEP_OCT_50X_BY_STORE[storeId] || [];
+                for (const inv50 of known50x) {
+                    if (!invoiceTargets.has(inv50)) {
+                        invoiceTargets.set(inv50, '');
+                    }
+                }
+
+                const login = await loginClearNineStore(acc.email, acc.password).catch(() => ({
+                    success: false,
+                    cookieHeader: ''
+                }));
+                if (login.cookieHeader) {
+                    // Obtener historial de órdenes web (Wxxxxxx) desde salesOrderList_dt
+                    const histRes = await fetch(
+                        `${CLEARNINE_BASE}/api/salesOrderList_dt?sEcho=1&iDisplayStart=0&iDisplayLength=1000&iSortCol_0=0&sSortDir_0=desc`,
+                        { headers: { Cookie: login.cookieHeader } }
+                    ).catch(() => null);
+                    const histData = histRes ? await histRes.json().catch(() => ({ aaData: [] })) : { aaData: [] };
+                    const rows: any[] = histData?.aaData || [];
+
+                    for (const r of rows) {
+                        const invNo = cleanClearNineHtml(r[0]);
+                        const orderDateIso = mmddyyyyToIso(r[1]);
+                        if (!invNo || orderDateIso < minDate) continue;
+                        invoiceTargets.set(invNo, orderDateIso);
+                    }
+
+                    // Si hay nuevas facturas 50xxxxx en Wholesail (> 2026-10-21) y esta tienda no tiene Wholesail conectado,
+                    // explorar ventana cercana de 50xxxxx en ClearNine si aún no tiene factura química para esa semana
+                    if (!connectionsByStoreId.has(storeId) && new50xAnchors.length > 0) {
+                        const existing50xDates = Array.from(existingByDoc.values())
+                            .filter((r) => /^50\d{5}$/.test(r.docNumber))
+                            .map((r) => r.txnDate);
+
+                        const candidateNums = new Set<string>();
+                        for (const anchor of new50xAnchors) {
+                            const hasNearDate = existing50xDates.some(
+                                (d) =>
+                                    Math.abs(new Date(d).getTime() - new Date(anchor.txnDate).getTime()) <=
+                                    5 * 86400 * 1000
+                            );
+                            if (!hasNearDate) {
+                                for (let n = anchor.docNum - 15; n <= anchor.docNum + 70; n++) {
+                                    candidateNums.add(String(n));
+                                }
+                            }
+                        }
+                        for (const cand of candidateNums) {
+                            if (!invoiceTargets.has(cand)) {
+                                invoiceTargets.set(cand, '');
+                            }
+                        }
+                    }
+                }
+
+                const storeRecordsMap = new Map<string, VieleWholesailInvoiceRecord>();
+                const toFetchFromClearNine: Array<[string, string]> = [];
+
+                for (const [invNo, fallbackDate] of invoiceTargets.entries()) {
+                    const cached = existingByDoc.get(invNo);
+                    if (
+                        !forceFullResync &&
+                        cached &&
+                        Array.isArray(cached.lineItems) &&
+                        cached.lineItems.length > 0 &&
+                        cached.totalAmount > 0 &&
+                        cached.txnDate >= minDate
+                    ) {
+                        const { category, expenseSplits } = classifyVieleInvoiceLines({
+                            totalAmount: cached.totalAmount,
+                            poNumber: cached.poNumber,
+                            lineItems: cached.lineItems
+                        });
+                        storeRecordsMap.set(invNo, {
+                            ...cached,
+                            category,
+                            expenseSplits
+                        });
+                    } else if (login.cookieHeader) {
+                        toFetchFromClearNine.push([invNo, fallbackDate]);
+                    }
+                }
+
+                const batchSize = 8;
+                for (let i = 0; i < toFetchFromClearNine.length; i += batchSize) {
+                    const batch = toFetchFromClearNine.slice(i, i + batchSize);
+                    const batchResults = await Promise.all(
+                        batch.map(async ([invNo, fallbackDate]) => {
+                            try {
+                                const [docRes, detRes] = await Promise.all([
+                                    fetch(`${CLEARNINE_BASE}/api/invoice_doc?invoiceNo=${invNo}&headerSeqNo=000000`, {
+                                        headers: { Cookie: login.cookieHeader }
+                                    }),
+                                    fetch(
+                                        `${CLEARNINE_BASE}/api/invoiceDetail_dt?invoiceNo=${invNo}&headerSeqNo=000000&sEcho=1&iDisplayStart=0&iDisplayLength=200`,
+                                        { headers: { Cookie: login.cookieHeader } }
+                                    )
+                                ]);
+
+                                const docData = await docRes.json().catch(() => null);
+                                const detData = await detRes.json().catch(() => null);
+                                const header = docData?.header;
+                                if (!header || !header.InvoiceNo) return null;
+
+                                const txnDate = header.InvoiceDate
+                                    ? mmddyyyyToIso(header.InvoiceDate)
+                                    : fallbackDate;
+                                if (!txnDate || txnDate < minDate) return null;
+
+                                const subtotalAmount = parseClearNineMoney(
+                                    header.NetInvoice ||
+                                        Number(header.TaxableSalesAmt || 0) + Number(header.NonTaxableSalesAmt || 0)
+                                );
+                                const taxAmount = parseClearNineMoney(header.SalesTaxAmt);
+                                const totalAmount =
+                                    parseClearNineMoney(header.InvoiceTotal) ||
+                                    Number((subtotalAmount + taxAmount).toFixed(2));
+                                if (!totalAmount || isNaN(totalAmount) || totalAmount <= 0) return null;
+
+                                const poNumber = String(header.CustomerPONo || '').trim();
+                                const dueDate = addDaysToDateString(txnDate, VIELE_DUE_DAYS);
+
+                                const rawLines: any[] = detData?.aaData || [];
+                                const lineItems: VieleProductLineItem[] = rawLines
+                                    .map((lr: any) => {
+                                        const productId = cleanClearNineHtml(lr[9] || lr[0]);
+                                        const productUpper = productId.toUpperCase();
+                                        const productName = cleanClearNineHtml(lr[1]);
+                                        const quantity = Number(cleanClearNineHtml(lr[2])) || 0;
+                                        const unitPrice = parseClearNineMoney(lr[4]);
+                                        const lineTotal = parseClearNineMoney(lr[5]);
+                                        return {
+                                            productId,
+                                            productName,
+                                            quantity,
+                                            unitPrice,
+                                            totalAmount: lineTotal,
+                                            isSoda: isVieleSoda(productUpper),
+                                            isChemical: isVieleChemical(productUpper),
+                                            isBleach: productUpper === '3BLEA'
+                                        };
+                                    })
+                                    .filter((li) => li.totalAmount > 0 || li.quantity > 0);
+
+                                const { category, expenseSplits } = classifyVieleInvoiceLines({
+                                    totalAmount,
+                                    poNumber,
+                                    lineItems
+                                });
+
+                                const rec: VieleWholesailInvoiceRecord = {
+                                    wholesailUuid: `clearnine_${storeId}_${invNo}`,
+                                    documentId: `${invNo}-IN`,
+                                    docNumber: invNo,
+                                    poNumber,
+                                    txnDate,
+                                    dueDate,
+                                    subtotalAmount: Number(subtotalAmount.toFixed(2)),
+                                    taxAmount: Number(taxAmount.toFixed(2)),
+                                    totalAmount,
+                                    outstandingAmount: totalAmount,
+                                    wholesailStatus: 'UNPAID',
+                                    overdue: false,
+                                    source: 'WHOLESAIL',
+                                    storeId: qbMapping.storeId,
+                                    storeName: qbMapping.storeName,
+                                    sageCustomerCode: storeInfo.sageCustomerCode,
+                                    departmentId: qbMapping.qbDepartmentId,
+                                    departmentName: qbMapping.qbDepartmentName,
+                                    classId: qbMapping.qbClassId,
+                                    className: qbMapping.qbClassName,
+                                    category,
+                                    expenseSplits,
+                                    lineItems,
+                                    hasBill: false
+                                };
+                                return rec;
+                            } catch {
+                                return null;
+                            }
+                        })
+                    );
+
+                    for (const r of batchResults) {
+                        if (r) storeRecordsMap.set(r.docNumber, r);
+                    }
+                }
+
+                // Fusionar con las facturas vivas de Wholesail (actualizando estado PAID/UNPAID y agregando nuevas facturas)
+                const wsRecords = wholesailByStore.get(storeId) || [];
+                for (const wsRec of wsRecords) {
+                    storeRecordsMap.set(wsRec.docNumber, wsRec);
+                }
+
+                const mergedList = Array.from(storeRecordsMap.values()).sort((a, b) => {
+                    const cmp = b.txnDate.localeCompare(a.txnDate);
+                    if (cmp !== 0) return cmp;
+                    return b.docNumber.localeCompare(a.docNumber);
+                });
+
+                allStoresCache[String(storeId)] = mergedList;
+            })
+        );
+    }
+
+    const { data: existing } = await supabaseAdmin
+        .from('integrations')
+        .select('id')
+        .eq('service_name', 'viele_store_invoices_cache')
+        .maybeSingle();
+
+    if (existing?.id) {
+        await supabaseAdmin
+            .from('integrations')
+            .update({
+                realm_id: 'all_15_stores',
+                access_token: JSON.stringify(allStoresCache),
+                refresh_token: 'CLEARNINE_BATCH_SYNC',
+                token_type: 'CLEARNINE_SYNC',
+                updated_at: new Date().toISOString()
+            })
+            .eq('id', existing.id);
+    } else {
+        await supabaseAdmin.from('integrations').insert({
+            service_name: 'viele_store_invoices_cache',
+            realm_id: 'all_15_stores',
+            access_token: JSON.stringify(allStoresCache),
+            refresh_token: 'CLEARNINE_BATCH_SYNC',
+            token_type: 'CLEARNINE_SYNC',
+            updated_at: new Date().toISOString()
+        });
+    }
+
+    return allStoresCache;
+}
+
 /**
  * Consulta todos los Bills de Viele & Sons (`VendorRef = '1'`) en QuickBooks Online.
  */
@@ -695,11 +1146,22 @@ export async function fetchVieleWholesailInvoicesWithBillStatus(filters?: {
     storeId?: string;
     status?: 'all' | 'pending' | 'created';
     category?: 'all' | VieleInvoiceCategory;
+    refresh?: boolean;
 }): Promise<{
     records: VieleWholesailInvoiceRecord[];
     storeStatuses: WholesailStoreConnectionStatus[];
 }> {
-    const { connectionsByStoreId, storeStatuses } = await getWholesailStoreConnections();
+    if (filters?.refresh) {
+        try {
+            const targetSid =
+                filters?.storeId && filters.storeId !== 'all' ? Number(filters.storeId) : undefined;
+            await syncAllVieleStoresFromClearNine(filters?.startDate || '2026-07-01', targetSid);
+        } catch (err) {
+            console.warn('[VieleWholesail] Warning during live ClearNine refresh:', err);
+        }
+    }
+
+    const { connectionsByStoreId, cachedInvoicesByStoreId, storeStatuses } = await getWholesailStoreConnections();
 
     // Determinar qué tiendas conectadas consultar en Wholesail
     const targetConnections: StoredWholesailConnection[] = [];
@@ -711,6 +1173,36 @@ export async function fetchVieleWholesailInvoicesWithBillStatus(filters?: {
         for (const conn of connectionsByStoreId.values()) {
             targetConnections.push(conn);
         }
+    }
+
+    // Combinar facturas sincronizadas de las 15 tiendas (cachedInvoicesByStoreId) + facturas vivas de Wholesail
+    const cachedArrays: VieleWholesailInvoiceRecord[][] = [];
+    for (const [sid, cachedList] of cachedInvoicesByStoreId.entries()) {
+        if (filters?.storeId && filters.storeId !== 'all' && String(sid) !== filters.storeId) continue;
+        const filteredCached = cachedList
+            .filter((r) => {
+                if (filters?.startDate && r.txnDate < filters.startDate) return false;
+                if (filters?.endDate && r.txnDate > filters.endDate) return false;
+                return true;
+            })
+            .map((r) => {
+                const reclass =
+                    Array.isArray(r.lineItems) && r.lineItems.length > 0
+                        ? classifyVieleInvoiceLines({
+                              totalAmount: r.totalAmount,
+                              poNumber: r.poNumber,
+                              lineItems: r.lineItems
+                          })
+                        : { category: r.category, expenseSplits: r.expenseSplits };
+                return {
+                    ...r,
+                    category: reclass.category,
+                    expenseSplits: reclass.expenseSplits,
+                    hasBill: false,
+                    bill: undefined
+                };
+            });
+        cachedArrays.push(filteredCached);
     }
 
     // Ejecutar en paralelo la consulta a Wholesail y la consulta a QuickBooks Online
@@ -738,7 +1230,8 @@ export async function fetchVieleWholesailInvoicesWithBillStatus(filters?: {
     const recordsMap = new Map<string, VieleWholesailInvoiceRecord>();
     const matchedDocNumbers = new Set<string>();
 
-    for (const arr of wholesailArrays) {
+    const allSourceArrays = [...cachedArrays, ...wholesailArrays];
+    for (const arr of allSourceArrays) {
         for (const rec of arr) {
             const matchedBill = billsByDocNumber.get(rec.docNumber) || billsByDocNumber.get(rec.documentId);
             if (matchedBill) {

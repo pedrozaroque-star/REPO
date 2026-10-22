@@ -77,6 +77,25 @@ function formatCurrency(val: number): string {
     return currencyFormatter.format(val || 0);
 }
 
+/**
+ * Formatea una fecha ISO (YYYY-MM-DD) al estándar de Los Angeles, USA: MM-DD-YYYY (mm-dd-aaaa).
+ */
+function formatLaDate(dateStr: string | null | undefined): string {
+    if (!dateStr) return '';
+    const clean = String(dateStr).trim().split('T')[0];
+    const parts = clean.split('-');
+    if (parts.length === 3 && parts[0].length === 4) {
+        const [yyyy, mm, dd] = parts;
+        return `${mm.padStart(2, '0')}-${dd.padStart(2, '0')}-${yyyy}`;
+    }
+    const slashParts = clean.split('/');
+    if (slashParts.length === 3 && slashParts[2].length === 4) {
+        const [mm, dd, yyyy] = slashParts;
+        return `${mm.padStart(2, '0')}-${dd.padStart(2, '0')}-${yyyy}`;
+    }
+    return clean;
+}
+
 interface VieleWholesailBillsTabProps {
     onNotify: (toast: { type: 'success' | 'error'; text: string }) => void;
 }
@@ -91,7 +110,7 @@ export default function VieleWholesailBillsTab({ onNotify }: VieleWholesailBills
     const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
 
     // Filters
-    const [selectedStore, setSelectedStore] = useState<string>('5'); // Default LA Broadway (#5) which is pre-linked in Wholesail
+    const [selectedStore, setSelectedStore] = useState<string>('all'); // Default all 15 stores
     const [selectedStatus, setSelectedStatus] = useState<'all' | 'pending' | 'created'>('all');
     const [selectedCategory, setSelectedCategory] = useState<'all' | VieleInvoiceCategory>('all');
     const [startDate, setStartDate] = useState<string>('2026-07-01');
@@ -135,6 +154,10 @@ export default function VieleWholesailBillsTab({ onNotify }: VieleWholesailBills
             const params = new URLSearchParams();
             if (startDate) params.set('startDate', startDate);
             if (endDate) params.set('endDate', endDate);
+            if (isManualSync) {
+                params.set('refresh', 'true');
+                if (selectedStore !== 'all') params.set('storeId', selectedStore);
+            }
 
             const res = await fetch(`/api/quickbooks/viele-bills?${params.toString()}`);
             const data = await res.json().catch(() => null);
@@ -253,7 +276,11 @@ export default function VieleWholesailBillsTab({ onNotify }: VieleWholesailBills
                 const rawAmt = r.totalAmount.toString();
                 const fmtAmt = formatCurrency(r.totalAmount).toLowerCase().replace(/[$,]/g, '');
                 const matchAmt = rawAmt.includes(term) || fmtAmt.includes(term);
-                const matchDate = r.txnDate.includes(term) || r.dueDate.includes(term);
+                const matchDate =
+                    r.txnDate.includes(term) ||
+                    r.dueDate.includes(term) ||
+                    formatLaDate(r.txnDate).includes(term) ||
+                    formatLaDate(r.dueDate).includes(term);
                 const matchItems = r.lineItems.some(
                     (li) => li.productId.toLowerCase().includes(term) || li.productName.toLowerCase().includes(term)
                 );
@@ -785,24 +812,36 @@ export default function VieleWholesailBillsTab({ onNotify }: VieleWholesailBills
                             <Layers className="w-4 h-4 text-slate-500 dark:text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
                         </div>
 
-                        {/* Date Range */}
-                        <div className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-800 px-2.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 text-xs">
+                        {/* Date Range (LA-USA MM-DD-YYYY format) */}
+                        <div className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-800 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 text-xs">
                             <Calendar className="w-3.5 h-3.5 text-slate-500" />
                             <span className="text-slate-500 font-semibold">{t('create_bills.viele_date_from')}:</span>
-                            <input
-                                type="date"
-                                value={startDate}
-                                onChange={(e) => setStartDate(e.target.value)}
-                                className="bg-transparent font-bold text-slate-800 dark:text-slate-200 focus:outline-none"
-                            />
+                            <label className="relative inline-flex items-center cursor-pointer px-1.5 py-0.5 rounded hover:bg-slate-200/70 dark:hover:bg-slate-700/70 transition-colors">
+                                <span className="font-mono font-bold text-slate-800 dark:text-slate-200">
+                                    {formatLaDate(startDate)}
+                                </span>
+                                <input
+                                    type="date"
+                                    value={startDate}
+                                    onChange={(e) => setStartDate(e.target.value)}
+                                    onClick={(e) => (e.currentTarget as any).showPicker?.()}
+                                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                                />
+                            </label>
                             <span className="text-slate-400">—</span>
                             <span className="text-slate-500 font-semibold">{t('create_bills.viele_date_to')}:</span>
-                            <input
-                                type="date"
-                                value={endDate}
-                                onChange={(e) => setEndDate(e.target.value)}
-                                className="bg-transparent font-bold text-slate-800 dark:text-slate-200 focus:outline-none"
-                            />
+                            <label className="relative inline-flex items-center cursor-pointer px-1.5 py-0.5 rounded hover:bg-slate-200/70 dark:hover:bg-slate-700/70 transition-colors">
+                                <span className="font-mono font-bold text-slate-800 dark:text-slate-200">
+                                    {formatLaDate(endDate)}
+                                </span>
+                                <input
+                                    type="date"
+                                    value={endDate}
+                                    onChange={(e) => setEndDate(e.target.value)}
+                                    onClick={(e) => (e.currentTarget as any).showPicker?.()}
+                                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                                />
+                            </label>
                         </div>
 
                         {/* Status Tabs */}
@@ -1111,14 +1150,14 @@ export default function VieleWholesailBillsTab({ onNotify }: VieleWholesailBills
                                                 </div>
                                             </td>
 
-                                            {/* Invoice Date */}
+                                            {/* Invoice Date (LA-USA MM-DD-YYYY) */}
                                             <td className="p-4 text-slate-700 dark:text-slate-300 font-medium font-mono text-xs">
-                                                {rec.txnDate}
+                                                {formatLaDate(rec.txnDate)}
                                             </td>
 
-                                            {/* Due Date (+60 days) */}
+                                            {/* Due Date (+60 days, LA-USA MM-DD-YYYY) */}
                                             <td className="p-4 text-slate-500 dark:text-slate-400 font-mono text-xs">
-                                                {rec.dueDate}
+                                                {formatLaDate(rec.dueDate)}
                                             </td>
 
                                             {/* Store */}
@@ -1291,7 +1330,7 @@ export default function VieleWholesailBillsTab({ onNotify }: VieleWholesailBills
                                         {t('create_bills.field_bill_date')} → {t('create_bills.field_due_date')}:
                                     </span>
                                     <span className="font-mono font-semibold text-slate-900 dark:text-white text-xs">
-                                        {confirmSingleModal.record.txnDate} → {confirmSingleModal.record.dueDate} (Net 60)
+                                        {formatLaDate(confirmSingleModal.record.txnDate)} → {formatLaDate(confirmSingleModal.record.dueDate)} (Net 60)
                                     </span>
                                 </div>
                             </div>
@@ -1447,7 +1486,7 @@ export default function VieleWholesailBillsTab({ onNotify }: VieleWholesailBills
                                                 #{rec.docNumber}
                                             </span>
                                             <span className="ml-2 text-slate-500">
-                                                {rec.storeName} • {rec.txnDate}
+                                                {rec.storeName} • {formatLaDate(rec.txnDate)}
                                             </span>
                                         </div>
                                         <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400">
@@ -1569,8 +1608,8 @@ export default function VieleWholesailBillsTab({ onNotify }: VieleWholesailBills
                                         {t('create_bills.field_bill_date')} → {t('create_bills.field_due_date')}:
                                     </span>
                                     <span className="font-mono font-semibold text-slate-900 dark:text-white">
-                                        {viewModal.record.bill?.txnDate || viewModal.record.txnDate} →{' '}
-                                        {viewModal.record.bill?.dueDate || viewModal.record.dueDate}
+                                        {formatLaDate(viewModal.record.bill?.txnDate || viewModal.record.txnDate)} →{' '}
+                                        {formatLaDate(viewModal.record.bill?.dueDate || viewModal.record.dueDate)}
                                     </span>
                                 </div>
                             </div>
