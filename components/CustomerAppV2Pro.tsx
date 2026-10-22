@@ -1169,7 +1169,7 @@ export default function CustomerAppV2Pro({
       },
       {
         id: 'order-ahead',
-        image: '/app-v2/slide-4-hero.jpg?v=3',
+        image: '/app-v2/slide-4-hero.jpg?v=4',
         lightLeakSide: 'left' as const,
         kicker: lang === 'en' ? 'YA ESTÁ. READY WHEN YOU ARE' : 'YA ESTÁ. LISTO CUANDO LLEGUES',
         lines:
@@ -1307,8 +1307,14 @@ export default function CustomerAppV2Pro({
                     alt={activeSlide.kicker}
                     className="w-full h-full object-cover object-center"
                   />
-                  {/* Moody Top & Bottom Vignette for 100% Text Legibility */}
-                  <div className="absolute inset-0 bg-gradient-to-b from-black/85 via-black/35 to-black/90" />
+                  {/* Moody Top & Bottom Vignette for 100% Text Legibility (lighter bottom on Slide 5 so food shines unobstructed) */}
+                  <div
+                    className={`absolute inset-0 ${
+                      storyIndex === 4
+                        ? 'bg-gradient-to-b from-black/80 via-black/10 to-black/40'
+                        : 'bg-gradient-to-b from-black/85 via-black/35 to-black/90'
+                    }`}
+                  />
 
                   {/* Signature Coffee Bean Warm Neon Light-Leak Edge Glow */}
                   <div
@@ -1372,13 +1378,17 @@ export default function CustomerAppV2Pro({
               </div>
 
               {/* Middle Content Area: Interactive Cards + Staggered Kinetic Typography */}
-              <div className="relative z-20 flex-1 flex flex-col justify-between px-6 py-4">
+              <div
+                className={`relative z-20 flex-1 flex flex-col px-6 py-4 ${
+                  storyIndex === 4 ? 'justify-start pt-2' : 'justify-between'
+                }`}
+              >
                 {/* Interactive Overlay Cards per Slide (Matching Coffee Bean Video 00:08 - 00:19) */}
-                <div className="mt-2">
+                <div className={storyIndex === 4 ? 'mb-3' : 'mt-2'}>
                   <AnimatePresence mode="wait">
-                    {storyIndex === 0 && (
+                    {(storyIndex === 0 || storyIndex === 4) && (
                       <motion.div
-                        key="slide0-badge"
+                        key={`slide-${storyIndex}-badge`}
                         initial={{ opacity: 0, y: 15 }}
                         animate={{ opacity: 1, y: 0 }}
                         exit={{ opacity: 0 }}
@@ -2037,9 +2047,9 @@ export default function CustomerAppV2Pro({
                     {/* Full-bleed Hero Poster (00:45 - 00:55 of Coffee Bean) */}
                     <div className="relative w-full h-[400px] overflow-hidden">
                       <img
-                        src="/app-v2/slide-4-hero.jpg?v=3"
+                        src="/app-v2/slide-4-hero.jpg?v=4"
                         alt="Tacos Gavilan Hero"
-                        className="w-full h-full object-cover object-center"
+                        className="w-full h-full object-cover object-bottom"
                       />
                       <div className="absolute inset-0 bg-gradient-to-b from-black/80 via-black/25 to-[#121212]" />
 
