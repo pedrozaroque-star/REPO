@@ -3286,7 +3286,47 @@ async function queryOrderReadyBoardTool(args: { store_code?: string; minutes?: n
 }
 
 // ── 37. Query QuickBooks Bills ──
-async function queryQuickbooksBillsTool(args: { store_name?: string; status?: string; limit?: number }): Promise<string> {
+async function queryQuickbooksBillsTool(args: { provider?: string; store_name?: string; status?: string; limit?: number }): Promise<string> {
+  if (String(args.provider || '').toLowerCase().includes('viele') || String(args.provider || '').toLowerCase().includes('wholesail')) {
+    try {
+      const { fetchVieleWholesailInvoicesWithBillStatus, STORE_QB_MAPPINGS } = await import('@/lib/viele-wholesail-bills');
+      let targetStoreId = 'all';
+      if (args.store_name) {
+        const q = args.store_name.toLowerCase().trim();
+        for (const m of Object.values(STORE_QB_MAPPINGS)) {
+          if (m.storeName.toLowerCase().includes(q) || m.qbCustomerName.toLowerCase().includes(q)) {
+            targetStoreId = m.storeId;
+            break;
+          }
+        }
+      }
+      const { records } = await fetchVieleWholesailInvoicesWithBillStatus({
+        storeId: targetStoreId,
+        status: (args.status as any) || 'all',
+        startDate: '2026-07-01'
+      });
+      if (!records || records.length === 0) {
+        return `No se encontraron facturas de Viele & Sons (Wholesail) en QuickBooks${args.store_name ? ` para ${args.store_name}` : ''}.`;
+      }
+      const pendingCount = records.filter(r => !r.hasBill).length;
+      const createdCount = records.filter(r => r.hasBill).length;
+      const totalPendingAmt = records.filter(r => !r.hasBill).reduce((acc, r) => acc + r.totalAmount, 0);
+      let out = `🧾 **QuickBooks Bills - Viele & Sons (Wholesail 3 Facturas/Semana)**\n`;
+      out += `• **Total Facturas auditadas**: ${records.length}\n`;
+      out += `• **Pendientes de Bill**: ${pendingCount} ($${totalPendingAmt.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })})\n`;
+      out += `• **Bills Creados en QBO (Vendor #1)**: ${createdCount}\n\n`;
+      out += `| Factura # | Fecha | Vencimiento (Net 60) | Sucursal | Categoría / Split GL | Monto | Estado |\n`;
+      out += `|-----------|-------|----------------------|----------|----------------------|-------|--------|\n`;
+      records.slice(0, args.limit || 20).forEach(r => {
+        const st = r.hasBill ? `🟢 CREADO (ID: ${r.bill?.billId})` : '🟡 PENDIENTE';
+        const gl = r.expenseSplits.map(s => `${s.accountName.split(' ')[0]} ($${s.amount.toFixed(2)})`).join(' + ');
+        out += `| #${r.docNumber} | ${r.txnDate} | ${r.dueDate} | ${r.storeName} | ${r.category} [${gl}] | $${r.totalAmount.toFixed(2)} | ${st} |\n`;
+      });
+      return out;
+    } catch (e: any) {
+      return `Error consultando bills de Viele & Sons en QuickBooks: ${e.message}`;
+    }
+  }
   try {
     const { getWarehouseInvoicesWithBills, STORE_QB_MAPPINGS } = await import('@/lib/quickbooks-bills');
     

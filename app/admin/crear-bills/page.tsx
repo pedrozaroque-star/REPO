@@ -1,30 +1,31 @@
 /**
  * @module CrearBillsPage
- * @description Módulo administrativo para la sincronización y creación automática de Bills en QuickBooks Online a partir de Invoices emitidos por La Bodega Central a las tiendas.
+ * @description Módulo administrativo para la sincronización y creación automática de Bills en QuickBooks Online
+ *              a partir de:
+ *              1) Invoices emitidos por La Bodega Central (Warehouse) a las tiendas.
+ *              2) Las 3 facturas semanales de Viele & Sons (Sodas, Insumos Generales y Químicos Imperial Chemical)
+ *                 sincronizadas desde el portal Wholesail.
  * 
  * @businessRules
- * - La Bodega Central factura a cada una de las 15 sucursales diariamente.
- * - Este módulo sustituye el proceso manual en QuickBooks Online (Receive Payment -> Nueva pestaña -> Bill manual).
- * - Muestra todas las facturas emitidas por la bodega a las tiendas con su estatus de Bill (Creado o Pendiente).
- * - Permite crear Bills de forma individual (1-clic con confirmación) o en lote (batch selection).
- * - El Bill generado en QuickBooks Online replica con total exactitud la regla de negocio:
+ * - Pestaña 1: La Bodega Central (Warehouse):
  *   - Vendor: "Tacos El Gavilan - Warehouse" (ID: 116)
- *   - Bill no: Invoice DocNumber
- *   - Bill date: Invoice TxnDate
- *   - Due date: 30 días posteriores al Bill date (Terms "15" / Net 30)
- *   - Location (Department): Sucursal correspondiente en QBO
- *   - Category (Account): "50010 COGS Purchases:Prep Foods" (ID: 71)
- *   - Class: Sucursal correspondiente en QBO
- *   - Amount: Monto total exacto del Invoice
+ *   - Terms: "15" (Net 30)
+ *   - Cuenta Contable: "50010 COGS Purchases:Prep Foods" (ID: 71)
+ * - Pestaña 2: Viele & Sons (Wholesail):
+ *   - Vendor: "Viele & Sons" (ID: 1)
+ *   - Terms: "Net 60" (ID: 4, DueDate = TxnDate + 60 días)
+ *   - DocNumber: Número de factura de Wholesail sin el sufijo '-IN' (ej. 'W150396-IN' -> 'W150396', '5031164-IN' -> '5031164')
+ *   - Cuentas Contables automáticas:
+ *     * Sodas (BIB 5 Gal) -> "50001 COGS Purchases:Beverages" (ID: 103)
+ *     * Insumos Generales -> "53050 Restaurant Supplies" (ID: 22), con split automático de Cloro ('3BLEA')
+ *       hacia "51170 Janitorial Supplies" (ID: 79)
+ *     * Químicos (Imperial Chemical / 50xxxxx / PO CHEMICAL) -> "51170 Janitorial Supplies" (ID: 79)
  * 
  * @dataFlow
- * - UI -> /api/quickbooks/bills (GET / POST) -> lib/quickbooks-bills.ts -> QuickBooks Online API v3
+ * - UI -> /api/quickbooks/bills (Warehouse) & /api/quickbooks/viele-bills (Viele & Sons / Wholesail) -> QuickBooks Online API v3
  * 
  * @notes
- * - Soporta filtrado por tienda, estado (Todos, Pendientes, Creados) y búsqueda por número o monto.
- * - Ordenamiento interactivo por encabezado de columna (Factura #, Fecha Emisión, Vencimiento, Tienda, Monto Total, Estado del Bill).
- * - Ordenamiento por defecto: Agrupado por Tienda (A-Z) y ordenado por Fecha cronológica y número de factura.
- * - Fix TDZ en buscador: elevación de formatCurrency a nivel de módulo con caché de Intl.NumberFormat para evitar ReferenceError en producción.
+ * - Soporta filtrado por tienda, categoría, fechas, estado (Todos, Pendientes, Creados) y búsqueda por número o monto.
  * - Validación estricta anti-duplicados para evitar registrar dos veces el mismo gasto.
  */
 
@@ -35,10 +36,11 @@ import {
     Receipt, RefreshCw, CheckCircle2, Clock, Search, Filter, Store,
     Calendar, ArrowRight, ExternalLink, ShieldCheck, ChevronRight, X,
     Sparkles, Building2, CheckSquare, Square, DollarSign, Eye, AlertCircle,
-    Check, AlertTriangle, ChevronUp, ChevronDown, ArrowUpDown
+    Check, AlertTriangle, ChevronUp, ChevronDown, ArrowUpDown, Truck
 } from 'lucide-react';
 import { useLanguage } from '@/lib/i18n';
 import { WarehouseInvoiceRecord, STORE_QB_MAPPINGS } from '@/types/quickbooks-bills';
+import VieleWholesailBillsTab from '@/components/quickbooks/VieleWholesailBillsTab';
 
 export type SortKey = 'docNumber' | 'txnDate' | 'dueDate' | 'storeName' | 'totalAmount' | 'hasBill';
 
@@ -60,6 +62,7 @@ export function formatCurrency(val: number): string {
 export default function CrearBillsPage() {
     const { t, language } = useLanguage();
 
+    const [activeProviderTab, setActiveProviderTab] = useState<'warehouse' | 'viele'>('viele');
     const [invoices, setInvoices] = useState<WarehouseInvoiceRecord[]>([]);
     const [summary, setSummary] = useState<{
         totalCount: number;
@@ -586,16 +589,110 @@ export default function CrearBillsPage() {
                 </div>
 
                 <div className="flex items-center gap-3">
-                    <button
-                        onClick={() => loadData(true)}
-                        disabled={isSyncing || isLoading}
-                        className="inline-flex items-center gap-2 px-4 py-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700/80 text-slate-700 dark:text-slate-200 text-sm font-semibold rounded-xl transition-all border border-slate-200 dark:border-slate-700 shadow-sm disabled:opacity-50"
-                    >
-                        <RefreshCw className={`w-4 h-4 ${isSyncing ? 'animate-spin text-emerald-600' : ''}`} />
-                        <span>{isSyncing ? (t('create_bills.syncing') || 'Sincronizando...') : (t('create_bills.sync_btn') || 'Sincronizar QuickBooks')}</span>
-                    </button>
+                    {activeProviderTab === 'warehouse' && (
+                        <button
+                            onClick={() => loadData(true)}
+                            disabled={isSyncing || isLoading}
+                            className="inline-flex items-center gap-2 px-4 py-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700/80 text-slate-700 dark:text-slate-200 text-sm font-semibold rounded-xl transition-all border border-slate-200 dark:border-slate-700 shadow-sm disabled:opacity-50"
+                        >
+                            <RefreshCw className={`w-4 h-4 ${isSyncing ? 'animate-spin text-emerald-600' : ''}`} />
+                            <span>{isSyncing ? (t('create_bills.syncing') || 'Sincronizando...') : (t('create_bills.sync_btn') || 'Sincronizar QuickBooks')}</span>
+                        </button>
+                    )}
                 </div>
             </div>
+
+            {/* PROVIDER TABS: LA BODEGA vs VIELE & SONS (WHOLESAIL) */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <button
+                    onClick={() => setActiveProviderTab('warehouse')}
+                    className={`p-4 rounded-2xl border text-left transition-all flex items-center gap-3.5 cursor-pointer ${
+                        activeProviderTab === 'warehouse'
+                            ? 'bg-emerald-600 text-white border-emerald-500 shadow-lg shadow-emerald-600/15'
+                            : 'bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200 border-slate-200/80 dark:border-slate-800 hover:border-emerald-300 dark:hover:border-emerald-700'
+                    }`}
+                >
+                    <div
+                        className={`p-3 rounded-xl shrink-0 ${
+                            activeProviderTab === 'warehouse'
+                                ? 'bg-white/20 text-white'
+                                : 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400'
+                        }`}
+                    >
+                        <Store className="w-5 h-5" />
+                    </div>
+                    <div>
+                        <div className="font-bold text-sm flex items-center gap-2">
+                            <span>{t('create_bills.tab_warehouse')}</span>
+                            <span
+                                className={`text-[10px] font-mono px-2 py-0.5 rounded-full ${
+                                    activeProviderTab === 'warehouse'
+                                        ? 'bg-white/20 text-white'
+                                        : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
+                                }`}
+                            >
+                                Vendor #116
+                            </span>
+                        </div>
+                        <p
+                            className={`text-xs mt-0.5 ${
+                                activeProviderTab === 'warehouse'
+                                    ? 'text-emerald-100'
+                                    : 'text-slate-500 dark:text-slate-400'
+                            }`}
+                        >
+                            {t('create_bills.tab_warehouse_sub')}
+                        </p>
+                    </div>
+                </button>
+
+                <button
+                    onClick={() => setActiveProviderTab('viele')}
+                    className={`p-4 rounded-2xl border text-left transition-all flex items-center gap-3.5 cursor-pointer ${
+                        activeProviderTab === 'viele'
+                            ? 'bg-indigo-600 text-white border-indigo-500 shadow-lg shadow-indigo-600/15'
+                            : 'bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200 border-slate-200/80 dark:border-slate-800 hover:border-indigo-300 dark:hover:border-indigo-700'
+                    }`}
+                >
+                    <div
+                        className={`p-3 rounded-xl shrink-0 ${
+                            activeProviderTab === 'viele'
+                                ? 'bg-white/20 text-white'
+                                : 'bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400'
+                        }`}
+                    >
+                        <Truck className="w-5 h-5" />
+                    </div>
+                    <div>
+                        <div className="font-bold text-sm flex items-center gap-2">
+                            <span>{t('create_bills.tab_viele')}</span>
+                            <span
+                                className={`text-[10px] font-mono px-2 py-0.5 rounded-full ${
+                                    activeProviderTab === 'viele'
+                                        ? 'bg-white/20 text-white'
+                                        : 'bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300'
+                                }`}
+                            >
+                                Vendor #1 • 3/Semana
+                            </span>
+                        </div>
+                        <p
+                            className={`text-xs mt-0.5 ${
+                                activeProviderTab === 'viele'
+                                    ? 'text-indigo-100'
+                                    : 'text-slate-500 dark:text-slate-400'
+                            }`}
+                        >
+                            {t('create_bills.tab_viele_sub')}
+                        </p>
+                    </div>
+                </button>
+            </div>
+
+            {activeProviderTab === 'viele' ? (
+                <VieleWholesailBillsTab onNotify={setToastMessage} />
+            ) : (
+                <>
 
             {/* AUTH EXPIRATION WARNING BANNER */}
             {isAuthError && (
@@ -1468,6 +1565,8 @@ export default function CrearBillsPage() {
                         </div>
                     </div>
                 </div>
+            )}
+                </>
             )}
         </div>
     );
