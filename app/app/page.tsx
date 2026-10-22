@@ -58,6 +58,84 @@ import CustomerAppV2Pro, {
 
 type ActiveVersionTab = 'v1' | 'v2' | 'compare'
 
+function getLaStatusClock(): string {
+  try {
+    const formatted = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/Los_Angeles',
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true,
+    }).format(new Date())
+    return formatted.replace(/\s?(AM|PM)$/i, '')
+  } catch {
+    return '5:28'
+  }
+}
+
+function IPhoneStatusBarWithIsland({
+  overlay = false,
+  darkIcons = true,
+}: {
+  overlay?: boolean
+  darkIcons?: boolean
+}) {
+  return (
+    <div
+      className={`${
+        overlay
+          ? 'absolute top-0 inset-x-0 z-30 bg-transparent'
+          : 'relative z-30 bg-white border-b border-slate-100/80 shrink-0'
+      } h-[46px] pointer-events-none flex items-center justify-between px-6 pt-1.5 ${
+        darkIcons ? 'text-slate-900' : 'text-white'
+      }`}
+    >
+      {/* Left: Live Los Angeles Time */}
+      <div className="w-[74px] flex items-center pl-1">
+        <span className="text-[13px] font-black tracking-tight leading-none">
+          {getLaStatusClock()}
+        </span>
+      </div>
+
+      {/* Center: Authentic iPhone Dynamic Island (Isla Dinámica) */}
+      <div className="w-[118px] h-[31px] rounded-full bg-black border border-white/15 shadow-[0_3px_12px_rgba(0,0,0,0.65)] flex items-center justify-between px-3">
+        <div className="w-2.5 h-2.5 rounded-full bg-[#101016] ring-1 ring-white/5" />
+        <div className="w-1.5 h-1.5 rounded-full bg-emerald-400/80 shadow-[0_0_6px_rgba(52,211,153,0.8)]" />
+        <div className="w-3 h-3 rounded-full bg-[#0d1528] ring-1 ring-indigo-400/35 flex items-center justify-center">
+          <div className="w-1 h-1 rounded-full bg-sky-400/70" />
+        </div>
+      </div>
+
+      {/* Right: iOS Cellular Signal Bars + Wi-Fi + Battery */}
+      <div className="w-[74px] flex items-center justify-end gap-1.5 pr-0.5">
+        <svg className="w-[15px] h-[11px] fill-current" viewBox="0 0 18 12" aria-hidden="true">
+          <rect x="0.5" y="8" width="2.8" height="3.5" rx="0.8" />
+          <rect x="4.8" y="5.8" width="2.8" height="5.7" rx="0.8" />
+          <rect x="9.1" y="3.3" width="2.8" height="8.2" rx="0.8" />
+          <rect x="13.4" y="0.8" width="2.8" height="10.7" rx="0.8" />
+        </svg>
+        <svg className="w-[14px] h-[11px] fill-current" viewBox="0 0 16 12" aria-hidden="true">
+          <path d="M8 9.4a1.4 1.4 0 100 2.8 1.4 1.4 0 000-2.8zm-3.2-1.8a5.1 5.1 0 016.4 0l1.2-1.3a6.9 6.9 0 00-8.8 0l1.2 1.3zm-2.6-2.7a8.8 8.8 0 0111.6 0L15 3.6a10.6 10.6 0 00-14 0l1.2 1.3z" />
+        </svg>
+        <svg className="w-[23px] h-[11px]" viewBox="0 0 25 12" aria-hidden="true">
+          <rect
+            x="0.75"
+            y="1"
+            width="20.5"
+            height="10"
+            rx="3"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.2"
+            strokeOpacity="0.6"
+          />
+          <rect x="2.5" y="2.6" width="17" height="6.8" rx="1.6" fill="currentColor" />
+          <path d="M22.5 4.2v3.6a1.6 1.6 0 000-3.6z" fill="currentColor" fillOpacity="0.6" />
+        </svg>
+      </div>
+    </div>
+  )
+}
+
 function AppClientesWorkspaceContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -80,6 +158,8 @@ function AppClientesWorkspaceContent() {
   // Floating TEST drawer & pill visibility in Fullscreen mode
   const [showTestDrawer, setShowTestDrawer] = useState<boolean>(false)
   const [hideFloatingPill, setHideFloatingPill] = useState<boolean>(false)
+  // Dynamic Island coupling mode: false = iOS Safe Area coupled below island; true = overlaid directly over top edge
+  const [islandOverlayMode, setIslandOverlayMode] = useState<boolean>(false)
 
   // Controls to jump to any stage/slide/auth sheet of Version 2
   const [v2Stage, setV2Stage] = useState<V2Stage | null>('stories')
@@ -920,8 +1000,47 @@ function AppClientesWorkspaceContent() {
           </div>
         </div>
 
-        {/* COLUMNA DERECHA: ESCENARIO INTERACTIVO DE SIMULACIÓN MÓVIL */}
+        {/* COLUMNA DERECHA: ESCENARIO INTERACTIVO DE SIMULACIÓN MÓVIL CON ISLA DINÁMICA */}
         <div className="xl:col-span-8 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 p-4 sm:p-6 shadow-xs flex flex-col items-center justify-center min-h-[840px]">
+          {/* Barra Superior del Simulador: Control de Isla Dinámica y Safe Area iPhone */}
+          <div className="w-full mb-5 px-4 py-2.5 rounded-xl bg-slate-100/90 dark:bg-slate-950 border border-slate-200/80 dark:border-slate-800 flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2.5">
+              <div className="w-6 h-3 rounded-full bg-black border border-slate-700 flex items-center justify-end pr-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+              </div>
+              <span className="text-xs font-black text-slate-800 dark:text-slate-200">
+                {isEn
+                  ? 'iPhone 16 Pro • Dynamic Island + Top iOS Status Bar'
+                  : 'iPhone 16 Pro • Isla Dinámica + Barra Superior iOS'}
+              </span>
+            </div>
+
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => setIslandOverlayMode(false)}
+                className={`px-3 py-1 rounded-lg text-[11px] font-black transition-all cursor-pointer ${
+                  !islandOverlayMode
+                    ? 'bg-[#50050a] text-[#FDC82F] shadow-xs'
+                    : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700'
+                }`}
+              >
+                {isEn ? 'iOS Safe Area (Coupled)' : 'Safe Area iOS (Acoplado)'}
+              </button>
+              <button
+                type="button"
+                onClick={() => setIslandOverlayMode(true)}
+                className={`px-3 py-1 rounded-lg text-[11px] font-black transition-all cursor-pointer ${
+                  islandOverlayMode
+                    ? 'bg-[#50050a] text-[#FDC82F] shadow-xs'
+                    : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700'
+                }`}
+              >
+                {isEn ? 'Overlaid (No Offset)' : 'Superpuesto (Sin Offset)'}
+              </button>
+            </div>
+          </div>
+
           {activeTab === 'v1' && (
             <div className="flex flex-col items-center w-full">
               <div className="mb-4 flex items-center justify-between w-full max-w-[420px]">
@@ -948,13 +1067,28 @@ function AppClientesWorkspaceContent() {
                 </button>
               </div>
 
-              <div className="w-full max-w-[420px] h-[810px] rounded-[42px] bg-[#121212] p-2.5 shadow-[0_25px_70px_rgba(0,0,0,0.35)] ring-1 ring-slate-300 dark:ring-slate-700 overflow-hidden">
-                <iframe
-                  key={v1ReloadKey}
-                  src="/app/index.html?nosplash=1"
-                  className="w-full h-full rounded-[34px] border-0 bg-white"
-                  title="Tacos Gavilan App Versión 1"
-                />
+              {/* Chasis iPhone 16 Pro con Botones Laterales + Isla Dinámica */}
+              <div className="relative w-full max-w-[420px] h-[826px] rounded-[50px] bg-[#18181c] p-[11px] shadow-[0_28px_75px_rgba(0,0,0,0.4)] ring-2 ring-[#3f3f46]">
+                {/* Botones físicos laterales iPhone */}
+                <div className="absolute top-24 -left-[4px] w-[3px] h-7 rounded-l bg-[#3f3f46]" />
+                <div className="absolute top-36 -left-[4px] w-[3px] h-12 rounded-l bg-[#3f3f46]" />
+                <div className="absolute top-52 -left-[4px] w-[3px] h-12 rounded-l bg-[#3f3f46]" />
+                <div className="absolute top-40 -right-[4px] w-[3px] h-16 rounded-r bg-[#3f3f46]" />
+                {/* Ranura superior de bocina */}
+                <div className="absolute top-[5px] left-1/2 -translate-x-1/2 w-14 h-[3px] rounded-full bg-black/80 border border-white/10" />
+
+                <div className="relative w-full h-full rounded-[39px] bg-white overflow-hidden flex flex-col">
+                  <IPhoneStatusBarWithIsland overlay={islandOverlayMode} darkIcons />
+                  <iframe
+                    key={v1ReloadKey}
+                    src="/app/index.html?nosplash=1"
+                    className="w-full flex-1 border-0 bg-white"
+                    title="Tacos Gavilan App Versión 1"
+                  />
+                  <div className="absolute bottom-1.5 inset-x-0 z-30 pointer-events-none flex justify-center">
+                    <div className="w-[126px] h-[4.5px] rounded-full bg-slate-900/35" />
+                  </div>
+                </div>
               </div>
             </div>
           )}
@@ -985,24 +1119,34 @@ function AppClientesWorkspaceContent() {
                 </button>
               </div>
 
-              <div className="w-full max-w-[420px] h-[810px] rounded-[42px] bg-[#121212] p-2.5 shadow-[0_25px_70px_rgba(0,0,0,0.45)] ring-1 ring-amber-500/40 overflow-hidden">
-                <CustomerAppV2Pro
-                  embedded
-                  externalStage={v2Stage}
-                  externalStoryIndex={v2StoryIdx}
-                  externalTab={v2MainTab}
-                  externalAuthSheet={v2AuthSheet}
-                  externalLoggedInDemo={v2LoggedInDemo}
-                  controlTick={controlTick}
-                />
+              {/* Chasis iPhone 16 Pro con Botones Laterales + Isla Dinámica */}
+              <div className="relative w-full max-w-[420px] h-[826px] rounded-[50px] bg-[#18181c] p-[11px] shadow-[0_28px_75px_rgba(0,0,0,0.48)] ring-2 ring-amber-500/50">
+                <div className="absolute top-24 -left-[4px] w-[3px] h-7 rounded-l bg-[#3f3f46]" />
+                <div className="absolute top-36 -left-[4px] w-[3px] h-12 rounded-l bg-[#3f3f46]" />
+                <div className="absolute top-52 -left-[4px] w-[3px] h-12 rounded-l bg-[#3f3f46]" />
+                <div className="absolute top-40 -right-[4px] w-[3px] h-16 rounded-r bg-[#3f3f46]" />
+                <div className="absolute top-[5px] left-1/2 -translate-x-1/2 w-14 h-[3px] rounded-full bg-black/80 border border-white/10" />
+
+                <div className="relative w-full h-full rounded-[39px] bg-[#121212] overflow-hidden">
+                  <CustomerAppV2Pro
+                    embedded
+                    islandOverlayMode={islandOverlayMode}
+                    externalStage={v2Stage}
+                    externalStoryIndex={v2StoryIdx}
+                    externalTab={v2MainTab}
+                    externalAuthSheet={v2AuthSheet}
+                    externalLoggedInDemo={v2LoggedInDemo}
+                    controlTick={controlTick}
+                  />
+                </div>
               </div>
             </div>
           )}
 
           {activeTab === 'compare' && (
             <div className="w-full grid grid-cols-1 lg:grid-cols-2 gap-6 items-start justify-items-center">
-              {/* Lado Izquierdo: Versión 1 */}
-              <div className="flex flex-col items-center w-full max-w-[390px]">
+              {/* Lado Izquierdo: Versión 1 con Isla Dinámica + Barra Superior iPhone */}
+              <div className="flex flex-col items-center w-full max-w-[395px]">
                 <div className="mb-3 flex items-center justify-between w-full">
                   <div className="flex items-center gap-2">
                     <span className="px-2.5 py-1 rounded-full bg-slate-200 dark:bg-slate-800 text-slate-800 dark:text-slate-200 text-xs font-black">
@@ -1025,18 +1169,31 @@ function AppClientesWorkspaceContent() {
                     <RotateCcw size={13} />
                   </button>
                 </div>
-                <div className="w-full h-[760px] rounded-[38px] bg-[#121212] p-2 shadow-xl ring-1 ring-slate-300 dark:ring-slate-700 overflow-hidden">
-                  <iframe
-                    key={`cmp-${v1ReloadKey}`}
-                    src="/app/index.html?nosplash=1"
-                    className="w-full h-full rounded-[30px] border-0 bg-white"
-                    title="Tacos Gavilan V1 Compare"
-                  />
+
+                <div className="relative w-full h-[786px] rounded-[46px] bg-[#18181c] p-[10px] shadow-2xl ring-2 ring-[#3f3f46]">
+                  <div className="absolute top-24 -left-[3px] w-[3px] h-6 rounded-l bg-[#3f3f46]" />
+                  <div className="absolute top-34 -left-[3px] w-[3px] h-11 rounded-l bg-[#3f3f46]" />
+                  <div className="absolute top-48 -left-[3px] w-[3px] h-11 rounded-l bg-[#3f3f46]" />
+                  <div className="absolute top-36 -right-[3px] w-[3px] h-14 rounded-r bg-[#3f3f46]" />
+                  <div className="absolute top-[4px] left-1/2 -translate-x-1/2 w-12 h-[3px] rounded-full bg-black/80 border border-white/10" />
+
+                  <div className="relative w-full h-full rounded-[36px] bg-white overflow-hidden flex flex-col">
+                    <IPhoneStatusBarWithIsland overlay={islandOverlayMode} darkIcons />
+                    <iframe
+                      key={`cmp-${v1ReloadKey}`}
+                      src="/app/index.html?nosplash=1"
+                      className="w-full flex-1 border-0 bg-white"
+                      title="Tacos Gavilan V1 Compare"
+                    />
+                    <div className="absolute bottom-1.5 inset-x-0 z-30 pointer-events-none flex justify-center">
+                      <div className="w-[120px] h-[4px] rounded-full bg-slate-900/35" />
+                    </div>
+                  </div>
                 </div>
               </div>
 
-              {/* Lado Derecho: Versión 2 */}
-              <div className="flex flex-col items-center w-full max-w-[390px]">
+              {/* Lado Derecho: Versión 2 con Isla Dinámica + Barra Superior iPhone */}
+              <div className="flex flex-col items-center w-full max-w-[395px]">
                 <div className="mb-3 flex items-center justify-between w-full">
                   <div className="flex items-center gap-2">
                     <span className="px-2.5 py-1 rounded-full bg-gradient-to-r from-[#50050a] to-red-700 text-[#FDC82F] text-xs font-black">
@@ -1059,16 +1216,26 @@ function AppClientesWorkspaceContent() {
                     <RotateCcw size={13} />
                   </button>
                 </div>
-                <div className="w-full h-[760px] rounded-[38px] bg-[#121212] p-2 shadow-xl ring-1 ring-amber-500/40 overflow-hidden">
-                  <CustomerAppV2Pro
-                    embedded
-                    externalStage={v2Stage}
-                    externalStoryIndex={v2StoryIdx}
-                    externalTab={v2MainTab}
-                    externalAuthSheet={v2AuthSheet}
-                    externalLoggedInDemo={v2LoggedInDemo}
-                    controlTick={controlTick}
-                  />
+
+                <div className="relative w-full h-[786px] rounded-[46px] bg-[#18181c] p-[10px] shadow-2xl ring-2 ring-amber-500/50">
+                  <div className="absolute top-24 -left-[3px] w-[3px] h-6 rounded-l bg-[#3f3f46]" />
+                  <div className="absolute top-34 -left-[3px] w-[3px] h-11 rounded-l bg-[#3f3f46]" />
+                  <div className="absolute top-48 -left-[3px] w-[3px] h-11 rounded-l bg-[#3f3f46]" />
+                  <div className="absolute top-36 -right-[3px] w-[3px] h-14 rounded-r bg-[#3f3f46]" />
+                  <div className="absolute top-[4px] left-1/2 -translate-x-1/2 w-12 h-[3px] rounded-full bg-black/80 border border-white/10" />
+
+                  <div className="relative w-full h-full rounded-[36px] bg-[#121212] overflow-hidden">
+                    <CustomerAppV2Pro
+                      embedded
+                      islandOverlayMode={islandOverlayMode}
+                      externalStage={v2Stage}
+                      externalStoryIndex={v2StoryIdx}
+                      externalTab={v2MainTab}
+                      externalAuthSheet={v2AuthSheet}
+                      externalLoggedInDemo={v2LoggedInDemo}
+                      controlTick={controlTick}
+                    />
+                  </div>
                 </div>
               </div>
             </div>

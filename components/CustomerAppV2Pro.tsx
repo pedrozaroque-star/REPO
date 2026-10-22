@@ -478,8 +478,8 @@ const SIGNATURE_DISHES: SignatureDish[] = [
     id: 'mulita',
     nameEs: 'Super Mulita',
     nameEn: 'Super Mulita',
-    descEs: 'Doble tortilla con queso fundido, guacamole y tu carne favorita.',
-    descEn: 'Double tortillas stuffed with melted cheese, guacamole & your choice of meat.',
+    descEs: 'Doble tortilla hecha a mano con queso fundido, guacamole y tu carne favorita.',
+    descEn: 'Handmade double tortillas stuffed with melted cheese, guacamole & your choice of meat.',
     tagEs: 'Queso Fundido',
     tagEn: 'Melted Cheese',
     image: '/app-v2/dishes/super-mulita.png',
@@ -488,9 +488,9 @@ const SIGNATURE_DISHES: SignatureDish[] = [
     id: 'plato',
     nameEs: 'Combinación de Carne Asada',
     nameEn: 'Carne Asada Combo Plate',
-    descEs: 'Servido con arroz, frijoles, guacamole, ensalada y tortillas.',
-    descEn: 'Served with rice, beans, guacamole, salad & tortillas.',
-    tagEs: 'Completo',
+    descEs: 'Servido con arroz, frijoles, guacamole, ensalada fresca y tortillas.',
+    descEn: 'Served with Mexican rice, beans, guacamole, fresh salad & warm tortillas.',
+    tagEs: 'Platillo Completo',
     tagEn: 'Combo Plate',
     image: '/app-v2/dishes/plato.png',
   },
@@ -498,21 +498,91 @@ const SIGNATURE_DISHES: SignatureDish[] = [
     id: 'quesadilla',
     nameEs: 'Super Quesadilla',
     nameEn: 'Super Quesadilla',
-    descEs: 'Tortilla de harina con queso fundido y tu carne favorita.',
-    descEn: 'Flour tortilla with melted cheese & your choice of meat.',
+    descEs: 'Tortilla de harina grande con queso Monterrey Jack fundido y tu carne favorita.',
+    descEn: 'Large flour tortilla with melted Monterey Jack cheese & your choice of meat.',
     tagEs: 'Especialidad',
     tagEn: 'Specialty',
     image: '/app-v2/dishes/super-quesadilla.png',
   },
   {
+    id: 'nachos',
+    nameEs: 'Super Nachos',
+    nameEn: 'Super Nachos',
+    descEs: 'Totopos crujientes con frijol, carne asada, queso fundido, crema y guacamole.',
+    descEn: 'Crispy tortilla chips topped with beans, carne asada, melted cheese, sour cream & guacamole.',
+    tagEs: 'Para Compartir',
+    tagEn: 'Loaded',
+    image: '/app-v2/dishes/super-nachos.png',
+  },
+  {
+    id: 'torta',
+    nameEs: 'Torta Mexicana',
+    nameEn: 'Authentic Mexican Torta',
+    descEs: 'Telera dorada con frijol, tu carne favorita, queso, aguacate, jitomate y lechuga.',
+    descEn: 'Toasted telera bread with beans, choice of meat, cheese, avocado, tomato & lettuce.',
+    tagEs: 'Clásico',
+    tagEn: 'House Classic',
+    image: '/app-v2/dishes/torta.png',
+  },
+  {
+    id: 'sopes',
+    nameEs: 'Sopes Tradicionales',
+    nameEn: 'Handmade Sopes',
+    descEs: 'Sopes de maíz con frijol, tu carne favorita, lechuga, crema, queso fresco y salsa.',
+    descEn: 'Handmade corn sopes with beans, choice of meat, lettuce, sour cream, queso fresco & salsa.',
+    tagEs: 'Hechos a Mano',
+    tagEn: 'Handmade',
+    image: '/app-v2/dishes/sopes.png',
+  },
+  {
     id: 'horchata',
-    nameEs: 'Aguas Frescas',
-    nameEn: 'Fresh Aguas Frescas',
-    descEs: 'Horchata, Jamaica y Tamarindo preparados a diario en nuestras 15 sucursales.',
-    descEn: 'Horchata, Jamaica & Tamarindo prepared fresh daily across our 15 locations.',
-    tagEs: 'Refrescante',
+    nameEs: 'Agua de Horchata',
+    nameEn: 'Fresh Horchata',
+    descEs: 'Agua fresca tradicional de arroz con canela, preparada a diario en vaso oficial.',
+    descEn: 'Traditional sweet rice & cinnamon agua fresca, prepared fresh daily.',
+    tagEs: 'Agua Fresca',
     tagEn: 'Prepared Daily',
     image: '/app-v2/dishes/horchata.png',
+  },
+  {
+    id: 'jamaica',
+    nameEs: 'Agua de Jamaica',
+    nameEn: 'Fresh Jamaica (Hibiscus)',
+    descEs: 'Flor de jamaica natural bien fría, preparada todos los días en sucursal.',
+    descEn: 'All-natural chilled hibiscus flower agua fresca, brewed fresh daily.',
+    tagEs: 'Agua Fresca',
+    tagEn: '100% Natural',
+    image: '/app-v2/dishes/jamaica.png',
+  },
+  {
+    id: 'pina',
+    nameEs: 'Agua de Piña',
+    nameEn: 'Fresh Pineapple Agua Fresca',
+    descEs: 'Piña natural dulce y refrescante servida bien fría en vaso Tacos Gavilan.',
+    descEn: 'Sweet, refreshing natural pineapple agua fresca served ice-cold.',
+    tagEs: 'Agua Fresca',
+    tagEn: 'Refreshing',
+    image: '/app-v2/dishes/pina.png',
+  },
+  {
+    id: 'tamarindo',
+    nameEs: 'Agua de Tamarindo',
+    nameEn: 'Fresh Tamarindo',
+    descEs: 'Pulpa de tamarindo natural con el balance perfecto entre dulce y acidito.',
+    descEn: 'Natural tamarind pulp with the authentic sweet-and-tangy Mexican flavor.',
+    tagEs: 'Agua Fresca',
+    tagEn: 'Traditional',
+    image: '/app-v2/dishes/tamarindo.png',
+  },
+  {
+    id: 'fiesta-platter',
+    nameEs: 'Fiesta Platters (Party Trays)',
+    nameEn: 'Fiesta Party Trays',
+    descEs: 'Paquetes de taquizas para 15 a 40 personas con carnes, arroz, frijol, aguas y salsas.',
+    descEn: 'Complete catering party trays for 15–40 guests with meats, rice, beans, aguas & salsas.',
+    tagEs: 'Para Eventos',
+    tagEn: 'Catering',
+    image: '/app-v2/dishes/party-tray.png',
   },
 ]
 
@@ -543,6 +613,7 @@ export interface V2UserProfile {
 interface CustomerAppV2ProProps {
   embedded?: boolean
   fullscreenNative?: boolean
+  islandOverlayMode?: boolean
   externalStage?: V2Stage | null
   externalStoryIndex?: number | null
   externalTab?: MainTab | null
@@ -575,9 +646,24 @@ function getLaTimeGreeting(lang: 'es' | 'en'): string {
   }
 }
 
+function getLaStatusClock(): string {
+  try {
+    const formatted = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/Los_Angeles',
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true,
+    }).format(new Date())
+    return formatted.replace(/\s?(AM|PM)$/i, '')
+  } catch {
+    return '5:28'
+  }
+}
+
 export default function CustomerAppV2Pro({
   embedded = false,
   fullscreenNative = false,
+  islandOverlayMode = false,
   externalStage = null,
   externalStoryIndex = null,
   externalTab = null,
@@ -1023,7 +1109,7 @@ export default function CustomerAppV2Pro({
     () => [
       {
         id: 'wake-up',
-        image: '/app-v2/slide-1-lifestyle.jpg',
+        image: '/app-v2/slide-1-lifestyle.jpg?v=2',
         lightLeakSide: 'left' as const,
         kicker: lang === 'en' ? 'TACOS GAVILAN • SINCE 1992' : 'TACOS GAVILAN • DESDE 1992',
         lines:
@@ -1053,7 +1139,7 @@ export default function CustomerAppV2Pro({
       },
       {
         id: 'locations',
-        image: '/app-v2/slide-3-feast.jpg',
+        image: '/app-v2/slide-3-feast.jpg?v=2',
         lightLeakSide: 'left' as const,
         kicker: lang === 'en' ? '15 LOCATIONS ACROSS SO-CAL' : '15 SUCURSALES EN EL SUR DE CALIFORNIA',
         lines:
@@ -1083,7 +1169,7 @@ export default function CustomerAppV2Pro({
       },
       {
         id: 'order-ahead',
-        image: '/app-v2/slide-4-hero.jpg',
+        image: '/app-v2/slide-4-hero.jpg?v=3',
         lightLeakSide: 'left' as const,
         kicker: lang === 'en' ? 'YA ESTÁ. READY WHEN YOU ARE' : 'YA ESTÁ. LISTO CUANDO LLEGUES',
         lines:
@@ -1132,6 +1218,68 @@ export default function CustomerAppV2Pro({
         }
       >
         {/* =====================================================================
+            iPHONE 16 PRO TOP STATUS BAR + DYNAMIC ISLAND (ISLA DINÁMICA)
+            Rendered inside the phone frame so Version 2 couples cleanly below it
+           ===================================================================== */}
+        {!fullscreenNative && (
+          <div
+            className={`absolute top-0 inset-x-0 h-[46px] z-[75] pointer-events-none flex items-center justify-between px-6 pt-1.5 transition-colors ${
+              authSheet === 'facebook-sheet' ? 'text-slate-900' : 'text-white'
+            }`}
+          >
+            {/* Left: Live Los Angeles Time */}
+            <div className="w-[74px] flex items-center pl-1">
+              <span className="text-[13px] font-black tracking-tight leading-none drop-shadow-xs">
+                {getLaStatusClock()}
+              </span>
+            </div>
+
+            {/* Center: Authentic iPhone Dynamic Island (Isla Dinámica) */}
+            <div className="w-[118px] h-[31px] rounded-full bg-black border border-white/15 shadow-[0_3px_12px_rgba(0,0,0,0.7)] flex items-center justify-between px-3">
+              {/* Left Face ID Infrared Sensor */}
+              <div className="w-2.5 h-2.5 rounded-full bg-[#101016] ring-1 ring-white/5" />
+              {/* Center subtle privacy indicator dot */}
+              <div className="w-1.5 h-1.5 rounded-full bg-emerald-400/80 shadow-[0_0_6px_rgba(52,211,153,0.8)]" />
+              {/* Right TrueDepth Front Camera Lens */}
+              <div className="w-3 h-3 rounded-full bg-[#0d1528] ring-1 ring-indigo-400/35 flex items-center justify-center">
+                <div className="w-1 h-1 rounded-full bg-sky-400/70" />
+              </div>
+            </div>
+
+            {/* Right: iOS Cellular Signal Bars + Wi-Fi + Battery */}
+            <div className="w-[74px] flex items-center justify-end gap-1.5 pr-0.5">
+              {/* Cellular 4 Bars */}
+              <svg className="w-[15px] h-[11px] fill-current" viewBox="0 0 18 12" aria-hidden="true">
+                <rect x="0.5" y="8" width="2.8" height="3.5" rx="0.8" />
+                <rect x="4.8" y="5.8" width="2.8" height="5.7" rx="0.8" />
+                <rect x="9.1" y="3.3" width="2.8" height="8.2" rx="0.8" />
+                <rect x="13.4" y="0.8" width="2.8" height="10.7" rx="0.8" />
+              </svg>
+              {/* Wi-Fi */}
+              <svg className="w-[14px] h-[11px] fill-current" viewBox="0 0 16 12" aria-hidden="true">
+                <path d="M8 9.4a1.4 1.4 0 100 2.8 1.4 1.4 0 000-2.8zm-3.2-1.8a5.1 5.1 0 016.4 0l1.2-1.3a6.9 6.9 0 00-8.8 0l1.2 1.3zm-2.6-2.7a8.8 8.8 0 0111.6 0L15 3.6a10.6 10.6 0 00-14 0l1.2 1.3z" />
+              </svg>
+              {/* Battery */}
+              <svg className="w-[23px] h-[11px]" viewBox="0 0 25 12" aria-hidden="true">
+                <rect
+                  x="0.75"
+                  y="1"
+                  width="20.5"
+                  height="10"
+                  rx="3"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.2"
+                  strokeOpacity="0.6"
+                />
+                <rect x="2.5" y="2.6" width="17" height="6.8" rx="1.6" fill="currentColor" />
+                <path d="M22.5 4.2v3.6a1.6 1.6 0 000-3.6z" fill="currentColor" fillOpacity="0.6" />
+              </svg>
+            </div>
+          </div>
+        )}
+
+        {/* =====================================================================
             STAGE 1: COFFEE BEAN STYLE VERTICAL STORY ONBOARDING (00:03 - 00:28)
            ===================================================================== */}
         <AnimatePresence mode="wait">
@@ -1174,7 +1322,11 @@ export default function CustomerAppV2Pro({
               </AnimatePresence>
 
               {/* Top Bar: Mini Circular Logo + Language Toggle + Slide Counter */}
-              <div className="relative z-20 flex items-center justify-between px-5 pt-5 pb-2">
+              <div
+                className={`relative z-20 flex items-center justify-between px-5 pb-2 ${
+                  !fullscreenNative && !islandOverlayMode ? 'pt-[50px]' : 'pt-5'
+                }`}
+              >
                 <div className="flex items-center gap-2.5">
                   <img
                     src="/logo.png"
@@ -1520,7 +1672,9 @@ export default function CustomerAppV2Pro({
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0 }}
               transition={{ duration: 0.3 }}
-              className="relative w-full h-full bg-[#121212] flex flex-col justify-between px-6 py-5 overflow-y-auto no-scrollbar"
+              className={`relative w-full h-full bg-[#121212] flex flex-col justify-between px-6 pb-5 overflow-y-auto no-scrollbar ${
+                !fullscreenNative && !islandOverlayMode ? 'pt-[50px]' : 'pt-5'
+              }`}
             >
               {/* Subtle Official Brand Line-Art Pattern Overlay */}
               <div
@@ -1727,7 +1881,11 @@ export default function CustomerAppV2Pro({
               className="relative w-full h-full bg-[#121212] flex flex-col overflow-hidden"
             >
               {/* Top Store Selector & Quick Controls Bar */}
-              <div className="relative z-30 flex items-center justify-between px-4 py-3 bg-[#141414]/95 border-b border-white/10 backdrop-blur-md">
+              <div
+                className={`relative z-30 flex items-center justify-between px-4 pb-3 bg-[#141414]/95 border-b border-white/10 backdrop-blur-md ${
+                  !fullscreenNative && !islandOverlayMode ? 'pt-[50px]' : 'pt-3'
+                }`}
+              >
                 <button
                   type="button"
                   onClick={() => setStoreModalOpen(true)}
@@ -1879,7 +2037,7 @@ export default function CustomerAppV2Pro({
                     {/* Full-bleed Hero Poster (00:45 - 00:55 of Coffee Bean) */}
                     <div className="relative w-full h-[400px] overflow-hidden">
                       <img
-                        src="/app-v2/slide-4-hero.jpg"
+                        src="/app-v2/slide-4-hero.jpg?v=3"
                         alt="Tacos Gavilan Hero"
                         className="w-full h-full object-cover object-center"
                       />
@@ -2637,7 +2795,7 @@ export default function CustomerAppV2Pro({
               className="absolute inset-0 z-50 bg-black/70 backdrop-blur-xs flex flex-col justify-between"
             >
               {/* Top Face ID Dynamic Island Indicator (Matching Video 1 @ 02:05) */}
-              <div className="pt-4 flex justify-center">
+              <div className={`${!fullscreenNative ? 'pt-14' : 'pt-4'} flex justify-center`}>
                 <motion.div
                   initial={{ scale: 0.7, opacity: 0 }}
                   animate={{ scale: 1, opacity: 1 }}
@@ -2914,7 +3072,9 @@ export default function CustomerAppV2Pro({
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="absolute inset-0 z-50 bg-white text-slate-900 flex flex-col justify-between p-5"
+              className={`absolute inset-0 z-50 bg-white text-slate-900 flex flex-col justify-between px-5 pb-5 ${
+                !fullscreenNative ? 'pt-13' : 'pt-5'
+              }`}
             >
               <div className="flex items-center justify-between pb-3 border-b border-slate-200">
                 <button
@@ -2994,7 +3154,9 @@ export default function CustomerAppV2Pro({
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="absolute inset-0 z-50 bg-black/75 backdrop-blur-xs flex flex-col justify-between p-3 overflow-y-auto"
+              className={`absolute inset-0 z-50 bg-black/75 backdrop-blur-xs flex flex-col justify-between px-3 pb-5 overflow-y-auto ${
+                !fullscreenNative ? 'pt-12' : 'pt-3'
+              }`}
             >
               <motion.div
                 initial={{ y: 24, opacity: 0 }}
@@ -3179,7 +3341,9 @@ export default function CustomerAppV2Pro({
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="absolute inset-0 z-50 bg-black/80 backdrop-blur-xs flex flex-col justify-between p-3 overflow-y-auto no-scrollbar"
+              className={`absolute inset-0 z-50 bg-black/80 backdrop-blur-xs flex flex-col justify-between px-3 pb-5 overflow-y-auto no-scrollbar ${
+                !fullscreenNative ? 'pt-12' : 'pt-3'
+              }`}
             >
               <motion.div
                 initial={{ y: 24, opacity: 0 }}
@@ -3456,7 +3620,9 @@ export default function CustomerAppV2Pro({
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="absolute inset-0 z-50 bg-black/80 backdrop-blur-xs flex flex-col justify-start p-3"
+              className={`absolute inset-0 z-50 bg-black/80 backdrop-blur-xs flex flex-col justify-start px-3 pb-3 ${
+                !fullscreenNative ? 'pt-12' : 'pt-3'
+              }`}
             >
               {/* Simulated Incoming Email Push Notification Banner (Video 2 @ 02:15) */}
               <AnimatePresence>
@@ -3821,6 +3987,13 @@ export default function CustomerAppV2Pro({
             </motion.div>
           )}
         </AnimatePresence>
+
+        {/* Bottom iOS Home Indicator Bar */}
+        {!fullscreenNative && (
+          <div className="absolute bottom-1.5 inset-x-0 z-[75] pointer-events-none flex justify-center">
+            <div className="w-[126px] h-[4.5px] rounded-full bg-white/40 shadow-xs" />
+          </div>
+        )}
       </div>
     </div>
   )

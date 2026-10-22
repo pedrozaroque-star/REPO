@@ -80,6 +80,8 @@ export default function ClientLayout({
         '/login', 
         '/', 
         '/auth/login', 
+        '/app/v1',
+        '/app/v2',
         '/app/privacy',
         '/app/terms',
         '/app/support',
