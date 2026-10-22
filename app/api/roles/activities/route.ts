@@ -87,7 +87,7 @@ export async function POST(req: Request) {
 
         const cleanPositionKey = position_key.trim()
 
-        // Reemplazo atómico transaccional de todos los mapeos de una posición (Fase 1 item 1 y 2)
+        // Reemplazo atómico transaccional de todos los mapeos de una posición (Fase 1 item 1 y 2 + Hallazgo G)
         if (action === 'replace_all') {
             if (!Array.isArray(mappings)) {
                 return NextResponse.json(
@@ -96,31 +96,99 @@ export async function POST(req: Request) {
                 )
             }
 
-            const actIds = mappings
-                .map((m: any) => m?.activity_id)
-                .filter((id: any) => typeof id === 'string' && /^[0-9a-f-]{36}$/i.test(id))
+            if (mappings.length === 0) {
+                const { data: existingRows, count: existingCount, error: existingErr } =
+                    await supabaseAdmin
+                        .from('position_activities')
+                        .select('id', { count: 'exact' })
+                        .eq('position_key', cleanPositionKey)
 
-            const { data: procs } =
-                actIds.length > 0
+                if (existingErr) {
+                    return NextResponse.json(
+                        {
+                            error: `No se pudo verificar el estado actual de position_activities antes de reemplazar: ${existingErr.message}`,
+                            code: 'POSITION_ACTIVITIES_READ_FAILED',
+                        },
+                        { status: 500 }
+                    )
+                }
+
+                const totalExisting = existingCount ?? (existingRows || []).length
+                if (totalExisting > 0 && body.allow_empty_replace !== true) {
+                    return NextResponse.json(
+                        {
+                            error: `Protección contra vaciado accidental: la posición "${cleanPositionKey}" tiene ${totalExisting} actividad(es) configurada(s). Envíe allow_empty_replace: true para vaciarla intencionalmente.`,
+                            code: 'EMPTY_POSITION_REPLACE_CONFIRMATION_REQUIRED',
+                            existing_count: totalExisting,
+                        },
+                        { status: 400 }
+                    )
+                }
+            }
+
+            const rawActIds = mappings.map((m: Record<string, unknown>) => String(m?.activity_id || '').trim())
+            const invalidFormatId = rawActIds.find((id) => !/^[0-9a-f-]{36}$/i.test(id))
+            if (invalidFormatId !== undefined) {
+                return NextResponse.json(
+                    {
+                        error: `activity_id inválido en replace_all ("${invalidFormatId}").`,
+                        code: 'INVALID_POSITION_ACTIVITY_ID',
+                    },
+                    { status: 400 }
+                )
+            }
+
+            const uniqueActIds = Array.from(new Set(rawActIds))
+            const { data: procs, error: procsErr } =
+                uniqueActIds.length > 0
                     ? await supabaseAdmin
                           .from('operating_procedures')
-                          .select('id, start_time')
-                          .in('id', actIds)
-                    : { data: [] }
+                          .select('id, start_time, role')
+                          .in('id', uniqueActIds)
+                    : { data: [], error: null }
 
-            const procTimeMap = new Map<string, string | null>(
-                (procs || []).map((p: any) => [String(p.id), p.start_time])
-            )
+            if (procsErr) {
+                return NextResponse.json(
+                    {
+                        error: `No se pudo validar operating_procedures antes de replace_all: ${procsErr.message}`,
+                        code: 'CATALOG_VALIDATION_READ_FAILED',
+                    },
+                    { status: 500 }
+                )
+            }
 
-            const preparedMappings = mappings.map((m: any) => ({
-                activity_id: m?.activity_id,
+            const validProcsById = new Map<string, { start_time: string | null; role: string | null }>()
+            for (const p of procs || []) {
+                if (p && p.role !== 'ROLES_MODULE') {
+                    validProcsById.set(String(p.id), {
+                        start_time: p.start_time ?? null,
+                        role: p.role ?? null,
+                    })
+                }
+            }
+
+            const missingOrRolesModuleId = uniqueActIds.find((id) => !validProcsById.has(id))
+            if (missingOrRolesModuleId) {
+                return NextResponse.json(
+                    {
+                        error: `La actividad "${missingOrRolesModuleId}" no existe en el catálogo operativo activo o pertenece a ROLES_MODULE.`,
+                        code: 'INVALID_POSITION_ACTIVITY_ID',
+                    },
+                    { status: 400 }
+                )
+            }
+
+            const preparedMappings = mappings.map((m: Record<string, unknown>) => ({
+                activity_id: String(m?.activity_id).trim(),
                 shift: (m?.shift || 'AMBOS').toString().trim(),
                 frequency: (m?.frequency || 'Diario').toString().trim(),
                 store_model: (m?.store_model || 'AMBOS').toString().trim(),
                 sort_order:
                     m?.sort_order !== undefined
                         ? Number(m.sort_order)
-                        : computeSortOrderFromTime(procTimeMap.get(String(m?.activity_id))),
+                        : computeSortOrderFromTime(
+                              validProcsById.get(String(m?.activity_id).trim())?.start_time
+                          ),
             }))
 
             const { data: rpcData, error: rpcError } = await supabaseAdmin.rpc(
@@ -180,13 +248,33 @@ export async function POST(req: Request) {
 
             return NextResponse.json({ success: true })
         } else {
-            const { data: proc } = await supabaseAdmin
+            const { data: proc, error: procErr } = await supabaseAdmin
                 .from('operating_procedures')
-                .select('start_time')
+                .select('id, start_time, role')
                 .eq('id', activity_id)
-                .single()
+                .maybeSingle()
 
-            const sortOrder = computeSortOrderFromTime(proc?.start_time)
+            if (procErr) {
+                return NextResponse.json(
+                    {
+                        error: `No se pudo validar operating_procedures: ${procErr.message}`,
+                        code: 'CATALOG_VALIDATION_READ_FAILED',
+                    },
+                    { status: 500 }
+                )
+            }
+
+            if (!proc || proc.role === 'ROLES_MODULE') {
+                return NextResponse.json(
+                    {
+                        error: `La actividad "${String(activity_id)}" no existe en el catálogo operativo activo o pertenece a ROLES_MODULE.`,
+                        code: 'INVALID_POSITION_ACTIVITY_ID',
+                    },
+                    { status: 400 }
+                )
+            }
+
+            const sortOrder = computeSortOrderFromTime(proc.start_time)
 
             const { error } = await supabaseAdmin.from('position_activities').upsert(
                 [

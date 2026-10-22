@@ -43,6 +43,8 @@ import {
 import { syncPlannerToSchedules } from '@/lib/sync-planner-to-schedules'
 import { getServerUser, authorizeStoreScope } from '@/lib/auth-server'
 import {
+    escapeHtml,
+    fetchCompleteRangeAssignments,
     getHourLA,
     getShiftOverlappingPeriods,
     isFreqMatch as sharedIsFreqMatch,
@@ -52,6 +54,7 @@ import {
     normalizeText as sharedNormalizeText,
     ResolvedActivityItem,
     resolveStationActivities,
+    sanitizeUnsafeProcedureDescription,
 } from '@/lib/actividades-resolution'
 
 // Helper to extract California local hour (0-23) immune to UTC server drift
@@ -432,15 +435,28 @@ export async function POST(req: Request) {
             })
         }
 
-        // 4. Fetch Employee Contact Info, Station Assignments, Catalog & Position Mappings
+        // 4. Fetch Employee Contact Info, Station Assignments (paginated fail-closed), Catalog & Position Mappings
         const [empRes, assignRes, jobsRes, overridesRes, posActRes, procRes] = await Promise.all([
             supabase.from('toast_employees').select('*').in('id', targetEmployeeIds),
-            supabase
-                .from('station_assignments')
-                .select('*')
-                .eq('store_id', resolvedStoreGuid)
-                .gte('assignment_date', start_date)
-                .lte('assignment_date', end_date),
+            fetchCompleteRangeAssignments<Record<string, unknown>>({
+                pageSize: 1000,
+                maxRows: 25000,
+                fetchPage: async (offset, limit) => {
+                    const res = await supabase
+                        .from('station_assignments')
+                        .select('*', { count: 'exact' })
+                        .eq('store_id', resolvedStoreGuid)
+                        .gte('assignment_date', start_date)
+                        .lte('assignment_date', end_date)
+                        .order('id', { ascending: true })
+                        .range(offset, offset + limit - 1)
+                    return {
+                        data: res.data || null,
+                        error: res.error ? { message: res.error.message } : null,
+                        count: res.count,
+                    }
+                },
+            }),
             supabase.from('toast_jobs').select('*'),
             supabase.from('break_manual_overrides').select('*').eq('store_id', resolvedStoreGuid),
             supabase
@@ -454,6 +470,15 @@ export async function POST(req: Request) {
         ])
 
         if (empRes.error) throw empRes.error
+        if (assignRes.error || !assignRes.isComplete) {
+            throw new Error(
+                assignRes.error?.message ||
+                    `Lectura paginada incompleta de station_assignments (${assignRes.incompletenessReason || 'UNKNOWN'}).`
+            )
+        }
+        if (posActRes.error) throw posActRes.error
+        if (procRes.error) throw procRes.error
+
         const employees = empRes.data || []
         const stationAssignments = assignRes.data || []
         const allJobs = jobsRes.data || []
@@ -633,7 +658,7 @@ export async function POST(req: Request) {
             if (stationDisplay) {
                 positionBadgeHtml = `
                     <div style="margin-top: 4px; font-size: 13px; font-weight: 800; color: #4f46e5; background: #eef2ff; padding: 4px 10px; border-radius: 6px; display: inline-block; border: 1px solid #c7d2fe;">
-                        <span style="font-size: 10px; color: #6366f1; text-transform: uppercase;">Puesto:</span> ${stationDisplay}
+                        <span style="font-size: 10px; color: #6366f1; text-transform: uppercase;">Puesto:</span> ${escapeHtml(stationDisplay)}
                     </div>
                 `
             }
@@ -670,7 +695,7 @@ export async function POST(req: Request) {
                                     isCallback: false,
                                     shiftStartTime: s.start_time,
                                     shiftEndTime: s.end_time,
-                                    enforceShiftWindow: posPeriods.length > 1,
+                                    enforceShiftWindow: true,
                                     isClosingShift: Boolean(pos.is_closing),
                                 })
                             )
@@ -705,7 +730,7 @@ export async function POST(req: Request) {
                     stationDisplay = displayRoleName
                     positionBadgeHtml = `
                         <div style="margin-top: 4px; font-size: 13px; font-weight: 800; color: #0f766e; background: #f0fdfa; padding: 4px 10px; border-radius: 6px; display: inline-block; border: 1px solid #99f6e4;">
-                            <span style="font-size: 10px; color: #0d9488; text-transform: uppercase;">Rol:</span> ${displayRoleName}
+                            <span style="font-size: 10px; color: #0d9488; text-transform: uppercase;">Rol:</span> ${escapeHtml(displayRoleName)}
                         </div>
                     `
 
@@ -736,17 +761,20 @@ export async function POST(req: Request) {
             if (resolvedActivities.length > 0) {
                 const tasksList = resolvedActivities
                     .map((act) => {
+                        const safeTitle = escapeHtml(sanitizeUnsafeProcedureDescription(act.title || ''))
+                        const safeFormattedTime = escapeHtml(act.formatted_time || '')
+                        const safeDescText = sanitizeUnsafeProcedureDescription(act.description || '')
                         const timePrefix = act.effective_start_time
-                            ? `<strong style="color: #ea580c;">${act.formatted_time}</strong> — `
+                            ? `<strong style="color: #ea580c;">${safeFormattedTime}</strong> — `
                             : ''
                         const multiStationSuffix =
                             act.source_stations.length > 1
-                                ? ` <span style="font-size: 9px; color: #64748b;">(${act.source_stations.join(', ')})</span>`
+                                ? ` <span style="font-size: 9px; color: #64748b;">(${escapeHtml(act.source_stations.join(', '))})</span>`
                                 : ''
-                        const descHtml = act.description
-                            ? `<div style="font-size: 10px; font-weight: 500; color: #64748b; margin-top: 2px; line-height: 1.35;">${act.description}</div>`
+                        const descHtml = safeDescText
+                            ? `<div style="font-size: 10px; font-weight: 500; color: #64748b; margin-top: 2px; line-height: 1.35;">${escapeHtml(safeDescText)}</div>`
                             : ''
-                        return `<li style="font-size: 11px; color: #4b5563; margin-bottom: 5px;">${timePrefix}${act.title}${multiStationSuffix}${descHtml}</li>`
+                        return `<li style="font-size: 11px; color: #4b5563; margin-bottom: 5px;">${timePrefix}${safeTitle}${multiStationSuffix}${descHtml}</li>`
                     })
                     .join('')
 
@@ -761,8 +789,10 @@ export async function POST(req: Request) {
             }
 
             const calendarTaskStrings = resolvedActivities.map((act) => {
-                const base = act.effective_start_time ? `[${act.formatted_time}] ${act.title}` : act.title
-                return act.description ? `${base}: ${act.description}` : base
+                const safeTitle = sanitizeUnsafeProcedureDescription(act.title || '')
+                const safeDesc = sanitizeUnsafeProcedureDescription(act.description || '')
+                const base = act.effective_start_time ? `[${act.formatted_time}] ${safeTitle}` : safeTitle
+                return safeDesc ? `${base}: ${safeDesc}` : base
             })
 
             return {
@@ -947,7 +977,7 @@ export async function POST(req: Request) {
                                     ${tasksHtml}
                                     ${breaksHtml}
                                     <div style="margin-top: 10px;">
-                                        <a href="${singleGoogleCalUrl}" target="_blank" style="display: inline-block; font-size: 11px; font-weight: 700; color: #4338ca; background: #e0e7ff; padding: 4px 10px; border-radius: 6px; text-decoration: none; border: 1px solid #c7d2fe;">
+                                        <a href="${escapeHtml(singleGoogleCalUrl)}" target="_blank" style="display: inline-block; font-size: 11px; font-weight: 700; color: #4338ca; background: #e0e7ff; padding: 4px 10px; border-radius: 6px; text-decoration: none; border: 1px solid #c7d2fe;">
                                             📅 Google Calendar
                                         </a>
                                     </div>
@@ -971,13 +1001,13 @@ export async function POST(req: Request) {
                                 <td style="background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%); padding: 40px 30px; text-align: center;">
                                     <img src="cid:logo" alt="Logo" style="display: block; margin: 0 auto 20px auto; width: 80px; height: auto;" />
                                     <h1 style="margin: 0; color: #ffffff; font-size: 28px; font-weight: 800;">📅 Tu Nuevo Horario</h1>
-                                    <p style="margin: 10px 0 0 0; color: rgba(255,255,255,0.9); font-size: 14px;">${storeName}</p>
+                                    <p style="margin: 10px 0 0 0; color: rgba(255,255,255,0.9); font-size: 14px;">${escapeHtml(storeName)}</p>
                                 </td>
                             </tr>
                             <tr>
                                 <td style="padding: 40px 30px 20px 30px;">
-                                    <h2 style="margin: 0 0 16px 0; color: #1f2937; font-size: 24px;">¡Hola, ${emp.first_name}! 👋</h2>
-                                    <p style="margin: 0; color: #6b7280; font-size: 16px; line-height: 1.6;">El Gerente (${fromEmail}) ha publicado tus turnos:</p>
+                                    <h2 style="margin: 0 0 16px 0; color: #1f2937; font-size: 24px;">¡Hola, ${escapeHtml(emp.first_name || '')}! 👋</h2>
+                                    <p style="margin: 0; color: #6b7280; font-size: 16px; line-height: 1.6;">El Gerente (${escapeHtml(fromEmail || '')}) ha publicado tus turnos:</p>
                                 </td>
                             </tr>
                             <tr>
@@ -992,7 +1022,7 @@ export async function POST(req: Request) {
                                         <table role="presentation" style="margin: 0 auto; border-collapse: collapse;">
                                             <tr>
                                                 <td style="border-radius: 12px; background: #2563eb; text-align: center; box-shadow: 0 4px 12px rgba(37,99,235,0.35);">
-                                                    <a href="${calendarDownloadUrl}" target="_blank" style="display: inline-block; padding: 13px 26px; font-size: 14px; font-weight: 800; color: #ffffff; text-decoration: none; border-radius: 12px; letter-spacing: 0.3px;">
+                                                    <a href="${escapeHtml(calendarDownloadUrl)}" target="_blank" style="display: inline-block; padding: 13px 26px; font-size: 14px; font-weight: 800; color: #ffffff; text-decoration: none; border-radius: 12px; letter-spacing: 0.3px;">
                                                         📲 Agregar a mi Calendario (iPhone / Android)
                                                     </a>
                                                 </td>
@@ -1029,7 +1059,7 @@ export async function POST(req: Request) {
                             </tr>
                             <tr>
                                 <td style="padding: 30px; background: #f9fafb; border-top: 1px solid #e5e7eb; text-align: center;">
-                                    <p style="margin: 0; color: #9ca3af; font-size: 13px;">Enviado por ${fromEmail} a través de Sistema de Monitoreo Tacos Gavilan.</p>
+                                    <p style="margin: 0; color: #9ca3af; font-size: 13px;">Enviado por ${escapeHtml(fromEmail || '')} a través de Sistema de Monitoreo Tacos Gavilan.</p>
                                 </td>
                             </tr>
                         </table>
@@ -1329,7 +1359,7 @@ export async function POST(req: Request) {
 
                     return `
                         <tr>
-                            <td style="padding: 6px; border: 1px solid #ddd; font-weight: bold; font-size: 11px; background: #fdfdfd; white-space: nowrap;">${emp.first_name} ${emp.last_name?.charAt(0) || ''}.</td>
+                            <td style="padding: 6px; border: 1px solid #ddd; font-weight: bold; font-size: 11px; background: #fdfdfd; white-space: nowrap;">${escapeHtml(emp.first_name || '')} ${escapeHtml(emp.last_name?.charAt(0) || '')}.</td>
                             ${cells}
                         </tr>
                     `
@@ -1344,12 +1374,12 @@ export async function POST(req: Request) {
                         <div style="display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #4f46e5; padding-bottom: 20px; margin-bottom: 30px;">
                             <div style="flex: 1;">
                                 <h1 style="margin: 0; font-size: 24px; font-weight: 900; color: #1e293b; letter-spacing: -0.025em;">REPORTES DE PROGRAMACIÓN</h1>
-                                <p style="margin: 4px 0 0 0; font-size: 14px; font-weight: 600; color: #6366f1; text-transform: uppercase;">${storeName}</p>
+                                <p style="margin: 4px 0 0 0; font-size: 14px; font-weight: 600; color: #6366f1; text-transform: uppercase;">${escapeHtml(storeName)}</p>
                             </div>
                             <div style="text-align: right; font-size: 11px; line-height: 1.6;">
                                 <div style="font-weight: 900; color: #4f46e5;">DOCUMENTO OFICIAL</div>
                                 <div><b>Publicado:</b> ${new Date().toLocaleDateString('es-US', { day: 'numeric', month: 'long', year: 'numeric' })}</div>
-                                <div><b>Manager ID:</b> ${fromEmail}</div>
+                                <div><b>Manager ID:</b> ${escapeHtml(fromEmail || '')}</div>
                                 <div style="margin-top: 10px; background: #eff6ff; color: #1d4ed8; padding: 4px 8px; border-radius: 4px; display: inline-block;">
                                     Confirmaciones de envío: <b>${results.email}</b>
                                 </div>

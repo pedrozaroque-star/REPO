@@ -26,8 +26,10 @@
  *   - El componente exporta default y no recibe props.
  *   - i18n keys bajo namespace `actividades.daily.*` y `prep.*` para controles de despertar tableta.
  *   - Fix: Motor unificado `resolveStationActivities` compartido con Correo, Calendario y Checklist.
- *   - Fix: Visibilidad completa en Tablero Visual (`showVisualBoard`) para Liderazgo (`MANAGER`, `ASSISTANT`, `SHIFT_LEADER_MALE`, `SHIFT_LEADER_FEMALE`) y `ACTIVIDADES EXTRA 1..6`.
+ *   - Fix: El Tablero Visual (`showVisualBoard`) conserva el mapa físico de estaciones (Salón, Cocina y, en tiendas con Drive-Thru, Drive-Thru en la parte inferior con ajuste proporcional de tarjetas sin scroll). Liderazgo y Actividades Extra se gestionan en la vista de lista de Asignación Diaria, Checklist, Correo y Calendario.
  *   - Fix: Restricción de edición de asignaciones (`canEditAssignments`) para que `shift_leader` consulte el tablero sin permisos de escritura sobre asignaciones.
+ *   - Fix: La clonación de semana completa compara `expected_revision` del destino dentro de la RPC; cambios concurrentes se rechazan sin reemplazar asignaciones recientes.
+ *   - Fix: Al abrir una estación en el Tablero Operativo (`selectedSlotForCard`), el panel de actividades soporta Zoom táctil con 2 dedos (`pinch-to-zoom`), controles `- / 100% / +` (hasta 250% con reacomodo automático de columnas y tipografía fluida) y vista ampliada de tarjeta individual al tocar cualquier actividad (con navegación `< Anterior / Siguiente >`).
  */
 
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
@@ -63,6 +65,9 @@ import {
   Zap,
   Eye,
   Mail,
+  ZoomIn,
+  ZoomOut,
+  Maximize2,
 } from 'lucide-react';
 import { useLanguage } from '@/lib/i18n';
 import { useAuth } from '@/components/ProtectedRoute';
@@ -76,10 +81,15 @@ import {
   type StoreDayHours,
 } from '@/lib/store-time-offset';
 import {
+  type ClearedStationAssignmentScope,
   doesShiftOverlapPeriod,
+  extractCatalogProceduresPayload,
+  extractLiteralShiftSuffix,
   getStationConfigStatus,
   getStoreOverrideForProcedure,
   getBusinessDaySortMinutes,
+  isConfirmedStoreDriveThru,
+  normalizeAssignmentSubPosition,
   normalizeText,
   isStorePilotActiveForActivitiesEmail,
   resolveStationActivities,
@@ -456,6 +466,9 @@ const BoardSlot: React.FC<BoardSlotProps> = ({
   return (
     <div
       data-touch-tap="true"
+      data-testid="visual-board-slot"
+      data-station-key={stationKey}
+      data-station-group={group}
       onClick={() => onClick(stationKey, label, group, emp, assignee)}
       className={`p-[0.15vh] flex flex-col h-full cursor-pointer group active:scale-95 transition-all select-none touch-manipulation ${className}`}
     >
@@ -597,9 +610,56 @@ export default function AsignacionDiariaTab() {
   const [selectedSlotForCard, setSelectedSlotForCard] = useState<{ label: string; assignee: any; stationKey?: string } | null>(null);
   const [selectedEmployeeCard, setSelectedEmployeeCard] = useState<Employee | null>(null);
   const [isReassigning, setIsReassigning] = useState(false);
-  const [hasDriveThru, setHasDriveThru] = useState(true);
+  const [hasDriveThru, setHasDriveThru] = useState(false);
   const activitiesScrollRef = useRef<HTMLDivElement | null>(null);
   const [canScrollDownActivities, setCanScrollDownActivities] = useState(false);
+  const [boardActivitiesZoom, setBoardActivitiesZoom] = useState<number>(1);
+  const [expandedBoardActivityIndex, setExpandedBoardActivityIndex] = useState<number | null>(null);
+  const pinchStartDistRef = useRef<number | null>(null);
+  const pinchStartZoomRef = useRef<number>(1);
+
+  useEffect(() => {
+    setBoardActivitiesZoom(1);
+    setExpandedBoardActivityIndex(null);
+    pinchStartDistRef.current = null;
+  }, [selectedSlotForCard?.stationKey, selectedSlotForCard?.label]);
+
+  const handleActivitiesTouchStart = useCallback(
+    (e: React.TouchEvent<HTMLDivElement>) => {
+      if (e.touches.length === 2) {
+        const dx = e.touches[0].clientX - e.touches[1].clientX;
+        const dy = e.touches[0].clientY - e.touches[1].clientY;
+        pinchStartDistRef.current = Math.hypot(dx, dy);
+        pinchStartZoomRef.current = boardActivitiesZoom;
+      }
+    },
+    [boardActivitiesZoom]
+  );
+
+  const handleActivitiesTouchMove = useCallback((e: React.TouchEvent<HTMLDivElement>) => {
+    if (e.touches.length === 2 && pinchStartDistRef.current && pinchStartDistRef.current > 10) {
+      const dx = e.touches[0].clientX - e.touches[1].clientX;
+      const dy = e.touches[0].clientY - e.touches[1].clientY;
+      const dist = Math.hypot(dx, dy);
+      const scaleRatio = dist / pinchStartDistRef.current;
+      const nextZoom = Math.min(2.5, Math.max(1, Number((pinchStartZoomRef.current * scaleRatio).toFixed(2))));
+      setBoardActivitiesZoom(nextZoom);
+    }
+  }, []);
+
+  const handleActivitiesTouchEnd = useCallback((e: React.TouchEvent<HTMLDivElement>) => {
+    if (e.touches.length < 2) {
+      pinchStartDistRef.current = null;
+    }
+  }, []);
+
+  const handleActivitiesWheel = useCallback((e: React.WheelEvent<HTMLDivElement>) => {
+    if (e.ctrlKey || e.metaKey) {
+      e.preventDefault();
+      const delta = e.deltaY < 0 ? 0.15 : -0.15;
+      setBoardActivitiesZoom((prev) => Math.min(2.5, Math.max(1, Number((prev + delta).toFixed(2)))));
+    }
+  }, []);
 
   const checkActivitiesScroll = useCallback(() => {
     const el = activitiesScrollRef.current;
@@ -632,7 +692,7 @@ export default function AsignacionDiariaTab() {
       window.removeEventListener('resize', checkActivitiesScroll);
       if (ro) ro.disconnect();
     };
-  }, [selectedSlotForCard, isReassigning, activeShift, selectedDay, positionActivities, assignments, checkActivitiesScroll]);
+  }, [selectedSlotForCard, isReassigning, activeShift, selectedDay, positionActivities, assignments, boardActivitiesZoom, checkActivitiesScroll]);
 
   // ── Auto-Reconfiguración 24/7 y Modal de 3h de Inactividad ──
   const [liveNow, setLiveNow] = useState<Date>(() => new Date());
@@ -855,22 +915,10 @@ export default function AsignacionDiariaTab() {
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, []);
 
-  // has_drive_thru desde la base de datos, con fallback a localStorage
+  // has_drive_thru solo se activa cuando la sucursal tiene has_drive_thru === true confirmado (nunca asumir true cuando es desconocido)
   useEffect(() => {
-    if (selectedStore) {
-      const dbHasDT = selectedStore.has_drive_thru;
-      if (dbHasDT !== undefined && dbHasDT !== null) {
-        setHasDriveThru(Boolean(dbHasDT));
-      } else if (selectedStoreGuid) {
-        const stored = localStorage.getItem(`hasDriveThru_${selectedStoreGuid}`);
-        if (stored !== null) {
-          setHasDriveThru(stored === 'true');
-        } else {
-          setHasDriveThru(true);
-        }
-      }
-    }
-  }, [selectedStore, selectedStoreGuid]);
+    setHasDriveThru(isConfirmedStoreDriveThru(selectedStore));
+  }, [selectedStore]);
 
   const weekDays = useMemo(() => {
     return Array.from({ length: 7 }, (_, i) => addDays(currentWeekStart, i));
@@ -1109,13 +1157,17 @@ export default function AsignacionDiariaTab() {
         const data = await res.json();
         if (seq !== assignmentsReqSeqRef.current) return;
 
-        const fetchedList: Assignment[] = Array.isArray(data)
+        const rawFetchedList: Assignment[] = Array.isArray(data)
           ? data
           : Array.isArray(data?.assignments)
           ? data.assignments
           : Array.isArray(data?.data)
           ? data.data
           : [];
+        const fetchedList: Assignment[] = rawFetchedList.map((a) => ({
+          ...a,
+          sub_position: normalizeAssignmentSubPosition(a.main_station, a.sub_position, 'AM'),
+        }));
         const fetchedRev: string | null =
           !Array.isArray(data) && typeof data?.revision === 'string' ? data.revision : null;
 
@@ -1161,10 +1213,12 @@ export default function AsignacionDiariaTab() {
       }
       if (procRes.ok) {
         const procJson = await procRes.json();
-        const procList = Array.isArray(procJson) ? procJson : procJson?.procedures || [];
-        if (Array.isArray(procList)) {
+        const procList = extractCatalogProceduresPayload<NonNullable<PositionActivity['operating_procedures']>>(procJson);
+        if (procList !== null) {
           setAllProcedures(procList);
         }
+      } else {
+        console.error(`[fetchPositionActivities] /api/procedimientos HTTP ${procRes.status}`);
       }
     } catch (err) {
       console.error('Error fetching position activities:', err);
@@ -1333,15 +1387,49 @@ export default function AsignacionDiariaTab() {
     setSaving(true);
     setSaveSuccess(false);
 
-    const currentSlice = assignments.filter(
-      (a) =>
-        a.assignment_date === selectedDateStr &&
-        a.sub_position?.endsWith(`_${activeShift}`) &&
-        a.employee_id
+    const currentSlice = assignments
+      .map((a) => ({
+        ...a,
+        sub_position: normalizeAssignmentSubPosition(a.main_station, a.sub_position, 'AM'),
+      }))
+      .filter(
+        (a) =>
+          a.assignment_date === selectedDateStr &&
+          a.sub_position?.endsWith(`_${activeShift}`) &&
+          a.employee_id
+      );
+
+    const activeScopedKeysInSlice = new Set(
+      currentSlice.map(
+        (a) =>
+          `${normalizeText(selectedStoreGuid)}|${a.assignment_date}|${normalizeText(a.sub_position || '')}`
+      )
     );
+    const clearedAssignments: ClearedStationAssignmentScope[] = persistedAssignments
+      .map((a) => ({
+        ...a,
+        sub_position: normalizeAssignmentSubPosition(a.main_station, a.sub_position, 'AM'),
+      }))
+      .filter(
+        (a) =>
+          normalizeText(String(a.store_id || selectedStoreGuid)) === normalizeText(selectedStoreGuid) &&
+          a.assignment_date === selectedDateStr &&
+          a.sub_position?.endsWith(`_${activeShift}`) &&
+          a.employee_id &&
+          !activeScopedKeysInSlice.has(
+            `${normalizeText(selectedStoreGuid)}|${a.assignment_date}|${normalizeText(a.sub_position || '')}`
+          )
+      )
+      .map((a) => ({
+        store_id: selectedStoreGuid,
+        assignment_date: a.assignment_date,
+        main_station: a.main_station,
+        sub_position: a.sub_position,
+      }));
 
     const payload: Record<string, any> = {
       assignments: currentSlice,
+      cleared_assignments: clearedAssignments,
       store_id: selectedStoreGuid,
       start_date: selectedDateStr,
       end_date: selectedDateStr,
@@ -1451,7 +1539,12 @@ export default function AsignacionDiariaTab() {
         }
 
         const prevShiftSuffix = `_${activeShift}`;
-        const shiftFiltered = data.filter((a: any) => a.sub_position?.endsWith(prevShiftSuffix));
+        const shiftFiltered = data
+          .map((a: any) => ({
+            ...a,
+            sub_position: normalizeAssignmentSubPosition(a.main_station, a.sub_position, 'AM'),
+          }))
+          .filter((a: any) => a.sub_position?.endsWith(prevShiftSuffix));
 
         if (shiftFiltered.length === 0) {
           alert(language === 'es' ? `No se encontraron asignaciones en el turno ${activeShift} para el mismo día de la semana anterior.` : `No assignments found in ${activeShift} shift for the same day of the previous week.`);
@@ -1472,7 +1565,7 @@ export default function AsignacionDiariaTab() {
             employee_id: a.employee_id,
             assignment_date: selectedDateStr,
             main_station: a.main_station,
-            sub_position: a.sub_position || `${a.main_station}_${activeShift}`,
+            sub_position: normalizeAssignmentSubPosition(a.main_station, a.sub_position, activeShift),
             station_group: a.station_group,
             tasks: a.tasks && a.tasks.length > 0 ? a.tasks : defaultTasks,
           };
@@ -1497,7 +1590,7 @@ export default function AsignacionDiariaTab() {
   }, [selectedStoreGuid, selectedDay, selectedDateStr, activeShift, activityMap, language]);
 
   const handleCopyPreviousWeekAll = useCallback(async () => {
-    if (!selectedStoreGuid) return;
+    if (!canEditAssignments || !selectedStoreGuid) return;
     if (!confirm(language === 'es' ? '¿Estás seguro de que quieres clonar TODA la semana pasada? Esto reemplazará todas las asignaciones de esta semana de forma permanente.' : 'Are you sure you want to clone the ENTIRE previous week? This will overwrite all assignments for the current week permanently.')) return;
     
     setCopyingAll(true);
@@ -1512,11 +1605,15 @@ export default function AsignacionDiariaTab() {
       const currentWeekEndStr = formatDateISO(currentWeekEnd);
 
       const res = await fetch(
-        `/api/roles?store_id=${selectedStoreGuid}&start_date=${prevWeekStartStr}&end_date=${prevWeekEndStr}`
+        `/api/roles?store_id=${encodeURIComponent(selectedStoreGuid)}&start_date=${prevWeekStartStr}&end_date=${prevWeekEndStr}&include_meta=1`
       );
       if (!res.ok) throw new Error('Failed to fetch previous week assignments');
 
-      const data = await res.json();
+      const sourceSnapshot = await res.json();
+      const data = Array.isArray(sourceSnapshot?.assignments) ? sourceSnapshot.assignments : [];
+      if (typeof sourceSnapshot?.revision !== 'string' || !sourceSnapshot.revision) {
+        throw new Error('Previous week assignments did not include a stable revision');
+      }
       if (!Array.isArray(data) || data.length === 0) {
         alert(language === 'es' ? 'No se encontraron asignaciones en la semana anterior para copiar.' : 'No assignments found in the previous week.');
         setCopyingAll(false);
@@ -1530,7 +1627,10 @@ export default function AsignacionDiariaTab() {
         const nextAssignDate = addDays(prevAssignDate, 7);
         const nextAssignDateStr = formatDateISO(nextAssignDate);
 
-        const rowShift = String(a.sub_position || a.main_station || '').toUpperCase().endsWith('_PM') ? 'PM' : 'AM';
+        const rowShift =
+          (extractLiteralShiftSuffix(a.sub_position) || extractLiteralShiftSuffix(a.main_station)) === 'PM'
+            ? 'PM'
+            : 'AM';
         const stationActivitiesList = activityMap[a.main_station] || [];
         const defaultTasks = stationActivitiesList
           .map(pa => pa.operating_procedures?.activity)
@@ -1541,17 +1641,37 @@ export default function AsignacionDiariaTab() {
           employee_id: a.employee_id,
           assignment_date: nextAssignDateStr,
           main_station: a.main_station,
-          sub_position: a.sub_position || `${a.main_station}_${rowShift}`,
+          sub_position: normalizeAssignmentSubPosition(a.main_station, a.sub_position, rowShift),
           station_group: a.station_group,
           tasks: a.tasks && a.tasks.length > 0 ? a.tasks : defaultTasks,
         };
       });
+
+      if (clonedAssignments.length === 0) {
+        alert(language === 'es' ? 'No se encontraron asignaciones válidas con empleado en la semana anterior para copiar.' : 'No valid employee assignments found in the previous week.');
+        setCopyingAll(false);
+        return;
+      }
+
+      // Capturar justo antes del reemplazo la revisión de toda la semana destino.
+      // La RPC la compara dentro de la transacción; si otro manager guardó después,
+      // el reemplazo completo se rechaza con 409 y no borra sus asignaciones.
+      const targetSnapshotRes = await fetch(
+        `/api/roles?store_id=${encodeURIComponent(selectedStoreGuid)}&start_date=${currentWeekStartStr}&end_date=${currentWeekEndStr}&revision_only=1`
+      );
+      if (!targetSnapshotRes.ok) throw new Error('Failed to read current target-week revision');
+      const targetSnapshot = await targetSnapshotRes.json();
+      if (typeof targetSnapshot?.revision !== 'string' || !targetSnapshot.revision) {
+        throw new Error('Target week assignments did not include a stable revision');
+      }
 
       const saveRes = await fetch('/api/roles', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           assignments: clonedAssignments,
+          replace_all_shifts_confirmed: true,
+          expected_revision: targetSnapshot.revision,
           store_id: selectedStoreGuid,
           start_date: currentWeekStartStr,
           end_date: currentWeekEndStr,
@@ -1564,6 +1684,10 @@ export default function AsignacionDiariaTab() {
         setSaveSuccess(true);
         setTimeout(() => setSaveSuccess(false), 3000);
         alert(language === 'es' ? '¡Semana completa clonada y guardada con éxito!' : 'Entire week cloned and saved successfully!');
+      } else if (saveResult.code === 'CONFLICT_REVISION_MISMATCH') {
+        alert(language === 'es'
+          ? 'No se clonó la semana: las asignaciones de destino cambiaron desde que se revisaron. No se sobrescribió ningún cambio. Recarga la semana y vuelve a intentarlo.'
+          : 'The week was not cloned: target assignments changed after review. No changes were overwritten. Reload the week and try again.');
       } else {
         alert(language === 'es' ? 'Hubo un error al guardar las asignaciones clonadas.' : 'Error saving cloned assignments.');
       }
@@ -1573,7 +1697,7 @@ export default function AsignacionDiariaTab() {
     } finally {
       setCopyingAll(false);
     }
-  }, [selectedStoreGuid, currentWeekStart, activeShift, activityMap, language, fetchShifts, fetchAssignments]);
+  }, [canEditAssignments, selectedStoreGuid, currentWeekStart, activeShift, activityMap, language, fetchShifts, fetchAssignments]);
 
   // ── Despertar Tableta (Reconfiguración 24/7 + Limpieza Caché + Día/Turno Actual) ──
   const handleWakeUpTablet = useCallback(async () => {
@@ -1686,6 +1810,7 @@ export default function AsignacionDiariaTab() {
               <div className="flex items-center gap-2 bg-white/60 dark:bg-slate-800/60 rounded-xl px-3 py-2 border border-slate-200/50 dark:border-slate-700/50">
                 <Building2 className="w-4 h-4 text-slate-500 flex-shrink-0" />
                 <select
+                  data-testid="store-selector"
                   value={selectedStoreId}
                   onChange={(e) => {
                     if (e.target.value !== selectedStoreId && !confirmNavigateIfDirty()) return;
@@ -1782,6 +1907,7 @@ export default function AsignacionDiariaTab() {
 
               {/* Tablero */}
               <motion.button
+                data-testid="open-visual-board-btn"
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.98 }}
                 onClick={() => {
@@ -2282,14 +2408,16 @@ export default function AsignacionDiariaTab() {
       {typeof document !== 'undefined' && createPortal(
         <AnimatePresence>
           {showVisualBoard && (() => {
-            const cardHeightClass = hasDriveThru ? 'h-[10.5vh] sm:h-[11.5vh]' : 'h-[14vh] sm:h-[16vh]';
-            const containerGapClass = hasDriveThru ? 'gap-[1.5vh] sm:gap-[2.2vh]' : 'gap-[2.5vh] sm:gap-[4vh]';
-            const containerPaddingClass = hasDriveThru 
-              ? 'pt-[1.5vh] pb-[2vh] px-[1.5vw]' 
+            const boardHasDriveThru = isConfirmedStoreDriveThru(selectedStore) && hasDriveThru;
+            const cardHeightClass = boardHasDriveThru ? 'h-[9.5vh] sm:h-[10.2vh]' : 'h-[14vh] sm:h-[16vh]';
+            const containerGapClass = boardHasDriveThru ? 'gap-[0.8vh] sm:gap-[1.2vh]' : 'gap-[2.5vh] sm:gap-[4vh]';
+            const containerPaddingClass = boardHasDriveThru
+              ? 'pt-[0.8vh] pb-[1vh] px-[1.5vw]'
               : 'pt-[2vh] pb-[3vh] px-[1.5vw]';
 
             return (
               <motion.div
+                data-testid="visual-board-portal"
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
@@ -2372,6 +2500,7 @@ export default function AsignacionDiariaTab() {
                   {/* Close */}
                   <div className="flex items-center gap-2.5">
                     <button
+                      data-testid="close-visual-board-btn"
                       onClick={() => {
                         setShowVisualBoard(false);
                         exitFullscreen();
@@ -2384,7 +2513,10 @@ export default function AsignacionDiariaTab() {
                 </div>
 
                 {/* Layout Content — Physical Workstation Floor Map (Salón, Cocina, Drive-Thru) */}
-                <div className={`flex-1 min-h-0 flex flex-col justify-center items-center bg-slate-100/40 dark:bg-slate-950 overflow-y-auto select-none relative w-full ${containerGapClass} ${containerPaddingClass}`}>
+                <div
+                  data-testid="visual-board-map"
+                  className={`flex-1 min-h-0 flex flex-col justify-center items-center bg-slate-100/40 dark:bg-slate-950 overflow-y-auto select-none relative w-full ${containerGapClass} ${containerPaddingClass}`}
+                >
                   {/* Dining Area section */}
                   <div className="flex flex-col gap-[0.3vh] relative z-10 w-full max-w-[98vw] mx-auto">
                     <div className="flex items-center justify-center gap-[1vh] mb-[0.4vh]">
@@ -2401,6 +2533,7 @@ export default function AsignacionDiariaTab() {
                           assignee={getAssignee(selectedDay, `LIMPIEZA_${activeShift}`)}
                           employees={employees}
                           className={cardHeightClass}
+                          hasDriveThru={boardHasDriveThru}
                           onClick={handleSlotClick}
                         />
                         <BoardSlot
@@ -2410,6 +2543,7 @@ export default function AsignacionDiariaTab() {
                           assignee={getAssignee(selectedDay, `CUBRIR DESCANSOS (SALÓN)_${activeShift}`)}
                           employees={employees}
                           className={cardHeightClass}
+                          hasDriveThru={boardHasDriveThru}
                           onClick={handleSlotClick}
                         />
                       </div>
@@ -2433,6 +2567,7 @@ export default function AsignacionDiariaTab() {
                           assignee={getAssignee(selectedDay, `Uber + Salsas_${activeShift}`)}
                           employees={employees}
                           className={cardHeightClass}
+                          hasDriveThru={boardHasDriveThru}
                           onClick={handleSlotClick}
                         />
                         <BoardSlot
@@ -2442,6 +2577,7 @@ export default function AsignacionDiariaTab() {
                           assignee={getAssignee(selectedDay, `ENTREGA_${activeShift}`)}
                           employees={employees}
                           className={cardHeightClass}
+                          hasDriveThru={boardHasDriveThru}
                           onClick={handleSlotClick}
                         />
                         <BoardSlot
@@ -2451,6 +2587,7 @@ export default function AsignacionDiariaTab() {
                           assignee={getAssignee(selectedDay, `TACOS_${activeShift}`)}
                           employees={employees}
                           className={cardHeightClass}
+                          hasDriveThru={boardHasDriveThru}
                           onClick={handleSlotClick}
                         />
                         <BoardSlot
@@ -2460,6 +2597,7 @@ export default function AsignacionDiariaTab() {
                           assignee={getAssignee(selectedDay, `BURRITOS_${activeShift}`)}
                           employees={employees}
                           className={cardHeightClass}
+                          hasDriveThru={boardHasDriveThru}
                           onClick={handleSlotClick}
                         />
                         <BoardSlot
@@ -2469,6 +2607,7 @@ export default function AsignacionDiariaTab() {
                           assignee={getAssignee(selectedDay, `Caja 3_${activeShift}`)}
                           employees={employees}
                           className={cardHeightClass}
+                          hasDriveThru={boardHasDriveThru}
                           onClick={handleSlotClick}
                         />
                         <BoardSlot
@@ -2478,6 +2617,7 @@ export default function AsignacionDiariaTab() {
                           assignee={getAssignee(selectedDay, `Caja 2_${activeShift}`)}
                           employees={employees}
                           className={cardHeightClass}
+                          hasDriveThru={boardHasDriveThru}
                           onClick={handleSlotClick}
                         />
                         <BoardSlot
@@ -2487,6 +2627,7 @@ export default function AsignacionDiariaTab() {
                           assignee={getAssignee(selectedDay, `Caja 1 / Salón_${activeShift}`)}
                           employees={employees}
                           className={cardHeightClass}
+                          hasDriveThru={boardHasDriveThru}
                           onClick={handleSlotClick}
                         />
                       </div>
@@ -2500,6 +2641,7 @@ export default function AsignacionDiariaTab() {
                           assignee={getAssignee(selectedDay, `CARNES_${activeShift}`)}
                           employees={employees}
                           className={cardHeightClass}
+                          hasDriveThru={boardHasDriveThru}
                           onClick={handleSlotClick}
                         />
                         <BoardSlot
@@ -2509,6 +2651,7 @@ export default function AsignacionDiariaTab() {
                           assignee={getAssignee(selectedDay, `TORTILLAS_${activeShift}`)}
                           employees={employees}
                           className={cardHeightClass}
+                          hasDriveThru={boardHasDriveThru}
                           onClick={handleSlotClick}
                         />
                         <BoardSlot
@@ -2518,6 +2661,7 @@ export default function AsignacionDiariaTab() {
                           assignee={getAssignee(selectedDay, `TORTAS/MULITAS_${activeShift}`)}
                           employees={employees}
                           className={cardHeightClass}
+                          hasDriveThru={boardHasDriveThru}
                           onClick={handleSlotClick}
                         />
                         <BoardSlot
@@ -2527,6 +2671,7 @@ export default function AsignacionDiariaTab() {
                           assignee={getAssignee(selectedDay, `TORTAS/QUESADILLAS_${activeShift}`)}
                           employees={employees}
                           className={cardHeightClass}
+                          hasDriveThru={boardHasDriveThru}
                           onClick={handleSlotClick}
                         />
                       </div>
@@ -2540,6 +2685,7 @@ export default function AsignacionDiariaTab() {
                           assignee={getAssignee(selectedDay, `PREPARACION_${activeShift}`)}
                           employees={employees}
                           className={`${cardHeightClass} sm:col-span-2`}
+                          hasDriveThru={boardHasDriveThru}
                           onClick={handleSlotClick}
                         />
                         <BoardSlot
@@ -2549,6 +2695,7 @@ export default function AsignacionDiariaTab() {
                           assignee={getAssignee(selectedDay, `CUBRIR DESCANSOS (COCINA)_${activeShift}`)}
                           employees={employees}
                           className={cardHeightClass}
+                          hasDriveThru={boardHasDriveThru}
                           onClick={handleSlotClick}
                         />
                       </div>
@@ -2556,8 +2703,11 @@ export default function AsignacionDiariaTab() {
                   </div>
 
                   {/* Drive Thru section */}
-                  {hasDriveThru && (
-                    <div className="flex flex-col gap-[0.3vh] relative z-10 w-full max-w-[98vw] mx-auto">
+                  {boardHasDriveThru && (
+                    <div
+                      data-testid="visual-board-drive-thru-section"
+                      className="flex flex-col gap-[0.3vh] relative z-10 w-full max-w-[98vw] mx-auto"
+                    >
                       <div className="flex items-center justify-center gap-[1vh] mb-[0.4vh] w-full">
                         <h2 className="text-[1.8vh] sm:text-[2.2vh] font-black text-indigo-600 dark:text-indigo-400 uppercase tracking-[0.4em] italic leading-none">
                           {t('actividades.daily.section_drive_thru')}
@@ -2570,7 +2720,8 @@ export default function AsignacionDiariaTab() {
                           group="Drive-Thru"
                           assignee={getAssignee(selectedDay, `Ventana 1_${activeShift}`)}
                           employees={employees}
-                          className="col-span-2 sm:col-span-1 sm:row-span-2 h-[10.5vh] sm:h-auto w-full"
+                          className="col-span-2 sm:col-span-1 sm:row-span-2 h-[9.5vh] sm:h-auto w-full"
+                          hasDriveThru={boardHasDriveThru}
                           onClick={handleSlotClick}
                         />
                         <BoardSlot
@@ -2580,6 +2731,7 @@ export default function AsignacionDiariaTab() {
                           assignee={getAssignee(selectedDay, `TORTAS/QUESADILLAS (DT)_${activeShift}`)}
                           employees={employees}
                           className={`col-span-1 sm:col-span-3 ${cardHeightClass} w-full`}
+                          hasDriveThru={boardHasDriveThru}
                           onClick={handleSlotClick}
                         />
                         <BoardSlot
@@ -2589,6 +2741,7 @@ export default function AsignacionDiariaTab() {
                           assignee={getAssignee(selectedDay, `CUBRIR DESCANSOS (DT)_${activeShift}`)}
                           employees={employees}
                           className={`col-span-1 sm:col-span-3 ${cardHeightClass} w-full`}
+                          hasDriveThru={boardHasDriveThru}
                           onClick={handleSlotClick}
                         />
                         <BoardSlot
@@ -2598,6 +2751,7 @@ export default function AsignacionDiariaTab() {
                           assignee={getAssignee(selectedDay, `TACOS/BURRITOS (DT)_${activeShift}`)}
                           employees={employees}
                           className={`col-span-1 sm:col-span-2 ${cardHeightClass} w-full`}
+                          hasDriveThru={boardHasDriveThru}
                           onClick={handleSlotClick}
                         />
                         <BoardSlot
@@ -2607,6 +2761,7 @@ export default function AsignacionDiariaTab() {
                           assignee={getAssignee(selectedDay, `Ventana 2_${activeShift}`)}
                           employees={employees}
                           className={`col-span-1 sm:col-span-2 ${cardHeightClass} w-full`}
+                          hasDriveThru={boardHasDriveThru}
                           onClick={handleSlotClick}
                         />
                         <BoardSlot
@@ -2616,6 +2771,7 @@ export default function AsignacionDiariaTab() {
                           assignee={getAssignee(selectedDay, `Ventana 2 (B)_${activeShift}`)}
                           employees={employees}
                           className={`col-span-2 sm:col-span-2 ${cardHeightClass} w-full`}
+                          hasDriveThru={boardHasDriveThru}
                           onClick={handleSlotClick}
                         />
                       </div>
@@ -2695,11 +2851,81 @@ export default function AsignacionDiariaTab() {
                       if (!empStationKeys.includes(clickedStation)) {
                         empStationKeys.push(clickedStation);
                       }
-                      // Merge activities from all assigned stations, deduplicated by activity_id / normalized title (A11)
+                      // Merge activities from all assigned stations, deduplicated by activity_id / normalized title (A11).
+                      // Hallazgo B (Etapa 2): Si el slot tiene un empleado con turno activo (`empShiftForCard`),
+                      // se resuelven sus tareas personales filtrando por su ventana horaria (`enforceShiftWindow: true`).
+                      // Si el puesto está vacante o el empleado no tiene turno en `todayShifts`, se muestran las tareas de la estación (`activityMap`, `enforceShiftWindow: false`).
+                      const empShiftForCard = currentEmp
+                        ? todayShifts.find(
+                            (s) =>
+                              String(s.employee_id) === String(currentEmp.id) &&
+                              !s.is_callback &&
+                              Boolean(s.start_time && s.end_time)
+                          )
+                        : undefined;
+                      const storeContextForCard = selectedStore
+                        ? { ...selectedStore, has_drive_thru: hasDriveThru }
+                        : { has_drive_thru: hasDriveThru };
+                      const procByIdForCard = new Map<string, NonNullable<PositionActivity['operating_procedures']>>();
+                      for (const proc of allProcedures) {
+                        if (proc?.id) procByIdForCard.set(proc.id, proc);
+                      }
+                      for (const pa of approvedPositionActivities) {
+                        if (pa.operating_procedures?.id && !procByIdForCard.has(pa.operating_procedures.id)) {
+                          procByIdForCard.set(pa.operating_procedures.id, pa.operating_procedures);
+                        }
+                      }
+                      const catalogProcsForCard = Array.from(procByIdForCard.values());
+
                       const seenIds = new Set<string>();
                       const stationActivitiesList: PositionActivity[] = [];
                       empStationKeys.forEach(sk => {
-                        const acts = activityMap[sk] || [];
+                        let acts: PositionActivity[] = [];
+                        if (empShiftForCard) {
+                          const subPosForCard = `${sk}_${activeShift}`;
+                          const assignedForCard = assignmentMap[subPosForCard];
+                          const resolvedItems = resolveStationActivities({
+                            mainStation: sk,
+                            subPosition: subPosForCard,
+                            shift: activeShift,
+                            businessDateStr: selectedDateStr,
+                            store: storeContextForCard,
+                            procedures: catalogProcsForCard as Parameters<typeof resolveStationActivities>[0]['procedures'],
+                            positionActivities: approvedPositionActivities as Parameters<typeof resolveStationActivities>[0]['positionActivities'],
+                            legacyTasks: assignedForCard?.tasks || null,
+                            storeOffsets,
+                            shiftStartTime: empShiftForCard.start_time,
+                            shiftEndTime: empShiftForCard.end_time,
+                            enforceShiftWindow: true,
+                          });
+                          acts = resolvedItems.map((item) => {
+                            const rawProc = item.activity_id ? procByIdForCard.get(item.activity_id) : undefined;
+                            return {
+                              id: item.occurrence_key,
+                              position_key: sk,
+                              shift: item.shift,
+                              activity_id: item.activity_id || item.occurrence_key,
+                              frequency: item.frequency,
+                              store_model: item.store_model,
+                              sort_order: item.order_index ?? 999,
+                              operating_procedures: {
+                                id: item.activity_id || item.occurrence_key,
+                                activity: item.title,
+                                start_time: item.effective_start_time || '',
+                                duration_minutes: item.duration_minutes ?? rawProc?.duration_minutes ?? 15,
+                                shift_type: item.category,
+                                shift: item.shift,
+                                frequency: item.frequency,
+                                role: rawProc?.role || 'STAFF',
+                                store_model: item.store_model,
+                                description: sanitizeUnsafeProcedureDescription(item.description),
+                                overrides: rawProc?.overrides || null,
+                              },
+                            };
+                          });
+                        } else {
+                          acts = activityMap[sk] || [];
+                        }
                         acts.forEach(a => {
                           const key =
                             a.activity_id ||
@@ -2729,8 +2955,8 @@ export default function AsignacionDiariaTab() {
 
                       const totalActivities = sortedActivities.length;
                       
-                      // Dynamic grid columns & rows coupled to activity count + screen aspect ratio
-                      const numCols =
+                      // Dynamic grid columns & rows coupled to activity count + screen aspect ratio + pinch/button zoom
+                      const baseCols =
                         totalActivities <= 2
                           ? Math.max(1, totalActivities)
                           : totalActivities <= 4
@@ -2740,53 +2966,79 @@ export default function AsignacionDiariaTab() {
                           : totalActivities <= 16
                           ? 4
                           : 5;
+                      const numCols =
+                        boardActivitiesZoom >= 2.1
+                          ? 1
+                          : boardActivitiesZoom >= 1.7
+                          ? Math.min(2, baseCols)
+                          : boardActivitiesZoom >= 1.4
+                          ? Math.min(3, baseCols)
+                          : boardActivitiesZoom >= 1.15
+                          ? Math.min(4, baseCols)
+                          : baseCols;
+                      const baseRows = Math.max(1, Math.ceil(totalActivities / baseCols));
                       const numRows = Math.max(1, Math.ceil(totalActivities / numCols));
+                      const isZoomedActivities = boardActivitiesZoom > 1.02;
 
-                      // Fluid viewport-coupled typography (`clamp(min, vh/vw, max)`) scaled by numRows
-                      // so that whether running on a 768p tablet, 1080p desktop, or 4K TV, all cards fit the screen cleanly
-                      const titleFontStyle =
-                        numRows <= 2
+                      // Fluid viewport-coupled typography (`clamp(min, vh/vw, max)`) scaled by baseRows and boardActivitiesZoom
+                      const baseTitleClamp =
+                        baseRows <= 2
                           ? 'clamp(16px, 2.3vh, 28px)'
-                          : numRows === 3
+                          : baseRows === 3
                           ? 'clamp(14px, 1.95vh, 23px)'
-                          : numRows === 4
+                          : baseRows === 4
                           ? 'clamp(13px, 1.65vh, 19px)'
                           : 'clamp(12px, 1.4vh, 17px)';
+                      const titleFontStyle = isZoomedActivities
+                        ? `calc(${baseTitleClamp} * ${boardActivitiesZoom})`
+                        : baseTitleClamp;
 
-                      const descFontStyle =
-                        numRows <= 2
+                      const baseDescClamp =
+                        baseRows <= 2
                           ? 'clamp(13px, 1.8vh, 22px)'
-                          : numRows === 3
+                          : baseRows === 3
                           ? 'clamp(12px, 1.5vh, 18px)'
-                          : numRows === 4
+                          : baseRows === 4
                           ? 'clamp(11px, 1.3vh, 15.5px)'
                           : 'clamp(10.5px, 1.15vh, 14px)';
+                      const descFontStyle = isZoomedActivities
+                        ? `calc(${baseDescClamp} * ${boardActivitiesZoom})`
+                        : baseDescClamp;
 
-                      const badgeFontStyle =
-                        numRows <= 2
+                      const baseBadgeClamp =
+                        baseRows <= 2
                           ? 'clamp(10px, 1.2vh, 15px)'
-                          : numRows === 3
+                          : baseRows === 3
                           ? 'clamp(9.5px, 1.05vh, 13px)'
                           : 'clamp(9px, 0.95vh, 12px)';
+                      const badgeFontStyle = isZoomedActivities
+                        ? `calc(${baseBadgeClamp} * ${Math.min(1.8, boardActivitiesZoom)})`
+                        : baseBadgeClamp;
 
-                      const clockFontStyle =
-                        numRows <= 2
+                      const baseClockClamp =
+                        baseRows <= 2
                           ? 'clamp(12px, 1.5vh, 19px)'
-                          : numRows === 3
+                          : baseRows === 3
                           ? 'clamp(11px, 1.3vh, 16px)'
                           : 'clamp(10px, 1.15vh, 14px)';
+                      const clockFontStyle = isZoomedActivities
+                        ? `calc(${baseClockClamp} * ${Math.min(1.9, boardActivitiesZoom)})`
+                        : baseClockClamp;
 
-                      const cardPaddingStyle =
-                        numRows <= 2
+                      const baseCardPaddingClamp =
+                        baseRows <= 2
                           ? 'clamp(12px, 1.8vh, 24px)'
-                          : numRows === 3
+                          : baseRows === 3
                           ? 'clamp(10px, 1.4vh, 18px)'
                           : 'clamp(8px, 1.1vh, 14px)';
+                      const cardPaddingStyle = isZoomedActivities
+                        ? `calc(${baseCardPaddingClamp} * ${Math.min(1.6, boardActivitiesZoom)})`
+                        : baseCardPaddingClamp;
 
                       const gridGapStyle =
-                        numRows <= 2
+                        baseRows <= 2
                           ? 'clamp(10px, 1.5vh, 20px)'
-                          : numRows === 3
+                          : baseRows === 3
                           ? 'clamp(8px, 1.2vh, 16px)'
                           : 'clamp(6px, 0.9vh, 12px)';
 
@@ -2860,7 +3112,7 @@ export default function AsignacionDiariaTab() {
                           {/* Activities checklist — Auto-fits 100% of remaining viewport width & height */}
                           <div className="flex-1 min-w-0 flex flex-col min-h-0 h-full">
                             <div className="relative overflow-hidden bg-white dark:bg-slate-800 p-[1.8vh] sm:p-[2.2vh] rounded-[2vh] shadow-md border border-slate-200/80 dark:border-slate-800/80 h-full flex flex-col min-h-0">
-                              <div className="flex items-center justify-between mb-[1.2vh] pb-[1vh] border-b border-slate-100 dark:border-slate-700 flex-shrink-0">
+                              <div className="flex flex-wrap items-center justify-between gap-2 mb-[1.2vh] pb-[1vh] border-b border-slate-100 dark:border-slate-700 flex-shrink-0">
                                 <div className="flex items-center gap-[1vh]">
                                   <div className="p-[0.8vh] bg-indigo-600 text-white rounded-[0.9vh] shadow">
                                     <ClipboardList className="w-[2vh] h-[2vh] min-w-[18px] min-h-[18px]" />
@@ -2871,26 +3123,82 @@ export default function AsignacionDiariaTab() {
                                   >
                                     {t('actividades.daily.activities_label')}
                                   </h5>
+                                  <span className="hidden lg:inline-block text-[11px] font-bold text-slate-400 dark:text-slate-400 ml-2">
+                                    ({t('actividades.daily.pinch_or_tap_hint')})
+                                  </span>
                                 </div>
-                                <span
-                                  className="bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 py-[0.5vh] px-[1.4vh] rounded-full font-black uppercase tracking-widest"
-                                  style={{ fontSize: 'clamp(10px, 1.25vh, 15px)' }}
-                                >
-                                  {format(selectedDay, 'EEEE dd', { locale })}
-                                </span>
+                                <div className="flex items-center gap-2 sm:gap-3">
+                                  {/* Zoom Controls (− / 100% / +) */}
+                                  <div className="flex items-center bg-slate-100 dark:bg-slate-700/80 rounded-full p-1 border border-slate-200/80 dark:border-slate-600 shadow-inner">
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        setBoardActivitiesZoom((prev) =>
+                                          Math.max(1, Number((prev - 0.25).toFixed(2)))
+                                        )
+                                      }
+                                      disabled={boardActivitiesZoom <= 1}
+                                      title={t('actividades.daily.zoom_out')}
+                                      className="p-1.5 sm:px-2.5 sm:py-1 rounded-full text-slate-700 dark:text-slate-200 hover:bg-white dark:hover:bg-slate-600 disabled:opacity-35 disabled:pointer-events-none transition-all active:scale-95 flex items-center gap-1 font-black text-xs"
+                                    >
+                                      <ZoomOut className="w-4 h-4 sm:w-[18px] sm:h-[18px]" />
+                                      <span className="hidden sm:inline">{t('actividades.daily.zoom_out')}</span>
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => setBoardActivitiesZoom(1)}
+                                      title={t('actividades.daily.zoom_reset')}
+                                      className={`px-2.5 py-1 rounded-full font-black text-xs tracking-wider transition-all ${
+                                        boardActivitiesZoom > 1.02
+                                          ? 'bg-indigo-600 text-white shadow-sm'
+                                          : 'text-slate-600 dark:text-slate-300 hover:bg-white/60 dark:hover:bg-slate-600/60'
+                                      }`}
+                                    >
+                                      {Math.round(boardActivitiesZoom * 100)}%
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        setBoardActivitiesZoom((prev) =>
+                                          Math.min(2.5, Number((prev + 0.25).toFixed(2)))
+                                        )
+                                      }
+                                      disabled={boardActivitiesZoom >= 2.5}
+                                      title={t('actividades.daily.zoom_in')}
+                                      className="p-1.5 sm:px-2.5 sm:py-1 rounded-full text-slate-700 dark:text-slate-200 hover:bg-white dark:hover:bg-slate-600 disabled:opacity-35 disabled:pointer-events-none transition-all active:scale-95 flex items-center gap-1 font-black text-xs"
+                                    >
+                                      <ZoomIn className="w-4 h-4 sm:w-[18px] sm:h-[18px]" />
+                                      <span className="hidden sm:inline">{t('actividades.daily.zoom_in')}</span>
+                                    </button>
+                                  </div>
+                                  <span
+                                    className="bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 py-[0.5vh] px-[1.4vh] rounded-full font-black uppercase tracking-widest"
+                                    style={{ fontSize: 'clamp(10px, 1.25vh, 15px)' }}
+                                  >
+                                    {format(selectedDay, 'EEEE dd', { locale })}
+                                  </span>
+                                </div>
                               </div>
                               <div
                                 ref={activitiesScrollRef}
                                 onScroll={checkActivitiesScroll}
+                                onTouchStart={handleActivitiesTouchStart}
+                                onTouchMove={handleActivitiesTouchMove}
+                                onTouchEnd={handleActivitiesTouchEnd}
+                                onTouchCancel={handleActivitiesTouchEnd}
+                                onWheel={handleActivitiesWheel}
+                                style={{ touchAction: 'pan-y pinch-zoom' }}
                                 className="flex-1 overflow-y-auto custom-scrollbar pr-0.5 min-h-0 pb-2"
                               >
                                 {sortedActivities.length > 0 ? (
                                   <div 
-                                    className="grid h-full min-h-full"
+                                    className={`grid ${isZoomedActivities ? 'h-auto' : 'h-full min-h-full'}`}
                                     style={{
                                       gap: gridGapStyle,
                                       gridTemplateColumns: `repeat(${numCols}, minmax(0, 1fr))`,
-                                      gridTemplateRows: `repeat(${numRows}, minmax(max-content, 1fr))`
+                                      gridTemplateRows: isZoomedActivities
+                                        ? 'auto'
+                                        : `repeat(${numRows}, minmax(max-content, 1fr))`
                                     }}
                                   >
                                     {sortedActivities.map((pa, i) => {
@@ -2911,8 +3219,18 @@ export default function AsignacionDiariaTab() {
                                       return (
                                         <div
                                           key={i}
+                                          role="button"
+                                          tabIndex={0}
+                                          onClick={() => setExpandedBoardActivityIndex(i)}
+                                          onKeyDown={(e) => {
+                                            if (e.key === 'Enter' || e.key === ' ') {
+                                              e.preventDefault();
+                                              setExpandedBoardActivityIndex(i);
+                                            }
+                                          }}
+                                          title={t('actividades.daily.expand_activity')}
                                           style={{ padding: cardPaddingStyle }}
-                                          className="flex flex-col justify-between bg-slate-50/90 dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-[1.4vh] hover:bg-indigo-50/40 dark:hover:bg-indigo-950/20 hover:border-indigo-200 dark:hover:border-indigo-800 transition-all shadow-sm h-full min-h-0"
+                                          className="group cursor-pointer flex flex-col justify-between bg-slate-50/90 dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-[1.4vh] hover:bg-indigo-50/50 dark:hover:bg-indigo-950/30 hover:border-indigo-300 dark:hover:border-indigo-700 active:scale-[0.99] transition-all shadow-sm h-full min-h-0 text-left"
                                         >
                                           <div className="mb-[0.6vh]">
                                             <div className="flex items-center justify-between gap-2 mb-[0.5vh]">
@@ -2922,6 +3240,7 @@ export default function AsignacionDiariaTab() {
                                               >
                                                 {proc.shift_type || 'REGULAR'}
                                               </span>
+                                              <Maximize2 className="w-3.5 h-3.5 text-slate-300 dark:text-slate-600 group-hover:text-indigo-500 transition-colors flex-shrink-0" />
                                             </div>
                                             <span
                                               style={{ fontSize: titleFontStyle }}
@@ -2967,6 +3286,124 @@ export default function AsignacionDiariaTab() {
                                   </div>
                                 )}
                               </div>
+
+                              {/* Expanded Single Activity Lightbox Overlay (Tap any card to read in giant font) */}
+                              <AnimatePresence>
+                                {expandedBoardActivityIndex !== null && sortedActivities[expandedBoardActivityIndex] && (() => {
+                                  const expPa = sortedActivities[expandedBoardActivityIndex];
+                                  const expProc = expPa?.operating_procedures;
+                                  if (!expProc) return null;
+                                  const expTime = getAdjustedProcTime(expProc);
+                                  const expCategory = (expProc.shift_type || 'REGULAR').toUpperCase();
+                                  const expApertura = expCategory.includes('APE') || expCategory.includes('OPEN');
+                                  const expCierre = expCategory.includes('CIE') || expCategory.includes('CLOSE');
+                                  const expBadgeColor = expApertura
+                                    ? 'bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border-amber-300'
+                                    : expCierre
+                                    ? 'bg-purple-100 dark:bg-purple-950/60 text-purple-800 dark:text-purple-300 border-purple-300'
+                                    : 'bg-blue-100 dark:bg-blue-950/60 text-blue-800 dark:text-blue-300 border-blue-300';
+
+                                  return (
+                                    <motion.div
+                                      initial={{ opacity: 0, scale: 0.96 }}
+                                      animate={{ opacity: 1, scale: 1 }}
+                                      exit={{ opacity: 0, scale: 0.96 }}
+                                      onClick={() => setExpandedBoardActivityIndex(null)}
+                                      className="absolute inset-0 z-30 bg-slate-900/75 backdrop-blur-sm p-3 sm:p-6 flex items-center justify-center"
+                                    >
+                                      <div
+                                        onClick={(e) => e.stopPropagation()}
+                                        className="w-full max-w-4xl max-h-full bg-white dark:bg-slate-900 border-2 border-indigo-500/40 dark:border-indigo-500/50 rounded-3xl shadow-2xl p-5 sm:p-8 flex flex-col justify-between overflow-y-auto"
+                                      >
+                                        <div>
+                                          <div className="flex flex-wrap items-center justify-between gap-3 pb-4 mb-5 border-b border-slate-200 dark:border-slate-800">
+                                            <div className="flex items-center gap-3">
+                                              <span className={`px-3.5 py-1.5 text-sm sm:text-base font-black rounded-xl border uppercase tracking-wider ${expBadgeColor}`}>
+                                                {expProc.shift_type || 'REGULAR'}
+                                              </span>
+                                              <span className="text-sm sm:text-base font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">
+                                                {expandedBoardActivityIndex + 1} / {sortedActivities.length}
+                                              </span>
+                                            </div>
+                                            <div className="flex items-center gap-3">
+                                              {expTime && (
+                                                <div className="flex items-center gap-2 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 px-3.5 py-1.5 rounded-xl">
+                                                  <Clock className="w-5 h-5 text-amber-500" />
+                                                  <span className="text-base sm:text-lg font-black text-amber-600 dark:text-amber-400 uppercase tracking-wider">
+                                                    {formatActivityTime(expTime)}
+                                                  </span>
+                                                </div>
+                                              )}
+                                              <button
+                                                type="button"
+                                                onClick={() => setExpandedBoardActivityIndex(null)}
+                                                className="p-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition-all active:scale-95"
+                                                title={t('actividades.daily.close_expanded')}
+                                              >
+                                                <X className="w-6 h-6" />
+                                              </button>
+                                            </div>
+                                          </div>
+
+                                          <h3
+                                            className="font-black text-slate-900 dark:text-white tracking-tight leading-tight mb-4"
+                                            style={{ fontSize: 'clamp(22px, 3.8vh, 42px)' }}
+                                          >
+                                            {expProc.activity}
+                                          </h3>
+
+                                          {expProc.description && (
+                                            <p
+                                              className="font-semibold text-slate-700 dark:text-slate-200 leading-relaxed whitespace-pre-line"
+                                              style={{ fontSize: 'clamp(17px, 2.7vh, 30px)' }}
+                                            >
+                                              {sanitizeUnsafeProcedureDescription(expProc.description)}
+                                            </p>
+                                          )}
+                                        </div>
+
+                                        <div className="flex items-center justify-between gap-3 pt-5 mt-6 border-t border-slate-200 dark:border-slate-800">
+                                          <button
+                                            type="button"
+                                            disabled={expandedBoardActivityIndex <= 0}
+                                            onClick={() =>
+                                              setExpandedBoardActivityIndex((prev) =>
+                                                prev !== null && prev > 0 ? prev - 1 : prev
+                                              )
+                                            }
+                                            className="flex items-center gap-2 px-5 py-3 rounded-2xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-100 font-black uppercase tracking-wider text-sm sm:text-base disabled:opacity-35 disabled:pointer-events-none transition-all active:scale-95"
+                                          >
+                                            <ChevronLeft className="w-5 h-5" />
+                                            <span>{t('actividades.daily.prev_activity')}</span>
+                                          </button>
+
+                                          <button
+                                            type="button"
+                                            onClick={() => setExpandedBoardActivityIndex(null)}
+                                            className="px-6 py-3 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white font-black uppercase tracking-wider text-sm sm:text-base shadow-md transition-all active:scale-95"
+                                          >
+                                            {t('actividades.daily.close_expanded')}
+                                          </button>
+
+                                          <button
+                                            type="button"
+                                            disabled={expandedBoardActivityIndex >= sortedActivities.length - 1}
+                                            onClick={() =>
+                                              setExpandedBoardActivityIndex((prev) =>
+                                                prev !== null && prev < sortedActivities.length - 1 ? prev + 1 : prev
+                                              )
+                                            }
+                                            className="flex items-center gap-2 px-5 py-3 rounded-2xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-100 font-black uppercase tracking-wider text-sm sm:text-base disabled:opacity-35 disabled:pointer-events-none transition-all active:scale-95"
+                                          >
+                                            <span>{t('actividades.daily.next_activity')}</span>
+                                            <ChevronRight className="w-5 h-5" />
+                                          </button>
+                                        </div>
+                                      </div>
+                                    </motion.div>
+                                  );
+                                })()}
+                              </AnimatePresence>
 
                               {/* Animated Downward Scroll Indicator when there are more activities below */}
                               <AnimatePresence>

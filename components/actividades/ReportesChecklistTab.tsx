@@ -33,7 +33,11 @@ import { supabase } from '@/lib/supabase'
 import { useLanguage } from '@/lib/i18n'
 
 import { useAuth } from '@/components/ProtectedRoute'
-import { resolveStoreCatalogActivitiesForDay } from '@/lib/actividades-resolution'
+import {
+  extractCatalogProceduresPayload,
+  parseStrictChecklistShiftType,
+  resolveStoreCatalogActivitiesForDay,
+} from '@/lib/actividades-resolution'
 import { type StoreDayHours } from '@/lib/store-time-offset'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -194,6 +198,7 @@ export default function ReportesChecklistTab() {
   const [completions, setCompletions] = useState<CompletionRecord[]>([])
   const [selectedDate, setSelectedDate] = useState(getBusinessDate())
   const [loading, setLoading] = useState(true)
+  const [reportError, setReportError] = useState<string | null>(null)
   const [viewMode, setViewMode] = useState<'day' | 'week'>('day')
   const [expandedShiftView, setExpandedShiftView] = useState<Record<string, 'missing' | 'completed' | null>>({})
 
@@ -219,22 +224,39 @@ export default function ReportesChecklistTab() {
     load()
   }, [userRole, user])
 
-  // ─── Fetch procedures ──────────────────────────────────────────────────
+  // ─── Fetch procedures (con soporte dual de envoltorio de API y fallback fail-closed) ──
   useEffect(() => {
     async function load() {
-      const { data } = await supabase
+      try {
+        const res = await fetch('/api/procedimientos')
+        if (res.ok) {
+          const payload = await res.json()
+          const extracted = extractCatalogProceduresPayload<Procedure>(payload)
+          if (extracted && extracted.length > 0) {
+            setProcedures(extracted.filter((p: Procedure) => p.role !== 'ROLES_MODULE'))
+            return
+          }
+        }
+      } catch {
+        // Fallback a lectura directa de Supabase si la ruta local falla
+      }
+
+      const { data, error } = await supabase
         .from('operating_procedures')
         .select('id, activity, description, start_time, duration_minutes, shift_type, shift, frequency, role, store_model, overrides')
-      if (data) {
+      if (error) {
+        setReportError(error.message || 'No se pudo cargar el catálogo de procedimientos.')
+      } else if (data) {
         setProcedures(data.filter((p: Procedure) => p.role !== 'ROLES_MODULE'))
       }
     }
     load()
   }, [])
 
-  // ─── Fetch completions for date range ──────────────────────────────────
+  // ─── Fetch completions for date range (compuerta fail-closed Hallazgo E) ──
   const fetchCompletions = useCallback(async () => {
     setLoading(true)
+    setReportError(null)
     try {
       const dateRange = viewMode === 'week' ? weekDates : [selectedDate]
       const startDate = dateRange[0]
@@ -248,33 +270,19 @@ export default function ReportesChecklistTab() {
       const apiRes = await fetch(
         `/api/roles/checklist?store_id=${encodeURIComponent(targetStoreParam)}&start_date=${encodeURIComponent(startDate)}&end_date=${encodeURIComponent(endDate)}`
       )
-      if (apiRes.ok) {
-        const apiRows = await apiRes.json()
-        setCompletions(Array.isArray(apiRows) ? apiRows : [])
+      if (!apiRes.ok) {
+        const errBody = await apiRes.json().catch(() => ({}))
+        setReportError(
+          errBody.error || `Error HTTP ${apiRes.status} al cargar completados del checklist.`
+        )
         setLoading(false)
         return
       }
 
-      let query = supabase
-        .from('checklist_completions')
-        .select('store_id, checklist_date, shift_type, activity_id, completed_at, completed_by_name')
-        .gte('checklist_date', startDate)
-        .lte('checklist_date', endDate)
-
-      if (selectedStoreId !== 'ALL') {
-        const store = stores.find(s => String(s.id) === selectedStoreId)
-        if (store) query = query.eq('store_id', store.external_id)
-      }
-
-      const { data, error } = await query
-      if (error) {
-        console.warn('Error fetching completions:', error.message)
-        setCompletions([])
-      } else {
-        setCompletions(data || [])
-      }
-    } catch {
-      setCompletions([])
+      const apiRows = await apiRes.json()
+      setCompletions(Array.isArray(apiRows) ? apiRows : [])
+    } catch (err: any) {
+      setReportError(err?.message || 'Error de red al consultar completados del checklist.')
     }
     setLoading(false)
   }, [selectedDate, selectedStoreId, stores, viewMode, weekDates])
@@ -283,15 +291,16 @@ export default function ReportesChecklistTab() {
     if (stores.length > 0) fetchCompletions()
   }, [fetchCompletions, stores])
 
-  // ─── Compute report for a specific date + store (Motor Unificado A01–A05, A07, A26, Hallazgo 5) ──
+  // ─── Compute report for a specific date + store (Motor Unificado A01–A05, A07, A26, Hallazgo E) ──
   const computeDayReportForStore = useCallback((date: string, store: StoreInfo): DayReport => {
     const shifts = ['Apertura', 'Regular', 'Cierre']
 
     const dayCompletions = completions.filter(c => c.checklist_date === date && c.store_id === store.external_id)
     const completionByCompositeKey = new Map<string, CompletionRecord>()
     dayCompletions.forEach(c => {
-      const cat = String(c.shift_type || 'Regular').trim()
-      completionByCompositeKey.set(`${cat}::${c.activity_id}`, c)
+      const strictCat = parseStrictChecklistShiftType(c.shift_type)
+      if (!strictCat) return
+      completionByCompositeKey.set(`${strictCat}::${c.activity_id}`, c)
     })
 
     const shiftStats: ShiftStats[] = shifts.map(shift => {
@@ -588,6 +597,18 @@ export default function ReportesChecklistTab() {
         <Clock size={15} style={{ color: '#ea580c', flexShrink: 0 }} />
         <span>{t('actividades.reports.catalog_denominator_note')}</span>
       </div>
+
+      {reportError && (
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: '10px',
+          marginBottom: '18px', padding: '12px 16px',
+          background: '#fef2f2', borderRadius: '12px',
+          border: '1px solid #fecaca', color: '#dc2626', fontSize: '13px', fontWeight: 600,
+        }}>
+          <AlertCircle size={16} style={{ flexShrink: 0 }} />
+          <span>{t('actividades.daily.error_load')}: {reportError}</span>
+        </div>
+      )}
 
       {loading ? (
         <div style={{ textAlign: 'center', color: '#94a3b8', padding: '60px 0', fontSize: '16px' }}>

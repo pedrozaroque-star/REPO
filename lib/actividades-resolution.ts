@@ -37,7 +37,7 @@ import {
     applyTimeOffset,
     calculateStoreOffsetsForDate,
     formatTime12h,
-    parseTimeToMinutesStrict,
+    parseTimeToMinutesStrict as parseTimeToMinutesStrictBase,
     resolveTemporalPolicy,
     resolveTimeAnchor,
     StoreScheduleConfig,
@@ -45,6 +45,10 @@ import {
     TemporalPolicy,
     TimeAnchor,
 } from './store-time-offset';
+
+export function parseTimeToMinutesStrict(timeStr?: string | null): number | null {
+    return parseTimeToMinutesStrictBase(timeStr);
+}
 
 export interface ProcedureStoreOverride {
     enabled?: boolean;
@@ -1389,6 +1393,25 @@ export function getStoreOverrideForProcedure(
  * Resuelve las actividades operativas efectivas para una asignación de estación en una tienda,
  * fecha laboral y turno (`AM` o `PM`), con soporte opcional de intersección por minutos con el turno del empleado.
  */
+/**
+ * IDs de procedimientos de responsabilidad continua de estación en `operating_procedures`
+ * que fueron sembrados con `start_time = '10:00:00'` (hora de apertura AM), pero que al
+ * reutilizarse en el turno `PM` (`shift = 'PM'` o `'AMBOS'`) operan como responsabilidades
+ * continuas sin hora fija (`EVENT_NO_TIME`), nunca como tareas de las `10:00 AM`.
+ */
+export const CONTINUOUS_STATION_DUTY_IDS: ReadonlySet<string> = new Set([
+    '77fa903a-54c2-4487-b8c7-dc2d8a79fffd', // Preparar Bebidas para Uber
+    '4bfac285-4210-4e48-9e02-c072efd25baa', // Limpiar Mesas, Puertas y Vidrios
+    'fe15d699-ceb9-440f-bee6-c011b31f1dca', // Preparar Burritos, Sopes y Nachos
+    'd1f27779-9856-41cc-9f66-ed227f073df8', // Preparar Tortas, Quesadillas y Mulitas
+    'd24f3ee1-7f64-4166-91c0-9344643b84c1', // Servicio de Tacos y Línea
+    '50edc21e-199a-4a2b-a347-6fdb147c68c8', // Cocinar Carnes y Tortillas
+    '4f1b69dc-f1e0-4fa6-9903-83c9cc851333', // Vaciar Depósitos de Grasa
+    '54d9eb1f-9552-4c57-a329-21a82862ae1f', // Barrer y Trapear Línea
+    '04e23772-4c80-46ee-a6eb-7dee5e2a4728', // Hacer Covers
+    '3d3feee5-ac7c-4282-aef1-45b2d834886e', // Lavar Utensilios de Crema y Guacamole
+]);
+
 export function resolveStationActivities(params: {
     mainStation: string;
     subPosition?: string | null;
@@ -1519,13 +1542,13 @@ export function resolveStationActivities(params: {
         const hasValidBaseTime = parseTimeToMinutesStrict(rawBaseStart) !== null;
         const baseStartTime = hasValidBaseTime ? rawBaseStart!.trim() : null;
 
-        const timeAnchor = resolveTimeAnchor(category, {
+        const timeAnchorRaw = resolveTimeAnchor(category, {
             activityId: proc.id,
             activityTitle: title,
             baseTimeStr: baseStartTime,
             overrides: proc.overrides,
         });
-        const temporalPolicy = resolveTemporalPolicy(baseStartTime, category, {
+        const temporalPolicyRaw = resolveTemporalPolicy(baseStartTime, category, {
             activityId: proc.id,
             activityTitle: title,
             baseTimeStr: baseStartTime,
@@ -1533,66 +1556,78 @@ export function resolveStationActivities(params: {
         });
 
         // Regla A25: Nunca inventar hora (00:00) si la actividad no tiene start_time válido
-        const effectiveStartTime = baseStartTime
+        const rawEffectiveStartTime = baseStartTime
             ? applyTimeOffset(baseStartTime, category, offsets, {
                   activityId: proc.id,
                   activityTitle: title,
                   baseTimeStr: baseStartTime,
                   overrides: proc.overrides,
-                  timeAnchor,
+                  timeAnchor: timeAnchorRaw,
               })
             : null;
 
-        // Si NO viene de un mapeo explícito AMBOS en position_activities (ej. tarea legacy sólo en catálogo)
-        // y tiene hora efectiva específica (y no es el hito de 17:00), respetar su bloque natural (AM vs PM).
-        const hasExplicitAmbosMapping = Boolean(
-            mapping?.shift && ['AMBOS', 'ALL'].includes(mapping.shift.toString().trim().toUpperCase())
-        );
-        if (
-            !hasExplicitAmbosMapping &&
-            (effectiveShiftRule === 'AMBOS' || effectiveShiftRule === 'ALL') &&
-            effectiveStartTime &&
-            temporalPolicy !== 'FIXED_HANDOFF'
-        ) {
-            const naturalShift = getEffectiveShiftForChecklist(
-                { shift_type: category, shift: effectiveShiftRule },
-                effectiveStartTime
-            );
-            if (naturalShift !== 'ALL' && naturalShift !== shift) {
-                return null;
-            }
+        const baseSortMins = getBusinessDaySortMinutes(baseStartTime);
+        const isMorningCatalogClockTime =
+            Boolean(baseStartTime) && baseSortMins >= 360 && baseSortMins < 1020;
+
+        // Hallazgo B (Etapa 2): Contrato de separación entre tareas de estación y tareas personales.
+        // 1) Las 10 responsabilidades continuas de puesto (`CONTINUOUS_STATION_DUTY_IDS`) fueron sembradas
+        //    con `10:00:00` (apertura AM). Cuando se resuelven para el turno `PM`, operan como tareas
+        //    continuas sin hora específica (`EVENT_NO_TIME`, `effective_start_time = null`), para nunca
+        //    mostrar una etiqueta falsa de "10:00 AM" en un turno de tarde/noche.
+        const isContinuousStationDutyInPm =
+            shift === 'PM' &&
+            isMorningCatalogClockTime &&
+            CONTINUOUS_STATION_DUTY_IDS.has(String(proc.id)) &&
+            category.toLowerCase() === 'regular';
+
+        // 2) Cualquier otra actividad con hora base matutina en catálogo (06:00–16:59, ej. 09:20 AM, 10:00 AM,
+        //    11:00 AM, tareas de Apertura o "(AM)") pertenece exclusivamente a la mañana y NO debe
+        //    filtrarse al turno PM, ni siquiera si `position_activities` tenía `PM` o `AMBOS`.
+        if (shift === 'PM' && isMorningCatalogClockTime && !isContinuousStationDutyInPm) {
+            return null;
         }
 
-        // Hallazgo 6: Una asignación AMBOS NO debe saltarse las horas reales de disponibilidad
-        // del empleado (`[shiftStartTime, shiftEndTime)`) cuando `enforceShiftWindow` está activo,
-        // salvo cuando un procedimiento del catálogo con hora base matutina (06:00-16:59) fue asignado
-        // explícitamente en `position_activities` a `PM` o `AMBOS` y se resuelve para el turno `PM`.
-        const actSortMins = getBusinessDaySortMinutes(effectiveStartTime);
-        const isPmReusedMorningCatalogTask =
-            shift === 'PM' &&
-            Boolean(
-                mapping?.shift &&
-                    ['PM', 'AMBOS', 'ALL'].includes(mapping.shift.toString().trim().toUpperCase())
-            ) &&
-            actSortMins >= 360 &&
-            actSortMins < 1020 &&
-            doesShiftOverlapPeriod(shiftStartTime, shiftEndTime, 'PM');
-
+        // 3) Inversamente, una actividad con hora base vespertina/nocturna en catálogo (17:00–05:59, salvo hito 17:00
+        //    FIXED_HANDOFF asignado explícitamente a AM) pertenece a PM y no debe filtrarse a AM.
         if (
-            enforceShiftWindow &&
-            shiftStartTime &&
-            shiftEndTime &&
-            !isPmReusedMorningCatalogTask &&
-            !doesActivityIntersectShiftWindow({
-                effectiveStartTime,
-                shiftStartTime,
-                shiftEndTime,
-                temporalPolicy,
-                category,
-                isClosingShift,
-            })
+            shift === 'AM' &&
+            Boolean(baseStartTime) &&
+            baseSortMins >= 1020 &&
+            temporalPolicyRaw !== 'FIXED_HANDOFF'
         ) {
             return null;
+        }
+
+        const effectiveStartTime = isContinuousStationDutyInPm ? null : rawEffectiveStartTime;
+        const temporalPolicy: TemporalPolicy = isContinuousStationDutyInPm
+            ? 'EVENT_NO_TIME'
+            : temporalPolicyRaw;
+        // EVENT_NO_TIME elimina la hora efectiva; se conserva el ancla válida del catálogo porque
+        // `NONE` no forma parte del contrato `TimeAnchor` ni interviene en la renderización.
+        const timeAnchor: TimeAnchor = timeAnchorRaw;
+
+        // 4) Cuando `enforceShiftWindow` está activo (vista/correo/calendario personal del empleado),
+        //    el turno del empleado `[shiftStartTime, shiftEndTime)` debe:
+        //    a) traslapar el bloque `shift` (`AM` o `PM`), y
+        //    b) intersectar estrictamente la ventana de la actividad (`[start, end)` semiabierto),
+        //       sin ningún bypass que permita colar tareas de 10:00 AM en un turno de 5:00–11:00 PM.
+        if (enforceShiftWindow && shiftStartTime && shiftEndTime) {
+            if (!doesShiftOverlapPeriod(shiftStartTime, shiftEndTime, shift)) {
+                return null;
+            }
+            if (
+                !doesActivityIntersectShiftWindow({
+                    effectiveStartTime,
+                    shiftStartTime,
+                    shiftEndTime,
+                    temporalPolicy,
+                    category,
+                    isClosingShift,
+                })
+            ) {
+                return null;
+            }
         }
 
         const formattedTime = effectiveStartTime ? formatTime12h(effectiveStartTime) : 'Sin hora';
@@ -2001,13 +2036,11 @@ export function resolveChecklistActivityResponsibility(params: {
 
     for (const a of assignments || []) {
         if (a.assignment_date !== businessDateStr || !a.employee_id) continue;
-        const rawPos = String(a.sub_position || a.main_station || '').trim();
-        if (!rawPos) continue;
-        const isPM = /_PM$/i.test(rawPos);
-        const isAM = /_AM$/i.test(rawPos);
-        if (!isAM && !isPM) continue;
+        const normalizedPos = normalizeAssignmentSubPosition(a.main_station, a.sub_position, 'AM');
+        if (!normalizedPos) continue;
+        const isPM = /_PM$/i.test(normalizedPos);
         const shiftBucket: 'AM' | 'PM' = isPM ? 'PM' : 'AM';
-        const baseStation = rawPos.replace(/_(AM|PM)$/i, '').trim();
+        const baseStation = normalizedPos.replace(/_(AM|PM)$/i, '').trim();
         const empName = empNameMap.get(String(a.employee_id));
         if (!empName) continue;
         const normKey = normalizeText(baseStation);
@@ -2065,4 +2098,827 @@ export function resolveChecklistActivityResponsibility(params: {
     }
 
     return result;
+}
+
+/**
+ * Extrae de forma segura la lista de procedimientos de cualquier contrato de respuesta
+ * de `/api/procedimientos` (`[...]`, `{ data: [...] }` o `{ procedures: [...] }`).
+ * Devuelve `null` si el payload es inválido o de error, evitando sobrescribir el estado con `[]`.
+ */
+export function extractCatalogProceduresPayload<T = unknown>(payload: unknown): T[] | null {
+    if (Array.isArray(payload)) {
+        return payload as T[];
+    }
+    if (payload && typeof payload === 'object') {
+        const record = payload as Record<string, unknown>;
+        if (Array.isArray(record.data)) {
+            return record.data as T[];
+        }
+        if (Array.isArray(record.procedures)) {
+            return record.procedures as T[];
+        }
+    }
+    return null;
+}
+
+/**
+ * Extrae literalmente el sufijo de turno (`_AM` o `_PM`) al final de una cadena.
+ * Compara el carácter guion bajo literal (`_`, ASCII 0x5F) seguido de `AM` o `PM`,
+ * evitando que el guion bajo actúe como comodín de un carácter (como ocurriría en SQL `LIKE '%_AM'` sin `ESCAPE`).
+ */
+export function extractLiteralShiftSuffix(
+    value: string | null | undefined
+): 'AM' | 'PM' | null {
+    const clean = String(value || '').trim().toUpperCase();
+    if (clean.endsWith('_AM')) return 'AM';
+    if (clean.endsWith('_PM')) return 'PM';
+    return null;
+}
+
+/**
+ * Indica si `value` termina literalmente en `"_AM"` o `"_PM"`.
+ */
+export function hasLiteralShiftSuffix(
+    value: string | null | undefined
+): boolean {
+    return extractLiteralShiftSuffix(value) !== null;
+}
+
+/**
+ * Remueve únicamente el sufijo literal final `"_AM"` o `"_PM"` si está presente.
+ */
+export function stripLiteralShiftSuffix(
+    value: string | null | undefined
+): string {
+    const clean = String(value || '').trim();
+    const suffix = extractLiteralShiftSuffix(clean);
+    if (!suffix) return clean;
+    return clean.slice(0, clean.length - 3).trim();
+}
+
+/**
+ * Confirma estrictamente si una sucursal tiene Drive-Thru habilitado (`has_drive_thru === true`).
+ * Si el valor es `false`, `null`, `undefined` o desconocido, devuelve `false` (nunca asume `true`).
+ */
+export function isConfirmedStoreDriveThru(
+    store: { has_drive_thru?: boolean | null } | null | undefined
+): boolean {
+    return store?.has_drive_thru === true;
+}
+
+/**
+ * Normaliza `sub_position` garantizando siempre un sufijo explícito `_AM` o `_PM`.
+ * Si `sub_position` o `main_station` ya tienen sufijo literal `_AM` o `_PM`, preserva su estación base y turno
+ * (evitando que un `main_station` con `_PM` y un `sub_position` sin sufijo se cambie inadvertidamente a `AM`).
+ * Si ambos carecen de sufijo literal, construye `${cleanBase}_${fallbackShift}` (por defecto `'AM'`).
+ */
+export function normalizeAssignmentSubPosition(
+    mainStation: string | null | undefined,
+    subPosition: string | null | undefined,
+    fallbackShift: 'AM' | 'PM' = 'AM'
+): string {
+    const rawSub = String(subPosition || '').trim();
+    const rawMain = String(mainStation || '').trim();
+    const source = rawSub || rawMain;
+    if (!source) return '';
+
+    const subSuffix = extractLiteralShiftSuffix(rawSub);
+    const mainSuffix = extractLiteralShiftSuffix(rawMain);
+    const effectiveSuffix = subSuffix || mainSuffix;
+
+    const cleanBase = stripLiteralShiftSuffix(rawMain || rawSub);
+    if (!cleanBase) return '';
+
+    if (effectiveSuffix === 'PM') {
+        return `${cleanBase}_PM`;
+    }
+    if (effectiveSuffix === 'AM') {
+        return `${cleanBase}_AM`;
+    }
+    return `${cleanBase}_${fallbackShift}`;
+}
+
+export interface ClearedStationAssignmentScope {
+    store_id: string;
+    assignment_date: string;
+    main_station?: string | null;
+    sub_position: string;
+}
+
+export interface UnsuffixedAssignmentResolutionEntry {
+    store_id: string;
+    assignment_date: string;
+    main_station: string;
+    original_sub_position: string | null;
+    normalized_sub_position: string;
+    previous_employee_id: string;
+    new_employee_id: string | null;
+    action:
+        | 'preserved_unsuffixed_as_am'
+        | 'replaced_by_manager_new_employee'
+        | 'retained_same_employee_with_explicit_am'
+        | 'cleared_explicitly_by_manager';
+    reason: string;
+    previous_tasks: string[];
+    final_tasks: string[];
+}
+
+export interface MergeUnsuffixedAmResult<T> {
+    assignments: T[];
+    resolutionAudit: UnsuffixedAssignmentResolutionEntry[];
+}
+
+/**
+ * Preserva de forma no destructiva filas existentes en base de datos que carezcan del sufijo literal `_AM`/`_PM`
+ * cuando un cliente guarda el turno `'AM'`.
+ * - Cualquier desasignación explícita (`clearedAssignments`) exige coincidencia exacta de `store_id + assignment_date + estación`.
+ *   Una instrucción de desasignar una estación en una fecha JAMÁS borra esa estación en otras fechas del rango ni en otra sucursal.
+ * - Si llega una asignación en `incomingAssignments` para la misma `(store_id, assignment_date, estación)` pero con otro empleado,
+ *   no se descarta silenciosamente la fila manual previa: se registra explícitamente en `resolutionAudit` como
+ *   `'replaced_by_manager_new_employee'` con trazabilidad completa (`previous_employee_id`, `new_employee_id`, `previous_tasks`, `final_tasks`).
+ */
+export function mergeUnsuffixedAssignmentsIntoAmSlice<
+    T extends {
+        employee_id: string;
+        assignment_date: string;
+        main_station: string;
+        sub_position: string;
+        station_group: string;
+        tasks: string[];
+    }
+>(params: {
+    storeId: string;
+    incomingAssignments: T[];
+    existingRowsInRange: Array<{
+        store_id?: string | number | null;
+        employee_id?: string | number | null;
+        assignment_date?: string | null;
+        main_station?: string | null;
+        sub_position?: string | null;
+        station_group?: string | null;
+        tasks?: string[] | null;
+    }>;
+    clearedAssignments?: ClearedStationAssignmentScope[] | null;
+}): MergeUnsuffixedAmResult<T> {
+    const { storeId, incomingAssignments, existingRowsInRange, clearedAssignments } = params;
+    const normStoreId = normalizeText(String(storeId || '').trim());
+    const resolutionAudit: UnsuffixedAssignmentResolutionEntry[] = [];
+
+    if (!normStoreId || !Array.isArray(existingRowsInRange) || existingRowsInRange.length === 0) {
+        return {
+            assignments: [...incomingAssignments],
+            resolutionAudit,
+        };
+    }
+
+    // Construir índice de desasignaciones explícitas con alcance estricto (store_id + assignment_date + estación)
+    const clearedScopedKeys = new Set<string>();
+    for (const item of clearedAssignments || []) {
+        if (!item || typeof item !== 'object') continue;
+        const itemStoreNorm = normalizeText(String(item.store_id || '').trim());
+        const itemDate = String(item.assignment_date || '').trim();
+        const rawStation = String(item.main_station || item.sub_position || '').trim();
+        const cleanStation = stripLiteralShiftSuffix(rawStation);
+        if (!itemStoreNorm || itemStoreNorm !== normStoreId) continue;
+        if (!isValidCalendarDateISO(itemDate) || !cleanStation) continue;
+        // Si trae sufijo literal _PM, no corresponde a una desasignación del turno AM
+        if (extractLiteralShiftSuffix(item.sub_position) === 'PM') continue;
+        clearedScopedKeys.add(`${normStoreId}|${itemDate}|${normalizeText(cleanStation)}`);
+    }
+
+    const merged = incomingAssignments.map((a) => ({
+        ...a,
+        tasks: Array.isArray(a.tasks) ? [...a.tasks] : [],
+    }));
+
+    const incomingIndexByScopeKey = new Map<string, number>();
+    for (let idx = 0; idx < merged.length; idx++) {
+        const item = merged[idx];
+        const cleanMain = stripLiteralShiftSuffix(item.main_station || item.sub_position || '');
+        const scopeKey = `${normStoreId}|${item.assignment_date}|${normalizeText(cleanMain)}`;
+        incomingIndexByScopeKey.set(scopeKey, idx);
+    }
+
+    for (const row of existingRowsInRange) {
+        const rowStoreNorm = row.store_id !== undefined && row.store_id !== null && String(row.store_id).trim() !== ''
+            ? normalizeText(String(row.store_id).trim())
+            : normStoreId;
+        if (rowStoreNorm !== normStoreId) continue;
+
+        const empId = String(row.employee_id || '').trim();
+        const assignDate = String(row.assignment_date || '').trim();
+        const rawSub = row.sub_position === null || row.sub_position === undefined ? '' : String(row.sub_position).trim();
+        const rawMain = row.main_station === null || row.main_station === undefined ? '' : String(row.main_station).trim();
+        if (!empId || !assignDate) continue;
+
+        const subSuffix = extractLiteralShiftSuffix(rawSub);
+        const mainSuffix = extractLiteralShiftSuffix(rawMain);
+        // Si sub_position o main_station llevan sufijo literal _PM, pertenece a PM y NUNCA debe convertirse a AM
+        if (subSuffix === 'PM' || mainSuffix === 'PM') {
+            continue;
+        }
+        // Distinguir literalmente los sufijos "_AM" y "_PM" (el guion bajo NO es comodín)
+        if (subSuffix === 'AM') {
+            continue;
+        }
+
+        const cleanMain = stripLiteralShiftSuffix(rawMain || rawSub || '');
+        if (!cleanMain) continue;
+
+        const normStation = normalizeText(cleanMain);
+        const scopeKey = `${normStoreId}|${assignDate}|${normStation}`;
+        const normalizedSubPosition = normalizeAssignmentSubPosition(cleanMain, rawSub, 'AM');
+        const previousTasks = Array.isArray(row.tasks)
+            ? row.tasks.map((t) => String(t || '').trim()).filter(Boolean)
+            : [];
+
+        const existingIncomingIdx = incomingIndexByScopeKey.get(scopeKey);
+        if (existingIncomingIdx !== undefined) {
+            const incomingItem = merged[existingIncomingIdx];
+            const incomingEmpId = String(incomingItem.employee_id || '').trim();
+            // Si el reemplazo entrante no especificó tasks manuales pero la fila previa las tenía, conservarlas
+            if (incomingItem.tasks.length === 0 && previousTasks.length > 0) {
+                incomingItem.tasks = [...previousTasks];
+            }
+            const isDifferentEmployee = incomingEmpId !== empId;
+            resolutionAudit.push({
+                store_id: String(storeId),
+                assignment_date: assignDate,
+                main_station: cleanMain,
+                original_sub_position: row.sub_position ?? null,
+                normalized_sub_position: normalizedSubPosition,
+                previous_employee_id: empId,
+                new_employee_id: incomingEmpId,
+                action: isDifferentEmployee
+                    ? 'replaced_by_manager_new_employee'
+                    : 'retained_same_employee_with_explicit_am',
+                reason: isDifferentEmployee
+                    ? 'reemplazo_intencional_manager_mismo_dia_estacion'
+                    : 'mismo_empleado_normalizado_a_sufijo_am',
+                previous_tasks: previousTasks,
+                final_tasks: [...incomingItem.tasks],
+            });
+            continue;
+        }
+
+        if (clearedScopedKeys.has(scopeKey)) {
+            resolutionAudit.push({
+                store_id: String(storeId),
+                assignment_date: assignDate,
+                main_station: cleanMain,
+                original_sub_position: row.sub_position ?? null,
+                normalized_sub_position: normalizedSubPosition,
+                previous_employee_id: empId,
+                new_employee_id: null,
+                action: 'cleared_explicitly_by_manager',
+                reason: 'desasignacion_explicita_con_alcance_sucursal_fecha_estacion',
+                previous_tasks: previousTasks,
+                final_tasks: [],
+            });
+            continue;
+        }
+
+        const canonicalEntry = CANONICAL_STATIONS_CATALOG.find(
+            (s) => normalizeText(s.station) === normStation
+        );
+        const rawGroup = String(row.station_group || canonicalEntry?.group || 'front')
+            .trim()
+            .toLowerCase();
+        const normalizedGroup =
+            rawGroup === 'salon' ? 'front' : rawGroup === 'cocina' ? 'kitchen' : rawGroup;
+
+        const preservedItem = {
+            employee_id: empId,
+            assignment_date: assignDate,
+            main_station: cleanMain,
+            sub_position: normalizedSubPosition,
+            station_group: normalizedGroup,
+            tasks: previousTasks,
+        } as T;
+
+        merged.push(preservedItem);
+        incomingIndexByScopeKey.set(scopeKey, merged.length - 1);
+        resolutionAudit.push({
+            store_id: String(storeId),
+            assignment_date: assignDate,
+            main_station: cleanMain,
+            original_sub_position: row.sub_position ?? null,
+            normalized_sub_position: normalizedSubPosition,
+            previous_employee_id: empId,
+            new_employee_id: empId,
+            action: 'preserved_unsuffixed_as_am',
+            reason: 'preservada_automaticamente_fila_historica_sin_sufijo_literal',
+            previous_tasks: previousTasks,
+            final_tasks: previousTasks,
+        });
+    }
+
+    return {
+        assignments: merged,
+        resolutionAudit,
+    };
+}
+
+export interface CompleteRangeQueryResult<Row> {
+    data: Row[] | null;
+    error: { message: string } | null;
+    isComplete?: boolean;
+    exactCount?: number | null;
+    pagesFetched?: number;
+    incompletenessReason?: string | null;
+    startRevision?: string | null;
+    endRevision?: string | null;
+}
+
+/**
+ * Ejecuta una lectura paginada determinista sobre `station_assignments` (o cualquier tabla ordenada)
+ * verificando `count: 'exact'` para garantizar que NUNCA se trunque el resultado por el límite
+ * de filas por petición de PostgREST (`max_rows`, típicamente 1000). Los llamadores que protegen
+ * lecturas de asignaciones deben proporcionar `fetchRevision` para detectar cambios concurrentes.
+ *
+ * - Avanza usando `offset = allRows.length` mientras `allRows.length < exactCount` (incluso si el servidor
+ *   impone un `max_rows` menor que `pageSize`).
+ * - Si una página devuelve `0` filas antes de alcanzar `exactCount`, o si se supera `maxRows`,
+ *   marca `isComplete: false` para que `prepareSafeAssignmentsBeforeRpc` detenga el guardado (fail-closed).
+ * - Un `count` ausente/no válido o cambiante entre páginas nunca se considera una lectura completa.
+ * - Si se proporciona `fetchRevision`, la lectura aborta si falla o cambia la revisión durante el recorrido.
+ */
+export async function fetchCompleteRangeAssignments<Row>(params: {
+    fetchPage: (
+        offset: number,
+        limit: number
+    ) => Promise<{
+        data: Row[] | null;
+        error: { message: string } | null;
+        count?: number | null;
+    }>;
+    fetchRevision?: () => Promise<{ revision: string | null; error: { message: string } | null }>;
+    pageSize?: number;
+    maxRows?: number;
+}): Promise<CompleteRangeQueryResult<Row>> {
+    const pageSize = Math.max(1, params.pageSize ?? 500);
+    const maxRows = Math.max(pageSize, params.maxRows ?? 10000);
+    const allRows: Row[] = [];
+    let exactCount: number | null = null;
+    let pagesFetched = 0;
+    let startRevision: string | null = null;
+
+    if (params.fetchRevision) {
+        const revisionRes = await params.fetchRevision();
+        if (revisionRes.error || typeof revisionRes.revision !== 'string' || !revisionRes.revision.trim()) {
+            return {
+                data: null,
+                error: revisionRes.error || { message: 'No se pudo confirmar la revisión antes de paginar asignaciones' },
+                isComplete: false,
+                exactCount: null,
+                pagesFetched,
+                incompletenessReason: 'No fue posible obtener una revisión inicial válida.',
+            };
+        }
+        startRevision = revisionRes.revision;
+    }
+
+    while (allRows.length < maxRows) {
+        const offset = allRows.length;
+        const pageRes = await params.fetchPage(offset, pageSize);
+        pagesFetched += 1;
+
+        if (pageRes.error || !Array.isArray(pageRes.data)) {
+            return {
+                data: null,
+                error: pageRes.error || { message: 'Respuesta nula al paginar asignaciones existentes' },
+                isComplete: false,
+                exactCount,
+                pagesFetched,
+                incompletenessReason: 'PAGE_QUERY_ERROR',
+            };
+        }
+
+        if (typeof pageRes.count !== 'number' || !Number.isSafeInteger(pageRes.count) || pageRes.count < 0) {
+            return {
+                data: allRows,
+                error: null,
+                isComplete: false,
+                exactCount,
+                pagesFetched,
+                startRevision,
+                incompletenessReason: 'La base de datos no devolvió un conteo exacto válido en cada página; lectura abortada.',
+            };
+        }
+
+        if (exactCount === null) {
+            exactCount = pageRes.count;
+        } else if (exactCount !== pageRes.count) {
+            return {
+                data: allRows,
+                error: null,
+                isComplete: false,
+                exactCount,
+                pagesFetched,
+                startRevision,
+                incompletenessReason: `El conteo cambió durante la paginación (${exactCount} → ${pageRes.count}); lectura abortada.`,
+            };
+        }
+
+        const batch = pageRes.data;
+        allRows.push(...batch);
+
+        if (exactCount !== null) {
+            if (allRows.length >= exactCount) {
+                break;
+            }
+            if (batch.length === 0) {
+                return {
+                    data: allRows,
+                    error: null,
+                    isComplete: false,
+                    exactCount,
+                    pagesFetched,
+                    incompletenessReason: `Truncamiento detectado: se recibieron ${allRows.length} filas de ${exactCount} esperadas (página vacía prematura).`,
+                };
+            }
+        } else {
+            if (batch.length < pageSize) {
+                break;
+            }
+        }
+    }
+
+    if (exactCount !== null && allRows.length !== exactCount) {
+        return {
+            data: allRows,
+            error: null,
+            isComplete: false,
+            exactCount,
+            pagesFetched,
+            incompletenessReason: `Conteo incompleto: se leyeron ${allRows.length} filas pero el conteo exacto en DB es ${exactCount}.`,
+        };
+    }
+
+    if (exactCount === null && allRows.length >= maxRows) {
+        return {
+            data: allRows,
+            error: null,
+            isComplete: false,
+            exactCount: null,
+            pagesFetched,
+            incompletenessReason: `Se alcanzó el techo de seguridad (${maxRows} filas) sin poder confirmar lectura completa.`,
+        };
+    }
+
+    let endRevision: string | null = null;
+    if (params.fetchRevision) {
+        const revisionRes = await params.fetchRevision();
+        if (revisionRes.error || typeof revisionRes.revision !== 'string' || !revisionRes.revision.trim()) {
+            return {
+                data: allRows,
+                error: revisionRes.error || { message: 'No se pudo confirmar la revisión después de paginar asignaciones' },
+                isComplete: false,
+                exactCount,
+                pagesFetched,
+                startRevision,
+                incompletenessReason: 'No fue posible obtener una revisión final válida.',
+            };
+        }
+        endRevision = revisionRes.revision;
+        if (endRevision !== startRevision) {
+            return {
+                data: allRows,
+                error: null,
+                isComplete: false,
+                exactCount,
+                pagesFetched,
+                startRevision,
+                endRevision,
+                incompletenessReason: `Las asignaciones cambiaron durante la lectura (revisión ${startRevision} → ${endRevision}); vuelva a cargar antes de guardar.`,
+            };
+        }
+    }
+
+    return {
+        data: allRows,
+        error: null,
+        isComplete: true,
+        exactCount: exactCount ?? allRows.length,
+        pagesFetched,
+        incompletenessReason: null,
+        startRevision,
+        endRevision,
+    };
+}
+
+/**
+ * Compuerta fail-closed previa al guardado atómico (`replace_station_assignments_atomic`).
+ * Si falla la consulta `SELECT` que busca filas existentes en el rango para detectar asignaciones sin sufijo,
+ * o si la lectura paginada resulta incompleta (`isComplete === false` o discrepancia con `exactCount`),
+ * detiene inmediatamente el guardado (`ok: false`, `shouldCallRpc: false`, `status: 500`) para impedir
+ * que la RPC se ejecute con una lista incompleta y borre asignaciones históricas.
+ */
+export function prepareSafeAssignmentsBeforeRpc<
+    T extends {
+        employee_id: string;
+        assignment_date: string;
+        main_station: string;
+        sub_position: string;
+        station_group: string;
+        tasks: string[];
+    }
+>(params: {
+    activeShift: 'AM' | 'PM' | null | undefined;
+    storeId: string;
+    incomingAssignments: T[];
+    clearedAssignments?: ClearedStationAssignmentScope[] | null;
+    existingRangeQueryResult?: CompleteRangeQueryResult<{
+        store_id?: string | number | null;
+        employee_id?: string | number | null;
+        assignment_date?: string | null;
+        main_station?: string | null;
+        sub_position?: string | null;
+        station_group?: string | null;
+        tasks?: string[] | null;
+    }>;
+}):
+    | {
+          ok: true;
+          shouldCallRpc: true;
+          assignments: T[];
+          resolutionAudit: UnsuffixedAssignmentResolutionEntry[];
+      }
+    | {
+          ok: false;
+          shouldCallRpc: false;
+          status: 500;
+          code: 'PRE_SAVE_READ_FAILED' | 'PRE_SAVE_READ_INCOMPLETE';
+          error: string;
+          details: string;
+      } {
+    const {
+        activeShift,
+        storeId,
+        incomingAssignments,
+        clearedAssignments,
+        existingRangeQueryResult,
+    } = params;
+
+    if (activeShift === 'AM') {
+        if (!existingRangeQueryResult || existingRangeQueryResult.error || !Array.isArray(existingRangeQueryResult.data)) {
+            return {
+                ok: false,
+                shouldCallRpc: false,
+                status: 500,
+                code: 'PRE_SAVE_READ_FAILED',
+                error: 'No se pudo verificar la existencia de asignaciones históricas antes de guardar el turno AM. Guardado abortado para proteger asignaciones.',
+                details: existingRangeQueryResult?.error?.message || 'Resultado nulo al consultar asignaciones existentes',
+            };
+        }
+
+        const hasCountMismatch =
+            typeof existingRangeQueryResult.exactCount === 'number' &&
+            existingRangeQueryResult.data.length !== existingRangeQueryResult.exactCount;
+
+        if (existingRangeQueryResult.isComplete === false || hasCountMismatch) {
+            return {
+                ok: false,
+                shouldCallRpc: false,
+                status: 500,
+                code: 'PRE_SAVE_READ_INCOMPLETE',
+                error: 'La lectura previa de asignaciones en el rango resultó incompleta o truncada. Guardado abortado para proteger asignaciones históricas.',
+                details:
+                    existingRangeQueryResult.incompletenessReason ||
+                    `Filas leídas (${existingRangeQueryResult.data.length}) != conteo exacto (${existingRangeQueryResult.exactCount})`,
+            };
+        }
+
+        const mergedResult = mergeUnsuffixedAssignmentsIntoAmSlice({
+            storeId,
+            incomingAssignments,
+            existingRowsInRange: existingRangeQueryResult.data,
+            clearedAssignments,
+        });
+
+        return {
+            ok: true,
+            shouldCallRpc: true,
+            assignments: mergedResult.assignments,
+            resolutionAudit: mergedResult.resolutionAudit,
+        };
+    }
+
+    return {
+        ok: true,
+        shouldCallRpc: true,
+        assignments: [...incomingAssignments],
+        resolutionAudit: [],
+    };
+}
+
+/**
+ * Valida las llamadas a `POST /api/roles` que no especifican `active_shift` (ruta exclusiva
+ * de `handleCopyPreviousWeekAll` para clonar la semana completa).
+ * Como `replace_station_assignments_atomic` con `p_active_shift = NULL` reemplaza todos los turnos
+ * del rango `[start_date, end_date]`, exige confirmación explícita (`replaceAllShiftsConfirmed === true`)
+ * y un conjunto no vacío de asignaciones clonadas.
+ */
+export function validateFullWeekClonePayload(params: {
+    activeShift: 'AM' | 'PM' | null | undefined;
+    replaceAllShiftsConfirmed: boolean | null | undefined;
+    assignmentsCount: number;
+}):
+    | { ok: true }
+    | {
+          ok: false;
+          status: 400;
+          code: 'MISSING_ACTIVE_SHIFT_OR_CONFIRMATION' | 'EMPTY_FULL_WEEK_CLONE_BLOCKED';
+          error: string;
+      } {
+    const { activeShift, replaceAllShiftsConfirmed, assignmentsCount } = params;
+    if (activeShift === 'AM' || activeShift === 'PM') {
+        return { ok: true };
+    }
+    if (replaceAllShiftsConfirmed !== true) {
+        return {
+            ok: false,
+            status: 400,
+            code: 'MISSING_ACTIVE_SHIFT_OR_CONFIRMATION',
+            error: 'El reemplazo de semana completa sin active_shift requiere confirmación explícita del manager (replace_all_shifts_confirmed: true).',
+        };
+    }
+    if (!Number.isFinite(assignmentsCount) || assignmentsCount <= 0) {
+        return {
+            ok: false,
+            status: 400,
+            code: 'EMPTY_FULL_WEEK_CLONE_BLOCKED',
+            error: 'No se permite ejecutar la clonación de semana completa con una lista vacía de asignaciones.',
+        };
+    }
+    return { ok: true };
+}
+
+/**
+ * Escapa caracteres HTML especiales (`&`, `<`, `>`, `"`, `'`) para interpolar de forma segura
+ * títulos, descripciones, nombres de estaciones, horas y nombres de empleados en plantillas
+ * de correo HTML sin romper el marcado ni permitir inyección HTML.
+ */
+export function escapeHtml(value: unknown): string {
+    if (value === null || value === undefined) return '';
+    return String(value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+const STRICT_CHECKLIST_CATEGORIES: Record<string, 'Apertura' | 'Regular' | 'Cierre'> = {
+    apertura: 'Apertura',
+    regular: 'Regular',
+    cierre: 'Cierre',
+};
+
+/**
+ * Valida estrictamente la categoría `shift_type` de un completado de checklist (`'Apertura' | 'Regular' | 'Cierre'`).
+ * Rechaza `null`, `undefined`, `""`, `'Todos'`, `'ALL'` o valores desconocidos devolviendo `null`
+ * (nunca los convierte silenciosamente en `'Regular'`).
+ */
+export function parseStrictChecklistShiftType(
+    raw: unknown
+): 'Apertura' | 'Regular' | 'Cierre' | null {
+    if (typeof raw !== 'string') return null;
+    const clean = raw.trim().toLowerCase();
+    if (!clean) return null;
+    return STRICT_CHECKLIST_CATEGORIES[clean] || null;
+}
+
+/**
+ * Compuerta fail-closed para `POST /api/roles/checklist` (Hallazgo D):
+ * 1) Rechaza `shift_type` inválido (`'Todos'`, `'ALL'`, `''`, etc.) con HTTP 400.
+ * 2) Si falla la consulta previa de `checklist_completions` (`existingQueryError`), aborta con HTTP 500
+ *    para nunca tratar un fallo de lectura como "no completado".
+ * 3) Cuando se va a insertar/completar (`complete` o `toggle` desde no completado), exige que la consulta
+ *    al catálogo `operating_procedures` haya sido exitosa y que `activity_id` exista, sea del checklist
+ *    (`role !== 'ROLES_MODULE'`), y sea compatible con la sucursal (`store_model`), fecha (`frequency`)
+ *    y categoría efectiva (`effective_category === normalizedShiftType`).
+ */
+export function validateChecklistMutationSafety(params: {
+    action: 'toggle' | 'complete' | 'uncomplete';
+    rawShiftType: unknown;
+    businessDateStr: string;
+    store: StoreScheduleConfig | null | undefined;
+    existingQueryError?: { message?: string } | null;
+    existingRows?: Array<{ id: string; shift_type?: string | null }> | null;
+    procedureQueryError?: { message?: string } | null;
+    procedure?: CatalogProcedureRecord | null;
+}):
+    | {
+          ok: true;
+          normalizedShiftType: 'Apertura' | 'Regular' | 'Cierre';
+          shouldDelete: boolean;
+          existingIds: string[];
+      }
+    | {
+          ok: false;
+          status: 400 | 404 | 500;
+          code:
+              | 'INVALID_SHIFT_TYPE'
+              | 'CHECKLIST_READ_BEFORE_WRITE_FAILED'
+              | 'PROCEDURE_LOOKUP_FAILED'
+              | 'ACTIVITY_NOT_FOUND_IN_CHECKLIST_CATALOG'
+              | 'ACTIVITY_INCOMPATIBLE_WITH_STORE_OR_DATE';
+          error: string;
+      } {
+    const {
+        action,
+        rawShiftType,
+        businessDateStr,
+        store,
+        existingQueryError,
+        existingRows,
+        procedureQueryError,
+        procedure,
+    } = params;
+
+    const normalizedShiftType = parseStrictChecklistShiftType(rawShiftType);
+    if (!normalizedShiftType) {
+        return {
+            ok: false,
+            status: 400,
+            code: 'INVALID_SHIFT_TYPE',
+            error: `Categoría shift_type inválida ("${String(rawShiftType ?? '')}"). Debe ser exactamente Apertura, Regular o Cierre.`,
+        };
+    }
+
+    if (existingQueryError) {
+        return {
+            ok: false,
+            status: 500,
+            code: 'CHECKLIST_READ_BEFORE_WRITE_FAILED',
+            error: `No se pudo verificar el estado actual del checklist antes de modificarlo: ${existingQueryError.message || 'Error de lectura en base de datos'}`,
+        };
+    }
+
+    const existingIds = Array.isArray(existingRows)
+        ? existingRows.map((r) => String(r.id)).filter(Boolean)
+        : [];
+    const isCurrentlyCompleted = existingIds.length > 0;
+    const shouldDelete = action === 'uncomplete' || (action === 'toggle' && isCurrentlyCompleted);
+
+    if (shouldDelete) {
+        return {
+            ok: true,
+            normalizedShiftType,
+            shouldDelete: true,
+            existingIds,
+        };
+    }
+
+    if (procedureQueryError) {
+        return {
+            ok: false,
+            status: 500,
+            code: 'PROCEDURE_LOOKUP_FAILED',
+            error: `No se pudo validar la actividad en el catálogo antes de completar: ${procedureQueryError.message || 'Error de lectura en catálogo'}`,
+        };
+    }
+
+    if (!procedure || !procedure.id || procedure.role === 'ROLES_MODULE') {
+        return {
+            ok: false,
+            status: 404,
+            code: 'ACTIVITY_NOT_FOUND_IN_CHECKLIST_CATALOG',
+            error: 'La actividad indicada no existe en el catálogo del Checklist Operativo.',
+        };
+    }
+
+    const resolvedForDay = resolveStoreCatalogActivitiesForDay({
+        procedures: [procedure],
+        store,
+        businessDateStr,
+        categoryFilter: 'ALL',
+    });
+
+    if (resolvedForDay.length === 0) {
+        return {
+            ok: false,
+            status: 400,
+            code: 'ACTIVITY_INCOMPATIBLE_WITH_STORE_OR_DATE',
+            error: 'La actividad no aplica para esta sucursal (modelo Drive-Thru/Regular, override deshabilitado) o para esta fecha laboral.',
+        };
+    }
+
+    const effectiveCat = resolvedForDay[0].effective_category;
+    if (effectiveCat !== normalizedShiftType) {
+        return {
+            ok: false,
+            status: 400,
+            code: 'ACTIVITY_INCOMPATIBLE_WITH_STORE_OR_DATE',
+            error: `La actividad pertenece a la categoría "${effectiveCat}" en esta tienda/fecha y no puede marcarse bajo "${normalizedShiftType}".`,
+        };
+    }
+
+    return {
+        ok: true,
+        normalizedShiftType,
+        shouldDelete: false,
+        existingIds,
+    };
 }

@@ -288,7 +288,7 @@ export async function GET(req: NextRequest) {
                                 isCallback: false,
                                 shiftStartTime: s.start_time,
                                 shiftEndTime: s.end_time,
-                                enforceShiftWindow: posPeriods.length > 1,
+                                enforceShiftWindow: true,
                                 isClosingShift: Boolean((s as any).is_closing || (a as any).is_closing),
                             })
                         )

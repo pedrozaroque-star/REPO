@@ -3,10 +3,17 @@ import { supabaseAdmin } from '@/lib/supabase'
 import { getServerUser, authorizeStoreScope } from '@/lib/auth-server'
 import {
     CANONICAL_STATIONS_CATALOG,
+    type ClearedStationAssignmentScope,
+    extractLiteralShiftSuffix,
+    fetchCompleteRangeAssignments,
     getPositionMatchCandidates,
     isValidCalendarDateISO,
     isValidStationGroup,
+    normalizeAssignmentSubPosition,
     normalizeText,
+    prepareSafeAssignmentsBeforeRpc,
+    stripLiteralShiftSuffix,
+    validateFullWeekClonePayload,
 } from '@/lib/actividades-resolution'
 
 /**
@@ -17,10 +24,13 @@ import {
  * - POST requiere sesión autenticada con permisos explícitos `edit_assignments` (`admin`, `supervisor`, `manager`, `asistente`/`assistant` de la tienda; `shift_leader` NO tiene permiso para editar asignaciones).
  * - Validación estricta de fechas reales de calendario (`isValidCalendarDateISO`), `station_group` y arreglo `tasks`.
  * - Reemplazo 100% atómico en PostgreSQL mediante `replace_station_assignments_atomic` con control de concurrencia optimista (`expected_revision` -> HTTP 409 en conflicto).
+ * - GET y la lectura previa AM usan paginación exacta y comparan la revisión antes/después; conteo ausente, variable o revisión modificada abortan la lectura.
+ * - La clonación de semana completa requiere confirmación explícita y `expected_revision` del rango destino para impedir sobrescribir cambios concurrentes.
  * @dataFlow
  * - Lee/escribe `public.station_assignments` vía RPC transaccional.
  * @notes
  * - Remediación integral de hallazgos A12, A13, A16, A18 y Hallazgo 2 de permisos/validación (2026-10-20).
+ * - Fail-closed de lecturas paginadas y control de revisión estable en rango (2026-10-21).
  */
 
 const VALID_CANONICAL_STATIONS_NORM = new Set(
@@ -29,6 +39,25 @@ const VALID_CANONICAL_STATIONS_NORM = new Set(
         ...Array.from(getPositionMatchCandidates(s.station)).map(normalizeText),
     ])
 )
+
+async function readAssignmentsRevision(
+    storeId: string,
+    startDate: string,
+    endDate: string,
+    activeShift: 'AM' | 'PM' | null
+): Promise<{ revision: string | null; error: { message: string } | null }> {
+    const result = await supabaseAdmin.rpc('get_station_assignments_revision', {
+        p_store_id: storeId,
+        p_start_date: startDate,
+        p_end_date: endDate,
+        p_active_shift: activeShift,
+    })
+    if (result.error) return { revision: null, error: { message: result.error.message } }
+    return {
+        revision: typeof result.data === 'string' && result.data.trim() ? result.data : null,
+        error: null,
+    }
+}
 
 export async function GET(req: Request) {
     try {
@@ -43,6 +72,7 @@ export async function GET(req: Request) {
         const end_date = searchParams.get('end_date')
         const active_shift = searchParams.get('active_shift')
         const include_meta = searchParams.get('include_meta') === '1'
+        const revision_only = searchParams.get('revision_only') === '1'
 
         if (!store_id || !start_date || !end_date) {
             return NextResponse.json({ error: 'Faltan parámetros requeridos (store_id, start_date, end_date)' }, { status: 400 })
@@ -67,26 +97,51 @@ export async function GET(req: Request) {
 
         const canonicalStoreGuid = authScope.canonicalExternalId || store_id
 
-        const [assignmentsRes, revisionRes, revisionAmRes, revisionPmRes] = await Promise.all([
-            supabaseAdmin
-                .from('station_assignments')
-                .select(`
-                    *,
-                    toast_employees (
-                        id,
-                        first_name,
-                        last_name
-                    )
-                `)
-                .eq('store_id', canonicalStoreGuid)
-                .gte('assignment_date', start_date)
-                .lte('assignment_date', end_date)
-                .limit(5000),
-            supabaseAdmin.rpc('get_station_assignments_revision', {
-                p_store_id: canonicalStoreGuid,
-                p_start_date: start_date,
-                p_end_date: end_date,
-                p_active_shift: active_shift === 'AM' || active_shift === 'PM' ? active_shift : null,
+        if (revision_only) {
+            const revisionResult = await readAssignmentsRevision(canonicalStoreGuid, start_date, end_date, null)
+            if (revisionResult.error || !revisionResult.revision) {
+                return NextResponse.json(
+                    { error: revisionResult.error?.message || 'No se pudo obtener la revisión de las asignaciones' },
+                    { status: 500 }
+                )
+            }
+            return NextResponse.json(
+                { revision: revisionResult.revision },
+                { headers: { 'X-Assignments-Revision': revisionResult.revision } }
+            )
+        }
+
+        const [assignmentsRes, revisionAmRes, revisionPmRes] = await Promise.all([
+            fetchCompleteRangeAssignments<any>({
+                fetchPage: async (offset, limit) => {
+                    const res = await supabaseAdmin
+                        .from('station_assignments')
+                        .select(
+                            `
+                            *,
+                            toast_employees (
+                                id,
+                                first_name,
+                                last_name
+                            )
+                        `,
+                            { count: 'exact' }
+                        )
+                        .eq('store_id', canonicalStoreGuid)
+                        .gte('assignment_date', start_date)
+                        .lte('assignment_date', end_date)
+                        .order('assignment_date', { ascending: true })
+                        .order('id', { ascending: true })
+                        .range(offset, offset + limit - 1)
+                    return {
+                        data: res.data,
+                        error: res.error ? { message: res.error.message } : null,
+                        count: res.count,
+                    }
+                },
+                fetchRevision: () => readAssignmentsRevision(canonicalStoreGuid, start_date, end_date, null),
+                pageSize: 500,
+                maxRows: 10000,
             }),
             include_meta
                 ? supabaseAdmin.rpc('get_station_assignments_revision', {
@@ -106,14 +161,28 @@ export async function GET(req: Request) {
                 : Promise.resolve({ data: null }),
         ])
 
-        if (assignmentsRes.error) {
-            return NextResponse.json({ error: assignmentsRes.error.message }, { status: 500 })
+        if (assignmentsRes.error || assignmentsRes.isComplete === false) {
+            return NextResponse.json(
+                {
+                    error:
+                        assignmentsRes.error?.message ||
+                        assignmentsRes.incompletenessReason ||
+                        'Lectura incompleta de asignaciones',
+                },
+                { status: 500 }
+            )
         }
 
-        const revision = typeof revisionRes.data === 'string' ? revisionRes.data : '0:0'
+        const revision = assignmentsRes.endRevision
+        if (!revision) {
+            return NextResponse.json({ error: 'No se pudo confirmar una revisión estable de las asignaciones' }, { status: 500 })
+        }
         const revisionAm = typeof revisionAmRes?.data === 'string' ? revisionAmRes.data : revision
         const revisionPm = typeof revisionPmRes?.data === 'string' ? revisionPmRes.data : revision
-        const rows = assignmentsRes.data || []
+        const rows = (assignmentsRes.data || []).map((row: any) => ({
+            ...row,
+            sub_position: normalizeAssignmentSubPosition(row.main_station, row.sub_position, 'AM'),
+        }))
 
         if (include_meta) {
             return NextResponse.json(
@@ -147,7 +216,16 @@ export async function POST(req: Request) {
         }
 
         const body = await req.json()
-        const { assignments, store_id, start_date, end_date, active_shift, expected_revision } = body
+        const {
+            assignments,
+            cleared_assignments,
+            replace_all_shifts_confirmed,
+            store_id,
+            start_date,
+            end_date,
+            active_shift,
+            expected_revision,
+        } = body
 
         if (!assignments || !Array.isArray(assignments) || !store_id || !start_date || !end_date) {
             return NextResponse.json(
@@ -188,6 +266,28 @@ export async function POST(req: Request) {
             )
         }
 
+        const fullWeekCheck = validateFullWeekClonePayload({
+            activeShift: active_shift,
+            replaceAllShiftsConfirmed: replace_all_shifts_confirmed,
+            assignmentsCount: assignments.length,
+        })
+        if (!fullWeekCheck.ok) {
+            return NextResponse.json(
+                { error: fullWeekCheck.error, code: fullWeekCheck.code },
+                { status: fullWeekCheck.status }
+            )
+        }
+
+        if (active_shift == null && (typeof expected_revision !== 'string' || !expected_revision.trim())) {
+            return NextResponse.json(
+                {
+                    error: 'La clonación de semana completa requiere la revisión actual de destino para evitar sobrescribir cambios concurrentes.',
+                    code: 'EXPECTED_REVISION_REQUIRED',
+                },
+                { status: 400 }
+            )
+        }
+
         const authScope = await authorizeStoreScope(user, store_id, supabaseAdmin, {
             allowEmployeeRead: false,
             requireWrite: true,
@@ -222,7 +322,7 @@ export async function POST(req: Request) {
             const assignDate = String(a.assignment_date || '').trim()
             const rawMainStation = String(a.main_station || a.sub_position || '').trim()
             const rawSubPosition = String(a.sub_position || a.main_station || '').trim()
-            const cleanMainStation = rawMainStation.replace(/_(AM|PM)$/i, '').trim()
+            const cleanMainStation = stripLiteralShiftSuffix(rawMainStation)
 
             if (!empId) {
                 return NextResponse.json({ error: `Falta employee_id en asignación #${i + 1}` }, { status: 400 })
@@ -242,21 +342,30 @@ export async function POST(req: Request) {
                 )
             }
 
+            let normalizedSubPosition = rawSubPosition
             if (active_shift) {
-                const expectedSuffix = `_${active_shift}`
-                const oppositeSuffix = active_shift === 'AM' ? '_PM' : '_AM'
-                if (rawSubPosition.toUpperCase().endsWith(oppositeSuffix)) {
+                const oppositeShift = active_shift === 'AM' ? 'PM' : 'AM'
+                const subSuffix = extractLiteralShiftSuffix(rawSubPosition)
+                const mainSuffix = extractLiteralShiftSuffix(rawMainStation)
+                if (subSuffix === oppositeShift || mainSuffix === oppositeShift) {
                     return NextResponse.json(
-                        { error: `Incoherencia de turno: sub_position "${rawSubPosition}" no coincide con active_shift "${active_shift}"` },
+                        { error: `Incoherencia de turno: la asignación "${rawSubPosition}" / "${rawMainStation}" no coincide con active_shift "${active_shift}"` },
                         { status: 400 }
                     )
                 }
-                if (!rawSubPosition.toUpperCase().endsWith(expectedSuffix)) {
-                    return NextResponse.json(
-                        { error: `sub_position "${rawSubPosition}" debe incluir el sufijo "${expectedSuffix}"` },
-                        { status: 400 }
+                if (subSuffix !== active_shift) {
+                    normalizedSubPosition = normalizeAssignmentSubPosition(
+                        rawMainStation,
+                        rawSubPosition,
+                        active_shift
                     )
                 }
+            } else {
+                normalizedSubPosition = normalizeAssignmentSubPosition(
+                    rawMainStation,
+                    rawSubPosition,
+                    'AM'
+                )
             }
 
             // Validar que la estación exista en el catálogo canónico o sea una estación reconocida
@@ -325,10 +434,92 @@ export async function POST(req: Request) {
                 employee_id: empId,
                 assignment_date: assignDate,
                 main_station: cleanMainStation,
-                sub_position: rawSubPosition,
+                sub_position: normalizedSubPosition,
                 station_group: normalizedGroup,
                 tasks: sanitizedTasks,
             })
+        }
+
+        // Blindaje Hallazgo C: Si se guarda el turno AM, consultar todas las filas del rango [start_date, end_date]
+        // para la sucursal y verificar literalmente los sufijos "_AM" y "_PM" (sin comodín "_" de SQL LIKE).
+        // Si la lectura falla, detener inmediatamente el guardado (fail-closed) y NO invocar la RPC de reemplazo.
+        let finalAssignmentsToPersist = processedAssignments
+        let unsuffixedResolutionAudit: ReturnType<typeof prepareSafeAssignmentsBeforeRpc> extends infer R
+            ? R extends { ok: true; resolutionAudit: infer A }
+                ? A
+                : never
+            : never = []
+
+        if (active_shift === 'AM') {
+            const existingRangeQueryResult = await fetchCompleteRangeAssignments<{
+                id?: string | number | null
+                store_id?: string | number | null
+                employee_id?: string | number | null
+                assignment_date?: string | null
+                main_station?: string | null
+                sub_position?: string | null
+                station_group?: string | null
+                tasks?: string[] | null
+            }>({
+                fetchPage: async (offset, limit) => {
+                    const res = await supabaseAdmin
+                        .from('station_assignments')
+                        .select(
+                            'id, store_id, employee_id, assignment_date, main_station, sub_position, station_group, tasks',
+                            { count: 'exact' }
+                        )
+                        .eq('store_id', canonicalStoreGuid)
+                        .gte('assignment_date', start_date)
+                        .lte('assignment_date', end_date)
+                        .order('assignment_date', { ascending: true })
+                        .order('id', { ascending: true })
+                        .range(offset, offset + limit - 1)
+                    return {
+                        data: res.data,
+                        error: res.error ? { message: res.error.message } : null,
+                        count: res.count,
+                    }
+                },
+                fetchRevision: () => readAssignmentsRevision(canonicalStoreGuid, start_date, end_date, 'AM'),
+                pageSize: 500,
+                maxRows: 10000,
+            })
+
+            const scopedClearedList: ClearedStationAssignmentScope[] = Array.isArray(cleared_assignments)
+                ? cleared_assignments
+                      .filter((item: unknown): item is Record<string, unknown> => Boolean(item && typeof item === 'object'))
+                      .map((item) => ({
+                          store_id: String(item.store_id || canonicalStoreGuid).trim(),
+                          assignment_date: String(item.assignment_date || '').trim(),
+                          main_station: item.main_station ? String(item.main_station).trim() : null,
+                          sub_position: String(item.sub_position || item.main_station || '').trim(),
+                      }))
+                : []
+
+            const safePrep = prepareSafeAssignmentsBeforeRpc({
+                activeShift: 'AM',
+                storeId: canonicalStoreGuid,
+                incomingAssignments: processedAssignments,
+                clearedAssignments: scopedClearedList,
+                existingRangeQueryResult,
+            })
+
+            if (!safePrep.ok) {
+                return NextResponse.json(
+                    {
+                        error: safePrep.error,
+                        code: safePrep.code,
+                        details: safePrep.details,
+                    },
+                    { status: safePrep.status }
+                )
+            }
+
+            finalAssignmentsToPersist = safePrep.assignments
+            unsuffixedResolutionAudit = safePrep.resolutionAudit
+            for (const item of finalAssignmentsToPersist) {
+                if (item.employee_id) distinctEmployeeIds.add(String(item.employee_id))
+            }
         }
 
         // Verificar que todos los employee_id existan y pertenezcan o tengan turno en la sucursal (A16)
@@ -351,8 +542,9 @@ export async function POST(req: Request) {
                     .in('employee_id', empIdList)
             ])
 
-            if (empRes.error) {
-                return NextResponse.json({ error: empRes.error.message }, { status: 500 })
+            if (empRes.error || shiftRes.error || prevAssignRes.error) {
+                const readErr = empRes.error || shiftRes.error || prevAssignRes.error
+                return NextResponse.json({ error: readErr!.message }, { status: 500 })
             }
 
             const empMap = new Map<string, any>()
@@ -395,7 +587,7 @@ export async function POST(req: Request) {
                 p_end_date: end_date,
                 p_active_shift: active_shift || null,
                 p_expected_revision: expected_revision || null,
-                p_assignments: processedAssignments,
+                p_assignments: finalAssignmentsToPersist,
             }
         )
 
@@ -417,7 +609,8 @@ export async function POST(req: Request) {
             success: true,
             revision: rpcResult?.new_revision || null,
             deleted_count: rpcResult?.deleted_count ?? 0,
-            inserted_count: rpcResult?.inserted_count ?? processedAssignments.length,
+            inserted_count: rpcResult?.inserted_count ?? finalAssignmentsToPersist.length,
+            unsuffixed_resolution_audit: unsuffixedResolutionAudit,
         })
     } catch (error: any) {
         console.error('CRITICAL SAVE ERROR:', error)

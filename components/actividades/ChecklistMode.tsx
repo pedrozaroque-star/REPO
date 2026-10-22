@@ -39,6 +39,7 @@ import { calculateStoreOffsetsForDate, type StoreOffsets } from '@/lib/store-tim
 import {
   resolveStoreCatalogActivitiesForDay,
   resolveChecklistActivityResponsibility,
+  resolveEffectiveChecklistCategory,
   filterApprovedPositionActivities,
 } from '@/lib/actividades-resolution'
 
@@ -402,14 +403,12 @@ export default function ChecklistMode({ onClose }: ChecklistModeProps) {
         .eq('store_id', selectedStore.external_id)
         .eq('checklist_date', businessDate)
       if (error) {
-        console.warn('checklist_completions query error:', error.message)
-        setCompletions([])
+        console.warn('checklist_completions query error (preserving existing state):', error.message)
         return
       }
       if (data) setCompletions(data)
     } catch (err) {
-      console.warn('Error fetching completions:', err)
-      setCompletions([])
+      console.warn('Error fetching completions (preserving existing state):', err)
     }
   }, [selectedStore, businessDate])
 
@@ -575,7 +574,12 @@ export default function ChecklistMode({ onClose }: ChecklistModeProps) {
   const toggleCompletion = useCallback(async (proc: Procedure) => {
     if (!canToggleChecklist || !selectedStore || saving) return
     const activityId = proc.id
-    const effectiveCategory = String(proc.effective_category || proc.shift_type || 'Regular').trim()
+    const effectiveCategory =
+      proc.effective_category ||
+      resolveEffectiveChecklistCategory(
+        proc.shift_type || 'Regular',
+        proc.effective_start_time || proc.start_time || ''
+      )
     setSaving(activityId)
 
     try {

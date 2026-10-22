@@ -23,6 +23,7 @@ import { useAuth } from '@/components/ProtectedRoute';
 import { useLanguage } from '@/lib/i18n';
 import {
   evaluateProcedureSafetyReview,
+  extractCatalogProceduresPayload,
   sanitizeUnsafeProcedureDescription,
   filterApprovedPositionActivities,
 } from '@/lib/actividades-resolution';
@@ -195,19 +196,28 @@ export default function ProceduresTimeline({ readOnly = false }: { readOnly?: bo
       return sortProcedures(prev.map(p => updatedById.get(p.id) || p));
     });
 
-    // 2. Persist changes to backend asynchronously
+    // 2. Persist changes to backend and verify response
     try {
-      const promises = newOrder.map((proc, index) => {
-        const newOverrides = { ...(proc.overrides || {}), order_index: index };
-        return fetch('/api/procedimientos', {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ id: proc.id, overrides: newOverrides })
-        });
-      });
-      // We don't await because we want the UI to be responsive immediately
-    } catch (e) {
+      const responses = await Promise.all(
+        newOrder.map((proc, index) => {
+          const newOverrides = { ...(proc.overrides || {}), order_index: index };
+          return fetch('/api/procedimientos', {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: proc.id, overrides: newOverrides })
+          });
+        })
+      );
+      const failedRes = responses.find(r => !r.ok);
+      if (failedRes) {
+        const errJson = await failedRes.json().catch(() => ({}));
+        await fetchProcedures();
+        alert(t('procedures.errors.save_error') + (errJson.error || `HTTP ${failedRes.status}`));
+      }
+    } catch (e: any) {
       console.error('Failed to save order_index', e);
+      await fetchProcedures();
+      alert(t('procedures.errors.save_error') + (e?.message || 'Error'));
     }
   };
 
@@ -217,6 +227,21 @@ export default function ProceduresTimeline({ readOnly = false }: { readOnly?: bo
   const fetchProcedures = async () => {
     try {
       setLoading(true);
+      try {
+        const apiRes = await fetch('/api/procedimientos');
+        if (apiRes.ok) {
+          const payload = await apiRes.json();
+          const extracted = extractCatalogProceduresPayload<Procedure>(payload);
+          if (extracted && extracted.length > 0) {
+            const filteredApi = extracted.filter(p => p.role !== 'ROLES_MODULE');
+            setProcedures(sortProcedures(filteredApi));
+            return;
+          }
+        }
+      } catch {
+        // Fallback a lectura directa de Supabase
+      }
+
       const { data, error } = await supabase
         .from('operating_procedures')
         .select('*');

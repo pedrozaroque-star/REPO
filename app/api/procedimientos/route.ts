@@ -6,6 +6,7 @@ import {
     hasUnsafeChemicalMixture,
     sanitizeUnsafeProcedureDescription,
 } from '@/lib/actividades-resolution';
+import { parseTimeToMinutesStrict } from '@/lib/store-time-offset';
 
 /**
  * @module ProcedimientosAPI
@@ -51,7 +52,7 @@ export async function GET(request: Request) {
             };
         });
 
-        return NextResponse.json({ success: true, data: enriched });
+        return NextResponse.json({ success: true, data: enriched, procedures: enriched });
     } catch (error: any) {
         return NextResponse.json({ success: false, error: error.message }, { status: 500 });
     }
@@ -111,8 +112,39 @@ export async function PATCH(request: Request) {
             );
         }
 
-        const updateData: any = { updated_at: new Date().toISOString() };
-        if (start_time !== undefined) updateData.start_time = start_time || null;
+        if (start_time !== undefined && start_time !== null && String(start_time).trim() !== '') {
+            if (parseTimeToMinutesStrict(String(start_time).trim()) === null) {
+                return NextResponse.json(
+                    {
+                        success: false,
+                        error: `Formato de start_time inválido ("${String(start_time)}"). Use HH:MM o HH:MM:SS válido (00:00–23:59).`,
+                        code: 'INVALID_START_TIME',
+                    },
+                    { status: 400 }
+                );
+            }
+        }
+
+        if (overrides && typeof overrides === 'object' && overrides.stores && typeof overrides.stores === 'object') {
+            for (const [storeKey, storeOv] of Object.entries(overrides.stores as Record<string, Record<string, unknown>>)) {
+                const ovTime = storeOv?.start_time ?? storeOv?.startTime;
+                if (ovTime !== undefined && ovTime !== null && String(ovTime).trim() !== '') {
+                    if (parseTimeToMinutesStrict(String(ovTime).trim()) === null) {
+                        return NextResponse.json(
+                            {
+                                success: false,
+                                error: `Formato de start_time inválido en override de tienda "${storeKey}" ("${String(ovTime)}").`,
+                                code: 'INVALID_STORE_OVERRIDE_START_TIME',
+                            },
+                            { status: 400 }
+                        );
+                    }
+                }
+            }
+        }
+
+        const updateData: Record<string, unknown> = { updated_at: new Date().toISOString() };
+        if (start_time !== undefined) updateData.start_time = start_time ? String(start_time).trim() : null;
         if (duration_minutes !== undefined) {
             const parsedDuration = Number(duration_minutes);
             updateData.duration_minutes =
@@ -131,16 +163,67 @@ export async function PATCH(request: Request) {
         }
         if (shift !== undefined) updateData.shift = shift;
 
-        const baseOverrides =
-            overrides && typeof overrides === 'object' ? { ...overrides } : {};
-        if (safety_approved === true && user.role === 'admin') {
-            baseOverrides.needs_manager_safety_review = false;
-            baseOverrides.safety_approved_by = user.name || user.email;
-            baseOverrides.safety_approved_at = new Date().toISOString();
-        } else if (activity !== undefined || description !== undefined) {
-            baseOverrides.needs_manager_safety_review = true;
-        }
-        if (overrides !== undefined || activity !== undefined || description !== undefined) {
+        if (
+            overrides !== undefined ||
+            activity !== undefined ||
+            description !== undefined ||
+            safety_approved !== undefined
+        ) {
+            const { data: existingRow, error: existingErr } = await supabaseAdmin
+                .from('operating_procedures')
+                .select('id, overrides')
+                .eq('id', id)
+                .maybeSingle();
+
+            if (existingErr) {
+                return NextResponse.json(
+                    {
+                        success: false,
+                        error: `No se pudo leer el estado actual de overrides antes de guardar: ${existingErr.message}`,
+                        code: 'PROCEDIMIENTO_OVERRIDE_READ_FAILED',
+                    },
+                    { status: 500 }
+                );
+            }
+            if (!existingRow) {
+                return NextResponse.json(
+                    { success: false, error: 'Procedimiento no encontrado.' },
+                    { status: 404 }
+                );
+            }
+
+            const prevOverrides =
+                existingRow.overrides && typeof existingRow.overrides === 'object'
+                    ? { ...existingRow.overrides }
+                    : {};
+            const incomingOverrides =
+                overrides && typeof overrides === 'object' ? { ...overrides } : {};
+
+            const mergedStores = {
+                ...(prevOverrides.stores && typeof prevOverrides.stores === 'object'
+                    ? prevOverrides.stores
+                    : {}),
+                ...(incomingOverrides.stores && typeof incomingOverrides.stores === 'object'
+                    ? incomingOverrides.stores
+                    : {}),
+            };
+
+            const baseOverrides: Record<string, unknown> = {
+                ...prevOverrides,
+                ...incomingOverrides,
+            };
+            if (Object.keys(mergedStores).length > 0 || incomingOverrides.stores !== undefined) {
+                baseOverrides.stores = mergedStores;
+            }
+
+            if (safety_approved === true && user.role === 'admin') {
+                baseOverrides.needs_manager_safety_review = false;
+                baseOverrides.safety_approved_by = user.name || user.email;
+                baseOverrides.safety_approved_at = new Date().toISOString();
+            } else if (activity !== undefined || description !== undefined) {
+                baseOverrides.needs_manager_safety_review = true;
+            }
+
             updateData.overrides = baseOverrides;
         }
 
@@ -222,14 +305,27 @@ export async function POST(request: Request) {
             );
         }
 
+        if (start_time !== undefined && start_time !== null && String(start_time).trim() !== '') {
+            if (parseTimeToMinutesStrict(String(start_time).trim()) === null) {
+                return NextResponse.json(
+                    {
+                        success: false,
+                        error: `Formato de start_time inválido ("${String(start_time)}"). Use HH:MM o HH:MM:SS válido (00:00–23:59).`,
+                        code: 'INVALID_START_TIME',
+                    },
+                    { status: 400 }
+                );
+            }
+        }
+
         const parsedDuration = Number(duration_minutes);
         const preparedOverrides = {
             ...(overrides && typeof overrides === 'object' ? overrides : {}),
             needs_manager_safety_review: true,
         };
 
-        const insertData: any = {
-            start_time: start_time || null,
+        const insertData: Record<string, unknown> = {
+            start_time: start_time ? String(start_time).trim() : null,
             duration_minutes:
                 duration_minutes !== null &&
                 duration_minutes !== undefined &&

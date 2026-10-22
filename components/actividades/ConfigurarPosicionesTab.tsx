@@ -44,7 +44,11 @@ import {
 } from 'lucide-react';
 import { useLanguage } from '@/lib/i18n';
 import { createClient } from '@/lib/supabase-client';
-import { getPositionMatchCandidates, normalizeText } from '@/lib/actividades-resolution';
+import {
+  extractCatalogProceduresPayload,
+  getPositionMatchCandidates,
+  normalizeText,
+} from '@/lib/actividades-resolution';
 
 // ═══════════════════════════════════════════════════════════════
 // Types
@@ -221,6 +225,7 @@ export default function ConfigurarPosicionesTab({ readOnly = false }: { readOnly
   const [procedures, setProcedures] = useState<OperatingProcedure[]>([]);
   const [positionActivities, setPositionActivities] = useState<PositionActivity[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState<string | null>(null); // activity_id being added/removed
 
   const [selectedPosition, setSelectedPosition] = useState<string | null>(null);
@@ -238,24 +243,36 @@ export default function ConfigurarPosicionesTab({ readOnly = false }: { readOnly
   const fetchData = useCallback(async () => {
     try {
       setLoading(true);
+      setLoadError(null);
       const [paRes, procRes] = await Promise.all([
         fetch('/api/roles/activities'),
         fetch('/api/procedimientos'),
       ]);
 
-      if (!paRes.ok) throw new Error('Failed to fetch position activities');
-      if (!procRes.ok) throw new Error('Failed to fetch procedures');
+      if (!paRes.ok) {
+        const errBody = await paRes.json().catch(() => ({}));
+        throw new Error(errBody.error || `HTTP ${paRes.status} loading position activities`);
+      }
+      if (!procRes.ok) {
+        const errBody = await procRes.json().catch(() => ({}));
+        throw new Error(errBody.error || `HTTP ${procRes.status} loading procedures`);
+      }
 
       const paData: PositionActivity[] = await paRes.json();
       const procJson = await procRes.json();
-      const procData: OperatingProcedure[] = procJson.data || procJson;
+      const extracted = extractCatalogProceduresPayload<OperatingProcedure>(procJson);
+      if (!extracted) {
+        throw new Error('Invalid catalog procedures payload');
+      }
+      const procData = extracted;
 
       setPositionActivities(Array.isArray(paData) ? paData : []);
       // Excluir las actividades internas del módulo Roles (solo visibles en ese módulo)
-      const catalogOnly = (Array.isArray(procData) ? procData : []).filter(p => p.role !== 'ROLES_MODULE');
+      const catalogOnly = procData.filter(p => p.role !== 'ROLES_MODULE');
       setProcedures(catalogOnly);
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error loading config data:', err);
+      setLoadError(err?.message || 'Error');
     } finally {
       setLoading(false);
     }
@@ -497,6 +514,19 @@ export default function ConfigurarPosicionesTab({ readOnly = false }: { readOnly
           </div>
         </div>
       </div>
+
+      {loadError && (
+        <div className="mb-4 p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-600 dark:text-rose-400 text-xs font-bold flex items-center justify-between gap-3">
+          <span>{loadError}</span>
+          <button
+            type="button"
+            onClick={() => fetchData()}
+            className="px-3 py-1 rounded-lg bg-rose-500 text-white hover:bg-rose-600 transition-colors"
+          >
+            {t('common.retry') || 'Retry'}
+          </button>
+        </div>
+      )}
 
       {/* ══════ Main 2-Column Layout ══════ */}
       <div className="flex flex-col lg:flex-row gap-4 sm:gap-6">

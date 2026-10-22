@@ -3,6 +3,7 @@
  * @description Operational tools executor for TEG Assistant AI. It acts as the interface between Google Gemini's function calling loops and Tacos Gavilan's backend database and analytical engines.
  * @businessRules
  * - Incorporates rules from the 6 AM PST business day boundary.
+ * - Actividades preserva asignaciones de managers: conteo exacto/revisión MD5 de contenido de filas estable, fail-closed ante lecturas incompletas (Asignación, Checklist, Reportes y publicación), clonación semanal protegida por revisión optimista del destino, fusión no destructiva de overrides.stores y protección contra reemplazos vacíos accidentales en position_activities.
  * - Adheres to California compliance guidelines by wrapping the AI breaks scheduler.
  * - Performs theoretical cost analysis matching QuickBooks purchase prices.
  * - Para Orden Diaria, el PAR menos sobrante sólo es accionable con captura física completa; cero explícito es válido y faltantes bloquean guardado/envío.
