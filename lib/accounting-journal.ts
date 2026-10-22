@@ -206,7 +206,9 @@ export function generateJournalLines(salesData: SalesPacketData, siteMapping: Si
     addLine(onlineTakeoutAcct, 'Online Ordering - Takeout', 0, salesData.online_ordering_takeout_sales, 'Dining Option: Online Ordering - Takeout', 'online_ordering_takeout');
   }
   addLine(uberSalesAcct, 'Uber Eats - Delivery', 0, salesData.uber_delivery_sales, 'Dining Option: Uber Eats - Delivery', 'uber_delivery');
-  addLine(uberSalesAcct, 'Uber Eats Takeout', 0, salesData.uber_takeout_sales, 'Dining Option: Uber Eats Takeout', 'uber_takeout');
+  const uberTakeoutMemo = isRialto ? 'Uber Eats - Takeout' : 'Uber Eats Takeout';
+  const uberTakeoutSrc = isRialto ? 'Dining Option: Uber Eats - Takeout' : 'Dining Option: Uber Eats Takeout';
+  addLine(uberSalesAcct, uberTakeoutMemo, 0, salesData.uber_takeout_sales, uberTakeoutSrc, 'uber_takeout');
   addLine(ddSalesAcct, 'DoorDash - Takeout', 0, salesData.doordash_takeout_sales, 'Dining Option: DoorDash - Takeout', 'doordash_takeout');
   addLine(ddSalesAcct, 'DoorDash - Delivery', 0, salesData.doordash_delivery_sales, 'Dining Option: DoorDash - Delivery', 'doordash_delivery');
 
@@ -220,8 +222,7 @@ export function generateJournalLines(salesData: SalesPacketData, siteMapping: Si
 
   if (salesData.delivery_service_charges) {
     const delChargeAcct = isDowney ? dineInAcct : ccFeesAcct;
-    const delChargeMemo = isRialto ? 'Delivery Charge' : 'Delivery Service';
-    addLine(delChargeAcct, delChargeMemo, 0, salesData.delivery_service_charges, 'Service Charge: Delivery Service', 'delivery_service');
+    addLine(delChargeAcct, 'Delivery Service', 0, salesData.delivery_service_charges, 'Service Charge: Delivery Service', 'delivery_service');
   }
   if (salesData.delivery_fee_6_miles) {
     // Cohesion Table 22: Downey -> 40050, Rialto -> 51040, resto -> 51030

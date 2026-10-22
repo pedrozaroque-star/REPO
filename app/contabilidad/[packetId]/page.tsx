@@ -773,7 +773,7 @@ export default function PacketDetailPage() {
                         return m === tLower || sm === tLower || sm === `dining option: ${tLower}` || sm === `service charge: ${tLower}`
                       })
                     })
-                    return line ? Number(line.credit || line.debit || 0) : fallback
+                    return line ? Math.round((Number(line.credit || 0) - Number(line.debit || 0)) * 100) / 100 : fallback
                   }
 
                   const forHereNet = Number(packet.dine_in_sales ?? getNetFromJournal(['for here'], 0))
@@ -788,30 +788,30 @@ export default function PacketDetailPage() {
                   const toastDeliveryNet = Number(packet.toast_delivery_sales ?? getNetFromJournal(['toast delivery services'], 0))
                   const deliveryServiceNet = Number(getNetFromJournal(['delivery service', 'delivery charge'], 0))
                   const uberDeliveryNet = Number(packet.uber_delivery_sales ?? getNetFromJournal(['uber eats - delivery'], 0))
-                  const uberTakeoutNet = Number(packet.uber_takeout_sales ?? getNetFromJournal(['uber eats takeout'], 0))
+                  const uberTakeoutNet = Number(packet.uber_takeout_sales ?? getNetFromJournal(['uber eats takeout', 'uber eats - takeout'], 0))
                   const ddDeliveryNet = Number(packet.doordash_delivery_sales ?? getNetFromJournal(['doordash - delivery'], 0))
                   const ddTakeoutNet = Number(packet.doordash_takeout_sales ?? getNetFromJournal(['doordash - takeout'], 0))
                   const ghTakeoutNet = Number(getNetFromJournal(['grubhub - takeout'], 0))
                   const ghDeliveryNet = Number(getNetFromJournal(['grubhub delivery', 'grubhub - delivery'], Math.max(0, Number(packet.grubhub_sales || 0) - ghTakeoutNet)))
 
                   const rows = [
-                    ...(curbsideNet > 0 || grossMap.curbside ? [{ name: 'Curbside Pickup', gross: grossMap.curbside ?? curbsideNet, net: curbsideNet }] : []),
-                    ...(deliveryServiceNet > 0 ? [{ name: 'Delivery Service', gross: deliveryServiceNet, net: deliveryServiceNet }] : []),
+                    ...(Math.abs(curbsideNet) > 0 || grossMap.curbside ? [{ name: 'Curbside Pickup', gross: grossMap.curbside ?? curbsideNet, net: curbsideNet }] : []),
+                    ...(Math.abs(deliveryServiceNet) > 0 ? [{ name: 'Delivery Service', gross: deliveryServiceNet, net: deliveryServiceNet }] : []),
                     { name: 'DoorDash - Delivery', gross: grossMap.doordashDelivery ?? ddDeliveryNet, net: ddDeliveryNet },
-                    ...(ddTakeoutNet > 0 || grossMap.doordashTakeout ? [{ name: 'DoorDash - Takeout', gross: grossMap.doordashTakeout ?? ddTakeoutNet, net: ddTakeoutNet }] : []),
+                    ...(Math.abs(ddTakeoutNet) > 0 || grossMap.doordashTakeout ? [{ name: 'DoorDash - Takeout', gross: grossMap.doordashTakeout ?? ddTakeoutNet, net: ddTakeoutNet }] : []),
                     { name: 'For Here', gross: grossMap.forHere ?? forHereNet, net: forHereNet },
-                    ...(ghDeliveryNet > 0 || grossMap.grubhubDelivery ? [{ name: 'GrubHub Delivery', gross: grossMap.grubhubDelivery ?? ghDeliveryNet, net: ghDeliveryNet }] : []),
-                    ...(ghTakeoutNet > 0 || grossMap.grubhubTakeout ? [{ name: 'Grubhub - Takeout', gross: grossMap.grubhubTakeout ?? ghTakeoutNet, net: ghTakeoutNet }] : []),
-                    ...(driveThruNet > 0 || grossMap.driveThru ? [{ name: 'Drive Thru', gross: grossMap.driveThru ?? driveThruNet, net: driveThruNet }] : []),
-                    ...(kioskDineInNet > 0 || grossMap.kioskDineIn ? [{ name: 'Kiosk Dine In', gross: grossMap.kioskDineIn ?? kioskDineInNet, net: kioskDineInNet }] : []),
-                    ...(kioskTakeOutNet > 0 || grossMap.kioskTakeOut ? [{ name: 'Kiosk Take Out', gross: grossMap.kioskTakeOut ?? kioskTakeOutNet, net: kioskTakeOutNet }] : []),
-                    ...(onlineOrderingTakeoutNet > 0 || grossMap.onlineOrderingTakeout ? [{ name: 'Online Ordering - Takeout', gross: grossMap.onlineOrderingTakeout ?? onlineOrderingTakeoutNet, net: onlineOrderingTakeoutNet }] : []),
-                    ...(phoneNet > 0 || grossMap.phone ? [{ name: 'Phone', gross: grossMap.phone ?? phoneNet, net: phoneNet }] : []),
+                    ...(Math.abs(ghDeliveryNet) > 0 || grossMap.grubhubDelivery ? [{ name: 'GrubHub Delivery', gross: grossMap.grubhubDelivery ?? ghDeliveryNet, net: ghDeliveryNet }] : []),
+                    ...(Math.abs(ghTakeoutNet) > 0 || grossMap.grubhubTakeout ? [{ name: 'Grubhub - Takeout', gross: grossMap.grubhubTakeout ?? ghTakeoutNet, net: ghTakeoutNet }] : []),
+                    ...(Math.abs(driveThruNet) > 0 || grossMap.driveThru ? [{ name: 'Drive Thru', gross: grossMap.driveThru ?? driveThruNet, net: driveThruNet }] : []),
+                    ...(Math.abs(kioskDineInNet) > 0 || grossMap.kioskDineIn ? [{ name: 'Kiosk Dine In', gross: grossMap.kioskDineIn ?? kioskDineInNet, net: kioskDineInNet }] : []),
+                    ...(Math.abs(kioskTakeOutNet) > 0 || grossMap.kioskTakeOut ? [{ name: 'Kiosk Take Out', gross: grossMap.kioskTakeOut ?? kioskTakeOutNet, net: kioskTakeOutNet }] : []),
+                    ...(Math.abs(onlineOrderingTakeoutNet) > 0 || grossMap.onlineOrderingTakeout ? [{ name: 'Online Ordering - Takeout', gross: grossMap.onlineOrderingTakeout ?? onlineOrderingTakeoutNet, net: onlineOrderingTakeoutNet }] : []),
+                    ...(Math.abs(phoneNet) > 0 || grossMap.phone ? [{ name: 'Phone', gross: grossMap.phone ?? phoneNet, net: phoneNet }] : []),
                     { name: 'To Go', gross: grossMap.toGo ?? toGoNet, net: toGoNet },
-                    ...(toastDeliveryNet > 0 || grossMap.toastDelivery ? [{ name: 'Toast Delivery Services', gross: grossMap.toastDelivery ?? toastDeliveryNet, net: toastDeliveryNet }] : []),
-                    ...(toastOnlineNet > 0 || grossMap.toastOnline ? [{ name: 'Toast Online', gross: grossMap.toastOnline ?? toastOnlineNet, net: toastOnlineNet }] : []),
+                    ...(Math.abs(toastDeliveryNet) > 0 || grossMap.toastDelivery ? [{ name: 'Toast Delivery Services', gross: grossMap.toastDelivery ?? toastDeliveryNet, net: toastDeliveryNet }] : []),
+                    ...(Math.abs(toastOnlineNet) > 0 || grossMap.toastOnline ? [{ name: 'Toast Online', gross: grossMap.toastOnline ?? toastOnlineNet, net: toastOnlineNet }] : []),
                     { name: 'Uber Eats - Delivery', gross: grossMap.uberDelivery ?? uberDeliveryNet, net: uberDeliveryNet },
-                    ...(uberTakeoutNet > 0 || grossMap.uberTakeout ? [{ name: 'Uber Eats Takeout', gross: grossMap.uberTakeout ?? uberTakeoutNet, net: uberTakeoutNet }] : []),
+                    ...(Math.abs(uberTakeoutNet) > 0 || grossMap.uberTakeout ? [{ name: 'Uber Eats Takeout', gross: grossMap.uberTakeout ?? uberTakeoutNet, net: uberTakeoutNet }] : []),
                   ]
                   return (
                     <>

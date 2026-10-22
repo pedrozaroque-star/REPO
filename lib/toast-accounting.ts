@@ -453,6 +453,8 @@ export async function fetchToastAccountingData(
 
   // Registro de GUIDs de pagos procesados hoy para identificar pagos de fechas cruzadas (Paid In)
   const processedPaymentGuids = new Set<string>()
+  const ordersByGuid = new Map<string, any>()
+  const sameDayRefundPayments = new Map<string, any>()
 
   // Acumuladores de Validación (Órdenes Abiertas y Desbalanceadas)
   const openOrdersList: ToastOpenOrder[] = []
@@ -460,6 +462,7 @@ export async function fetchToastAccountingData(
 
   for (const order of allOrders) {
     if (order.voided || order.deleted) continue
+    if (order.guid) ordersByGuid.set(order.guid, order)
 
     // --- REVISIÓN DE ORDEN ABIERTA / DESBALANCEADA (Step 11 Cohesion) ---
     const checkIssues: string[] = []
@@ -544,11 +547,12 @@ export async function fetchToastAccountingData(
       totalTax += checkTax
 
       // Service charges aplicados en el check (ej: Delivery Service, Delivery Fee > 6 Miles, o Gratuity)
+      // NOTA: Los reembolsos (sc.refundDetails) NO se descuentan en la fecha original de la orden,
+      // sino estrictamente en su refundBusinessDate (ver bloque REFUNDS PASS más abajo).
       if (check.appliedServiceCharges) {
         for (const sc of check.appliedServiceCharges) {
           if (sc.voided) continue
-          const scRefund = Number(sc.refundDetails?.refundAmount || 0)
-          const scAmt = Math.max(0, Number(sc.chargeAmount ?? sc.amount ?? 0) - scRefund)
+          const scAmt = Math.max(0, Number(sc.chargeAmount ?? sc.amount ?? 0))
           if (scAmt <= 0) continue
           if (sc.gratuity) {
             tipsPayable += scAmt
@@ -563,9 +567,10 @@ export async function fetchToastAccountingData(
         }
       }
 
-      // Calcular Net Sales del check: Sum(Item.Price) - Sum(Discounts) - Sum(Item.Refunds) - UnlinkedRefunds
+      // Calcular Net Sales del check: Sum(Item.Price) - Sum(Discounts)
+      // NOTA: Los reembolsos (sel.refundDetails y p.refund) se procesan en el bloque REFUNDS PASS
+      // filtrados por refundBusinessDate === businessDate para homologar al 100% con Cohesion (ej. Rialto 10/20 Orden #697).
       let checkNet = 0
-      let selRefunds = 0
       let checkItemNetSum = 0
       let checkItemGrossSum = 0
 
@@ -576,12 +581,6 @@ export async function fetchToastAccountingData(
         if (sel.taxInclusion === 'INCLUDED') {
           p -= Number(sel.tax || 0)
           pre -= Number(sel.tax || 0)
-        }
-        if (sel.refundDetails?.refundAmount) {
-          const rAmt = Number(sel.refundDetails.refundAmount)
-          p -= rAmt
-          pre -= rAmt
-          selRefunds += rAmt
         }
 
         // Detección de Ventas de Tarjetas de Regalo (Gift Card Sales -> 20500 Deferred Sales)
@@ -615,14 +614,6 @@ export async function fetchToastAccountingData(
         }
       }
       discountsTotal += checkDiscounts
-
-      // Reembolsos no vinculados a nivel de pagos (Unlinked Refunds)
-      let paymentRefunds = 0
-      for (const p of check.payments || []) {
-        if (p.refundAmount && !p.voided) paymentRefunds += Number(p.refundAmount)
-      }
-      const unlinkedRefunds = Math.max(0, paymentRefunds - selRefunds)
-      checkNet -= unlinkedRefunds
 
       checkNet = Math.round(checkNet * 100) / 100
       const checkGross = Math.round(checkItemGrossSum * 100) / 100
@@ -702,6 +693,10 @@ export async function fetchToastAccountingData(
         if (p.voided) continue
         // Cohesion solo cuenta pagos capturados: ignora DENIED, FAILED, VOIDED, OPEN, CANCELLED, PROCESSING_VOID, ERROR, REVERSED
         if (INVALID_PAYMENT_STATUSES.has(String(p.paymentStatus || '').toUpperCase())) continue
+
+        if (p.guid && (p.refund?.refundAmount || p.refundAmount) && (!p.refund?.refundBusinessDate || String(p.refund.refundBusinessDate) === businessDate)) {
+          sameDayRefundPayments.set(p.guid, p)
+        }
 
         const amt = Number(p.amount || 0)
 
@@ -886,6 +881,235 @@ export async function fetchToastAccountingData(
   } catch (paidInErr) {
     console.warn('[toast-accounting] Paid In (cross-date payments) no disponible:', (paidInErr as Error).message)
   }
+
+  // REFUNDS PASS (Reembolsos del día actual: Same-Day y Cross-Date con refundBusinessDate === businessDate):
+  // En Toast POS, un reembolso aplicado hoy (ej. Rialto 2026-10-20 sobre la Orden #697 del 2026-10-17 por $41.86,
+  // o West Covina 2026-10-21 sobre la Orden #412 del 2026-10-17 por $10.13) tiene `refundBusinessDate === businessDate`.
+  // Cohesion contabiliza todo reembolso en su `refundBusinessDate` (reduciendo el canal de venta/Dining Option,
+  // Service Charges, Impuestos y el Depósito de Tarjeta/Efectivo del día del reembolso, sin alterar las comisiones originalProcessingFee).
+  try {
+    const refUrl = new URL(`${TOAST_API_HOST}/orders/v2/payments`)
+    refUrl.searchParams.set('refundBusinessDate', businessDate)
+    const refListRes = await fetchToastWithRetry(refUrl.toString(), { headers: toastHeaders })
+    const refundGuidsFromApi: string[] = refListRes.ok ? await refListRes.json() : []
+    const allRefundPaymentGuids = Array.from(
+      new Set([
+        ...(Array.isArray(refundGuidsFromApi) ? refundGuidsFromApi : []),
+        ...Array.from(sameDayRefundPayments.keys()),
+      ])
+    )
+
+    if (allRefundPaymentGuids.length > 0) {
+      const processedRefundTxGuids = new Set<string>()
+
+      for (const rGuid of allRefundPaymentGuids) {
+        try {
+          let rp = sameDayRefundPayments.get(rGuid)
+          if (!rp) {
+            const rpRes = await fetchToastWithRetry(`${TOAST_API_HOST}/orders/v2/payments/${rGuid}`, { headers: toastHeaders })
+            if (!rpRes.ok) continue
+            rp = await rpRes.json()
+          }
+          if (!rp || rp.voided || INVALID_PAYMENT_STATUSES.has(String(rp.paymentStatus || '').toUpperCase())) continue
+
+          const refObj = rp.refund || (rp.refundAmount ? { refundAmount: rp.refundAmount, tipRefundAmount: 0, refundBusinessDate: businessDate } : null)
+          if (!refObj) continue
+          if (refObj.refundBusinessDate && String(refObj.refundBusinessDate) !== businessDate) continue
+
+          const rAmt = Number(refObj.refundAmount || 0)
+          const rTip = Number(refObj.tipRefundAmount || 0)
+          if (rAmt <= 0 && rTip <= 0) continue
+
+          // 1. Descontar del método de pago correspondiente (Cohesion no descuenta originalProcessingFee en reembolsos)
+          const pT = String(rp.type || '').toUpperCase()
+          const altName = rp.otherPayment?.guid ? (altMap[rp.otherPayment.guid] || '') : (rp.otherPayment?.name || '')
+          const pName = (altName || rp.displayName || rp.paymentInstrument?.displayName || '').toLowerCase()
+
+          if (pT === 'GIFT_CARD' || pT.includes('GIFT') || pName.includes('gift card')) {
+            giftCardRedemption -= (rAmt + rTip)
+            if (rTip > 0) tipsPayable -= rTip
+          } else if (pName.includes('ebt')) {
+            ebtAmount -= rAmt
+          } else if (pT === 'CASH') {
+            cashDeposit -= rAmt
+          } else if (pT === 'CREDIT') {
+            const fullRefGross = rAmt + rTip
+            creditCardGross -= fullRefGross
+            if (rTip > 0) tipsPayable -= rTip
+
+            const rawCard = String(rp.cardType || '').toUpperCase()
+            const cKey = rawCard.includes('VISA') ? 'VISA'
+              : rawCard.includes('MASTER') ? 'MASTERCARD'
+              : rawCard.includes('DISC') ? 'DISCOVER'
+              : rawCard.includes('AMEX') || rawCard.includes('AMERICAN') ? 'AMEX'
+              : 'OTHER'
+
+            if (!cardBreakdown[cKey]) cardBreakdown[cKey] = { gross: 0, fee: 0, deposit: 0 }
+            cardBreakdown[cKey].gross = Math.round((cardBreakdown[cKey].gross - fullRefGross) * 100) / 100
+            cardBreakdown[cKey].deposit = Math.round((cardBreakdown[cKey].gross - cardBreakdown[cKey].fee) * 100) / 100
+          } else if (pName.includes('uber') || pName.includes('postmates')) {
+            uberPayment -= (rAmt + rTip)
+            if (rTip > 0) tipsPayable -= rTip
+          } else if (pName.includes('doordash') || pName.includes('dash')) {
+            doordashPayment -= (rAmt + rTip)
+            if (rTip > 0) tipsPayable -= rTip
+          } else if (pName.includes('grub')) {
+            grubhubPayment -= (rAmt + rTip)
+            if (rTip > 0) tipsPayable -= rTip
+          } else {
+            creditCardGross -= (rAmt + rTip)
+            if (rTip > 0) tipsPayable -= rTip
+          }
+
+          // 2. Obtener la orden padre y descontar ventas (Dining Option), Service Charges e Impuestos del reembolso
+          let refOrder = rp.orderGuid ? ordersByGuid.get(rp.orderGuid) : null
+          if (!refOrder && rp.orderGuid) {
+            const ordRes = await fetchToastWithRetry(`${TOAST_API_HOST}/orders/v2/orders/${rp.orderGuid}`, { headers: toastHeaders })
+            if (ordRes.ok) {
+              refOrder = await ordRes.json()
+              if (refOrder?.guid) ordersByGuid.set(refOrder.guid, refOrder)
+            }
+          }
+
+          if (refOrder) {
+            const refTxGuid = refObj.refundTransaction?.guid || null
+            const dedupKey = refTxGuid || rp.guid
+            if (!processedRefundTxGuids.has(dedupKey)) {
+              processedRefundTxGuids.add(dedupKey)
+
+              const refCheck = (refOrder.checks || []).find((c: any) => c.guid === rp.checkGuid) || refOrder.checks?.[0]
+              if (refCheck) {
+                const dOptionRaw = diningMap[refOrder.diningOption?.guid] || refOrder.diningOption?.name || ''
+                const dService = refOrder.deliveryService || ''
+                const sourceRaw = refOrder.source || ''
+                const optName = `${dService} ${dOptionRaw} ${sourceRaw}`.toLowerCase()
+                const dOptLower = (dOptionRaw || '').toLowerCase().trim()
+
+                let itemRefundNet = 0
+                let scRefundSum = 0
+                let taxRefundSum = 0
+
+                for (const sc of refCheck.appliedServiceCharges || []) {
+                  if (sc.voided || !sc.refundDetails) continue
+                  if (refTxGuid && sc.refundDetails.refundTransaction?.guid && sc.refundDetails.refundTransaction.guid !== refTxGuid) continue
+                  const scRefAmt = Number(sc.refundDetails.refundAmount || 0)
+                  const scRefTax = Number(sc.refundDetails.taxRefundAmount || 0)
+                  scRefundSum += scRefAmt
+                  taxRefundSum += scRefTax
+                  if (scRefAmt > 0) {
+                    if (sc.gratuity) {
+                      tipsPayable -= scRefAmt
+                    } else {
+                      const scName = String(sc.name || '').toLowerCase()
+                      if (scName.includes('6 miles')) {
+                        deliveryFee6Miles -= scRefAmt
+                      } else {
+                        deliveryServiceCharges -= scRefAmt
+                      }
+                    }
+                  }
+                }
+
+                for (const sel of refCheck.selections || []) {
+                  if (sel.voided || !sel.refundDetails) continue
+                  if (refTxGuid && sel.refundDetails.refundTransaction?.guid && sel.refundDetails.refundTransaction.guid !== refTxGuid) continue
+                  const selRefAmt = Number(sel.refundDetails.refundAmount || 0)
+                  const selRefTax = Number(sel.refundDetails.taxRefundAmount || 0)
+                  taxRefundSum += selRefTax
+                  if (selRefAmt > 0) {
+                    const sName = ((sel.item?.name || '') + ' ' + (sel.itemGroup?.name || '') + ' ' + (sel.displayName || '')).toLowerCase()
+                    if (sel.giftCard || sName.includes('gift card') || sName.includes('add value')) {
+                      deferredSalesGiftCards -= selRefAmt
+                    } else {
+                      itemRefundNet += selRefAmt
+                    }
+                  }
+                }
+
+                const linkedRefundTotal = Math.round((itemRefundNet + scRefundSum + taxRefundSum) * 100) / 100
+                const unlinkedRef = Math.max(0, Math.round((rAmt - linkedRefundTotal) * 100) / 100)
+                if (unlinkedRef > 0.009) {
+                  itemRefundNet += unlinkedRef
+                }
+
+                itemRefundNet = Math.round(itemRefundNet * 100) / 100
+                taxRefundSum = Math.round(taxRefundSum * 100) / 100
+
+                totalTax -= taxRefundSum
+
+                if (optName.includes('uber') && (optName.includes('takeout') || optName.includes('take out'))) {
+                  uberTake -= itemRefundNet
+                  uberTakeGross -= itemRefundNet
+                  taxPaidByUber -= taxRefundSum
+                } else if (optName.includes('uber') || optName.includes('postmates')) {
+                  uberDel -= itemRefundNet
+                  uberDelGross -= itemRefundNet
+                  taxPaidByUber -= taxRefundSum
+                } else if (optName.includes('doordash') && (optName.includes('takeout') || optName.includes('take out'))) {
+                  ddTake -= itemRefundNet
+                  ddTakeGross -= itemRefundNet
+                  marketplaceTax -= taxRefundSum
+                } else if (optName.includes('doordash') || optName.includes('dash')) {
+                  ddDel -= itemRefundNet
+                  ddDelGross -= itemRefundNet
+                  marketplaceTax -= taxRefundSum
+                } else if (optName.includes('grub') && (optName.includes('takeout') || optName.includes('take out'))) {
+                  ghTake -= itemRefundNet
+                  ghTakeGross -= itemRefundNet
+                  marketplaceTax -= taxRefundSum
+                } else if (optName.includes('grub')) {
+                  ghDel -= itemRefundNet
+                  ghDelGross -= itemRefundNet
+                  marketplaceTax -= taxRefundSum
+                } else if (dOptLower.includes('toast delivery')) {
+                  toastDelivery -= itemRefundNet
+                  toastDeliveryGross -= itemRefundNet
+                } else if (dOptLower.includes('online ordering - takeout') || dOptLower.includes('online ordering takeout')) {
+                  onlineOrderingTakeout -= itemRefundNet
+                  onlineOrderingTakeoutGross -= itemRefundNet
+                } else if (optName.includes('online')) {
+                  toastOnline -= itemRefundNet
+                  toastOnlineGross -= itemRefundNet
+                } else if (dOptLower.includes('drive') || optName.includes('drive')) {
+                  driveThru -= itemRefundNet
+                  driveThruGross -= itemRefundNet
+                } else if (dOptLower.includes('kiosk dine in')) {
+                  kioskDineIn -= itemRefundNet
+                  kioskDineInGross -= itemRefundNet
+                } else if (dOptLower.includes('kiosk take out') || dOptLower === 'kiosk' || (dOptLower.includes('kiosk') && !dOptLower.includes('dine in') && !dOptLower.includes('for here'))) {
+                  kioskTakeOut -= itemRefundNet
+                  kioskTakeOutGross -= itemRefundNet
+                } else if (dOptLower === 'phone' || dOptLower.includes('phone')) {
+                  phone -= itemRefundNet
+                  phoneGross -= itemRefundNet
+                } else if (dOptLower.includes('curbside')) {
+                  curbside -= itemRefundNet
+                  curbsideGross -= itemRefundNet
+                } else if (dOptLower.includes('for here') || dOptLower.includes('dine in') || dOptLower.includes('comedor')) {
+                  forHere -= itemRefundNet
+                  forHereGross -= itemRefundNet
+                } else if (dOptLower.includes('to go') || dOptLower.includes('take out') || dOptLower.includes('llevar')) {
+                  toGo -= itemRefundNet
+                  toGoGross -= itemRefundNet
+                } else if (optName.includes('to go')) {
+                  toGo -= itemRefundNet
+                  toGoGross -= itemRefundNet
+                } else {
+                  forHere -= itemRefundNet
+                  forHereGross -= itemRefundNet
+                }
+              }
+            }
+          }
+        } catch (refItemErr) {
+          console.warn(`[toast-accounting] Error procesando reembolso ${rGuid}:`, (refItemErr as Error).message)
+        }
+      }
+    }
+  } catch (refPassErr) {
+    console.warn('[toast-accounting] Refunds pass no disponible:', (refPassErr as Error).message)
+  }
+
   // Redondear a centavos
   const r = (n: number) => Math.round(n * 100) / 100
 
