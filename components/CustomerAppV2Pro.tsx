@@ -56,11 +56,13 @@ import {
   Phone,
   Play,
   QrCode,
+  RotateCcw,
   ShieldCheck,
   ShoppingBag,
   Smartphone,
   Sparkles,
   Store as StoreIcon,
+  Trash2,
   Truck,
   User,
   UtensilsCrossed,
@@ -671,7 +673,7 @@ export default function CustomerAppV2Pro({
   externalLoggedInDemo = false,
   controlTick = 0,
 }: CustomerAppV2ProProps = {}) {
-  const { language, setLanguage } = useLanguage()
+  const { language, setLanguage, t } = useLanguage()
   const lang: 'es' | 'en' = language === 'en' ? 'en' : 'es'
 
   const [stage, setStage] = useState<V2Stage>('stories')
@@ -804,6 +806,104 @@ export default function CustomerAppV2Pro({
     () => getStoreStatusInLA(currentStore, lang),
     [currentStore, lang]
   )
+
+  const currentOrderOnlineUrl = useMemo(() => {
+    const base = currentStore.toastOrderingUrl.replace(/\/+$/, '')
+    const param = fulfillmentMode === 'delivery' ? 'delivery=true' : 'pickup=true'
+    return `${base}/?hideModal=true&${param}`
+  }, [currentStore.toastOrderingUrl, fulfillmentMode])
+
+  const [orderSessionActive, setOrderSessionActive] = useState(false)
+  const [wrapperResetModalOpen, setWrapperResetModalOpen] = useState(false)
+  const [pendingModeSwitch, setPendingModeSwitch] = useState<FulfillmentMode | null>(null)
+  const [wrapperNotice, setWrapperNotice] = useState<string | null>(null)
+  const [recentOrderSessions, setRecentOrderSessions] = useState<
+    Array<{
+      id: string
+      storeId: number
+      storeName: string
+      address: string
+      phone: string
+      mode: FulfillmentMode
+      url: string
+      openedAt: string
+    }>
+  >([])
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem('gavilan_v2_order_sessions')
+      if (raw) {
+        const parsed = JSON.parse(raw)
+        if (Array.isArray(parsed)) setRecentOrderSessions(parsed.slice(0, 6))
+      }
+    } catch {
+      // ignore storage read errors
+    }
+  }, [])
+
+  const showTransientWrapperNotice = useCallback((msg: string) => {
+    setWrapperNotice(msg)
+    setTimeout(() => {
+      setWrapperNotice((prev) => (prev === msg ? null : prev))
+    }, 3200)
+  }, [])
+
+  const launchWrappedOrderOnline = useCallback(() => {
+    setOrderSessionActive(true)
+    const entry = {
+      id: `${currentStore.id}-${Date.now()}`,
+      storeId: currentStore.id,
+      storeName: currentStore.name,
+      address: currentStore.address,
+      phone: currentStore.phone,
+      mode: fulfillmentMode,
+      url: currentOrderOnlineUrl,
+      openedAt: new Date().toISOString(),
+    }
+    setRecentOrderSessions((prev) => {
+      const next = [entry, ...prev.filter((item) => item.storeId !== currentStore.id || item.mode !== fulfillmentMode)].slice(0, 6)
+      try {
+        localStorage.setItem('gavilan_v2_order_sessions', JSON.stringify(next))
+      } catch {
+        // ignore storage write errors
+      }
+      return next
+    })
+    if (typeof window !== 'undefined') {
+      window.open(currentOrderOnlineUrl, '_blank', 'noopener,noreferrer')
+    }
+  }, [currentOrderOnlineUrl, currentStore.address, currentStore.id, currentStore.name, currentStore.phone, fulfillmentMode])
+
+  const handleSelectOrderMode = useCallback(
+    (nextMode: FulfillmentMode) => {
+      if (nextMode === fulfillmentMode) return
+      if (orderSessionActive) {
+        setPendingModeSwitch(nextMode)
+        return
+      }
+      setFulfillmentMode(nextMode)
+    },
+    [fulfillmentMode, orderSessionActive]
+  )
+
+  const handleConfirmModeSwitch = useCallback(() => {
+    if (!pendingModeSwitch) return
+    setFulfillmentMode(pendingModeSwitch)
+    setPendingModeSwitch(null)
+    setOrderSessionActive(false)
+    showTransientWrapperNotice(t('mobile_legal.wrapper_reloaded_toast'))
+  }, [pendingModeSwitch, showTransientWrapperNotice, t])
+
+  const handleWrapperReload = useCallback(() => {
+    showTransientWrapperNotice(t('mobile_legal.wrapper_reloaded_toast'))
+  }, [showTransientWrapperNotice, t])
+
+  const handleWrapperResetConfirm = useCallback(() => {
+    setOrderSessionActive(false)
+    setWrapperResetModalOpen(false)
+    showTransientWrapperNotice(t('mobile_legal.wrapper_cleared_toast'))
+  }, [showTransientWrapperNotice, t])
 
   const triggerBrandTransition = useCallback((label: string, callback: () => void) => {
     setBrandLoader({ visible: true, label, done: false })
@@ -2193,52 +2293,412 @@ export default function CustomerAppV2Pro({
                   </div>
                 )}
 
-                {/* TAB 2: ORDER (Embedded Interactive Menu + Direct Toast Online Handoff) */}
+                {/* TAB 2: ORDER (Official order.online App Wrapper + WebView Controls + 15 Stores) */}
                 {activeTab === 'order' && (
-                  <div className="w-full h-full flex flex-col bg-[#121212]">
-                    <div className="px-4 py-2.5 bg-[#1c1c1e] border-b border-white/10 flex items-center justify-between gap-2">
-                      <div className="flex items-center gap-1.5">
+                  <div className="w-full h-full flex flex-col bg-[#121212] relative">
+                    {/* Row 1: Native WebView Wrapper Navigation & Security Bar */}
+                    <div className="px-3 py-2 bg-[#161618] border-b border-white/10 flex items-center justify-between gap-1.5">
+                      <div className="flex items-center gap-1">
                         <button
                           type="button"
-                          onClick={() => setFulfillmentMode('pickup')}
-                          className={`px-3 py-1 rounded-lg text-[11px] font-black uppercase tracking-wider transition-all cursor-pointer ${
-                            fulfillmentMode === 'pickup'
-                              ? 'bg-[#DA291C] text-white shadow'
-                              : 'bg-white/10 text-white/70'
-                          }`}
+                          onClick={() => setActiveTab('home')}
+                          className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-white/8 hover:bg-white/15 text-white/85 text-[10px] font-bold transition-colors cursor-pointer"
+                          title={t('mobile_legal.wrapper_nav_back')}
                         >
-                          Pickup
+                          <ArrowLeft size={12} />
+                          <span>{t('mobile_legal.wrapper_nav_back')}</span>
                         </button>
                         <button
                           type="button"
-                          onClick={() => setFulfillmentMode('delivery')}
-                          className={`px-3 py-1 rounded-lg text-[11px] font-black uppercase tracking-wider transition-all cursor-pointer ${
-                            fulfillmentMode === 'delivery'
-                              ? 'bg-[#DA291C] text-white shadow'
-                              : 'bg-white/10 text-white/70'
-                          }`}
+                          onClick={handleWrapperReload}
+                          className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-white/8 hover:bg-white/15 text-white/85 text-[10px] font-bold transition-colors cursor-pointer"
+                          title={t('mobile_legal.wrapper_nav_home')}
                         >
-                          Delivery
+                          <Home size={11} />
+                          <span>{t('mobile_legal.wrapper_nav_home')}</span>
                         </button>
                       </div>
 
-                      <a
-                        href={currentStore.toastOrderingUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1 px-3 py-1 rounded-lg bg-[#FDC82F] text-[#50050a] text-[10px] font-black uppercase tracking-wider shadow cursor-pointer"
+                      <div className="min-w-0 flex-1 mx-1 px-2.5 py-1 rounded-lg bg-black/50 border border-white/10 flex items-center gap-1.5">
+                        <Lock size={10} className="text-emerald-400 shrink-0" />
+                        <span className="text-[10px] font-mono text-white/75 truncate">
+                          {currentOrderOnlineUrl.replace(/^https:\/\//, '')}
+                        </span>
+                      </div>
+
+                      <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={handleWrapperReload}
+                          className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-white/8 hover:bg-white/15 text-white/85 text-[10px] font-bold transition-colors cursor-pointer"
+                          title={t('mobile_legal.wrapper_nav_reload')}
+                        >
+                          <RotateCcw size={11} />
+                          <span className="hidden sm:inline">{t('mobile_legal.wrapper_nav_reload')}</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setWrapperResetModalOpen(true)}
+                          className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-[#DA291C]/20 hover:bg-[#DA291C]/35 text-[#FDC82F] border border-[#DA291C]/40 text-[10px] font-bold transition-colors cursor-pointer"
+                          title={t('mobile_legal.wrapper_nav_reset')}
+                        >
+                          <Trash2 size={11} />
+                          <span className="hidden sm:inline">{t('mobile_legal.wrapper_nav_reset')}</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Row 2: Active Store Bar + Pickup / Delivery Mode Switch */}
+                    <div className="px-3.5 py-2.5 bg-[#1c1c1e] border-b border-white/10 flex items-center justify-between gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setStoreModalOpen(true)}
+                        className="min-w-0 flex-1 flex items-center gap-2 text-left px-2.5 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 transition-colors cursor-pointer"
                       >
-                        <span>{lang === 'en' ? 'Direct Store Checkout' : 'Checkout Directo'}</span>
-                        <ExternalLink size={11} />
-                      </a>
+                        <MapPin size={13} className="text-[#FDC82F] shrink-0" />
+                        <div className="min-w-0 flex-1">
+                          <div className="text-[9px] font-extrabold uppercase tracking-wider text-white/55">
+                            {t('mobile_legal.wrapper_active_store_label')}
+                          </div>
+                          <div className="text-xs font-black text-white truncate">
+                            Tacos Gavilan — {currentStore.name}
+                          </div>
+                        </div>
+                        <ChevronDown size={13} className="text-[#FDC82F] shrink-0" />
+                      </button>
+
+                      <div className="flex items-center gap-1 p-1 rounded-xl bg-black/40 border border-white/10 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => handleSelectOrderMode('pickup')}
+                          className={`px-2.5 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer flex items-center gap-1 ${
+                            fulfillmentMode === 'pickup'
+                              ? 'bg-[#DA291C] text-white shadow'
+                              : 'text-white/65 hover:text-white'
+                          }`}
+                        >
+                          <ShoppingBag size={11} />
+                          <span>Pickup</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleSelectOrderMode('delivery')}
+                          className={`px-2.5 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer flex items-center gap-1 ${
+                            fulfillmentMode === 'delivery'
+                              ? 'bg-[#DA291C] text-white shadow'
+                              : 'text-white/65 hover:text-white'
+                          }`}
+                        >
+                          <Truck size={11} />
+                          <span>Delivery</span>
+                        </button>
+                      </div>
                     </div>
-                    <div className="flex-1 w-full bg-white">
-                      <iframe
-                        src="/app/index.html?nosplash=1"
-                        className="w-full h-full border-0"
-                        title="Tacos Gavilan Interactive Menu"
-                      />
+
+                    {/* Transient Wrapper Feedback Banner */}
+                    {wrapperNotice && (
+                      <div className="mx-4 mt-3 px-3 py-2 rounded-xl bg-emerald-500/15 border border-emerald-500/40 text-emerald-300 text-xs font-bold flex items-center gap-2">
+                        <Check size={14} className="shrink-0" />
+                        <span>{wrapperNotice}</span>
+                      </div>
+                    )}
+
+                    {/* Wrapped Storefront Scrollable Content */}
+                    <div className="flex-1 overflow-y-auto p-4 space-y-4 pb-24">
+                      {/* Primary Wrapped Storefront Card */}
+                      <div className="p-4 rounded-2xl bg-gradient-to-br from-[#271112] via-[#1c1c1e] to-[#17171a] border border-[#FDC82F]/35 shadow-xl space-y-3.5">
+                        <div className="flex items-center justify-between gap-2 flex-wrap">
+                          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#DA291C]/30 border border-[#FDC82F]/40 text-[10px] font-black uppercase tracking-wider text-[#FDC82F]">
+                            <Flame size={11} />
+                            <span>{t('mobile_legal.wrapper_badge')}</span>
+                          </span>
+                          <span
+                            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-black uppercase ${
+                              orderSessionActive
+                                ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                                : 'bg-white/10 text-white/80 border border-white/15'
+                            }`}
+                          >
+                            <span
+                              className={`w-1.5 h-1.5 rounded-full ${
+                                orderSessionActive ? 'bg-emerald-400 animate-pulse' : 'bg-[#FDC82F]'
+                              }`}
+                            />
+                            <span>
+                              {orderSessionActive
+                                ? t('mobile_legal.wrapper_session_active_badge')
+                                : t('mobile_legal.wrapper_session_ready_badge')}
+                            </span>
+                          </span>
+                        </div>
+
+                        <div>
+                          <h3 className="text-lg font-black text-white tracking-tight">
+                            Tacos Gavilan — {currentStore.name}
+                          </h3>
+                          <p className="text-xs text-white/75 mt-0.5">{currentStore.address}</p>
+                          <div className="flex items-center gap-2 mt-1.5 text-xs flex-wrap">
+                            <span
+                              className={`font-black ${
+                                currentStoreStatus.isOpen ? 'text-emerald-400' : 'text-amber-400'
+                              }`}
+                            >
+                              ● {currentStoreStatus.badgeText}
+                            </span>
+                            <span className="text-white/60">• {currentStoreStatus.todayHours}</span>
+                            <span className="px-2 py-0.5 rounded-md bg-white/10 text-[#FDC82F] text-[10px] font-black uppercase">
+                              {fulfillmentMode === 'delivery'
+                                ? t('mobile_legal.wrapper_delivery_mode')
+                                : t('mobile_legal.wrapper_pickup_mode')}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Primary Launch CTA */}
+                        <button
+                          type="button"
+                          onClick={launchWrappedOrderOnline}
+                          className="w-full py-3.5 px-4 rounded-xl bg-gradient-to-r from-[#DA291C] to-[#b51d12] hover:from-[#e63225] hover:to-[#c92216] text-white font-black text-xs uppercase tracking-wider shadow-lg shadow-[#DA291C]/30 flex items-center justify-center gap-2 border border-[#FDC82F]/40 transition-all cursor-pointer"
+                        >
+                          <ShoppingBag size={15} className="text-[#FDC82F]" />
+                          <span>
+                            {orderSessionActive
+                              ? t('mobile_legal.wrapper_reopen_order_cta')
+                              : t('mobile_legal.wrapper_open_order_cta')}
+                          </span>
+                          <ExternalLink size={14} className="text-[#FDC82F]" />
+                        </button>
+
+                        {/* Store Quick Actions */}
+                        <div className="grid grid-cols-3 gap-2 pt-1">
+                          <button
+                            type="button"
+                            onClick={() => setStoreModalOpen(true)}
+                            className="py-2 px-2.5 rounded-xl bg-white/8 hover:bg-white/15 border border-white/10 text-white text-[11px] font-extrabold flex items-center justify-center gap-1.5 cursor-pointer"
+                          >
+                            <StoreIcon size={13} className="text-[#FDC82F]" />
+                            <span className="truncate">{t('mobile_legal.wrapper_change_store_btn')}</span>
+                          </button>
+                          <a
+                            href={`tel:${currentStore.phone.replace(/[^\d+]/g, '')}`}
+                            className="py-2 px-2.5 rounded-xl bg-white/8 hover:bg-white/15 border border-white/10 text-white text-[11px] font-extrabold flex items-center justify-center gap-1.5"
+                          >
+                            <Phone size={13} className="text-emerald-400" />
+                            <span className="truncate">{t('mobile_legal.wrapper_call_store_support')}</span>
+                          </a>
+                          <a
+                            href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(
+                              currentStore.address
+                            )}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="py-2 px-2.5 rounded-xl bg-white/8 hover:bg-white/15 border border-white/10 text-[#FDC82F] text-[11px] font-extrabold flex items-center justify-center gap-1.5"
+                          >
+                            <Navigation size={13} />
+                            <span className="truncate">{t('mobile_legal.wrapper_directions_btn')}</span>
+                          </a>
+                        </div>
+
+                        <div className="pt-2 border-t border-white/10 flex items-center gap-1.5 text-[10px] text-white/60">
+                          <ShieldCheck size={13} className="text-emerald-400 shrink-0" />
+                          <span>{t('mobile_legal.wrapper_https_verified')}</span>
+                        </div>
+                      </div>
+
+                      {/* Quick Menu Categories Grid (Launches Wrapped order.online Storefront) */}
+                      <div className="space-y-2.5">
+                        <div>
+                          <h4 className="text-xs font-black uppercase tracking-wider text-white">
+                            {t('mobile_legal.wrapper_quick_categories_title')}
+                          </h4>
+                          <p className="text-[11px] text-white/65 mt-0.5">
+                            {t('mobile_legal.wrapper_quick_categories_sub')}
+                          </p>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-2.5">
+                          {[
+                            {
+                              id: 'tacos',
+                              label: t('mobile_legal.wrapper_cat_tacos'),
+                              img: '/tacosgavilan-web/img/menu-food/taco-asada-1-@2x.png',
+                            },
+                            {
+                              id: 'burritos',
+                              label: t('mobile_legal.wrapper_cat_burritos'),
+                              img: '/tacosgavilan-web/img/menu-food/burrito-desktop-half-@2x.png',
+                            },
+                            {
+                              id: 'mulitas',
+                              label: t('mobile_legal.wrapper_cat_mulitas'),
+                              img: '/tacosgavilan-web/img/menu-food/mulita-1-@2x.png',
+                            },
+                            {
+                              id: 'quesadillas',
+                              label: t('mobile_legal.wrapper_cat_quesadillas'),
+                              img: '/tacosgavilan-web/img/menu-food/quesadilla-1-@2x.png',
+                            },
+                            {
+                              id: 'platos',
+                              label: t('mobile_legal.wrapper_cat_platos'),
+                              img: '/tacosgavilan-web/img/menu-food/combo-plate-@2x.png',
+                            },
+                            {
+                              id: 'bebidas',
+                              label: t('mobile_legal.wrapper_cat_bebidas'),
+                              img: '/tacosgavilan-web/img/menu-food/horchata-jamaica-drinks-@2x.png',
+                            },
+                          ].map((cat) => (
+                            <button
+                              key={cat.id}
+                              type="button"
+                              onClick={launchWrappedOrderOnline}
+                              className="p-3 rounded-2xl bg-[#1c1c1e] hover:bg-[#252529] border border-white/10 hover:border-[#FDC82F]/50 flex items-center gap-2.5 text-left transition-all cursor-pointer group"
+                            >
+                              <img
+                                src={cat.img}
+                                alt={cat.label}
+                                className="w-12 h-12 object-contain shrink-0 group-hover:scale-105 transition-transform"
+                              />
+                              <div className="min-w-0 flex-1">
+                                <div className="text-xs font-black text-white leading-tight line-clamp-2">
+                                  {cat.label}
+                                </div>
+                                <div className="mt-1 inline-flex items-center gap-0.5 text-[10px] font-extrabold text-[#FDC82F]">
+                                  <span>order.online</span>
+                                  <ChevronRight size={11} />
+                                </div>
+                              </div>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Order Confirmation, Receipt & Live Tracking Card */}
+                      <div className="p-4 rounded-2xl bg-[#1c1c1e] border border-white/10 space-y-2.5">
+                        <div className="flex items-center gap-2">
+                          <ShieldCheck size={16} className="text-[#FDC82F] shrink-0" />
+                          <h4 className="text-xs font-black uppercase tracking-wider text-white">
+                            {t('mobile_legal.wrapper_receipt_card_title')}
+                          </h4>
+                        </div>
+                        <p className="text-xs text-white/70 leading-relaxed">
+                          {t('mobile_legal.wrapper_receipt_card_desc')}
+                        </p>
+                        <div className="space-y-1.5 pt-1 text-[11px] text-white/80 font-medium">
+                          <div>{t('mobile_legal.wrapper_receipt_step_1')}</div>
+                          <div>{t('mobile_legal.wrapper_receipt_step_2')}</div>
+                          <div>{t('mobile_legal.wrapper_receipt_step_3')}</div>
+                        </div>
+                      </div>
+
+                      {/* Recent Store Ordering Sessions */}
+                      <div className="p-4 rounded-2xl bg-[#1c1c1e] border border-white/10 space-y-2.5">
+                        <h4 className="text-xs font-black uppercase tracking-wider text-white/90">
+                          {t('mobile_legal.wrapper_recent_sessions_title')}
+                        </h4>
+                        {recentOrderSessions.length === 0 ? (
+                          <p className="text-xs text-white/55">
+                            {t('mobile_legal.wrapper_recent_sessions_empty')}
+                          </p>
+                        ) : (
+                          <div className="space-y-2">
+                            {recentOrderSessions.map((sess) => (
+                              <div
+                                key={sess.id}
+                                className="p-2.5 rounded-xl bg-black/35 border border-white/10 flex items-center justify-between gap-2"
+                              >
+                                <div className="min-w-0 flex-1">
+                                  <div className="text-xs font-black text-white truncate">
+                                    Tacos Gavilan — {sess.storeName}
+                                  </div>
+                                  <div className="text-[10px] text-white/60 truncate">
+                                    {sess.mode.toUpperCase()} • {sess.address}
+                                  </div>
+                                </div>
+                                <div className="flex items-center gap-1.5 shrink-0">
+                                  <a
+                                    href={`tel:${sess.phone.replace(/[^\d+]/g, '')}`}
+                                    className="p-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white"
+                                    title={sess.phone}
+                                  >
+                                    <Phone size={12} />
+                                  </a>
+                                  <a
+                                    href={sess.url}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="px-2.5 py-1 rounded-lg bg-[#DA291C] text-white text-[10px] font-black uppercase"
+                                  >
+                                    order.online
+                                  </a>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
                     </div>
+
+                    {/* Modal 1: Reset Ordering Session Confirmation */}
+                    {wrapperResetModalOpen && (
+                      <div className="absolute inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-5">
+                        <div className="w-full max-w-sm rounded-2xl bg-[#1c1c1e] border border-white/15 p-5 space-y-4 shadow-2xl">
+                          <h4 className="text-base font-black text-white">
+                            {t('mobile_legal.wrapper_reset_modal_title')}
+                          </h4>
+                          <p className="text-xs text-white/75 leading-relaxed">
+                            {t('mobile_legal.wrapper_reset_modal_desc')}
+                          </p>
+                          <div className="flex items-center gap-2 pt-1">
+                            <button
+                              type="button"
+                              onClick={() => setWrapperResetModalOpen(false)}
+                              className="flex-1 py-2.5 rounded-xl bg-white/10 hover:bg-white/15 text-white text-xs font-bold cursor-pointer"
+                            >
+                              {t('mobile_legal.wrapper_reset_cancel_btn')}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={handleWrapperResetConfirm}
+                              className="flex-1 py-2.5 rounded-xl bg-[#DA291C] hover:bg-[#b81d13] text-white text-xs font-black uppercase cursor-pointer"
+                            >
+                              {t('mobile_legal.wrapper_reset_confirm_btn')}
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Modal 2: Switch Pickup / Delivery Confirmation when Session Active */}
+                    {pendingModeSwitch && (
+                      <div className="absolute inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-5">
+                        <div className="w-full max-w-sm rounded-2xl bg-[#1c1c1e] border border-white/15 p-5 space-y-4 shadow-2xl">
+                          <h4 className="text-base font-black text-white">
+                            {t('mobile_legal.wrapper_switch_mode_title')}
+                          </h4>
+                          <p className="text-xs text-white/75 leading-relaxed">
+                            {t('mobile_legal.wrapper_switch_mode_desc')}
+                          </p>
+                          <div className="flex items-center gap-2 pt-1">
+                            <button
+                              type="button"
+                              onClick={() => setPendingModeSwitch(null)}
+                              className="flex-1 py-2.5 rounded-xl bg-white/10 hover:bg-white/15 text-white text-xs font-bold cursor-pointer"
+                            >
+                              {t('mobile_legal.wrapper_reset_cancel_btn')}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={handleConfirmModeSwitch}
+                              className="flex-1 py-2.5 rounded-xl bg-[#DA291C] hover:bg-[#b81d13] text-white text-xs font-black uppercase cursor-pointer"
+                            >
+                              {t('mobile_legal.wrapper_switch_mode_confirm')}
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
 
@@ -2760,6 +3220,9 @@ export default function CustomerAppV2Pro({
                         key={st.id}
                         type="button"
                         onClick={() => {
+                          if (st.id !== selectedStoreId) {
+                            setOrderSessionActive(false)
+                          }
                           setSelectedStoreId(st.id)
                           setStoreModalOpen(false)
                         }}
