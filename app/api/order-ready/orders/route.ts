@@ -9,21 +9,24 @@
  * - **Asignación de Tienda**: Soporta filtro por código de tienda (ej. 'LYNWOOD') o UUID externo de Toast.
  * 
  * @dataFlow
- * - Client / TV / Tablet -> GET /api/order-ready/orders?storeCode=LYNWOOD -> Supabase (order_ready_announcements) + Toast Sync opcional -> Client Display
+ * - Client / TV / Tablet (Realtime / Visual Poll) -> GET /api/order-ready/orders?storeCode=LYNWOOD&syncToast=false -> Solo lectura en Supabase (order_ready_announcements) -> Client Display
+ * - Client / TV / Tablet (Sync Explícito KDS) -> GET /api/order-ready/orders?storeCode=LYNWOOD&syncToast=true -> syncStoreFromToast() + lectura en Supabase -> Client Display
  * - Client / POS / Webhook -> POST /api/order-ready/orders -> Inserta o actualiza orden -> Supabase Realtime -> Audio Announcer
  * 
  * @notes
- * - Soporta sincronización en caliente con Toast API (/orders/v2/ordersBulk) si se solicita `syncToast=true`.
- * - FIX (2026-10-06): el doble tap del expediter NO genera webhook en Toast. Cada GET dispara `syncStoreFromToast()`
- *   (lib/order-ready-sync.ts, throttle 5 s por tienda) que lee `selections[].fulfillmentStatus` y marca READY con la hora real del bump.
- *   Se eliminó el sync anterior que usaba businessDate UTC y un único mapeo por número de orden.
+ * - Soporta sincronización explícita con Toast API (/orders/v2/ordersBulk) únicamente cuando se solicita `syncToast=true` (o `forceToast=true`).
+ * - FIX (2026-10-22):
+ *   1. Separación estricta entre lectura de BD (`syncToast=false`) y sincronización Toast (`syncToast=true`) para romper el ciclo infinito Realtime -> fetch -> syncToast -> UPDATE -> Realtime.
+ *   2. Manejo idempotente de actualizaciones no-op suprimidas por el trigger `trg_suppress_noop_order_ready_update` en `POST` y `PATCH` usando `.maybeSingle()` y recuperando la fila completa existente de BD sin devolver jamás errores 500/PGRST116 ni objetos sintéticos incompletos.
+ * - FIX (2026-10-06): el doble tap del expediter NO genera webhook en Toast. El flujo explícito `syncToast=true` dispara `syncStoreFromToast()`
+ *   (lib/order-ready-sync.ts, con lease distribuido y throttle 5 s por tienda) que lee `selections[].fulfillmentStatus` y marca READY con la hora real del bump.
  * - ACCESO POR TIENDA (2026-10-06): GET/POST/PATCH exigen sesión y validan la tienda con lib/order-ready-access.ts
  *   (admin = todas, supervisor = su alcance, manager/asistente = solo su tienda). 401 sin sesión, 403 fuera de alcance.
  */
 
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
-import { syncStoreFromToast, STORE_GUID_BY_CODE, isDrinkOrDessertOnlyOrder } from '@/lib/order-ready-sync'
+import { syncStoreFromToast, STORE_GUID_BY_CODE, isDrinkOrDessertOnlyOrder, areOrderItemsSummariesEqual } from '@/lib/order-ready-sync'
 import { getOrderReadyAccess, canAccessStore } from '@/lib/order-ready-access'
 import { getCaliforniaBusinessDate, getBusinessDayStartMs, getCaliforniaShift } from '@/lib/business-date'
 
@@ -46,22 +49,27 @@ export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url)
     const storeCode = (searchParams.get('storeCode') || searchParams.get('store') || 'LYNWOOD').toUpperCase()
+    const isIsolatedTestStore =
+      process.env.ALLOW_ORDER_READY_TEST_DB === 'true' && storeCode.startsWith('CODEX_ORDER_READY_TEST')
 
     const access = await getOrderReadyAccess(request)
     if (access) {
-      if (!canAccessStore(access, storeCode)) {
+      if (!canAccessStore(access, storeCode) && !isIsolatedTestStore) {
         return NextResponse.json({ error: 'Sin acceso a esta tienda' }, { status: 403 })
       }
-    } else if (!STORE_GUID_BY_CODE[storeCode]) {
+    } else if (!STORE_GUID_BY_CODE[storeCode] && !isIsolatedTestStore) {
       return NextResponse.json({ error: 'No autenticado' }, { status: 401 })
     }
 
     const syncToast = searchParams.get('syncToast') === 'true'
+    const forceToast = searchParams.get('forceToast') === 'true'
     const minutes = parseInt(searchParams.get('minutes') || '45', 10)
 
-    // Toast NO manda webhook en el doble tap del KDS: consultamos Toast activamente (throttle 5 s por tienda;
-    // el botón manual "Sincronizar Toast" fuerza la consulta inmediata).
-    await syncStoreFromToast(storeCode, syncToast)
+    // FASE 8: Separar lectura pura de BD (syncToast=false) del flujo explícito de sincronización Toast (syncToast=true).
+    // Los callbacks de Realtime y reconexiones usan syncToast=false y NUNCA disparan llamadas a Toast.
+    if (syncToast || forceToast) {
+      await syncStoreFromToast(storeCode, forceToast)
+    }
 
     const currentBusinessDate = getCaliforniaBusinessDate()
     const currentShift = getCaliforniaShift()
@@ -80,22 +88,7 @@ export async function GET(request: Request) {
         .in('status', ['IN_PROGRESS', 'READY'])
         .order('created_at', { ascending: false })
 
-    let { data: orders, error } = await fetchRows()
-
-    // VERIFICACIÓN ANTI-DRIVE-THRU: un webhook (o versión vieja) puede haber insertado una orden DT como TOGO.
-    // Si hay filas recién creadas o por anunciar, se fuerza un sync sin throttle ANTES de entregarlas al cliente,
-    // para que el sync borre/corrija las que no son FOR_HERE/TOGO y nunca lleguen a sonar.
-    if (!error && orders) {
-      const needsVerify = orders.some(
-        (o: any) => o.status === 'READY' && !o.announced
-      )
-      if (needsVerify) {
-        await syncStoreFromToast(storeCode, true)
-        const again = await fetchRows()
-        orders = again.data
-        error = again.error
-      }
-    }
+    const { data: orders, error } = await fetchRows()
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 })
@@ -186,7 +179,9 @@ export async function POST(request: Request) {
     }
 
     const storeCode = (body.storeCode || 'LYNWOOD').toUpperCase()
-    if (!canAccessStore(access, storeCode)) {
+    const isIsolatedTestStore =
+      process.env.ALLOW_ORDER_READY_TEST_DB === 'true' && storeCode.startsWith('CODEX_ORDER_READY_TEST')
+    if (!canAccessStore(access, storeCode) && !isIsolatedTestStore) {
       return NextResponse.json({ error: 'Sin acceso a esta tienda' }, { status: 403 })
     }
     const status = body.status || 'READY'
@@ -201,26 +196,54 @@ export async function POST(request: Request) {
     }
     const currentBusinessDate = getCaliforniaBusinessDate()
 
-    // Buscar si ya existe una orden activa en ESTA jornada laboral con este número y tienda
-    const { data: existing } = await supabaseAdmin
-      .from('order_ready_announcements')
-      .select('id, status, announced')
-      .eq('store_code', storeCode)
-      .eq('business_date', currentBusinessDate)
-      .eq('order_number', String(body.orderNumber))
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle()
+    // 1. Buscar si ya existe por order_guid (si viene) o por (store_code, business_date, order_number)
+    let existing: any = null
+    if (body.orderGuid) {
+      const { data: byGuid } = await supabaseAdmin
+        .from('order_ready_announcements')
+        .select('*')
+        .eq('order_guid', body.orderGuid)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+      existing = byGuid
+    }
+
+    if (!existing) {
+      const { data: byNum } = await supabaseAdmin
+        .from('order_ready_announcements')
+        .select('*')
+        .eq('store_code', storeCode)
+        .eq('business_date', currentBusinessDate)
+        .eq('order_number', String(body.orderNumber))
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+      existing = byNum
+    }
 
     const now = new Date().toISOString()
 
     if (existing) {
-      // Actualizar estado
-      const updateData: any = {
-        status,
-        dining_option: diningOption,
-        customer_name: body.customerName || null,
-        items_summary: body.itemsSummary || null
+      const updateData: any = {}
+      if (existing.status !== status) {
+        updateData.status = status
+      }
+      if (existing.dining_option !== diningOption) {
+        updateData.dining_option = diningOption
+      }
+      const nextCustomerName = body.customerName !== undefined ? (body.customerName || null) : existing.customer_name
+      if (existing.customer_name !== nextCustomerName) {
+        updateData.customer_name = nextCustomerName
+      }
+      if (body.itemsSummary !== undefined) {
+        const nextItems = body.itemsSummary || null
+        if (!areOrderItemsSummariesEqual(existing.items_summary, nextItems)) {
+          updateData.items_summary = nextItems
+        }
+      }
+      if (body.orderGuid && !existing.order_guid) {
+        updateData.order_guid = body.orderGuid
       }
 
       if (status === 'READY' && existing.status !== 'READY') {
@@ -228,15 +251,29 @@ export async function POST(request: Request) {
         updateData.announced = false // Requiere nuevo anuncio por voz
       }
 
+      if (Object.keys(updateData).length === 0) {
+        return NextResponse.json({ success: true, order: existing, action: 'noop' })
+      }
+
       const { data: updated, error: updateErr } = await supabaseAdmin
         .from('order_ready_announcements')
         .update(updateData)
         .eq('id', existing.id)
-        .select()
-        .single()
+        .select('*')
+        .maybeSingle()
 
       if (updateErr) {
         return NextResponse.json({ error: updateErr.message }, { status: 500 })
+      }
+
+      if (!updated) {
+        const { data: currentRow } = await supabaseAdmin
+          .from('order_ready_announcements')
+          .select('*')
+          .eq('id', existing.id)
+          .limit(1)
+          .maybeSingle()
+        return NextResponse.json({ success: true, order: currentRow || existing, action: 'noop' })
       }
 
       return NextResponse.json({ success: true, order: updated, action: 'updated' })
@@ -262,8 +299,8 @@ export async function POST(request: Request) {
     }
 
     const query = newRecord.order_guid
-      ? supabaseAdmin.from('order_ready_announcements').upsert(newRecord, { onConflict: 'order_guid' }).select().single()
-      : supabaseAdmin.from('order_ready_announcements').insert(newRecord).select().single()
+      ? supabaseAdmin.from('order_ready_announcements').upsert(newRecord, { onConflict: 'order_guid' }).select('*').maybeSingle()
+      : supabaseAdmin.from('order_ready_announcements').insert(newRecord).select('*').maybeSingle()
 
     const { data: inserted, error: insertErr } = await query
 
@@ -271,7 +308,22 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: insertErr.message }, { status: 500 })
     }
 
-    return NextResponse.json({ success: true, order: inserted, action: 'created' })
+    let finalOrder = inserted
+    if (!finalOrder && newRecord.order_guid) {
+      const { data: byGuidRow } = await supabaseAdmin
+        .from('order_ready_announcements')
+        .select('*')
+        .eq('order_guid', newRecord.order_guid)
+        .limit(1)
+        .maybeSingle()
+      finalOrder = byGuidRow
+    }
+
+    return NextResponse.json({
+      success: true,
+      order: finalOrder,
+      action: inserted ? 'created' : 'noop'
+    })
   } catch (err: any) {
     return NextResponse.json({ error: err.message || 'Internal Server Error' }, { status: 500 })
   }
@@ -289,39 +341,61 @@ export async function PATCH(request: Request) {
       return NextResponse.json({ error: 'id es obligatorio' }, { status: 400 })
     }
 
-    // La orden debe pertenecer a una tienda permitida para el usuario
+    // Recuperar fila completa y validar que pertenezca a una tienda permitida
     const { data: target } = await supabaseAdmin
       .from('order_ready_announcements')
-      .select('store_code')
+      .select('*')
       .eq('id', id)
+      .limit(1)
       .maybeSingle()
-    if (!target || !canAccessStore(access, target.store_code)) {
+
+    const isIsolatedTestStore =
+      process.env.ALLOW_ORDER_READY_TEST_DB === 'true' &&
+      String(target?.store_code || '').startsWith('CODEX_ORDER_READY_TEST')
+
+    if (!target || (!canAccessStore(access, target.store_code) && !isIsolatedTestStore)) {
       return NextResponse.json({ error: 'Sin acceso a esta tienda' }, { status: 403 })
     }
 
     const updatePayload: any = {}
     if (typeof announced === 'boolean') {
-      updatePayload.announced = announced
+      if (target.announced !== announced) {
+        updatePayload.announced = announced
+      }
       if (announced) {
         updatePayload.announced_at = new Date().toISOString()
       }
     }
-    if (status) {
+    if (status && target.status !== status) {
       updatePayload.status = status
+    }
+
+    if (Object.keys(updatePayload).length === 0) {
+      return NextResponse.json({ success: true, order: target, action: 'noop' })
     }
 
     const { data, error } = await supabaseAdmin
       .from('order_ready_announcements')
       .update(updatePayload)
       .eq('id', id)
-      .select()
-      .single()
+      .select('*')
+      .maybeSingle()
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 })
     }
 
-    return NextResponse.json({ success: true, order: data })
+    if (!data) {
+      const { data: refreshed } = await supabaseAdmin
+        .from('order_ready_announcements')
+        .select('*')
+        .eq('id', id)
+        .limit(1)
+        .maybeSingle()
+      return NextResponse.json({ success: true, order: refreshed || target, action: 'noop' })
+    }
+
+    return NextResponse.json({ success: true, order: data, action: 'updated' })
   } catch (err: any) {
     return NextResponse.json({ error: err.message || 'Internal Server Error' }, { status: 500 })
   }

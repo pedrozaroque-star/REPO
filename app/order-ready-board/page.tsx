@@ -44,7 +44,7 @@
  * - **Resiliencia de Red (Offline Mode)**: Detección proactiva de conectividad de red con aviso visual y caída suave a audio en caché/síntesis local si se corta la conexión a internet.
  * 
  * @dataFlow
- * - Supabase Realtime channel (`order-ready-realtime`, broadcast `call_order` + postgres_changes `order_ready_announcements`) + Polling cada 4s (cada GET sincroniza con Toast) -> Actualiza estado React -> Chime + clips de voz natural (/api/order-ready/tts y /api/order-ready/announcement-tts) -> PATCH /api/order-ready/orders (announced: true).
+ * - Supabase Realtime channel (`order-ready-realtime:${storeCode}`, broadcast `call_order` + postgres_changes `order_ready_announcements` con filtro server-side `store_code=eq.${storeCode}`) + Polling visual de solo lectura (`syncToast=false`) cada 4s + Flujo explícito de sincronización KDS Toast (`syncToast=true`) cada 10s -> Actualiza estado React -> Chime + clips de voz natural (/api/order-ready/tts y /api/order-ready/announcement-tts) -> PATCH /api/order-ready/orders (announced: true).
  * 
  * @notes
  * - Modo Normal (Claro) por defecto integrado con la estética limpia de SM TEG (fondos blancos/slate-50, bordes nítidos y alto contraste), con selector dinámico a Modo Oscuro para pantallas nocturnas (persistente en `localStorage` vía `teg_order_ready_theme`).
@@ -56,11 +56,16 @@
  *   supervisor = su alcance, manager/asistente = solo la suya (selector bloqueado). Una tienda guardada/URL no permitida se
  *   reemplaza por la primera permitida y el servidor responde 403 si se intenta consultar otra.
  * - CUÁDRUPLE REDUNDANCIA DE AUDIO (2026-10-13): Blindaje absoluto para llamados desde tableta de preparador:
- *   1) WebSocket Broadcast cliente (canal unificado 'order-ready-realtime').
- *   2) Server Broadcast (/api/order-ready/call emite siempre por 'order-ready-realtime').
- *   3) PostgreSQL Replication (escucha cambios en 'announced_at' vía postgres_changes en order_ready_announcements).
- *   4) Polling Fallback cada 4s (detecta llamadas con announced_at < 8s en fetchOrders).
+ *   1) WebSocket Broadcast cliente (canal por tienda 'order-ready-realtime:${storeCode}').
+ *   2) Server Broadcast (/api/order-ready/call emite siempre por 'order-ready-realtime:${storeCode}').
+ *   3) PostgreSQL Replication (escucha cambios en 'announced_at' vía postgres_changes en order_ready_announcements con filtro server-side).
+ *   4) Polling Fallback cada 4s (detecta llamadas con announced_at < 45s en fetchOrders).
  *   Debounce acústico de 6 segundos por orden para evitar duplicidad de sonido entre capas.
+ * - FIX REALTIME & RECONEXIÓN (2026-10-22):
+ *   1) Filtro server-side `store_code=eq.${selectedStore}` en `order_ready_announcements` y `id=eq.global` en `order_ready_settings`.
+ *   2) Topic de canal aislado por sucursal (`order-ready-realtime:${selectedStore}`).
+ *   3) Guardia `channelDisposed` por instancia de canal para evitar reconexión infinita ante evento `CLOSED` intencional al ejecutar `removeChannel`.
+ *   4) Debounce de 500ms + guardia `fetchingRef` en refrescos por Realtime, usando siempre `syncToast=false` para romper el ciclo Realtime -> fetch -> syncToast -> UPDATE.
  */
 
 'use client'
@@ -270,7 +275,7 @@ function OrderReadyBoardContent() {
   const orderDetailCacheRef = useRef<Map<string, any>>(new Map())
   const orderDetailInflightRef = useRef<Map<string, Promise<any>>>(new Map())
   const businessDateRef = useRef<string>(businessDate)
-  const fetchOrdersRef = useRef<((syncToast?: boolean) => Promise<void>) | null>(null)
+  const fetchOrdersRef = useRef<((syncToast?: boolean, forceToast?: boolean) => Promise<void>) | null>(null)
 
   // Configuración de Audio y Voz
   const [audioUnlocked, setAudioUnlocked] = useState<boolean>(false)
@@ -1693,22 +1698,22 @@ function OrderReadyBoardContent() {
     }
   }, [])
 
-  // Cargar órdenes desde el backend
-  const fetchOrders = useCallback(async (syncToast = false) => {
+  // Cargar órdenes desde el backend (por defecto solo lectura de BD: syncToast=false)
+  const fetchOrders = useCallback(async (syncToast = false, forceToast = false) => {
     // No consultar hasta confirmar que el usuario tiene permiso para esta tienda
     if (!storeOk) return
     // Evita peticiones encimadas si la red/PC va lenta (una a la vez)
-    if (fetchingRef.current && !syncToast) return
+    if (fetchingRef.current && !forceToast) return
     fetchingRef.current = true
-    const timeoutMs = syncToast ? 35000 : 20000
+    const timeoutMs = syncToast || forceToast ? 35000 : 20000
     const controller = new AbortController()
     const abortTimer = setTimeout(() => controller.abort(), timeoutMs)
     try {
-      if (syncToast) {
+      if (syncToast || forceToast) {
         setIsSyncing(true)
         purgeTabletStaleCaches({ activeDate: getCaliforniaBusinessDate() }).catch(() => {})
       }
-      const res = await fetch(`/api/order-ready/orders?storeCode=${selectedStore}&syncToast=${syncToast}&minutes=45&_t=${Date.now()}`, {
+      const res = await fetch(`/api/order-ready/orders?storeCode=${selectedStore}&syncToast=${syncToast}&forceToast=${forceToast}&minutes=45&_t=${Date.now()}`, {
         signal: controller.signal,
         cache: 'no-store',
         headers: getTabletNoCacheHeaders()
@@ -1820,14 +1825,30 @@ function OrderReadyBoardContent() {
     fetchOrdersRef.current = fetchOrders
   }, [fetchOrders])
 
-  // Polling cada 4 segundos + Carga inicial
+  // FASE 8: Separar el polling visual de solo lectura (cada 4s con syncToast=false)
+  // del flujo explícito de detección de KDS bump contra Toast (cada 10s con syncToast=true).
   useEffect(() => {
-    fetchOrdersRef.current?.(false)
-    const interval = setInterval(() => {
-      fetchOrdersRef.current?.(false)
+    if (!storeOk) return
+    fetchOrdersRef.current?.(false, false)
+    const initialToastSyncTimeout = setTimeout(() => {
+      if (typeof document === 'undefined' || document.visibilityState === 'visible') {
+        fetchOrdersRef.current?.(true, false)
+      }
+    }, 500)
+    const readOnlyInterval = setInterval(() => {
+      fetchOrdersRef.current?.(false, false)
     }, 4000)
-    return () => clearInterval(interval)
-  }, [selectedStore])
+    const explicitToastSyncInterval = setInterval(() => {
+      if (typeof document === 'undefined' || document.visibilityState === 'visible') {
+        fetchOrdersRef.current?.(true, false)
+      }
+    }, 10000)
+    return () => {
+      clearTimeout(initialToastSyncTimeout)
+      clearInterval(readOnlyInterval)
+      clearInterval(explicitToastSyncInterval)
+    }
+  }, [selectedStore, storeOk])
 
   // Precargar la voz de las órdenes en preparación (las más antiguas primero) para que el anuncio sea instantáneo
   useEffect(() => {
@@ -1854,40 +1875,74 @@ function OrderReadyBoardContent() {
     void getBeverageClipUrl('CHAMPURRADO', 'Champurrado pendiente ya está listo', selectedVoice)
   }, [getBeverageClipUrl, selectedVoice])
 
-  // Suscripción a Supabase Realtime con reconexión automática ante microcortes nocturnos de red/Wi-Fi
+  // Suscripción a Supabase Realtime aislada por tienda con filtro server-side, debounce 500ms y sin reconexión en CLOSED intencional
   useEffect(() => {
+    const normalizedStore = String(selectedStore || 'LYNWOOD').toUpperCase()
+    const channelTopic = `order-ready-realtime:${normalizedStore}`
+
     let unmounted = false
     let activeChannel: any = null
+    let disposeCurrentChannelGuard: (() => void) | null = null
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null
+    let realtimeDebounceTimer: ReturnType<typeof setTimeout> | null = null
+
+    const disposeActiveChannel = () => {
+      if (disposeCurrentChannelGuard) {
+        disposeCurrentChannelGuard()
+        disposeCurrentChannelGuard = null
+      }
+      if (activeChannel) {
+        const chToRemove = activeChannel
+        activeChannel = null
+        supabase.removeChannel(chToRemove).catch(() => {})
+      }
+    }
+
+    const scheduleRealtimeReadOnlyRefresh = () => {
+      if (unmounted) return
+      if (realtimeDebounceTimer) clearTimeout(realtimeDebounceTimer)
+      realtimeDebounceTimer = setTimeout(() => {
+        realtimeDebounceTimer = null
+        if (!unmounted && !fetchingRef.current) {
+          // Callback Realtime NUNCA inicia sincronización Toast (syncToast=false)
+          fetchOrdersRef.current?.(false, false)
+        }
+      }, 500)
+    }
 
     const setupChannel = () => {
       if (unmounted) return
-      if (activeChannel) {
-        supabase.removeChannel(activeChannel).catch(() => {})
-        activeChannel = null
+      disposeActiveChannel()
+
+      let channelDisposed = false
+      disposeCurrentChannelGuard = () => {
+        channelDisposed = true
       }
 
       const channel = supabase
-        .channel('order-ready-realtime')
+        .channel(channelTopic)
         .on(
           'postgres_changes',
           {
             event: '*',
             schema: 'public',
-            table: 'order_ready_announcements'
+            table: 'order_ready_announcements',
+            filter: `store_code=eq.${normalizedStore}`
           },
           (payload) => {
+            if (unmounted || channelDisposed) return
             const newRow = payload.new as any
             const oldRow = payload.old as any
             const row = (newRow || oldRow) as OrderItem
-            if (row && row.store_code === selectedStore) {
+            const rowStore = String(row?.store_code || normalizedStore).toUpperCase()
+            if (row && rowStore === normalizedStore) {
               // Capa 3 de Redundancia (PostgreSQL Replication Fallback):
               // Si la llamada fue persistida en base de datos con un announced_at reciente (<45s)
               // y ese impulso aún no ha sido reproducido por las Capas 1 o 2, activar el llamado.
               if (newRow && newRow.announced_at) {
                 const announcedMs = Date.parse(newRow.announced_at)
                 if (!isNaN(announcedMs) && (Date.now() - announcedMs) < 45000) {
-                  const storeKey = `${String(newRow.store_code || selectedStore).toUpperCase()}:${newRow.order_number}`
+                  const storeKey = `${rowStore}:${newRow.order_number}`
                   const lastCall = lastImpulseTimeRef.current.get(storeKey) || 0
                   const lastAnnMs = lastAnnouncedAtMsRef.current.get(storeKey) || 0
                   const isSameTap = lastAnnMs > 0 && Math.abs(announcedMs - lastAnnMs) < 2500
@@ -1908,7 +1963,7 @@ function OrderReadyBoardContent() {
                   }
                 }
               }
-              fetchOrdersRef.current?.(false)
+              scheduleRealtimeReadOnlyRefresh()
             }
           }
         )
@@ -1917,9 +1972,11 @@ function OrderReadyBoardContent() {
           {
             event: '*',
             schema: 'public',
-            table: 'order_ready_settings'
+            table: 'order_ready_settings',
+            filter: 'id=eq.global'
           },
           (payload) => {
+            if (unmounted || channelDisposed) return
             const newRow = payload.new as any
             if (newRow && newRow.id === 'global' && newRow.voice && isValidVoice(newRow.voice)) {
               setSelectedVoice(newRow.voice)
@@ -1933,20 +1990,24 @@ function OrderReadyBoardContent() {
           'broadcast',
           { event: 'call_order' },
           (payload) => {
+            if (unmounted || channelDisposed) return
             const data = payload?.payload
             if (!data) return
-            if (String(data.store_code || '').toUpperCase() !== String(selectedStore || '').toUpperCase()) return
+            if (String(data.store_code || '').toUpperCase() !== normalizedStore) return
             handleImpulseRef.current?.(data)
           }
         )
         .subscribe((status: string) => {
-          if (unmounted) return
+          // No reconectar si el componente se desmontó o el canal fue cerrado intencionalmente
+          if (unmounted || channelDisposed || activeChannel !== channel) return
           if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
             if (reconnectTimer) clearTimeout(reconnectTimer)
             reconnectTimer = setTimeout(() => {
-              if (!unmounted) {
+              reconnectTimer = null
+              if (!unmounted && !channelDisposed) {
                 setupChannel()
-                fetchOrdersRef.current?.(false)
+                // No sincronizar Toast durante reconexión: refresco de solo lectura
+                scheduleRealtimeReadOnlyRefresh()
               }
             }, 2500)
           }
@@ -1959,7 +2020,7 @@ function OrderReadyBoardContent() {
 
     const handleResumeConnection = () => {
       if (!unmounted && (typeof document === 'undefined' || document.visibilityState === 'visible')) {
-        fetchOrdersRef.current?.(false)
+        scheduleRealtimeReadOnlyRefresh()
       }
     }
     window.addEventListener('online', handleResumeConnection)
@@ -1967,12 +2028,17 @@ function OrderReadyBoardContent() {
 
     return () => {
       unmounted = true
-      if (reconnectTimer) clearTimeout(reconnectTimer)
+      if (reconnectTimer) {
+        clearTimeout(reconnectTimer)
+        reconnectTimer = null
+      }
+      if (realtimeDebounceTimer) {
+        clearTimeout(realtimeDebounceTimer)
+        realtimeDebounceTimer = null
+      }
       window.removeEventListener('online', handleResumeConnection)
       document.removeEventListener('visibilitychange', handleResumeConnection)
-      if (activeChannel) {
-        supabase.removeChannel(activeChannel).catch(() => {})
-      }
+      disposeActiveChannel()
     }
   }, [selectedStore])
 
@@ -2662,7 +2728,7 @@ function OrderReadyBoardContent() {
               <div className={`mt-3.5 pt-2.5 border-t ${isDark ? 'border-slate-800/80' : 'border-slate-200'}`}>
                 <button
                   type="button"
-                  onClick={() => fetchOrders(true)}
+                  onClick={() => fetchOrders(true, true)}
                   disabled={isSyncing}
                   className={`w-full flex items-center justify-center gap-2 font-semibold text-xs py-2 px-3 rounded-lg transition disabled:opacity-50 border ${
                     isDark

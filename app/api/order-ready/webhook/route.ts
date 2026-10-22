@@ -17,15 +17,18 @@
  * - Soporta RECALL de Toast KDS: si una orden READY se desmarca en KDS, regresa a IN_PROGRESS para reaparecer en la tableta del preparador.
  * - KDS bump silencioso: al pasar a READY por KDS, se persiste `announced = true` para evitar anuncios automáticos por altavoz.
  * - `ready_at` usa la hora real del bump (modifiedDate de los platillos).
+ * - FIX (2026-10-22): el SELECT previo incluye `items_summary` y `ready_at`; `updateData` construye únicamente cambios semánticos reales usando `areOrderItemsSummariesEqual()` y omite ejecutar `UPDATE` si `updateData` está vacío.
  */
 
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 import { getAuthToken } from '@/lib/toast-api'
-import { TOAST_STORE_MAP, STORE_GUID_BY_CODE, evaluateToastOrder, classifyDiningName, getDiningMap, extractOrderItemsSummary } from '@/lib/order-ready-sync'
+import { TOAST_STORE_MAP, STORE_GUID_BY_CODE, evaluateToastOrder, classifyDiningName, getDiningMap, extractOrderItemsSummary, areOrderItemsSummariesEqual } from '@/lib/order-ready-sync'
 import { getCaliforniaBusinessDate } from '@/lib/business-date'
 
-const TOAST_API_HOST = process.env.TOAST_API_HOST || 'https://ws-api.toasttab.com'
+function getToastApiHost(): string {
+  return process.env.TOAST_API_HOST || 'https://ws-api.toasttab.com'
+}
 
 export const dynamic = 'force-dynamic'
 
@@ -36,7 +39,15 @@ export async function POST(request: Request) {
     // Soporte para estructura Toast { details: { order, restaurantGuid } } o directo { order }
     const orderObj = payload.details?.order || payload.order || payload
     const restaurantId = payload.restaurantGuid || payload.details?.restaurantGuid || payload.restaurantId || payload.restaurantExternalId || payload.storeId
-    const storeInfo = TOAST_STORE_MAP[restaurantId] || { code: 'LYNWOOD', name: 'Lynwood' }
+    const explicitTestStoreCode =
+      process.env.ALLOW_ORDER_READY_TEST_DB === 'true' &&
+      typeof payload.storeCode === 'string' &&
+      payload.storeCode.toUpperCase().startsWith('CODEX_ORDER_READY_TEST')
+        ? payload.storeCode.toUpperCase()
+        : null
+    const storeInfo = explicitTestStoreCode
+      ? { code: explicitTestStoreCode, name: payload.storeName || explicitTestStoreCode }
+      : TOAST_STORE_MAP[restaurantId] || { code: 'LYNWOOD', name: 'Lynwood' }
 
     // El número de orden puede venir en varios formatos
     const orderNumber = orderObj.displayNumber || orderObj.orderNumber || payload.orderNumber || payload.displayNumber || payload.ticketNumber
@@ -119,7 +130,7 @@ export async function POST(request: Request) {
     if (orderGuid) {
       const { data: byGuid } = await supabaseAdmin
         .from('order_ready_announcements')
-        .select('id, status, announced, order_number, dining_option, customer_name, order_guid')
+        .select('id, status, announced, order_number, dining_option, customer_name, order_guid, items_summary, ready_at')
         .eq('order_guid', orderGuid)
         .order('created_at', { ascending: false })
         .limit(1)
@@ -134,7 +145,7 @@ export async function POST(request: Request) {
     if (!existing && orderNumber) {
       const { data: byNum } = await supabaseAdmin
         .from('order_ready_announcements')
-        .select('id, status, announced, order_number, dining_option, customer_name, order_guid')
+        .select('id, status, announced, order_number, dining_option, customer_name, order_guid, items_summary, ready_at')
         .eq('store_code', storeInfo.code)
         .eq('business_date', currentBusinessDate)
         .eq('order_number', String(orderNumber))
@@ -144,17 +155,21 @@ export async function POST(request: Request) {
       existing = byNum
     }
 
-    // Si ya existe la orden, actualizarla
+    // Si ya existe la orden, actualizarla solo si cambió algún campo real
     if (existing) {
       const itemsSummary = extractOrderItemsSummary(orderObj)
       const isRecall = existing.status === 'READY' && status === 'IN_PROGRESS'
       const isKdsBump = existing.status === 'IN_PROGRESS' && status === 'READY'
+      const nextStatus = isRecall ? 'IN_PROGRESS' : isKdsBump ? 'READY' : status
 
-      const updateData: any = {
-        status: isRecall ? 'IN_PROGRESS' : isKdsBump ? 'READY' : status,
-        dining_option: diningOption
+      const updateData: any = {}
+      if (existing.status !== nextStatus) {
+        updateData.status = nextStatus
       }
-      if (itemsSummary) {
+      if (existing.dining_option !== diningOption) {
+        updateData.dining_option = diningOption
+      }
+      if (itemsSummary && (!existing.items_summary || !areOrderItemsSummariesEqual(existing.items_summary, itemsSummary))) {
         updateData.items_summary = itemsSummary
       }
       if (isKdsBump) {
@@ -165,20 +180,28 @@ export async function POST(request: Request) {
         // RECALL en Toast KDS: vuelve a preparación, se limpia ready_at y reaparece en tableta preparador
         updateData.ready_at = null
         updateData.announced = false
+      } else if (existing.status === 'READY' && nextStatus === 'READY' && evaluation.readyAt) {
+        const oldReadyMs = Date.parse(existing.ready_at || '')
+        const newReadyMs = Date.parse(evaluation.readyAt)
+        if (Number.isFinite(newReadyMs) && (!Number.isFinite(oldReadyMs) || Math.abs(newReadyMs - oldReadyMs) > 1000)) {
+          updateData.ready_at = evaluation.readyAt
+        }
       }
-      if (customerName) {
+      if (customerName && existing.customer_name !== customerName) {
         updateData.customer_name = customerName
       }
       if (orderGuid && !existing.order_guid) {
         updateData.order_guid = orderGuid
       }
 
-      await supabaseAdmin
-        .from('order_ready_announcements')
-        .update(updateData)
-        .eq('id', existing.id)
+      if (Object.keys(updateData).length > 0) {
+        await supabaseAdmin
+          .from('order_ready_announcements')
+          .update(updateData)
+          .eq('id', existing.id)
+      }
 
-      return NextResponse.json({ success: true, action: 'updated', orderNumber: existing.order_number, status: updateData.status })
+      return NextResponse.json({ success: true, action: Object.keys(updateData).length > 0 ? 'updated' : 'unchanged', orderNumber: existing.order_number, status: nextStatus })
     }
 
     // Si es orden nueva y no tenemos número de orden pero sí GUID, consultar a Toast API
@@ -190,7 +213,7 @@ export async function POST(request: Request) {
       try {
         const token = await getAuthToken()
         if (token) {
-          const res = await fetch(`${TOAST_API_HOST}/orders/v2/orders/${orderGuid}`, {
+          const res = await fetch(`${getToastApiHost()}/orders/v2/orders/${orderGuid}`, {
             headers: {
               Authorization: `Bearer ${token}`,
               'Toast-Restaurant-External-ID': restaurantId

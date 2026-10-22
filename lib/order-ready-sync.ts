@@ -20,7 +20,8 @@
  *
  * - **Persistencia KDS / Contenido de Comanda (items_summary)**:
  *   - Extrae los platillos no anulados (`selections`) y sus modificadores de Toast, consolidando platillos idénticos (ej. 9x Taco Asada).
- *   - Persiste en `order_ready_announcements.items_summary` como JSON estructurado para el KDS y la tableta del preparador.
+ *   - Regla de cantidad (`quantity`): usa la propiedad oficial `quantity` (con soporte de lectura para `qty` heredado). Si `quantity` no viene definido (`null`/`undefined`), su valor por defecto es `1`. Si un platillo trae explícitamente `quantity <= 0` o un valor no finito (`NaN`/`Infinity`), NO se convierte silenciosamente en `1`, sino que se descarta de la preparación activa de cocina.
+ *   - Persiste en `order_ready_announcements.items_summary` como JSON estructurado y ordenado canónicamente para el KDS y la tableta del preparador.
  *
  * - **Exclusión de Bebidas y Postres en Pantalla de Preparación (isDrinkOrDessertOnlyOrder)**:
  *   - Las órdenes compuestas EXCLUSIVAMENTE por bebidas (horchata, sodas, café, aguas, champurrado) o postres (flan, cheesecake)
@@ -28,19 +29,27 @@
  *   - Si la comanda contiene al menos un platillo de cocina (tacos, burritos, quesadillas, sopes, mulitas, huevos, etc.), SÍ se muestra en cocina.
  *
  * @dataFlow
- * - Board (poll cada 4 s) -> GET /api/order-ready/orders -> syncStoreFromToast() (throttle 5 s por tienda)
- *   -> Toast ordersBulk -> upsert en order_ready_announcements (con items_summary) -> Board / Preparador Tablet.
- * - Webhook `order_updated` reutiliza `evaluateToastOrder()` y `extractOrderItemsSummary()` para clasificar y guardar platillos.
+ * - Sincronización Toast explícita (`syncToast=true`) -> GET /api/order-ready/orders -> syncStoreFromToast()
+ *   (con lease distribuido atómico por `store_code` en PostgreSQL + throttle en memoria de 5 s)
+ *   -> Toast ordersBulk -> upsert/update selectivo en order_ready_announcements -> Board / Preparador Tablet.
+ * - Eventos de Supabase Realtime y reconexiones WebSocket invocan GET /api/order-ready/orders?syncToast=false (solo lectura en BD, sin llamar a Toast) para romper el ciclo Realtime -> fetch -> syncToast -> UPDATE -> Realtime.
+ * - Webhook `order_updated` reutiliza `evaluateToastOrder()`, `extractOrderItemsSummary()` y `areOrderItemsSummariesEqual()`.
  *
  * @notes
  * - Mapa de tiendas Toast GUID <-> código vive aquí (única fuente) y lo importa el webhook.
+ * - FIX (2026-10-22):
+ *   1. `extractOrderItemsSummary` usa la clave oficial `quantity`, ordena determinísticamente tanto `modifiers` como el arreglo `items`, consolida platillos con la misma configuración sumando cantidades, preserva configuraciones distintas sin alterar nombres visuales y descarta `quantity <= 0` sin convertirlo en `1`.
+ *   2. `areOrderItemsSummariesEqual` compara semánticamente `quantity` (aceptando `qty` como compatibilidad heredada), preserva cantidades reales (incluyendo `0`), no oculta JSON inválido distinto y evita ejecutar `UPDATE` redundantes cuando Toast devuelve `selections` en diferente orden.
+ *   3. `syncStoreFromToast` utiliza un lease distribuido atómico en PostgreSQL (`try_acquire_order_ready_sync_lease` / `release_order_ready_sync_lease`) con expiración automática (TTL) junto con deduplicación en memoria para evitar tormentas de sincronización entre instancias serverless.
  */
 
 import { supabaseAdmin } from '@/lib/supabase'
 import { getAuthToken } from '@/lib/toast-api'
 import { getCaliforniaBusinessDate, getBusinessDayStartMs } from '@/lib/business-date'
 
-const TOAST_API_HOST = process.env.TOAST_API_HOST || 'https://ws-api.toasttab.com'
+function getToastApiHost(): string {
+  return process.env.TOAST_API_HOST || 'https://ws-api.toasttab.com'
+}
 
 import { TOAST_STORE_MAP, STORE_GUID_BY_CODE } from '@/lib/toast-stores'
 export { TOAST_STORE_MAP, STORE_GUID_BY_CODE }
@@ -53,6 +62,13 @@ export interface OrderItemSummary {
   modifiers: string[]
 }
 
+function parseCanonicalItemQuantity(item: any): number {
+  const raw = item?.quantity !== undefined && item?.quantity !== null ? item.quantity : item?.qty
+  if (raw === undefined || raw === null || raw === '') return 1
+  const num = Number(raw)
+  return Number.isFinite(num) ? num : 1
+}
+
 /**
  * Extrae y consolida los platillos y modificadores de una orden de Toast en formato JSON para el KDS y la tableta del preparador.
  */
@@ -61,7 +77,7 @@ export function extractOrderItemsSummary(order: any): string | null {
   const checks = order.checks || (order.selections ? [{ selections: order.selections }] : [])
   if (!Array.isArray(checks) || checks.length === 0) return null
 
-  // Consolidar platillos con el mismo nombre y mismos modificadores
+  // Consolidar platillos con el mismo nombre visual y mismos modificadores ordenados
   const map = new Map<string, OrderItemSummary>()
 
   for (const chk of checks) {
@@ -71,30 +87,96 @@ export function extractOrderItemsSummary(order: any): string | null {
       const name = String(sel.displayName || sel.name || '').trim()
       if (!name || isNonFoodMarkerItem(name)) continue
 
+      const rawQty = sel.quantity !== undefined && sel.quantity !== null ? sel.quantity : sel.qty
+      const parsedQty = rawQty === undefined || rawQty === null || rawQty === '' ? 1 : Number(rawQty)
+      // Regla documentada: quantity <= 0 o NaN/Infinity no se convierte silenciosamente en 1; se omite por no tener unidades activas
+      if (!Number.isFinite(parsedQty) || parsedQty <= 0) continue
+      const q = parsedQty
+
       const mods: string[] = []
       if (Array.isArray(sel.modifiers)) {
         for (const m of sel.modifiers) {
-          if (m?.voided || m?.deleted) continue
-          const mName = String(m.displayName || m.name || '').trim()
+          if (m === null || m === undefined) continue
+          if (typeof m === 'object' && (m.voided || m.deleted)) continue
+          const mName = String(typeof m === 'object' ? (m.displayName || m.name || '') : m).trim()
           if (mName && !isNonFoodMarkerItem(mName)) {
             mods.push(mName)
           }
         }
       }
 
-      const q = Math.max(1, Number(sel.quantity) || 1)
-      const key = `${name}:::${[...mods].sort().join('|')}`
+      const sortedMods = [...mods].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
+      const key = `${name}:::${sortedMods.join('|')}`
 
       if (map.has(key)) {
         map.get(key)!.quantity += q
       } else {
-        map.set(key, { quantity: q, name, modifiers: mods })
+        map.set(key, { quantity: q, name, modifiers: sortedMods })
       }
     }
   }
 
-  const items = Array.from(map.values())
+  const items = Array.from(map.values()).sort((a, b) => {
+    if (a.name !== b.name) return a.name < b.name ? -1 : 1
+    const modA = a.modifiers.join('|')
+    const modB = b.modifiers.join('|')
+    if (modA !== modB) return modA < modB ? -1 : 1
+    return a.quantity - b.quantity
+  })
   return items.length > 0 ? JSON.stringify(items) : null
+}
+
+/**
+ * Compara dos resúmenes de platillos (`items_summary`) de forma canónica (independiente del orden del arreglo)
+ * para evitar disparos innecesarios de `UPDATE` y eventos de Supabase Realtime.
+ */
+export function areOrderItemsSummariesEqual(
+  a: string | null | undefined,
+  b: string | null | undefined
+): boolean {
+  if (a === b) return true
+  if (a === null || a === undefined || b === null || b === undefined) {
+    return false
+  }
+  const normA = String(a).trim()
+  const normB = String(b).trim()
+  if (normA === normB) return true
+  if (!normA || !normB) return false
+  try {
+    const parsedA = JSON.parse(normA)
+    const parsedB = JSON.parse(normB)
+    if (!Array.isArray(parsedA) || !Array.isArray(parsedB)) return false
+    if (parsedA.length !== parsedB.length) return false
+    const canonicalize = (arr: any[]) =>
+      arr
+        .map((item) => {
+          if (item === null || typeof item !== 'object' || Array.isArray(item)) {
+            return {
+              __raw: JSON.stringify(item),
+              quantity: -1,
+              name: '',
+              modifiers: [] as string[]
+            }
+          }
+          return {
+            quantity: parseCanonicalItemQuantity(item),
+            name: String(item?.name ?? ''),
+            modifiers: Array.isArray(item?.modifiers)
+              ? [...item.modifiers].map((m: any) => String(m ?? '')).sort((x, y) => (x < y ? -1 : x > y ? 1 : 0))
+              : []
+          }
+        })
+        .sort((x, y) => {
+          if (x.name !== y.name) return x.name < y.name ? -1 : 1
+          const modX = x.modifiers.join('|')
+          const modY = y.modifiers.join('|')
+          if (modX !== modY) return modX < modY ? -1 : 1
+          return x.quantity - y.quantity
+        })
+    return JSON.stringify(canonicalize(parsedA)) === JSON.stringify(canonicalize(parsedB))
+  } catch {
+    return false
+  }
 }
 
 import { isDrinkOrDessertItem, isNonFoodMarkerItem } from '@/lib/order-ready-filter'
@@ -277,12 +359,13 @@ export function classifyDiningName(raw: string, orderObj?: any): 'TOGO' | 'FOR_H
 
   if (!up) return 'UNKNOWN'
   if (up.includes('DRIVE') || up.includes('THRU') || up.includes('DT') || up.includes('AUTO')) return 'DRIVE_THRU'
-  if (up.includes('HERE') || up.includes('DINE')) return 'FOR_HERE'
+  if (up.includes('HERE') || up.includes('DINE') || up.includes('COMEDOR')) return 'FOR_HERE'
   if (
     up.includes('TO GO') ||
     up.includes('TOGO') ||
     up.includes('TAKEOUT') ||
     up.includes('TAKE OUT') ||
+    up.includes('LLEVAR') ||
     up.includes('PICKUP') ||
     up.includes('PHONE') ||
     up.includes('KIOSK')
@@ -300,7 +383,7 @@ export async function getDiningMap(token: string, restaurantGuid: string): Promi
   if (cached && Date.now() - cached.at < 30 * 60 * 1000) return cached.map
   const map: Record<string, string> = {}
   try {
-    const res = await fetch(`${TOAST_API_HOST}/config/v2/diningOptions?pageSize=100`, {
+    const res = await fetch(`${getToastApiHost()}/config/v2/diningOptions?pageSize=100`, {
       headers: { Authorization: `Bearer ${token}`, 'Toast-Restaurant-External-ID': restaurantGuid }
     })
     if (res.ok) {
@@ -314,12 +397,19 @@ export async function getDiningMap(token: string, restaurantGuid: string): Promi
   return map
 }
 
-// ── Throttle por tienda: varias tablets abiertas no multiplican las llamadas a Toast ──
+// ── Throttle por tienda: varias tablets abiertas o instancias serverless no multiplican las llamadas a Toast ──
 const lastRun = new Map<string, number>()
 const inflight = new Map<string, Promise<void>>()
 const THROTTLE_MS = 5000
 const WINDOW_MINUTES = 25
 const SILENT_AFTER_MS = 2 * 60 * 1000
+const INSTANCE_HOLDER_ID = `node-${process.pid}-${Math.random().toString(36).slice(2, 10)}`
+
+export function resetOrderReadySyncLocalCache(): void {
+  lastRun.clear()
+  inflight.clear()
+  diningCache.clear()
+}
 
 function toastDate(d: Date): string {
   return d.toISOString().replace('Z', '+0000')
@@ -331,7 +421,10 @@ function toastDate(d: Date): string {
  * - IN_PROGRESS que Toast ya marcó READY -> UPDATE a READY con ready_at real
  */
 export async function syncStoreFromToast(storeCode: string, force = false): Promise<void> {
-  const restaurantGuid = STORE_GUID_BY_CODE[storeCode]
+  const isIsolatedTestStore =
+    process.env.ALLOW_ORDER_READY_TEST_DB === 'true' && storeCode.startsWith('CODEX_ORDER_READY_TEST')
+  const restaurantGuid =
+    STORE_GUID_BY_CODE[storeCode] || (isIsolatedTestStore ? `codex-test-guid-${storeCode}` : undefined)
   if (!restaurantGuid) return
 
   const running = inflight.get(storeCode)
@@ -339,9 +432,44 @@ export async function syncStoreFromToast(storeCode: string, force = false): Prom
   if (!force && Date.now() - (lastRun.get(storeCode) || 0) < THROTTLE_MS) return
 
   const job = (async () => {
+    let leaseAcquired = false
     try {
+      // 1. Intentar adquirir lease distribuido atómico en PostgreSQL (Phase 9)
+      try {
+        const { data: leaseOk, error: leaseErr } = await supabaseAdmin.rpc(
+          'try_acquire_order_ready_sync_lease',
+          {
+            p_store_code: storeCode,
+            p_holder_id: INSTANCE_HOLDER_ID,
+            p_lease_ms: THROTTLE_MS,
+            p_force: force
+          }
+        )
+        if (!leaseErr) {
+          if (leaseOk === false) {
+            return
+          }
+          leaseAcquired = true
+        }
+      } catch {
+        // Fallback silencioso a throttle en memoria si el RPC aún no está desplegado
+      }
+
       const token = await getAuthToken()
-      if (!token) return
+      if (!token) {
+        if (leaseAcquired) {
+          try {
+            await supabaseAdmin.rpc('release_order_ready_sync_lease', {
+              p_store_code: storeCode,
+              p_holder_id: INSTANCE_HOLDER_ID,
+              p_cooldown_ms: 0
+            })
+          } catch {
+            /* ignore */
+          }
+        }
+        return
+      }
       lastRun.set(storeCode, Date.now())
 
       const end = new Date()
@@ -351,8 +479,9 @@ export async function syncStoreFromToast(storeCode: string, force = false): Prom
       const start = new Date(windowStartMs)
 
       const orders: any[] = []
+      const apiHost = getToastApiHost()
       for (let page = 1; page <= 4; page++) {
-        const url = new URL(`${TOAST_API_HOST}/orders/v2/ordersBulk`)
+        const url = new URL(`${apiHost}/orders/v2/ordersBulk`)
         url.searchParams.set('startDate', toastDate(start))
         url.searchParams.set('endDate', toastDate(end))
         url.searchParams.set('pageSize', '100')
@@ -413,7 +542,7 @@ export async function syncStoreFromToast(storeCode: string, force = false): Prom
           if (row.dining_option !== diningOption) {
             updatePayload.dining_option = diningOption
           }
-          if (itemsSummary && (!row.items_summary || row.items_summary !== itemsSummary)) {
+          if (itemsSummary && (!row.items_summary || !areOrderItemsSummariesEqual(row.items_summary, itemsSummary))) {
             updatePayload.items_summary = itemsSummary
           }
           if (ev.status === 'READY' && row.status === 'IN_PROGRESS') {
@@ -474,6 +603,17 @@ export async function syncStoreFromToast(storeCode: string, force = false): Prom
         }, { onConflict: 'order_guid' })
       }
     } catch (err) {
+      if (leaseAcquired) {
+        try {
+          await supabaseAdmin.rpc('release_order_ready_sync_lease', {
+            p_store_code: storeCode,
+            p_holder_id: INSTANCE_HOLDER_ID,
+            p_cooldown_ms: 0
+          })
+        } catch {
+          /* ignore */
+        }
+      }
       console.warn('[order-ready-sync] error:', err)
     } finally {
       inflight.delete(storeCode)

@@ -27,7 +27,7 @@
  *     - Si el cocinero la vuelve a borrar en KDS, se vuelve a retirar de la tableta.
  * @dataFlow 
  *   - meat_consumption_history -> /api/inventory/preparador-history -> Carousel 3D + Intraday Accelerator.
- *   - order_ready_announcements + Realtime channel ('order-ready-realtime') -> Grid de Órdenes en Preparación -> POST /api/order-ready/call -> PC Manager.
+ *   - order_ready_announcements + Realtime channel ('order-ready-realtime:${storeCode}' con filtro server-side `store_code=eq.${storeCode}`) -> Grid de Órdenes en Preparación -> POST /api/order-ready/call -> PC Manager.
  * @notes
  *   - FIX (2026-10-12): Filtro temporal estricto (últimos 60 minutos con .gte('created_at', cutoff)) en la consulta de órdenes en preparación (fetchReadyOrders).
  *     Anteriormente, el acumulado de órdenes históricas IN_PROGRESS (bebidas/no cerradas de la mañana) llenaba el .limit(60) con órdenes de hace horas,
@@ -38,6 +38,10 @@
  *     purga llaves obsoletas de `localStorage`, `sessionStorage`, `CacheStorage` y Service Workers, renueva el JWT (`teg_token`) por 30 días,
  *     reconfigura la fecha laboral (6:00 AM), día de la semana (`businessDow`) y bloque actual de 30 min, desbloquea Web Audio API + WakeLock,
  *     y recarga en vivo proyecciones, horarios manuales, consumo real, inteligencia y órdenes de Toast POS (`/api/order-ready/orders`).
+ *   - FIX REALTIME & RECONEXIÓN (2026-10-22):
+ *     1) Canal Realtime aislado por sucursal (`order-ready-realtime:${storeCode}`) y filtro server-side `store_code=eq.${storeCode}` en `order_ready_announcements`.
+ *     2) Guardia `channelDisposed` por instancia de canal para evitar reconexión por evento `CLOSED` intencional al ejecutar `removeChannel`.
+ *     3) Debounce de 500ms + guardia `fetchingReadyOrdersRef` en refrescos Realtime, manteniendo `syncToast=false` en eventos Realtime y reconexión.
  */
 'use client'
 
@@ -179,7 +183,8 @@ export default function PreparadorPage() {
     const [showWakeUpModal, setShowWakeUpModal] = useState(false)
     const showWakeUpModalRef = useRef(false)
     const [wakingUpTablet, setWakingUpTablet] = useState(false)
-    const fetchReadyOrdersRef = useRef<((isManual?: boolean) => Promise<void>) | null>(null)
+    const fetchReadyOrdersRef = useRef<((isManual?: boolean, syncToastExplicit?: boolean) => Promise<void>) | null>(null)
+    const fetchingReadyOrdersRef = useRef<boolean>(false)
     const fetchHistoryRef = useRef<((overrideDow?: number, overrideDate?: string) => Promise<void>) | null>(null)
     const fetchManualScheduleRef = useRef<((overrideDow?: number, overrideDate?: string) => Promise<void>) | null>(null)
     const fetchRealMeatRef = useRef<((overrideDate?: string) => Promise<void>) | null>(null)
@@ -598,11 +603,17 @@ export default function PreparadorPage() {
     }
 
     // Consulta de órdenes en preparación de la sucursal actual (status = IN_PROGRESS / SEND)
-    const fetchReadyOrders = async (isManual = false) => {
+    const fetchReadyOrders = async (isManual = false, syncToastExplicit = false) => {
         if (!storeId || stores.length === 0) return
         const currentStore = stores.find(s => String(s.id) === String(storeId))
         const storeCode = (currentStore?.code || TOAST_STORE_MAP[currentStore?.external_id]?.code || '').toUpperCase()
         if (!storeCode) return
+
+        // Guardia in-flight para evitar solapamiento de peticiones automáticas
+        if (fetchingReadyOrdersRef.current && !isManual) return
+        fetchingReadyOrdersRef.current = true
+
+        const shouldSyncToast = isManual || syncToastExplicit
 
         if (isManual) {
             setLoadingReadyOrders(true)
@@ -631,10 +642,10 @@ export default function PreparadorPage() {
                 setReadyOrdersList(filterAndDedupePrepOrders(data, storeCode, todayLA))
             }
 
-            // 2. Sincronizar con el servidor (/api/order-ready/orders) sin caché de navegador (no-store + timestamp)
-            // para ejecutar syncStoreFromToast y capturar cualquier orden nueva o bump de KDS al instante
+            // 2. Consultar el servidor (/api/order-ready/orders) sin caché de navegador:
+            // Solo envía syncToast=true en sincronización explícita o manual; en Realtime y polling visual envía syncToast=false
             const syncRes = await fetch(
-                `/api/order-ready/orders?storeCode=${storeCode}&minutes=90&syncToast=${isManual ? 'true' : 'false'}&_t=${Date.now()}`,
+                `/api/order-ready/orders?storeCode=${storeCode}&minutes=90&syncToast=${shouldSyncToast ? 'true' : 'false'}&forceToast=${isManual ? 'true' : 'false'}&_t=${Date.now()}`,
                 {
                     cache: 'no-store',
                     headers: getTabletNoCacheHeaders()
@@ -649,6 +660,7 @@ export default function PreparadorPage() {
         } catch (err) {
             console.warn('Error fetching prep orders on preparador tablet:', err)
         } finally {
+            fetchingReadyOrdersRef.current = false
             if (isManual) setLoadingReadyOrders(false)
         }
     }
@@ -658,49 +670,83 @@ export default function PreparadorPage() {
         fetchReadyOrdersRef.current = fetchReadyOrders
     }, [fetchReadyOrders])
 
-    // Suscripción Realtime y Polling para la tableta de órdenes (con reconexión automática si el WebSocket cae)
+    // Suscripción Realtime aislada por tienda con filtro server-side, debounce 500ms y sin reconexión en CLOSED intencional
     useEffect(() => {
         if (!storeId || stores.length === 0) return
         const currentStore = stores.find(s => String(s.id) === String(storeId))
         const storeCode = (currentStore?.code || TOAST_STORE_MAP[currentStore?.external_id]?.code || '').toUpperCase()
         if (!storeCode) return
 
+        const channelTopic = `order-ready-realtime:${storeCode}`
         let unmounted = false
+        let disposeCurrentChannelGuard: (() => void) | null = null
         let reconnectTimeout: ReturnType<typeof setTimeout> | null = null
+        let realtimeDebounceTimer: ReturnType<typeof setTimeout> | null = null
 
-        fetchReadyOrders(true)
+        const disposeActiveChannel = () => {
+            if (disposeCurrentChannelGuard) {
+                disposeCurrentChannelGuard()
+                disposeCurrentChannelGuard = null
+            }
+            if (realtimeChannelRef.current) {
+                const chToRemove = realtimeChannelRef.current
+                realtimeChannelRef.current = null
+                supabase.removeChannel(chToRemove).catch(() => {})
+            }
+        }
+
+        const scheduleRealtimePrepRefresh = () => {
+            if (unmounted) return
+            if (realtimeDebounceTimer) clearTimeout(realtimeDebounceTimer)
+            realtimeDebounceTimer = setTimeout(() => {
+                realtimeDebounceTimer = null
+                if (!unmounted && !fetchingReadyOrdersRef.current) {
+                    // Callback Realtime y reconexión NUNCA inician sincronización Toast (syncToast=false)
+                    fetchReadyOrdersRef.current?.(false, false)
+                }
+            }, 500)
+        }
+
+        // Carga inicial
+        fetchReadyOrders(false, true)
 
         const setupRealtimeChannel = () => {
             if (unmounted) return
-            if (realtimeChannelRef.current) {
-                supabase.removeChannel(realtimeChannelRef.current).catch(() => {})
-                realtimeChannelRef.current = null
+            disposeActiveChannel()
+
+            let channelDisposed = false
+            disposeCurrentChannelGuard = () => {
+                channelDisposed = true
             }
 
             const channel = supabase
-                .channel('order-ready-realtime')
+                .channel(channelTopic)
                 .on(
                     'postgres_changes',
                     {
                         event: '*',
                         schema: 'public',
-                        table: 'order_ready_announcements'
+                        table: 'order_ready_announcements',
+                        filter: `store_code=eq.${storeCode}`
                     },
                     (payload: any) => {
+                        if (unmounted || channelDisposed) return
                         const row = payload.new || payload.old
-                        if (row && String(row.store_code || '').toUpperCase() === storeCode) {
-                            fetchReadyOrdersRef.current?.(false)
+                        if (row && String(row.store_code || storeCode).toUpperCase() === storeCode) {
+                            scheduleRealtimePrepRefresh()
                         }
                     }
                 )
                 .subscribe((status: string) => {
-                    if (unmounted) return
+                    if (unmounted || channelDisposed || realtimeChannelRef.current !== channel) return
                     if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
                         if (reconnectTimeout) clearTimeout(reconnectTimeout)
                         reconnectTimeout = setTimeout(() => {
-                            if (!unmounted) {
+                            reconnectTimeout = null
+                            if (!unmounted && !channelDisposed) {
                                 setupRealtimeChannel()
-                                fetchReadyOrdersRef.current?.(false)
+                                // No sincronizar Toast durante reconexión: refresco de solo lectura
+                                scheduleRealtimePrepRefresh()
                             }
                         }, 3000)
                     }
@@ -711,18 +757,31 @@ export default function PreparadorPage() {
 
         setupRealtimeChannel()
 
+        // Polling visual de solo lectura cada 5s (syncToast=false)
         const pollTimer = setInterval(() => {
-            fetchReadyOrdersRef.current?.(false)
+            fetchReadyOrdersRef.current?.(false, false)
         }, 5000)
+
+        // Flujo explícito separado de detección de KDS bump cada 10s (syncToast=true, protegido por lease distribuido)
+        const explicitToastSyncTimer = setInterval(() => {
+            if (typeof document === 'undefined' || document.visibilityState === 'visible') {
+                fetchReadyOrdersRef.current?.(false, true)
+            }
+        }, 10000)
 
         return () => {
             unmounted = true
-            if (reconnectTimeout) clearTimeout(reconnectTimeout)
-            clearInterval(pollTimer)
-            if (realtimeChannelRef.current) {
-                supabase.removeChannel(realtimeChannelRef.current).catch(() => {})
-                realtimeChannelRef.current = null
+            if (reconnectTimeout) {
+                clearTimeout(reconnectTimeout)
+                reconnectTimeout = null
             }
+            if (realtimeDebounceTimer) {
+                clearTimeout(realtimeDebounceTimer)
+                realtimeDebounceTimer = null
+            }
+            clearInterval(pollTimer)
+            clearInterval(explicitToastSyncTimer)
+            disposeActiveChannel()
         }
     }, [storeId, stores, supabase])
 
