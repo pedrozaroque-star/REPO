@@ -15,7 +15,7 @@
 
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { getValidToken, basecampFetch } from '@/lib/basecamp-api'
+import { getValidToken, basecampFetch, resolveHtmlAttachmentsFromCache } from '@/lib/basecamp-api'
 import { getServerUser } from '@/lib/auth-server'
 
 export const dynamic = 'force-dynamic'
@@ -66,6 +66,12 @@ export async function GET(request: Request) {
 
     // 4. Persist live updates into Supabase so cache is 100% synchronized
     const supabase = getAdminSupabase()
+    const urlCache = new Map<string, string>()
+    const resolvedTodoDescription = await resolveHtmlAttachmentsFromCache(
+      todo.description || '',
+      supabase,
+      urlCache
+    )
     const { data: dbTodo } = await supabase
       .from('bc_todos')
       .select('id, project_id, is_completed, comments_count')
@@ -119,12 +125,19 @@ export async function GET(request: Request) {
             }
           }
 
+          const resolvedCommentContent = await resolveHtmlAttachmentsFromCache(
+            c.content || '',
+            supabase,
+            urlCache
+          )
+          c._resolvedContent = resolvedCommentContent
+
           commentUpserts.push({
             bc_id: c.id,
             project_id: dbTodo.project_id,
             parent_type: 'todo',
             parent_id: dbTodo.id,
-            content: c.content || '',
+            content: resolvedCommentContent,
             author_person_id: authorUuid,
             created_at: c.created_at || new Date().toISOString(),
           })
@@ -137,13 +150,13 @@ export async function GET(request: Request) {
     return NextResponse.json({
       success: true,
       is_completed: Boolean(todo.completed),
-      description: todo.description || '',
+      description: resolvedTodoDescription,
       comments_count: comments.length,
       comments: comments.map((c: any) => ({
         id: String(c.id),
         bc_id: c.id,
         author: c.creator?.name || 'Unknown',
-        text: c.content || '',
+        text: c._resolvedContent ?? c.content ?? '',
         timestamp: c.created_at,
       })),
     })

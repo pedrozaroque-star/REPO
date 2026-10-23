@@ -22,7 +22,7 @@
 
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { basecampFetch } from '@/lib/basecamp-api'
+import { basecampFetch, resolveHtmlAttachmentsFromCache } from '@/lib/basecamp-api'
 
 export const dynamic = 'force-dynamic'
 
@@ -159,6 +159,10 @@ export async function POST(request: Request) {
             : Boolean(fullTodo.completed)
 
         const authorUuid = await resolvePersonUuid(fullTodo.creator || payload.creator, supabase)
+        const resolvedTodoDescription = await resolveHtmlAttachmentsFromCache(
+          fullTodo.description ?? '',
+          supabase
+        )
         const { data: dbTodo } = await supabase
           .from('bc_todos')
           .upsert(
@@ -167,7 +171,7 @@ export async function POST(request: Request) {
               project_id: projectUuid,
               todolist_id: todolistUuid,
               title: fullTodo.content || fullTodo.title || recording.title || 'Untitled',
-              description: fullTodo.description ?? '',
+              description: resolvedTodoDescription,
               is_completed: isCompleted,
               completed_at: isCompleted ? (fullTodo.updated_at || new Date().toISOString()) : null,
               due_date: fullTodo.due_on || null,
@@ -233,13 +237,17 @@ export async function POST(request: Request) {
 
       if (parentUuid) {
         const authorUuid = await resolvePersonUuid(fullComment.creator || payload.creator, supabase)
+        const resolvedCommentContent = await resolveHtmlAttachmentsFromCache(
+          fullComment.content || recording.content || '',
+          supabase
+        )
         await supabase.from('bc_comments').upsert(
           {
             bc_id: recordingBcId,
             project_id: projectUuid,
             parent_type: parentType,
             parent_id: parentUuid,
-            content: fullComment.content || recording.content || '',
+            content: resolvedCommentContent,
             author_person_id: authorUuid,
             created_at: fullComment.created_at || new Date().toISOString(),
           },
@@ -266,13 +274,17 @@ export async function POST(request: Request) {
 
       if (boardRow?.id) {
         const authorUuid = await resolvePersonUuid(fullMsg.creator || payload.creator, supabase)
+        const resolvedMsgContent = await resolveHtmlAttachmentsFromCache(
+          fullMsg.content || '',
+          supabase
+        )
         await supabase.from('bc_messages').upsert(
           {
             bc_id: recordingBcId,
             project_id: projectUuid,
             board_id: boardRow.id,
             title: fullMsg.subject || fullMsg.title || recording.title || 'Untitled',
-            content: fullMsg.content || '',
+            content: resolvedMsgContent,
             category: fullMsg.category?.name || 'General',
             author_person_id: authorUuid,
             comments_count: fullMsg.comments_count || 0,

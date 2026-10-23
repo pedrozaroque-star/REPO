@@ -49,6 +49,12 @@ import {
   extractDockId,
   getValidToken,
   ensureProjectWebhook,
+  isSupabaseStorageUrl,
+  isExternalBasecampUrl,
+  extractDeterministicBlobKey,
+  healPartiallyMigratedBcAttachmentHrefs,
+  parseHtmlAttachments,
+  resolveHtmlAttachmentsFromCache,
   type BasecampProject,
 } from '@/lib/basecamp-api'
 
@@ -130,19 +136,49 @@ async function downloadAndUploadAttachment(
   contentType: string,
   targetFolder: string,
   id: number | string,
-  supabase: any
+  supabase: any,
+  secondaryBasecampUrl?: string
 ): Promise<string | null> {
   try {
-    // 1. Check database cache first to avoid duplicate downloads/uploads
-    const { data: cached } = await supabase
-      .from('bc_attachment_cache')
-      .select('supabase_url')
-      .eq('basecamp_url', basecampUrl)
-      .maybeSingle()
+    // Guard: Never download or re-upload a URL that is already in Supabase Storage
+    if (isSupabaseStorageUrl(basecampUrl)) {
+      return basecampUrl
+    }
 
-    if (cached?.supabase_url) {
+    // 1. Check database cache first to avoid duplicate downloads/uploads
+    const urlsToLookup = [basecampUrl]
+    if (
+      secondaryBasecampUrl &&
+      isExternalBasecampUrl(secondaryBasecampUrl) &&
+      secondaryBasecampUrl !== basecampUrl
+    ) {
+      urlsToLookup.push(secondaryBasecampUrl)
+    }
+
+    const { data: cachedRows } = await supabase
+      .from('bc_attachment_cache')
+      .select('basecamp_url, supabase_url')
+      .in('basecamp_url', urlsToLookup)
+
+    const validCached = (cachedRows || []).find(
+      (r: any) => r?.supabase_url && isSupabaseStorageUrl(r.supabase_url)
+    )
+    if (validCached?.supabase_url) {
       console.log(`      ⚡ Attachment cache hit: ${filename}`)
-      return cached.supabase_url
+      if (secondaryBasecampUrl && isExternalBasecampUrl(secondaryBasecampUrl)) {
+        const hasSecondaryCached = (cachedRows || []).some(
+          (r: any) => r.basecamp_url === secondaryBasecampUrl
+        )
+        if (!hasSecondaryCached) {
+          await supabase
+            .from('bc_attachment_cache')
+            .upsert(
+              { basecamp_url: secondaryBasecampUrl, supabase_url: validCached.supabase_url },
+              { onConflict: 'basecamp_url' }
+            )
+        }
+      }
+      return validCached.supabase_url
     }
 
     let targetUrl = basecampUrl.replace('preview.app.basecamp.com', '3.basecampapi.com')
@@ -173,7 +209,8 @@ async function downloadAndUploadAttachment(
     }
 
     const safeFilename = filename.replace(/[^a-zA-Z0-9.-]/g, '_')
-    const filePath = `basecamp-attachments/${targetFolder}/${id}/${Date.now()}-${safeFilename}`
+    const blobKey = extractDeterministicBlobKey(basecampUrl)
+    const filePath = `basecamp-attachments/${targetFolder}/${id}/${blobKey}-${safeFilename}`
 
     const { error: uploadErr } = await supabase.storage
       .from('checklist-photos')
@@ -189,13 +226,18 @@ async function downloadAndUploadAttachment(
     const publicUrl = publicUrlData?.publicUrl || null
 
     if (publicUrl) {
-      // 2. Save mapping to database cache for future runs
+      // 2. Save mapping to database cache for future runs (both primary url and secondary href if present)
+      const cacheEntries = [{ basecamp_url: basecampUrl, supabase_url: publicUrl }]
+      if (
+        secondaryBasecampUrl &&
+        isExternalBasecampUrl(secondaryBasecampUrl) &&
+        secondaryBasecampUrl !== basecampUrl
+      ) {
+        cacheEntries.push({ basecamp_url: secondaryBasecampUrl, supabase_url: publicUrl })
+      }
       await supabase
         .from('bc_attachment_cache')
-        .upsert({
-          basecamp_url: basecampUrl,
-          supabase_url: publicUrl
-        }, { onConflict: 'basecamp_url' })
+        .upsert(cacheEntries, { onConflict: 'basecamp_url' })
     }
 
     return publicUrl
@@ -205,98 +247,15 @@ async function downloadAndUploadAttachment(
   }
 }
 
-interface HtmlAttachment {
-  contentType: string
-  filename: string
-  url: string
-  rawMatch: string
-  isTag: boolean
-}
-
-function parseHtmlAttachments(html: string): HtmlAttachment[] {
-  const attachments: HtmlAttachment[] = []
-  if (!html) return attachments
-
-  // 1. bc-attachment tags
-  const bcAttachmentRegex = /<bc-attachment\s+([^>]+)>([\s\S]*?)<\/bc-attachment>/gi
-  let match: RegExpExecArray | null
-  while ((match = bcAttachmentRegex.exec(html)) !== null) {
-    const attrsStr = match[1]
-    const getAttr = (name: string) => {
-      const m = attrsStr.match(new RegExp(`${name}=["']([^"']+)["']`, 'i'))
-      return m ? m[1] : null
-    }
-    const contentType = getAttr('content-type') || ''
-    const filename = getAttr('filename') || 'attachment'
-    const href = getAttr('href') || ''
-    const url = getAttr('url') || href || ''
-    if (url && (url.includes('basecamp') || url.includes('blobs'))) {
-      attachments.push({ contentType, filename, url, rawMatch: match[0], isTag: true })
-    }
-  }
-
-  // 2. img tags
-  const imgRegex = /<img[^>]+src=["']([^"']+)["'][^>]*>/gi
-  let imgMatch: RegExpExecArray | null
-  while ((imgMatch = imgRegex.exec(html)) !== null) {
-    const src = imgMatch[1]
-    if (src && (src.includes('basecamp') || src.includes('blobs'))) {
-      const isAlreadyCaptured = attachments.some((a) => a.url === src)
-      if (!isAlreadyCaptured) {
-        let filename = 'image.png'
-        const altMatch = imgMatch[0].match(/alt=["']([^"']+)["']/i)
-        if (altMatch) filename = altMatch[1]
-        attachments.push({
-          contentType: 'image/png',
-          filename,
-          url: src,
-          rawMatch: imgMatch[0],
-          isTag: false,
-        })
-      }
-    }
-  }
-
-  return attachments
-}
-
 async function processHtmlContent(
   html: string,
-  token: string,
-  targetFolder: string,
-  parentId: number | string,
+  _token: string,
+  _targetFolder: string,
+  _parentId: number | string,
   supabase: any,
   urlCache: Map<string, string>
 ): Promise<string> {
-  if (!html || (!html.includes('basecamp') && !html.includes('blobs'))) {
-    return html
-  }
-
-  const attachments = parseHtmlAttachments(html)
-  if (attachments.length === 0) return html
-
-  let updatedHtml = html
-  for (const att of attachments) {
-    let localUrl = urlCache.get(att.url)
-    if (!localUrl) {
-      // 1. Resolve strictly from database cache. NO blocking downloads during main sync.
-      const { data: cached } = await supabase
-        .from('bc_attachment_cache')
-        .select('supabase_url')
-        .eq('basecamp_url', att.url)
-        .maybeSingle()
-
-      if (cached?.supabase_url) {
-        localUrl = cached.supabase_url
-        urlCache.set(att.url, cached.supabase_url)
-      }
-    }
-    if (localUrl) {
-      updatedHtml = updatedHtml.replaceAll(att.url, localUrl as string)
-    }
-  }
-
-  return updatedHtml
+  return resolveHtmlAttachmentsFromCache(html, supabase, urlCache)
 }
 
 async function resolveOrCreatePerson(
@@ -747,8 +706,8 @@ export async function POST(request: Request) {
           for (const u of uploads) {
             let finalUrl = existingMap.get(u.id)
             if (!finalUrl && u.download_url) {
-              const isBasecampUrl = (u.download_url.includes('basecamp') || u.download_url.includes('blobs')) &&
-                !u.download_url.includes('google.com')
+              const isBasecampUrl =
+                isExternalBasecampUrl(u.download_url) && !u.download_url.includes('google.com')
 
               if (isBasecampUrl) {
                 console.log(`📥 Syncing new upload file to Supabase Storage: ${u.filename} (bc_id: ${u.id})...`)
@@ -1759,14 +1718,35 @@ async function downloadAndUploadPendingHtmlAttachments(
   parentId: number | string,
   supabase: any
 ): Promise<string> {
-  const attachments = parseHtmlAttachments(html)
-  if (attachments.length === 0) return html
+  // 1. Heal any <bc-attachment> tags where `url` is already a Supabase URL but `href` still points to Basecamp
+  const healed = healPartiallyMigratedBcAttachmentHrefs(html)
+  let updatedHtml = healed.html
+  if (healed.repairedPairs.length > 0) {
+    await supabase
+      .from('bc_attachment_cache')
+      .upsert(healed.repairedPairs, { onConflict: 'basecamp_url' })
+  }
 
-  let updatedHtml = html
+  // 2. Parse remaining external Basecamp attachments
+  const attachments = parseHtmlAttachments(updatedHtml)
+  if (attachments.length === 0) return updatedHtml
+
   for (const att of attachments) {
-    const localUrl = await downloadAndUploadAttachment(token, att.url, att.filename, att.contentType, targetFolder, parentId, supabase)
+    const localUrl = await downloadAndUploadAttachment(
+      token,
+      att.url,
+      att.filename,
+      att.contentType,
+      targetFolder,
+      parentId,
+      supabase,
+      att.secondaryUrl
+    )
     if (localUrl) {
       updatedHtml = updatedHtml.replaceAll(att.url, localUrl)
+      if (att.secondaryUrl) {
+        updatedHtml = updatedHtml.replaceAll(att.secondaryUrl, localUrl)
+      }
     }
   }
   return updatedHtml
