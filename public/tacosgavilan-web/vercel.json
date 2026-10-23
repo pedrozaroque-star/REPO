@@ -4,6 +4,16 @@
   "trailingSlash": true,
   "redirects": [
     {
+      "source": "/menu",
+      "destination": "/#menu",
+      "permanent": true
+    },
+    {
+      "source": "/menu/",
+      "destination": "/#menu",
+      "permanent": true
+    },
+    {
       "source": "/(.*)",
       "has": [
         {
@@ -131,22 +141,22 @@
     },
     {
       "source": "/mexican-fast-food/",
-      "destination": "/menu/",
+      "destination": "/#menu",
       "permanent": true
     },
     {
       "source": "/order-mexican-food-for-dinner/",
-      "destination": "/menu/",
+      "destination": "/#menu",
       "permanent": true
     },
     {
       "source": "/order-mexican-takeout-online/",
-      "destination": "/menu/",
+      "destination": "/#menu",
       "permanent": true
     },
     {
       "source": "/los-angeles-best-mexican-food-tacos-near-me/",
-      "destination": "/menu/",
+      "destination": "/#menu",
       "permanent": true
     },
     {

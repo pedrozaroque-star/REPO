@@ -591,6 +591,17 @@ function InicioHubContent() {
                     badgeLabel: 'NEW',
                 },
                 {
+                    id: 'external_accounting',
+                    title: t('items.external_accounting'),
+                    description: t('home_hub.desc.external_accounting'),
+                    path: '/admin/contabilidad-externa',
+                    icon: <DollarSign size={20} />,
+                    iconColorClass: 'bg-emerald-500/15 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300 border-emerald-500/30',
+                    roles: ['admin'],
+                    badgeType: 'new',
+                    badgeLabel: 'NEW',
+                },
+                {
                     id: 'ronos',
                     title: t('items.ronos'),
                     description: t('home_hub.desc.ronos'),
@@ -722,6 +733,9 @@ function InicioHubContent() {
         const userEmailNorm = (user?.email || '').trim().toLowerCase()
         const isPlanificadorOnly = userEmailNorm === 'stephany@cingularhr.com' || user?.role?.toLowerCase() === 'planificador'
         const userRole = (user?.role || user?.user_type || '').toLowerCase()
+        const canAccessExternalAccounting =
+            ['raquel@tacosgavilan.com', 'roberto@tacosgavilan.com', 'roque@tacosgavilan.com', 'rvelasquez95@yahoo.com'].includes(userEmailNorm) ||
+            [45, 46, 47].includes(Number(user?.id))
 
         return moduleGroups
             .map(group => {
@@ -729,6 +743,7 @@ function InicioHubContent() {
                     return { ...group, items: [] }
                 }
                 const validItems = group.items.filter(item => {
+                    if (item.path === '/admin/contabilidad-externa') return canAccessExternalAccounting
                     if (isPlanificadorOnly) return item.path === '/planificador'
                     if (isVikesh && (item.path === '/ventas' || item.path === '/ventas/reportes')) return false
                     if (!item.roles || item.roles.length === 0) return true

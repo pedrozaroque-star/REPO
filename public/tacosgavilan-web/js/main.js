@@ -568,18 +568,11 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     /* ==========================================================
-       9. HERO PARALLAX BACKGROUND (DESKTOP / POINTER FINE)
+       9. HERO BACKGROUND (NO ZOOM CROP)
        ========================================================== */
     const heroBgImg = document.querySelector('.hero-bg img');
-
-    if (heroBgImg && isDesktop) {
-        const handleParallax = () => {
-            const scrolled = window.scrollY;
-            if (scrolled < window.innerHeight) {
-                heroBgImg.style.transform = `scale(1.08) translateY(${scrolled * 0.25}px)`;
-            }
-        };
-        window.addEventListener('scroll', handleParallax, { passive: true });
+    if (heroBgImg) {
+        heroBgImg.style.transform = 'none';
     }
 
     /* ==========================================================
@@ -705,16 +698,17 @@ document.addEventListener('DOMContentLoaded', () => {
             'hero.orderBtn': 'Order Online',
             'hero.menuBtn':  'View Menu',
 
-            // Showcase
-            'showcase.title':       'Traditional Specialties',
-            'showcase.asada':       'Tacos de Asada',
-            'showcase.burritos':    'Burritos',
-            'showcase.mulitas':     'Mulitas',
-            'showcase.tortas':      'Tortas',
-            'showcase.platos':      'Platos',
-            'showcase.sopes':       'Sopes',
-            'showcase.nachos':      'Super Nachos',
-            'showcase.quesadillas': 'Quesadillas',
+                        // Showcase
+            'showcase.title':        'Traditional Specialties',
+            'showcase.asada':        '<span class="showcase-lockup showcase-lockup--los-tacos"><span class="showcase-lockup-top">Los</span> <span class="showcase-lockup-main">Tacos</span></span>',
+            'showcase.burritos':     '<span class="showcase-lockup showcase-lockup--el-burrito"><span class="showcase-lockup-top">El</span> <span class="showcase-lockup-main">Burrito</span></span>',
+            'showcase.superBurrito': '<span class="showcase-lockup showcase-lockup--super-burrito"><span class="showcase-lockup-top">Super</span> <span class="showcase-lockup-main">Burrito</span></span>',
+            'showcase.mulitas':      '<span class="showcase-lockup showcase-lockup--las-mulitas"><span class="showcase-lockup-top">Las</span> <span class="showcase-lockup-main">Mulitas</span></span>',
+            'showcase.tortas':       '<span class="showcase-lockup showcase-lockup--la-torta"><span class="showcase-lockup-top">La</span> <span class="showcase-lockup-main">Torta</span></span>',
+            'showcase.platos':       '<span class="showcase-lockup showcase-lockup--el-plato"><span class="showcase-lockup-top">El</span> <span class="showcase-lockup-main">Plato</span></span>',
+            'showcase.sopes':        '<span class="showcase-lockup showcase-lockup--los-sopes"><span class="showcase-lockup-top">Los</span> <span class="showcase-lockup-main">Sopes</span></span>',
+            'showcase.nachos':       '<span class="showcase-lockup showcase-lockup--super-nachos"><span class="showcase-lockup-top">Super</span> <span class="showcase-lockup-main">Nachos</span></span>',
+            'showcase.quesadillas':  '<span class="showcase-lockup showcase-lockup--super-quesadilla"><span class="showcase-lockup-top">Super</span> <span class="showcase-lockup-main">Quesadilla</span></span>',
 
             // About
             'about.tag':       'TRADITION & PASSION',
@@ -740,7 +734,7 @@ document.addEventListener('DOMContentLoaded', () => {
             'menu.tab.tortas':      'Tortas',
             'menu.tab.platos':      'Platos',
             'menu.tab.nachos':      'Nachos',
-            'menu.tab.drinks':      'Drinks',
+            'menu.tab.drinks':      'Aguas Frescas',
 
             // Menu Page Food Items
             'menu.tacosTitle':        'Tacos',
@@ -798,51 +792,51 @@ document.addEventListener('DOMContentLoaded', () => {
             'menu.drinkCoffee':       'Fresh Coffee & Bottled Water',
 
             // Menu Legacy Individual Keys
-            'menu.tacos.name': 'Taco de Asada',
-            'menu.tacos.desc': '1 Grilled Beef Taco - Served Plain',
-            'menu.tacoPastor.name': 'Tacos al Pastor',
-            'menu.tacoPastor.desc': '1 Marinated Pork Taco - Served Plain',
-            'menu.tacoPollo.name': 'Tacos de Pollo',
-            'menu.tacoPollo.desc': '1 Grilled Chicken Taco - Served Plain',
-            'menu.tacoCarnitas.name': 'Tacos de Carnitas',
-            'menu.tacoCarnitas.desc': '1 Braised Pork Taco - Served Plain',
-            'menu.tacoCabeza.name': 'Tacos de Cabeza',
-            'menu.tacoCabeza.desc': '1 Steamed Beef Head Taco - Served Plain',
-            'menu.tacoLengua.name': 'Tacos de Lengua',
-            'menu.tacoLengua.desc': '1 Steamed Beef Tongue Taco - Served Plain',
-            'menu.tacoBuche.name': 'Tacos de Buche',
-            'menu.tacoBuche.desc': '1 Grilled Pork Maw Taco - Served Plain',
-            'menu.tacoChorizo.name': 'Tacos de Chorizo',
-            'menu.tacoChorizo.desc': '1 Mexican Sausage Taco - Served Plain',
-            'menu.tacoPlate.name': 'Taco Plate',
+            'menu.tacos.name': '<span class="showcase-lockup showcase-lockup--single"><span class="showcase-lockup-main">Asada</span></span>',
+            'menu.tacos.desc': 'Grilled Beef Taco - Served Plain',
+            'menu.tacoPastor.name': '<span class="showcase-lockup showcase-lockup--single"><span class="showcase-lockup-main">Pastor</span></span>',
+            'menu.tacoPastor.desc': 'Marinated Pork Taco - Served Plain',
+            'menu.tacoPollo.name': '<span class="showcase-lockup showcase-lockup--single"><span class="showcase-lockup-main">Pollo</span></span>',
+            'menu.tacoPollo.desc': 'Grilled Chicken Taco - Served Plain',
+            'menu.tacoCarnitas.name': '<span class="showcase-lockup showcase-lockup--single"><span class="showcase-lockup-main">Carnitas</span></span>',
+            'menu.tacoCarnitas.desc': 'Braised Pork Taco - Served Plain',
+            'menu.tacoCabeza.name': '<span class="showcase-lockup showcase-lockup--single"><span class="showcase-lockup-main">Cabeza</span></span>',
+            'menu.tacoCabeza.desc': 'Steamed Beef Head Taco - Served Plain',
+            'menu.tacoLengua.name': '<span class="showcase-lockup showcase-lockup--single"><span class="showcase-lockup-main">Lengua</span></span>',
+            'menu.tacoLengua.desc': 'Steamed Beef Tongue Taco - Served Plain',
+            'menu.tacoBuche.name': '<span class="showcase-lockup showcase-lockup--single"><span class="showcase-lockup-main">Buche</span></span>',
+            'menu.tacoBuche.desc': 'Grilled Pork Maw Taco - Served Plain',
+            'menu.tacoChorizo.name': '<span class="showcase-lockup showcase-lockup--single"><span class="showcase-lockup-main">Chorizo</span></span>',
+            'menu.tacoChorizo.desc': 'Mexican Sausage Taco - Served Plain',
+            'menu.tacoPlate.name': '<span class="showcase-lockup showcase-lockup--taco-plate"><span class="showcase-lockup-top">Taco</span> <span class="showcase-lockup-main">Plate</span></span>',
             'menu.tacoPlate.desc': 'Three Tacos Of Your Choice - Served Plain - Accompanied By Beans And Rice',
-            'menu.burrito.name': 'Burrito',
+            'menu.burrito.name': '<span class="showcase-lockup showcase-lockup--el-burrito"><span class="showcase-lockup-top">El</span> <span class="showcase-lockup-main">Burrito</span></span>',
             'menu.burrito.desc': 'Choice of meat - Wrapped with Rice and Beans',
-            'menu.superBurrito.name': 'Super Burrito',
+            'menu.superBurrito.name': '<span class="showcase-lockup showcase-lockup--super-burrito"><span class="showcase-lockup-top">Super</span> <span class="showcase-lockup-main">Burrito</span></span>',
             'menu.superBurrito.desc': 'Choice of meat - Includes rice, beans, sour cream, cheese, and guacamole',
-            'menu.quesadilla.name': 'Quesadilla',
+            'menu.quesadilla.name': '<span class="showcase-lockup showcase-lockup--la-quesadilla"><span class="showcase-lockup-top">La</span> <span class="showcase-lockup-main">Quesadilla</span></span>',
             'menu.quesadilla.desc': 'Grilled meat and melted cheese',
-            'menu.superQuesadilla.name': 'Super Quesadilla',
+            'menu.superQuesadilla.name': '<span class="showcase-lockup showcase-lockup--super-quesadilla"><span class="showcase-lockup-top">Super</span> <span class="showcase-lockup-main">Quesadilla</span></span>',
             'menu.superQuesadilla.desc': 'Choice of meat - Sour cream, guacamole, and melted cheese',
-            'menu.mulita.name': 'Mulita',
+            'menu.mulita.name': '<span class="showcase-lockup showcase-lockup--las-mulitas"><span class="showcase-lockup-top">Las</span> <span class="showcase-lockup-main">Mulitas</span></span>',
             'menu.mulita.desc': 'Meat served in-between two tortillas with melted cheese',
-            'menu.superMulita.name': 'Super Mulita',
+            'menu.superMulita.name': '<span class="showcase-lockup showcase-lockup--super-mulita"><span class="showcase-lockup-top">Super</span> <span class="showcase-lockup-main">Mulita</span></span>',
             'menu.superMulita.desc': 'Meat served in-between two tortillas with melted cheese, guacamole, and sour cream',
-            'menu.sopes.name': 'Sopes',
+            'menu.sopes.name': '<span class="showcase-lockup showcase-lockup--los-sopes"><span class="showcase-lockup-top">Los</span> <span class="showcase-lockup-main">Sopes</span></span>',
             'menu.sopes.desc': 'A thick tortilla topped with beans, sour cream, and cheese',
-            'menu.torta.name': 'Torta',
+            'menu.torta.name': '<span class="showcase-lockup showcase-lockup--la-torta"><span class="showcase-lockup-top">La</span> <span class="showcase-lockup-main">Torta</span></span>',
             'menu.torta.desc': 'Choice of meat - Lettuce, Tomato, Mayo, Guacamole, Beans, and Cheese',
-            'menu.plato.name': 'Plato',
+            'menu.plato.name': '<span class="showcase-lockup showcase-lockup--el-plato"><span class="showcase-lockup-top">El</span> <span class="showcase-lockup-main">Plato</span></span>',
             'menu.plato.desc': 'Includes a small side salad, rice, beans, guacamole, and tortillas of your choice',
-            'menu.nachos.name': 'Super Nachos',
+            'menu.nachos.name': '<span class="showcase-lockup showcase-lockup--super-nachos"><span class="showcase-lockup-top">Super</span> <span class="showcase-lockup-main">Nachos</span></span>',
             'menu.nachos.desc': 'Choice of meat - Nacho cheese, sour cream, and guacamole',
-            'menu.horchata.name': 'Agua de Horchata',
+            'menu.horchata.name': '<span class="showcase-lockup showcase-lockup--single"><span class="showcase-lockup-main">Horchata</span></span>',
             'menu.horchata.desc': 'Sweet rice milk drink with cinnamon and vanilla.',
-            'menu.jamaica.name': 'Agua de Jamaica',
+            'menu.jamaica.name': '<span class="showcase-lockup showcase-lockup--single"><span class="showcase-lockup-main">Jamaica</span></span>',
             'menu.jamaica.desc': 'Hibiscus flower infusion with a vibrant red hue and a subtly sweet, tart flavor.',
-            'menu.pina.name': 'Agua de Piña',
+            'menu.pina.name': '<span class="showcase-lockup showcase-lockup--single"><span class="showcase-lockup-main">Piña</span></span>',
             'menu.pina.desc': 'Refreshing tropical pineapple agua fresca made with sweet, ripe pineapple and served ice-cold.',
-            'menu.tamarindo.name': 'Agua de Tamarindo',
+            'menu.tamarindo.name': '<span class="showcase-lockup showcase-lockup--single"><span class="showcase-lockup-main">Tamarindo</span></span>',
             'menu.tamarindo.desc': 'Traditional Mexican tamarind agua fresca, tart, sweet, and served cold over ice.',
             'menu.meatCalloutTitle': 'Available Meats',
             'menu.meatList': 'Asada · Al Pastor · Pollo · Carnitas · Cabeza · Lengua · Buche · Chorizo',
@@ -1131,16 +1125,17 @@ document.addEventListener('DOMContentLoaded', () => {
             'hero.orderBtn': 'Ordenar en Línea',
             'hero.menuBtn':  'Ver Menú',
 
-            // Showcase
-            'showcase.title':       'Especialidades Tradicionales',
-            'showcase.asada':       'Tacos de Asada',
-            'showcase.burritos':    'Burritos',
-            'showcase.mulitas':     'Mulitas',
-            'showcase.tortas':      'Tortas',
-            'showcase.platos':      'Platos',
-            'showcase.sopes':       'Sopes',
-            'showcase.nachos':      'Super Nachos',
-            'showcase.quesadillas': 'Quesadillas',
+                        // Showcase
+            'showcase.title':        'Especialidades Tradicionales',
+            'showcase.asada':        '<span class="showcase-lockup showcase-lockup--los-tacos"><span class="showcase-lockup-top">Los</span> <span class="showcase-lockup-main">Tacos</span></span>',
+            'showcase.burritos':     '<span class="showcase-lockup showcase-lockup--el-burrito"><span class="showcase-lockup-top">El</span> <span class="showcase-lockup-main">Burrito</span></span>',
+            'showcase.superBurrito': '<span class="showcase-lockup showcase-lockup--super-burrito"><span class="showcase-lockup-top">Super</span> <span class="showcase-lockup-main">Burrito</span></span>',
+            'showcase.mulitas':      '<span class="showcase-lockup showcase-lockup--las-mulitas"><span class="showcase-lockup-top">Las</span> <span class="showcase-lockup-main">Mulitas</span></span>',
+            'showcase.tortas':       '<span class="showcase-lockup showcase-lockup--la-torta"><span class="showcase-lockup-top">La</span> <span class="showcase-lockup-main">Torta</span></span>',
+            'showcase.platos':       '<span class="showcase-lockup showcase-lockup--el-plato"><span class="showcase-lockup-top">El</span> <span class="showcase-lockup-main">Plato</span></span>',
+            'showcase.sopes':        '<span class="showcase-lockup showcase-lockup--los-sopes"><span class="showcase-lockup-top">Los</span> <span class="showcase-lockup-main">Sopes</span></span>',
+            'showcase.nachos':       '<span class="showcase-lockup showcase-lockup--super-nachos"><span class="showcase-lockup-top">Super</span> <span class="showcase-lockup-main">Nachos</span></span>',
+            'showcase.quesadillas':  '<span class="showcase-lockup showcase-lockup--super-quesadilla"><span class="showcase-lockup-top">Super</span> <span class="showcase-lockup-main">Quesadilla</span></span>',
 
             // Nosotros
             'about.tag':       'TRADICIÓN Y PASIÓN',
@@ -1166,7 +1161,7 @@ document.addEventListener('DOMContentLoaded', () => {
             'menu.tab.tortas':      'Tortas',
             'menu.tab.platos':      'Platos',
             'menu.tab.nachos':      'Nachos',
-            'menu.tab.drinks':      'Bebidas',
+            'menu.tab.drinks':      'Aguas Frescas',
 
             // Platillos de Menú
             'menu.tacosTitle':        'Tacos',
@@ -1224,51 +1219,51 @@ document.addEventListener('DOMContentLoaded', () => {
             'menu.drinkCoffee':       'Café recién hecho y agua embotellada',
 
             // Platillos Clásicos
-            'menu.tacos.name': 'Taco de Asada',
-            'menu.tacos.desc': '1 Taco de Carne Asada - Servido solo con carne',
-            'menu.tacoPastor.name': 'Tacos al Pastor',
-            'menu.tacoPastor.desc': '1 Taco de Cerdo Marinado - Servido solo con carne',
-            'menu.tacoPollo.name': 'Tacos de Pollo',
-            'menu.tacoPollo.desc': '1 Taco de Pollo Asado - Servido solo con carne',
-            'menu.tacoCarnitas.name': 'Tacos de Carnitas',
-            'menu.tacoCarnitas.desc': '1 Taco de Cerdo Sazonado - Servido solo con carne',
-            'menu.tacoCabeza.name': 'Tacos de Cabeza',
-            'menu.tacoCabeza.desc': '1 Taco de Cabeza de Res al Vapor - Servido solo con carne',
-            'menu.tacoLengua.name': 'Tacos de Lengua',
-            'menu.tacoLengua.desc': '1 Taco de Lengua de Res al Vapor - Servido solo con carne',
-            'menu.tacoBuche.name': 'Tacos de Buche',
-            'menu.tacoBuche.desc': '1 Taco de Buche de Cerdo - Servido solo con carne',
-            'menu.tacoChorizo.name': 'Tacos de Chorizo',
-            'menu.tacoChorizo.desc': '1 Taco de Chorizo Mexicano - Servido solo con carne',
-            'menu.tacoPlate.name': 'Plato de Tacos',
+            'menu.tacos.name': '<span class="showcase-lockup showcase-lockup--single"><span class="showcase-lockup-main">Asada</span></span>',
+            'menu.tacos.desc': 'Taco de Carne Asada - Servido solo con carne',
+            'menu.tacoPastor.name': '<span class="showcase-lockup showcase-lockup--single"><span class="showcase-lockup-main">Pastor</span></span>',
+            'menu.tacoPastor.desc': 'Taco de Cerdo Marinado - Servido solo con carne',
+            'menu.tacoPollo.name': '<span class="showcase-lockup showcase-lockup--single"><span class="showcase-lockup-main">Pollo</span></span>',
+            'menu.tacoPollo.desc': 'Taco de Pollo Asado - Servido solo con carne',
+            'menu.tacoCarnitas.name': '<span class="showcase-lockup showcase-lockup--single"><span class="showcase-lockup-main">Carnitas</span></span>',
+            'menu.tacoCarnitas.desc': 'Taco de Cerdo Sazonado - Servido solo con carne',
+            'menu.tacoCabeza.name': '<span class="showcase-lockup showcase-lockup--single"><span class="showcase-lockup-main">Cabeza</span></span>',
+            'menu.tacoCabeza.desc': 'Taco de Cabeza de Res al Vapor - Servido solo con carne',
+            'menu.tacoLengua.name': '<span class="showcase-lockup showcase-lockup--single"><span class="showcase-lockup-main">Lengua</span></span>',
+            'menu.tacoLengua.desc': 'Taco de Lengua de Res al Vapor - Servido solo con carne',
+            'menu.tacoBuche.name': '<span class="showcase-lockup showcase-lockup--single"><span class="showcase-lockup-main">Buche</span></span>',
+            'menu.tacoBuche.desc': 'Taco de Buche de Cerdo - Servido solo con carne',
+            'menu.tacoChorizo.name': '<span class="showcase-lockup showcase-lockup--single"><span class="showcase-lockup-main">Chorizo</span></span>',
+            'menu.tacoChorizo.desc': 'Taco de Chorizo Mexicano - Servido solo con carne',
+            'menu.tacoPlate.name': '<span class="showcase-lockup showcase-lockup--menu-taco"><span class="showcase-lockup-top">Plato de</span> <span class="showcase-lockup-main">Tacos</span></span>',
             'menu.tacoPlate.desc': 'Tres tacos a tu elección - Servidos solo con carne - Acompañados de frijoles y arroz',
-            'menu.burrito.name': 'Burrito',
+            'menu.burrito.name': '<span class="showcase-lockup showcase-lockup--el-burrito"><span class="showcase-lockup-top">El</span> <span class="showcase-lockup-main">Burrito</span></span>',
             'menu.burrito.desc': 'Carne a tu elección - Envuelto con arroz y frijoles',
-            'menu.superBurrito.name': 'Súper Burrito',
+            'menu.superBurrito.name': '<span class="showcase-lockup showcase-lockup--super-burrito"><span class="showcase-lockup-top">Super</span> <span class="showcase-lockup-main">Burrito</span></span>',
             'menu.superBurrito.desc': 'Carne a tu elección - Incluye arroz, frijoles, crema, queso y guacamole',
-            'menu.quesadilla.name': 'Quesadilla',
+            'menu.quesadilla.name': '<span class="showcase-lockup showcase-lockup--la-quesadilla"><span class="showcase-lockup-top">La</span> <span class="showcase-lockup-main">Quesadilla</span></span>',
             'menu.quesadilla.desc': 'Carne a tu elección y queso fundido',
-            'menu.superQuesadilla.name': 'Súper Quesadilla',
+            'menu.superQuesadilla.name': '<span class="showcase-lockup showcase-lockup--super-quesadilla"><span class="showcase-lockup-top">Super</span> <span class="showcase-lockup-main">Quesadilla</span></span>',
             'menu.superQuesadilla.desc': 'Carne a tu elección - Crema, guacamole y queso fundido',
-            'menu.mulita.name': 'Mulita',
+            'menu.mulita.name': '<span class="showcase-lockup showcase-lockup--las-mulitas"><span class="showcase-lockup-top">Las</span> <span class="showcase-lockup-main">Mulitas</span></span>',
             'menu.mulita.desc': 'Carne servida entre dos tortillas con queso fundido',
-            'menu.superMulita.name': 'Súper Mulita',
+            'menu.superMulita.name': '<span class="showcase-lockup showcase-lockup--super-mulita"><span class="showcase-lockup-top">Super</span> <span class="showcase-lockup-main">Mulita</span></span>',
             'menu.superMulita.desc': 'Carne servida entre dos tortillas con queso fundido, guacamole y crema',
-            'menu.sopes.name': 'Sopes',
+            'menu.sopes.name': '<span class="showcase-lockup showcase-lockup--los-sopes"><span class="showcase-lockup-top">Los</span> <span class="showcase-lockup-main">Sopes</span></span>',
             'menu.sopes.desc': 'Tortilla gruesa cubierta con frijoles, crema y queso',
-            'menu.torta.name': 'Torta',
+            'menu.torta.name': '<span class="showcase-lockup showcase-lockup--la-torta"><span class="showcase-lockup-top">La</span> <span class="showcase-lockup-main">Torta</span></span>',
             'menu.torta.desc': 'Carne a tu elección - Lechuga, jitomate, mayonesa, guacamole, frijoles y queso',
-            'menu.plato.name': 'Plato',
+            'menu.plato.name': '<span class="showcase-lockup showcase-lockup--el-plato"><span class="showcase-lockup-top">El</span> <span class="showcase-lockup-main">Plato</span></span>',
             'menu.plato.desc': 'Incluye ensalada pequeña, arroz, frijoles, guacamole y tortillas a tu elección',
-            'menu.nachos.name': 'Súper Nachos',
+            'menu.nachos.name': '<span class="showcase-lockup showcase-lockup--super-nachos"><span class="showcase-lockup-top">Super</span> <span class="showcase-lockup-main">Nachos</span></span>',
             'menu.nachos.desc': 'Carne a tu elección - Queso nacho, crema y guacamole',
-            'menu.horchata.name': 'Agua de Horchata',
+            'menu.horchata.name': '<span class="showcase-lockup showcase-lockup--single"><span class="showcase-lockup-main">Horchata</span></span>',
             'menu.horchata.desc': 'Bebida tradicional de arroz con canela y vainilla.',
-            'menu.jamaica.name': 'Agua de Jamaica',
+            'menu.jamaica.name': '<span class="showcase-lockup showcase-lockup--single"><span class="showcase-lockup-main">Jamaica</span></span>',
             'menu.jamaica.desc': 'Infusión de flor de jamaica con color vibrante y sabor fresco agridulce.',
-            'menu.pina.name': 'Agua de Piña',
+            'menu.pina.name': '<span class="showcase-lockup showcase-lockup--single"><span class="showcase-lockup-main">Piña</span></span>',
             'menu.pina.desc': 'Refrescante agua fresca de piña natural, dulce y servida bien fría con hielo.',
-            'menu.tamarindo.name': 'Agua de Tamarindo',
+            'menu.tamarindo.name': '<span class="showcase-lockup showcase-lockup--single"><span class="showcase-lockup-main">Tamarindo</span></span>',
             'menu.tamarindo.desc': 'Agua fresca tradicional de tamarindo, agridulce y servida bien fría.',
             'menu.meatCalloutTitle': 'Carnes Disponibles',
             'menu.meatList': 'Asada · Al Pastor · Pollo · Carnitas · Cabeza · Lengua · Buche · Chorizo',
@@ -1691,8 +1686,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 id: '8685e942-3f07-403a-afb6-faec697cd2cb',
                 code: 'LACENTRAL',
                 city: 'Los Angeles',
-                crossStreets: 'Central/Washington',
-                name: 'Los Angeles Central/Washington',
+                crossStreets: 'Central & Washington',
+                name: 'Los Angeles Central & Washington',
                 address: '1900 S. Central Ave, Los Angeles, CA 90011',
                 phone: '(213) 742-6677',
                 lat: 34.023884,
@@ -1703,8 +1698,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 id: '80a1ec95-bc73-402e-8884-e5abbe9343e6',
                 code: 'LYNWOOD',
                 city: 'Lynwood',
-                crossStreets: 'Imperial/Long Beach',
-                name: 'Lynwood Imperial/Long Beach',
+                crossStreets: 'Imperial & Long Beach',
+                name: 'Lynwood Imperial & Long Beach',
                 address: '3220 E. Imperial Hwy, Lynwood, CA 90262',
                 phone: '(424) 785-5535',
                 lat: 33.930001,
@@ -1715,8 +1710,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 id: '475bc112-187d-4b9c-884d-1f6a041698ce',
                 code: 'LABROADWY',
                 city: 'Los Angeles',
-                crossStreets: 'Vernon/Broadway',
-                name: 'Los Angeles Vernon/Broadway',
+                crossStreets: 'Vernon & Broadway',
+                name: 'Los Angeles Vernon & Broadway',
                 address: '4380 S. Broadway, Los Angeles, CA 90037',
                 phone: '(323) 233-2302',
                 lat: 34.004005,
@@ -1727,8 +1722,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 id: '42ed15a6-106b-466a-9076-1e8f72451f6b',
                 code: 'NORWALK',
                 city: 'Norwalk',
-                crossStreets: 'Rosecrans/Studebaker',
-                name: 'Norwalk Rosecrans/Studebaker',
+                crossStreets: 'Rosecrans & Studebaker',
+                name: 'Norwalk Rosecrans & Studebaker',
                 address: '10968 Rosecrans Ave, Norwalk, CA 90650',
                 phone: '(562) 651-0045',
                 lat: 33.90181,
@@ -1739,8 +1734,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 id: '9625621e-1b5e-48d7-87ae-7094fab5a4fd',
                 code: 'SLAUSON',
                 city: 'Los Angeles',
-                crossStreets: 'Slauson/Broadway',
-                name: 'Los Angeles Slauson/Broadway',
+                crossStreets: 'Slauson & Broadway',
+                name: 'Los Angeles Slauson & Broadway',
                 address: '5833 S. Broadway, Los Angeles, CA 90003',
                 phone: '(323) 615-0084',
                 lat: 33.98894,
@@ -1751,8 +1746,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 id: 'acf15327-54c8-4da4-8d0d-3ac0544dc422',
                 code: 'RIALTO',
                 city: 'Rialto',
-                crossStreets: 'Baseline/Riverside',
-                name: 'Rialto Baseline/Riverside',
+                crossStreets: 'Baseline & Riverside',
+                name: 'Rialto Baseline & Riverside',
                 address: '115 E. Baseline Rd, Rialto, CA 92376',
                 phone: '(909) 562-0430',
                 lat: 34.1211,
@@ -1763,8 +1758,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 id: '5f4a006e-9a6e-4bcf-b5bd-7f5e9d801a02',
                 code: 'WCOVINA',
                 city: 'West Covina',
-                crossStreets: '10 FWY/Azusa',
-                name: 'West Covina 10 FWY/Azusa',
+                crossStreets: '10 FWY & Azusa',
+                name: 'West Covina 10 FWY & Azusa',
                 address: '101 S. Azusa Ave, West Covina, CA 91791',
                 phone: '(626) 917-2662',
                 lat: 34.070966,
@@ -1775,8 +1770,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 id: '95866cfc-eeb8-4af9-9586-f78931e1ea04',
                 code: 'SOUTHGATE',
                 city: 'South Gate',
-                crossStreets: 'Firestone/Garfield',
-                name: 'South Gate Firestone/Garfield',
+                crossStreets: 'Firestone & Garfield',
+                name: 'South Gate Firestone & Garfield',
                 address: '5800 Firestone Blvd, South Gate, CA 90280',
                 phone: '(562) 806-1200',
                 lat: 33.948795,
@@ -1787,8 +1782,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 id: 'b7f63b01-f089-4ad7-a346-afdb1803dc1a',
                 code: 'DOWNEY',
                 city: 'Downey',
-                crossStreets: 'Florence/Paramount',
-                name: 'Downey Florence/Paramount',
+                crossStreets: 'Florence & Paramount',
+                name: 'Downey Florence & Paramount',
                 address: '7947 E. Florence Ave, Downey, CA 90240',
                 phone: '(562) 927-7486',
                 lat: 33.953703,
@@ -1799,8 +1794,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 id: '5fbb58f5-283c-4ea4-9415-04100ee6978b',
                 code: 'HOLLYWOOD',
                 city: 'Hollywood',
-                crossStreets: 'Sunset/La Brea',
-                name: 'Hollywood Sunset/La Brea',
+                crossStreets: 'Sunset & La Brea',
+                name: 'Hollywood Sunset & La Brea',
                 address: '7070 Sunset Blvd, Los Angeles, CA 90028',
                 phone: '(323) 963-7993',
                 lat: 34.097757,
@@ -1811,8 +1806,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 id: '3c2d8251-c43c-43b8-8306-387e0a4ed7c2',
                 code: 'SANTAANA',
                 city: 'Santa Ana',
-                crossStreets: '17th/Grand',
-                name: 'Santa Ana 17th/Grand',
+                crossStreets: '17th & Grand',
+                name: 'Santa Ana 17th & Grand',
                 address: '1258 E. 17th St, Santa Ana, CA 92701',
                 phone: '(714) 480-0713',
                 lat: 33.759621,
@@ -1823,8 +1818,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 id: '47256ade-2cd4-4073-9632-84567ad9e2c8',
                 code: 'HPARK',
                 city: 'Huntington Park',
-                crossStreets: 'Florence/Santa Fe',
-                name: 'Huntington Park Florence/Santa Fe',
+                crossStreets: 'Florence & Santa Fe',
+                name: 'Huntington Park Florence & Santa Fe',
                 address: '2425 E. Florence Ave, Huntington Park, CA 90255',
                 phone: '(323) 581-7309',
                 lat: 33.975055,
@@ -1835,8 +1830,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 id: '3a803939-eb13-4def-a1a4-462df8e90623',
                 code: 'LAPUENTE',
                 city: 'La Puente',
-                crossStreets: '605 FWY/Valley',
-                name: 'La Puente 605 FWY/Valley',
+                crossStreets: '605 FWY & Valley',
+                name: 'La Puente 605 FWY & Valley',
                 address: '13009 Valley Blvd, La Puente, CA 91746',
                 phone: '(626) 336-3000',
                 lat: 34.053251,
@@ -1847,8 +1842,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 id: 'e0345b1f-d6d6-40b2-bd06-5f9f4fd944e8',
                 code: 'AZUSA',
                 city: 'Azusa',
-                crossStreets: 'Azusa/Arrow',
-                name: 'Azusa Azusa/Arrow',
+                crossStreets: 'Azusa & Arrow',
+                name: 'Azusa Azusa & Arrow',
                 address: '887 S. Azusa Ave, Azusa, CA 91702',
                 phone: '(626) 969-1011',
                 lat: 34.107074,
@@ -1859,8 +1854,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 id: 'a83901db-2431-4283-834e-9502a2ba4b3b',
                 code: 'BELL',
                 city: 'Bell',
-                crossStreets: 'Florence/Atlantic',
-                name: 'Bell Florence/Atlantic',
+                crossStreets: 'Florence & Atlantic',
+                name: 'Bell Florence & Atlantic',
                 address: '4406 E Florence Ave, Bell, CA 90201',
                 phone: '(323) 771-1722',
                 lat: 33.970395,
@@ -2340,7 +2335,15 @@ document.addEventListener('DOMContentLoaded', () => {
         releaseFocus();
     };
 
+    let showcaseSuppressNextClick = false;
+
     document.addEventListener('click', (e) => {
+        if (showcaseSuppressNextClick && e.target.closest('.showcase-card')) {
+            e.preventDefault();
+            e.stopPropagation();
+            showcaseSuppressNextClick = false;
+            return;
+        }
         const card = e.target.closest('.menu-item, .showcase-card');
         if (!card) return;
         if (e.target.tagName === 'A' || e.target.closest('a')) return;
@@ -2350,7 +2353,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const descEl = card.querySelector('.menu-item-desc');
 
         if (img) {
-            const titleText = nameEl ? nameEl.textContent.trim() : '';
+            const titleText = nameEl ? nameEl.textContent.replace(/\s+/g, ' ').trim() : '';
             const descText = descEl ? descEl.textContent.trim() : '';
             openLightbox(img.src, titleText, descText);
         }
@@ -2472,7 +2475,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     /* ==========================================================
        17. FOOTER MARQUEE FULL-WIDTH DUAL-TRACK CONTROLLER
-       Ensures brand logos loop seamlessly across any screen resolution (1080p, 1440p, 4K).
+       Ensures brand logos loop seamlessly across any screen resolution (iPhone, Android, 1080p, 4K).
+       Driven by requestAnimationFrame translate3d for 100% iOS Safari / WebKit reliability.
        ========================================================== */
     const initFooterMarquee = () => {
         const marquee = document.querySelector('.footer-marquee');
@@ -2492,45 +2496,430 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         if (!track) return;
 
-        let sets = track.querySelectorAll('.footer-marquee-set');
+        let sets = Array.from(track.querySelectorAll('.footer-marquee-set'));
         if (sets.length === 0) return;
 
-        // If only 1 set exists, duplicate it so we have a 2-track seamless conveyor
-        if (sets.length === 1) {
+        // Ensure at least 3 sets exist so iOS/Android/4K screens never show a gap
+        while (sets.length < 3) {
             const clone = sets[0].cloneNode(true);
             clone.setAttribute('aria-hidden', 'true');
             track.appendChild(clone);
-            sets = track.querySelectorAll('.footer-marquee-set');
+            sets = Array.from(track.querySelectorAll('.footer-marquee-set'));
         }
 
-        // Measure width: each set must be wider than the viewport + 400px
-        const ensureSufficientWidth = () => {
+        marquee.classList.add('js-footer-marquee-ready');
+        sets.forEach(s => {
+            s.style.animation = 'none';
+            s.style.webkitAnimation = 'none';
+        });
+
+        // Force eager loading on footer marquee images so iOS Safari measures real widths immediately
+        track.querySelectorAll('img').forEach(img => {
+            img.setAttribute('loading', 'eager');
+            img.setAttribute('draggable', 'false');
+        });
+
+        let setWidth = 0;
+        let offsetX = 0;
+        let lastFrameTime = performance.now();
+        const footerSpeed = 0.042; // ~42 px/sec steady infinite scroll
+
+        const updateFooterMeasurements = () => {
             const viewportWidth = window.innerWidth || document.documentElement.clientWidth || 1920;
             const primarySet = sets[0];
             if (!primarySet) return;
 
-            let currentWidth = primarySet.scrollWidth;
+            let currentWidth = primarySet.scrollWidth || primarySet.getBoundingClientRect().width;
             let safetyLimit = 0;
-            while (currentWidth > 0 && currentWidth < viewportWidth + 600 && safetyLimit < 5) {
+            while (currentWidth > 0 && currentWidth < viewportWidth + 400 && safetyLimit < 4) {
                 const items = Array.from(primarySet.children);
                 items.forEach(child => {
                     primarySet.appendChild(child.cloneNode(true));
                 });
-                currentWidth = primarySet.scrollWidth;
+                currentWidth = primarySet.scrollWidth || primarySet.getBoundingClientRect().width;
                 safetyLimit++;
             }
 
-            // Sync second set with first set
-            if (sets[1]) {
-                sets[1].innerHTML = primarySet.innerHTML;
+            for (let i = 1; i < sets.length; i++) {
+                if (sets[i].children.length !== primarySet.children.length) {
+                    sets[i].innerHTML = primarySet.innerHTML;
+                }
             }
+
+            const rectW = primarySet.getBoundingClientRect().width || primarySet.offsetWidth || primarySet.scrollWidth;
+            if (rectW > 0) setWidth = rectW;
         };
 
-        ensureSufficientWidth();
-        window.addEventListener('resize', ensureSufficientWidth, { passive: true });
+        updateFooterMeasurements();
+        window.addEventListener('load', updateFooterMeasurements);
+        window.addEventListener('resize', updateFooterMeasurements, { passive: true });
+        track.querySelectorAll('img').forEach(img => {
+            if (!img.complete) {
+                img.addEventListener('load', updateFooterMeasurements, { once: true });
+            }
+        });
+
+        const tickFooter = () => {
+            const now = performance.now();
+            const dt = Math.min(64, Math.max(1, now - lastFrameTime));
+            lastFrameTime = now;
+
+            if (setWidth <= 0) updateFooterMeasurements();
+
+            const stopAnim = document.documentElement.classList.contains('tg-stop-animations');
+            if (!stopAnim && setWidth > 0) {
+                offsetX -= footerSpeed * dt;
+                if (offsetX <= -setWidth) {
+                    offsetX = offsetX % setWidth;
+                }
+                const tx = 'translate3d(' + offsetX.toFixed(2) + 'px, 0, 0)';
+                for (let i = 0; i < sets.length; i++) {
+                    sets[i].style.webkitTransform = tx;
+                    sets[i].style.transform = tx;
+                }
+            }
+            requestAnimationFrame(tickFooter);
+        };
+
+        requestAnimationFrame(tickFooter);
     };
 
     initFooterMarquee();
+
+    /* ==========================================================
+       17b. INTERACTIVE SHOWCASE CAROUSEL (PER-CARD CIRCULAR RECYCLING)
+       Consolidates all showcase cards into a single continuous flex strip
+       and recycles offscreen cards one-by-one so translate3d offsetX stays
+       strictly within [-2*cardStep, -cardStep] (~-512px .. -256px on iPhone).
+       Eliminates iOS Safari / WebKit 2048px GPU texture cutoff, offscreen
+       flex-sibling culling after Super Quesadilla, and synthetic mousedown freezes.
+       ========================================================== */
+    const initInteractiveShowcaseMarquee = () => {
+        const track = document.querySelector('.showcase .marquee-track');
+        if (!track) return;
+        const sets = Array.from(track.querySelectorAll('.marquee-set'));
+        if (sets.length === 0) return;
+
+        const strip = sets[0];
+        const baseCards = Array.from(strip.querySelectorAll('.showcase-card'));
+        if (baseCards.length === 0) return;
+
+        // Remove duplicate .marquee-set containers and consolidate into a single strip
+        for (let i = 1; i < sets.length; i++) {
+            sets[i].remove();
+        }
+
+        // Populate strip with 3 full cycles (27 cards) so even ultra-wide 4K monitors
+        // and fast swipe gestures have plenty of buffered cards on both sides
+        while (strip.children.length < baseCards.length * 3) {
+            baseCards.forEach(card => {
+                const clone = card.cloneNode(true);
+                clone.setAttribute('aria-hidden', 'true');
+                const cloneImg = clone.querySelector('img');
+                if (cloneImg) cloneImg.setAttribute('alt', '');
+                strip.appendChild(clone);
+            });
+        }
+
+        track.classList.add('js-marquee-ready');
+        strip.style.animation = 'none';
+        strip.style.webkitAnimation = 'none';
+        strip.style.paddingRight = '0px';
+
+        // Force eager loading & decode on all showcase images so iPhone never shows blank boxes
+        const allImgs = strip.querySelectorAll('img');
+        allImgs.forEach(img => {
+            img.setAttribute('loading', 'eager');
+            img.setAttribute('decoding', 'sync');
+            img.setAttribute('draggable', 'false');
+            img.addEventListener('dragstart', e => e.preventDefault());
+        });
+
+        const getCardStep = () => {
+            const ch = strip.children;
+            if (ch.length >= 2) {
+                const diff = ch[1].offsetLeft - ch[0].offsetLeft;
+                if (diff > 50) return diff;
+                const r0 = ch[0].getBoundingClientRect();
+                const r1 = ch[1].getBoundingClientRect();
+                if (r1.left - r0.left > 50) return r1.left - r0.left;
+            }
+            if (ch.length >= 1) {
+                const w = ch[0].getBoundingClientRect().width || ch[0].offsetWidth || 240;
+                const gap = parseFloat(window.getComputedStyle(strip).columnGap || window.getComputedStyle(strip).gap || '16') || 16;
+                return w + gap;
+            }
+            return 256;
+        };
+
+        let cardStep = getCardStep();
+        // Pre-buffer 1 card offscreen to the left so offsetX starts at -cardStep
+        if (strip.lastElementChild && strip.firstElementChild) {
+            strip.insertBefore(strip.lastElementChild, strip.firstElementChild);
+        }
+        let offsetX = -cardStep;
+
+        let isDragging = false;
+        let touchActive = false;
+        let lastTouchTime = 0;
+        let startX = 0;
+        let startY = 0;
+        let lastX = 0;
+        let lastMoveTime = performance.now();
+        let totalDragDistance = 0;
+        let touchDirectionLocked = null; // 'horizontal' | 'vertical' | null
+
+        // Velocity in px/ms (negative = moving left/forward, positive = moving right/backward)
+        const baseCruiseSpeed = 0.055; // ~55 px/sec steady auto-scroll
+        let cruiseDirection = -1;      // -1 = left, +1 = right
+        let dragVelocity = 0;          // instantaneous pointer/finger velocity (px/ms)
+        let inertiaVelocity = 0;       // extra momentum after release (px/ms)
+        let lastFrameTime = performance.now();
+        let lastTickTime = performance.now();
+        let rafId = 0;
+
+        const updateMeasurements = () => {
+            const s = getCardStep();
+            if (s > 50) cardStep = s;
+        };
+
+        window.addEventListener('load', updateMeasurements);
+        window.addEventListener('resize', updateMeasurements, { passive: true });
+        allImgs.forEach(img => {
+            if (!img.complete) {
+                img.addEventListener('load', updateMeasurements, { once: true });
+            }
+        });
+
+        const renderPosition = () => {
+            const s = getCardStep();
+            if (s > 50) cardStep = s;
+
+            if (cardStep > 50 && strip.children.length >= 4) {
+                let guard = 0;
+                while (offsetX <= -2 * cardStep && guard < 30) {
+                    strip.appendChild(strip.firstElementChild);
+                    offsetX += cardStep;
+                    guard++;
+                }
+                guard = 0;
+                while (offsetX > -cardStep && guard < 30) {
+                    strip.insertBefore(strip.lastElementChild, strip.firstElementChild);
+                    offsetX -= cardStep;
+                    guard++;
+                }
+            }
+
+            const tx = 'translate3d(' + offsetX.toFixed(2) + 'px, 0, 0)';
+            strip.style.webkitTransform = tx;
+            strip.style.transform = tx;
+        };
+
+        renderPosition();
+
+        const finishDrag = () => {
+            touchActive = false;
+            touchDirectionLocked = null;
+            if (!isDragging) return;
+            isDragging = false;
+            track.classList.remove('is-dragging');
+
+            const clampedVel = Math.max(-3.5, Math.min(3.5, dragVelocity));
+            inertiaVelocity = clampedVel;
+            if (Math.abs(clampedVel) > 0.04) {
+                cruiseDirection = clampedVel > 0 ? 1 : -1;
+            }
+        };
+
+        const tick = () => {
+            const now = performance.now();
+            lastTickTime = now;
+            const dt = Math.min(64, Math.max(1, now - lastFrameTime));
+            lastFrameTime = now;
+
+            // Unconditional idle-drag safety watchdog: if any touch or mouse drag stopped
+            // firing move events for >500ms, release drag immediately so auto-scroll never freezes
+            if (isDragging && (now - lastMoveTime > 500)) {
+                finishDrag();
+            }
+
+            const stopAnim = document.documentElement.classList.contains('tg-stop-animations');
+
+            if (!isDragging) {
+                if (Math.abs(inertiaVelocity) > 0.002) {
+                    offsetX += inertiaVelocity * dt;
+                    const friction = Math.pow(0.95, dt / 16.67);
+                    inertiaVelocity *= friction;
+                } else {
+                    inertiaVelocity = 0;
+                }
+
+                if (!stopAnim) {
+                    offsetX += cruiseDirection * baseCruiseSpeed * dt;
+                }
+                renderPosition();
+            } else {
+                if (now - lastMoveTime > 60) {
+                    dragVelocity *= 0.5;
+                }
+            }
+
+            rafId = requestAnimationFrame(tick);
+        };
+
+        // iOS Safari keep-alive heartbeat: restarts RAF if WebKit suspends it during scroll/tab switch
+        setInterval(() => {
+            if (!document.hidden && (performance.now() - lastTickTime > 350)) {
+                lastFrameTime = performance.now();
+                cancelAnimationFrame(rafId);
+                rafId = requestAnimationFrame(tick);
+            }
+        }, 400);
+
+        window.addEventListener('pageshow', () => {
+            finishDrag();
+            lastFrameTime = performance.now();
+            cancelAnimationFrame(rafId);
+            rafId = requestAnimationFrame(tick);
+        });
+
+        const beginActiveDrag = (clientX) => {
+            updateMeasurements();
+            isDragging = true;
+            lastX = clientX;
+            lastMoveTime = performance.now();
+            totalDragDistance = 0;
+            dragVelocity = 0;
+            inertiaVelocity = 0;
+            showcaseSuppressNextClick = false;
+            track.classList.add('is-dragging');
+        };
+
+        const moveDrag = (clientX) => {
+            if (!isDragging) return;
+            const now = performance.now();
+            const dx = clientX - lastX;
+            const dt = Math.max(4, now - lastMoveTime);
+
+            lastX = clientX;
+            lastMoveTime = now;
+            totalDragDistance += Math.abs(dx);
+
+            if (totalDragDistance > 6) {
+                showcaseSuppressNextClick = true;
+            }
+
+            offsetX += dx;
+            renderPosition();
+
+            const instantVel = dx / dt;
+            dragVelocity = dragVelocity * 0.35 + instantVel * 0.65;
+            if (Math.abs(dx) > 1.2) {
+                cruiseDirection = dx > 0 ? 1 : -1;
+            }
+        };
+
+        // 1. Touch Events for Mobile Phones & Tablets (iOS Safari + Android Chrome)
+        track.addEventListener('touchstart', (e) => {
+            lastTouchTime = performance.now();
+            if (!e.touches || e.touches.length !== 1) return;
+            const t = e.touches[0];
+            touchActive = true;
+            startX = t.clientX;
+            startY = t.clientY;
+            lastX = t.clientX;
+            lastMoveTime = performance.now();
+            touchDirectionLocked = null;
+            showcaseSuppressNextClick = false;
+        }, { passive: true });
+
+        track.addEventListener('touchmove', (e) => {
+            lastTouchTime = performance.now();
+            if (!touchActive || !e.touches || e.touches.length !== 1) return;
+            const t = e.touches[0];
+            if (!touchDirectionLocked) {
+                const totalDx = Math.abs(t.clientX - startX);
+                const totalDy = Math.abs(t.clientY - startY);
+                if (totalDx > 6 || totalDy > 6) {
+                    if (totalDx > totalDy) {
+                        touchDirectionLocked = 'horizontal';
+                        beginActiveDrag(t.clientX);
+                    } else {
+                        touchDirectionLocked = 'vertical';
+                        finishDrag();
+                        return;
+                    }
+                } else {
+                    return;
+                }
+            }
+            if (touchDirectionLocked === 'vertical') {
+                finishDrag();
+                return;
+            }
+            if (touchDirectionLocked === 'horizontal') {
+                if (e.cancelable) e.preventDefault();
+                moveDrag(t.clientX);
+            }
+        }, { passive: false });
+
+        const onTouchEndOrCancel = () => {
+            lastTouchTime = performance.now();
+            finishDrag();
+        };
+        track.addEventListener('touchend', onTouchEndOrCancel, { passive: true });
+        track.addEventListener('touchcancel', onTouchEndOrCancel, { passive: true });
+        window.addEventListener('touchend', onTouchEndOrCancel, { passive: true });
+        window.addEventListener('touchcancel', onTouchEndOrCancel, { passive: true });
+        window.addEventListener('blur', finishDrag);
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden) finishDrag();
+            lastFrameTime = performance.now();
+        });
+
+        // 2. Mouse Events for Desktop (strictly ignore synthetic mouse events after touch on iOS)
+        track.addEventListener('mousedown', (e) => {
+            if (performance.now() - lastTouchTime < 1500) return;
+            if (e.button !== 0) return;
+            e.preventDefault();
+            touchActive = false;
+            touchDirectionLocked = null;
+            startX = e.clientX;
+            startY = e.clientY;
+            beginActiveDrag(e.clientX);
+        });
+
+        window.addEventListener('mousemove', (e) => {
+            if (performance.now() - lastTouchTime < 1500) return;
+            if (!isDragging || touchActive) return;
+            if (typeof e.buttons === 'number' && e.buttons === 0) {
+                finishDrag();
+                return;
+            }
+            moveDrag(e.clientX);
+        }, { passive: true });
+
+        window.addEventListener('mouseup', () => {
+            if (!isDragging || touchActive) return;
+            finishDrag();
+        });
+
+        // 3. Horizontal wheel / two-finger trackpad swipe support
+        track.addEventListener('wheel', (e) => {
+            const horiz = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : (e.shiftKey ? e.deltaY : 0);
+            if (Math.abs(horiz) > 0.5) {
+                e.preventDefault();
+                offsetX -= horiz;
+                inertiaVelocity = Math.max(-2.5, Math.min(2.5, -horiz * 0.04));
+                cruiseDirection = horiz > 0 ? -1 : 1;
+                renderPosition();
+            }
+        }, { passive: false });
+
+        rafId = requestAnimationFrame(tick);
+    };
+
+        initInteractiveShowcaseMarquee();
 
     /* ==========================================================
        18. STORE DETAILS MODAL CONTROLLER (BILINGUAL IN-PAGE MODAL)

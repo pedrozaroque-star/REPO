@@ -22,7 +22,7 @@
     <meta name="twitter:image" content="https://tacosgavilan.com/img/og-tacos-gavilan-1200x630.jpg">
     <meta name="twitter:image:alt" content="Tacos Gavilan West Covina Mexican Food">
         <!-- Favicon & Brand Icons (Transparent TEG Logo) -->
-    <link rel="icon" type="image/png" href="/logo.png?v=5">
+    <link rel="icon" type="image/png" href="/logo.png?v=75">
     <link rel="icon" type="image/png" sizes="32x32" href="/img/favicon-32x32.png?v=5">
     <link rel="icon" type="image/png" sizes="16x16" href="/img/favicon-16x16.png?v=5">
     <link rel="shortcut icon" href="/favicon.ico?v=5">
@@ -90,7 +90,7 @@
 }
     </script>
 
-    <link rel="stylesheet" href="../../css/style.css?v=42">    <link rel="stylesheet" href="../../css/compliance-a11y.css?v=36">
+    <link rel="stylesheet" href="../../css/style.css?v=109">    <link rel="stylesheet" href="../../css/compliance-a11y.css?v=36">
 
     <style>
         .location-page-hero {
@@ -269,20 +269,20 @@
         <div class="container header-container">
             <!-- Logo (left) -->
             <a href="../../" class="logo" aria-label="Tacos Gavilan Home">
-                <img src="../../img/logo.webp" alt="Tacos Gavilan Logo" width="160" height="48">
+                <img src="../../img/logo.webp?v=75" alt="Tacos Gavilan Logo" width="160" height="48">
             </a>
 
             <!-- Main Navigation (center / Mobile Drawer) -->
             <nav class="nav" id="mobile-navigation" aria-label="Main Navigation">
                 <div class="nav-drawer-header">
-                    <img src="../../img/logo.webp" alt="Tacos Gavilan" class="nav-drawer-logo nav-drawer-logo-img" width="140" height="42">
+                    <img src="../../img/logo.webp?v=75" alt="Tacos Gavilan" class="nav-drawer-logo nav-drawer-logo-img" width="140" height="42">
                     <button class="nav-drawer-close" id="nav-drawer-close" aria-label="Close navigation menu" type="button">
                         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
                     </button>
                 </div>
                 <ul class="nav-list">
                     <li><a href="../../" class="nav-link" data-i18n="nav.home" data-en="Home" data-es="Inicio">Home</a></li>
-                    <li><a href="../../menu/" class="nav-link" data-i18n="nav.menu" data-en="Menu" data-es="Menú">Menu</a></li>
+                    <li><a href="../../#menu" class="nav-link" data-i18n="nav.menu" data-en="Menu" data-es="Menú">Menu</a></li>
                     <li><a href="../" class="nav-link active" aria-current="page" data-i18n="nav.locations" data-en="Locations" data-es="Ubicaciones">Locations</a></li>
                     <li><a href="../../fiesta-platter/" class="nav-link" data-i18n="nav.catering" data-en="Fiesta Platter" data-es="Fiesta Platter">Fiesta Platter</a></li>
                     <li><a href="../../contact/" class="nav-link" data-i18n="nav.contact" data-en="Contact" data-es="Contacto">Contact</a></li>
@@ -371,20 +371,159 @@
     </main>
 
     <footer class="footer">
-        <div class="container text-center" style="padding: 2.5rem 0; color: rgba(255,255,255,0.6);">
-            <div style="display: flex; justify-content: center; gap: 1.5rem; flex-wrap: wrap; margin-bottom: 1rem;">
-                <a href="/blog/history-of-tacos-gavilan/" style="color: inherit;" data-en="About" data-es="Nosotros">About</a>
-                <a href="/menu/" style="color: inherit;" data-en="Menu" data-es="Menú">Menu</a>
-                <a href="/#locations" style="color: inherit;" data-en="All Locations" data-es="Sucursales">All Locations</a>
-                <a href="/contact/" style="color: inherit;" data-en="Contact" data-es="Contacto">Contact</a>
+        <div class="container">
+            <div class="footer-grid">
+                <!-- Brand & Description -->
+                <div class="footer-brand">
+                    <img src="../../img/logo.webp?v=75" alt="Tacos Gavilan" class="footer-logo" loading="lazy" width="160" height="48">
+                    <p data-i18n="footer.desc">Authentic Mexican food serving Southern California since 1992. From our family to yours — Ya está.</p>
+                    <!-- Social Links -->
+                    <div class="footer-social" aria-label="Footer Social Links">
+                        <a href="https://www.facebook.com/TacosGavilan/" target="_blank" rel="noopener noreferrer" aria-label="Tacos Gavilan on Facebook" class="footer-social-link">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/></svg>
+                        </a>
+                        <a href="https://www.instagram.com/tacosgavilan/" target="_blank" rel="noopener noreferrer" aria-label="Tacos Gavilan on Instagram" class="footer-social-link">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zM12 0C8.741 0 8.333.014 7.053.072 2.695.272.273 2.69.073 7.052.014 8.333 0 8.741 0 12c0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98C8.333 23.986 8.741 24 12 24c3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98C15.668.014 15.259 0 12 0zm0 5.838a6.162 6.162 0 100 12.324 6.162 6.162 0 000-12.324zM12 16a4 4 0 110-8 4 4 0 010 8zm6.406-11.845a1.44 1.44 0 100 2.881 1.44 1.44 0 000-2.881z"/></svg>
+                        </a>
+                        <a href="https://www.tiktok.com/@tacos.gavilan" target="_blank" rel="noopener noreferrer" aria-label="Tacos Gavilan on TikTok" class="footer-social-link">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12.525.02c1.31-.02 2.61-.01 3.91-.02.08 1.53.63 3.09 1.75 4.17 1.12 1.11 2.7 1.62 4.24 1.79v4.03c-1.44-.05-2.89-.35-4.2-.97-.57-.26-1.1-.59-1.62-.93-.01 2.92.01 5.84-.02 8.75-.08 1.4-.54 2.79-1.35 3.94-1.31 1.92-3.58 3.17-5.91 3.21-1.43.08-2.86-.31-4.08-1.03-2.02-1.19-3.44-3.37-3.65-5.71-.02-.5-.03-1-.01-1.49.18-1.9 1.12-3.72 2.58-4.96 1.66-1.44 3.98-2.13 6.15-1.72.02 1.48-.04 2.96-.04 4.44-.99-.32-2.15-.23-3.02.37-.63.41-1.11 1.04-1.36 1.75-.21.51-.15 1.07-.14 1.61.24 1.64 1.82 3.02 3.5 2.87 1.12-.01 2.19-.66 2.77-1.61.19-.33.4-.67.41-1.06.1-1.79.06-3.57.07-5.36.01-4.03-.01-8.05.02-12.07z"/></svg>
+                        </a>
+                        <a href="https://www.youtube.com/channel/UCrEA_8rVxr7hcIvf-Hy6bMg" target="_blank" rel="noopener noreferrer" aria-label="Tacos Gavilan on YouTube" class="footer-social-link">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M23.498 6.186a3.016 3.016 0 00-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 00.502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 002.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 002.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/></svg>
+                        </a>
+                    </div>
                 </div>
-            <div class="location-legal-links" style="display:flex;justify-content:center;gap:1.5rem;flex-wrap:wrap;margin-bottom:1rem;">
-                <a href="../../privacy/" style="color:inherit;" data-en="Privacy" data-es="Privacidad">Privacy</a>
-                <a href="../../terms/" style="color:inherit;" data-en="Terms" data-es="Términos">Terms</a>
-                <a href="../../accessibility/" style="color:inherit;" data-en="Accessibility" data-es="Accesibilidad">Accessibility</a>
-                <a href="../../privacy-choices/" style="color:inherit;" data-en="Privacy Choices" data-es="Opciones de Privacidad">Privacy Choices</a>
+
+                <!-- Quick Links -->
+                <div class="footer-links">
+                    <h4 data-i18n="footer.quickLinks">Quick Links</h4>
+                    <ul>
+                        <li><a href="../../index.html#menu" data-i18n="nav.menu">Menu</a></li>
+                        <li><a href="#fiesta" data-i18n="nav.catering">Fiesta Platter</a></li>
+                        <li><a href="../../index.html#locations" data-i18n="nav.locations">Locations</a></li>
+                        <li><a href="#contact" data-i18n="nav.contact">Contact Us</a></li>
+                    </ul>
+                </div>
+
+                <!-- Resources & Archive -->
+                <div class="footer-links footer-archive">
+                    <h4 data-i18n="footer.resourcesHeading">Resources &amp; Archive</h4>
+                    <ul>
+                        <li><a href="../../fiesta-platter/" data-i18n="footer.fiestaPlatters">Fiesta Platters</a></li>
+                        <li><a href="../../locations/" data-i18n="footer.allLocations">15 Store Locations</a></li>
+                        <li><a href="../../blog/" data-i18n="footer.blog">Official Gavilan Blog</a></li>
+                    </ul>
+                </div>
+
+                <!-- Hours & Contact Info -->
+                <div class="footer-info">
+                    <h4 data-i18n="footer.hoursHeading">HOURS</h4>
+                    <p data-i18n="footer.hoursText">Hours vary by location.<br><strong>Check your nearest restaurant.</strong></p>
+                    <h4 style="margin-top: 1.25rem;" data-i18n="footer.contactHeading">CONTACT</h4>
+                    <p><a href="../../locations/" data-i18n="footer.allLocations">15 Store Locations &rarr;</a></p>
+                    <p><a href="mailto:info@tacosgavilan.com">info@tacosgavilan.com</a></p>
+                </div>
             </div>
-            <p data-en="&copy; 2026 Tacos Gavilan. All rights reserved. | Authentic Mexican food since 1992." data-es="&copy; 2026 Tacos Gavilan. Todos los derechos reservados. | Auténtica comida mexicana desde 1992.">&copy; 2026 Tacos Gavilan. All rights reserved. | Authentic Mexican food since 1992.</p>
+        </div>
+        <!-- Footer Marquee -->
+        <div class="footer-marquee" aria-hidden="true">
+            <div class="footer-marquee-track">
+                <div class="footer-marquee-set">
+                    <img src="../../img/tagline.webp" alt="Ya está." loading="lazy" width="100" height="28">
+                    <span>·</span>
+                    <img src="../../img/logo.webp?v=75" alt="Tacos Gavilan" loading="lazy" width="100" height="28">
+                    <span>·</span>
+                    <img src="../../img/tagline.webp" alt="Ya está." loading="lazy" width="100" height="28">
+                    <span>·</span>
+                    <img src="../../img/logo.webp?v=75" alt="Tacos Gavilan" loading="lazy" width="100" height="28">
+                    <span>·</span>
+                    <img src="../../img/tagline.webp" alt="Ya está." loading="lazy" width="100" height="28">
+                    <span>·</span>
+                    <img src="../../img/logo.webp?v=75" alt="Tacos Gavilan" loading="lazy" width="100" height="28">
+                    <span>·</span>
+                    <img src="../../img/tagline.webp" alt="Ya está." loading="lazy" width="100" height="28">
+                    <span>·</span>
+                    <img src="../../img/logo.webp?v=75" alt="Tacos Gavilan" loading="lazy" width="100" height="28">
+                    <span>·</span>
+                    <img src="../../img/tagline.webp" alt="Ya está." loading="lazy" width="100" height="28">
+                    <span>·</span>
+                    <img src="../../img/logo.webp?v=75" alt="Tacos Gavilan" loading="lazy" width="100" height="28">
+                    <span>·</span>
+                    <img src="../../img/tagline.webp" alt="Ya está." loading="lazy" width="100" height="28">
+                    <span>·</span>
+                    <img src="../../img/logo.webp?v=75" alt="Tacos Gavilan" loading="lazy" width="100" height="28">
+                    <span>·</span>
+                    <img src="../../img/tagline.webp" alt="Ya está." loading="lazy" width="100" height="28">
+                    <span>·</span>
+                    <img src="../../img/logo.webp?v=75" alt="Tacos Gavilan" loading="lazy" width="100" height="28">
+                    <span>·</span>
+                    <img src="../../img/tagline.webp" alt="Ya está." loading="lazy" width="100" height="28">
+                    <span>·</span>
+                    <img src="../../img/logo.webp?v=75" alt="Tacos Gavilan" loading="lazy" width="100" height="28">
+                    <span>·</span>
+                    <img src="../../img/tagline.webp" alt="Ya está." loading="lazy" width="100" height="28">
+                    <span>·</span>
+                    <img src="../../img/logo.webp?v=75" alt="Tacos Gavilan" loading="lazy" width="100" height="28">
+                    <span>·</span>
+                </div>
+                <div class="footer-marquee-set" aria-hidden="true">
+                    <img src="../../img/tagline.webp" alt="Ya está." loading="lazy" width="100" height="28">
+                    <span>·</span>
+                    <img src="../../img/logo.webp?v=75" alt="Tacos Gavilan" loading="lazy" width="100" height="28">
+                    <span>·</span>
+                    <img src="../../img/tagline.webp" alt="Ya está." loading="lazy" width="100" height="28">
+                    <span>·</span>
+                    <img src="../../img/logo.webp?v=75" alt="Tacos Gavilan" loading="lazy" width="100" height="28">
+                    <span>·</span>
+                    <img src="../../img/tagline.webp" alt="Ya está." loading="lazy" width="100" height="28">
+                    <span>·</span>
+                    <img src="../../img/logo.webp?v=75" alt="Tacos Gavilan" loading="lazy" width="100" height="28">
+                    <span>·</span>
+                    <img src="../../img/tagline.webp" alt="Ya está." loading="lazy" width="100" height="28">
+                    <span>·</span>
+                    <img src="../../img/logo.webp?v=75" alt="Tacos Gavilan" loading="lazy" width="100" height="28">
+                    <span>·</span>
+                    <img src="../../img/tagline.webp" alt="Ya está." loading="lazy" width="100" height="28">
+                    <span>·</span>
+                    <img src="../../img/logo.webp?v=75" alt="Tacos Gavilan" loading="lazy" width="100" height="28">
+                    <span>·</span>
+                    <img src="../../img/tagline.webp" alt="Ya está." loading="lazy" width="100" height="28">
+                    <span>·</span>
+                    <img src="../../img/logo.webp?v=75" alt="Tacos Gavilan" loading="lazy" width="100" height="28">
+                    <span>·</span>
+                    <img src="../../img/tagline.webp" alt="Ya está." loading="lazy" width="100" height="28">
+                    <span>·</span>
+                    <img src="../../img/logo.webp?v=75" alt="Tacos Gavilan" loading="lazy" width="100" height="28">
+                    <span>·</span>
+                    <img src="../../img/tagline.webp" alt="Ya está." loading="lazy" width="100" height="28">
+                    <span>·</span>
+                    <img src="../../img/logo.webp?v=75" alt="Tacos Gavilan" loading="lazy" width="100" height="28">
+                    <span>·</span>
+                    <img src="../../img/tagline.webp" alt="Ya está." loading="lazy" width="100" height="28">
+                    <span>·</span>
+                    <img src="../../img/logo.webp?v=75" alt="Tacos Gavilan" loading="lazy" width="100" height="28">
+                    <span>·</span>
+                </div>
+            </div>
+        </div>
+        <!-- Footer Bottom -->
+        <div class="footer-bottom">
+            <div class="container footer-bottom-content">
+                <p>&copy; <span id="year"></span> Tacos Gavilan. All rights reserved.</p>
+                <div class="footer-legal-links">
+                    <a href="/privacy/#notice-at-collection" data-i18n="footer.noticeAtCollection">Notice at Collection</a>
+                    <span class="legal-dot" aria-hidden="true">·</span>
+                    <a href="/privacy/" id="open-privacy-btn" data-i18n="footer.privacy">Privacy Policy</a>
+                    <span class="legal-dot" aria-hidden="true">·</span>
+                    <a href="/terms/" id="open-terms-btn" data-i18n="footer.terms">Terms of Use</a>
+                    <span class="legal-dot" aria-hidden="true">·</span>
+                    <a href="/accessibility/" id="open-accessibility-btn" data-i18n="footer.accessibility">Accessibility</a>
+                    <span class="legal-dot" aria-hidden="true">·</span>
+                    <a href="/privacy-choices/" id="open-cookie-settings-btn" data-i18n="footer.cookieSettings">Your Privacy Choices</a>
+                    <span class="legal-dot" aria-hidden="true">·</span>
+                    <button type="button" id="footer-dns-btn" class="footer-legal-btn" style="background:none;border:none;color:inherit;cursor:pointer;font-size:inherit;font-family:inherit;padding:0;text-decoration:none;" data-i18n="footer.dns">Do Not Sell or Share My Personal Information</button>
+                </div>
+            </div>
         </div>
     </footer>
     <script src="../../js/location-page.js?v=36"></script>

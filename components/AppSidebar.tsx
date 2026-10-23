@@ -163,6 +163,8 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
     const [changelogOpen, setChangelogOpen] = useState(false)
     const dropdownRef = useRef<HTMLDivElement>(null)
     const mobileDropdownRef = useRef<HTMLDivElement>(null)
+    const desktopNavRef = useRef<HTMLElement>(null)
+    const mobileNavRef = useRef<HTMLElement>(null)
 
     // Close dropdown on click outside
     useEffect(() => {
@@ -559,6 +561,17 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
                         : 'Sincronización y creación automática de Bills desde Invoices de Bodega en QuickBooks'
                 },
                 {
+                    name: t('items.external_accounting') || 'Contabilidad Externa',
+                    plainName: 'Contabilidad Externa',
+                    path: '/admin/contabilidad-externa',
+                    icon: <DollarSign size={20} />,
+                    roles: ['admin'],
+                    badgeText: 'new',
+                    tooltip: language === 'en'
+                        ? 'Exclusive module for Raquel, Roberto & Roque: 8 Companies, Checks, Deposits, Inflows, Outflows & CPA Reports'
+                        : 'Módulo exclusivo Raquel, Roberto y Roque: 8 Empresas, Cheques, Depósitos, Entradas, Salidas y Reportes para Contadora'
+                },
+                {
                     name: 'RONOS',
                     plainName: 'RONOS',
                     path: '/admin/ronos',
@@ -703,11 +716,15 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
         const isVikesh = user?.email === 'vikesh@tacosgavilan.com'
         const userEmailNorm = (user?.email || '').trim().toLowerCase()
         const isPlanificadorOnly = userEmailNorm === 'stephany@cingularhr.com' || user?.role?.toLowerCase() === 'planificador'
+        const canAccessExternalAccounting =
+            ['raquel@tacosgavilan.com', 'roberto@tacosgavilan.com', 'roque@tacosgavilan.com', 'rvelasquez95@yahoo.com'].includes(userEmailNorm) ||
+            [45, 46, 47].includes(Number(user?.id))
         return menuGroups.map(group => {
             if (isVikesh && (group.id === 'inventario' || group.id === 'food_cost')) {
                 return { ...group, items: [] }
             }
             const validItems = group.items.filter(item => {
+                if (item.path === '/admin/contabilidad-externa') return canAccessExternalAccounting
                 if (isPlanificadorOnly) return item.path === '/planificador'
                 if (isVikesh && (item.path === '/ventas' || item.path === '/ventas/reportes')) return false
                 if (!item.roles || item.roles.length === 0) return true
@@ -759,7 +776,7 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
         }
     }, [mobileDrawerOpen])
 
-    // Auto-expand the group that contains the active route
+    // Auto-expand the group that contains the active route and smoothly scroll the active item into view
     useEffect(() => {
         if (!pathname || pathname === '/inicio') return
         const matchingGroup = filteredGroups.find(g =>
@@ -768,7 +785,38 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
         if (matchingGroup) {
             setExpandedGroups(prev => (prev[matchingGroup.id] ? prev : { ...prev, [matchingGroup.id]: true }))
         }
-    }, [pathname, filteredGroups])
+
+        const scrollActiveIntoView = (navEl: HTMLElement | null) => {
+            if (!navEl) return
+            const activeItem = navEl.querySelector<HTMLElement>('[data-active-nav-item="true"]')
+            if (!activeItem) return
+
+            const navRect = navEl.getBoundingClientRect()
+            const itemRect = activeItem.getBoundingClientRect()
+            if (navRect.height <= 0) return
+
+            const relativeTop = itemRect.top - navRect.top
+            const relativeBottom = itemRect.bottom - navRect.top
+            const padding = 48
+
+            if (relativeTop < padding || relativeBottom > navRect.height - padding) {
+                const targetTop = navEl.scrollTop + relativeTop - navRect.height / 2 + itemRect.height / 2
+                navEl.scrollTo({
+                    top: Math.max(0, targetTop),
+                    behavior: 'smooth',
+                })
+            }
+        }
+
+        const timer = setTimeout(() => {
+            scrollActiveIntoView(desktopNavRef.current)
+            if (mobileDrawerOpen) {
+                scrollActiveIntoView(mobileNavRef.current)
+            }
+        }, 80)
+
+        return () => clearTimeout(timer)
+    }, [pathname, filteredGroups, isCollapsed, mobileDrawerOpen])
 
     const toggleGroup = (groupId: string) => {
         setExpandedGroups(prev => ({ ...prev, [groupId]: !prev[groupId] }))
@@ -795,6 +843,7 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
                 <div key={item.path} className="space-y-1">
                     <button
                         type="button"
+                        data-active-nav-item={isActive ? 'true' : undefined}
                         onClick={() => {
                             if (isCollapsed && !isMobile) {
                                 setIsCollapsed(false)
@@ -895,6 +944,7 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
             <Link
                 key={item.path}
                 href={item.path}
+                data-active-nav-item={isActive ? 'true' : undefined}
                 target={item.openInNewTab ? '_blank' : undefined}
                 rel={item.openInNewTab ? 'noopener noreferrer' : undefined}
                 onClick={() => {
@@ -950,7 +1000,10 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
 
     // Shared nav content
     const renderNavContent = (isMobile: boolean = false) => (
-        <nav className={`flex-1 px-3 py-3 space-y-1 overflow-y-auto overflow-x-hidden no-scrollbar`}>
+        <nav
+            ref={isMobile ? mobileNavRef : desktopNavRef}
+            className={`flex-1 px-3 py-3 space-y-1 overflow-y-auto overflow-x-hidden no-scrollbar`}
+        >
             {filteredGroups.map((group) => {
                 const isOpen = expandedGroups[group.id] ?? true
                 return (

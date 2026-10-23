@@ -4,11 +4,11 @@
     "code": "LACENTRAL",
     "slug": "la-central",
     "city": "Los Angeles",
-    "crossStreets": "Central/Washington",
-    "name": "Los Angeles Central/Washington",
+    "crossStreets": "Central & Washington",
+    "name": "Los Angeles Central & Washington",
     "displayName": {
-      "en": "Los Angeles Central/Washington",
-      "es": "Los Angeles Central/Washington"
+      "en": "Los Angeles Central & Washington",
+      "es": "Los Angeles Central & Washington"
     },
     "address": "1900 S. Central Ave",
     "state": "CA",
@@ -28,11 +28,11 @@
     "code": "LYNWOOD",
     "slug": "lynwood",
     "city": "Lynwood",
-    "crossStreets": "Imperial/Long Beach",
-    "name": "Lynwood Imperial/Long Beach",
+    "crossStreets": "Imperial & Long Beach",
+    "name": "Lynwood Imperial & Long Beach",
     "displayName": {
-      "en": "Lynwood Imperial/Long Beach",
-      "es": "Lynwood Imperial/Long Beach"
+      "en": "Lynwood Imperial & Long Beach",
+      "es": "Lynwood Imperial & Long Beach"
     },
     "address": "3220 E. Imperial Hwy",
     "state": "CA",
@@ -52,11 +52,11 @@
     "code": "LABROADWY",
     "slug": "la-broadway",
     "city": "Los Angeles",
-    "crossStreets": "Vernon/Broadway",
-    "name": "Los Angeles Vernon/Broadway",
+    "crossStreets": "Vernon & Broadway",
+    "name": "Los Angeles Vernon & Broadway",
     "displayName": {
-      "en": "Los Angeles Vernon/Broadway",
-      "es": "Los Angeles Vernon/Broadway"
+      "en": "Los Angeles Vernon & Broadway",
+      "es": "Los Angeles Vernon & Broadway"
     },
     "address": "4380 S. Broadway",
     "state": "CA",
@@ -76,11 +76,11 @@
     "code": "NORWALK",
     "slug": "norwalk",
     "city": "Norwalk",
-    "crossStreets": "Rosecrans/Studebaker",
-    "name": "Norwalk Rosecrans/Studebaker",
+    "crossStreets": "Rosecrans & Studebaker",
+    "name": "Norwalk Rosecrans & Studebaker",
     "displayName": {
-      "en": "Norwalk Rosecrans/Studebaker",
-      "es": "Norwalk Rosecrans/Studebaker"
+      "en": "Norwalk Rosecrans & Studebaker",
+      "es": "Norwalk Rosecrans & Studebaker"
     },
     "address": "10968 Rosecrans Ave",
     "state": "CA",
@@ -100,11 +100,11 @@
     "code": "SLAUSON",
     "slug": "slauson",
     "city": "Los Angeles",
-    "crossStreets": "Slauson/Broadway",
-    "name": "Los Angeles Slauson/Broadway",
+    "crossStreets": "Slauson & Broadway",
+    "name": "Los Angeles Slauson & Broadway",
     "displayName": {
-      "en": "Los Angeles Slauson/Broadway",
-      "es": "Los Angeles Slauson/Broadway"
+      "en": "Los Angeles Slauson & Broadway",
+      "es": "Los Angeles Slauson & Broadway"
     },
     "address": "5833 S. Broadway",
     "state": "CA",
@@ -124,11 +124,11 @@
     "code": "RIALTO",
     "slug": "rialto",
     "city": "Rialto",
-    "crossStreets": "Baseline/Riverside",
-    "name": "Rialto Baseline/Riverside",
+    "crossStreets": "Baseline & Riverside",
+    "name": "Rialto Baseline & Riverside",
     "displayName": {
-      "en": "Rialto Baseline/Riverside",
-      "es": "Rialto Baseline/Riverside"
+      "en": "Rialto Baseline & Riverside",
+      "es": "Rialto Baseline & Riverside"
     },
     "address": "115 E. Baseline Rd",
     "state": "CA",
@@ -148,11 +148,11 @@
     "code": "WCOVINA",
     "slug": "west-covina",
     "city": "West Covina",
-    "crossStreets": "10 FWY/Azusa",
-    "name": "West Covina 10 FWY/Azusa",
+    "crossStreets": "10 FWY & Azusa",
+    "name": "West Covina 10 FWY & Azusa",
     "displayName": {
-      "en": "West Covina 10 FWY/Azusa",
-      "es": "West Covina 10 FWY/Azusa"
+      "en": "West Covina 10 FWY & Azusa",
+      "es": "West Covina 10 FWY & Azusa"
     },
     "address": "101 S. Azusa Ave",
     "state": "CA",
@@ -172,11 +172,11 @@
     "code": "SOUTHGATE",
     "slug": "south-gate",
     "city": "South Gate",
-    "crossStreets": "Firestone/Garfield",
-    "name": "South Gate Firestone/Garfield",
+    "crossStreets": "Firestone & Garfield",
+    "name": "South Gate Firestone & Garfield",
     "displayName": {
-      "en": "South Gate Firestone/Garfield",
-      "es": "South Gate Firestone/Garfield"
+      "en": "South Gate Firestone & Garfield",
+      "es": "South Gate Firestone & Garfield"
     },
     "address": "5800 Firestone Blvd",
     "state": "CA",
@@ -196,11 +196,11 @@
     "code": "DOWNEY",
     "slug": "downey",
     "city": "Downey",
-    "crossStreets": "Florence/Paramount",
-    "name": "Downey Florence/Paramount",
+    "crossStreets": "Florence & Paramount",
+    "name": "Downey Florence & Paramount",
     "displayName": {
-      "en": "Downey Florence/Paramount",
-      "es": "Downey Florence/Paramount"
+      "en": "Downey Florence & Paramount",
+      "es": "Downey Florence & Paramount"
     },
     "address": "7947 E. Florence Ave",
     "state": "CA",
@@ -220,11 +220,11 @@
     "code": "HOLLYWOOD",
     "slug": "hollywood",
     "city": "Los Angeles",
-    "crossStreets": "Sunset/La Brea",
-    "name": "Hollywood Sunset/La Brea",
+    "crossStreets": "Sunset & La Brea",
+    "name": "Hollywood Sunset & La Brea",
     "displayName": {
-      "en": "Hollywood Sunset/La Brea",
-      "es": "Hollywood Sunset/La Brea"
+      "en": "Hollywood Sunset & La Brea",
+      "es": "Hollywood Sunset & La Brea"
     },
     "address": "7070 Sunset Blvd",
     "state": "CA",
@@ -244,11 +244,11 @@
     "code": "SANTAANA",
     "slug": "santa-ana",
     "city": "Santa Ana",
-    "crossStreets": "17th/Grand",
-    "name": "Santa Ana 17th/Grand",
+    "crossStreets": "17th & Grand",
+    "name": "Santa Ana 17th & Grand",
     "displayName": {
-      "en": "Santa Ana 17th/Grand",
-      "es": "Santa Ana 17th/Grand"
+      "en": "Santa Ana 17th & Grand",
+      "es": "Santa Ana 17th & Grand"
     },
     "address": "1258 E. 17th St",
     "state": "CA",
@@ -268,11 +268,11 @@
     "code": "HPARK",
     "slug": "huntington-park",
     "city": "Huntington Park",
-    "crossStreets": "Florence/Santa Fe",
-    "name": "Huntington Park Florence/Santa Fe",
+    "crossStreets": "Florence & Santa Fe",
+    "name": "Huntington Park Florence & Santa Fe",
     "displayName": {
-      "en": "Huntington Park Florence/Santa Fe",
-      "es": "Huntington Park Florence/Santa Fe"
+      "en": "Huntington Park Florence & Santa Fe",
+      "es": "Huntington Park Florence & Santa Fe"
     },
     "address": "2425 E. Florence Ave",
     "state": "CA",
@@ -292,11 +292,11 @@
     "code": "LAPUENTE",
     "slug": "la-puente",
     "city": "La Puente",
-    "crossStreets": "605 FWY/Valley",
-    "name": "La Puente 605 FWY/Valley",
+    "crossStreets": "605 FWY & Valley",
+    "name": "La Puente 605 FWY & Valley",
     "displayName": {
-      "en": "La Puente 605 FWY/Valley",
-      "es": "La Puente 605 FWY/Valley"
+      "en": "La Puente 605 FWY & Valley",
+      "es": "La Puente 605 FWY & Valley"
     },
     "address": "13009 Valley Blvd",
     "state": "CA",
@@ -316,11 +316,11 @@
     "code": "AZUSA",
     "slug": "azusa",
     "city": "Azusa",
-    "crossStreets": "Azusa/Arrow",
-    "name": "Azusa Azusa/Arrow",
+    "crossStreets": "Azusa & Arrow",
+    "name": "Azusa Azusa & Arrow",
     "displayName": {
-      "en": "Azusa Azusa/Arrow",
-      "es": "Azusa Azusa/Arrow"
+      "en": "Azusa Azusa & Arrow",
+      "es": "Azusa Azusa & Arrow"
     },
     "address": "887 S. Azusa Ave",
     "state": "CA",
@@ -340,11 +340,11 @@
     "code": "BELL",
     "slug": "bell",
     "city": "Bell",
-    "crossStreets": "Florence/Atlantic",
-    "name": "Bell Florence/Atlantic",
+    "crossStreets": "Florence & Atlantic",
+    "name": "Bell Florence & Atlantic",
     "displayName": {
-      "en": "Bell Florence/Atlantic",
-      "es": "Bell Florence/Atlantic"
+      "en": "Bell Florence & Atlantic",
+      "es": "Bell Florence & Atlantic"
     },
     "address": "4406 E Florence Ave",
     "state": "CA",

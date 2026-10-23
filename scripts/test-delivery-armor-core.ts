@@ -372,6 +372,16 @@ assert.equal(
   'Debe separar el reloj de heartbeat al servidor (15s), blindar el polling con fetchSeqRef + stickyAuditsRef + recentActiveOrdersRef y eliminar el botón de regresar a EMPACANDO en la tableta'
 )
 
+const deliveryArmorSource = fs.readFileSync(path.join(process.cwd(), 'lib', 'delivery-armor.ts'), 'utf8')
+assert.equal(
+  deliveryArmorSource.includes('delivery_armor_l2_orders_') &&
+    deliveryArmorSource.includes('loadStoreOrdersL2Cache') &&
+    deliveryArmorSource.includes('saveStoreOrdersL2Cache') &&
+    empaqueSource.includes("console.warn('[BlindajeDelivery] Aviso transitorio en sincronización de fondo:'"),
+  true,
+  'Debe contar con caché L2 compartida en Supabase ante rate-limit 429 de Toast API y silenciar errores transitorios de polling en la tableta'
+)
+
 assert.equal(
   dashboardSource.includes('openDossierModal') || dashboardSource.includes('Evidencia (Fotos)'),
   false,

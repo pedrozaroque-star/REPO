@@ -8,7 +8,7 @@
     <meta name="description" content="Find your nearest Tacos Gavilan! Explore our 15 locations across Los Angeles and Orange County. Check hours, get directions, and order online for pickup.">
     <link rel="canonical" href="https://tacosgavilan.com/locations/">
         <!-- Favicon & Brand Icons (Transparent TEG Logo) -->
-    <link rel="icon" type="image/png" href="/logo.png?v=5">
+    <link rel="icon" type="image/png" href="/logo.png?v=75">
     <link rel="icon" type="image/png" sizes="32x32" href="/img/favicon-32x32.png?v=5">
     <link rel="icon" type="image/png" sizes="16x16" href="/img/favicon-16x16.png?v=5">
     <link rel="shortcut icon" href="/favicon.ico?v=5">
@@ -78,7 +78,7 @@
         }
     })();
     </script>
-    <link rel="stylesheet" href="../css/style.css?v=42">
+    <link rel="stylesheet" href="../css/style.css?v=109">
     <link rel="stylesheet" href="../css/compliance-a11y.css?v=36">
     <style>
         .page-content-wrapper {
@@ -273,6 +273,7 @@
         }
         .store-card-cross-streets {
             display: block;
+            font-family: var(--ff-body, 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif);
             font-size: 0.95rem;
             font-weight: 700;
             color: var(--clr-gold, #FFC72C);
@@ -397,20 +398,20 @@
         <div class="container header-container">
             <!-- Logo (left) -->
             <a href="../" class="logo" aria-label="Tacos Gavilan Home">
-                <img src="../img/logo.webp" alt="Tacos Gavilan Logo" width="160" height="48">
+                <img src="../img/logo.webp?v=75" alt="Tacos Gavilan Logo" width="160" height="48">
             </a>
 
             <!-- Main Navigation (center / Mobile Drawer) -->
             <nav class="nav" id="mobile-navigation" aria-label="Main Navigation">
                 <div class="nav-drawer-header">
-                    <img src="../img/logo.webp" alt="Tacos Gavilan" class="nav-drawer-logo nav-drawer-logo-img" width="140" height="42">
+                    <img src="../img/logo.webp?v=75" alt="Tacos Gavilan" class="nav-drawer-logo nav-drawer-logo-img" width="140" height="42">
                     <button class="nav-drawer-close" id="nav-drawer-close" aria-label="Close navigation menu" type="button">
                         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
                     </button>
                 </div>
                 <ul class="nav-list">
                     <li><a href="../" class="nav-link" data-i18n="nav.home" data-en="Home" data-es="Inicio">Home</a></li>
-                    <li><a href="../menu/" class="nav-link" data-i18n="nav.menu" data-en="Menu" data-es="Menú">Menu</a></li>
+                    <li><a href="../#menu" class="nav-link" data-i18n="nav.menu" data-en="Menu" data-es="Menú">Menu</a></li>
                     <li><a href="./" class="nav-link active" aria-current="page" data-i18n="nav.locations" data-en="Locations" data-es="Ubicaciones">Locations</a></li>
                     <li><a href="../fiesta-platter/" class="nav-link" data-i18n="nav.catering" data-en="Fiesta Platter" data-es="Fiesta Platter">Fiesta Platter</a></li>
                     <li><a href="../contact/" class="nav-link" data-i18n="nav.contact" data-en="Contact" data-es="Contacto">Contact</a></li>
@@ -488,17 +489,17 @@
             <!-- 15 Location Cards Grid (Ranked by Sales Volume) -->
             <div class="locations-grid-layout" id="locations-list">
                 
-                <!-- 1. Los Angeles Central Central/Washington -->
+                <!-- 1. Los Angeles Central Central & Washington -->
                 <div class="store-card" data-store="la-central">
-                    <img src="../img/Central_Gavilan_small-600.jpg" alt="Tacos Gavilan Los Angeles Central/Washington" class="store-card-thumb" loading="lazy">
+                    <img src="../img/Central_Gavilan_small-600.jpg" alt="Tacos Gavilan Los Angeles Central & Washington" class="store-card-thumb" loading="lazy">
                     <div class="store-card-body">
                         <h2 class="store-card-name">
                             <a href="./la-central/" class="store-card-name-link">
                                 <span class="store-card-city">Los Angeles</span>
-                                <span class="store-card-cross-streets">Central/Washington</span>
+                                <span class="store-card-cross-streets">Central <span class="amp">&amp;</span> Washington</span>
                             </a>
                         </h2>
-                        <a href="tel:+12137426677" class="store-card-phone" aria-label="Call Tacos Gavilan Los Angeles Central/Washington at (213) 742-6677">
+                        <a href="tel:+12137426677" class="store-card-phone" aria-label="Call Tacos Gavilan Los Angeles Central & Washington at (213) 742-6677">
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
                             <span>(213) 742-6677</span>
                         </a>
@@ -531,15 +532,15 @@
 
                 <!-- 2. Lynwood -->
                 <div class="store-card" data-store="lynwood">
-                    <img src="../img/lynwood_thumb_new-600.jpg" alt="Tacos Gavilan Lynwood Imperial/Long Beach" class="store-card-thumb" loading="lazy">
+                    <img src="../img/lynwood_thumb_new-600.jpg" alt="Tacos Gavilan Lynwood Imperial & Long Beach" class="store-card-thumb" loading="lazy">
                     <div class="store-card-body">
                         <h2 class="store-card-name">
                             <a href="./lynwood/" class="store-card-name-link">
                                 <span class="store-card-city">Lynwood</span>
-                                <span class="store-card-cross-streets">Imperial/Long Beach</span>
+                                <span class="store-card-cross-streets">Imperial <span class="amp">&amp;</span> Long Beach</span>
                             </a>
                         </h2>
-                        <a href="tel:+14247855535" class="store-card-phone" aria-label="Call Tacos Gavilan Lynwood Imperial/Long Beach at (424) 785-5535">
+                        <a href="tel:+14247855535" class="store-card-phone" aria-label="Call Tacos Gavilan Lynwood Imperial & Long Beach at (424) 785-5535">
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
                             <span>(424) 785-5535</span>
                         </a>
@@ -572,15 +573,15 @@
 
                 <!-- 3. Los Angeles Broadway -->
                 <div class="store-card" data-store="la-broadway">
-                    <img src="../img/broadway_thumb-600.jpg" alt="Tacos Gavilan Los Angeles Vernon/Broadway" class="store-card-thumb" loading="lazy">
+                    <img src="../img/broadway_thumb-600.jpg" alt="Tacos Gavilan Los Angeles Vernon & Broadway" class="store-card-thumb" loading="lazy">
                     <div class="store-card-body">
                         <h2 class="store-card-name">
                             <a href="./la-broadway/" class="store-card-name-link">
                                 <span class="store-card-city">Los Angeles</span>
-                                <span class="store-card-cross-streets">Vernon/Broadway</span>
+                                <span class="store-card-cross-streets">Vernon <span class="amp">&amp;</span> Broadway</span>
                             </a>
                         </h2>
-                        <a href="tel:+13232332302" class="store-card-phone" aria-label="Call Tacos Gavilan Los Angeles Vernon/Broadway at (323) 233-2302">
+                        <a href="tel:+13232332302" class="store-card-phone" aria-label="Call Tacos Gavilan Los Angeles Vernon & Broadway at (323) 233-2302">
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
                             <span>(323) 233-2302</span>
                         </a>
@@ -613,15 +614,15 @@
 
                 <!-- 4. Norwalk -->
                 <div class="store-card" data-store="norwalk">
-                    <img src="../img/norwalk_thumb.jpg" alt="Tacos Gavilan Norwalk Rosecrans/Studebaker" class="store-card-thumb" loading="lazy">
+                    <img src="../img/norwalk_thumb.jpg" alt="Tacos Gavilan Norwalk Rosecrans & Studebaker" class="store-card-thumb" loading="lazy">
                     <div class="store-card-body">
                         <h2 class="store-card-name">
                             <a href="./norwalk/" class="store-card-name-link">
                                 <span class="store-card-city">Norwalk</span>
-                                <span class="store-card-cross-streets">Rosecrans/Studebaker</span>
+                                <span class="store-card-cross-streets">Rosecrans <span class="amp">&amp;</span> Studebaker</span>
                             </a>
                         </h2>
-                        <a href="tel:+15626510045" class="store-card-phone" aria-label="Call Tacos Gavilan Norwalk Rosecrans/Studebaker at (562) 651-0045">
+                        <a href="tel:+15626510045" class="store-card-phone" aria-label="Call Tacos Gavilan Norwalk Rosecrans & Studebaker at (562) 651-0045">
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
                             <span>(562) 651-0045</span>
                         </a>
@@ -648,17 +649,17 @@
                     </div>
                 </div>
 
-                <!-- 5. Los Angeles Slauson/Broadway -->
+                <!-- 5. Los Angeles Slauson & Broadway -->
                 <div class="store-card" data-store="slauson">
-                    <img src="../img/broadway_thumb-600.jpg" alt="Tacos Gavilan Los Angeles Slauson/Broadway" class="store-card-thumb" loading="lazy">
+                    <img src="../img/broadway_thumb-600.jpg" alt="Tacos Gavilan Los Angeles Slauson & Broadway" class="store-card-thumb" loading="lazy">
                     <div class="store-card-body">
                         <h2 class="store-card-name">
                             <a href="./slauson/" class="store-card-name-link">
                                 <span class="store-card-city">Los Angeles</span>
-                                <span class="store-card-cross-streets">Slauson/Broadway</span>
+                                <span class="store-card-cross-streets">Slauson <span class="amp">&amp;</span> Broadway</span>
                             </a>
                         </h2>
-                        <a href="tel:+13236150084" class="store-card-phone" aria-label="Call Tacos Gavilan Los Angeles Slauson/Broadway at (323) 615-0084">
+                        <a href="tel:+13236150084" class="store-card-phone" aria-label="Call Tacos Gavilan Los Angeles Slauson & Broadway at (323) 615-0084">
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
                             <span>(323) 615-0084</span>
                         </a>
@@ -687,15 +688,15 @@
 
                 <!-- 6. Rialto -->
                 <div class="store-card" data-store="rialto">
-                    <img src="../img/rioalto_thumb-600.jpg" alt="Tacos Gavilan Rialto Baseline/Riverside" class="store-card-thumb" loading="lazy">
+                    <img src="../img/rioalto_thumb-600.jpg" alt="Tacos Gavilan Rialto Baseline & Riverside" class="store-card-thumb" loading="lazy">
                     <div class="store-card-body">
                         <h2 class="store-card-name">
                             <a href="./rialto/" class="store-card-name-link">
                                 <span class="store-card-city">Rialto</span>
-                                <span class="store-card-cross-streets">Baseline/Riverside</span>
+                                <span class="store-card-cross-streets">Baseline <span class="amp">&amp;</span> Riverside</span>
                             </a>
                         </h2>
-                        <a href="tel:+19095620430" class="store-card-phone" aria-label="Call Tacos Gavilan Rialto Baseline/Riverside at (909) 562-0430">
+                        <a href="tel:+19095620430" class="store-card-phone" aria-label="Call Tacos Gavilan Rialto Baseline & Riverside at (909) 562-0430">
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
                             <span>(909) 562-0430</span>
                         </a>
@@ -724,15 +725,15 @@
 
                 <!-- 7. West Covina -->
                 <div class="store-card" data-store="west-covina">
-                    <img src="../img/azusa_thumb-600.jpg" alt="Tacos Gavilan West Covina 10 FWY/Azusa" class="store-card-thumb" loading="lazy">
+                    <img src="../img/azusa_thumb-600.jpg" alt="Tacos Gavilan West Covina 10 FWY & Azusa" class="store-card-thumb" loading="lazy">
                     <div class="store-card-body">
                         <h2 class="store-card-name">
                             <a href="./west-covina/" class="store-card-name-link">
                                 <span class="store-card-city">West Covina</span>
-                                <span class="store-card-cross-streets">10 FWY/Azusa</span>
+                                <span class="store-card-cross-streets">10 FWY <span class="amp">&amp;</span> Azusa</span>
                             </a>
                         </h2>
-                        <a href="tel:+16269172662" class="store-card-phone" aria-label="Call Tacos Gavilan West Covina 10 FWY/Azusa at (626) 917-2662">
+                        <a href="tel:+16269172662" class="store-card-phone" aria-label="Call Tacos Gavilan West Covina 10 FWY & Azusa at (626) 917-2662">
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
                             <span>(626) 917-2662</span>
                         </a>
@@ -761,15 +762,15 @@
 
                 <!-- 8. South Gate -->
                 <div class="store-card" data-store="south-gate">
-                    <img src="../img/south_gate_thumb-600.jpg" alt="Tacos Gavilan South Gate Firestone/Garfield" class="store-card-thumb" loading="lazy">
+                    <img src="../img/south_gate_thumb-600.jpg" alt="Tacos Gavilan South Gate Firestone & Garfield" class="store-card-thumb" loading="lazy">
                     <div class="store-card-body">
                         <h2 class="store-card-name">
                             <a href="./south-gate/" class="store-card-name-link">
                                 <span class="store-card-city">South Gate</span>
-                                <span class="store-card-cross-streets">Firestone/Garfield</span>
+                                <span class="store-card-cross-streets">Firestone <span class="amp">&amp;</span> Garfield</span>
                             </a>
                         </h2>
-                        <a href="tel:+15628061200" class="store-card-phone" aria-label="Call Tacos Gavilan South Gate Firestone/Garfield at (562) 806-1200">
+                        <a href="tel:+15628061200" class="store-card-phone" aria-label="Call Tacos Gavilan South Gate Firestone & Garfield at (562) 806-1200">
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
                             <span>(562) 806-1200</span>
                         </a>
@@ -798,15 +799,15 @@
 
                 <!-- 9. Downey -->
                 <div class="store-card" data-store="downey">
-                    <img src="../img/downeylocation-600.jpg" alt="Tacos Gavilan Downey Florence/Paramount" class="store-card-thumb" loading="lazy">
+                    <img src="../img/downeylocation-600.jpg" alt="Tacos Gavilan Downey Florence & Paramount" class="store-card-thumb" loading="lazy">
                     <div class="store-card-body">
                         <h2 class="store-card-name">
                             <a href="./downey/" class="store-card-name-link">
                                 <span class="store-card-city">Downey</span>
-                                <span class="store-card-cross-streets">Florence/Paramount</span>
+                                <span class="store-card-cross-streets">Florence <span class="amp">&amp;</span> Paramount</span>
                             </a>
                         </h2>
-                        <a href="tel:+15629277486" class="store-card-phone" aria-label="Call Tacos Gavilan Downey Florence/Paramount at (562) 927-7486">
+                        <a href="tel:+15629277486" class="store-card-phone" aria-label="Call Tacos Gavilan Downey Florence & Paramount at (562) 927-7486">
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
                             <span>(562) 927-7486</span>
                         </a>
@@ -835,15 +836,15 @@
 
                 <!-- 10. Hollywood -->
                 <div class="store-card" data-store="hollywood">
-                    <img src="../img/Hollywood_thumb-600.jpg" alt="Tacos Gavilan Hollywood Sunset/La Brea" class="store-card-thumb" loading="lazy">
+                    <img src="../img/Hollywood_thumb-600.jpg" alt="Tacos Gavilan Hollywood Sunset & La Brea" class="store-card-thumb" loading="lazy">
                     <div class="store-card-body">
                         <h2 class="store-card-name">
                             <a href="./hollywood/" class="store-card-name-link">
                                 <span class="store-card-city">Hollywood</span>
-                                <span class="store-card-cross-streets">Sunset/La Brea</span>
+                                <span class="store-card-cross-streets">Sunset <span class="amp">&amp;</span> La Brea</span>
                             </a>
                         </h2>
-                        <a href="tel:+13239637993" class="store-card-phone" aria-label="Call Tacos Gavilan Hollywood Sunset/La Brea at (323) 963-7993">
+                        <a href="tel:+13239637993" class="store-card-phone" aria-label="Call Tacos Gavilan Hollywood Sunset & La Brea at (323) 963-7993">
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
                             <span>(323) 963-7993</span>
                         </a>
@@ -872,15 +873,15 @@
 
                 <!-- 11. Santa Ana -->
                 <div class="store-card" data-store="santa-ana">
-                    <img src="../img/Santa_Ana_Gavilan_small-600.jpg" alt="Tacos Gavilan Santa Ana 17th/Grand" class="store-card-thumb" loading="lazy">
+                    <img src="../img/Santa_Ana_Gavilan_small-600.jpg" alt="Tacos Gavilan Santa Ana 17th & Grand" class="store-card-thumb" loading="lazy">
                     <div class="store-card-body">
                         <h2 class="store-card-name">
                             <a href="./santa-ana/" class="store-card-name-link">
                                 <span class="store-card-city">Santa Ana</span>
-                                <span class="store-card-cross-streets">17th/Grand</span>
+                                <span class="store-card-cross-streets">17th <span class="amp">&amp;</span> Grand</span>
                             </a>
                         </h2>
-                        <a href="tel:+17144800713" class="store-card-phone" aria-label="Call Tacos Gavilan Santa Ana 17th/Grand at (714) 480-0713">
+                        <a href="tel:+17144800713" class="store-card-phone" aria-label="Call Tacos Gavilan Santa Ana 17th & Grand at (714) 480-0713">
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
                             <span>(714) 480-0713</span>
                         </a>
@@ -909,15 +910,15 @@
 
                 <!-- 12. Huntington Park -->
                 <div class="store-card" data-store="huntington-park">
-                    <img src="../img/hp_thumb-600.jpg" alt="Tacos Gavilan Huntington Park Florence/Santa Fe" class="store-card-thumb" loading="lazy">
+                    <img src="../img/hp_thumb-600.jpg" alt="Tacos Gavilan Huntington Park Florence & Santa Fe" class="store-card-thumb" loading="lazy">
                     <div class="store-card-body">
                         <h2 class="store-card-name">
                             <a href="./huntington-park/" class="store-card-name-link">
                                 <span class="store-card-city">Huntington Park</span>
-                                <span class="store-card-cross-streets">Florence/Santa Fe</span>
+                                <span class="store-card-cross-streets">Florence <span class="amp">&amp;</span> Santa Fe</span>
                             </a>
                         </h2>
-                        <a href="tel:+13235817309" class="store-card-phone" aria-label="Call Tacos Gavilan Huntington Park Florence/Santa Fe at (323) 581-7309">
+                        <a href="tel:+13235817309" class="store-card-phone" aria-label="Call Tacos Gavilan Huntington Park Florence & Santa Fe at (323) 581-7309">
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
                             <span>(323) 581-7309</span>
                         </a>
@@ -950,15 +951,15 @@
 
                 <!-- 13. La Puente -->
                 <div class="store-card" data-store="la-puente">
-                    <img src="../img/Gavilan-Location-Thumbs-La_Puente.jpg" alt="Tacos Gavilan La Puente 605 FWY/Valley" class="store-card-thumb" loading="lazy">
+                    <img src="../img/Gavilan-Location-Thumbs-La_Puente.jpg" alt="Tacos Gavilan La Puente 605 FWY & Valley" class="store-card-thumb" loading="lazy">
                     <div class="store-card-body">
                         <h2 class="store-card-name">
                             <a href="./la-puente/" class="store-card-name-link">
                                 <span class="store-card-city">La Puente</span>
-                                <span class="store-card-cross-streets">605 FWY/Valley</span>
+                                <span class="store-card-cross-streets">605 FWY <span class="amp">&amp;</span> Valley</span>
                             </a>
                         </h2>
-                        <a href="tel:+16263363000" class="store-card-phone" aria-label="Call Tacos Gavilan La Puente 605 FWY/Valley at (626) 336-3000">
+                        <a href="tel:+16263363000" class="store-card-phone" aria-label="Call Tacos Gavilan La Puente 605 FWY & Valley at (626) 336-3000">
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
                             <span>(626) 336-3000</span>
                         </a>
@@ -987,15 +988,15 @@
 
                 <!-- 14. Azusa -->
                 <div class="store-card" data-store="azusa">
-                    <img src="../img/azusa_thumb-600.jpg" alt="Tacos Gavilan Azusa Azusa/Arrow" class="store-card-thumb" loading="lazy">
+                    <img src="../img/azusa_thumb-600.jpg" alt="Tacos Gavilan Azusa Azusa & Arrow" class="store-card-thumb" loading="lazy">
                     <div class="store-card-body">
                         <h2 class="store-card-name">
                             <a href="./azusa/" class="store-card-name-link">
                                 <span class="store-card-city">Azusa</span>
-                                <span class="store-card-cross-streets">Azusa/Arrow</span>
+                                <span class="store-card-cross-streets">Azusa <span class="amp">&amp;</span> Arrow</span>
                             </a>
                         </h2>
-                        <a href="tel:+16269691011" class="store-card-phone" aria-label="Call Tacos Gavilan Azusa Azusa/Arrow at (626) 969-1011">
+                        <a href="tel:+16269691011" class="store-card-phone" aria-label="Call Tacos Gavilan Azusa Azusa & Arrow at (626) 969-1011">
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
                             <span>(626) 969-1011</span>
                         </a>
@@ -1024,15 +1025,15 @@
 
                 <!-- 15. Bell -->
                 <div class="store-card" data-store="bell">
-                    <img src="../img/bell_thumb-600.jpg" alt="Tacos Gavilan Bell Florence/Atlantic" class="store-card-thumb" loading="lazy">
+                    <img src="../img/bell_thumb-600.jpg" alt="Tacos Gavilan Bell Florence & Atlantic" class="store-card-thumb" loading="lazy">
                     <div class="store-card-body">
                         <h2 class="store-card-name">
                             <a href="./bell/" class="store-card-name-link">
                                 <span class="store-card-city">Bell</span>
-                                <span class="store-card-cross-streets">Florence/Atlantic</span>
+                                <span class="store-card-cross-streets">Florence <span class="amp">&amp;</span> Atlantic</span>
                             </a>
                         </h2>
-                        <a href="tel:+13237711722" class="store-card-phone" aria-label="Call Tacos Gavilan Bell Florence/Atlantic at (323) 771-1722">
+                        <a href="tel:+13237711722" class="store-card-phone" aria-label="Call Tacos Gavilan Bell Florence & Atlantic at (323) 771-1722">
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
                             <span>(323) 771-1722</span>
                         </a>
@@ -1071,7 +1072,7 @@
             <div class="footer-grid">
                 <!-- Brand & Description -->
                 <div class="footer-brand">
-                    <img src="../img/logo.webp" alt="Tacos Gavilan" class="footer-logo" loading="lazy" width="160" height="48">
+                    <img src="../img/logo.webp?v=75" alt="Tacos Gavilan" class="footer-logo" loading="lazy" width="160" height="48">
                     <p data-i18n="footer.desc">Authentic Mexican food serving Southern California since 1992. From our family to yours — Ya está.</p>
                     <!-- Social Links -->
                     <div class="footer-social" aria-label="Footer Social Links">
@@ -1094,10 +1095,10 @@
                 <div class="footer-links">
                     <h4 data-i18n="footer.quickLinks">Quick Links</h4>
                     <ul>
-                        <li><a href="../menu/" data-i18n="nav.menu">Menu</a></li>
-                        <li><a href="../fiesta-platter/" data-i18n="nav.catering">Fiesta Platter</a></li>
-                        <li><a href="./" data-i18n="nav.locations">Locations</a></li>
-                        <li><a href="../contact/" data-i18n="nav.contact">Contact Us</a></li>
+                        <li><a href="../index.html#menu" data-i18n="nav.menu">Menu</a></li>
+                        <li><a href="#fiesta" data-i18n="nav.catering">Fiesta Platter</a></li>
+                        <li><a href="../index.html#locations" data-i18n="nav.locations">Locations</a></li>
+                        <li><a href="#contact" data-i18n="nav.contact">Contact Us</a></li>
                     </ul>
                 </div>
 
@@ -1106,8 +1107,7 @@
                     <h4 data-i18n="footer.resourcesHeading">Resources &amp; Archive</h4>
                     <ul>
                         <li><a href="../fiesta-platter/" data-i18n="footer.fiestaPlatters">Fiesta Platters</a></li>
-                        <li><a href="../menu/" data-i18n="footer.fullMenu">Full Menu Page</a></li>
-                        <li><a href="./" data-i18n="footer.allLocations">15 Store Locations</a></li>
+                        <li><a href="../locations/" data-i18n="footer.allLocations">15 Store Locations</a></li>
                         <li><a href="../blog/" data-i18n="footer.blog">Official Gavilan Blog</a></li>
                     </ul>
                 </div>
@@ -1117,7 +1117,7 @@
                     <h4 data-i18n="footer.hoursHeading">HOURS</h4>
                     <p data-i18n="footer.hoursText">Hours vary by location.<br><strong>Check your nearest restaurant.</strong></p>
                     <h4 style="margin-top: 1.25rem;" data-i18n="footer.contactHeading">CONTACT</h4>
-                    <p><a href="./" data-i18n="footer.allLocations">15 Store Locations &rarr;</a></p>
+                    <p><a href="../locations/" data-i18n="footer.allLocations">15 Store Locations &rarr;</a></p>
                     <p><a href="mailto:info@tacosgavilan.com">info@tacosgavilan.com</a></p>
                 </div>
             </div>
@@ -1128,77 +1128,77 @@
                 <div class="footer-marquee-set">
                     <img src="../img/tagline.webp" alt="Ya está." loading="lazy" width="100" height="28">
                     <span>·</span>
-                    <img src="../img/logo.webp" alt="Tacos Gavilan" loading="lazy" width="100" height="28">
+                    <img src="../img/logo.webp?v=75" alt="Tacos Gavilan" loading="lazy" width="100" height="28">
                     <span>·</span>
                     <img src="../img/tagline.webp" alt="Ya está." loading="lazy" width="100" height="28">
                     <span>·</span>
-                    <img src="../img/logo.webp" alt="Tacos Gavilan" loading="lazy" width="100" height="28">
+                    <img src="../img/logo.webp?v=75" alt="Tacos Gavilan" loading="lazy" width="100" height="28">
                     <span>·</span>
                     <img src="../img/tagline.webp" alt="Ya está." loading="lazy" width="100" height="28">
                     <span>·</span>
-                    <img src="../img/logo.webp" alt="Tacos Gavilan" loading="lazy" width="100" height="28">
+                    <img src="../img/logo.webp?v=75" alt="Tacos Gavilan" loading="lazy" width="100" height="28">
                     <span>·</span>
                     <img src="../img/tagline.webp" alt="Ya está." loading="lazy" width="100" height="28">
                     <span>·</span>
-                    <img src="../img/logo.webp" alt="Tacos Gavilan" loading="lazy" width="100" height="28">
+                    <img src="../img/logo.webp?v=75" alt="Tacos Gavilan" loading="lazy" width="100" height="28">
                     <span>·</span>
                     <img src="../img/tagline.webp" alt="Ya está." loading="lazy" width="100" height="28">
                     <span>·</span>
-                    <img src="../img/logo.webp" alt="Tacos Gavilan" loading="lazy" width="100" height="28">
+                    <img src="../img/logo.webp?v=75" alt="Tacos Gavilan" loading="lazy" width="100" height="28">
                     <span>·</span>
                     <img src="../img/tagline.webp" alt="Ya está." loading="lazy" width="100" height="28">
                     <span>·</span>
-                    <img src="../img/logo.webp" alt="Tacos Gavilan" loading="lazy" width="100" height="28">
+                    <img src="../img/logo.webp?v=75" alt="Tacos Gavilan" loading="lazy" width="100" height="28">
                     <span>·</span>
                     <img src="../img/tagline.webp" alt="Ya está." loading="lazy" width="100" height="28">
                     <span>·</span>
-                    <img src="../img/logo.webp" alt="Tacos Gavilan" loading="lazy" width="100" height="28">
+                    <img src="../img/logo.webp?v=75" alt="Tacos Gavilan" loading="lazy" width="100" height="28">
                     <span>·</span>
                     <img src="../img/tagline.webp" alt="Ya está." loading="lazy" width="100" height="28">
                     <span>·</span>
-                    <img src="../img/logo.webp" alt="Tacos Gavilan" loading="lazy" width="100" height="28">
+                    <img src="../img/logo.webp?v=75" alt="Tacos Gavilan" loading="lazy" width="100" height="28">
                     <span>·</span>
                     <img src="../img/tagline.webp" alt="Ya está." loading="lazy" width="100" height="28">
                     <span>·</span>
-                    <img src="../img/logo.webp" alt="Tacos Gavilan" loading="lazy" width="100" height="28">
+                    <img src="../img/logo.webp?v=75" alt="Tacos Gavilan" loading="lazy" width="100" height="28">
                     <span>·</span>
                 </div>
                 <div class="footer-marquee-set" aria-hidden="true">
                     <img src="../img/tagline.webp" alt="Ya está." loading="lazy" width="100" height="28">
                     <span>·</span>
-                    <img src="../img/logo.webp" alt="Tacos Gavilan" loading="lazy" width="100" height="28">
+                    <img src="../img/logo.webp?v=75" alt="Tacos Gavilan" loading="lazy" width="100" height="28">
                     <span>·</span>
                     <img src="../img/tagline.webp" alt="Ya está." loading="lazy" width="100" height="28">
                     <span>·</span>
-                    <img src="../img/logo.webp" alt="Tacos Gavilan" loading="lazy" width="100" height="28">
+                    <img src="../img/logo.webp?v=75" alt="Tacos Gavilan" loading="lazy" width="100" height="28">
                     <span>·</span>
                     <img src="../img/tagline.webp" alt="Ya está." loading="lazy" width="100" height="28">
                     <span>·</span>
-                    <img src="../img/logo.webp" alt="Tacos Gavilan" loading="lazy" width="100" height="28">
+                    <img src="../img/logo.webp?v=75" alt="Tacos Gavilan" loading="lazy" width="100" height="28">
                     <span>·</span>
                     <img src="../img/tagline.webp" alt="Ya está." loading="lazy" width="100" height="28">
                     <span>·</span>
-                    <img src="../img/logo.webp" alt="Tacos Gavilan" loading="lazy" width="100" height="28">
+                    <img src="../img/logo.webp?v=75" alt="Tacos Gavilan" loading="lazy" width="100" height="28">
                     <span>·</span>
                     <img src="../img/tagline.webp" alt="Ya está." loading="lazy" width="100" height="28">
                     <span>·</span>
-                    <img src="../img/logo.webp" alt="Tacos Gavilan" loading="lazy" width="100" height="28">
+                    <img src="../img/logo.webp?v=75" alt="Tacos Gavilan" loading="lazy" width="100" height="28">
                     <span>·</span>
                     <img src="../img/tagline.webp" alt="Ya está." loading="lazy" width="100" height="28">
                     <span>·</span>
-                    <img src="../img/logo.webp" alt="Tacos Gavilan" loading="lazy" width="100" height="28">
+                    <img src="../img/logo.webp?v=75" alt="Tacos Gavilan" loading="lazy" width="100" height="28">
                     <span>·</span>
                     <img src="../img/tagline.webp" alt="Ya está." loading="lazy" width="100" height="28">
                     <span>·</span>
-                    <img src="../img/logo.webp" alt="Tacos Gavilan" loading="lazy" width="100" height="28">
+                    <img src="../img/logo.webp?v=75" alt="Tacos Gavilan" loading="lazy" width="100" height="28">
                     <span>·</span>
                     <img src="../img/tagline.webp" alt="Ya está." loading="lazy" width="100" height="28">
                     <span>·</span>
-                    <img src="../img/logo.webp" alt="Tacos Gavilan" loading="lazy" width="100" height="28">
+                    <img src="../img/logo.webp?v=75" alt="Tacos Gavilan" loading="lazy" width="100" height="28">
                     <span>·</span>
                     <img src="../img/tagline.webp" alt="Ya está." loading="lazy" width="100" height="28">
                     <span>·</span>
-                    <img src="../img/logo.webp" alt="Tacos Gavilan" loading="lazy" width="100" height="28">
+                    <img src="../img/logo.webp?v=75" alt="Tacos Gavilan" loading="lazy" width="100" height="28">
                     <span>·</span>
                 </div>
             </div>
@@ -1208,13 +1208,15 @@
             <div class="container footer-bottom-content">
                 <p>&copy; <span id="year"></span> Tacos Gavilan. All rights reserved.</p>
                 <div class="footer-legal-links">
-                    <a href="../privacy/" id="open-privacy-btn" data-i18n="footer.privacy">Privacy Policy</a>
+                    <a href="/privacy/#notice-at-collection" data-i18n="footer.noticeAtCollection">Notice at Collection</a>
                     <span class="legal-dot" aria-hidden="true">·</span>
-                    <a href="../terms/" id="open-terms-btn" data-i18n="footer.terms">Terms of Use</a>
+                    <a href="/privacy/" id="open-privacy-btn" data-i18n="footer.privacy">Privacy Policy</a>
                     <span class="legal-dot" aria-hidden="true">·</span>
-                    <a href="../accessibility/" id="open-accessibility-btn" data-i18n="footer.accessibility">Accessibility</a>
+                    <a href="/terms/" id="open-terms-btn" data-i18n="footer.terms">Terms of Use</a>
                     <span class="legal-dot" aria-hidden="true">·</span>
-                    <a href="../privacy-choices/" id="open-cookie-settings-btn" data-i18n="footer.cookieSettings">Privacy Choices</a>
+                    <a href="/accessibility/" id="open-accessibility-btn" data-i18n="footer.accessibility">Accessibility</a>
+                    <span class="legal-dot" aria-hidden="true">·</span>
+                    <a href="/privacy-choices/" id="open-cookie-settings-btn" data-i18n="footer.cookieSettings">Your Privacy Choices</a>
                     <span class="legal-dot" aria-hidden="true">·</span>
                     <button type="button" id="footer-dns-btn" class="footer-legal-btn" style="background:none;border:none;color:inherit;cursor:pointer;font-size:inherit;font-family:inherit;padding:0;text-decoration:none;" data-i18n="footer.dns">Do Not Sell or Share My Personal Information</button>
                 </div>
@@ -1227,7 +1229,7 @@
             <path d="M12 2c1.1 0 2 .9 2 2s-.9 2-2 2-2-.9-2-2 .9-2 2-2zm9 7h-6v13h-2v-6h-2v6H9V9H3V7h18v2z"/>
         </svg>
     </button>
-    <script src="../js/main.js?v=42" defer></script>
+    <script src="../js/main.js?v=109" defer></script>
     <script src="../js/compliance-a11y.js?v=36" defer></script>
 </body>
 </html>

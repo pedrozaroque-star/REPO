@@ -20,20 +20,42 @@ export interface VersionMilestone {
 }
 
 export const SYSTEM_VERSION = {
-    version: 'v2.18.0',
-    versionNumber: '2.18.0',
+    version: 'v2.19.0',
+    versionNumber: '2.19.0',
     releaseMonthEs: 'Octubre 2026',
     releaseMonthEn: 'October 2026',
     stage: 'Producción',
     stageEn: 'Production',
     year: '2026',
-    labelEs: 'Octubre 2026 • SM TEG v2.18.0',
-    labelEn: 'October 2026 • SM TEG v2.18.0',
+    labelEs: 'Octubre 2026 • SM TEG v2.19.0',
+    labelEn: 'October 2026 • SM TEG v2.19.0',
     brand: 'SM TEG',
-    lastUpdated: '2026-10-20'
+    lastUpdated: '2026-10-23'
 } as const;
 
 export const VERSION_HISTORY: readonly VersionMilestone[] = [
+    {
+        version: 'v2.19.0',
+        date: '23-Oct-2026',
+        titleEs: 'Contabilidad Externa (8 Empresas QBO), Crear Bills Viele & Sons (Wholesail + Cron 4PM), App Clientes V2 Pro & order.online, Erradicación Tormenta Realtime (-99.8%) y Basecamp (-30.5 GB) y Menú Web 4K',
+        titleEn: 'External Accounting (8 QBO Companies), Viele & Sons Bills (Wholesail + 4PM Cron), Customer App V2 Pro & order.online, Realtime Storm Eradication (-99.8%), Basecamp (-30.5 GB) & 4K Web Menu',
+        highlightsEs: [
+            'Nuevo Módulo "Contabilidad Externa" (/admin/contabilidad-externa, /api/external-accounting y /api/external-accounting/reports): extracción histórica completa desde Intuit QuickBooks Online y sembrado en Supabase de las 8 compañías contables manejadas por Raquel Velasquez (Raquel Accounting, 7947 Downey Plaza LLC, Canasty Financial, LLC, Chicken Taco Catering LLC, Elveze LLC, Govegu LLC, Gutierrez Financial y TEG Holdings Inc) con catálogo de cuentas, terceros, transacciones y 12 reportes financieros oficiales, protegido con lista blanca estricta para Raquel, Roberto y Roque',
+            'Módulo Crear Bills — Nuevo Submódulo "Viele & Sons (Wholesail)" (/admin/crear-bills, lib/viele-wholesail-bills.ts, /api/quickbooks/viele-bills y /api/cron/sync-viele-bills): sincronización de las 15 sucursales desde Wholesail y ClearNine para capturar las 3 facturas semanales por tienda (1. Sodas BIB Wxxxxxx → 50001 Beverages, 2. Insumos Generales Wxxxxxx → 53050 Restaurant Supplies con split automático en 2 líneas para Cloro 3BLEA $12.01 hacia 51170 Janitorial Supplies, y 3. Químicos Imperial Chemical 50xxxxx → 51170 Janitorial Supplies), auditado contra 486 Bills históricos en QBO ($499,049.31), filtro de /FUEL y cron diario a las 4:00 PM Los Ángeles',
+            'Order Ready Board, Basecamp y Supabase (commits 0dfc0358 y 17b01427): erradicación definitiva de la tormenta de 30.31 millones de mensajes Realtime mediante 5 capas de protección (items_summary canónico determinista, trigger anti-no-op JSONB, candado distribuido por tienda y canales aislados, reduciendo el tráfico en 99.77%) y liberación de 30.53 GB en Supabase Storage tras purgar 166,509 adjuntos duplicados de Basecamp y blindar lib/basecamp-api.ts',
+            'App Móvil Clientes (/app, /app/v1, /app/v2 y gavilan-app): lanzamiento de la "Versión 2" (CustomerAppV2Pro.tsx) con 5 historias verticales, inicio de sesión multi-plataforma (Apple, Google, Facebook, SMS OTP y Correo), envoltura nativa de order.online para las 15 sucursales, modo TEST FULLSCREEN y homologación de los 15 nombres canónicos de tienda',
+            'Sitio Web tacosgavilan.com: actualización de las 23 fotografías del menú en calidad 4K de estudio sobre fondo negro #000000 (incluyendo los 8 tacos alineados en tortilla completa y Taco de Lengua bicolor al vapor), Hero original completo sin recortes, logo oficial con círculo blanco al doble de tamaño y carrusel interactivo bidireccional infinito en iOS Safari',
+            'Contabilidad (paso dedicado refundBusinessDate para reembolsos de fechas cruzadas en Rialto, commit 005bfc71), Motor Táctil Ultra-Sensible con sesión de 10 min en las 5 tabletas, Zoom Táctil (100%–250%) en Actividades, auto-scroll al módulo activo en AppSidebar y 173.6 horas de ingeniería + 143.0 horas de turnos en Lynwood #14 consolidadas (1 al 23 de Octubre 2026)'
+        ],
+        highlightsEn: [
+            'New "External Accounting" Module (/admin/contabilidad-externa, /api/external-accounting & /api/external-accounting/reports): complete historical extraction from Intuit QuickBooks Online and Supabase seeding across all 8 companies managed by Raquel Velasquez (Raquel Accounting, 7947 Downey Plaza LLC, Canasty Financial, LLC, Chicken Taco Catering LLC, Elveze LLC, Govegu LLC, Gutierrez Financial, and TEG Holdings Inc) including Chart of Accounts, entities, transactions, and 12 official financial reports per company, protected by a strict email whitelist for Raquel, Roberto, and Roque',
+            'Crear Bills Module — New "Viele & Sons (Wholesail)" Submodule (/admin/crear-bills, lib/viele-wholesail-bills.ts, /api/quickbooks/viele-bills & /api/cron/sync-viele-bills): 15-store synchronization across Wholesail and ClearNine capturing all 3 weekly invoices per branch (1. Sodas BIB Wxxxxxx → 50001 Beverages, 2. General Supplies Wxxxxxx → 53050 Restaurant Supplies with automatic 2-line split for Bleach 3BLEA $12.01 into 51170 Janitorial Supplies, and 3. Imperial Chemical 50xxxxx → 51170 Janitorial Supplies), audited against 486 historical QBO bills ($499,049.31), /FUEL exclusion, and daily 4:00 PM Los Angeles cron',
+            'Order Ready Board, Basecamp & Supabase (commits 0dfc0358 & 17b01427): eradicated the 30.31M Realtime message storm via 5 protection layers (deterministic canonical items_summary, JSONB no-op trigger suppression, per-store distributed sync leases, and store-scoped channels, cutting traffic by 99.77%) and freed 30.53 GB in Supabase Storage by purging 166,509 duplicate Basecamp attachments and hardening lib/basecamp-api.ts',
+            'Customer Mobile App (/app, /app/v1, /app/v2 & gavilan-app): launched "Version 2" (CustomerAppV2Pro.tsx) with 5 vertical stories, multi-platform sign-in (Apple, Google, Facebook, SMS OTP, and Email), native order.online wrapper across all 15 branches, TEST FULLSCREEN mode, and canonical 15-store naming alignment',
+            'tacosgavilan.com Website: upgraded all 23 menu photos to 4K studio quality on pure black #000000 cards (including all 8 tacos aligned on full double tortillas and steamed two-tone Lengua Taco), uncropped original Hero banner, 2x white-ring official logo, and touch-draggable bidirectional infinite carousel on iOS Safari',
+            'Accounting (dedicated refundBusinessDate cross-date refund sweep in Rialto, commit 005bfc71), Ultra-Responsive Touch Engine with 10-min timeout across all 5 tablets, Touch Zoom (100%–250%) in Actividades, AppSidebar active-item auto-scroll, and 173.6 engineering hours + 143.0 Lynwood #14 shift hours consolidated (October 1–23, 2026)'
+        ]
+    },
     {
         version: 'v2.18.0',
         date: '20-Oct-2026',

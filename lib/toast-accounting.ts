@@ -977,7 +977,10 @@ export async function fetchToastAccountingData(
             if (!processedRefundTxGuids.has(dedupKey)) {
               processedRefundTxGuids.add(dedupKey)
 
-              const refCheck = (refOrder.checks || []).find((c: any) => c.guid === rp.checkGuid) || refOrder.checks?.[0]
+              const refCheck = (refOrder.checks || []).find((c: any) =>
+                (rp.checkGuid && c.guid === rp.checkGuid) ||
+                (c.payments || []).some((cp: any) => cp.guid && cp.guid === rp.guid)
+              ) || refOrder.checks?.[0]
               if (refCheck) {
                 const dOptionRaw = diningMap[refOrder.diningOption?.guid] || refOrder.diningOption?.name || ''
                 const dService = refOrder.deliveryService || ''
@@ -1026,10 +1029,20 @@ export async function fetchToastAccountingData(
                   }
                 }
 
+                if (taxRefundSum === 0 && Number(refObj.taxRefundAmount || 0) > 0) {
+                  taxRefundSum = Number(refObj.taxRefundAmount || 0)
+                }
+
                 const linkedRefundTotal = Math.round((itemRefundNet + scRefundSum + taxRefundSum) * 100) / 100
                 const unlinkedRef = Math.max(0, Math.round((rAmt - linkedRefundTotal) * 100) / 100)
                 if (unlinkedRef > 0.009) {
                   itemRefundNet += unlinkedRef
+                } else if (linkedRefundTotal > rAmt + 0.05 && rAmt > 0) {
+                  // Si el cheque tuvo reembolsos parciales en múltiples fechas distintas y Toast acumula refundDetails,
+                  // limitar estrictamente al monto reembolsado hoy (rAmt)
+                  const ratio = rAmt / linkedRefundTotal
+                  itemRefundNet = Math.round(itemRefundNet * ratio * 100) / 100
+                  taxRefundSum = Math.round((rAmt - itemRefundNet - scRefundSum) * 100) / 100
                 }
 
                 itemRefundNet = Math.round(itemRefundNet * 100) / 100

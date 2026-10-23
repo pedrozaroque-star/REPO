@@ -198,4 +198,56 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         }
     }
+
+    /* -------------------------------------------------------------
+       4. Footer Marquee Infinite Loop (iOS Safari / WebKit Hardened)
+       ------------------------------------------------------------- */
+    const marquee = document.querySelector('.footer-marquee');
+    if (marquee && !marquee.classList.contains('js-footer-marquee-ready')) {
+        let track = marquee.querySelector('.footer-marquee-track');
+        if (track) {
+            let sets = Array.from(track.querySelectorAll('.footer-marquee-set'));
+            if (sets.length > 0) {
+                while (sets.length < 3) {
+                    const clone = sets[0].cloneNode(true);
+                    clone.setAttribute('aria-hidden', 'true');
+                    track.appendChild(clone);
+                    sets = Array.from(track.querySelectorAll('.footer-marquee-set'));
+                }
+                marquee.classList.add('js-footer-marquee-ready');
+                sets.forEach(s => {
+                    s.style.animation = 'none';
+                    s.style.webkitAnimation = 'none';
+                });
+                let setWidth = 0;
+                let offsetX = 0;
+                let lastFrameTime = performance.now();
+                const footerSpeed = 0.042;
+                const updateFooterMeasurements = () => {
+                    const rectW = sets[0].getBoundingClientRect().width || sets[0].offsetWidth || sets[0].scrollWidth;
+                    if (rectW > 0) setWidth = rectW;
+                };
+                updateFooterMeasurements();
+                window.addEventListener('load', updateFooterMeasurements);
+                window.addEventListener('resize', updateFooterMeasurements, { passive: true });
+                const tickFooter = (now) => {
+                    const dt = Math.min(64, Math.max(1, now - lastFrameTime));
+                    lastFrameTime = now;
+                    if (setWidth <= 0) updateFooterMeasurements();
+                    const stopAnim = document.documentElement.classList.contains('tg-stop-animations');
+                    if (!stopAnim && setWidth > 0) {
+                        offsetX -= footerSpeed * dt;
+                        if (offsetX <= -setWidth) offsetX = offsetX % setWidth;
+                        const tx = 'translate3d(' + offsetX.toFixed(2) + 'px, 0, 0)';
+                        for (let i = 0; i < sets.length; i++) {
+                            sets[i].style.webkitTransform = tx;
+                            sets[i].style.transform = tx;
+                        }
+                    }
+                    requestAnimationFrame(tickFooter);
+                };
+                requestAnimationFrame(tickFooter);
+            }
+        }
+    }
 });

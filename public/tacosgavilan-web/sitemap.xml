@@ -9,12 +9,6 @@
   </url>
   <!-- Primary Hub Pages -->
   <url>
-    <loc>https://tacosgavilan.com/menu/</loc>
-    <lastmod>2026-10-10</lastmod>
-    <changefreq>weekly</changefreq>
-    <priority>0.9</priority>
-  </url>
-  <url>
     <loc>https://tacosgavilan.com/locations/</loc>
     <lastmod>2026-10-10</lastmod>
     <changefreq>weekly</changefreq>

@@ -55,6 +55,7 @@ next-env.d.ts
 
 # large temporary audit dumps
 cohesion_dump/
+qbo_raquel_backup/
 data/qb_historical_entries_2026.json
 temp_hr.json
 *.csv

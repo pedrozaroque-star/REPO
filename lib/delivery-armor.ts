@@ -1241,7 +1241,49 @@ const diningOptionsCache = new Map<string, { at: number; map: Record<string, str
 const toastRawOrdersCache = new Map<string, { at: number; orders: any[] }>()
 const toastRawOrdersInflight = new Map<string, Promise<any[]>>()
 const lastKnownAuditsByGuid = new Map<string, any>()
-const TOAST_RAW_CACHE_TTL_MS = 3500 // 3.5 segundos para detectar de inmediato cuando el cocinero borra del KDS sin causar 429 en Toast API
+const lastBuiltOrdersByStoreCache = new Map<string, { at: number; orders: OffPremiseOrder[] }>()
+const TOAST_RAW_CACHE_TTL_MS = 4500 // 4.5 segundos para detectar de inmediato cuando el cocinero borra del KDS sin causar 429 en Toast API
+
+function getStoreOrdersL2CacheRowId(storeId: number, modeKey: string): string {
+  return `delivery_armor_l2_orders_${storeId}_${modeKey}`
+}
+
+async function saveStoreOrdersL2Cache(storeId: number, modeKey: string, orders: OffPremiseOrder[]): Promise<void> {
+  try {
+    const rowId = getStoreOrdersL2CacheRowId(storeId, modeKey)
+    const stripped = orders.slice(0, 60).map(o => ({ ...o, audit: undefined }))
+    await supabaseAdmin.from('order_ready_settings').upsert(
+      {
+        id: rowId,
+        voice_name: 'Kore',
+        updated_at: new Date().toISOString(),
+        updated_by: JSON.stringify({ at: Date.now(), orders: stripped })
+      },
+      { onConflict: 'id' }
+    )
+  } catch {
+    // Non-blocking L2 cache write
+  }
+}
+
+async function loadStoreOrdersL2Cache(storeId: number, modeKey: string): Promise<OffPremiseOrder[] | null> {
+  try {
+    const rowId = getStoreOrdersL2CacheRowId(storeId, modeKey)
+    const { data, error } = await supabaseAdmin
+      .from('order_ready_settings')
+      .select('updated_by')
+      .eq('id', rowId)
+      .maybeSingle()
+    if (error || !data?.updated_by) return null
+    const parsed = JSON.parse(data.updated_by)
+    if (!parsed || !Array.isArray(parsed.orders)) return null
+    // Válido hasta por 15 minutos como respaldo ante rate-limit 429 en instancias serverless frías
+    if (Date.now() - Number(parsed.at || 0) > 15 * 60 * 1000) return null
+    return parsed.orders as OffPremiseOrder[]
+  } catch {
+    return null
+  }
+}
 
 /**
  * Consulta las opciones de comedor (Dining Options) de Toast de forma dinámica (Protocolo Toast API)
@@ -1358,11 +1400,13 @@ export async function fetchOffPremiseOrders(storeId: number, targetBusinessDate?
   const diningOptionsMap = await fetchDiningOptionsMap(token, store.external_id)
 
   // 3. Consultar órdenes en Toast API con ventana móvil en tiempo real (últimos 180 min) para cubrir el cambio automático a las 2 horas sin paginar desde las 6 AM ni truncar en la orden #200 por rate-limit
-  const cacheKey = `${store.external_id}:${targetBusinessDate || 'LIVE'}`
+  const modeKey = targetBusinessDate || 'LIVE'
+  const cacheKey = `${store.external_id}:${modeKey}`
   const nowMs = Date.now()
   const cachedRaw = toastRawOrdersCache.get(cacheKey)
 
   let rawOrders: any[] = []
+  let toastRateLimitedOrFailed = false
   if (cachedRaw && nowMs - cachedRaw.at < TOAST_RAW_CACHE_TTL_MS) {
     rawOrders = cachedRaw.orders
   } else {
@@ -1393,10 +1437,15 @@ export async function fetchOffPremiseOrders(storeId: number, targetBusinessDate?
             }
           })
 
-          // Si Toast devuelve 429 (rate-limit) o error transitorio en cualquier página (ej. page 2 donde están las órdenes más nuevas),
-          // reintentar una vez tras 380ms antes de abortar.
+          // Si Toast devuelve 429 (OpenResty rate-limit de 1s) o error transitorio:
+          // Si ya tenemos caché en memoria en esta instancia, usarla al instante sin bloquear;
+          // si la instancia está fría, esperar 780ms (para cruzar la ventana de 1s de OpenResty) y reintentar.
           if (!oRes.ok) {
-            await new Promise(r => setTimeout(r, 380))
+            if (cachedRaw?.orders?.length) {
+              abortedByError = true
+              return cachedRaw.orders
+            }
+            await new Promise(r => setTimeout(r, 780))
             oRes = await fetch(ordersUrl, {
               cache: 'no-store',
               headers: {
@@ -1408,14 +1457,14 @@ export async function fetchOffPremiseOrders(storeId: number, targetBusinessDate?
 
           if (!oRes.ok) {
             abortedByError = true
+            toastRateLimitedOrFailed = true
             // CRÍTICO: Toast ordena ordersBulk de la más vieja (page 1) a la más reciente (page 2+).
-            // Si falla page 2+, JAMÁS debemos devolver solo page 1 (porque page 1 solo tiene órdenes de hace 2-3 horas ya entregadas
-            // y haría desaparecer de la tableta las 5 o 6 órdenes activas actuales).
+            // Si falla page 1 o page 2+ por rate-limit 429, JAMÁS lanzar error 500 con HTML de OpenResty a la tableta;
+            // usar caché en memoria L1 o caer al caché compartido L2 en Supabase.
             if (cachedRaw?.orders?.length) {
               return cachedRaw.orders
             }
-            const errText = await oRes.text().catch(() => '')
-            throw new Error(`Error consultando página ${page} de órdenes en Toast API (${oRes.status}): ${errText.substring(0, 150)}`)
+            return []
           }
 
           const chunk: any[] = await oRes.json()
@@ -1440,6 +1489,84 @@ export async function fetchOffPremiseOrders(storeId: number, targetBusinessDate?
 
   // 4. Cambiar automáticamente a UNCLAIMED_2H las auditorías que cumplan >= 2 horas sin ser recogidas por ningún chofer
   await autoExpireUnclaimedAudits(storeId, nowMs)
+
+  // Si esta instancia serverless estaba fría y Toast devolvió 429, recuperar las órdenes desde el caché compartido L2 en Supabase
+  // e hidratarlas con sus auditorías en vivo de delivery_packing_audits para que la tableta opere sin interrupción ni banners de error.
+  if (rawOrders.length === 0 && toastRateLimitedOrFailed) {
+    const l1Built = lastBuiltOrdersByStoreCache.get(cacheKey)?.orders
+    const fallbackBaseOrders =
+      l1Built && l1Built.length > 0 ? l1Built : await loadStoreOrdersL2Cache(storeId, modeKey)
+
+    if (fallbackBaseOrders && fallbackBaseOrders.length > 0) {
+      const fbGuids = fallbackBaseOrders.map(o => o.orderGuid).filter(Boolean)
+      const fbAuditsMap = new Map<string, any>()
+      for (const [guid, cachedAudit] of lastKnownAuditsByGuid.entries()) {
+        if (Number(cachedAudit?.store_id) === storeId) {
+          fbAuditsMap.set(guid, cachedAudit)
+        }
+      }
+      if (fbGuids.length > 0) {
+        const { data: fbAudits } = await supabaseAdmin
+          .from('delivery_packing_audits')
+          .select('*')
+          .eq('store_id', storeId)
+          .in('toast_order_guid', fbGuids)
+        if (fbAudits) {
+          fbAudits.forEach((a: any) => {
+            lastKnownAuditsByGuid.set(a.toast_order_guid, a)
+            fbAuditsMap.set(a.toast_order_guid, a)
+          })
+        }
+      }
+      const hydratedFallback: OffPremiseOrder[] = fallbackBaseOrders.map(baseOrder => {
+        const existingAudit = fbAuditsMap.get(baseOrder.orderGuid)
+        const isUnclaimed2h = isOrderUnclaimedByDriver({
+          openedDate: baseOrder.openedDate,
+          packedAt: existingAudit?.packed_at,
+          handedAt: existingAudit?.handed_at,
+          status: existingAudit?.status,
+          nowMs
+        })
+        return {
+          ...baseOrder,
+          audit: existingAudit
+            ? {
+                id: existingAudit.id,
+                status:
+                  isUnclaimed2h && existingAudit.status !== 'DELIVERED'
+                    ? 'UNCLAIMED_2H'
+                    : existingAudit.status,
+                matchedItems: Array.isArray(existingAudit.matched_items) ? existingAudit.matched_items : [],
+                matchCompleted: !!existingAudit.match_completed,
+                photoOpenUrl: existingAudit.photo_open_url,
+                photoSealedUrl: existingAudit.photo_sealed_url,
+                packerName: existingAudit.packer_ronos_name,
+                packedAt: existingAudit.packed_at,
+                handedByName: existingAudit.handed_by_ronos_name,
+                handedAt: existingAudit.handed_at,
+                driverName: existingAudit.driver_name || baseOrder.assignedDriverHint || null,
+                driverConfirmed: existingAudit.driver_confirmed,
+                quickChecks: existingAudit.quick_checks || undefined,
+                expectedBagCount: Number(existingAudit.expected_bag_count || 1),
+                confirmedBagCount:
+                  existingAudit.confirmed_bag_count == null ? null : Number(existingAudit.confirmed_bag_count),
+                riskLevel: existingAudit.risk_level || 'NORMAL',
+                riskReasons: Array.isArray(existingAudit.risk_reasons) ? existingAudit.risk_reasons : [],
+                evidencePolicy: existingAudit.evidence_policy || 'NONE',
+                courierVerificationMethod: existingAudit.courier_verification_method || null,
+                courierOrderReference: existingAudit.courier_order_reference || null,
+                livePickupConfirmed: !!existingAudit.live_pickup_confirmed
+              }
+            : baseOrder.audit
+        }
+      })
+      return {
+        orders: hydratedFallback,
+        storeName: store.name,
+        businessDate
+      }
+    }
+  }
 
   const auditsMap = new Map<string, any>()
   // Precargar respaldo en memoria de la tienda para que un hipo momentáneo de red NUNCA regrese una orden entregada a EMPACANDO
@@ -1669,6 +1796,14 @@ export async function fetchOffPremiseOrders(storeId: number, targetBusinessDate?
 
   // Ordenar: las más recientes primero (openedDate descendente)
   offPremiseOrders.sort((a, b) => new Date(b.openedDate).getTime() - new Date(a.openedDate).getTime())
+
+  if (offPremiseOrders.length > 0 && !toastRateLimitedOrFailed) {
+    const prevBuilt = lastBuiltOrdersByStoreCache.get(cacheKey)
+    lastBuiltOrdersByStoreCache.set(cacheKey, { at: nowMs, orders: offPremiseOrders })
+    if (!prevBuilt || nowMs - prevBuilt.at >= 10_000) {
+      void saveStoreOrdersL2Cache(storeId, modeKey, offPremiseOrders)
+    }
+  }
 
   return {
     orders: offPremiseOrders,

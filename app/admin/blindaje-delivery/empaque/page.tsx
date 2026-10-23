@@ -1343,6 +1343,16 @@ export default function BlindajeDeliveryEmpaquePage() {
       }
 
       setOrders(next)
+      // Si había un mensaje de error de red/polling previo, limpiarlo automáticamente al recibir datos frescos
+      setError(prev =>
+        prev &&
+        (prev.includes('Toast API') ||
+          prev.includes('429') ||
+          prev.includes('No se pudieron cargar') ||
+          prev.includes('Could not load'))
+          ? null
+          : prev
+      )
       setSelected(current => {
         // Nunca seleccionar ninguna orden automáticamente: solo conservar la que la cajera haya seleccionado manualmente
         if (!current) return null
@@ -1355,7 +1365,9 @@ export default function BlindajeDeliveryEmpaquePage() {
       })
       return next
     } catch (caught: any) {
-      if (packer) setError(caught.message)
+      // Nunca mostrar alertas rojas de rate-limit (429 / HTML de OpenResty) en la tableta durante el monitoreo de fondo;
+      // las órdenes activas se conservan en pantalla y el siguiente ciclo de 4s sincroniza silenciosamente.
+      console.warn('[BlindajeDelivery] Aviso transitorio en sincronización de fondo:', caught?.message || caught)
       return []
     } finally {
       setLoading(false)
@@ -1836,8 +1848,8 @@ export default function BlindajeDeliveryEmpaquePage() {
         })
       }, 2600)
       setSuccess(`${t('blindaje_delivery.success_packed')}: ${order.customer} (Check #${order.ticket})`)
-      await fetchOrders()
       // Regresar a "Selecciona una orden" para que toda selección sea estrictamente manual y evitar equivocaciones
+      // (No llamar fetchOrders() aquí porque el estado local y stickyAuditsRef ya se actualizaron de inmediato, evitando ráfagas 429 contra Toast API)
       setSelected(null)
     } catch (caught: any) {
       setError(caught.message)
@@ -2013,7 +2025,6 @@ export default function BlindajeDeliveryEmpaquePage() {
         `${t('blindaje_delivery.order_of')} ${order.customer} (#${order.ticket}) ${t('blindaje_delivery.success_released')} ${data.audit.handed_by_ronos_name}.`
       )
       setSelected(null)
-      await fetchOrders()
     } catch (caught: any) {
       setError(caught.message)
     } finally {
