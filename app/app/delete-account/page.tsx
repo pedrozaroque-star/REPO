@@ -6,8 +6,8 @@
  * @businessRules
  * - Cumple con Apple App Store Review Guideline 5.1.1(v) y Google Play Account Deletion Policy:
  *   1) Documenta los pasos para iniciar y completar la eliminación inmediata dentro de la aplicación (`Account` -> `Delete My Account Permanently`).
- *   2) Permite a cualquier usuario (incluso si ya desinstaló la app) verificar su teléfono vía SMS OTP (`/api/mobile/auth/send-otp` + `/api/mobile/auth/verify-otp`) y ejecutar la eliminación real en base de datos (`DELETE /api/mobile/user/delete`).
- *   3) Distingue con transparencia qué registros se eliminan en Tacos Gavilan App (`app_users`, `app_sessions`, favoritos y órdenes locales vinculadas) y qué datos son gestionados independientemente por Toast Online Ordering (`order.online`).
+ *   2) Permite a cualquier usuario (incluso si ya desinstaló la app) verificar su teléfono vía SMS OTP de 6 dígitos (`/api/mobile/auth/send-otp` + `/api/mobile/auth/verify-otp`) y ejecutar la eliminación real en base de datos (`DELETE /api/mobile/user/delete`).
+ *   3) Distingue con transparencia qué registros se eliminan en Tacos Gavilan App (`auth.users`, `app_users`, `app_rewards_balances`, `app_rewards_transactions`, `app_carts`, `app_favorite_orders`, y anonimización de `app_orders` y `app_quotes`) y qué datos son gestionados independientemente por Toast Online Ordering (`order.online`).
  *
  * @dataFlow
  * - Formulario Web -> `POST /api/mobile/auth/send-otp` -> `POST /api/mobile/auth/verify-otp` -> `DELETE /api/mobile/user/delete`.
@@ -46,7 +46,7 @@ export default function MobileDeleteAccountPage(): React.JSX.Element {
     setErrorMessage(null)
     const cleanPhone = normalizeTenDigitPhone(phone)
     if (cleanPhone.length !== 10) {
-      setErrorMessage('Please enter a valid 10-digit US phone number.')
+      setErrorMessage(t('mobile_legal.delete_err_invalid_phone'))
       return
     }
 
@@ -59,11 +59,11 @@ export default function MobileDeleteAccountPage(): React.JSX.Element {
       })
       const data = await res.json()
       if (!res.ok) {
-        throw new Error(data.error || 'Could not send verification code')
+        throw new Error(data.error || t('mobile_legal.delete_err_send_otp'))
       }
       setOtpSent(true)
     } catch (err) {
-      setErrorMessage(err instanceof Error ? err.message : 'Error sending SMS code')
+      setErrorMessage(err instanceof Error ? err.message : t('mobile_legal.delete_err_send_otp'))
     } finally {
       setLoading(false)
     }
@@ -73,19 +73,28 @@ export default function MobileDeleteAccountPage(): React.JSX.Element {
     e.preventDefault()
     setErrorMessage(null)
     const cleanPhone = normalizeTenDigitPhone(phone)
-    if (cleanPhone.length !== 10 || !otpCode.trim()) return
+    const cleanOtp = otpCode.replace(/\D/g, '')
+    if (cleanPhone.length !== 10) {
+      setErrorMessage(t('mobile_legal.delete_err_invalid_phone'))
+      return
+    }
+    if (cleanOtp.length !== 6) {
+      setErrorMessage(t('mobile_legal.delete_err_invalid_otp'))
+      return
+    }
 
     setLoading(true)
     try {
       const verifyRes = await fetch('/api/mobile/auth/verify-otp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone: cleanPhone, code: otpCode.trim() }),
+        body: JSON.stringify({ phone: cleanPhone, code: cleanOtp }),
       })
       const verifyData = await verifyRes.json()
-      const jwtToken = verifyData.token || verifyData.sessionToken
+      const jwtToken =
+        verifyData.session?.access_token || verifyData.token || verifyData.sessionToken
       if (!verifyRes.ok || !jwtToken) {
-        throw new Error(verifyData.error || 'Invalid verification code')
+        throw new Error(verifyData.error || t('mobile_legal.delete_err_verify_otp'))
       }
 
       const deleteRes = await fetch('/api/mobile/user/delete', {
@@ -97,12 +106,12 @@ export default function MobileDeleteAccountPage(): React.JSX.Element {
       })
       const deleteData = await deleteRes.json()
       if (!deleteRes.ok || !deleteData.deleted) {
-        throw new Error(deleteData.error || 'Could not complete account deletion')
+        throw new Error(deleteData.error || t('mobile_legal.delete_err_delete_failed'))
       }
 
       setDeletedSuccess(true)
     } catch (err) {
-      setErrorMessage(err instanceof Error ? err.message : 'Error deleting account')
+      setErrorMessage(err instanceof Error ? err.message : t('mobile_legal.delete_err_delete_failed'))
     } finally {
       setLoading(false)
     }
@@ -216,6 +225,21 @@ export default function MobileDeleteAccountPage(): React.JSX.Element {
                       : t('mobile_legal.delete_send_otp_btn')}
                 </span>
               </button>
+
+              {otpSent && (
+                <button
+                  type="button"
+                  disabled={loading}
+                  onClick={() => {
+                    setOtpSent(false)
+                    setOtpCode('')
+                    setErrorMessage(null)
+                  }}
+                  className="w-full py-2 text-xs font-bold text-slate-600 hover:text-slate-900 underline transition-colors"
+                >
+                  {t('mobile_legal.delete_change_phone_btn')}
+                </button>
+              )}
             </form>
           )}
         </section>

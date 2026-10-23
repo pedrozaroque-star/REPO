@@ -570,7 +570,7 @@ export const TOOL_DECLARATIONS = [
   },
   {
     name: 'query_mobile_orders',
-    description: 'Consultar órdenes históricas en public.app_orders y el estado de Tacos Gavilan App (Menu2 con menú y bolsa nativos por sucursal hacia DoorDash Storefront order_session, y Menu con DoorDash Storefront order.online en WebView).',
+    description: 'Consultar órdenes históricas en public.app_orders y el estado de Tacos Gavilan App (com.tacosgavilan.mobile, envolviendo order.online para Pickup y Delivery en las 15 sucursales con nombres canónicos del sitio web oficial, mientras Menu2 permanece oculto temporalmente en espera de DoorDash Storefront API).',
     parameters: {
       type: 'OBJECT',
       properties: {
@@ -659,7 +659,7 @@ export async function executeTool(name: string, rawArgs: any): Promise<string> {
       case 'query_user_chat_history': return await queryUserChatHistory(args)
       case 'query_accounting_packets': return await queryAccountingPackets(args)
       case 'query_viele_procurement': return await queryVieleProcurement(args)
-      case 'query_grubhub_audit': return await queryGrubhubAudit(args)
+      case 'query_grubhub_audit': return await queryGrubhubAudit(args)
       case 'query_order_ready_board': return await queryOrderReadyBoardTool(args)
       case 'query_quickbooks_bills': return await queryQuickbooksBillsTool(args)
       case 'query_mobile_orders': return await queryMobileOrdersTool(args)
@@ -3422,7 +3422,7 @@ async function queryMobileOrdersTool(args: any): Promise<string> {
     const { data: rawOrders, error } = await query;
     if (error) throw error;
     if (!rawOrders || rawOrders.length === 0) {
-      return `No se encontraron órdenes en public.app_orders con los filtros especificados${args.store_name ? ` para ${args.store_name}` : ''}.\n\nℹ️ **Estado Real de Tacos Gavilan App**: \`Menu2\` cuenta con diseño propio de Tacos Gavilan, bolsa nativa asociada a la sucursal (\`gavilan_cart_v3\`) y contrato hacia **DoorDash Storefront** (\`POST /storefront/api/v1/orders/order_session\`, actualmente bloqueado externamente con HTTP 403 en espera de habilitación de Storefront API por DoorDash para el Business ID \`137616\`). Mientras tanto, los pedidos en línea se procesan en las tiendas hospedadas de **DoorDash Storefront** (\`https://order.online/store/...\`) integradas con Toast POS.`;
+      return `No se encontraron órdenes en public.app_orders con los filtros especificados${args.store_name ? ` para ${args.store_name}` : ''}.\n\nℹ️ **Estado Real de Tacos Gavilan App (\`com.tacosgavilan.mobile\`)**: Tanto **Versión 1** (\`/app/v1\` y el binario nativo Expo) como **Versión 2** (\`/app/v2\`) envuelven directamente las 15 tiendas hospedadas en **\`order.online\`** (Pickup y Delivery) integradas con Toast POS, mientras \`Menu2\` permanece oculto temporalmente en espera de la habilitación de Storefront API por DoorDash para el Business ID \`137616\`.`;
     }
 
     let orders = rawOrders;
@@ -3438,9 +3438,9 @@ async function queryMobileOrdersTool(args: any): Promise<string> {
       return `No se encontraron órdenes móviles para el canal ${args.channel}.`;
     }
 
-    let out = `📱 **Órdenes Móviles de Clientes (Tacos Gavilan App)**\n`;
+    let out = `📱 **Órdenes Móviles de Clientes (Tacos Gavilan App — \`com.tacosgavilan.mobile\`)**\n`;
     out += `• **Total órdenes encontradas**: ${orders.length}\n`;
-    out += `• **Proveedor Hospedado Actual**: DoorDash Storefront (\`order.online\`) conectado con Toast POS; \`Menu2\` listo con contrato \`order_session\` en espera de habilitación de Storefront API por DoorDash\n\n`;
+    out += `• **Flujo Activo de Pedidos**: Wrapper oficial de \`order.online\` (Pickup y Delivery) conectado con Toast POS en las 15 sucursales; \`Menu2\` guardado y oculto temporalmente en espera de DoorDash Storefront API\n\n`;
     out += `| Orden # | Sucursal | Canal / Método | Total | Cocina | Pago | Toast GUID | Cajón / Delivery |\n`;
     out += `|---------|----------|----------------|-------|--------|------|------------|------------------|\n`;
 

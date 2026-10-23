@@ -54,13 +54,21 @@ export async function DELETE(request: NextRequest): Promise<NextResponse> {
 
     if (userOrders && userOrders.length > 0) {
       for (const ord of userOrders) {
-        const rawJson = typeof ord.items_json === 'object' && ord.items_json !== null
-          ? { ...(ord.items_json as Record<string, unknown>) }
-          : {}
-        delete rawJson.deliveryAddress
-        delete rawJson.curbsideArrival
-        delete rawJson.curbsideDetails
-        delete rawJson.geofenceTelemetrics
+        const isRecordObject =
+          typeof ord.items_json === 'object' &&
+          ord.items_json !== null &&
+          !Array.isArray(ord.items_json)
+
+        const sanitizedItemsJson = isRecordObject
+          ? (() => {
+              const copy = { ...(ord.items_json as Record<string, unknown>) }
+              delete copy.deliveryAddress
+              delete copy.curbsideArrival
+              delete copy.curbsideDetails
+              delete copy.geofenceTelemetrics
+              return copy
+            })()
+          : ord.items_json
 
         await supabaseAdmin
           .from('app_orders')
@@ -69,7 +77,7 @@ export async function DELETE(request: NextRequest): Promise<NextResponse> {
             user_latitude: null,
             user_longitude: null,
             curbside_stall: null,
-            items_json: rawJson,
+            items_json: sanitizedItemsJson,
             updated_at: new Date().toISOString(),
           })
           .eq('id', ord.id)
@@ -137,4 +145,8 @@ export async function DELETE(request: NextRequest): Promise<NextResponse> {
     console.error('[ACCOUNT DELETION] Excepción crítica:', msg)
     return jsonError(msg, 500)
   }
+}
+
+export async function POST(request: NextRequest): Promise<NextResponse> {
+  return DELETE(request)
 }

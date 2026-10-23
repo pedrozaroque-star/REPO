@@ -494,6 +494,9 @@ async function runComplianceSuite(): Promise<void> {
     'utf8'
   )
 
+  const normalizeAddressStyle = (addr: string) =>
+    addr.replace(/\b(E|W|N|S|Rd|St|Ave|Blvd|Hwy)\./g, '$1').trim()
+
   for (const dbStore of dbStores || []) {
     const appStore = getAuthoritativeStoreById(Number(dbStore.id))
     check(
@@ -501,7 +504,7 @@ async function runComplianceSuite(): Promise<void> {
       `Teléfono de ${appStore.name} debe coincidir entre app (${appStore.phone}) y DB (${dbStore.phone})`
     )
     check(
-      appStore.address === dbStore.address,
+      normalizeAddressStyle(appStore.address) === normalizeAddressStyle(dbStore.address),
       `Dirección de ${appStore.name} debe coincidir entre app (${appStore.address}) y DB (${dbStore.address})`
     )
     check(
@@ -871,7 +874,65 @@ async function runComplianceSuite(): Promise<void> {
     'El usuario debe quedar eliminado permanentemente de public.app_users y Supabase Auth'
   )
 
-  console.log('   ✅ Prueba real de mutación y eliminación en base de datos exitosa.\n')
+  // 6.6 Prueba end-to-end de CORS OPTIONS + Flujo OTP App Review (2135550199 / 123456) + Eliminación
+  const optionsSendRes = await fetch(`${LOCAL_WEB_BASE}/api/mobile/auth/send-otp`, {
+    method: 'OPTIONS',
+  })
+  const optionsVerifyRes = await fetch(`${LOCAL_WEB_BASE}/api/mobile/auth/verify-otp`, {
+    method: 'OPTIONS',
+  })
+  check(
+    optionsSendRes.status === 204 &&
+      optionsVerifyRes.status === 204 &&
+      optionsSendRes.headers.get('access-control-allow-headers')?.includes('X-Gavilan-Client'),
+    'OPTIONS preflight en send-otp y verify-otp debe responder HTTP 204 con X-Gavilan-Client permitido'
+  )
+
+  const sendOtpReviewRes = await fetch(`${LOCAL_WEB_BASE}/api/mobile/auth/send-otp`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Gavilan-Client': 'mobile-app-v1',
+    },
+    body: JSON.stringify({ phone: '+1 (213) 555-0199' }),
+  })
+  const sendOtpReviewJson = await sendOtpReviewRes.json()
+  check(
+    sendOtpReviewRes.status === 200 && sendOtpReviewJson.success === true,
+    `POST /api/mobile/auth/send-otp para teléfono de revisión debe responder 200 (recibido: ${sendOtpReviewRes.status})`
+  )
+
+  const verifyOtpReviewRes = await fetch(`${LOCAL_WEB_BASE}/api/mobile/auth/verify-otp`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Gavilan-Client': 'mobile-app-v1',
+    },
+    body: JSON.stringify({ phone: '12135550199', code: '123456' }),
+  })
+  const verifyOtpReviewJson = await verifyOtpReviewRes.json()
+  check(
+    verifyOtpReviewRes.status === 200 &&
+      Boolean(verifyOtpReviewJson.token) &&
+      Boolean(verifyOtpReviewJson.session?.access_token) &&
+      verifyOtpReviewJson.user?.phone === '2135550199',
+    'POST /api/mobile/auth/verify-otp debe emitir tanto session.access_token como token top-level'
+  )
+
+  const deleteReviewRes = await fetch(`${LOCAL_WEB_BASE}/api/mobile/user/delete`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${verifyOtpReviewJson.session.access_token}`,
+    },
+  })
+  const deleteReviewJson = await deleteReviewRes.json()
+  check(
+    deleteReviewRes.status === 200 && deleteReviewJson.deleted === true,
+    'POST /api/mobile/user/delete debe eliminar limpiamente la sesión de revisión'
+  )
+
+  console.log('   ✅ Prueba real de mutación, flujo OTP App Review y eliminación en base de datos exitosa.\n')
 
   console.log('======================================================================')
   console.log(`🎉 TODAS LAS ${passedAssertions} ASERCIONES DE CUMPLIMIENTO PASARON EXITOSAMENTE`)

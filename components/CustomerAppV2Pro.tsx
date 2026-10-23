@@ -81,7 +81,10 @@ interface DailyScheduleWindow {
 
 export interface V2AuthoritativeStore {
   id: number
+  cityTitle: string
+  crossStreets: string
   name: string
+  streetAddress: string
   address: string
   city: string
   state: 'CA'
@@ -120,26 +123,32 @@ const W_8AM_4AM: [number, number, string, string] = [8, 28, '8:00 AM – 4:00 AM
 
 export const V2_STORES: V2AuthoritativeStore[] = [
   {
-    id: 7,
-    name: 'Slauson',
-    address: '5833 S. Broadway, Los Angeles, CA 90003',
+    id: 6,
+    cityTitle: 'Los Angeles',
+    crossStreets: 'Central & Washington',
+    name: 'Los Angeles Central & Washington',
+    streetAddress: '1900 S. Central Ave',
+    address: '1900 S. Central Ave, Los Angeles, CA 90011',
     city: 'Los Angeles',
     state: 'CA',
-    zipCode: '90003',
-    phone: '(323) 615-0084',
-    latitude: 33.98894,
-    longitude: -118.278609,
-    toastOrderingUrl: 'https://order.online/store/tacos-gavilan-slauson-broadway-23989119',
-    hoursEn: 'Sun–Thu: 10:00 AM – 1:00 AM | Fri–Sat: 10:00 AM – 3:00 AM',
-    hoursEs: 'Dom–Jue: 10:00 AM – 1:00 AM | Vie–Sáb: 10:00 AM – 3:00 AM',
+    zipCode: '90011',
+    phone: '(213) 742-6677',
+    latitude: 34.023884,
+    longitude: -118.250561,
+    toastOrderingUrl: 'https://order.online/store/tacos-gavilan-los-angeles-260847',
+    hoursEn: 'Sun–Wed: 8:00 AM – 2:00 AM | Thu: 8:00 AM – 3:00 AM | Fri–Sat: 8:00 AM – 4:00 AM',
+    hoursEs: 'Dom–Mié: 8:00 AM – 2:00 AM | Jue: 8:00 AM – 3:00 AM | Vie–Sáb: 8:00 AM – 4:00 AM',
     weeklySchedule: buildSchedule({
-      0: W_10AM_1AM, 1: W_10AM_1AM, 2: W_10AM_1AM, 3: W_10AM_1AM, 4: W_10AM_1AM, 5: W_10AM_3AM, 6: W_10AM_3AM,
+      0: W_8AM_2AM, 1: W_8AM_2AM, 2: W_8AM_2AM, 3: W_8AM_2AM, 4: W_8AM_3AM, 5: W_8AM_4AM, 6: W_8AM_4AM,
     }),
   },
   {
     id: 14,
-    name: 'Lynwood',
-    address: '3220 E. Imperial Hwy., Lynwood, CA 90262',
+    cityTitle: 'Lynwood',
+    crossStreets: 'Imperial & Long Beach',
+    name: 'Lynwood Imperial & Long Beach',
+    streetAddress: '3220 E. Imperial Hwy',
+    address: '3220 E. Imperial Hwy, Lynwood, CA 90262',
     city: 'Lynwood',
     state: 'CA',
     zipCode: '90262',
@@ -155,7 +164,10 @@ export const V2_STORES: V2AuthoritativeStore[] = [
   },
   {
     id: 5,
-    name: 'LA Broadway',
+    cityTitle: 'Los Angeles',
+    crossStreets: 'Vernon & Broadway',
+    name: 'Los Angeles Vernon & Broadway',
+    streetAddress: '4380 S. Broadway',
     address: '4380 S. Broadway, Los Angeles, CA 90037',
     city: 'Los Angeles',
     state: 'CA',
@@ -171,67 +183,59 @@ export const V2_STORES: V2AuthoritativeStore[] = [
     }),
   },
   {
-    id: 6,
-    name: 'LA Central',
-    address: '1900 S. Central Ave., Los Angeles, CA 90011',
+    id: 12,
+    cityTitle: 'Norwalk',
+    crossStreets: 'Rosecrans & Studebaker',
+    name: 'Norwalk Rosecrans & Studebaker',
+    streetAddress: '10968 Rosecrans Ave',
+    address: '10968 Rosecrans Ave, Norwalk, CA 90650',
+    city: 'Norwalk',
+    state: 'CA',
+    zipCode: '90650',
+    phone: '(562) 651-0045',
+    latitude: 33.90181,
+    longitude: -118.100403,
+    toastOrderingUrl: 'https://order.online/store/tacos-gavilan-norwalk-1327857',
+    hoursEn: 'Sun–Thu: 10:00 AM – 1:00 AM | Fri–Sat: 10:00 AM – 3:00 AM',
+    hoursEs: 'Dom–Jue: 10:00 AM – 1:00 AM | Vie–Sáb: 10:00 AM – 3:00 AM',
+    weeklySchedule: buildSchedule({
+      0: W_10AM_1AM, 1: W_10AM_1AM, 2: W_10AM_1AM, 3: W_10AM_1AM, 4: W_10AM_1AM, 5: W_10AM_3AM, 6: W_10AM_3AM,
+    }),
+  },
+  {
+    id: 7,
+    cityTitle: 'Los Angeles',
+    crossStreets: 'Slauson & Broadway',
+    name: 'Los Angeles Slauson & Broadway',
+    streetAddress: '5833 S. Broadway',
+    address: '5833 S. Broadway, Los Angeles, CA 90003',
     city: 'Los Angeles',
     state: 'CA',
-    zipCode: '90011',
-    phone: '(213) 742-6677',
-    latitude: 34.023884,
-    longitude: -118.250561,
-    toastOrderingUrl: 'https://order.online/store/tacos-gavilan-los-angeles-260847',
-    hoursEn: 'Sun–Wed: 8:00 AM – 2:00 AM | Thu: 8:00 AM – 3:00 AM | Fri–Sat: 8:00 AM – 4:00 AM',
-    hoursEs: 'Dom–Mié: 8:00 AM – 2:00 AM | Jue: 8:00 AM – 3:00 AM | Vie–Sáb: 8:00 AM – 4:00 AM',
+    zipCode: '90003',
+    phone: '(323) 615-0084',
+    latitude: 33.98894,
+    longitude: -118.278609,
+    toastOrderingUrl: 'https://order.online/store/tacos-gavilan-slauson-broadway-23989119',
+    hoursEn: 'Sun–Thu: 10:00 AM – 1:00 AM | Fri–Sat: 10:00 AM – 3:00 AM',
+    hoursEs: 'Dom–Jue: 10:00 AM – 1:00 AM | Vie–Sáb: 10:00 AM – 3:00 AM',
     weeklySchedule: buildSchedule({
-      0: W_8AM_2AM, 1: W_8AM_2AM, 2: W_8AM_2AM, 3: W_8AM_2AM, 4: W_8AM_3AM, 5: W_8AM_4AM, 6: W_8AM_4AM,
+      0: W_10AM_1AM, 1: W_10AM_1AM, 2: W_10AM_1AM, 3: W_10AM_1AM, 4: W_10AM_1AM, 5: W_10AM_3AM, 6: W_10AM_3AM,
     }),
   },
   {
-    id: 8,
-    name: 'Hollywood',
-    address: '7070 Sunset Blvd., Los Angeles, CA 90028',
-    city: 'Los Angeles',
+    id: 1,
+    cityTitle: 'Rialto',
+    crossStreets: 'Baseline & Riverside',
+    name: 'Rialto Baseline & Riverside',
+    streetAddress: '115 E. Baseline Rd',
+    address: '115 E. Baseline Rd, Rialto, CA 92376',
+    city: 'Rialto',
     state: 'CA',
-    zipCode: '90028',
-    phone: '(323) 963-7993',
-    latitude: 34.097757,
-    longitude: -118.34389,
-    toastOrderingUrl: 'https://order.online/store/tacos-gavilan-los-angeles-551916',
-    hoursEn: 'Sun–Thu: 9:00 AM – 12:00 AM | Fri–Sat: 9:00 AM – 3:00 AM',
-    hoursEs: 'Dom–Jue: 9:00 AM – 12:00 AM | Vie–Sáb: 9:00 AM – 3:00 AM',
-    weeklySchedule: buildSchedule({
-      0: W_9AM_12AM, 1: W_9AM_12AM, 2: W_9AM_12AM, 3: W_9AM_12AM, 4: W_9AM_12AM, 5: W_9AM_3AM, 6: W_9AM_3AM,
-    }),
-  },
-  {
-    id: 11,
-    name: 'Huntington Park',
-    address: '2425 E. Florence Ave., Huntington Park, CA 90255',
-    city: 'Huntington Park',
-    state: 'CA',
-    zipCode: '90255',
-    phone: '(323) 581-7309',
-    latitude: 33.975055,
-    longitude: -118.229235,
-    toastOrderingUrl: 'https://order.online/store/tacos-gavilan-huntington-park-260849',
-    hoursEn: 'Sun–Wed: 10:00 AM – 12:00 AM | Thu: 10:00 AM – 2:00 AM | Fri–Sat: 10:00 AM – 3:00 AM',
-    hoursEs: 'Dom–Mié: 10:00 AM – 12:00 AM | Jue: 10:00 AM – 2:00 AM | Vie–Sáb: 10:00 AM – 3:00 AM',
-    weeklySchedule: buildSchedule({
-      0: W_10AM_12AM, 1: W_10AM_12AM, 2: W_10AM_12AM, 3: W_10AM_12AM, 4: W_10AM_2AM, 5: W_10AM_3AM, 6: W_10AM_3AM,
-    }),
-  },
-  {
-    id: 13,
-    name: 'Bell',
-    address: '4406 E. Florence Ave., Bell, CA 90201',
-    city: 'Bell',
-    state: 'CA',
-    zipCode: '90201',
-    phone: '(323) 771-1722',
-    latitude: 33.970395,
-    longitude: -118.188871,
-    toastOrderingUrl: 'https://order.online/store/tacos-gavilan-bell-260912',
+    zipCode: '92376',
+    phone: '(909) 562-0430',
+    latitude: 34.1211,
+    longitude: -117.370048,
+    toastOrderingUrl: 'https://order.online/store/tacos-gavilan-rialto-841931',
     hoursEn: 'Sun–Thu: 10:00 AM – 12:00 AM | Fri–Sat: 10:00 AM – 2:00 AM',
     hoursEs: 'Dom–Jue: 10:00 AM – 12:00 AM | Vie–Sáb: 10:00 AM – 2:00 AM',
     weeklySchedule: buildSchedule({
@@ -239,9 +243,32 @@ export const V2_STORES: V2AuthoritativeStore[] = [
     }),
   },
   {
+    id: 3,
+    cityTitle: 'West Covina',
+    crossStreets: '10 FWY & Azusa',
+    name: 'West Covina 10 FWY & Azusa',
+    streetAddress: '101 S. Azusa Ave',
+    address: '101 S. Azusa Ave, West Covina, CA 91791',
+    city: 'West Covina',
+    state: 'CA',
+    zipCode: '91791',
+    phone: '(626) 917-2662',
+    latitude: 34.070966,
+    longitude: -117.90815,
+    toastOrderingUrl: 'https://order.online/store/tacos-gavilan-west-covina-725035',
+    hoursEn: 'Sun–Thu: 10:00 AM – 1:00 AM | Fri–Sat: 10:00 AM – 3:00 AM',
+    hoursEs: 'Dom–Jue: 10:00 AM – 1:00 AM | Vie–Sáb: 10:00 AM – 3:00 AM',
+    weeklySchedule: buildSchedule({
+      0: W_10AM_1AM, 1: W_10AM_1AM, 2: W_10AM_1AM, 3: W_10AM_1AM, 4: W_10AM_1AM, 5: W_10AM_3AM, 6: W_10AM_3AM,
+    }),
+  },
+  {
     id: 15,
-    name: 'South Gate',
-    address: '5800 Firestone Blvd., South Gate, CA 90280',
+    cityTitle: 'South Gate',
+    crossStreets: 'Firestone & Garfield',
+    name: 'South Gate Firestone & Garfield',
+    streetAddress: '5800 Firestone Blvd',
+    address: '5800 Firestone Blvd, South Gate, CA 90280',
     city: 'South Gate',
     state: 'CA',
     zipCode: '90280',
@@ -257,8 +284,11 @@ export const V2_STORES: V2AuthoritativeStore[] = [
   },
   {
     id: 16,
-    name: 'Downey',
-    address: '7947 E. Florence Ave., Downey, CA 90240',
+    cityTitle: 'Downey',
+    crossStreets: 'Florence & Paramount',
+    name: 'Downey Florence & Paramount',
+    streetAddress: '7947 E. Florence Ave',
+    address: '7947 E. Florence Ave, Downey, CA 90240',
     city: 'Downey',
     state: 'CA',
     zipCode: '90240',
@@ -273,77 +303,32 @@ export const V2_STORES: V2AuthoritativeStore[] = [
     }),
   },
   {
-    id: 12,
-    name: 'Norwalk',
-    address: '10968 Rosecrans Ave., Norwalk, CA 90650',
-    city: 'Norwalk',
+    id: 8,
+    cityTitle: 'Hollywood',
+    crossStreets: 'Sunset & La Brea',
+    name: 'Hollywood Sunset & La Brea',
+    streetAddress: '7070 Sunset Blvd',
+    address: '7070 Sunset Blvd, Los Angeles, CA 90028',
+    city: 'Los Angeles',
     state: 'CA',
-    zipCode: '90650',
-    phone: '(562) 651-0045',
-    latitude: 33.90181,
-    longitude: -118.100403,
-    toastOrderingUrl: 'https://order.online/store/tacos-gavilan-norwalk-1327857',
-    hoursEn: 'Sun–Thu: 10:00 AM – 1:00 AM | Fri–Sat: 10:00 AM – 3:00 AM',
-    hoursEs: 'Dom–Jue: 10:00 AM – 1:00 AM | Vie–Sáb: 10:00 AM – 3:00 AM',
+    zipCode: '90028',
+    phone: '(323) 963-7993',
+    latitude: 34.097757,
+    longitude: -118.34389,
+    toastOrderingUrl: 'https://order.online/store/tacos-gavilan-los-angeles-551916',
+    hoursEn: 'Sun–Thu: 9:00 AM – 12:00 AM | Fri–Sat: 9:00 AM – 3:00 AM',
+    hoursEs: 'Dom–Jue: 9:00 AM – 12:00 AM | Vie–Sáb: 9:00 AM – 3:00 AM',
     weeklySchedule: buildSchedule({
-      0: W_10AM_1AM, 1: W_10AM_1AM, 2: W_10AM_1AM, 3: W_10AM_1AM, 4: W_10AM_1AM, 5: W_10AM_3AM, 6: W_10AM_3AM,
-    }),
-  },
-  {
-    id: 3,
-    name: 'West Covina',
-    address: '101 S. Azusa Ave., West Covina, CA 91791',
-    city: 'West Covina',
-    state: 'CA',
-    zipCode: '91791',
-    phone: '(626) 917-2662',
-    latitude: 34.070966,
-    longitude: -117.90815,
-    toastOrderingUrl: 'https://order.online/store/tacos-gavilan-west-covina-725035',
-    hoursEn: 'Sun–Thu: 10:00 AM – 1:00 AM | Fri–Sat: 10:00 AM – 3:00 AM',
-    hoursEs: 'Dom–Jue: 10:00 AM – 1:00 AM | Vie–Sáb: 10:00 AM – 3:00 AM',
-    weeklySchedule: buildSchedule({
-      0: W_10AM_1AM, 1: W_10AM_1AM, 2: W_10AM_1AM, 3: W_10AM_1AM, 4: W_10AM_1AM, 5: W_10AM_3AM, 6: W_10AM_3AM,
-    }),
-  },
-  {
-    id: 4,
-    name: 'Azusa',
-    address: '887 S. Azusa Ave., Azusa, CA 91702',
-    city: 'Azusa',
-    state: 'CA',
-    zipCode: '91702',
-    phone: '(626) 969-1011',
-    latitude: 34.107074,
-    longitude: -117.908194,
-    toastOrderingUrl: 'https://order.online/store/tacos-gavilan-azusa-718169',
-    hoursEn: 'Sun–Thu: 10:00 AM – 11:00 PM | Fri–Sat: 10:00 AM – 12:00 AM',
-    hoursEs: 'Dom–Jue: 10:00 AM – 11:00 PM | Vie–Sáb: 10:00 AM – 12:00 AM',
-    weeklySchedule: buildSchedule({
-      0: W_10AM_11PM, 1: W_10AM_11PM, 2: W_10AM_11PM, 3: W_10AM_11PM, 4: W_10AM_11PM, 5: W_10AM_12AM, 6: W_10AM_12AM,
-    }),
-  },
-  {
-    id: 10,
-    name: 'La Puente',
-    address: '13009 Valley Blvd., La Puente, CA 91746',
-    city: 'La Puente',
-    state: 'CA',
-    zipCode: '91746',
-    phone: '(626) 336-3000',
-    latitude: 34.053251,
-    longitude: -118.001777,
-    toastOrderingUrl: 'https://order.online/store/tacos-gavilan-la-puente-963464',
-    hoursEn: 'Sun–Thu: 10:00 AM – 12:00 AM | Fri–Sat: 10:00 AM – 2:00 AM',
-    hoursEs: 'Dom–Jue: 10:00 AM – 12:00 AM | Vie–Sáb: 10:00 AM – 2:00 AM',
-    weeklySchedule: buildSchedule({
-      0: W_10AM_12AM, 1: W_10AM_12AM, 2: W_10AM_12AM, 3: W_10AM_12AM, 4: W_10AM_12AM, 5: W_10AM_2AM, 6: W_10AM_2AM,
+      0: W_9AM_12AM, 1: W_9AM_12AM, 2: W_9AM_12AM, 3: W_9AM_12AM, 4: W_9AM_12AM, 5: W_9AM_3AM, 6: W_9AM_3AM,
     }),
   },
   {
     id: 9,
-    name: 'Santa Ana',
-    address: '1258 E. 17th St., Santa Ana, CA 92701',
+    cityTitle: 'Santa Ana',
+    crossStreets: '17th & Grand',
+    name: 'Santa Ana 17th & Grand',
+    streetAddress: '1258 E. 17th St',
+    address: '1258 E. 17th St, Santa Ana, CA 92701',
     city: 'Santa Ana',
     state: 'CA',
     zipCode: '92701',
@@ -358,16 +343,79 @@ export const V2_STORES: V2AuthoritativeStore[] = [
     }),
   },
   {
-    id: 1,
-    name: 'Rialto',
-    address: '115 E. Baseline Rd., Rialto, CA 92376',
-    city: 'Rialto',
+    id: 11,
+    cityTitle: 'Huntington Park',
+    crossStreets: 'Florence & Santa Fe',
+    name: 'Huntington Park Florence & Santa Fe',
+    streetAddress: '2425 E. Florence Ave',
+    address: '2425 E. Florence Ave, Huntington Park, CA 90255',
+    city: 'Huntington Park',
     state: 'CA',
-    zipCode: '92376',
-    phone: '(909) 562-0430',
-    latitude: 34.1211,
-    longitude: -117.370048,
-    toastOrderingUrl: 'https://order.online/store/tacos-gavilan-rialto-841931',
+    zipCode: '90255',
+    phone: '(323) 581-7309',
+    latitude: 33.975055,
+    longitude: -118.229235,
+    toastOrderingUrl: 'https://order.online/store/tacos-gavilan-huntington-park-260849',
+    hoursEn: 'Sun–Wed: 10:00 AM – 12:00 AM | Thu: 10:00 AM – 2:00 AM | Fri–Sat: 10:00 AM – 3:00 AM',
+    hoursEs: 'Dom–Mié: 10:00 AM – 12:00 AM | Jue: 10:00 AM – 2:00 AM | Vie–Sáb: 10:00 AM – 3:00 AM',
+    weeklySchedule: buildSchedule({
+      0: W_10AM_12AM, 1: W_10AM_12AM, 2: W_10AM_12AM, 3: W_10AM_12AM, 4: W_10AM_2AM, 5: W_10AM_3AM, 6: W_10AM_3AM,
+    }),
+  },
+  {
+    id: 10,
+    cityTitle: 'La Puente',
+    crossStreets: '605 FWY & Valley',
+    name: 'La Puente 605 FWY & Valley',
+    streetAddress: '13009 Valley Blvd',
+    address: '13009 Valley Blvd, La Puente, CA 91746',
+    city: 'La Puente',
+    state: 'CA',
+    zipCode: '91746',
+    phone: '(626) 336-3000',
+    latitude: 34.053251,
+    longitude: -118.001777,
+    toastOrderingUrl: 'https://order.online/store/tacos-gavilan-la-puente-963464',
+    hoursEn: 'Sun–Thu: 10:00 AM – 12:00 AM | Fri–Sat: 10:00 AM – 2:00 AM',
+    hoursEs: 'Dom–Jue: 10:00 AM – 12:00 AM | Vie–Sáb: 10:00 AM – 2:00 AM',
+    weeklySchedule: buildSchedule({
+      0: W_10AM_12AM, 1: W_10AM_12AM, 2: W_10AM_12AM, 3: W_10AM_12AM, 4: W_10AM_12AM, 5: W_10AM_2AM, 6: W_10AM_2AM,
+    }),
+  },
+  {
+    id: 4,
+    cityTitle: 'Azusa',
+    crossStreets: 'Azusa & Arrow',
+    name: 'Azusa Azusa & Arrow',
+    streetAddress: '887 S. Azusa Ave',
+    address: '887 S. Azusa Ave, Azusa, CA 91702',
+    city: 'Azusa',
+    state: 'CA',
+    zipCode: '91702',
+    phone: '(626) 969-1011',
+    latitude: 34.107074,
+    longitude: -117.908194,
+    toastOrderingUrl: 'https://order.online/store/tacos-gavilan-azusa-718169',
+    hoursEn: 'Sun–Thu: 10:00 AM – 11:00 PM | Fri–Sat: 10:00 AM – 12:00 AM',
+    hoursEs: 'Dom–Jue: 10:00 AM – 11:00 PM | Vie–Sáb: 10:00 AM – 12:00 AM',
+    weeklySchedule: buildSchedule({
+      0: W_10AM_11PM, 1: W_10AM_11PM, 2: W_10AM_11PM, 3: W_10AM_11PM, 4: W_10AM_11PM, 5: W_10AM_12AM, 6: W_10AM_12AM,
+    }),
+  },
+  {
+    id: 13,
+    cityTitle: 'Bell',
+    crossStreets: 'Florence & Atlantic',
+    name: 'Bell Florence & Atlantic',
+    streetAddress: '4406 E Florence Ave',
+    address: '4406 E Florence Ave, Bell, CA 90201',
+    city: 'Bell',
+    state: 'CA',
+    zipCode: '90201',
+    phone: '(323) 771-1722',
+    latitude: 33.970395,
+    longitude: -118.188871,
+    toastOrderingUrl: 'https://order.online/store/tacos-gavilan-bell-260912',
     hoursEn: 'Sun–Thu: 10:00 AM – 12:00 AM | Fri–Sat: 10:00 AM – 2:00 AM',
     hoursEs: 'Dom–Jue: 10:00 AM – 12:00 AM | Vie–Sáb: 10:00 AM – 2:00 AM',
     weeklySchedule: buildSchedule({
@@ -794,7 +842,7 @@ export default function CustomerAppV2Pro({
       if (a.distanceMiles !== null && b.distanceMiles !== null) {
         return a.distanceMiles - b.distanceMiles
       }
-      return a.name.localeCompare(b.name)
+      return 0
     })
   }, [userCoords])
 
@@ -822,6 +870,8 @@ export default function CustomerAppV2Pro({
       id: string
       storeId: number
       storeName: string
+      cityTitle?: string
+      crossStreets?: string
       address: string
       phone: string
       mode: FulfillmentMode
@@ -855,6 +905,8 @@ export default function CustomerAppV2Pro({
       id: `${currentStore.id}-${Date.now()}`,
       storeId: currentStore.id,
       storeName: currentStore.name,
+      cityTitle: currentStore.cityTitle,
+      crossStreets: currentStore.crossStreets,
       address: currentStore.address,
       phone: currentStore.phone,
       mode: fulfillmentMode,
@@ -873,7 +925,7 @@ export default function CustomerAppV2Pro({
     if (typeof window !== 'undefined') {
       window.open(currentOrderOnlineUrl, '_blank', 'noopener,noreferrer')
     }
-  }, [currentOrderOnlineUrl, currentStore.address, currentStore.id, currentStore.name, currentStore.phone, fulfillmentMode])
+  }, [currentOrderOnlineUrl, currentStore.address, currentStore.cityTitle, currentStore.crossStreets, currentStore.id, currentStore.name, currentStore.phone, fulfillmentMode])
 
   const handleSelectOrderMode = useCallback(
     (nextMode: FulfillmentMode) => {
@@ -2016,12 +2068,15 @@ export default function CustomerAppV2Pro({
                         {currentStoreStatus.badgeText}
                       </span>
                     </div>
-                    <div className="flex items-center gap-1">
+                    <div className="flex items-center gap-1 min-w-0">
                       <span className="text-xs sm:text-sm font-black text-white truncate group-hover:text-[#FDC82F] transition-colors">
-                        {currentStore.name}
+                        {currentStore.cityTitle}
+                      </span>
+                      <span className="text-[11px] font-extrabold text-[#FFC72C] font-sans truncate">
+                        • {currentStore.crossStreets}
                       </span>
                       {currentStore.distanceMiles !== null && (
-                        <span className="text-[10px] font-bold text-white/60">
+                        <span className="text-[10px] font-bold text-white/60 shrink-0">
                           ({currentStore.distanceMiles.toFixed(1)} mi)
                         </span>
                       )}
@@ -2175,10 +2230,13 @@ export default function CustomerAppV2Pro({
                           )}
                         </h2>
 
-                        <p className="mt-2 text-xs font-semibold text-white/85 max-w-[290px] drop-shadow">
-                          {lang === 'en'
-                            ? `Ordering from Tacos Gavilan ${currentStore.name} (${currentStoreStatus.todayHours})`
-                            : `Ordenando en Tacos Gavilan ${currentStore.name} (${currentStoreStatus.todayHours})`}
+                        <p className="mt-2 text-xs font-semibold text-white/90 max-w-[310px] drop-shadow">
+                          {lang === 'en' ? 'Ordering from ' : 'Ordenando en '}
+                          <span className="font-black text-white">{currentStore.cityTitle}</span>{' '}
+                          <span className="font-extrabold text-[#FFC72C] font-sans">
+                            {currentStore.crossStreets}
+                          </span>{' '}
+                          <span className="text-white/75">({currentStoreStatus.todayHours})</span>
                         </p>
                       </div>
                     </div>
@@ -2187,10 +2245,13 @@ export default function CustomerAppV2Pro({
                     <div className="px-4 -mt-6 relative z-10">
                       <div className="p-3.5 rounded-2xl bg-[#1c1c1e] border border-white/10 shadow-xl flex items-center justify-between gap-2">
                         <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-1.5">
+                          <div className="flex items-center gap-1.5 flex-wrap">
                             <MapPin size={13} className="text-[#FDC82F] shrink-0" />
-                            <span className="text-xs font-black text-white truncate">
-                              Tacos Gavilan — {currentStore.name}
+                            <span className="text-xs font-black text-white">
+                              {currentStore.cityTitle}
+                            </span>
+                            <span className="text-xs font-extrabold text-[#FFC72C] font-sans">
+                              {currentStore.crossStreets}
                             </span>
                           </div>
                           <p className="text-[11px] text-white/65 truncate mt-0.5">
@@ -2360,8 +2421,11 @@ export default function CustomerAppV2Pro({
                           <div className="text-[9px] font-extrabold uppercase tracking-wider text-white/55">
                             {t('mobile_legal.wrapper_active_store_label')}
                           </div>
-                          <div className="text-xs font-black text-white truncate">
-                            Tacos Gavilan — {currentStore.name}
+                          <div className="text-xs font-black text-white truncate flex items-center gap-1.5">
+                            <span>{currentStore.cityTitle}</span>
+                            <span className="text-[#FFC72C] font-extrabold font-sans truncate">
+                              {currentStore.crossStreets}
+                            </span>
                           </div>
                         </div>
                         <ChevronDown size={13} className="text-[#FDC82F] shrink-0" />
@@ -2433,9 +2497,12 @@ export default function CustomerAppV2Pro({
                         </div>
 
                         <div>
-                          <h3 className="text-lg font-black text-white tracking-tight">
-                            Tacos Gavilan — {currentStore.name}
+                          <h3 className="text-lg font-black text-white tracking-tight leading-tight">
+                            {currentStore.cityTitle}
                           </h3>
+                          <p className="text-sm font-extrabold text-[#FFC72C] font-sans tracking-wide mt-0.5">
+                            {currentStore.crossStreets}
+                          </p>
                           <p className="text-xs text-white/75 mt-0.5">{currentStore.address}</p>
                           <div className="flex items-center gap-2 mt-1.5 text-xs flex-wrap">
                             <span
@@ -2609,8 +2676,13 @@ export default function CustomerAppV2Pro({
                                 className="p-2.5 rounded-xl bg-black/35 border border-white/10 flex items-center justify-between gap-2"
                               >
                                 <div className="min-w-0 flex-1">
-                                  <div className="text-xs font-black text-white truncate">
-                                    Tacos Gavilan — {sess.storeName}
+                                  <div className="text-xs font-black text-white truncate flex items-center gap-1.5">
+                                    <span>{sess.cityTitle || sess.storeName}</span>
+                                    {sess.crossStreets && (
+                                      <span className="text-[#FFC72C] font-extrabold font-sans truncate">
+                                        {sess.crossStreets}
+                                      </span>
+                                    )}
                                   </div>
                                   <div className="text-[10px] text-white/60 truncate">
                                     {sess.mode.toUpperCase()} • {sess.address}
@@ -2740,9 +2812,9 @@ export default function CustomerAppV2Pro({
                         >
                           <div className="flex items-start justify-between gap-2">
                             <div>
-                              <div className="flex items-center gap-2">
-                                <span className="text-sm font-black text-white">
-                                  Tacos Gavilan — {st.name}
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="text-base font-black text-white tracking-tight">
+                                  {st.cityTitle}
                                 </span>
                                 {st.distanceMiles !== null && (
                                   <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-white/10 text-[#FDC82F]">
@@ -2750,6 +2822,9 @@ export default function CustomerAppV2Pro({
                                   </span>
                                 )}
                               </div>
+                              <p className="text-xs font-extrabold text-[#FFC72C] font-sans tracking-wide mt-0.5">
+                                {st.crossStreets}
+                              </p>
                               <p className="text-xs text-white/70 mt-0.5">{st.address}</p>
                               <div className="flex items-center gap-2 mt-1.5 text-[11px]">
                                 <span
@@ -3233,8 +3308,11 @@ export default function CustomerAppV2Pro({
                         }`}
                       >
                         <div className="min-w-0 pr-2">
-                          <div className="flex items-center gap-2">
-                            <span className="text-xs font-black">{st.name}</span>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-xs font-black text-white">{st.cityTitle}</span>
+                            <span className="text-xs font-extrabold text-[#FFC72C] font-sans">
+                              {st.crossStreets}
+                            </span>
                             <span
                               className={`text-[10px] font-bold ${
                                 status.isOpen ? 'text-emerald-400' : 'text-amber-400'
@@ -3243,7 +3321,7 @@ export default function CustomerAppV2Pro({
                               ● {status.badgeText}
                             </span>
                           </div>
-                          <p className="text-[11px] text-white/60 truncate">{st.address}</p>
+                          <p className="text-[11px] text-white/60 truncate mt-0.5">{st.address}</p>
                         </div>
                         {active && <Check size={16} className="text-[#FDC82F] shrink-0" />}
                       </button>

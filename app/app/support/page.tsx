@@ -25,6 +25,8 @@ import { useLanguage } from '@/lib/i18n'
 
 interface VerifiedBranchRow {
   id: string
+  cityTitle: string
+  crossStreets: string
   name: string
   address: string
   phone: string
@@ -35,53 +37,32 @@ interface VerifiedBranchRow {
 
 const VERIFIED_15_BRANCHES: VerifiedBranchRow[] = [
   {
-    id: '4',
-    name: 'Azusa',
-    address: '887 S. Azusa Ave., Azusa, CA 91702',
-    phone: '(626) 969-1011',
-    hoursEn: 'Sun–Thu: 10:00 AM – 11:00 PM | Fri–Sat: 10:00 AM – 12:00 AM',
-    hoursEs: 'Dom–Jue: 10:00 AM – 11:00 PM | Vie–Sáb: 10:00 AM – 12:00 AM',
-    toastOnlineUrl: 'https://order.online/store/tacos-gavilan-azusa-718169',
+    id: '6',
+    cityTitle: 'Los Angeles',
+    crossStreets: 'Central & Washington',
+    name: 'Los Angeles Central & Washington',
+    address: '1900 S. Central Ave, Los Angeles, CA 90011',
+    phone: '(213) 742-6677',
+    hoursEn: 'Sun–Wed: 8:00 AM – 2:00 AM | Thu: 8:00 AM – 3:00 AM | Fri–Sat: 8:00 AM – 4:00 AM',
+    hoursEs: 'Dom–Mié: 8:00 AM – 2:00 AM | Jue: 8:00 AM – 3:00 AM | Vie–Sáb: 8:00 AM – 4:00 AM',
+    toastOnlineUrl: 'https://order.online/store/tacos-gavilan-los-angeles-260847',
   },
   {
-    id: '13',
-    name: 'Bell',
-    address: '4406 E. Florence Ave., Bell, CA 90201',
-    phone: '(323) 771-1722',
-    hoursEn: 'Sun–Thu: 10:00 AM – 12:00 AM | Fri–Sat: 10:00 AM – 2:00 AM',
-    hoursEs: 'Dom–Jue: 10:00 AM – 12:00 AM | Vie–Sáb: 10:00 AM – 2:00 AM',
-    toastOnlineUrl: 'https://order.online/store/tacos-gavilan-bell-260912',
-  },
-  {
-    id: '16',
-    name: 'Downey',
-    address: '7947 E. Florence Ave., Downey, CA 90240',
-    phone: '(562) 927-7486',
-    hoursEn: 'Sun–Thu: 10:00 AM – 12:00 AM | Fri–Sat: 10:00 AM – 3:00 AM',
-    hoursEs: 'Dom–Jue: 10:00 AM – 12:00 AM | Vie–Sáb: 10:00 AM – 3:00 AM',
-    toastOnlineUrl: 'https://order.online/store/tacos-gavilan-downey-302620',
-  },
-  {
-    id: '8',
-    name: 'Hollywood',
-    address: '7070 Sunset Blvd., Los Angeles, CA 90028',
-    phone: '(323) 963-7993',
-    hoursEn: 'Sun–Thu: 9:00 AM – 12:00 AM | Fri–Sat: 9:00 AM – 3:00 AM',
-    hoursEs: 'Dom–Jue: 9:00 AM – 12:00 AM | Vie–Sáb: 9:00 AM – 3:00 AM',
-    toastOnlineUrl: 'https://order.online/store/tacos-gavilan-los-angeles-551916',
-  },
-  {
-    id: '11',
-    name: 'Huntington Park',
-    address: '2425 E. Florence Ave., Huntington Park, CA 90255',
-    phone: '(323) 581-7309',
-    hoursEn: 'Sun–Wed: 10:00 AM – 12:00 AM | Thu: 10:00 AM – 2:00 AM | Fri–Sat: 10:00 AM – 3:00 AM',
-    hoursEs: 'Dom–Mié: 10:00 AM – 12:00 AM | Jue: 10:00 AM – 2:00 AM | Vie–Sáb: 10:00 AM – 3:00 AM',
-    toastOnlineUrl: 'https://order.online/store/tacos-gavilan-huntington-park-260849',
+    id: '14',
+    cityTitle: 'Lynwood',
+    crossStreets: 'Imperial & Long Beach',
+    name: 'Lynwood Imperial & Long Beach',
+    address: '3220 E. Imperial Hwy, Lynwood, CA 90262',
+    phone: '(424) 785-5535',
+    hoursEn: 'Sun–Wed: 10:00 AM – 1:00 AM | Thu: 10:00 AM – 2:00 AM | Fri–Sat: 10:00 AM – 3:00 AM',
+    hoursEs: 'Dom–Mié: 10:00 AM – 1:00 AM | Jue: 10:00 AM – 2:00 AM | Vie–Sáb: 10:00 AM – 3:00 AM',
+    toastOnlineUrl: 'https://order.online/store/tacos-gavilan-lynwood-727877',
   },
   {
     id: '5',
-    name: 'LA Broadway',
+    cityTitle: 'Los Angeles',
+    crossStreets: 'Vernon & Broadway',
+    name: 'Los Angeles Vernon & Broadway',
     address: '4380 S. Broadway, Los Angeles, CA 90037',
     phone: '(323) 233-2302',
     hoursEn: 'Mon–Wed: 8:00 AM – 1:00 AM | Thu & Sun: 8:00 AM – 2:00 AM | Fri–Sat: 8:00 AM – 4:00 AM',
@@ -89,62 +70,21 @@ const VERIFIED_15_BRANCHES: VerifiedBranchRow[] = [
     toastOnlineUrl: 'https://order.online/store/tacos-gavilan-los-angeles-260769',
   },
   {
-    id: '6',
-    name: 'LA Central',
-    address: '1900 S. Central Ave., Los Angeles, CA 90011',
-    phone: '(213) 742-6677',
-    hoursEn: 'Sun–Wed: 8:00 AM – 2:00 AM | Thu: 8:00 AM – 3:00 AM | Fri–Sat: 8:00 AM – 4:00 AM',
-    hoursEs: 'Dom–Mié: 8:00 AM – 2:00 AM | Jue: 8:00 AM – 3:00 AM | Vie–Sáb: 8:00 AM – 4:00 AM',
-    toastOnlineUrl: 'https://order.online/store/tacos-gavilan-los-angeles-260847',
-  },
-  {
-    id: '10',
-    name: 'La Puente',
-    address: '13009 Valley Blvd., La Puente, CA 91746',
-    phone: '(626) 336-3000',
-    hoursEn: 'Sun–Thu: 10:00 AM – 12:00 AM | Fri–Sat: 10:00 AM – 2:00 AM',
-    hoursEs: 'Dom–Jue: 10:00 AM – 12:00 AM | Vie–Sáb: 10:00 AM – 2:00 AM',
-    toastOnlineUrl: 'https://order.online/store/tacos-gavilan-la-puente-963464',
-  },
-  {
-    id: '14',
-    name: 'Lynwood',
-    address: '3220 E. Imperial Hwy., Lynwood, CA 90262',
-    phone: '(424) 785-5535',
-    hoursEn: 'Sun–Wed: 10:00 AM – 1:00 AM | Thu: 10:00 AM – 2:00 AM | Fri–Sat: 10:00 AM – 3:00 AM',
-    hoursEs: 'Dom–Mié: 10:00 AM – 1:00 AM | Jue: 10:00 AM – 2:00 AM | Vie–Sáb: 10:00 AM – 3:00 AM',
-    toastOnlineUrl: 'https://order.online/store/tacos-gavilan-lynwood-727877',
-  },
-  {
     id: '12',
-    name: 'Norwalk',
-    address: '10968 Rosecrans Ave., Norwalk, CA 90650',
+    cityTitle: 'Norwalk',
+    crossStreets: 'Rosecrans & Studebaker',
+    name: 'Norwalk Rosecrans & Studebaker',
+    address: '10968 Rosecrans Ave, Norwalk, CA 90650',
     phone: '(562) 651-0045',
     hoursEn: 'Sun–Thu: 10:00 AM – 1:00 AM | Fri–Sat: 10:00 AM – 3:00 AM',
     hoursEs: 'Dom–Jue: 10:00 AM – 1:00 AM | Vie–Sáb: 10:00 AM – 3:00 AM',
     toastOnlineUrl: 'https://order.online/store/tacos-gavilan-norwalk-1327857',
   },
   {
-    id: '1',
-    name: 'Rialto',
-    address: '115 E. Baseline Rd., Rialto, CA 92376',
-    phone: '(909) 562-0430',
-    hoursEn: 'Sun–Thu: 10:00 AM – 12:00 AM | Fri–Sat: 10:00 AM – 2:00 AM',
-    hoursEs: 'Dom–Jue: 10:00 AM – 12:00 AM | Vie–Sáb: 10:00 AM – 2:00 AM',
-    toastOnlineUrl: 'https://order.online/store/tacos-gavilan-rialto-841931',
-  },
-  {
-    id: '9',
-    name: 'Santa Ana',
-    address: '1258 E. 17th St., Santa Ana, CA 92701',
-    phone: '(714) 480-0713',
-    hoursEn: 'Sun–Thu: 10:00 AM – 12:00 AM | Fri–Sat: 10:00 AM – 2:00 AM',
-    hoursEs: 'Dom–Jue: 10:00 AM – 12:00 AM | Vie–Sáb: 10:00 AM – 2:00 AM',
-    toastOnlineUrl: 'https://order.online/store/tacos-gavilan-santa-ana-724574',
-  },
-  {
     id: '7',
-    name: 'Slauson',
+    cityTitle: 'Los Angeles',
+    crossStreets: 'Slauson & Broadway',
+    name: 'Los Angeles Slauson & Broadway',
     address: '5833 S. Broadway, Los Angeles, CA 90003',
     phone: '(323) 615-0084',
     hoursEn: 'Sun–Thu: 10:00 AM – 1:00 AM | Fri–Sat: 10:00 AM – 3:00 AM',
@@ -152,22 +92,114 @@ const VERIFIED_15_BRANCHES: VerifiedBranchRow[] = [
     toastOnlineUrl: 'https://order.online/store/tacos-gavilan-slauson-broadway-23989119',
   },
   {
+    id: '1',
+    cityTitle: 'Rialto',
+    crossStreets: 'Baseline & Riverside',
+    name: 'Rialto Baseline & Riverside',
+    address: '115 E. Baseline Rd, Rialto, CA 92376',
+    phone: '(909) 562-0430',
+    hoursEn: 'Sun–Thu: 10:00 AM – 12:00 AM | Fri–Sat: 10:00 AM – 2:00 AM',
+    hoursEs: 'Dom–Jue: 10:00 AM – 12:00 AM | Vie–Sáb: 10:00 AM – 2:00 AM',
+    toastOnlineUrl: 'https://order.online/store/tacos-gavilan-rialto-841931',
+  },
+  {
+    id: '3',
+    cityTitle: 'West Covina',
+    crossStreets: '10 FWY & Azusa',
+    name: 'West Covina 10 FWY & Azusa',
+    address: '101 S. Azusa Ave, West Covina, CA 91791',
+    phone: '(626) 917-2662',
+    hoursEn: 'Sun–Thu: 10:00 AM – 1:00 AM | Fri–Sat: 10:00 AM – 3:00 AM',
+    hoursEs: 'Dom–Jue: 10:00 AM – 1:00 AM | Vie–Sáb: 10:00 AM – 3:00 AM',
+    toastOnlineUrl: 'https://order.online/store/tacos-gavilan-west-covina-725035',
+  },
+  {
     id: '15',
-    name: 'South Gate',
-    address: '5800 Firestone Blvd., South Gate, CA 90280',
+    cityTitle: 'South Gate',
+    crossStreets: 'Firestone & Garfield',
+    name: 'South Gate Firestone & Garfield',
+    address: '5800 Firestone Blvd, South Gate, CA 90280',
     phone: '(562) 806-1200',
     hoursEn: 'Sun–Thu: 10:00 AM – 12:00 AM | Fri–Sat: 10:00 AM – 3:00 AM',
     hoursEs: 'Dom–Jue: 10:00 AM – 12:00 AM | Vie–Sáb: 10:00 AM – 3:00 AM',
     toastOnlineUrl: 'https://order.online/store/tacos-gavilan-south-gate-846517',
   },
   {
-    id: '3',
-    name: 'West Covina',
-    address: '101 S. Azusa Ave., West Covina, CA 91791',
-    phone: '(626) 917-2662',
-    hoursEn: 'Sun–Thu: 10:00 AM – 1:00 AM | Fri–Sat: 10:00 AM – 3:00 AM',
-    hoursEs: 'Dom–Jue: 10:00 AM – 1:00 AM | Vie–Sáb: 10:00 AM – 3:00 AM',
-    toastOnlineUrl: 'https://order.online/store/tacos-gavilan-west-covina-725035',
+    id: '16',
+    cityTitle: 'Downey',
+    crossStreets: 'Florence & Paramount',
+    name: 'Downey Florence & Paramount',
+    address: '7947 E. Florence Ave, Downey, CA 90240',
+    phone: '(562) 927-7486',
+    hoursEn: 'Sun–Thu: 10:00 AM – 12:00 AM | Fri–Sat: 10:00 AM – 3:00 AM',
+    hoursEs: 'Dom–Jue: 10:00 AM – 12:00 AM | Vie–Sáb: 10:00 AM – 3:00 AM',
+    toastOnlineUrl: 'https://order.online/store/tacos-gavilan-downey-302620',
+  },
+  {
+    id: '8',
+    cityTitle: 'Hollywood',
+    crossStreets: 'Sunset & La Brea',
+    name: 'Hollywood Sunset & La Brea',
+    address: '7070 Sunset Blvd, Los Angeles, CA 90028',
+    phone: '(323) 963-7993',
+    hoursEn: 'Sun–Thu: 9:00 AM – 12:00 AM | Fri–Sat: 9:00 AM – 3:00 AM',
+    hoursEs: 'Dom–Jue: 9:00 AM – 12:00 AM | Vie–Sáb: 9:00 AM – 3:00 AM',
+    toastOnlineUrl: 'https://order.online/store/tacos-gavilan-los-angeles-551916',
+  },
+  {
+    id: '9',
+    cityTitle: 'Santa Ana',
+    crossStreets: '17th & Grand',
+    name: 'Santa Ana 17th & Grand',
+    address: '1258 E. 17th St, Santa Ana, CA 92701',
+    phone: '(714) 480-0713',
+    hoursEn: 'Sun–Thu: 10:00 AM – 12:00 AM | Fri–Sat: 10:00 AM – 2:00 AM',
+    hoursEs: 'Dom–Jue: 10:00 AM – 12:00 AM | Vie–Sáb: 10:00 AM – 2:00 AM',
+    toastOnlineUrl: 'https://order.online/store/tacos-gavilan-santa-ana-724574',
+  },
+  {
+    id: '11',
+    cityTitle: 'Huntington Park',
+    crossStreets: 'Florence & Santa Fe',
+    name: 'Huntington Park Florence & Santa Fe',
+    address: '2425 E. Florence Ave, Huntington Park, CA 90255',
+    phone: '(323) 581-7309',
+    hoursEn: 'Sun–Wed: 10:00 AM – 12:00 AM | Thu: 10:00 AM – 2:00 AM | Fri–Sat: 10:00 AM – 3:00 AM',
+    hoursEs: 'Dom–Mié: 10:00 AM – 12:00 AM | Jue: 10:00 AM – 2:00 AM | Vie–Sáb: 10:00 AM – 3:00 AM',
+    toastOnlineUrl: 'https://order.online/store/tacos-gavilan-huntington-park-260849',
+  },
+  {
+    id: '10',
+    cityTitle: 'La Puente',
+    crossStreets: '605 FWY & Valley',
+    name: 'La Puente 605 FWY & Valley',
+    address: '13009 Valley Blvd, La Puente, CA 91746',
+    phone: '(626) 336-3000',
+    hoursEn: 'Sun–Thu: 10:00 AM – 12:00 AM | Fri–Sat: 10:00 AM – 2:00 AM',
+    hoursEs: 'Dom–Jue: 10:00 AM – 12:00 AM | Vie–Sáb: 10:00 AM – 2:00 AM',
+    toastOnlineUrl: 'https://order.online/store/tacos-gavilan-la-puente-963464',
+  },
+  {
+    id: '4',
+    cityTitle: 'Azusa',
+    crossStreets: 'Azusa & Arrow',
+    name: 'Azusa Azusa & Arrow',
+    address: '887 S. Azusa Ave, Azusa, CA 91702',
+    phone: '(626) 969-1011',
+    hoursEn: 'Sun–Thu: 10:00 AM – 11:00 PM | Fri–Sat: 10:00 AM – 12:00 AM',
+    hoursEs: 'Dom–Jue: 10:00 AM – 11:00 PM | Vie–Sáb: 10:00 AM – 12:00 AM',
+    toastOnlineUrl: 'https://order.online/store/tacos-gavilan-azusa-718169',
+  },
+  {
+    id: '13',
+    cityTitle: 'Bell',
+    crossStreets: 'Florence & Atlantic',
+    name: 'Bell Florence & Atlantic',
+    address: '4406 E Florence Ave, Bell, CA 90201',
+    phone: '(323) 771-1722',
+    hoursEn: 'Sun–Thu: 10:00 AM – 12:00 AM | Fri–Sat: 10:00 AM – 2:00 AM',
+    hoursEs: 'Dom–Jue: 10:00 AM – 12:00 AM | Vie–Sáb: 10:00 AM – 2:00 AM',
+    toastOnlineUrl: 'https://order.online/store/tacos-gavilan-bell-260912',
   },
 ]
 
@@ -201,10 +233,15 @@ export default function MobileSupportPage(): React.JSX.Element {
                 className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm flex flex-col justify-between gap-4"
               >
                 <div>
-                  <div className="flex items-center justify-between gap-2 mb-2">
-                    <h3 className="text-base font-black text-slate-900">
-                      Tacos Gavilan — {branch.name}
-                    </h3>
+                  <div className="flex items-start justify-between gap-2 mb-2">
+                    <div>
+                      <h3 className="text-base font-black text-slate-900 leading-tight">
+                        {branch.cityTitle}
+                      </h3>
+                      <p className="text-xs font-extrabold text-amber-600 font-sans tracking-wide mt-0.5">
+                        {branch.crossStreets}
+                      </p>
+                    </div>
                     <span className="text-[11px] font-extrabold px-2.5 py-0.5 rounded-full bg-red-50 text-[#DA291C] border border-red-200">
                       #{branch.id}
                     </span>
