@@ -19,12 +19,12 @@
 'use client'
 
 import React, { useState } from 'react'
-import { Trash2, Smartphone, ShieldAlert, CheckCircle2, Phone } from 'lucide-react'
+import { Trash2, Smartphone, ShieldAlert, CheckCircle2, Phone, Mail } from 'lucide-react'
 import MobileLegalShell from '@/components/mobile-legal/MobileLegalShell'
 import { useLanguage } from '@/lib/i18n'
 
 export default function MobileDeleteAccountPage(): React.JSX.Element {
-  const { t } = useLanguage()
+  const { language, t } = useLanguage()
 
   const [phone, setPhone] = useState('')
   const [otpCode, setOtpCode] = useState('')
@@ -54,11 +54,17 @@ export default function MobileDeleteAccountPage(): React.JSX.Element {
     try {
       const res = await fetch('/api/mobile/auth/send-otp', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept-Language': language,
+        },
         body: JSON.stringify({ phone: cleanPhone }),
       })
       const data = await res.json()
       if (!res.ok) {
+        if (data.code === 'SMS_PROVIDER_UNAVAILABLE' || res.status === 503) {
+          throw new Error(t('mobile_legal.delete_err_sms_unavailable'))
+        }
         throw new Error(data.error || t('mobile_legal.delete_err_send_otp'))
       }
       setOtpSent(true)
@@ -87,7 +93,10 @@ export default function MobileDeleteAccountPage(): React.JSX.Element {
     try {
       const verifyRes = await fetch('/api/mobile/auth/verify-otp', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept-Language': language,
+        },
         body: JSON.stringify({ phone: cleanPhone, code: cleanOtp }),
       })
       const verifyData = await verifyRes.json()
@@ -142,9 +151,18 @@ export default function MobileDeleteAccountPage(): React.JSX.Element {
             <Trash2 size={20} />
             <h2>{t('mobile_legal.delete_web_title')}</h2>
           </div>
-          <p className="text-sm text-slate-700 leading-relaxed mb-5">
+          <p className="text-sm text-slate-700 leading-relaxed mb-3">
             {t('mobile_legal.delete_web_desc')}
           </p>
+          <div className="mb-5">
+            <a
+              href="mailto:support@tacosgavilan.com?subject=Account%20Deletion%20Request%20-%20Tacos%20Gavilan%20App"
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 border border-slate-300 text-xs font-extrabold text-[#DA291C] transition-colors"
+            >
+              <Mail size={14} />
+              <span>{t('mobile_legal.delete_email_cta')}</span>
+            </a>
+          </div>
 
           {deletedSuccess ? (
             <div className="p-5 rounded-2xl bg-emerald-50 border border-emerald-200 flex items-start gap-3">

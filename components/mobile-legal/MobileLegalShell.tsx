@@ -51,13 +51,13 @@ export default function MobileLegalShell({
       <header className="bg-[#50050a] text-white border-b-4 border-[#FDC82F] sticky top-0 z-30 shadow-md">
         <div className="max-w-5xl mx-auto px-4 sm:px-6 py-3.5 flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            <Link
-              href="/app"
+            <a
+              href="/app/index.html"
               className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/10 hover:bg-white/20 text-xs font-bold text-[#FDC82F] border border-[#FDC82F]/40 transition-colors"
             >
               <ArrowLeft size={14} />
               <span>{t('mobile_legal.back_to_app')}</span>
-            </Link>
+            </a>
             <div>
               <div className="text-base sm:text-lg font-black tracking-wide text-white">
                 {t('mobile_legal.brand_name')}

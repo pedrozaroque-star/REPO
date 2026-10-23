@@ -93,7 +93,12 @@ export async function DELETE(request: NextRequest): Promise<NextResponse> {
       })
       .eq('user_id', userId)
 
-    // 4. Purgar carritos y favoritos guardados
+    // 4. Purgar dispositivos, carritos y favoritos guardados
+    await supabaseAdmin
+      .from('app_devices')
+      .delete()
+      .eq('user_id', userId)
+
     await supabaseAdmin
       .from('app_carts')
       .delete()

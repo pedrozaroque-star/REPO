@@ -94,17 +94,32 @@ export async function OPTIONS(): Promise<NextResponse> {
 // =============================================================================
 export async function POST(request: Request): Promise<NextResponse> {
   const headers = corsHeaders()
+  const isEn = (request.headers.get('Accept-Language') || '').toLowerCase().startsWith('en')
   try {
     // -------------------------------------------------------------------------
     // 1. Parsear y validar el body
     // -------------------------------------------------------------------------
-    const body = (await request.json()) as { phone?: string; code?: string }
+    let body: { phone?: string; code?: string }
+    try {
+      body = (await request.json()) as { phone?: string; code?: string }
+    } catch {
+      return NextResponse.json<VerifyErrorResponse>(
+        {
+          ok: false,
+          error: isEn ? 'Invalid JSON request body.' : 'Cuerpo JSON de solicitud inválido.',
+        },
+        { status: 400, headers }
+      )
+    }
     const phone = normalizeUsPhone10(body.phone)
     const code = body.code?.trim()
 
     if (!phone || !code) {
       return NextResponse.json<VerifyErrorResponse>(
-        { ok: false, error: 'Teléfono y código son requeridos.' },
+        {
+          ok: false,
+          error: isEn ? 'Phone number and code are required.' : 'Teléfono y código son requeridos.',
+        },
         { status: 400, headers }
       )
     }
@@ -112,7 +127,12 @@ export async function POST(request: Request): Promise<NextResponse> {
     const phoneRegex = /^\d{10}$/
     if (!phoneRegex.test(phone)) {
       return NextResponse.json<VerifyErrorResponse>(
-        { ok: false, error: 'El teléfono debe tener exactamente 10 dígitos numéricos.' },
+        {
+          ok: false,
+          error: isEn
+            ? 'Phone number must be exactly 10 digits.'
+            : 'El teléfono debe tener exactamente 10 dígitos numéricos.',
+        },
         { status: 400, headers }
       )
     }
@@ -120,7 +140,10 @@ export async function POST(request: Request): Promise<NextResponse> {
     const codeRegex = /^\d{6}$/
     if (!codeRegex.test(code)) {
       return NextResponse.json<VerifyErrorResponse>(
-        { ok: false, error: 'El código debe tener 6 dígitos.' },
+        {
+          ok: false,
+          error: isEn ? 'Verification code must be 6 digits.' : 'El código debe tener 6 dígitos.',
+        },
         { status: 400, headers }
       )
     }
@@ -136,7 +159,12 @@ export async function POST(request: Request): Promise<NextResponse> {
     if (APP_REVIEW_TEST_PHONE_REGEX.test(phone)) {
       if (code !== APP_REVIEW_TEST_CODE) {
         return NextResponse.json<VerifyErrorResponse>(
-          { ok: false, error: 'Código inválido o expirado. Solicita uno nuevo.' },
+          {
+            ok: false,
+            error: isEn
+              ? 'Invalid or expired verification code. Please request a new one.'
+              : 'Código inválido o expirado. Solicita uno nuevo.',
+          },
           { status: 401, headers }
         )
       }
@@ -191,13 +219,23 @@ export async function POST(request: Request): Promise<NextResponse> {
           verifyError.message.includes('Token')
         ) {
           return NextResponse.json<VerifyErrorResponse>(
-            { ok: false, error: 'Código inválido o expirado. Solicita uno nuevo.' },
+            {
+              ok: false,
+              error: isEn
+                ? 'Invalid or expired verification code. Please request a new one.'
+                : 'Código inválido o expirado. Solicita uno nuevo.',
+            },
             { status: 401, headers }
           )
         }
 
         return NextResponse.json<VerifyErrorResponse>(
-          { ok: false, error: 'Error al verificar el código. Intenta de nuevo.' },
+          {
+            ok: false,
+            error: isEn
+              ? 'Error verifying code. Please try again.'
+              : 'Error al verificar el código. Intenta de nuevo.',
+          },
           { status: 500, headers }
         )
       }
@@ -220,11 +258,13 @@ export async function POST(request: Request): Promise<NextResponse> {
     // 3. Obtener o crear perfil en app_users
     // -------------------------------------------------------------------------
     let userProfile: AppUserProfile | null = null
+    const candidatePhones = [phone, `+1${phone}`, `1${phone}`]
 
     const { data: existingUser, error: fetchError } = await supabaseAdmin
       .from('app_users')
       .select('*')
-      .eq('phone', phone)
+      .in('phone', candidatePhones)
+      .limit(1)
       .maybeSingle()
 
     if (fetchError) {
@@ -235,16 +275,22 @@ export async function POST(request: Request): Promise<NextResponse> {
       userProfile = existingUser as AppUserProfile
 
       if (userProfile.id !== authUserId) {
-        await supabaseAdmin.from('app_rewards_balances').delete().eq('user_id', userProfile.id)
+        const legacyUserId = userProfile.id
+        await supabaseAdmin.from('app_devices').delete().eq('user_id', legacyUserId)
+        await supabaseAdmin.from('app_carts').delete().eq('user_id', legacyUserId)
+        await supabaseAdmin.from('app_favorite_orders').delete().eq('user_id', legacyUserId)
+        await supabaseAdmin.from('app_rewards_transactions').delete().eq('user_id', legacyUserId)
+        await supabaseAdmin.from('app_rewards_balances').delete().eq('user_id', legacyUserId)
         const { error: updateIdError } = await supabaseAdmin
           .from('app_users')
-          .update({ id: authUserId, updated_at: new Date().toISOString() })
-          .eq('phone', phone)
+          .update({ id: authUserId, phone, updated_at: new Date().toISOString() })
+          .eq('id', legacyUserId)
 
         if (updateIdError) {
           console.error('[MOBILE AUTH] Error al actualizar id de usuario:', updateIdError.message)
         } else {
           userProfile.id = authUserId
+          userProfile.phone = phone
         }
       }
     } else {

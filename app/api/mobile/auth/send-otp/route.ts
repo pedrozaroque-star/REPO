@@ -13,6 +13,7 @@
  *
  * @notes
  * - Usa `corsHeaders()` y `corsResponse()` de `@/app/api/mobile/_helpers` para soportar preflight `OPTIONS` (`HTTP 204`) con cabeceras móviles completas.
+ * - Responde en inglés o español según la cabecera `Accept-Language`.
  */
 
 import { NextResponse } from 'next/server'
@@ -36,13 +37,31 @@ export async function OPTIONS(): Promise<NextResponse> {
 
 export async function POST(request: Request): Promise<NextResponse> {
   const headers = corsHeaders()
+  const isEn = (request.headers.get('Accept-Language') || '').toLowerCase().startsWith('en')
   try {
-    const body = (await request.json()) as { phone?: string }
+    let body: { phone?: string }
+    try {
+      body = (await request.json()) as { phone?: string }
+    } catch {
+      return NextResponse.json(
+        {
+          ok: false,
+          code: 'VALIDATION_ERROR',
+          error: isEn ? 'Invalid JSON request body.' : 'Cuerpo JSON de solicitud inválido.',
+        },
+        { status: 400, headers }
+      )
+    }
+
     const phone = normalizeUsPhone10(body.phone)
 
     if (!phone) {
       return NextResponse.json(
-        { ok: false, error: 'El número de teléfono es requerido.' },
+        {
+          ok: false,
+          code: 'INVALID_PHONE',
+          error: isEn ? 'Phone number is required.' : 'El número de teléfono es requerido.',
+        },
         { status: 400, headers }
       )
     }
@@ -50,7 +69,13 @@ export async function POST(request: Request): Promise<NextResponse> {
     const phoneRegex = /^\d{10}$/
     if (!phoneRegex.test(phone)) {
       return NextResponse.json(
-        { ok: false, error: 'El teléfono debe tener exactamente 10 dígitos numéricos.' },
+        {
+          ok: false,
+          code: 'INVALID_PHONE',
+          error: isEn
+            ? 'Phone number must be exactly 10 digits.'
+            : 'El teléfono debe tener exactamente 10 dígitos numéricos.',
+        },
         { status: 400, headers }
       )
     }
@@ -58,7 +83,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     // Soporte determinístico para cuentas de revisión de Apple App Store / Google Play (rango reservado 555-01XX)
     if (APP_REVIEW_TEST_PHONE_REGEX.test(phone)) {
       return NextResponse.json(
-        { ok: true, success: true, message: 'Código enviado' },
+        { ok: true, success: true, message: isEn ? 'Verification code sent' : 'Código enviado' },
         { status: 200, headers }
       )
     }
@@ -74,7 +99,13 @@ export async function POST(request: Request): Promise<NextResponse> {
 
       if (otpError.message.includes('rate') || otpError.message.includes('limit')) {
         return NextResponse.json(
-          { ok: false, error: 'Demasiados intentos. Espera un momento antes de intentar de nuevo.' },
+          {
+            ok: false,
+            code: 'RATE_LIMITED',
+            error: isEn
+              ? 'Too many attempts. Please wait a moment before trying again.'
+              : 'Demasiados intentos. Espera un momento antes de intentar de nuevo.',
+          },
           { status: 429, headers }
         )
       }
@@ -84,21 +115,28 @@ export async function POST(request: Request): Promise<NextResponse> {
           {
             ok: false,
             code: 'SMS_PROVIDER_UNAVAILABLE',
-            error:
-              'El envío de SMS está en mantenimiento temporal. Puedes continuar como invitado para ordenar de inmediato.',
+            error: isEn
+              ? 'SMS delivery is temporarily under maintenance. You can continue as a guest to order immediately.'
+              : 'El envío de SMS está en mantenimiento temporal. Puedes continuar como invitado para ordenar de inmediato.',
           },
           { status: 503, headers }
         )
       }
 
       return NextResponse.json(
-        { ok: false, error: 'No se pudo enviar el código. Intenta de nuevo más tarde.' },
+        {
+          ok: false,
+          code: 'OTP_SEND_FAILED',
+          error: isEn
+            ? 'Could not send verification code. Please try again later.'
+            : 'No se pudo enviar el código. Intenta de nuevo más tarde.',
+        },
         { status: 500, headers }
       )
     }
 
     return NextResponse.json(
-      { ok: true, success: true, message: 'Código enviado' },
+      { ok: true, success: true, message: isEn ? 'Verification code sent' : 'Código enviado' },
       { status: 200, headers }
     )
   } catch (error: unknown) {
@@ -106,7 +144,11 @@ export async function POST(request: Request): Promise<NextResponse> {
     console.error('[MOBILE AUTH] Error inesperado en send-otp:', errorMessage)
 
     return NextResponse.json(
-      { ok: false, error: 'Error interno del servidor. Intenta de nuevo.' },
+      {
+        ok: false,
+        code: 'INTERNAL_ERROR',
+        error: isEn ? 'Internal server error. Please try again.' : 'Error interno del servidor. Intenta de nuevo.',
+      },
       { status: 500, headers }
     )
   }

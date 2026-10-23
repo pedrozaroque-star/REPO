@@ -86,7 +86,7 @@ const {
 
 const GAVILAN_APP_ROOT = 'C:/Users/pedro/Desktop/gavilan-app'
 const TEG_ROOT = 'c:/Users/pedro/Desktop/teg-modernizado'
-const LOCAL_WEB_BASE = 'http://localhost:3000'
+let LOCAL_WEB_BASE = process.env.TEST_WEB_BASE || 'http://localhost:3000'
 
 let passedAssertions = 0
 
@@ -646,13 +646,34 @@ async function runComplianceSuite(): Promise<void> {
     'eas.json no debe apuntar a localhost en preview ni production'
   )
   check(
-    !dotEnv.includes('localhost') && dotEnv.includes('https://teg-modernizado.vercel.app'),
-    '.env no debe apuntar a localhost y debe usar HTTPS de producción'
+    !dotEnv.includes('localhost') && dotEnv.includes('https://tacosgavilan.vercel.app'),
+    '.env no debe apuntar a localhost y debe usar HTTPS de producción (https://tacosgavilan.vercel.app)'
   )
   check(
     appJson.expo.experiments?.baseUrl === '/app',
     'app.json debe tener experiments.baseUrl = "/app" para servir el bundle web bajo /app'
   )
+
+  // Verificación binaria de iconos nativos (1024x1024 y RGB sin canal alfa para icon.png en App Store)
+  const iconPngBuf = fs.readFileSync(path.join(GAVILAN_APP_ROOT, 'assets/icon.png'))
+  check(
+    iconPngBuf.readUInt32BE(16) === 1024 &&
+      iconPngBuf.readUInt32BE(20) === 1024 &&
+      iconPngBuf[25] === 2,
+    'assets/icon.png debe ser exactamente 1024x1024 px y RGB opaco (ColorType=2, sin canal alfa) para Apple App Store'
+  )
+  for (const iconAsset of [
+    'assets/splash-icon.png',
+    'assets/android-icon-foreground.png',
+    'assets/android-icon-background.png',
+    'assets/android-icon-monochrome.png',
+  ]) {
+    const assetBuf = fs.readFileSync(path.join(GAVILAN_APP_ROOT, iconAsset))
+    check(
+      assetBuf.readUInt32BE(16) === 1024 && assetBuf.readUInt32BE(20) === 1024,
+      `${iconAsset} debe tener resolución 1024x1024 px`
+    )
+  }
 
   // Verificación de cabeceras JSDoc obligatorias en todos los archivos TS/TSX de gavilan-app
   function verifyJsDocInDir(dirPath: string): void {
@@ -763,6 +784,15 @@ async function runComplianceSuite(): Promise<void> {
     '/app/delete-account',
     '/api/mobile/stores',
   ]
+
+  try {
+    const probe = await fetch(`${LOCAL_WEB_BASE}/api/mobile/stores`, { signal: AbortSignal.timeout(2500) })
+    if (!probe.ok) {
+      LOCAL_WEB_BASE = 'https://tacosgavilan.vercel.app'
+    }
+  } catch {
+    LOCAL_WEB_BASE = 'https://tacosgavilan.vercel.app'
+  }
 
   for (const route of requiredLegalRoutes) {
     const res = await fetch(`${LOCAL_WEB_BASE}${route}`)

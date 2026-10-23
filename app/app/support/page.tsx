@@ -226,7 +226,8 @@ export default function MobileSupportPage(): React.JSX.Element {
         {/* 15 Verified Branches Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {VERIFIED_15_BRANCHES.map((branch) => {
-            const digits = branch.phone.replace(/[^\d+]/g, '')
+            const digits = branch.phone.replace(/\D/g, '')
+            const telHref = digits.length === 10 ? `tel:+1${digits}` : `tel:${digits}`
             return (
               <div
                 key={branch.id}
@@ -263,7 +264,7 @@ export default function MobileSupportPage(): React.JSX.Element {
 
                 <div className="flex flex-wrap items-center gap-2 pt-3 border-t border-slate-100">
                   <a
-                    href={`tel:${digits}`}
+                    href={telHref}
                     className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-extrabold transition-colors"
                   >
                     <PhoneCall size={13} />
