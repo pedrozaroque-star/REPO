@@ -71,18 +71,25 @@ function escapeHtml(str: any): string {
 
 function openCleanPrintWindow(title: string, bodyHtml: string, landscape = false): boolean {
     if (typeof window === 'undefined') return false
-    const printWin = window.open('', '_blank', 'width=1024,height=800,noopener,noreferrer')
-    if (!printWin) return false
 
+    const safeTitle = escapeHtml(title)
     const html = `<!DOCTYPE html>
 <html>
 <head>
 <meta charset="utf-8" />
-<title>${escapeHtml(title)}</title>
+<title>${safeTitle}</title>
 <style>
   @page {
     size: letter ${landscape ? 'landscape' : 'portrait'};
     margin: 0.4in;
+  }
+  @media print {
+    .no-print {
+      display: none !important;
+    }
+    body {
+      padding: 0 !important;
+    }
   }
   * {
     box-sizing: border-box;
@@ -91,12 +98,53 @@ function openCleanPrintWindow(title: string, bodyHtml: string, landscape = false
   }
   body {
     margin: 0;
-    padding: 0;
+    padding: 18px 24px;
     font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif;
     color: #0f172a;
     background: #ffffff;
     font-size: 11px;
     line-height: 1.4;
+  }
+  .no-print {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 10px 16px;
+    margin-bottom: 18px;
+    background: #0f172a;
+    color: #ffffff;
+    border-radius: 10px;
+  }
+  .no-print-title {
+    font-size: 12px;
+    font-weight: 700;
+    color: #e2e8f0;
+  }
+  .no-print-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .btn-print-pdf {
+    background: #059669;
+    color: #ffffff;
+    border: none;
+    padding: 7px 14px;
+    border-radius: 7px;
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+  }
+  .btn-close-win {
+    background: #334155;
+    color: #ffffff;
+    border: none;
+    padding: 7px 12px;
+    border-radius: 7px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
   }
   .doc-header {
     border-bottom: 2px solid #0f172a;
@@ -199,22 +247,60 @@ function openCleanPrintWindow(title: string, bodyHtml: string, landscape = false
 </style>
 </head>
 <body>
+<div class="no-print">
+  <div class="no-print-title">${safeTitle}</div>
+  <div class="no-print-actions">
+    <button type="button" class="btn-print-pdf" onclick="window.focus(); window.print();">🖨️ Imprimir / Guardar como PDF</button>
+    <button type="button" class="btn-close-win" onclick="window.close();">✕ Cerrar</button>
+  </div>
+</div>
 ${bodyHtml}
 <script>
-  window.onload = function() {
-    setTimeout(function() {
+  setTimeout(function() {
+    try {
       window.focus();
       window.print();
-    }, 180);
-  };
+    } catch (e) {}
+  }, 250);
 </script>
 </body>
 </html>`
 
-    printWin.document.open()
-    printWin.document.write(html)
-    printWin.document.close()
-    return true
+    // IMPORTANT: Never include 'noopener' or 'noreferrer' here because HTML5 spec forces window.open() to return null!
+    const printWin = window.open('', '_blank', 'width=1060,height=840')
+    if (printWin && printWin.document) {
+        printWin.document.open()
+        printWin.document.write(html)
+        printWin.document.close()
+        return true
+    }
+
+    // Fallback: In-page hidden iframe print (works even if popup blocker is active on desktop or mobile)
+    try {
+        const existing = document.getElementById('teg-accounting-print-iframe') as HTMLIFrameElement | null
+        if (existing) existing.remove()
+        const iframe = document.createElement('iframe')
+        iframe.id = 'teg-accounting-print-iframe'
+        iframe.style.position = 'fixed'
+        iframe.style.right = '0'
+        iframe.style.bottom = '0'
+        iframe.style.width = '0'
+        iframe.style.height = '0'
+        iframe.style.border = '0'
+        document.body.appendChild(iframe)
+        const doc = iframe.contentWindow?.document
+        if (!doc) return false
+        doc.open()
+        doc.write(html)
+        doc.close()
+        setTimeout(() => {
+            iframe.contentWindow?.focus()
+            iframe.contentWindow?.print()
+        }, 250)
+        return true
+    } catch {
+        return false
+    }
 }
 
 function formatCurrency(val: number | string | null | undefined): string {
@@ -325,6 +411,7 @@ function ExternalAccountingContent() {
     // Top QBO Mega-Menus (+ Create & Gear Icon ⚙️)
     const [createMenuOpen, setCreateMenuOpen] = useState<boolean>(false)
     const [gearMenuOpen, setGearMenuOpen] = useState<boolean>(false)
+    const [showCompanyGrid, setShowCompanyGrid] = useState<boolean>(true)
 
     // Data state
     const [companies, setCompanies] = useState<any[]>([])
@@ -483,6 +570,17 @@ function ExternalAccountingContent() {
     // Sub-filters for Accounts & Contacts tabs
     const [accountSearch, setAccountSearch] = useState<string>('')
     const [contactSearch, setContactSearch] = useState<string>('')
+
+    // QBO Official Bank Register: Two-Line View toggle & Inline Quick-Add Row state
+    const [registerTwoLineView, setRegisterTwoLineView] = useState<boolean>(true)
+    const [inlineRegType, setInlineRegType] = useState<'Check' | 'Deposit' | 'Expense'>('Check')
+    const [inlineRegDate, setInlineRegDate] = useState<string>(() => new Date().toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' }))
+    const [inlineRegDocNum, setInlineRegDocNum] = useState<string>('')
+    const [inlineRegPayee, setInlineRegPayee] = useState<string>('')
+    const [inlineRegBankId, setInlineRegBankId] = useState<string>('')
+    const [inlineRegGlId, setInlineRegGlId] = useState<string>('')
+    const [inlineRegMemo, setInlineRegMemo] = useState<string>('')
+    const [inlineRegAmount, setInlineRegAmount] = useState<string>('')
 
     // Transaction Modal State
     const [modalMode, setModalMode] = useState<ModalMode>(null)
@@ -1020,6 +1118,71 @@ function ExternalAccountingContent() {
 
             notify('ok', t('external_accounting.saved_successfully'))
             setModalMode(null)
+            await fetchWorkspaceData()
+        } catch (err: any) {
+            notify('err', err.message || 'Error')
+        } finally {
+            setSaving(false)
+        }
+    }
+
+    const handleSaveInlineRegister = async (e: React.FormEvent) => {
+        e.preventDefault()
+        const amt = Number(inlineRegAmount || 0)
+        if (!amt || amt <= 0) return
+        setSaving(true)
+        try {
+            const effectiveBankQbId =
+                (filterAccountId !== 'ALL' && bankAndCardAccounts.some(b => b.qb_account_id === filterAccountId))
+                    ? filterAccountId
+                    : (inlineRegBankId || bankAndCardAccounts[0]?.qb_account_id || accounts[0]?.qb_account_id || '')
+            const bankObj = accounts.find(a => a.qb_account_id === effectiveBankQbId)
+
+            const defaultGl = inlineRegType === 'Deposit'
+                ? accounts.find(a => a.classification === 'Revenue' || a.account_type === 'Income')
+                : accounts.find(a => a.classification === 'Expense' || a.account_type === 'Expense')
+            const glObj = accounts.find(a => a.qb_account_id === inlineRegGlId) || defaultGl || accounts[0]
+            const matchedContact = contacts.find(c => (c.display_name || '').toLowerCase() === inlineRegPayee.trim().toLowerCase())
+
+            const docNo = inlineRegDocNum.trim() || (inlineRegType === 'Check' ? (nextCheckNumberByBank[effectiveBankQbId] || '1001') : '')
+
+            const res = await authFetch('/api/external-accounting', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    action: 'save_transaction',
+                    realmId: activeRealmId,
+                    txn_type: inlineRegType,
+                    txn_date: inlineRegDate,
+                    doc_number: docNo,
+                    account_qb_id: bankObj?.qb_account_id || effectiveBankQbId,
+                    account_name: bankObj?.name || '',
+                    to_account_qb_id: glObj?.qb_account_id || '',
+                    to_account_name: glObj?.name || '',
+                    entity_qb_id: matchedContact?.qb_contact_id || null,
+                    entity_name: inlineRegPayee.trim(),
+                    memo: inlineRegMemo.trim(),
+                    print_status: 'NotSet',
+                    total_amount: amt,
+                    line_items: [{
+                        account_qb_id: glObj?.qb_account_id || '',
+                        account_name: glObj?.name || '',
+                        description: inlineRegMemo.trim(),
+                        amount: amt,
+                        posting_type: inlineRegType === 'Deposit' ? 'Credit' : 'Debit',
+                        entity_name: inlineRegPayee.trim(),
+                    }],
+                    created_by: user?.name || user?.email || 'Raquel Velazquez',
+                })
+            })
+            const json = await res.json()
+            if (!res.ok) throw new Error(json.error || 'Error saving register entry')
+
+            setInlineRegPayee('')
+            setInlineRegMemo('')
+            setInlineRegAmount('')
+            setInlineRegDocNum('')
+            notify('ok', t('external_accounting.saved_successfully'))
             await fetchWorkspaceData()
         } catch (err: any) {
             notify('err', err.message || 'Error')
@@ -2833,29 +2996,21 @@ function ExternalAccountingContent() {
                 </div>
             )}
 
-            {/* Top Executive Header */}
-            <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 shadow-xs">
-                <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
-                    <div>
-                        <div className="inline-flex items-center gap-2 px-2.5 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-700 dark:text-emerald-300 text-[11px] font-black tracking-wider uppercase mb-2">
-                            <Landmark size={13} />
-                            <span>{t('external_accounting.badge_raquel')}</span>
-                        </div>
-                        <h1 className="text-2xl md:text-3xl font-black tracking-tight text-slate-900 dark:text-white">
-                            {t('external_accounting.title')}
-                        </h1>
-                        <p className="text-xs md:text-sm text-slate-500 dark:text-slate-400 mt-1">
-                            {t('external_accounting.subtitle')}
-                        </p>
-                    </div>
-
-                    {/* Active Company Selector + Refresh */}
+            {/* ====================================================================
+                BARRA SUPERIOR UNIFICADA Y MINIMALISTA (CERO RUIDO VISUAL)
+               ==================================================================== */}
+            <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs">
+                {/* Fila Superior: Selector de Empresa + Acciones Maestras (+ Crear y ⚙️) */}
+                <div className="px-6 pt-5 pb-4 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
                     <div className="flex flex-wrap items-center gap-3">
-                        <div className="flex flex-col">
-                            <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">
-                                {t('external_accounting.company_selector')}
-                            </label>
-                            <div className="flex items-center gap-2">
+                        <div className="w-10 h-10 rounded-xl bg-slate-900 dark:bg-slate-800 text-white flex items-center justify-center shrink-0">
+                            <Landmark size={18} />
+                        </div>
+                        <div>
+                            <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+                                {t('external_accounting.title')} · {companies.length} {t('external_accounting.companies_count_label')}
+                            </div>
+                            <div className="flex items-center gap-2 mt-0.5">
                                 <select
                                     value={activeRealmId}
                                     onChange={(e) => {
@@ -2864,60 +3019,203 @@ function ExternalAccountingContent() {
                                         setPage(1)
                                         setCheckbookPage(1)
                                     }}
-                                    className="px-3.5 py-2.5 rounded-xl border border-emerald-500/40 bg-emerald-50/50 dark:bg-emerald-950/30 text-slate-900 dark:text-white font-bold text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                                    className="text-xl md:text-2xl font-black tracking-tight text-slate-900 dark:text-white bg-transparent pr-2 focus:outline-none cursor-pointer"
                                 >
                                     {companies.map(c => (
-                                        <option key={c.realm_id} value={c.realm_id} className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">
-                                            {c.company_name} ({formatCurrency(c.total_cash_balance ?? c.overview?.totalBankBalance ?? 0)})
+                                        <option key={c.realm_id} value={c.realm_id} className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white text-base font-bold">
+                                            {c.company_name}
                                         </option>
                                     ))}
                                 </select>
-                                <button
-                                    type="button"
-                                    onClick={fetchWorkspaceData}
-                                    title={t('external_accounting.refresh')}
-                                    className="p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition-colors cursor-pointer"
-                                >
-                                    <RefreshCw size={17} className={loading ? 'animate-spin text-emerald-500' : ''} />
-                                </button>
-                                {/* QBO Top-Left "+ Create" Mega-Menu Button */}
-                                <button
-                                    type="button"
-                                    onClick={() => {
-                                        setCreateMenuOpen(v => !v)
-                                        setGearMenuOpen(false)
-                                    }}
-                                    className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs shadow-sm transition-all cursor-pointer"
-                                >
-                                    <span>{t('external_accounting.create_menu_btn')}</span>
-                                </button>
-                                {/* QBO Top-Right Gear Icon "⚙️" Settings & Tools Button */}
-                                <button
-                                    type="button"
-                                    onClick={() => {
-                                        setGearMenuOpen(v => !v)
-                                        setCreateMenuOpen(false)
-                                    }}
-                                    className={`inline-flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl border font-bold text-xs transition-all cursor-pointer ${
-                                        gearMenuOpen
-                                            ? 'border-emerald-500 bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
-                                            : 'border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200'
-                                    }`}
-                                >
-                                    <Settings size={16} />
-                                    <span>{t('external_accounting.gear_menu_btn')}</span>
-                                </button>
                             </div>
                         </div>
                     </div>
+
+                    {/* Controles Maestros a la Derecha: Filtro de Periodo Compacto + "+ Crear" + "⚙️" */}
+                    <div className="flex flex-wrap items-center gap-2">
+                        {/* Selector compacto de periodo */}
+                        <div className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-xs">
+                            <Calendar size={13} className="text-slate-400" />
+                            <select
+                                value={filterPeriod}
+                                onChange={(e) => handlePeriodPreset(e.target.value)}
+                                className="bg-transparent text-slate-700 dark:text-slate-200 font-semibold focus:outline-none cursor-pointer"
+                            >
+                                <option value="ALL">{t('external_accounting.period_all_dates')}</option>
+                                <option value="TODAY">{t('external_accounting.period_today')}</option>
+                                <option value="THIS_MONTH">{t('external_accounting.period_this_month')}</option>
+                                <option value="LAST_MONTH">{t('external_accounting.period_last_month')}</option>
+                                <option value="THIS_QUARTER">{t('external_accounting.period_this_quarter')}</option>
+                                <option value="THIS_YEAR">{t('external_accounting.period_this_year')}</option>
+                                <option value="LAST_YEAR">{t('external_accounting.period_last_year')}</option>
+                                <option value="2024">{t('external_accounting.period_year_2024')}</option>
+                                <option value="2023">{t('external_accounting.period_year_2023')}</option>
+                                <option value="2022">{t('external_accounting.period_year_2022')}</option>
+                                <option value="CUSTOM">{t('external_accounting.period_custom')}</option>
+                            </select>
+                        </div>
+
+                        {filterPeriod === 'CUSTOM' && (
+                            <div className="inline-flex items-center gap-1 text-xs">
+                                <input
+                                    type="date"
+                                    value={startDate}
+                                    onChange={(e) => {
+                                        setStartDate(e.target.value)
+                                        setPage(1)
+                                        setCheckbookPage(1)
+                                    }}
+                                    className="px-2 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 font-mono"
+                                />
+                                <span className="text-slate-400">–</span>
+                                <input
+                                    type="date"
+                                    value={endDate}
+                                    onChange={(e) => {
+                                        setEndDate(e.target.value)
+                                        setPage(1)
+                                        setCheckbookPage(1)
+                                    }}
+                                    className="px-2 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 font-mono"
+                                />
+                            </div>
+                        )}
+
+                        <button
+                            type="button"
+                            onClick={() => openTransactionModal('Check')}
+                            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 text-slate-700 dark:text-slate-200 font-semibold text-xs transition-colors cursor-pointer"
+                        >
+                            <span>{t('external_accounting.btn_quick_check')}</span>
+                        </button>
+
+                        <button
+                            type="button"
+                            onClick={() => openTransactionModal('Deposit')}
+                            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 text-slate-700 dark:text-slate-200 font-semibold text-xs transition-colors cursor-pointer"
+                        >
+                            <span>{t('external_accounting.btn_quick_deposit')}</span>
+                        </button>
+
+                        {/* Botón Principal QBO "+ Crear" */}
+                        <button
+                            type="button"
+                            onClick={() => {
+                                setCreateMenuOpen(v => !v)
+                                setGearMenuOpen(false)
+                            }}
+                            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-xs transition-all cursor-pointer"
+                        >
+                            <Plus size={15} />
+                            <span>{t('external_accounting.create_menu_btn').replace(/^\+\s*/, '')}</span>
+                        </button>
+
+                        {/* Engrane "⚙️" */}
+                        <button
+                            type="button"
+                            onClick={() => {
+                                setGearMenuOpen(v => !v)
+                                setCreateMenuOpen(false)
+                            }}
+                            title={t('external_accounting.gear_menu_btn')}
+                            className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border text-xs font-semibold transition-all cursor-pointer ${
+                                gearMenuOpen
+                                    ? 'border-slate-900 bg-slate-900 text-white dark:border-white dark:bg-white dark:text-slate-900'
+                                    : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 text-slate-700 dark:text-slate-200'
+                            }`}
+                        >
+                            <Settings size={15} />
+                            <span className="hidden sm:inline"> {t('external_accounting.btn_settings_short')}</span>
+                        </button>
+
+                        <button
+                            type="button"
+                            onClick={fetchWorkspaceData}
+                            title={t('external_accounting.refresh')}
+                            className="p-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 text-slate-500 transition-colors cursor-pointer"
+                        >
+                            <RefreshCw size={15} className={loading ? 'animate-spin text-emerald-600' : ''} />
+                        </button>
+                    </div>
                 </div>
 
-                {/* QBO "+ CREATE" 4-COLUMN MEGA-MENU PANEL */}
+                {/* Pestañas Horizontales Limpias (Estilo Editorial Subrayado — Sin Cajas Pesadas) */}
+                <div className="px-6 border-t border-slate-100 dark:border-slate-800/80 flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex flex-wrap items-center gap-1 -mb-px">
+                        {([
+                            { id: 'overview' as ActiveTab, label: t('external_accounting.tab_overview_clean') },
+                            { id: 'transactions' as ActiveTab, label: `${t('external_accounting.tab_transactions_clean')} (${(summary.totalRecords || 0).toLocaleString()})` },
+                            { id: 'checks_deposits' as ActiveTab, label: t('external_accounting.tab_checkbook_clean') },
+                            { id: 'reports' as ActiveTab, label: t('external_accounting.tab_reports_clean') },
+                            { id: 'reconcile' as ActiveTab, label: t('external_accounting.tab_reconcile_clean') },
+                            { id: 'accounts' as ActiveTab, label: `${t('external_accounting.tab_accounts_clean')} (${accounts.length})` },
+                            { id: 'contacts' as ActiveTab, label: `${t('external_accounting.tab_contacts_clean')} (${contacts.length})` },
+                        ]).map(tab => {
+                            const isAct = activeTab === tab.id
+                            return (
+                                <button
+                                    key={tab.id}
+                                    type="button"
+                                    onClick={() => {
+                                        if (tab.id === 'reconcile' && !reconcileAccountId && bankAndCardAccounts[0]) {
+                                            handleAutoSelectReconcileAccount(bankAndCardAccounts[0].qb_account_id)
+                                        }
+                                        setActiveTab(tab.id)
+                                    }}
+                                    className={`px-3.5 py-3 text-xs font-bold border-b-2 transition-colors cursor-pointer whitespace-nowrap ${
+                                        isAct
+                                            ? 'border-emerald-600 text-emerald-700 dark:text-emerald-400'
+                                            : 'border-transparent text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white'
+                                    }`}
+                                >
+                                    {tab.label}
+                                </button>
+                            )
+                        })}
+
+                        {/* Si una herramienta avanzada del engrane está activa, mostrar su pestaña activa */}
+                        {['recurring', 'lists', 'reclassify', 'rules', 'budgeting', 'audit_log', 'company_settings'].includes(activeTab) && (
+                            <span className="px-3.5 py-3 text-xs font-bold border-b-2 border-emerald-600 text-emerald-700 dark:text-emerald-400">
+                                ⚙️ {activeTab === 'recurring' ? t('external_accounting.tab_recurring') : activeTab === 'lists' ? t('external_accounting.tab_lists') : activeTab === 'reclassify' ? t('external_accounting.tab_reclassify') : activeTab === 'rules' ? t('external_accounting.tab_rules') : activeTab === 'budgeting' ? t('external_accounting.tab_budgeting') : activeTab === 'audit_log' ? t('external_accounting.tab_audit_log') : t('external_accounting.tab_company_settings')}
+                            </span>
+                        )}
+                    </div>
+
+                    {/* Acciones discretas de Exportar / Imprimir a la derecha de las pestañas */}
+                    <div className="flex items-center gap-3 py-2 text-xs">
+                        <button
+                            type="button"
+                            onClick={exportTransactionsCsv}
+                            className="inline-flex items-center gap-1 text-slate-500 hover:text-slate-900 dark:hover:text-white font-semibold cursor-pointer"
+                        >
+                            <Download size={13} />
+                            <span>{t('external_accounting.export_csv_short')}</span>
+                        </button>
+                        <span className="text-slate-300 dark:text-slate-700">|</span>
+                        <button
+                            type="button"
+                            onClick={() => {
+                                if (activeTab === 'reports') handlePrintActiveReport()
+                                else if (activeTab === 'checks_deposits') handlePrintCheckbookList()
+                                else if (activeTab === 'reconcile') handlePrintReconciliationReport()
+                                else if (activeTab === 'budgeting') handlePrintBudgetReport()
+                                else if (activeTab === 'audit_log') handlePrintAuditLog()
+                                else handlePrintLedger()
+                            }}
+                            className="inline-flex items-center gap-1 text-slate-500 hover:text-slate-900 dark:hover:text-white font-semibold cursor-pointer"
+                        >
+                            <Printer size={13} />
+                            <span>{t('external_accounting.print_pdf_short')}</span>
+                        </button>
+                    </div>
+                </div>
+
+                {/* QBO "+ CREATE" 4-COLUMN MEGA-MENU PANEL (Sober QBO Style) */}
                 {createMenuOpen && (
-                    <div className="mt-4 p-5 rounded-2xl border-2 border-emerald-500/40 bg-slate-50 dark:bg-slate-950 shadow-xl grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 text-xs">
+                    <div className="p-6 border-t border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 text-xs">
                         {/* Column 1: Sales / Customers */}
-                        <div className="space-y-1.5">
-                            <div className="font-black uppercase tracking-wider text-emerald-600 dark:text-emerald-400 border-b border-slate-200 dark:border-slate-800 pb-1.5 mb-2">
+                        <div className="space-y-1">
+                            <div className="font-black uppercase tracking-wider text-slate-900 dark:text-white border-b border-slate-200 dark:border-slate-800 pb-2 mb-2">
                                 {t('external_accounting.create_col_sales')}
                             </div>
                             {[
@@ -2932,7 +3230,7 @@ function ExternalAccountingContent() {
                                     key={item.mode}
                                     type="button"
                                     onClick={() => openTransactionModal(item.mode)}
-                                    className="w-full text-left px-2.5 py-1.5 rounded-lg hover:bg-emerald-500/10 hover:text-emerald-600 dark:hover:text-emerald-400 font-semibold transition-colors cursor-pointer"
+                                    className="w-full text-left px-2.5 py-1.5 rounded-lg text-slate-700 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-800 font-medium transition-colors cursor-pointer"
                                 >
                                     {item.label}
                                 </button>
@@ -2950,15 +3248,15 @@ function ExternalAccountingContent() {
                                     setConForm1099(false)
                                     setContactModalOpen(true)
                                 }}
-                                className="w-full text-left px-2.5 py-1.5 rounded-lg bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 font-bold hover:bg-emerald-500/20 transition-colors cursor-pointer"
+                                className="w-full text-left px-2.5 py-1.5 rounded-lg text-slate-700 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-800 font-semibold transition-colors cursor-pointer"
                             >
                                 {t('external_accounting.create_new_customer')}
                             </button>
                         </div>
 
                         {/* Column 2: Vendors */}
-                        <div className="space-y-1.5">
-                            <div className="font-black uppercase tracking-wider text-amber-600 dark:text-amber-400 border-b border-slate-200 dark:border-slate-800 pb-1.5 mb-2">
+                        <div className="space-y-1">
+                            <div className="font-black uppercase tracking-wider text-slate-900 dark:text-white border-b border-slate-200 dark:border-slate-800 pb-2 mb-2">
                                 {t('external_accounting.create_col_vendors')}
                             </div>
                             {[
@@ -2974,7 +3272,7 @@ function ExternalAccountingContent() {
                                     key={item.mode}
                                     type="button"
                                     onClick={() => openTransactionModal(item.mode)}
-                                    className="w-full text-left px-2.5 py-1.5 rounded-lg hover:bg-amber-500/10 hover:text-amber-600 dark:hover:text-amber-400 font-semibold transition-colors cursor-pointer"
+                                    className="w-full text-left px-2.5 py-1.5 rounded-lg text-slate-700 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-800 font-medium transition-colors cursor-pointer"
                                 >
                                     {item.label}
                                 </button>
@@ -2982,7 +3280,7 @@ function ExternalAccountingContent() {
                             <button
                                 type="button"
                                 onClick={openPrintChecksModal}
-                                className="w-full text-left px-2.5 py-1.5 rounded-lg bg-amber-500/10 text-amber-700 dark:text-amber-300 font-bold hover:bg-amber-500/20 transition-colors cursor-pointer flex items-center gap-1.5"
+                                className="w-full text-left px-2.5 py-1.5 rounded-lg text-slate-700 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-800 font-semibold transition-colors cursor-pointer flex items-center gap-1.5"
                             >
                                 <Printer size={13} />
                                 <span>{t('external_accounting.create_print_checks')}</span>
@@ -3000,15 +3298,15 @@ function ExternalAccountingContent() {
                                     setConForm1099(false)
                                     setContactModalOpen(true)
                                 }}
-                                className="w-full text-left px-2.5 py-1.5 rounded-lg bg-amber-500/10 text-amber-700 dark:text-amber-300 font-bold hover:bg-amber-500/20 transition-colors cursor-pointer"
+                                className="w-full text-left px-2.5 py-1.5 rounded-lg text-slate-700 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-800 font-semibold transition-colors cursor-pointer"
                             >
                                 {t('external_accounting.create_new_vendor')}
                             </button>
                         </div>
 
                         {/* Column 3: Team */}
-                        <div className="space-y-1.5">
-                            <div className="font-black uppercase tracking-wider text-blue-600 dark:text-blue-400 border-b border-slate-200 dark:border-slate-800 pb-1.5 mb-2">
+                        <div className="space-y-1">
+                            <div className="font-black uppercase tracking-wider text-slate-900 dark:text-white border-b border-slate-200 dark:border-slate-800 pb-2 mb-2">
                                 {t('external_accounting.create_col_team')}
                             </div>
                             <button
@@ -3024,7 +3322,7 @@ function ExternalAccountingContent() {
                                     setConForm1099(true)
                                     setContactModalOpen(true)
                                 }}
-                                className="w-full text-left px-2.5 py-1.5 rounded-lg bg-blue-500/10 text-blue-700 dark:text-blue-300 font-bold hover:bg-blue-500/20 transition-colors cursor-pointer"
+                                className="w-full text-left px-2.5 py-1.5 rounded-lg text-slate-700 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-800 font-medium transition-colors cursor-pointer"
                             >
                                 {t('external_accounting.create_contractor_1099')}
                             </button>
@@ -3041,7 +3339,7 @@ function ExternalAccountingContent() {
                                     setConForm1099(false)
                                     setContactModalOpen(true)
                                 }}
-                                className="w-full text-left px-2.5 py-1.5 rounded-lg hover:bg-blue-500/10 font-semibold transition-colors cursor-pointer"
+                                className="w-full text-left px-2.5 py-1.5 rounded-lg text-slate-700 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-800 font-medium transition-colors cursor-pointer"
                             >
                                 {t('external_accounting.create_new_employee')}
                             </button>
@@ -3051,7 +3349,7 @@ function ExternalAccountingContent() {
                                     setCreateMenuOpen(false)
                                     setActiveTab('contacts')
                                 }}
-                                className="w-full text-left px-2.5 py-1.5 rounded-lg hover:bg-blue-500/10 font-semibold transition-colors cursor-pointer"
+                                className="w-full text-left px-2.5 py-1.5 rounded-lg text-slate-700 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-800 font-medium transition-colors cursor-pointer"
                             >
                                 {t('external_accounting.tab_contacts')} ({contacts.length})
                             </button>
@@ -3061,49 +3359,49 @@ function ExternalAccountingContent() {
                                     setCreateMenuOpen(false)
                                     setActiveTab('recurring')
                                 }}
-                                className="w-full text-left px-2.5 py-1.5 rounded-lg hover:bg-blue-500/10 font-semibold transition-colors cursor-pointer"
+                                className="w-full text-left px-2.5 py-1.5 rounded-lg text-slate-700 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-800 font-medium transition-colors cursor-pointer"
                             >
                                 {t('external_accounting.tab_recurring')} ({recurring.length})
                             </button>
                         </div>
 
                         {/* Column 4: Other */}
-                        <div className="space-y-1.5">
-                            <div className="font-black uppercase tracking-wider text-purple-600 dark:text-purple-400 border-b border-slate-200 dark:border-slate-800 pb-1.5 mb-2">
+                        <div className="space-y-1">
+                            <div className="font-black uppercase tracking-wider text-slate-900 dark:text-white border-b border-slate-200 dark:border-slate-800 pb-2 mb-2">
                                 {t('external_accounting.create_col_other')}
                             </div>
                             <button
                                 type="button"
                                 onClick={() => openTransactionModal('Deposit')}
-                                className="w-full text-left px-2.5 py-1.5 rounded-lg hover:bg-purple-500/10 font-semibold transition-colors cursor-pointer"
+                                className="w-full text-left px-2.5 py-1.5 rounded-lg text-slate-700 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-800 font-medium transition-colors cursor-pointer"
                             >
                                 {t('external_accounting.btn_new_deposit')}
                             </button>
                             <button
                                 type="button"
                                 onClick={() => openTransactionModal('Transfer')}
-                                className="w-full text-left px-2.5 py-1.5 rounded-lg hover:bg-purple-500/10 font-semibold transition-colors cursor-pointer"
+                                className="w-full text-left px-2.5 py-1.5 rounded-lg text-slate-700 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-800 font-medium transition-colors cursor-pointer"
                             >
                                 {t('external_accounting.btn_new_transfer')}
                             </button>
                             <button
                                 type="button"
                                 onClick={() => openTransactionModal('JournalEntry')}
-                                className="w-full text-left px-2.5 py-1.5 rounded-lg hover:bg-purple-500/10 font-semibold transition-colors cursor-pointer"
+                                className="w-full text-left px-2.5 py-1.5 rounded-lg text-slate-700 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-800 font-medium transition-colors cursor-pointer"
                             >
                                 {t('external_accounting.btn_new_journal')}
                             </button>
                             <button
                                 type="button"
                                 onClick={() => openTransactionModal('PayDownCreditCard')}
-                                className="w-full text-left px-2.5 py-1.5 rounded-lg hover:bg-purple-500/10 font-semibold transition-colors cursor-pointer"
+                                className="w-full text-left px-2.5 py-1.5 rounded-lg text-slate-700 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-800 font-medium transition-colors cursor-pointer"
                             >
                                 {t('external_accounting.create_pay_down_cc')}
                             </button>
                             <button
                                 type="button"
                                 onClick={openBatchModal}
-                                className="w-full text-left px-2.5 py-1.5 rounded-lg bg-purple-500/10 text-purple-700 dark:text-purple-300 font-bold hover:bg-purple-500/20 transition-colors cursor-pointer flex items-center gap-1.5"
+                                className="w-full text-left px-2.5 py-1.5 rounded-lg text-slate-700 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-800 font-semibold transition-colors cursor-pointer flex items-center gap-1.5"
                             >
                                 <Layers size={13} />
                                 <span>{t('external_accounting.create_batch_transactions')}</span>
@@ -3121,7 +3419,7 @@ function ExternalAccountingContent() {
                                     setListItemAccountId(accounts.find(a => a.classification === 'Revenue' || a.account_type === 'Income')?.qb_account_id || accounts[0]?.qb_account_id || '')
                                     setListItemModalOpen(true)
                                 }}
-                                className="w-full text-left px-2.5 py-1.5 rounded-lg bg-purple-500/10 text-purple-700 dark:text-purple-300 font-bold hover:bg-purple-500/20 transition-colors cursor-pointer"
+                                className="w-full text-left px-2.5 py-1.5 rounded-lg text-slate-700 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-800 font-semibold transition-colors cursor-pointer"
                             >
                                 + {t('external_accounting.create_product_service')}
                             </button>
@@ -3129,12 +3427,12 @@ function ExternalAccountingContent() {
                     </div>
                 )}
 
-                {/* QBO GEAR ICON "⚙️" 4-COLUMN MEGA-MENU PANEL (Settings, Lists, Tools, Profile) */}
+                {/* QBO GEAR ICON "⚙️" 4-COLUMN MEGA-MENU PANEL */}
                 {gearMenuOpen && (
-                    <div className="mt-4 p-5 rounded-2xl border-2 border-blue-500/40 bg-slate-50 dark:bg-slate-950 shadow-xl grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 text-xs">
+                    <div className="p-6 border-t border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 text-xs">
                         {/* Column 1: Settings */}
-                        <div className="space-y-1.5">
-                            <div className="font-black uppercase tracking-wider text-slate-700 dark:text-slate-200 border-b border-slate-200 dark:border-slate-800 pb-1.5 mb-2">
+                        <div className="space-y-1">
+                            <div className="font-black uppercase tracking-wider text-slate-900 dark:text-white border-b border-slate-200 dark:border-slate-800 pb-2 mb-2">
                                 {t('external_accounting.gear_col_settings')}
                             </div>
                             <button
@@ -3143,7 +3441,7 @@ function ExternalAccountingContent() {
                                     setGearMenuOpen(false)
                                     setActiveTab('company_settings')
                                 }}
-                                className="w-full text-left px-2.5 py-1.5 rounded-lg hover:bg-emerald-500/10 font-semibold transition-colors cursor-pointer"
+                                className="w-full text-left px-2.5 py-1.5 rounded-lg text-slate-700 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-800 font-medium transition-colors cursor-pointer"
                             >
                                 {t('external_accounting.gear_company_settings')}
                             </button>
@@ -3153,15 +3451,15 @@ function ExternalAccountingContent() {
                                     setGearMenuOpen(false)
                                     setActiveTab('accounts')
                                 }}
-                                className="w-full text-left px-2.5 py-1.5 rounded-lg hover:bg-emerald-500/10 font-semibold transition-colors cursor-pointer"
+                                className="w-full text-left px-2.5 py-1.5 rounded-lg text-slate-700 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-800 font-medium transition-colors cursor-pointer"
                             >
                                 {t('external_accounting.gear_chart_of_accounts')} ({accounts.length})
                             </button>
                         </div>
 
                         {/* Column 2: Lists */}
-                        <div className="space-y-1.5">
-                            <div className="font-black uppercase tracking-wider text-slate-700 dark:text-slate-200 border-b border-slate-200 dark:border-slate-800 pb-1.5 mb-2">
+                        <div className="space-y-1">
+                            <div className="font-black uppercase tracking-wider text-slate-900 dark:text-white border-b border-slate-200 dark:border-slate-800 pb-2 mb-2">
                                 {t('external_accounting.gear_col_lists')}
                             </div>
                             <button
@@ -3171,7 +3469,7 @@ function ExternalAccountingContent() {
                                     setActiveListKey('items')
                                     setActiveTab('lists')
                                 }}
-                                className="w-full text-left px-2.5 py-1.5 rounded-lg hover:bg-emerald-500/10 font-semibold transition-colors cursor-pointer"
+                                className="w-full text-left px-2.5 py-1.5 rounded-lg text-slate-700 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-800 font-medium transition-colors cursor-pointer"
                             >
                                 {t('external_accounting.gear_all_lists')}
                             </button>
@@ -3182,7 +3480,7 @@ function ExternalAccountingContent() {
                                     setActiveListKey('items')
                                     setActiveTab('lists')
                                 }}
-                                className="w-full text-left px-2.5 py-1.5 rounded-lg hover:bg-emerald-500/10 font-semibold transition-colors cursor-pointer"
+                                className="w-full text-left px-2.5 py-1.5 rounded-lg text-slate-700 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-800 font-medium transition-colors cursor-pointer"
                             >
                                 {t('external_accounting.gear_products_services')} ({companyLists.items?.length || 0})
                             </button>
@@ -3192,7 +3490,7 @@ function ExternalAccountingContent() {
                                     setGearMenuOpen(false)
                                     setActiveTab('recurring')
                                 }}
-                                className="w-full text-left px-2.5 py-1.5 rounded-lg hover:bg-emerald-500/10 font-semibold transition-colors cursor-pointer"
+                                className="w-full text-left px-2.5 py-1.5 rounded-lg text-slate-700 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-800 font-medium transition-colors cursor-pointer"
                             >
                                 {t('external_accounting.gear_recurring_transactions')} ({recurring.length})
                             </button>
@@ -3202,15 +3500,15 @@ function ExternalAccountingContent() {
                                     setGearMenuOpen(false)
                                     setActiveTab('rules')
                                 }}
-                                className="w-full text-left px-2.5 py-1.5 rounded-lg hover:bg-emerald-500/10 font-semibold transition-colors cursor-pointer"
+                                className="w-full text-left px-2.5 py-1.5 rounded-lg text-slate-700 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-800 font-medium transition-colors cursor-pointer"
                             >
                                 {t('external_accounting.gear_rules')} ({bankRules.length})
                             </button>
                         </div>
 
-                        {/* Column 3: Tools (Highlighted for Raquel: Reconcile, Reclassify, Budgeting, Audit Log) */}
-                        <div className="space-y-1.5">
-                            <div className="font-black uppercase tracking-wider text-emerald-600 dark:text-emerald-400 border-b border-slate-200 dark:border-slate-800 pb-1.5 mb-2">
+                        {/* Column 3: Tools */}
+                        <div className="space-y-1">
+                            <div className="font-black uppercase tracking-wider text-slate-900 dark:text-white border-b border-slate-200 dark:border-slate-800 pb-2 mb-2">
                                 {t('external_accounting.gear_col_tools')}
                             </div>
                             <button
@@ -3222,9 +3520,9 @@ function ExternalAccountingContent() {
                                     }
                                     setActiveTab('reconcile')
                                 }}
-                                className="w-full text-left px-2.5 py-2 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-800 dark:text-emerald-200 font-black transition-colors cursor-pointer flex items-center gap-2"
+                                className="w-full text-left px-2.5 py-1.5 rounded-lg text-slate-700 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-800 font-semibold transition-colors cursor-pointer flex items-center gap-2"
                             >
-                                <Scale size={14} />
+                                <Scale size={14} className="text-slate-500" />
                                 <span>{t('external_accounting.gear_reconcile')}</span>
                             </button>
                             <button
@@ -3233,9 +3531,9 @@ function ExternalAccountingContent() {
                                     setGearMenuOpen(false)
                                     setActiveTab('reclassify')
                                 }}
-                                className="w-full text-left px-2.5 py-1.5 rounded-lg hover:bg-emerald-500/10 font-bold transition-colors cursor-pointer flex items-center gap-2"
+                                className="w-full text-left px-2.5 py-1.5 rounded-lg text-slate-700 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-800 font-medium transition-colors cursor-pointer flex items-center gap-2"
                             >
-                                <Layers size={14} className="text-blue-500" />
+                                <Layers size={14} className="text-slate-500" />
                                 <span>{t('external_accounting.gear_reclassify')}</span>
                             </button>
                             <button
@@ -3244,9 +3542,9 @@ function ExternalAccountingContent() {
                                     setGearMenuOpen(false)
                                     setActiveTab('budgeting')
                                 }}
-                                className="w-full text-left px-2.5 py-1.5 rounded-lg hover:bg-emerald-500/10 font-semibold transition-colors cursor-pointer flex items-center gap-2"
+                                className="w-full text-left px-2.5 py-1.5 rounded-lg text-slate-700 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-800 font-medium transition-colors cursor-pointer flex items-center gap-2"
                             >
-                                <Calculator size={14} className="text-purple-500" />
+                                <Calculator size={14} className="text-slate-500" />
                                 <span>{t('external_accounting.gear_budgeting')}</span>
                             </button>
                             <button
@@ -3255,14 +3553,14 @@ function ExternalAccountingContent() {
                                     setGearMenuOpen(false)
                                     setActiveTab('audit_log')
                                 }}
-                                className="w-full text-left px-2.5 py-1.5 rounded-lg hover:bg-emerald-500/10 font-semibold transition-colors cursor-pointer flex items-center gap-2"
+                                className="w-full text-left px-2.5 py-1.5 rounded-lg text-slate-700 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-800 font-medium transition-colors cursor-pointer flex items-center gap-2"
                             >
-                                <History size={14} className="text-amber-500" />
+                                <History size={14} className="text-slate-500" />
                                 <span>{t('external_accounting.gear_audit_log')} ({auditLog.length})</span>
                             </button>
                         </div>
 
-                        {/* Column 4: Profile & Books Lock Status */}
+                        {/* Column 4: Profile */}
                         <div className="space-y-2">
                             <div className="font-black uppercase tracking-wider text-slate-700 dark:text-slate-200 border-b border-slate-200 dark:border-slate-800 pb-1.5 mb-2">
                                 {t('external_accounting.gear_col_profile')}
@@ -3270,7 +3568,7 @@ function ExternalAccountingContent() {
                             <div className="p-3 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-1">
                                 <div className="font-bold text-slate-900 dark:text-white">{user?.name || 'Raquel Accounting'}</div>
                                 <div className="text-[11px] text-slate-500">{user?.email}</div>
-                                <div className="text-[11px] font-mono text-emerald-600 dark:text-emerald-400 pt-1">
+                                <div className="text-[11px] font-mono text-slate-600 dark:text-slate-400 pt-1">
                                     Method: {companyLists.accountingMethod || 'Accrual'}
                                 </div>
                                 {companyLists.closingDate && (
@@ -3283,512 +3581,526 @@ function ExternalAccountingContent() {
                         </div>
                     </div>
                 )}
-
-                {/* Quick Action Bar: Create Check, Deposit, Expense, Invoice, Payment, Bill, BillPayment, Transfer, Journal, Reconcile */}
-                <div className="mt-4 pt-4 border-t border-slate-200/80 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2.5">
-                    <div className="flex flex-wrap items-center gap-2">
-                        <button
-                            type="button"
-                            onClick={() => openTransactionModal('Check')}
-                            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white font-bold text-xs shadow-xs transition-all cursor-pointer"
-                        >
-                            <Plus size={14} />
-                            <span>{t('external_accounting.btn_new_check')}</span>
-                        </button>
-                        <button
-                            type="button"
-                            onClick={() => openTransactionModal('Deposit')}
-                            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-xs transition-all cursor-pointer"
-                        >
-                            <Plus size={14} />
-                            <span>{t('external_accounting.btn_new_deposit')}</span>
-                        </button>
-                        <button
-                            type="button"
-                            onClick={() => openTransactionModal('Expense')}
-                            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs shadow-xs transition-all cursor-pointer"
-                        >
-                            <Plus size={14} />
-                            <span>{t('external_accounting.btn_new_expense')}</span>
-                        </button>
-                        <button
-                            type="button"
-                            onClick={() => openTransactionModal('Invoice')}
-                            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-emerald-500/40 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 font-bold text-xs transition-all cursor-pointer"
-                        >
-                            <FileText size={13} />
-                            <span>{t('external_accounting.btn_new_invoice')}</span>
-                        </button>
-                        <button
-                            type="button"
-                            onClick={() => openTransactionModal('Payment')}
-                            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-teal-500/40 bg-teal-500/10 hover:bg-teal-500/20 text-teal-700 dark:text-teal-300 font-bold text-xs transition-all cursor-pointer"
-                        >
-                            <DollarSign size={13} />
-                            <span>{t('external_accounting.btn_new_payment')}</span>
-                        </button>
-                        <button
-                            type="button"
-                            onClick={() => openTransactionModal('Bill')}
-                            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-orange-500/40 bg-orange-500/10 hover:bg-orange-500/20 text-orange-700 dark:text-orange-300 font-bold text-xs transition-all cursor-pointer"
-                        >
-                            <FileText size={13} />
-                            <span>{t('external_accounting.btn_new_bill')}</span>
-                        </button>
-                        <button
-                            type="button"
-                            onClick={() => openTransactionModal('BillPayment')}
-                            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-rose-500/40 bg-rose-500/10 hover:bg-rose-500/20 text-rose-700 dark:text-rose-300 font-bold text-xs transition-all cursor-pointer"
-                        >
-                            <CheckCircle2 size={13} />
-                            <span>{t('external_accounting.btn_new_bill_payment')}</span>
-                        </button>
-                        <button
-                            type="button"
-                            onClick={() => openTransactionModal('Transfer')}
-                            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 font-bold text-xs transition-all cursor-pointer"
-                        >
-                            <ArrowLeftRight size={13} />
-                            <span>{t('external_accounting.btn_new_transfer')}</span>
-                        </button>
-                        <button
-                            type="button"
-                            onClick={() => openTransactionModal('JournalEntry')}
-                            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 font-bold text-xs transition-all cursor-pointer"
-                        >
-                            <BookOpen size={13} />
-                            <span>{t('external_accounting.btn_new_journal')}</span>
-                        </button>
-                        <button
-                            type="button"
-                            onClick={() => {
-                                if (!reconcileAccountId && bankAndCardAccounts[0]) {
-                                    handleAutoSelectReconcileAccount(bankAndCardAccounts[0].qb_account_id)
-                                }
-                                setActiveTab('reconcile')
-                            }}
-                            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-xs transition-all cursor-pointer"
-                        >
-                            <Scale size={14} />
-                            <span>{t('external_accounting.tab_reconcile')}</span>
-                        </button>
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                        <button
-                            type="button"
-                            onClick={exportTransactionsCsv}
-                            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-emerald-500/40 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 font-bold text-xs transition-all cursor-pointer"
-                        >
-                            <Download size={14} />
-                            <span>{t('external_accounting.btn_export_csv')}</span>
-                        </button>
-                        <button
-                            type="button"
-                            onClick={() => {
-                                if (activeTab === 'reports') handlePrintActiveReport()
-                                else if (activeTab === 'checks_deposits') handlePrintCheckbookList()
-                                else if (activeTab === 'reconcile') handlePrintReconciliationReport()
-                                else if (activeTab === 'budgeting') handlePrintBudgetReport()
-                                else if (activeTab === 'audit_log') handlePrintAuditLog()
-                                else handlePrintLedger()
-                            }}
-                            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold text-xs transition-all cursor-pointer"
-                        >
-                            <Printer size={14} />
-                            <span>{t('external_accounting.btn_print_report')}</span>
-                        </button>
-                    </div>
-                </div>
-
-                {/* Global Date Range & Period Filter Bar */}
-                <div className="mt-4 pt-3.5 border-t border-slate-200/80 dark:border-slate-800 flex flex-wrap items-center justify-between gap-3">
-                    <div className="flex flex-wrap items-center gap-2">
-                        <span className="inline-flex items-center gap-1.5 text-xs font-black uppercase tracking-wider text-slate-500 dark:text-slate-400 mr-1">
-                            <Calendar size={14} className="text-emerald-500" />
-                            <span>{t('external_accounting.date_range_label')}:</span>
-                        </span>
-                        <select
-                            value={filterPeriod}
-                            onChange={(e) => handlePeriodPreset(e.target.value)}
-                            className="px-3 py-1.5 rounded-xl border border-emerald-500/40 bg-emerald-50/40 dark:bg-emerald-950/30 text-xs font-bold"
-                        >
-                            <option value="ALL">{t('external_accounting.period_all_dates')}</option>
-                            <option value="TODAY">{t('external_accounting.period_today')}</option>
-                            <option value="THIS_MONTH">{t('external_accounting.period_this_month')}</option>
-                            <option value="LAST_MONTH">{t('external_accounting.period_last_month')}</option>
-                            <option value="THIS_QUARTER">{t('external_accounting.period_this_quarter')}</option>
-                            <option value="THIS_YEAR">{t('external_accounting.period_this_year')}</option>
-                            <option value="LAST_YEAR">{t('external_accounting.period_last_year')}</option>
-                            <option value="2024">{t('external_accounting.period_year_2024')}</option>
-                            <option value="2023">{t('external_accounting.period_year_2023')}</option>
-                            <option value="2022">{t('external_accounting.period_year_2022')}</option>
-                            <option value="CUSTOM">{t('external_accounting.period_custom')}</option>
-                        </select>
-
-                        <div className="flex items-center gap-1.5">
-                            <span className="text-[11px] font-bold text-slate-400">{t('external_accounting.date_from')}:</span>
-                            <input
-                                type="date"
-                                value={startDate}
-                                onChange={(e) => {
-                                    setFilterPeriod('CUSTOM')
-                                    setStartDate(e.target.value)
-                                    setPage(1)
-                                    setCheckbookPage(1)
-                                }}
-                                className="px-2.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-xs font-mono font-bold"
-                            />
-                        </div>
-
-                        <div className="flex items-center gap-1.5">
-                            <span className="text-[11px] font-bold text-slate-400">{t('external_accounting.date_to')}:</span>
-                            <input
-                                type="date"
-                                value={endDate}
-                                onChange={(e) => {
-                                    setFilterPeriod('CUSTOM')
-                                    setEndDate(e.target.value)
-                                    setPage(1)
-                                    setCheckbookPage(1)
-                                }}
-                                className="px-2.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-xs font-mono font-bold"
-                            />
-                        </div>
-
-                        {(startDate || endDate) && (
-                            <button
-                                type="button"
-                                onClick={() => handlePeriodPreset('ALL')}
-                                className="px-2.5 py-1.5 rounded-xl bg-slate-200/70 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-xs font-bold text-slate-700 dark:text-slate-300 cursor-pointer"
-                            >
-                                {t('external_accounting.clear_dates')}
-                            </button>
-                        )}
-                    </div>
-
-                    <div className="text-xs font-semibold text-slate-500 dark:text-slate-400">
-                        {startDate || endDate
-                            ? `${startDate || '...'} ➔ ${endDate || '...'}`
-                            : t('external_accounting.period_all_dates')}
-                    </div>
-                </div>
             </div>
 
-            {/* 5 Executive KPI Cards */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3.5">
-                <div className="rounded-2xl border border-emerald-500/30 bg-white dark:bg-slate-900 p-4 shadow-xs">
-                    <div className="flex items-center justify-between text-xs font-bold text-slate-500 dark:text-slate-400">
-                        <span>{t('external_accounting.kpi_bank_balance')}</span>
-                        <Landmark size={16} className="text-emerald-500" />
-                    </div>
-                    <div className="text-2xl font-black text-emerald-600 dark:text-emerald-400 mt-1.5">
-                        {formatCurrency(summary.totalBankBalance)}
-                    </div>
-                    <div className="text-[11px] text-slate-400 mt-1 truncate">
-                        {activeCompany?.company_name}
-                    </div>
-                </div>
-
-                <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 shadow-xs">
-                    <div className="flex items-center justify-between text-xs font-bold text-slate-500 dark:text-slate-400">
-                        <span>{t('external_accounting.kpi_total_inflows')}</span>
-                        <ArrowDownRight size={16} className="text-emerald-500" />
-                    </div>
-                    <div className="text-2xl font-black text-slate-900 dark:text-white mt-1.5">
-                        {formatCurrency(summary.totalInflows)}
-                    </div>
-                    <div className="text-[11px] text-emerald-600 dark:text-emerald-400 font-semibold mt-1">
-                        {summary.depositsCount || 0} {t('external_accounting.filter_deposits')}
-                    </div>
-                </div>
-
-                <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 shadow-xs">
-                    <div className="flex items-center justify-between text-xs font-bold text-slate-500 dark:text-slate-400">
-                        <span>{t('external_accounting.kpi_total_outflows')}</span>
-                        <ArrowUpRight size={16} className="text-red-500" />
-                    </div>
-                    <div className="text-2xl font-black text-slate-900 dark:text-white mt-1.5">
-                        {formatCurrency(summary.totalOutflows)}
-                    </div>
-                    <div className="text-[11px] text-red-600 dark:text-red-400 font-semibold mt-1">
-                        {summary.checksCount || 0} {t('external_accounting.filter_checks')} · {summary.expensesCount || 0} EFT/Card
-                    </div>
-                </div>
-
-                <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 shadow-xs">
-                    <div className="flex items-center justify-between text-xs font-bold text-slate-500 dark:text-slate-400">
-                        <span>{t('external_accounting.kpi_net_flow')}</span>
-                        <DollarSign size={16} className="text-blue-500" />
-                    </div>
-                    <div className={`text-2xl font-black mt-1.5 ${
-                        Number(summary.netCashFlow || 0) >= 0 ? 'text-blue-600 dark:text-blue-400' : 'text-amber-600 dark:text-amber-400'
-                    }`}>
-                        {formatCurrency(summary.netCashFlow)}
-                    </div>
-                    <div className="text-[11px] text-slate-400 mt-1">
-                        Inflows - Outflows
-                    </div>
-                </div>
-
-                <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 shadow-xs">
-                    <div className="flex items-center justify-between text-xs font-bold text-slate-500 dark:text-slate-400">
-                        <span>{t('external_accounting.kpi_total_records')}</span>
-                        <FileText size={16} className="text-purple-500" />
-                    </div>
-                    <div className="text-2xl font-black text-slate-900 dark:text-white mt-1.5">
-                        {(summary.totalRecords || 0).toLocaleString()}
-                    </div>
-                    <div className="text-[11px] text-slate-400 mt-1">
-                        {accounts.length} GL · {contacts.length} Contacts · {recurring.length} Rec
-                    </div>
-                </div>
-            </div>
-
-            {/* 14 Navigation Tabs (Left Menu + Gear ⚙️ Tools & Settings) */}
-            <div className="flex items-center gap-1.5 overflow-x-auto pb-1 border-b border-slate-200 dark:border-slate-800">
-                {([
-                    { id: 'overview', label: t('external_accounting.tab_overview'), icon: <Building2 size={15} /> },
-                    { id: 'transactions', label: t('external_accounting.tab_transactions'), icon: <FileText size={15} /> },
-                    { id: 'checks_deposits', label: t('external_accounting.tab_checks_deposits'), icon: <DollarSign size={15} /> },
-                    { id: 'reconcile', label: `${t('external_accounting.tab_reconcile')} (${reconciliations.length})`, icon: <Scale size={15} /> },
-                    { id: 'reclassify', label: t('external_accounting.tab_reclassify'), icon: <Layers size={15} /> },
-                    { id: 'rules', label: `${t('external_accounting.tab_rules')} (${bankRules.length})`, icon: <Sparkles size={15} /> },
-                    { id: 'budgeting', label: `${t('external_accounting.tab_budgeting')} (${budgets.length})`, icon: <Calculator size={15} /> },
-                    { id: 'lists', label: t('external_accounting.tab_lists'), icon: <Package size={15} /> },
-                    { id: 'recurring', label: `${t('external_accounting.tab_recurring')} (${recurring.length})`, icon: <Repeat size={15} /> },
-                    { id: 'accounts', label: `${t('external_accounting.tab_accounts')} (${accounts.length})`, icon: <Landmark size={15} /> },
-                    { id: 'contacts', label: `${t('external_accounting.tab_contacts')} (${contacts.length})`, icon: <Users size={15} /> },
-                    { id: 'reports', label: t('external_accounting.tab_reports'), icon: <BarChart3 size={15} /> },
-                    { id: 'audit_log', label: `${t('external_accounting.tab_audit_log')} (${auditLog.length})`, icon: <History size={15} /> },
-                    { id: 'company_settings', label: t('external_accounting.tab_company_settings'), icon: <Settings size={15} /> },
-                ] as { id: ActiveTab; label: string; icon: React.ReactNode }[]).map(tab => (
-                    <button
-                        key={tab.id}
-                        type="button"
-                        onClick={() => setActiveTab(tab.id)}
-                        className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-t-xl text-xs font-bold whitespace-nowrap border-b-2 transition-all cursor-pointer ${
-                            activeTab === tab.id
-                                ? 'border-emerald-500 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
-                                : 'border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-900'
-                        }`}
-                    >
-                        {tab.icon}
-                        <span>{tab.label}</span>
-                    </button>
-                ))}
-            </div>
-
-            {/* TAB 1: OVERVIEW & 8 COMPANIES */}
+            {/* ====================================================================
+                TAB 1: RESUMEN Y BANCOS (DISEÑO EDITORIAL LIMPIO EN 2 COLUMNAS)
+               ==================================================================== */}
             {activeTab === 'overview' && (
-                <div className="space-y-5">
-                    {/* Consolidated 8 Companies Grid */}
-                    <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 shadow-xs">
-                        <h2 className="text-sm font-black uppercase tracking-wider text-slate-600 dark:text-slate-300 mb-3.5 flex items-center gap-2">
-                            <Building2 size={16} className="text-emerald-500" />
-                            <span>{t('external_accounting.all_companies_overview')}</span>
-                        </h2>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-                            {companies.map(c => {
-                                const isSel = c.realm_id === activeRealmId
-                                return (
+                <div className="space-y-6">
+                    {/* Tira Financiera Unificada (1 sola tarjeta dividida en 4 métricas limpias) */}
+                    <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 divide-y sm:divide-y-0 sm:divide-x divide-slate-200 dark:divide-slate-800">
+                        <div className="p-5">
+                            <div className="text-xs font-medium text-slate-500">{t('external_accounting.kpi_bank_balance')}</div>
+                            <div className="text-2xl font-black font-mono text-slate-900 dark:text-white mt-1">
+                                {formatCurrency(summary.totalBankBalance)}
+                            </div>
+                            <div className="text-[11px] text-slate-400 mt-1">
+                                {bankAndCardAccounts.length} {t('external_accounting.banks_accounts_count_sub')}
+                            </div>
+                        </div>
+                        <div className="p-5">
+                            <div className="text-xs font-medium text-slate-500">{t('external_accounting.kpi_total_inflows')}</div>
+                            <div className="text-2xl font-black font-mono text-emerald-600 dark:text-emerald-400 mt-1">
+                                +{formatCurrency(summary.totalInflows)}
+                            </div>
+                            <div className="text-[11px] text-slate-400 mt-1">
+                                {summary.depositsCount || 0} {t('external_accounting.registered_deposits_sub')}
+                            </div>
+                        </div>
+                        <div className="p-5">
+                            <div className="text-xs font-medium text-slate-500">{t('external_accounting.kpi_total_outflows')}</div>
+                            <div className="text-2xl font-black font-mono text-slate-900 dark:text-white mt-1">
+                                -{formatCurrency(summary.totalOutflows)}
+                            </div>
+                            <div className="text-[11px] text-slate-400 mt-1">
+                                {summary.checksCount || 0} {t('external_accounting.checks_and_charges_sub')} ({summary.expensesCount || 0})
+                            </div>
+                        </div>
+                        <div className="p-5">
+                            <div className="text-xs font-medium text-slate-500">{t('external_accounting.kpi_net_flow')}</div>
+                            <div className="text-2xl font-black font-mono text-slate-900 dark:text-white mt-1">
+                                {formatCurrency(summary.netCashFlow)}
+                            </div>
+                            <div className="text-[11px] text-slate-400 mt-1">
+                                {(summary.totalRecords || 0).toLocaleString()} {t('external_accounting.total_movements_sub')}
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Diseño Limpio en 2 Columnas: Izquierda = Bancos y Movimientos de la Empresa Activa | Derecha = Las 8 Empresas */}
+                    <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+                        {/* Columna Izquierda (7 cols): Cuentas Bancarias + Últimos Movimientos */}
+                        <div className="lg:col-span-7 space-y-6">
+                            {/* Tabla limpia de Cuentas Bancarias de la empresa activa */}
+                            <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs overflow-hidden">
+                                <div className="px-5 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+                                    <div>
+                                        <h2 className="text-sm font-bold text-slate-900 dark:text-white">
+                                            {t('external_accounting.bank_cards_section_title')} — {activeCompany?.company_name}
+                                        </h2>
+                                    </div>
                                     <button
-                                        key={c.realm_id}
                                         type="button"
                                         onClick={() => {
-                                            setActiveRealmId(c.realm_id)
-                                            setFilterAccountId('ALL')
-                                            setPage(1)
-                                            setCheckbookPage(1)
+                                            setEditingAccount(null)
+                                            setAccFormName('')
+                                            setAccFormNum('')
+                                            setAccFormType('Bank')
+                                            setAccFormClass('Asset')
+                                            setAccFormBalance('0')
+                                            setAccountModalOpen(true)
                                         }}
-                                        className={`text-left rounded-xl p-3.5 border transition-all cursor-pointer ${
-                                            isSel
-                                                ? 'border-emerald-500 bg-emerald-500/10 shadow-sm'
-                                                : 'border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-950/60 hover:border-emerald-500/50'
-                                        }`}
+                                        className="text-xs font-semibold text-emerald-600 hover:text-emerald-700 cursor-pointer"
                                     >
-                                        <div className="flex items-start justify-between gap-2">
-                                            <div className="font-bold text-sm text-slate-900 dark:text-white truncate">
-                                                {c.company_name}
-                                            </div>
-                                            {isSel && (
-                                                <span className="px-1.5 py-0.5 rounded bg-emerald-600 text-white text-[9px] font-black uppercase">
-                                                    ACTIVE
-                                                </span>
-                                            )}
-                                        </div>
-                                        <div className="text-lg font-black text-emerald-600 dark:text-emerald-400 mt-1.5">
-                                            {formatCurrency(c.total_cash_balance ?? c.overview?.totalBankBalance ?? 0)}
-                                        </div>
-                                        <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 flex items-center justify-between">
-                                            <span>{c.active_banks_count ?? c.overview?.bankAccountsCount ?? 0} Banks · {(c.total_txns_count ?? c.overview?.totalAccountsCount ?? 0).toLocaleString()} Txns</span>
-                                            <ChevronRight size={13} />
-                                        </div>
+                                        {t('external_accounting.btn_add_account_short')}
                                     </button>
-                                )
-                            })}
-                        </div>
-                    </div>
+                                </div>
+                                <div className="divide-y divide-slate-100 dark:divide-slate-800">
+                                    {bankAndCardAccounts.map(acc => {
+                                        const accBal = Number(acc.current_balance || 0)
+                                        return (
+                                            <div key={acc.id} className="px-5 py-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 hover:bg-slate-50/60 dark:hover:bg-slate-800/30 transition-colors">
+                                                <div>
+                                                    <div className="font-bold text-sm text-slate-900 dark:text-white">
+                                                        {acc.name}
+                                                    </div>
+                                                    <div className="text-xs text-slate-400 mt-0.5 font-mono">
+                                                        {acc.account_type} · {t('external_accounting.next_check_short')}: #{nextCheckNumberByBank[acc.qb_account_id] || '1001'}
+                                                    </div>
+                                                </div>
+                                                <div className="flex items-center gap-4">
+                                                    <div className="text-right">
+                                                        <div className="text-base font-black font-mono text-slate-900 dark:text-white">
+                                                            {formatCurrency(accBal)}
+                                                        </div>
+                                                        <div className="text-[10px] text-slate-400">{t('external_accounting.book_balance_short')}</div>
+                                                    </div>
+                                                    <div className="flex items-center gap-1.5">
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => {
+                                                                setFilterAccountId(acc.qb_account_id)
+                                                                setPage(1)
+                                                                setActiveTab('transactions')
+                                                            }}
+                                                            className="px-3 py-1.5 rounded-lg bg-slate-900 dark:bg-slate-100 hover:bg-slate-800 text-white dark:text-slate-900 text-xs font-semibold cursor-pointer"
+                                                        >
+                                                            {t('external_accounting.btn_view_register_short')}
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => {
+                                                                handleAutoSelectReconcileAccount(acc.qb_account_id)
+                                                                setActiveTab('reconcile')
+                                                            }}
+                                                            className="px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-100 text-xs font-medium text-slate-600 dark:text-slate-300 cursor-pointer"
+                                                        >
+                                                            {t('external_accounting.bank_card_reconcile')}
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        )
+                                    })}
+                                </div>
+                            </div>
 
-                    {/* Active Company Bank & Credit Card Accounts */}
-                    <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 shadow-xs">
-                        <div className="flex items-center justify-between mb-3.5">
-                            <h2 className="text-sm font-black uppercase tracking-wider text-slate-600 dark:text-slate-300 flex items-center gap-2">
-                                <Landmark size={16} className="text-emerald-500" />
-                                <span>{t('external_accounting.bank_accounts_section')} — {activeCompany?.company_name}</span>
-                            </h2>
-                            <button
-                                type="button"
-                                onClick={() => {
-                                    setEditingAccount(null)
-                                    setAccFormName('')
-                                    setAccFormNum('')
-                                    setAccFormType('Bank')
-                                    setAccFormClass('Asset')
-                                    setAccFormBalance('0')
-                                    setAccountModalOpen(true)
-                                }}
-                                className="text-xs font-bold text-emerald-600 dark:text-emerald-400 hover:underline cursor-pointer"
-                            >
-                                {t('external_accounting.btn_new_account')}
-                            </button>
+                            {/* Últimos Movimientos en 1 sola tabla limpia */}
+                            <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs overflow-hidden">
+                                <div className="px-5 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+                                    <h3 className="text-sm font-bold text-slate-900 dark:text-white">
+                                        {t('external_accounting.recent_activity_title')}
+                                    </h3>
+                                    <button
+                                        type="button"
+                                        onClick={() => setActiveTab('transactions')}
+                                        className="text-xs font-semibold text-emerald-600 hover:underline cursor-pointer"
+                                    >
+                                        {t('external_accounting.view_all_txns_link')} ({(summary.totalRecords || 0).toLocaleString()}) →
+                                    </button>
+                                </div>
+                                <div className="divide-y divide-slate-100 dark:divide-slate-800 text-xs">
+                                    {transactions.slice(0, 7).map(txn => {
+                                        const isIn = txn.direction === 'IN' || ['Deposit', 'Payment', 'SalesReceipt'].includes(txn.txn_type)
+                                        return (
+                                            <div key={txn.id} className="px-5 py-3 flex items-center justify-between gap-3 hover:bg-slate-50/50 dark:hover:bg-slate-800/30">
+                                                <div className="min-w-0">
+                                                    <div className="font-semibold text-slate-900 dark:text-white truncate">
+                                                        {txn.entity_name || txn.category_summary || txn.txn_type}
+                                                        {txn.doc_number ? <span className="ml-1.5 font-mono text-slate-400">#{txn.doc_number}</span> : null}
+                                                    </div>
+                                                    <div className="text-[11px] text-slate-400 truncate mt-0.5">
+                                                        {txn.txn_date} · {txn.account_name} · {txn.category_summary}
+                                                    </div>
+                                                </div>
+                                                <div className={`font-bold font-mono shrink-0 ${
+                                                    isIn ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-900 dark:text-white'
+                                                }`}>
+                                                    {isIn ? '+' : '-'}{formatCurrency(txn.total_amount)}
+                                                </div>
+                                            </div>
+                                        )
+                                    })}
+                                    {transactions.length === 0 && (
+                                        <div className="py-8 text-center text-slate-400">{t('external_accounting.no_records_found')}</div>
+                                    )}
+                                </div>
+                            </div>
                         </div>
 
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
-                            {bankAndCardAccounts.map(acc => (
-                                <div
-                                    key={acc.id}
-                                    className="rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/60 p-4 flex flex-col justify-between"
-                                >
-                                    <div>
-                                        <div className="flex items-center justify-between gap-2">
-                                            <span className="text-xs font-black uppercase px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-700 dark:text-emerald-300">
-                                                {acc.account_type}
-                                            </span>
-                                            {acc.acct_num && (
-                                                <span className="text-xs font-mono text-slate-400">#{acc.acct_num}</span>
-                                            )}
-                                        </div>
-                                        <h3 className="text-base font-bold text-slate-900 dark:text-white mt-2">
-                                            {acc.name}
-                                        </h3>
-                                        <div className="text-2xl font-black text-emerald-600 dark:text-emerald-400 mt-1">
-                                            {formatCurrency(acc.current_balance)}
-                                        </div>
-                                    </div>
-                                    <div className="mt-3 pt-3 border-t border-slate-200/70 dark:border-slate-800 flex items-center justify-between">
-                                        <span className="text-[11px] text-slate-400">
-                                            Next Check: #{nextCheckNumberByBank[acc.qb_account_id] || '1001'}
-                                        </span>
+                        {/* Columna Derecha (5 cols): Tabla Institucional Limpia de las 8 Empresas + Estados Financieros */}
+                        <div className="lg:col-span-5 space-y-6">
+                            {/* Lista limpia tipo tabla de las 8 empresas */}
+                            <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs overflow-hidden">
+                                <div className="px-5 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+                                    <h2 className="text-sm font-bold text-slate-900 dark:text-white">
+                                        {t('external_accounting.available_companies_title')} ({companies.length})
+                                    </h2>
+                                    <span className="text-[11px] text-slate-400">{t('external_accounting.click_to_switch_hint')}</span>
+                                </div>
+                                <div className="divide-y divide-slate-100 dark:divide-slate-800 text-xs">
+                                    {companies.map(c => {
+                                        const isSel = c.realm_id === activeRealmId
+                                        const bal = Number(c.total_cash_balance ?? c.overview?.totalBankBalance ?? 0)
+                                        return (
+                                            <button
+                                                key={c.realm_id}
+                                                type="button"
+                                                onClick={() => {
+                                                    setActiveRealmId(c.realm_id)
+                                                    setFilterAccountId('ALL')
+                                                    setPage(1)
+                                                    setCheckbookPage(1)
+                                                }}
+                                                className={`w-full px-5 py-3 flex items-center justify-between gap-3 text-left transition-colors cursor-pointer ${
+                                                    isSel
+                                                        ? 'bg-emerald-50/70 dark:bg-emerald-950/30'
+                                                        : 'hover:bg-slate-50 dark:hover:bg-slate-800/40'
+                                                }`}
+                                            >
+                                                <div className="min-w-0 flex items-center gap-2.5">
+                                                    <span className={`w-2 h-2 rounded-full shrink-0 ${isSel ? 'bg-emerald-600' : 'bg-slate-300 dark:bg-slate-700'}`} />
+                                                    <div className="truncate">
+                                                        <div className={`truncate ${isSel ? 'font-black text-emerald-900 dark:text-emerald-300' : 'font-semibold text-slate-800 dark:text-slate-200'}`}>
+                                                            {c.company_name}
+                                                        </div>
+                                                        <div className="text-[11px] text-slate-400">
+                                                            {c.active_banks_count ?? c.overview?.bankAccountsCount ?? 0} {t('external_accounting.banks_short_lower')} · {(c.total_txns_count ?? c.overview?.totalAccountsCount ?? 0).toLocaleString()} {t('external_accounting.movs_short_lower')}
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                <div className="text-right shrink-0">
+                                                    <div className="font-mono font-bold text-slate-900 dark:text-white">
+                                                        {formatCurrency(bal)}
+                                                    </div>
+                                                </div>
+                                            </button>
+                                        )
+                                    })}
+                                </div>
+                            </div>
+
+                            {/* Accesos directos limpios a Estados Financieros */}
+                            <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs overflow-hidden">
+                                <div className="px-5 py-3.5 border-b border-slate-100 dark:border-slate-800">
+                                    <h3 className="text-sm font-bold text-slate-900 dark:text-white">
+                                        {t('external_accounting.quick_statements_title')}
+                                    </h3>
+                                </div>
+                                <div className="divide-y divide-slate-100 dark:divide-slate-800 text-xs">
+                                    {[
+                                        { id: 'pnl', title: t('external_accounting.report_pnl'), desc: t('external_accounting.quick_report_pnl_desc') },
+                                        { id: 'balance_sheet', title: t('external_accounting.report_balance_sheet'), desc: t('external_accounting.quick_report_bs_desc') },
+                                        { id: 'bank_register', title: t('external_accounting.report_bank_register'), desc: t('external_accounting.quick_report_reg_desc') },
+                                        { id: 'vendor_expenses', title: t('external_accounting.report_vendor_expenses'), desc: t('external_accounting.quick_report_vendor_desc') },
+                                    ].map(rep => (
                                         <button
+                                            key={rep.id}
                                             type="button"
                                             onClick={() => {
-                                                setFilterAccountId(acc.qb_account_id)
-                                                setPage(1)
-                                                setActiveTab('transactions')
+                                                setReportType(rep.id as any)
+                                                setActiveTab('reports')
                                             }}
-                                            className="inline-flex items-center gap-1 text-xs font-bold text-emerald-600 dark:text-emerald-400 hover:underline cursor-pointer"
+                                            className="w-full px-5 py-3 flex items-center justify-between gap-3 text-left hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors cursor-pointer"
                                         >
-                                            <span>{t('external_accounting.view_bank_register')}</span>
-                                            <ChevronRight size={13} />
+                                            <div>
+                                                <div className="font-semibold text-slate-900 dark:text-white">{rep.title}</div>
+                                                <div className="text-[11px] text-slate-400">{rep.desc}</div>
+                                            </div>
+                                            <ChevronRight size={14} className="text-slate-400 shrink-0" />
                                         </button>
-                                    </div>
+                                    ))}
                                 </div>
-                            ))}
-                        </div>
-                    </div>
-
-                    {/* Recent Checks & Recent Deposits Split */}
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                        <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 shadow-xs">
-                            <div className="flex items-center justify-between mb-3">
-                                <h3 className="text-sm font-black text-slate-800 dark:text-slate-200 flex items-center gap-2">
-                                    <ArrowUpRight size={16} className="text-red-500" />
-                                    <span>{t('external_accounting.recent_checks')}</span>
-                                </h3>
-                                <button
-                                    type="button"
-                                    onClick={() => setActiveTab('checks_deposits')}
-                                    className="text-xs font-bold text-emerald-600 dark:text-emerald-400 hover:underline cursor-pointer"
-                                >
-                                    {t('external_accounting.view_all')}
-                                </button>
-                            </div>
-                            <div className="divide-y divide-slate-200/70 dark:divide-slate-800 text-xs">
-                                {checksList.slice(0, 7).map(chk => (
-                                    <div key={chk.id} className="py-2.5 flex items-center justify-between gap-2">
-                                        <div className="min-w-0">
-                                            <div className="font-bold text-slate-900 dark:text-white truncate">
-                                                {chk.entity_name || chk.category_summary || 'Check'}
-                                                {chk.doc_number ? ` (#${chk.doc_number})` : ''}
-                                            </div>
-                                            <div className="text-[11px] text-slate-400 truncate">
-                                                {chk.txn_date} · {chk.account_name} · {chk.category_summary}
-                                            </div>
-                                        </div>
-                                        <div className="flex items-center gap-2 shrink-0">
-                                            <span className={`font-black ${chk.is_voided ? 'line-through text-slate-400' : 'text-red-600 dark:text-red-400'}`}>
-                                                {formatCurrency(chk.total_amount)}
-                                            </span>
-                                            <button
-                                                type="button"
-                                                onClick={() => setPrintableCheckTxn(chk)}
-                                                title={t('external_accounting.action_print')}
-                                                className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
-                                            >
-                                                <Printer size={13} />
-                                            </button>
-                                        </div>
-                                    </div>
-                                ))}
-                                {checksList.length === 0 && (
-                                    <div className="py-6 text-center text-slate-400">{t('external_accounting.no_records_found')}</div>
-                                )}
-                            </div>
-                        </div>
-
-                        <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 shadow-xs">
-                            <div className="flex items-center justify-between mb-3">
-                                <h3 className="text-sm font-black text-slate-800 dark:text-slate-200 flex items-center gap-2">
-                                    <ArrowDownRight size={16} className="text-emerald-500" />
-                                    <span>{t('external_accounting.recent_deposits')}</span>
-                                </h3>
-                                <button
-                                    type="button"
-                                    onClick={() => setActiveTab('checks_deposits')}
-                                    className="text-xs font-bold text-emerald-600 dark:text-emerald-400 hover:underline cursor-pointer"
-                                >
-                                    {t('external_accounting.view_all')}
-                                </button>
-                            </div>
-                            <div className="divide-y divide-slate-200/70 dark:divide-slate-800 text-xs">
-                                {depositsList.slice(0, 7).map(dep => (
-                                    <div key={dep.id} className="py-2.5 flex items-center justify-between gap-2">
-                                        <div className="min-w-0">
-                                            <div className="font-bold text-slate-900 dark:text-white truncate">
-                                                {dep.entity_name || dep.category_summary || 'Deposit'}
-                                            </div>
-                                            <div className="text-[11px] text-slate-400 truncate">
-                                                {dep.txn_date} · {dep.account_name} · {dep.memo || dep.category_summary}
-                                            </div>
-                                        </div>
-                                        <span className="font-black text-emerald-600 dark:text-emerald-400 shrink-0">
-                                            +{formatCurrency(dep.total_amount)}
-                                        </span>
-                                    </div>
-                                ))}
-                                {depositsList.length === 0 && (
-                                    <div className="py-6 text-center text-slate-400">{t('external_accounting.no_records_found')}</div>
-                                )}
                             </div>
                         </div>
                     </div>
                 </div>
             )}
 
-            {/* TAB 2: INFLOWS, OUTFLOWS & BANK REGISTER */}
+            {/* TAB 2: INFLOWS, OUTFLOWS & BANK REGISTER (QBO BANK REGISTER STANDARD) */}
             {activeTab === 'transactions' && (
-                <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 shadow-xs space-y-4">
+                <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 shadow-xs space-y-4">
+                    {/* ④ QBO ACCOUNT REGISTER HEADER: Bank Switcher Pills + Ending Balance + Reconcile + 2-Line Toggle */}
+                    <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 pb-3.5 border-b border-slate-200 dark:border-slate-800">
+                        <div className="space-y-1.5">
+                            <div className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                                {t('external_accounting.register_active_account_label')}
+                            </div>
+                            <div className="flex flex-wrap items-center gap-1.5">
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setFilterAccountId('ALL')
+                                        setPage(1)
+                                    }}
+                                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer border ${
+                                        filterAccountId === 'ALL'
+                                            ? 'bg-slate-900 text-white border-slate-900 dark:bg-white dark:text-slate-900 dark:border-white'
+                                            : 'bg-slate-50 dark:bg-slate-800/60 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-100'
+                                    }`}
+                                >
+                                    {t('external_accounting.register_all_accounts_consolidated')}
+                                </button>
+                                {bankAndCardAccounts.map(b => {
+                                    const isSel = filterAccountId === b.qb_account_id
+                                    return (
+                                        <button
+                                            key={b.id}
+                                            type="button"
+                                            onClick={() => {
+                                                setFilterAccountId(b.qb_account_id)
+                                                setInlineRegBankId(b.qb_account_id)
+                                                setPage(1)
+                                            }}
+                                            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer border inline-flex items-center gap-2 ${
+                                                isSel
+                                                    ? 'bg-slate-900 text-white border-slate-900 dark:bg-white dark:text-slate-900 dark:border-white'
+                                                    : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-50'
+                                            }`}
+                                        >
+                                            <span>{b.name}</span>
+                                            <span className={`font-mono text-[11px] ${isSel ? 'text-emerald-300 dark:text-emerald-700 font-bold' : 'text-slate-400'}`}>
+                                                {formatCurrency(b.current_balance)}
+                                            </span>
+                                        </button>
+                                    )
+                                })}
+                            </div>
+                        </div>
+
+                        {/* Active Register Ending Balance & View Mode Switcher */}
+                        <div className="flex flex-wrap items-center gap-4">
+                            {(() => {
+                                const selectedAcct = accounts.find(a => a.qb_account_id === filterAccountId)
+                                const displayBalance = selectedAcct
+                                    ? Number(selectedAcct.current_balance || 0)
+                                    : Number(summary.totalBankBalance || 0)
+                                const nextChkNum = selectedAcct
+                                    ? nextCheckNumberByBank[selectedAcct.qb_account_id]
+                                    : null
+                                return (
+                                    <div className="flex items-center gap-4 bg-slate-50 dark:bg-slate-800/60 px-3.5 py-2 rounded-lg border border-slate-200 dark:border-slate-700">
+                                        <div>
+                                            <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                                                {t('external_accounting.register_ending_balance_label')}
+                                            </div>
+                                            <div className="text-base font-bold font-mono tabular-nums text-slate-900 dark:text-white">
+                                                {formatCurrency(displayBalance)}
+                                            </div>
+                                        </div>
+                                        {nextChkNum && (
+                                            <div className="pl-3 border-l border-slate-200 dark:border-slate-700">
+                                                <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                                                    {t('external_accounting.next_check_label')}
+                                                </div>
+                                                <div className="text-xs font-mono font-bold text-slate-700 dark:text-slate-200">
+                                                    #{nextChkNum}
+                                                </div>
+                                            </div>
+                                        )}
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                if (selectedAcct) setReconcileAccountId(selectedAcct.qb_account_id)
+                                                setActiveTab('reconcile')
+                                            }}
+                                            className="px-2.5 py-1 rounded-md border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 hover:bg-slate-100 text-[11px] font-semibold text-slate-700 dark:text-slate-200 cursor-pointer"
+                                        >
+                                            {t('external_accounting.tab_reconcile')}
+                                        </button>
+                                    </div>
+                                )
+                            })()}
+
+                            {/* QBO 2-Line vs 1-Line Register Toggle */}
+                            <div className="inline-flex rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 p-0.5">
+                                <button
+                                    type="button"
+                                    onClick={() => setRegisterTwoLineView(true)}
+                                    className={`px-2.5 py-1 rounded-md text-xs font-semibold cursor-pointer transition-colors ${
+                                        registerTwoLineView
+                                            ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-2xs'
+                                            : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+                                    }`}
+                                >
+                                    {t('external_accounting.register_view_two_line')}
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setRegisterTwoLineView(false)}
+                                    className={`px-2.5 py-1 rounded-md text-xs font-semibold cursor-pointer transition-colors ${
+                                        !registerTwoLineView
+                                            ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-2xs'
+                                            : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+                                    }`}
+                                >
+                                    {t('external_accounting.register_view_one_line')}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* ② QBO INLINE REGISTER QUICK-ADD ROW (Check / Deposit / Expense right inside the register) */}
+                    <form
+                        onSubmit={handleSaveInlineRegister}
+                        className="rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50/90 dark:bg-slate-800/40 p-3 space-y-2.5"
+                    >
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div className="flex items-center gap-2">
+                                <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                                    {t('external_accounting.inline_add_title')}
+                                </span>
+                                <div className="inline-flex rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-0.5">
+                                    {(['Check', 'Deposit', 'Expense'] as const).map(mode => (
+                                        <button
+                                            key={mode}
+                                            type="button"
+                                            onClick={() => {
+                                                setInlineRegType(mode)
+                                                const targetBank = filterAccountId !== 'ALL'
+                                                    ? filterAccountId
+                                                    : (inlineRegBankId || bankAndCardAccounts[0]?.qb_account_id || '')
+                                                if (mode === 'Check' && targetBank && nextCheckNumberByBank[targetBank]) {
+                                                    setInlineRegDocNum(String(nextCheckNumberByBank[targetBank]))
+                                                } else if (mode !== 'Check') {
+                                                    setInlineRegDocNum('')
+                                                }
+                                            }}
+                                            className={`px-2.5 py-1 rounded text-xs font-semibold cursor-pointer transition-colors ${
+                                                inlineRegType === mode
+                                                    ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900'
+                                                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+                                            }`}
+                                        >
+                                            {mode === 'Check'
+                                                ? t('external_accounting.inline_btn_add_check')
+                                                : mode === 'Deposit'
+                                                ? t('external_accounting.inline_btn_add_deposit')
+                                                : t('external_accounting.inline_btn_add_expense')}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+
+                            <button
+                                type="button"
+                                onClick={() => openTransactionModal(inlineRegType)}
+                                className="text-xs font-semibold text-blue-600 dark:text-blue-400 hover:underline cursor-pointer"
+                            >
+                                {t('external_accounting.inline_btn_split_form')} →
+                            </button>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 gap-2 items-center">
+                            <input
+                                type="date"
+                                value={inlineRegDate}
+                                onChange={(e) => setInlineRegDate(e.target.value)}
+                                className="lg:col-span-2 px-2.5 py-1.5 rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-mono"
+                                required
+                            />
+                            <input
+                                type="text"
+                                value={inlineRegDocNum}
+                                onChange={(e) => setInlineRegDocNum(e.target.value)}
+                                placeholder={inlineRegType === 'Check' ? 'Cheque #' : 'Ref #'}
+                                className="lg:col-span-1 px-2.5 py-1.5 rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-mono"
+                            />
+                            <input
+                                type="text"
+                                list="qbo-inline-contacts-datalist"
+                                value={inlineRegPayee}
+                                onChange={(e) => setInlineRegPayee(e.target.value)}
+                                placeholder={t('external_accounting.inline_placeholder_payee')}
+                                className="lg:col-span-2 px-2.5 py-1.5 rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs"
+                            />
+                            <datalist id="qbo-inline-contacts-datalist">
+                                {contacts.map(c => (
+                                    <option key={c.id} value={c.display_name} />
+                                ))}
+                            </datalist>
+
+                            {filterAccountId === 'ALL' && (
+                                <select
+                                    value={inlineRegBankId || bankAndCardAccounts[0]?.qb_account_id || ''}
+                                    onChange={(e) => {
+                                        setInlineRegBankId(e.target.value)
+                                        if (inlineRegType === 'Check' && nextCheckNumberByBank[e.target.value]) {
+                                            setInlineRegDocNum(String(nextCheckNumberByBank[e.target.value]))
+                                        }
+                                    }}
+                                    className="lg:col-span-2 px-2.5 py-1.5 rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-medium"
+                                >
+                                    {bankAndCardAccounts.map(b => (
+                                        <option key={b.qb_account_id} value={b.qb_account_id}>
+                                            {b.name}
+                                        </option>
+                                    ))}
+                                </select>
+                            )}
+
+                            <select
+                                value={inlineRegGlId || expenseAndGlAccounts[0]?.qb_account_id || ''}
+                                onChange={(e) => setInlineRegGlId(e.target.value)}
+                                className={`${filterAccountId === 'ALL' ? 'lg:col-span-2' : 'lg:col-span-3'} px-2.5 py-1.5 rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-medium`}
+                            >
+                                {expenseAndGlAccounts.map(g => (
+                                    <option key={g.qb_account_id} value={g.qb_account_id}>
+                                        {g.acct_num ? `${g.acct_num} · ` : ''}{g.name} ({g.account_type})
+                                    </option>
+                                ))}
+                            </select>
+
+                            <input
+                                type="text"
+                                value={inlineRegMemo}
+                                onChange={(e) => setInlineRegMemo(e.target.value)}
+                                placeholder={t('external_accounting.inline_placeholder_memo')}
+                                className={`${filterAccountId === 'ALL' ? 'lg:col-span-1' : 'lg:col-span-2'} px-2.5 py-1.5 rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs`}
+                            />
+
+                            <input
+                                type="number"
+                                step="0.01"
+                                min="0.01"
+                                value={inlineRegAmount}
+                                onChange={(e) => setInlineRegAmount(e.target.value)}
+                                placeholder={inlineRegType === 'Deposit' ? 'Depósito $' : 'Pago $'}
+                                className="lg:col-span-1 px-2.5 py-1.5 rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-mono font-bold text-right"
+                                required
+                            />
+
+                            <button
+                                type="submit"
+                                disabled={saving}
+                                className="lg:col-span-1 px-2.5 py-1.5 rounded-md bg-slate-900 hover:bg-slate-800 dark:bg-white dark:hover:bg-slate-200 text-white dark:text-slate-900 text-xs font-bold cursor-pointer disabled:opacity-50"
+                            >
+                                + {t('external_accounting.inline_btn_save')}
+                            </button>
+                        </div>
+                    </form>
+
                     {/* Filter Bar */}
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-2.5">
                         <div className="relative lg:col-span-2">
@@ -3801,7 +4113,7 @@ function ExternalAccountingContent() {
                                     setPage(1)
                                 }}
                                 placeholder={t('external_accounting.search_placeholder')}
-                                className="w-full pl-9 pr-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                                className="w-full pl-9 pr-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-slate-400"
                             />
                         </div>
 
@@ -3811,7 +4123,7 @@ function ExternalAccountingContent() {
                                 setFilterType(e.target.value)
                                 setPage(1)
                             }}
-                            className="px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-xs font-bold"
+                            className="px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-xs font-semibold"
                         >
                             <option value="ALL">{t('external_accounting.filter_all_types')}</option>
                             <option value="Check">{t('external_accounting.filter_checks')}</option>
@@ -3831,7 +4143,7 @@ function ExternalAccountingContent() {
                                 setFilterDirection(e.target.value)
                                 setPage(1)
                             }}
-                            className="px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-xs font-bold"
+                            className="px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-xs font-semibold"
                         >
                             <option value="ALL">{t('external_accounting.filter_all_directions')}</option>
                             <option value="IN">{t('external_accounting.filter_inflows_only')}</option>
@@ -3845,7 +4157,7 @@ function ExternalAccountingContent() {
                                 setPage(1)
                                 setCheckbookPage(1)
                             }}
-                            className="px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-xs font-bold"
+                            className="px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-xs font-semibold"
                         >
                             <option value="ALL">{t('external_accounting.filter_all_accounts')}</option>
                             {accounts.map(a => (
@@ -3858,148 +4170,275 @@ function ExternalAccountingContent() {
                         <button
                             type="button"
                             onClick={handlePrintLedger}
-                            className="inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold cursor-pointer"
+                            className="inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 text-slate-700 dark:text-slate-200 text-xs font-semibold cursor-pointer"
                         >
                             <Printer size={14} />
                             <span>{t('external_accounting.btn_print_ledger')}</span>
                         </button>
                     </div>
 
-                    {/* Ledger Table */}
-                    <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800">
-                        <table className="w-full text-left border-collapse text-xs">
-                            <thead>
-                                <tr className="bg-slate-100 dark:bg-slate-800/80 text-slate-600 dark:text-slate-300 font-black uppercase text-[10px] tracking-wider">
-                                    <th className="py-3 px-3">{t('external_accounting.col_date')}</th>
-                                    <th className="py-3 px-3">{t('external_accounting.col_type')}</th>
-                                    <th className="py-3 px-3">{t('external_accounting.col_doc_num')}</th>
-                                    <th className="py-3 px-3">{t('external_accounting.col_payee')}</th>
-                                    <th className="py-3 px-3">{t('external_accounting.col_account')}</th>
-                                    <th className="py-3 px-3">{t('external_accounting.col_category')}</th>
-                                    <th className="py-3 px-3">{t('external_accounting.col_memo')}</th>
-                                    <th className="py-3 px-3 text-right">{t('external_accounting.col_outflow')}</th>
-                                    <th className="py-3 px-3 text-right">{t('external_accounting.col_inflow')}</th>
-                                    <th className="py-3 px-3 text-right">{t('external_accounting.col_balance')}</th>
-                                    <th className="py-3 px-3 text-center">{t('external_accounting.col_status')}</th>
-                                    <th className="py-3 px-3 text-center">{t('external_accounting.col_actions')}</th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-slate-200/70 dark:divide-slate-800">
-                                {transactions.map(row => {
-                                    const isOut = row.direction === 'OUT' || row.direction === 'TRANSFER'
-                                    const isIn = row.direction === 'IN'
-                                    return (
-                                        <tr
-                                            key={row.id}
-                                            className={`hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors ${
-                                                row.is_voided ? 'opacity-50 line-through' : ''
-                                            }`}
-                                        >
-                                            <td className="py-2.5 px-3 font-mono whitespace-nowrap">{row.txn_date}</td>
-                                            <td className="py-2.5 px-3 whitespace-nowrap">
-                                                <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase ${
-                                                    row.txn_type === 'Check'
-                                                        ? 'bg-red-500/15 text-red-700 dark:text-red-300'
-                                                        : row.txn_type === 'Deposit'
-                                                        ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
-                                                        : 'bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300'
-                                                }`}>
-                                                    {row.txn_type}
-                                                </span>
+                    {/* ① & ③ QBO BANK REGISTER TABLE: 2-LINE VIEW (DEFAULT) OR 1-LINE VIEW */}
+                    <div className="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-800">
+                        {registerTwoLineView ? (
+                            <table className="w-full text-left border-collapse text-xs">
+                                <thead>
+                                    <tr className="bg-slate-50 dark:bg-slate-800/80 border-b border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 font-bold uppercase text-[10px] tracking-wider">
+                                        <th className="py-2.5 px-3 w-[110px]">{t('external_accounting.col_date')}</th>
+                                        <th className="py-2.5 px-3 w-[130px]">{t('external_accounting.col_ref_and_type')}</th>
+                                        <th className="py-2.5 px-3">{t('external_accounting.col_payee_and_account')}</th>
+                                        <th className="py-2.5 px-3 text-right w-[125px]">{t('external_accounting.col_outflow')}</th>
+                                        <th className="py-2.5 px-3 text-right w-[125px]">{t('external_accounting.col_inflow')}</th>
+                                        <th className="py-2.5 px-2.5 text-center w-[52px]">✓</th>
+                                        <th className="py-2.5 px-3 text-right w-[140px]">{t('external_accounting.col_balance')}</th>
+                                        <th className="py-2.5 px-3 text-right w-[115px]">{t('external_accounting.col_actions')}</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-200/80 dark:divide-slate-800">
+                                    {transactions.map((row, idx) => {
+                                        const isOut = row.direction === 'OUT' || row.direction === 'TRANSFER'
+                                        const isIn = row.direction === 'IN'
+                                        const lineItemsArr = Array.isArray(row.line_items) ? row.line_items : []
+                                        const isSplit = lineItemsArr.length > 1
+                                        const zebraClass = idx % 2 === 1 ? 'bg-slate-50/45 dark:bg-slate-800/20' : 'bg-white dark:bg-slate-900'
+
+                                        return (
+                                            <tr
+                                                key={row.id}
+                                                className={`${zebraClass} hover:bg-slate-100/70 dark:hover:bg-slate-800/50 transition-colors align-top ${
+                                                    row.is_voided ? 'opacity-50 line-through' : ''
+                                                }`}
+                                            >
+                                                {/* Col 1: Date */}
+                                                <td className="py-2.5 px-3 font-mono whitespace-nowrap text-slate-800 dark:text-slate-200 font-semibold">
+                                                    <div>{row.txn_date}</div>
+                                                    {filterAccountId === 'ALL' && row.account_name && (
+                                                        <div className="text-[10px] font-sans font-normal text-slate-400 mt-0.5 truncate max-w-[115px]" title={row.account_name}>
+                                                            {row.account_name}
+                                                        </div>
+                                                    )}
+                                                </td>
+
+                                                {/* Col 2: Ref No. (Line 1) + Type (Line 2) */}
+                                                <td className="py-2.5 px-3 whitespace-nowrap">
+                                                    <div className="font-mono font-bold text-slate-900 dark:text-white">
+                                                        {row.doc_number ? `#${row.doc_number}` : '—'}
+                                                    </div>
+                                                    <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 font-medium">
+                                                        {row.txn_type}
+                                                    </div>
+                                                </td>
+
+                                                {/* Col 3: Payee (Line 1) + GL Account / -SPLIT- Breakdown & Memo (Line 2) */}
+                                                <td className="py-2.5 px-3">
+                                                    <div className="font-semibold text-slate-900 dark:text-white text-[13px] leading-snug">
+                                                        {row.entity_name || row.category_summary || '—'}
+                                                    </div>
+                                                    <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-slate-500 dark:text-slate-400">
+                                                        {isSplit ? (
+                                                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-slate-200/80 dark:bg-slate-700 text-slate-800 dark:text-slate-200 font-mono font-bold text-[10px]">
+                                                                {t('external_accounting.split_badge_label')} ({lineItemsArr.length} {t('external_accounting.split_lines_count')})
+                                                            </span>
+                                                        ) : (
+                                                            <span className="font-medium text-slate-600 dark:text-slate-300">
+                                                                {row.category_summary || row.account_name || '—'}
+                                                            </span>
+                                                        )}
+                                                        {row.memo && (
+                                                            <span className="text-slate-400 dark:text-slate-500 italic">
+                                                                — {row.memo}
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                    {/* ③ Visible Split Breakdown (when transaction has 2+ GL distribution lines) */}
+                                                    {isSplit && (
+                                                        <div className="mt-1.5 pl-2.5 border-l-2 border-slate-200 dark:border-slate-700 space-y-0.5">
+                                                            {lineItemsArr.slice(0, 4).map((li: any, liIdx: number) => (
+                                                                <div key={liIdx} className="text-[11px] text-slate-500 dark:text-slate-400 flex items-center justify-between max-w-md">
+                                                                    <span className="truncate pr-2">
+                                                                        • {li.account_name || li.description || 'Cuenta GL'}
+                                                                        {li.description && li.account_name ? ` (${li.description})` : ''}
+                                                                    </span>
+                                                                    <span className="font-mono tabular-nums font-medium text-slate-700 dark:text-slate-300">
+                                                                        {formatCurrency(li.amount)}
+                                                                    </span>
+                                                                </div>
+                                                            ))}
+                                                            {lineItemsArr.length > 4 && (
+                                                                <div className="text-[10px] text-slate-400 italic">
+                                                                    +{lineItemsArr.length - 4} líneas adicionales...
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    )}
+                                                </td>
+
+                                                {/* Col 4: Payment / Outflow */}
+                                                <td className="py-2.5 px-3 text-right font-mono tabular-nums font-semibold text-slate-900 dark:text-slate-100 whitespace-nowrap">
+                                                    {isOut ? formatCurrency(row.total_amount) : ''}
+                                                </td>
+
+                                                {/* Col 5: Deposit / Inflow */}
+                                                <td className="py-2.5 px-3 text-right font-mono tabular-nums font-semibold text-emerald-700 dark:text-emerald-400 whitespace-nowrap">
+                                                    {isIn ? formatCurrency(row.total_amount) : ''}
+                                                </td>
+
+                                                {/* Col 6: Cleared / Reconciled Status (C / R / U) */}
+                                                <td className="py-2.5 px-2.5 text-center whitespace-nowrap">
+                                                    {row.is_voided ? (
+                                                        <span className="px-1.5 py-0.5 rounded bg-red-500/15 text-red-600 dark:text-red-400 text-[10px] font-bold uppercase">
+                                                            VOID
+                                                        </span>
+                                                    ) : (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => handleToggleClearedStatus(row)}
+                                                            title={t('external_accounting.col_status')}
+                                                            className={`w-6 h-6 rounded text-[11px] font-mono font-bold cursor-pointer transition-colors inline-flex items-center justify-center border ${
+                                                                row.cleared_status === 'Reconciled'
+                                                                    ? 'bg-emerald-600 text-white border-emerald-600'
+                                                                    : row.cleared_status === 'Cleared'
+                                                                    ? 'bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 border-slate-300 dark:border-slate-600'
+                                                                    : 'bg-white dark:bg-slate-900 text-slate-400 border-slate-200 dark:border-slate-700 hover:border-slate-400'
+                                                            }`}
+                                                        >
+                                                            {row.cleared_status === 'Reconciled' ? 'R' : row.cleared_status === 'Cleared' ? 'C' : ''}
+                                                        </button>
+                                                    )}
+                                                </td>
+
+                                                {/* Col 7: Running Balance */}
+                                                <td className="py-2.5 px-3 text-right font-mono tabular-nums font-bold text-slate-800 dark:text-slate-200 whitespace-nowrap">
+                                                    {row.running_balance != null ? formatCurrency(row.running_balance) : '—'}
+                                                </td>
+
+                                                {/* Col 8: Actions */}
+                                                <td className="py-2.5 px-3 text-right whitespace-nowrap">
+                                                    <div className="inline-flex items-center gap-1">
+                                                        {(row.txn_type === 'Check' || row.txn_type === 'BillPayment') && (
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => setPrintableCheckTxn(row)}
+                                                                title={t('external_accounting.action_print')}
+                                                                className="p-1.5 rounded hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 cursor-pointer"
+                                                            >
+                                                                <Printer size={13} />
+                                                            </button>
+                                                        )}
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => openTransactionModal(
+                                                                (['Check', 'Deposit', 'Expense', 'Invoice', 'Payment', 'Bill', 'BillPayment', 'Transfer', 'JournalEntry', 'SalesReceipt', 'CreditMemo', 'RefundReceipt', 'Estimate', 'VendorCredit', 'CreditCardCredit', 'PurchaseOrder', 'PayDownCreditCard'].includes(row.txn_type))
+                                                                    ? (row.txn_type as ModalMode)
+                                                                    : 'Expense',
+                                                                row
+                                                            )}
+                                                            title={t('external_accounting.action_edit')}
+                                                            className="p-1.5 rounded hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 cursor-pointer"
+                                                        >
+                                                            <Edit3 size={13} />
+                                                        </button>
+                                                        {!row.is_voided && (
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => handleVoidTransaction(row)}
+                                                                title={t('external_accounting.action_void')}
+                                                                className="p-1.5 rounded hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-500 cursor-pointer"
+                                                            >
+                                                                <Ban size={13} />
+                                                            </button>
+                                                        )}
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => handleDeleteTransaction(row)}
+                                                            title={t('external_accounting.action_delete')}
+                                                            className="p-1.5 rounded hover:bg-slate-200 dark:hover:bg-slate-700 text-red-600 dark:text-red-400 cursor-pointer"
+                                                        >
+                                                            <Trash2 size={13} />
+                                                        </button>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        )
+                                    })}
+                                    {transactions.length === 0 && (
+                                        <tr>
+                                            <td colSpan={8} className="py-10 text-center text-slate-400">
+                                                {t('external_accounting.no_records_found')}
                                             </td>
-                                            <td className="py-2.5 px-3 font-mono font-bold">{row.doc_number || '—'}</td>
-                                            <td className="py-2.5 px-3 font-semibold max-w-[180px] truncate">{row.entity_name || '—'}</td>
-                                            <td className="py-2.5 px-3 text-slate-600 dark:text-slate-400 max-w-[160px] truncate">{row.account_name || '—'}</td>
-                                            <td className="py-2.5 px-3 text-slate-600 dark:text-slate-400 max-w-[180px] truncate">{row.category_summary || '—'}</td>
-                                            <td className="py-2.5 px-3 text-slate-500 max-w-[200px] truncate">{row.memo || '—'}</td>
-                                            <td className="py-2.5 px-3 text-right font-bold text-red-600 dark:text-red-400 whitespace-nowrap">
-                                                {isOut ? formatCurrency(row.total_amount) : ''}
-                                            </td>
-                                            <td className="py-2.5 px-3 text-right font-bold text-emerald-600 dark:text-emerald-400 whitespace-nowrap">
-                                                {isIn ? formatCurrency(row.total_amount) : ''}
-                                            </td>
-                                            <td className="py-2.5 px-3 text-right font-mono font-bold whitespace-nowrap">
-                                                {row.running_balance != null ? formatCurrency(row.running_balance) : '—'}
-                                            </td>
-                                            <td className="py-2.5 px-3 text-center whitespace-nowrap">
-                                                {row.is_voided ? (
-                                                    <span className="px-2 py-0.5 rounded bg-red-500/20 text-red-600 dark:text-red-400 text-[10px] font-black uppercase">
-                                                        VOID
-                                                    </span>
-                                                ) : (
+                                        </tr>
+                                    )}
+                                </tbody>
+                            </table>
+                        ) : (
+                            /* Compact 1-Line View */
+                            <table className="w-full text-left border-collapse text-xs">
+                                <thead>
+                                    <tr className="bg-slate-50 dark:bg-slate-800/80 border-b border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 font-bold uppercase text-[10px] tracking-wider">
+                                        <th className="py-2.5 px-3">{t('external_accounting.col_date')}</th>
+                                        <th className="py-2.5 px-3">{t('external_accounting.col_type')}</th>
+                                        <th className="py-2.5 px-3">{t('external_accounting.col_doc_num')}</th>
+                                        <th className="py-2.5 px-3">{t('external_accounting.col_payee')}</th>
+                                        <th className="py-2.5 px-3">{t('external_accounting.col_account')}</th>
+                                        <th className="py-2.5 px-3">{t('external_accounting.col_category')}</th>
+                                        <th className="py-2.5 px-3">{t('external_accounting.col_memo')}</th>
+                                        <th className="py-2.5 px-3 text-right">{t('external_accounting.col_outflow')}</th>
+                                        <th className="py-2.5 px-3 text-right">{t('external_accounting.col_inflow')}</th>
+                                        <th className="py-2.5 px-3 text-center">✓</th>
+                                        <th className="py-2.5 px-3 text-right">{t('external_accounting.col_balance')}</th>
+                                        <th className="py-2.5 px-3 text-right">{t('external_accounting.col_actions')}</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-200/70 dark:divide-slate-800">
+                                    {transactions.map(row => {
+                                        const isOut = row.direction === 'OUT' || row.direction === 'TRANSFER'
+                                        const isIn = row.direction === 'IN'
+                                        return (
+                                            <tr
+                                                key={row.id}
+                                                className={`hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors ${
+                                                    row.is_voided ? 'opacity-50 line-through' : ''
+                                                }`}
+                                            >
+                                                <td className="py-2 px-3 font-mono whitespace-nowrap">{row.txn_date}</td>
+                                                <td className="py-2 px-3 whitespace-nowrap font-medium text-slate-600 dark:text-slate-300">{row.txn_type}</td>
+                                                <td className="py-2 px-3 font-mono font-bold">{row.doc_number || '—'}</td>
+                                                <td className="py-2 px-3 font-semibold max-w-[180px] truncate">{row.entity_name || '—'}</td>
+                                                <td className="py-2 px-3 text-slate-600 dark:text-slate-400 max-w-[160px] truncate">{row.account_name || '—'}</td>
+                                                <td className="py-2 px-3 text-slate-600 dark:text-slate-400 max-w-[180px] truncate">{row.category_summary || '—'}</td>
+                                                <td className="py-2 px-3 text-slate-500 max-w-[180px] truncate">{row.memo || '—'}</td>
+                                                <td className="py-2 px-3 text-right font-mono font-semibold text-slate-900 dark:text-slate-100 whitespace-nowrap">
+                                                    {isOut ? formatCurrency(row.total_amount) : ''}
+                                                </td>
+                                                <td className="py-2 px-3 text-right font-mono font-semibold text-emerald-700 dark:text-emerald-400 whitespace-nowrap">
+                                                    {isIn ? formatCurrency(row.total_amount) : ''}
+                                                </td>
+                                                <td className="py-2 px-3 text-center whitespace-nowrap">
                                                     <button
                                                         type="button"
                                                         onClick={() => handleToggleClearedStatus(row)}
-                                                        title={t('external_accounting.col_status')}
-                                                        className={`px-2 py-0.5 rounded text-[10px] font-black uppercase cursor-pointer transition-colors ${
-                                                            row.cleared_status === 'Reconciled'
-                                                                ? 'bg-emerald-600 text-white'
-                                                                : row.cleared_status === 'Uncleared'
-                                                                ? 'bg-amber-500/20 text-amber-700 dark:text-amber-300'
-                                                                : 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
-                                                        }`}
+                                                        className="px-1.5 py-0.5 rounded border border-slate-300 dark:border-slate-700 text-[10px] font-mono font-bold cursor-pointer"
                                                     >
-                                                        {row.cleared_status === 'Reconciled' ? 'R' : row.cleared_status === 'Uncleared' ? 'U' : 'C'}
+                                                        {row.cleared_status === 'Reconciled' ? 'R' : row.cleared_status === 'Cleared' ? 'C' : 'U'}
                                                     </button>
-                                                )}
-                                            </td>
-                                            <td className="py-2.5 px-3 text-center whitespace-nowrap">
-                                                <div className="inline-flex items-center gap-1">
-                                                    {(row.txn_type === 'Check' || row.txn_type === 'BillPayment') && (
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => setPrintableCheckTxn(row)}
-                                                            title={t('external_accounting.action_print')}
-                                                            className="p-1.5 rounded hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 cursor-pointer"
-                                                        >
-                                                            <Printer size={13} />
-                                                        </button>
-                                                    )}
+                                                </td>
+                                                <td className="py-2 px-3 text-right font-mono font-bold whitespace-nowrap">
+                                                    {row.running_balance != null ? formatCurrency(row.running_balance) : '—'}
+                                                </td>
+                                                <td className="py-2 px-3 text-right whitespace-nowrap">
                                                     <button
                                                         type="button"
-                                                        onClick={() => openTransactionModal(
-                                                            (['Check', 'Deposit', 'Expense', 'Invoice', 'Payment', 'Bill', 'BillPayment', 'Transfer', 'JournalEntry', 'SalesReceipt', 'CreditMemo', 'RefundReceipt', 'Estimate', 'VendorCredit', 'CreditCardCredit', 'PurchaseOrder', 'PayDownCreditCard'].includes(row.txn_type))
-                                                                ? (row.txn_type as ModalMode)
-                                                                : 'Expense',
-                                                            row
-                                                        )}
-                                                        title={t('external_accounting.action_edit')}
-                                                        className="p-1.5 rounded hover:bg-slate-200 dark:hover:bg-slate-700 text-blue-600 dark:text-blue-400 cursor-pointer"
+                                                        onClick={() => openTransactionModal('Expense', row)}
+                                                        className="p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 cursor-pointer"
                                                     >
                                                         <Edit3 size={13} />
                                                     </button>
-                                                    {!row.is_voided && (
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => handleVoidTransaction(row)}
-                                                            title={t('external_accounting.action_void')}
-                                                            className="p-1.5 rounded hover:bg-slate-200 dark:hover:bg-slate-700 text-amber-600 dark:text-amber-400 cursor-pointer"
-                                                        >
-                                                            <Ban size={13} />
-                                                        </button>
-                                                    )}
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => handleDeleteTransaction(row)}
-                                                        title={t('external_accounting.action_delete')}
-                                                        className="p-1.5 rounded hover:bg-slate-200 dark:hover:bg-slate-700 text-red-600 dark:text-red-400 cursor-pointer"
-                                                    >
-                                                        <Trash2 size={13} />
-                                                    </button>
-                                                </div>
-                                            </td>
-                                        </tr>
-                                    )
-                                })}
-                                {transactions.length === 0 && (
-                                    <tr>
-                                        <td colSpan={12} className="py-10 text-center text-slate-400">
-                                            {t('external_accounting.no_records_found')}
-                                        </td>
-                                    </tr>
-                                )}
-                            </tbody>
-                        </table>
+                                                </td>
+                                            </tr>
+                                        )
+                                    })}
+                                </tbody>
+                            </table>
+                        )}
                     </div>
 
                     {/* True Server-Side Pagination Controls */}
@@ -4351,7 +4790,7 @@ function ExternalAccountingContent() {
 
             {/* TAB 5: CHART OF ACCOUNTS & BALANCES */}
             {activeTab === 'accounts' && (
-                <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 shadow-xs space-y-4">
+                <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 shadow-xs space-y-4">
                     <div className="flex flex-wrap items-center justify-between gap-3">
                         <div className="relative w-full sm:w-80">
                             <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
@@ -4360,7 +4799,7 @@ function ExternalAccountingContent() {
                                 value={accountSearch}
                                 onChange={(e) => setAccountSearch(e.target.value)}
                                 placeholder={t('external_accounting.search_placeholder')}
-                                className="w-full pl-9 pr-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-xs"
+                                className="w-full pl-9 pr-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-xs"
                             />
                         </div>
                         <button
@@ -4374,55 +4813,81 @@ function ExternalAccountingContent() {
                                 setAccFormBalance('0')
                                 setAccountModalOpen(true)
                             }}
-                            className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs cursor-pointer"
+                            className="px-3.5 py-2 rounded-lg bg-slate-900 hover:bg-slate-800 dark:bg-white dark:hover:bg-slate-200 text-white dark:text-slate-900 font-bold text-xs cursor-pointer"
                         >
                             {t('external_accounting.btn_new_account')}
                         </button>
                     </div>
 
-                    <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800">
+                    <div className="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-800">
                         <table className="w-full text-left border-collapse text-xs">
                             <thead>
-                                <tr className="bg-slate-100 dark:bg-slate-800 text-[10px] font-black uppercase tracking-wider">
-                                    <th className="py-3 px-3">{t('external_accounting.col_acct_num')}</th>
-                                    <th className="py-3 px-3">{t('external_accounting.col_acct_name')}</th>
-                                    <th className="py-3 px-3">{t('external_accounting.col_classification')}</th>
-                                    <th className="py-3 px-3">{t('external_accounting.col_acct_type')}</th>
-                                    <th className="py-3 px-3">{t('external_accounting.col_sub_type')}</th>
-                                    <th className="py-3 px-3 text-right">{t('external_accounting.col_current_balance')}</th>
-                                    <th className="py-3 px-3 text-center">{t('external_accounting.col_actions')}</th>
+                                <tr className="bg-slate-50 dark:bg-slate-800/80 border-b border-slate-200 dark:border-slate-700 text-slate-500 text-[10px] font-bold uppercase tracking-wider">
+                                    <th className="py-2.5 px-3">{t('external_accounting.col_acct_num')}</th>
+                                    <th className="py-2.5 px-3">{t('external_accounting.col_acct_name')}</th>
+                                    <th className="py-2.5 px-3">{t('external_accounting.col_classification')}</th>
+                                    <th className="py-2.5 px-3">{t('external_accounting.col_acct_type')}</th>
+                                    <th className="py-2.5 px-3">{t('external_accounting.col_sub_type')}</th>
+                                    <th className="py-2.5 px-3 text-right">{t('external_accounting.col_current_balance')}</th>
+                                    <th className="py-2.5 px-3 text-right">{t('external_accounting.col_actions')}</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-200/70 dark:divide-slate-800">
-                                {filteredAccounts.map(acc => (
-                                    <tr key={acc.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
-                                        <td className="py-2.5 px-3 font-mono text-slate-500">{acc.acct_num || '—'}</td>
-                                        <td className="py-2.5 px-3 font-bold text-slate-900 dark:text-white">{acc.name}</td>
-                                        <td className="py-2.5 px-3">{acc.classification || '—'}</td>
-                                        <td className="py-2.5 px-3 font-semibold">{acc.account_type}</td>
-                                        <td className="py-2.5 px-3 text-slate-500">{acc.account_sub_type || '—'}</td>
-                                        <td className="py-2.5 px-3 text-right font-mono font-black">
-                                            {formatCurrency(acc.current_balance)}
-                                        </td>
-                                        <td className="py-2.5 px-3 text-center">
-                                            <button
-                                                type="button"
-                                                onClick={() => {
-                                                    setEditingAccount(acc)
-                                                    setAccFormName(acc.name || '')
-                                                    setAccFormNum(acc.acct_num || '')
-                                                    setAccFormType(acc.account_type || 'Bank')
-                                                    setAccFormClass(acc.classification || 'Asset')
-                                                    setAccFormBalance(String(acc.current_balance || 0))
-                                                    setAccountModalOpen(true)
-                                                }}
-                                                className="p-1.5 rounded hover:bg-slate-200 dark:hover:bg-slate-700 text-blue-500 cursor-pointer"
-                                            >
-                                                <Edit3 size={13} />
-                                            </button>
-                                        </td>
-                                    </tr>
-                                ))}
+                                {filteredAccounts.map(acc => {
+                                    const isBalanceSheetAcct = ['Asset', 'Liability', 'Equity'].includes(acc.classification || '') ||
+                                        ['Bank', 'Credit Card', 'Other Current Asset', 'Fixed Asset', 'Accounts Payable', 'Accounts Receivable', 'Other Current Liability', 'Long Term Liability', 'Equity'].includes(acc.account_type || '')
+                                    return (
+                                        <tr key={acc.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
+                                            <td className="py-2.5 px-3 font-mono text-slate-500">{acc.acct_num || '—'}</td>
+                                            <td className="py-2.5 px-3 font-bold text-slate-900 dark:text-white">{acc.name}</td>
+                                            <td className="py-2.5 px-3 text-slate-600 dark:text-slate-400">{acc.classification || '—'}</td>
+                                            <td className="py-2.5 px-3 font-medium text-slate-700 dark:text-slate-300">{acc.account_type}</td>
+                                            <td className="py-2.5 px-3 text-slate-500">{acc.account_sub_type || '—'}</td>
+                                            <td className="py-2.5 px-3 text-right font-mono tabular-nums font-bold text-slate-900 dark:text-white">
+                                                {acc.current_balance != null ? formatCurrency(acc.current_balance) : '—'}
+                                            </td>
+                                            <td className="py-2.5 px-3 text-right whitespace-nowrap">
+                                                <div className="inline-flex items-center gap-2">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => {
+                                                            if (acc.account_type === 'Bank' || acc.account_type === 'Credit Card') {
+                                                                setFilterAccountId(acc.qb_account_id)
+                                                                setSearchQuery('')
+                                                            } else {
+                                                                setFilterAccountId('ALL')
+                                                                setSearchQuery(acc.name)
+                                                            }
+                                                            setPage(1)
+                                                            setActiveTab('transactions')
+                                                        }}
+                                                        className="text-xs font-semibold text-blue-600 dark:text-blue-400 hover:underline cursor-pointer"
+                                                    >
+                                                        {isBalanceSheetAcct
+                                                            ? t('external_accounting.coa_action_view_register')
+                                                            : t('external_accounting.coa_action_run_report')}
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => {
+                                                            setEditingAccount(acc)
+                                                            setAccFormName(acc.name || '')
+                                                            setAccFormNum(acc.acct_num || '')
+                                                            setAccFormType(acc.account_type || 'Bank')
+                                                            setAccFormClass(acc.classification || 'Asset')
+                                                            setAccFormBalance(String(acc.current_balance || 0))
+                                                            setAccountModalOpen(true)
+                                                        }}
+                                                        className="p-1.5 rounded hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 cursor-pointer"
+                                                        title={t('external_accounting.action_edit')}
+                                                    >
+                                                        <Edit3 size={13} />
+                                                    </button>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    )
+                                })}
                             </tbody>
                         </table>
                     </div>
@@ -4431,7 +4896,7 @@ function ExternalAccountingContent() {
 
             {/* TAB 6: VENDORS & CUSTOMERS */}
             {activeTab === 'contacts' && (
-                <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 shadow-xs space-y-4">
+                <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 shadow-xs space-y-4">
                     <div className="flex flex-wrap items-center justify-between gap-3">
                         <div className="relative w-full sm:w-80">
                             <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
@@ -4440,7 +4905,7 @@ function ExternalAccountingContent() {
                                 value={contactSearch}
                                 onChange={(e) => setContactSearch(e.target.value)}
                                 placeholder={t('external_accounting.search_placeholder')}
-                                className="w-full pl-9 pr-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-xs"
+                                className="w-full pl-9 pr-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-xs"
                             />
                         </div>
                         <button
@@ -4455,23 +4920,23 @@ function ExternalAccountingContent() {
                                 setConForm1099(false)
                                 setContactModalOpen(true)
                             }}
-                            className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs cursor-pointer"
+                            className="px-3.5 py-2 rounded-lg bg-slate-900 hover:bg-slate-800 dark:bg-white dark:hover:bg-slate-200 text-white dark:text-slate-900 font-bold text-xs cursor-pointer"
                         >
                             {t('external_accounting.btn_new_contact')}
                         </button>
                     </div>
 
-                    <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800">
+                    <div className="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-800">
                         <table className="w-full text-left border-collapse text-xs">
                             <thead>
-                                <tr className="bg-slate-100 dark:bg-slate-800 text-[10px] font-black uppercase tracking-wider">
-                                    <th className="py-3 px-3">{t('external_accounting.col_contact_name')}</th>
-                                    <th className="py-3 px-3">{t('external_accounting.col_contact_type')}</th>
-                                    <th className="py-3 px-3">{t('external_accounting.col_email')}</th>
-                                    <th className="py-3 px-3">{t('external_accounting.col_phone')}</th>
-                                    <th className="py-3 px-3">{t('external_accounting.col_tax_id')}</th>
-                                    <th className="py-3 px-3 text-center">{t('external_accounting.col_1099')}</th>
-                                    <th className="py-3 px-3 text-center">{t('external_accounting.col_actions')}</th>
+                                <tr className="bg-slate-50 dark:bg-slate-800/80 border-b border-slate-200 dark:border-slate-700 text-slate-500 text-[10px] font-bold uppercase tracking-wider">
+                                    <th className="py-2.5 px-3">{t('external_accounting.col_contact_name')}</th>
+                                    <th className="py-2.5 px-3">{t('external_accounting.col_contact_type')}</th>
+                                    <th className="py-2.5 px-3">{t('external_accounting.col_email')}</th>
+                                    <th className="py-2.5 px-3">{t('external_accounting.col_phone')}</th>
+                                    <th className="py-2.5 px-3">{t('external_accounting.col_tax_id')}</th>
+                                    <th className="py-2.5 px-3 text-center">{t('external_accounting.col_1099')}</th>
+                                    <th className="py-2.5 px-3 text-right">{t('external_accounting.col_actions')}</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-200/70 dark:divide-slate-800">
@@ -4479,11 +4944,7 @@ function ExternalAccountingContent() {
                                     <tr key={c.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
                                         <td className="py-2.5 px-3 font-bold text-slate-900 dark:text-white">{c.display_name}</td>
                                         <td className="py-2.5 px-3">
-                                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                                                c.contact_type === 'Customer'
-                                                    ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
-                                                    : 'bg-blue-500/15 text-blue-700 dark:text-blue-300'
-                                            }`}>
+                                            <span className="px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-[10px] font-semibold">
                                                 {c.contact_type === 'Customer' ? t('external_accounting.type_customer') : t('external_accounting.type_vendor')}
                                             </span>
                                         </td>
@@ -4495,23 +4956,37 @@ function ExternalAccountingContent() {
                                                 <span className="px-2 py-0.5 rounded bg-amber-500/20 text-amber-700 dark:text-amber-300 font-black text-[10px]">1099</span>
                                             ) : '—'}
                                         </td>
-                                        <td className="py-2.5 px-3 text-center">
-                                            <button
-                                                type="button"
-                                                onClick={() => {
-                                                    setEditingContact(c)
-                                                    setConFormName(c.display_name || '')
-                                                    setConFormType(c.contact_type || 'Vendor')
-                                                    setConFormEmail(c.email || '')
-                                                    setConFormPhone(c.phone || '')
-                                                    setConFormTaxId(c.tax_identifier || '')
-                                                    setConForm1099(Boolean(c.vendor_1099))
-                                                    setContactModalOpen(true)
-                                                }}
-                                                className="p-1.5 rounded hover:bg-slate-200 dark:hover:bg-slate-700 text-blue-500 cursor-pointer"
-                                            >
-                                                <Edit3 size={13} />
-                                            </button>
+                                        <td className="py-2.5 px-3 text-right whitespace-nowrap">
+                                            <div className="inline-flex items-center gap-2">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        setFilterAccountId('ALL')
+                                                        setSearchQuery(c.display_name)
+                                                        setPage(1)
+                                                        setActiveTab('transactions')
+                                                    }}
+                                                    className="text-xs font-semibold text-blue-600 dark:text-blue-400 hover:underline cursor-pointer"
+                                                >
+                                                    {t('external_accounting.contact_action_view_txns')}
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        setEditingContact(c)
+                                                        setConFormName(c.display_name || '')
+                                                        setConFormType(c.contact_type || 'Vendor')
+                                                        setConFormEmail(c.email || '')
+                                                        setConFormPhone(c.phone || '')
+                                                        setConFormTaxId(c.tax_identifier || '')
+                                                        setConForm1099(Boolean(c.vendor_1099))
+                                                        setContactModalOpen(true)
+                                                    }}
+                                                    className="p-1.5 rounded hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 cursor-pointer"
+                                                >
+                                                    <Edit3 size={13} />
+                                                </button>
+                                            </div>
                                         </td>
                                     </tr>
                                 ))}
