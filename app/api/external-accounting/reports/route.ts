@@ -22,6 +22,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { authorizeExternalAccounting } from '@/lib/external-accounting-auth'
 
 export const dynamic = 'force-dynamic'
 
@@ -96,15 +97,22 @@ function flattenQboReportRows(rows: any[] = [], depth = 0, out: any[] = []): any
 export async function GET(req: NextRequest) {
   try {
     const supabase = getAdminSupabase()
+
+    // Strict Backend Authorization (Fail-Closed)
+    const auth = await authorizeExternalAccounting(req, supabase)
+    if (!auth.authorized) {
+      return NextResponse.json({ error: auth.error }, { status: auth.status })
+    }
+
     const { searchParams } = new URL(req.url)
 
-    const realmId = searchParams.get('realmId')
+    const realmId = (searchParams.get('realmId') || '').trim()
     const reportType = searchParams.get('reportType') || 'pnl'
     const startDate = searchParams.get('startDate') || null
     const endDate = searchParams.get('endDate') || null
     const basis = (searchParams.get('basis') || 'Accrual') as 'Accrual' | 'Cash'
     const accountId = searchParams.get('accountId') || 'ALL'
-    const qboArchiveKey = searchParams.get('qboArchiveKey') || 'ProfitAndLoss_ByYear_Accrual'
+    const qboArchiveKey = searchParams.get('qboArchiveKey') || searchParams.get('reportKey') || 'ProfitAndLoss_ByYear_Accrual'
 
     if (!realmId) {
       return NextResponse.json({ error: 'Missing realmId' }, { status: 400 })
@@ -119,6 +127,9 @@ export async function GET(req: NextRequest) {
     ])
 
     const company = compRes.data
+    if (!company) {
+      return NextResponse.json({ error: `Empresa no encontrada para realmId: ${realmId}` }, { status: 404 })
+    }
     const accounts = accRes.data || []
     const contacts = conRes.data || []
     const availableArchives = archListRes.data || []
@@ -187,9 +198,11 @@ export async function GET(req: NextRequest) {
         const yr = (t.txn_date || '').slice(0, 4) || 'Unknown'
         yearsSet.add(yr)
 
+        if (t.txn_type === 'Estimate' || t.txn_type === 'PurchaseOrder' || t.direction === 'NON_POSTING') continue
+
         // Cash vs Accrual filtering
         if (basis === 'Cash') {
-          if (t.txn_type === 'Invoice' || t.txn_type === 'Bill') continue
+          if (t.txn_type === 'Invoice' || t.txn_type === 'Bill' || t.txn_type === 'CreditMemo' || t.txn_type === 'VendorCredit') continue
         } else {
           // In Accrual, if company uses Invoices (like Gutierrez Financial), avoid double counting Payment + Deposit on A/R
           if (t.txn_type === 'Payment') continue
@@ -199,18 +212,20 @@ export async function GET(req: NextRequest) {
           ? t.line_items
           : [{ account_name: t.category_summary || t.to_account_name || t.txn_type, amount: t.total_amount, posting_type: null }]
 
-        if (t.txn_type === 'Deposit' || t.txn_type === 'Invoice' || t.txn_type === 'SalesReceipt') {
+        if (t.txn_type === 'Deposit' || t.txn_type === 'Invoice' || t.txn_type === 'SalesReceipt' || t.txn_type === 'RefundReceipt' || t.txn_type === 'CreditMemo') {
+          const sign = (t.txn_type === 'RefundReceipt' || t.txn_type === 'CreditMemo') ? -1 : 1
           for (const l of lines) {
             const cat = l.account_name || t.category_summary || 'Operating Income'
             if (cat.toLowerCase().includes('accounts receivable') && basis === 'Accrual') continue
-            const amt = Number(l.amount || 0)
+            const amt = Number(l.amount ?? t.total_amount ?? 0) * sign
             if (amt === 0) continue
             if (!incomeByCategory[cat]) incomeByCategory[cat] = { category: cat, amount: 0, count: 0, byYear: {} }
             incomeByCategory[cat].amount = Number((incomeByCategory[cat].amount + amt).toFixed(2))
             incomeByCategory[cat].count++
             incomeByCategory[cat].byYear[yr] = Number(((incomeByCategory[cat].byYear[yr] || 0) + amt).toFixed(2))
           }
-        } else if (t.txn_type === 'Check' || t.txn_type === 'Expense' || t.txn_type === 'CreditCardExpense' || (basis === 'Accrual' && t.txn_type === 'Bill') || (basis === 'Cash' && t.txn_type === 'BillPayment')) {
+        } else if (t.txn_type === 'Check' || t.txn_type === 'Expense' || t.txn_type === 'CreditCardExpense' || t.txn_type === 'VendorCredit' || t.txn_type === 'CreditCardCredit' || (basis === 'Accrual' && t.txn_type === 'Bill') || (basis === 'Cash' && t.txn_type === 'BillPayment')) {
+          const sign = (t.txn_type === 'VendorCredit' || t.txn_type === 'CreditCardCredit') ? -1 : 1
           for (const l of lines) {
             const cat = l.account_name || t.category_summary || 'Operating Expense'
             const matchedAcc = accountNameMap.get(cat.toLowerCase())
@@ -218,7 +233,7 @@ export async function GET(req: NextRequest) {
             if (matchedAcc && ['Bank', 'Fixed Asset', 'Other Asset', 'Equity', 'Long Term Liability'].includes(matchedAcc.account_type)) {
               continue
             }
-            const amt = Number(l.amount || t.total_amount || 0)
+            const amt = Number(l.amount ?? t.total_amount ?? 0) * sign
             if (amt === 0) continue
             if (!expenseByCategory[cat]) expenseByCategory[cat] = { category: cat, amount: 0, count: 0, byYear: {} }
             expenseByCategory[cat].amount = Number((expenseByCategory[cat].amount + amt).toFixed(2))
@@ -230,7 +245,7 @@ export async function GET(req: NextRequest) {
             const cat = l.account_name || ''
             const matchedAcc = accountNameMap.get(cat.toLowerCase())
             if (!matchedAcc) continue
-            const amt = Number(l.amount || 0)
+            const amt = Number(l.amount ?? 0)
             if (matchedAcc.classification === 'Revenue' || matchedAcc.account_type === 'Income' || matchedAcc.account_type === 'Other Income') {
               const signed = l.posting_type === 'Credit' ? amt : -amt
               if (!incomeByCategory[cat]) incomeByCategory[cat] = { category: cat, amount: 0, count: 0, byYear: {} }
@@ -255,6 +270,17 @@ export async function GET(req: NextRequest) {
       const netIncome = Number((totalIncome - totalExpenses).toFixed(2))
       const years = Array.from(yearsSet).sort()
 
+      const incomeByYear: Record<string, number> = {}
+      const expenseByYear: Record<string, number> = {}
+      const netIncomeByYear: Record<string, number> = {}
+      for (const y of years) {
+        const incY = Number(incomeRows.reduce((s, r) => s + Number(r.byYear?.[y] || 0), 0).toFixed(2))
+        const expY = Number(expenseRows.reduce((s, r) => s + Number(r.byYear?.[y] || 0), 0).toFixed(2))
+        incomeByYear[y] = incY
+        expenseByYear[y] = expY
+        netIncomeByYear[y] = Number((incY - expY).toFixed(2))
+      }
+
       return NextResponse.json({
         reportType,
         company,
@@ -266,6 +292,9 @@ export async function GET(req: NextRequest) {
           years,
           incomeRows,
           expenseRows,
+          incomeByYear,
+          expenseByYear,
+          netIncomeByYear,
           totalIncome,
           totalExpenses,
           netIncome,
@@ -399,10 +428,35 @@ export async function GET(req: NextRequest) {
       }
 
       for (const t of activeTxns) {
+        if (t.txn_type === 'Estimate' || t.txn_type === 'PurchaseOrder' || t.direction === 'NON_POSTING') continue
         const amt = Number(t.total_amount || 0)
-        const lines = Array.isArray(t.line_items) ? t.line_items : []
+        const rawLines = Array.isArray(t.line_items) ? t.line_items : []
+        const lines = rawLines.length > 0
+          ? rawLines
+          : [{ account_name: t.to_account_name || t.category_summary || (t.direction === 'IN' ? 'Income' : 'Expense'), amount: amt }]
 
-        if (t.direction === 'OUT') {
+        if (t.txn_type === 'Transfer' || t.txn_type === 'PayDownCreditCard') {
+          if (t.account_name) {
+            addEntry(t.account_name, {
+              date: t.txn_date,
+              type: t.txn_type,
+              doc: t.doc_number || '',
+              name: t.entity_name || '',
+              memo: t.memo || '',
+              debit: 0,
+              credit: amt,
+            })
+          }
+          addEntry(t.to_account_name || t.category_summary || 'Transfer Target', {
+            date: t.txn_date,
+            type: t.txn_type,
+            doc: t.doc_number || '',
+            name: t.entity_name || '',
+            memo: t.memo || '',
+            debit: amt,
+            credit: 0,
+          })
+        } else if (t.direction === 'OUT' || t.txn_type === 'Bill') {
           if (t.account_name) {
             addEntry(t.account_name, {
               date: t.txn_date,
@@ -421,11 +475,11 @@ export async function GET(req: NextRequest) {
               doc: t.doc_number || '',
               name: l.entity_name || t.entity_name || '',
               memo: l.description || t.memo || '',
-              debit: Number(l.amount || amt),
+              debit: Number(l.amount ?? amt),
               credit: 0,
             })
           }
-        } else if (t.direction === 'IN') {
+        } else if (t.direction === 'IN' || t.txn_type === 'Invoice') {
           if (t.account_name) {
             addEntry(t.account_name, {
               date: t.txn_date,
@@ -445,12 +499,12 @@ export async function GET(req: NextRequest) {
               name: l.entity_name || t.entity_name || '',
               memo: l.description || t.memo || '',
               debit: 0,
-              credit: Number(l.amount || amt),
+              credit: Number(l.amount ?? amt),
             })
           }
         } else if (t.txn_type === 'JournalEntry') {
-          for (const l of lines) {
-            const lAmt = Number(l.amount || 0)
+          for (const l of rawLines) {
+            const lAmt = Number(l.amount ?? 0)
             addEntry(l.account_name || 'Journal Account', {
               date: t.txn_date,
               type: 'JournalEntry',
@@ -536,6 +590,7 @@ export async function GET(req: NextRequest) {
       }> = {}
 
       for (const t of activeTxns) {
+        if (t.txn_type === 'Estimate' || t.txn_type === 'PurchaseOrder' || t.direction === 'NON_POSTING') continue
         if (isVendor && t.direction !== 'OUT') continue
         if (!isVendor && t.direction !== 'IN') continue
         const name = (t.entity_name || 'Sin Beneficiario Especificado').trim()
