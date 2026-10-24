@@ -1,7 +1,8 @@
 /* Official TV Menu Typeface — Gotham Ultra */
 @font-face {
     font-family: 'Gotham Ultra';
-    src: url('../fonts/GothamUltra.otf') format('opentype');
+    src: url('../fonts/GothamUltra.otf') format('opentype'),
+         url('../fonts/Gotham%20Ultra.otf') format('opentype');
     font-weight: 900;
     font-style: normal;
     font-display: swap;
@@ -1728,45 +1729,52 @@ html:not(.tg-stop-animations) .marquee-track:hover .marquee-set {
 }
 
 /* Menu Category Tabs */
+.menu-section .container {
+    max-width: var(--container-wide);
+}
+
 .menu-tabs {
     display: flex;
     justify-content: center;
-    gap: 0.5rem;
+    gap: 0.6rem;
     flex-wrap: wrap;
     margin-bottom: 3.5rem;
 }
 
 .menu-tab {
-    font-family: var(--ff-heading);
-    font-weight: 600;
-    font-size: 0.9rem;
+    font-family: 'Gotham Ultra', 'Montserrat', var(--ff-heading), sans-serif;
+    font-weight: 900;
+    font-size: 1.08rem;
     text-transform: uppercase;
-    letter-spacing: 0.05em;
-    color: var(--clr-text-muted);
-    padding: 0.6rem 1.15rem;
+    letter-spacing: 0.03em;
+    color: #F5C424;
+    padding: 0.7rem 1.25rem;
     border-radius: 50px;
-    border: 1px solid rgba(255, 255, 255, 0.06);
-    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid rgba(245, 196, 36, 0.28);
+    background: #141414;
     position: relative;
     cursor: pointer;
     transition: all var(--transition-fast);
 }
 
 .menu-tab:hover {
-    color: var(--clr-white);
-    background: rgba(255, 255, 255, 0.06);
-    border-color: rgba(255, 255, 255, 0.15);
+    color: var(--clr-gold);
+    background: rgba(255, 199, 44, 0.12);
+    border-color: rgba(255, 199, 44, 0.55);
+    transform: translateY(-1px);
 }
 
 .menu-tab.active {
     color: var(--clr-gold);
-    background: rgba(255, 199, 44, 0.1);
-    border-color: rgba(255, 199, 44, 0.4);
-    box-shadow: 0 0 20px rgba(255, 199, 44, 0.15);
+    background: rgba(255, 199, 44, 0.18);
+    border-color: var(--clr-gold);
+    box-shadow: 0 0 22px rgba(255, 199, 44, 0.3);
 }
 
 /* Menu Items Grid — Centered Flexbox Container */
 .menu-grid {
+    max-width: calc(var(--container-max) - 3rem);
+    margin-inline: auto;
     display: flex;
     flex-wrap: wrap;
     justify-content: center;
@@ -3939,11 +3947,11 @@ button:focus-visible {
     }
 
     .menu-tab {
-        font-size: 0.78rem;
-        padding: 0.45rem 0.95rem;
+        font-size: 0.92rem;
+        padding: 0.52rem 1.05rem;
         white-space: nowrap;
         flex-shrink: 0;
-        min-height: 42px;
+        min-height: 44px;
         display: inline-flex;
         align-items: center;
         justify-content: center;
@@ -4182,9 +4190,9 @@ button:focus-visible {
     }
 
     .menu-tab {
-        font-size: 0.76rem;
-        padding: 0.42rem 0.85rem;
-        min-height: 42px;
+        font-size: 0.88rem;
+        padding: 0.48rem 0.95rem;
+        min-height: 44px;
     }
 
     .menu-meat-callout {
@@ -4421,9 +4429,9 @@ button:focus-visible {
     }
 
     .menu-tab {
-        font-size: 0.75rem;
-        padding: 0.45rem 0.8rem;
-        min-height: 42px;
+        font-size: 0.85rem;
+        padding: 0.46rem 0.88rem;
+        min-height: 44px;
     }
 
     .footer-marquee-set span,
