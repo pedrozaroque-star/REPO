@@ -635,13 +635,17 @@ document.addEventListener('DOMContentLoaded', () => {
                     b_company_website: honeypot ? honeypot.value : ''
                 };
 
-                const response = await fetch('/api/contact/', {
+                const isLocalStatic = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+                let response = await fetch(isLocalStatic ? 'https://tacosgavilan.com/api/contact/' : '/api/contact/', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(payload)
                 });
 
-                const result = await response.json();
+                let result = {};
+                try {
+                    result = await response.json();
+                } catch (_) {}
 
                 if (response.ok && (result.ok || result.success)) {
                     contactForm.reset();
@@ -657,7 +661,10 @@ document.addEventListener('DOMContentLoaded', () => {
                     }
                     if (btnSpan) btnSpan.textContent = translations[currentLang]['contact.sent'];
                 } else {
-                    throw new Error(result.error || 'Server error');
+                    if (contactStatus) {
+                        contactStatus.className = 'contact-status error';
+                        contactStatus.textContent = result.error || translations[currentLang]['contact.errorMsg'];
+                    }
                 }
             } catch (err) {
                 if (contactStatus) {
@@ -969,7 +976,7 @@ document.addEventListener('DOMContentLoaded', () => {
             'contact.sending':             'Sending...',
             'contact.sent':                'Message Sent!',
             'contact.successMsg':          'Thank you! Your submission has been received by Tacos Gavilan.',
-            'contact.errorMsg':            'Could not send message. Please verify your details or email us at info@tacosgavilan.com.',
+            'contact.errorMsg':            'Could not send message. Please verify your details or email us at support@tacosgavilan.com.',
 
             // Contact Page Details
             'contact.tag':                 'Get In Touch',
@@ -1084,7 +1091,7 @@ document.addEventListener('DOMContentLoaded', () => {
             'privacy.h2':           '4. Cookies, Prior-Consent Gating & Global Privacy Control (GPC)',
             'privacy.p2':           'Tacos Gavilan does not sell personal information for monetary consideration. Non-essential analytics and advertising tags (Google Tag Manager GTM-WW2N58Z, Meta Pixel, TikTok Pixel) are blocked by default until you grant consent, and are automatically disabled when a Global Privacy Control (navigator.globalPrivacyControl === true) signal or Opt-Out is active.',
             'privacy.rightsH':      '5. Your California Privacy Rights (CCPA / CPRA)',
-            'privacy.rightsP':      'California residents have the Right to Know/Access, Delete, Correct, Opt Out of Sale/Sharing, Limit Sensitive Info, and Non-Discrimination, including via an Authorized Agent. Submit requests via our Contact Form (receiving a confirmation Reference ID and timestamp) or email info@tacosgavilan.com.',
+            'privacy.rightsP':      'California residents have the Right to Know/Access, Delete, Correct, Opt Out of Sale/Sharing, Limit Sensitive Info, and Non-Discrimination, including via an Authorized Agent. Submit requests via our Contact Form (receiving a confirmation Reference ID and timestamp) or email support@tacosgavilan.com.',
 
             'terms.title': 'Terms of Use & Ordering Disclosures',
             'terms.intro': 'Effective Date: October 16, 2026 · Last Updated: October 16, 2026 · Version: 2.1. By accessing or using https://tacosgavilan.com, operated by Tacos Gavilan across our 15 Southern California restaurant locations, you agree to these Terms of Use. Full Terms of Use available at /terms/.',
@@ -1102,7 +1109,7 @@ document.addEventListener('DOMContentLoaded', () => {
             'accessibility.lastUpdatedH': 'Telephone Assistance & Alternative Access',
             'accessibility.lastUpdatedP': 'If you experience difficulty using any part of this website or placing an online order, please call your nearest Tacos Gavilan restaurant directly (all 15 store phone numbers are listed on our Locations page) and our team will gladly assist you with menu information and telephone ordering.',
             'accessibility.h2':           'Feedback & Barrier Reporting',
-            'accessibility.p2':           'To report an accessibility barrier or request assistance, email info@tacosgavilan.com or submit a request via /contact/ selecting "Accessibility Assistance / Report a Barrier".'
+            'accessibility.p2':           'To report an accessibility barrier or request assistance, email support@tacosgavilan.com or submit a request via /contact/ selecting "Accessibility Assistance / Report a Barrier".'
         },
         es: {
             'a11y.skipToContent': 'Saltar al contenido principal',
@@ -1396,7 +1403,7 @@ document.addEventListener('DOMContentLoaded', () => {
             'contact.sending':             'Enviando...',
             'contact.sent':                '¡Mensaje Enviado!',
             'contact.successMsg':          '¡Gracias! Tu solicitud ha sido recibida por Tacos Gavilan.',
-            'contact.errorMsg':            'No se pudo enviar el mensaje. Por favor verifica tus datos o escríbenos a info@tacosgavilan.com.',
+            'contact.errorMsg':            'No se pudo enviar el mensaje. Por favor verifica tus datos o escríbenos a support@tacosgavilan.com.',
 
             // Detalles de Página de Contacto
             'contact.tag':                 'Ponte en Contacto',
@@ -1511,7 +1518,7 @@ document.addEventListener('DOMContentLoaded', () => {
             'privacy.h2':           '4. Cookies, Bloqueo Previo al Consentimiento y Global Privacy Control (GPC)',
             'privacy.p2':           'Tacos Gavilan no vende información personal a cambio de dinero. Las etiquetas no esenciales de analítica y publicidad (Google Tag Manager GTM-WW2N58Z, Meta Pixel, TikTok Pixel) están bloqueadas por defecto hasta que usted otorgue su consentimiento, y se desactivan automáticamente cuando se detecta una señal Global Privacy Control (navigator.globalPrivacyControl === true) o exclusión voluntaria.',
             'privacy.rightsH':      '5. Sus Derechos de Privacidad en California (CCPA / CPRA)',
-            'privacy.rightsP':      'Los residentes de California tienen Derecho a Conocer/Acceder, Eliminar, Corregir, Optar por No Vender ni Compartir, Limitar Información Sensible y No Discriminación, incluso mediante Agente Autorizado. Envíe solicitudes mediante nuestro Formulario de Contacto (recibiendo un ID de Confirmación y marca de tiempo) o al correo info@tacosgavilan.com.',
+            'privacy.rightsP':      'Los residentes de California tienen Derecho a Conocer/Acceder, Eliminar, Corregir, Optar por No Vender ni Compartir, Limitar Información Sensible y No Discriminación, incluso mediante Agente Autorizado. Envíe solicitudes mediante nuestro Formulario de Contacto (recibiendo un ID de Confirmación y marca de tiempo) o al correo support@tacosgavilan.com.',
 
             'terms.title': 'Términos de Uso y Avisos de Pedidos',
             'terms.intro': 'Fecha de Entrada en Vigor: 16 de octubre de 2026 · Última Actualización: 16 de octubre de 2026 · Versión: 2.1. Al acceder o utilizar https://tacosgavilan.com, operado por Tacos Gavilan en nuestras 15 sucursales del sur de California, usted acepta estos Términos de Uso. Consulte los Términos de Uso completos en /terms/.',
@@ -1529,7 +1536,7 @@ document.addEventListener('DOMContentLoaded', () => {
             'accessibility.lastUpdatedH': 'Asistencia Telefónica y Acceso Alternativo',
             'accessibility.lastUpdatedP': 'Si experimenta alguna dificultad para utilizar cualquier parte de este sitio web o realizar un pedido en línea, llame directamente a su restaurante Tacos Gavilan más cercano (los 15 números telefónicos están disponibles en nuestra página de Ubicaciones) y nuestro equipo con gusto le asistirá con información del menú y pedidos telefónicos.',
             'accessibility.h2':           'Comentarios y Reporte de Barreras',
-            'accessibility.p2':           'Para reportar una barrera de accesibilidad o solicitar asistencia, escriba a info@tacosgavilan.com o envíe una solicitud en /contact/ seleccionando "Asistencia de Accesibilidad / Reportar una Barrera".'
+            'accessibility.p2':           'Para reportar una barrera de accesibilidad o solicitar asistencia, escriba a support@tacosgavilan.com o envíe una solicitud en /contact/ seleccionando "Asistencia de Accesibilidad / Reportar una Barrera".'
         }
     };
 

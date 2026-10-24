@@ -10,6 +10,6 @@ module.exports = async function handler(req, res) {
     return res.status(410).json({
         success: false,
         error: 'CAREERS_NOT_ACTIVE',
-        message: 'Online employment applications are currently not active. Please visit our Contact page or email info@tacosgavilan.com for assistance.'
+        message: 'Online employment applications are currently not active. Please visit our Contact page or email support@tacosgavilan.com for assistance.'
     });
 };

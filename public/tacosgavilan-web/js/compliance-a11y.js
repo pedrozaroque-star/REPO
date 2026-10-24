@@ -102,7 +102,7 @@
 
             // Statements
             statementTitle: 'Declaración de Accesibilidad',
-            statementBody: 'Tacos Gavilan trabaja continuamente hacia la conformidad con las Pautas de Accesibilidad para el Contenido Web (WCAG) 2.2 Nivel AA y evalúa y mejora constantemente el sitio web para facilitar el acceso a todas las personas.\n\nALCANCE Y MEJORAS CONTINUAS:\nImplementamos estructura HTML5 semántica, navegación por teclado, trampas de foco en modales y menú móvil, etiquetas de formulario accesibles y alternativas de texto para mapas e imágenes.\n\nASISTENCIA TELEFÓNICA Y REPORTE DE BARRERAS:\nSi experimenta alguna dificultad para navegar, consultar nuestro menú o realizar un pedido en línea en order.online (operado por DoorDash, Inc.), puede llamar directamente a cualquiera de nuestras 15 sucursales listadas en /locations/ para recibir asistencia de nuestro personal, o reportar cualquier barrera de accesibilidad:\n\n• Correo Electrónico: info@tacosgavilan.com\n• Formulario de Contacto y Accesibilidad: https://tacosgavilan.com/contact/\n• Directorio de 15 Sucursales: https://tacosgavilan.com/locations/'
+            statementBody: 'Tacos Gavilan trabaja continuamente hacia la conformidad con las Pautas de Accesibilidad para el Contenido Web (WCAG) 2.2 Nivel AA y evalúa y mejora constantemente el sitio web para facilitar el acceso a todas las personas.\n\nALCANCE Y MEJORAS CONTINUAS:\nImplementamos estructura HTML5 semántica, navegación por teclado, trampas de foco en modales y menú móvil, etiquetas de formulario accesibles y alternativas de texto para mapas e imágenes.\n\nASISTENCIA TELEFÓNICA Y REPORTE DE BARRERAS:\nSi experimenta alguna dificultad para navegar, consultar nuestro menú o realizar un pedido en línea en order.online (operado por DoorDash, Inc.), puede llamar directamente a cualquiera de nuestras 15 sucursales listadas en /locations/ para recibir asistencia de nuestro personal, o reportar cualquier barrera de accesibilidad:\n\n• Correo Electrónico: support@tacosgavilan.com\n• Formulario de Contacto y Accesibilidad: https://tacosgavilan.com/contact/\n• Directorio de 15 Sucursales: https://tacosgavilan.com/locations/'
         },
         en: {
             // Handicap Accessibility Widget
@@ -159,7 +159,7 @@
 
             // Statements
             statementTitle: 'Accessibility Statement',
-            statementBody: 'Tacos Gavilan is working toward Web Content Accessibility Guidelines (WCAG) 2.2 Level AA conformance and continuously evaluates and improves the website to support equal access for all guests.\n\nSCOPE & NATIVE ACCESSIBILITY MEASURES:\nWe implement semantic HTML5 landmarks, keyboard navigation, focus traps on modals and the mobile navigation drawer, accessible form labels, and native HTML store directory alternatives alongside interactive maps.\n\nTELEPHONE ASSISTANCE & BARRIER REPORTING:\nIf you encounter any difficulty accessing our website, reviewing menus, or placing an online order on order.online (operated by DoorDash, Inc.), you may call any of our 15 Southern California restaurant locations listed at /locations/ for direct staff assistance, or report an accessibility barrier:\n\n• Email: info@tacosgavilan.com\n• Online Contact & Accessibility Form: https://tacosgavilan.com/contact/\n• 15 Restaurant Locations Directory: https://tacosgavilan.com/locations/'
+            statementBody: 'Tacos Gavilan is working toward Web Content Accessibility Guidelines (WCAG) 2.2 Level AA conformance and continuously evaluates and improves the website to support equal access for all guests.\n\nSCOPE & NATIVE ACCESSIBILITY MEASURES:\nWe implement semantic HTML5 landmarks, keyboard navigation, focus traps on modals and the mobile navigation drawer, accessible form labels, and native HTML store directory alternatives alongside interactive maps.\n\nTELEPHONE ASSISTANCE & BARRIER REPORTING:\nIf you encounter any difficulty accessing our website, reviewing menus, or placing an online order on order.online (operated by DoorDash, Inc.), you may call any of our 15 Southern California restaurant locations listed at /locations/ for direct staff assistance, or report an accessibility barrier:\n\n• Email: support@tacosgavilan.com\n• Online Contact & Accessibility Form: https://tacosgavilan.com/contact/\n• 15 Restaurant Locations Directory: https://tacosgavilan.com/locations/'
         }
     };
 
@@ -600,9 +600,9 @@
         }
 
         if (currentLang === 'es') {
-            parts.push('Para asistencia telefónica, visite nuestra sección de Sucursales o escríbanos a info@tacosgavilan.com.');
+            parts.push('Para asistencia telefónica, visite nuestra sección de Sucursales o escríbanos a support@tacosgavilan.com.');
         } else {
-            parts.push('For phone assistance, please visit our Locations section or email info@tacosgavilan.com.');
+            parts.push('For phone assistance, please visit our Locations section or email support@tacosgavilan.com.');
         }
 
         var fullText = parts.join('. ');

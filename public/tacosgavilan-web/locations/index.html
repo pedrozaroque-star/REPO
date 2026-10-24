@@ -78,7 +78,7 @@
         }
     })();
     </script>
-    <link rel="stylesheet" href="../css/style.css?v=109">
+    <link rel="stylesheet" href="../css/style.css?v=112">
     <link rel="stylesheet" href="../css/compliance-a11y.css?v=36">
     <style>
         .page-content-wrapper {
@@ -264,21 +264,21 @@
         }
         .store-card-city {
             display: block;
-            font-size: 1.35rem;
+            font-size: clamp(2rem, 2.4vw, 2.5rem);
             font-weight: 800;
             color: #ffffff;
-            line-height: 1.2;
-            letter-spacing: -0.01em;
+            line-height: 1.12;
+            letter-spacing: -0.02em;
             transition: color 0.2s ease;
         }
         .store-card-cross-streets {
             display: block;
             font-family: var(--ff-body, 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif);
-            font-size: 0.95rem;
+            font-size: clamp(1.45rem, 1.75vw, 1.85rem);
             font-weight: 700;
             color: var(--clr-gold, #FFC72C);
-            letter-spacing: 0.02em;
-            line-height: 1.3;
+            letter-spacing: 0.01em;
+            line-height: 1.22;
             transition: color 0.2s ease;
         }
         .store-card:hover .store-card-city,
@@ -1118,7 +1118,7 @@
                     <p data-i18n="footer.hoursText">Hours vary by location.<br><strong>Check your nearest restaurant.</strong></p>
                     <h4 style="margin-top: 1.25rem;" data-i18n="footer.contactHeading">CONTACT</h4>
                     <p><a href="../locations/" data-i18n="footer.allLocations">15 Store Locations &rarr;</a></p>
-                    <p><a href="mailto:info@tacosgavilan.com">info@tacosgavilan.com</a></p>
+                    <p><a href="mailto:support@tacosgavilan.com">support@tacosgavilan.com</a></p>
                 </div>
             </div>
         </div>
@@ -1229,7 +1229,7 @@
             <path d="M12 2c1.1 0 2 .9 2 2s-.9 2-2 2-2-.9-2-2 .9-2 2-2zm9 7h-6v13h-2v-6h-2v6H9V9H3V7h18v2z"/>
         </svg>
     </button>
-    <script src="../js/main.js?v=109" defer></script>
+    <script src="../js/main.js?v=112" defer></script>
     <script src="../js/compliance-a11y.js?v=36" defer></script>
 </body>
 </html>

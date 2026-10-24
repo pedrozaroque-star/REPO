@@ -7,7 +7,7 @@
  * @businessRules
  *   1. Toast POS is exclusive for food orders; this endpoint handles brand, catering, careers, and accessibility inquiries.
  *   2. Fail-Closed Guarantee: Never return HTTP 200 without verified database persistence in Supabase.
- *   3. If Supabase configuration or network fails, return 503 CONTACT_SERVICE_UNAVAILABLE with email fallback info@tacosgavilan.com.
+ *   3. If Supabase configuration or network fails, return 503 CONTACT_SERVICE_UNAVAILABLE with email fallback support@tacosgavilan.com.
  *   4. Strictly whitelist topics and store names to prevent injection or corruption of customer_feedback records.
  *   5. Each warm serverless instance limits an IP to 5 submissions per 10-minute window; this is defense in depth,
  *      not a distributed global rate limit.
@@ -155,11 +155,14 @@ const STORE_NAME_TO_ID = {
     'Azusa': 4,
     'LA Broadway': 5,
     'Los Angeles Broadway': 5,
-    'Los Angeles (Vernon/Broadway)': 6,
+    'Los Angeles (Vernon/Broadway)': 5,
     'Los Angeles (Vernon & Broadway)': 5,
+    'Los Angeles Vernon & Broadway': 5,
     'Los Angeles Vernon/Broadway': 5,
     'LA Central': 6,
     'Los Angeles Central': 6,
+    'Los Angeles Central & Washington': 6,
+    'Los Angeles Central &amp; Washington': 6,
     'Los Angeles Central (Central/Washington)': 6,
     'Los Angeles (Central/Washington)': 6,
     'Los Angeles (Central & Washington)': 6,
@@ -167,7 +170,8 @@ const STORE_NAME_TO_ID = {
     'Los Angeles Central Central/Washington': 6,
     'Slauson': 7,
     'Los Angeles Slauson': 7,
-    'Los Angeles (Slauson/Broadway)': 6,
+    'Los Angeles Slauson & Broadway': 7,
+    'Los Angeles (Slauson/Broadway)': 7,
     'Los Angeles (Slauson & Broadway)': 7,
     'Los Angeles Slauson/Broadway': 7,
     'Hollywood': 8,
@@ -180,6 +184,28 @@ const STORE_NAME_TO_ID = {
     'South Gate': 15,
     'Downey': 16
 };
+
+function resolveStoreId(rawStore) {
+    if (!rawStore) return 14;
+    if (STORE_NAME_TO_ID[rawStore]) return STORE_NAME_TO_ID[rawStore];
+    const s = String(rawStore).toLowerCase();
+    if (s.includes('rialto')) return 1;
+    if (s.includes('west covina') || s.includes('covina')) return 3;
+    if (s.includes('azusa')) return 4;
+    if (s.includes('vernon') || s.includes('la broadway') || s.includes('4380')) return 5;
+    if (s.includes('central') || s.includes('washington') || s.includes('1900')) return 6;
+    if (s.includes('slauson') || s.includes('5833')) return 7;
+    if (s.includes('hollywood') || s.includes('sunset')) return 8;
+    if (s.includes('santa ana') || s.includes('17th')) return 9;
+    if (s.includes('la puente') || s.includes('valley')) return 10;
+    if (s.includes('huntington')) return 11;
+    if (s.includes('norwalk') || s.includes('rosecrans')) return 12;
+    if (s.includes('bell')) return 13;
+    if (s.includes('lynwood') || s.includes('imperial')) return 14;
+    if (s.includes('south gate') || s.includes('firestone')) return 15;
+    if (s.includes('downey')) return 16;
+    return null;
+}
 
 function isAllowedOriginOrReferer(req) {
     const origin = String(req.headers['origin'] || '').trim().toLowerCase();
@@ -208,7 +234,171 @@ function isAllowedOriginOrReferer(req) {
     }
 }
 
+function escapeHtml(str) {
+    return String(str || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+}
+
+function buildMimeBase64Url({ from, to, cc, replyTo, subject, html }) {
+    const encodedSubject = `=?UTF-8?B?${Buffer.from(subject, 'utf8').toString('base64')}?=`;
+    const headers = [
+        `From: ${from}`,
+        `To: ${to}`,
+        ...(cc ? [`Cc: ${cc}`] : []),
+        ...(replyTo ? [`Reply-To: ${replyTo}`] : []),
+        `Subject: ${encodedSubject}`,
+        'MIME-Version: 1.0',
+        'Content-Type: text/html; charset="UTF-8"',
+        'Content-Transfer-Encoding: base64',
+        '',
+        Buffer.from(html, 'utf8').toString('base64')
+    ];
+    const rawMime = headers.join('\r\n');
+    return Buffer.from(rawMime, 'utf8')
+        .toString('base64')
+        .replace(/\+/g, '-')
+        .replace(/\//g, '_')
+        .replace(/=+$/, '');
+}
+
+async function dispatchContactEmails({ supabaseUrl, supabaseKey, name, email, phone, rawReason, rawStore, message, referenceId, confirmedTimestamp }) {
+    try {
+        const cfgRes = await fetch(
+            `${supabaseUrl}/rest/v1/integrations?service_name=eq.website_contact_gmail&select=access_token&limit=1`,
+            {
+                headers: {
+                    'apikey': supabaseKey,
+                    'Authorization': `Bearer ${supabaseKey}`
+                }
+            }
+        );
+        if (!cfgRes.ok) return false;
+        const cfgRows = await cfgRes.json();
+        if (!Array.isArray(cfgRows) || !cfgRows[0]?.access_token) return false;
+
+        const cfg = JSON.parse(cfgRows[0].access_token);
+        if (!cfg.client_id || !cfg.client_secret || !cfg.refresh_token) return false;
+
+        const tokenParams = new URLSearchParams({
+            client_id: cfg.client_id,
+            client_secret: cfg.client_secret,
+            refresh_token: cfg.refresh_token,
+            grant_type: 'refresh_token'
+        });
+
+        const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: tokenParams.toString()
+        });
+        if (!tokenRes.ok) return false;
+        const tokenData = await tokenRes.json();
+        const accessToken = tokenData.access_token;
+        if (!accessToken) return false;
+
+        const supportEmail = cfg.support_email || 'support@tacosgavilan.com';
+        const fromHeader = `Tacos Gavilan Website <${cfg.from_email || 'carlos@tacosgavilan.com'}>`;
+        const safeName = escapeHtml(name);
+        const safeEmail = escapeHtml(email);
+        const safePhone = escapeHtml(phone || 'N/A');
+        const safeReason = escapeHtml(rawReason);
+        const safeStore = escapeHtml(rawStore || 'Corporate / General');
+        const safeMessage = escapeHtml(message);
+
+        // 1. Internal notification to support@tacosgavilan.com (CC carlos@tacosgavilan.com)
+        const internalHtml = `
+<div style="font-family: 'Segoe UI', Arial, sans-serif; max-width: 620px; margin: 0 auto; background: #141210; color: #ffffff; border: 1px solid #FFC72C; border-radius: 12px; overflow: hidden;">
+  <div style="background: linear-gradient(135deg, #DA291C 0%, #9e1b11 100%); padding: 20px 24px; border-bottom: 2px solid #FFC72C;">
+    <h2 style="margin: 0; font-size: 20px; color: #ffffff;">Tacos Gavilan — Website Contact Submission</h2>
+    <p style="margin: 4px 0 0; font-size: 13px; color: #FFC72C; font-weight: 600;">Reference ID: ${referenceId}</p>
+  </div>
+  <div style="padding: 24px;">
+    <table style="width: 100%; border-collapse: collapse; font-size: 14px; color: #f3f4f6;">
+      <tr><td style="padding: 8px 0; color: #FFC72C; font-weight: 700; width: 150px;">Name:</td><td style="padding: 8px 0; color: #ffffff;">${safeName}</td></tr>
+      <tr><td style="padding: 8px 0; color: #FFC72C; font-weight: 700;">Email:</td><td style="padding: 8px 0;"><a href="mailto:${safeEmail}" style="color: #FFC72C;">${safeEmail}</a></td></tr>
+      <tr><td style="padding: 8px 0; color: #FFC72C; font-weight: 700;">Phone:</td><td style="padding: 8px 0; color: #ffffff;">${safePhone}</td></tr>
+      <tr><td style="padding: 8px 0; color: #FFC72C; font-weight: 700;">Topic:</td><td style="padding: 8px 0; color: #ffffff;">${safeReason}</td></tr>
+      <tr><td style="padding: 8px 0; color: #FFC72C; font-weight: 700;">Store Location:</td><td style="padding: 8px 0; color: #ffffff;">${safeStore}</td></tr>
+      <tr><td style="padding: 8px 0; color: #FFC72C; font-weight: 700;">Submitted (UTC):</td><td style="padding: 8px 0; color: #ffffff;">${confirmedTimestamp}</td></tr>
+    </table>
+    <div style="margin-top: 18px; padding: 16px; background: rgba(255,255,255,0.06); border-left: 4px solid #FFC72C; border-radius: 6px;">
+      <div style="font-size: 12px; text-transform: uppercase; letter-spacing: 0.8px; color: #FFC72C; font-weight: 700; margin-bottom: 6px;">Message</div>
+      <div style="font-size: 15px; line-height: 1.5; color: #ffffff; white-space: pre-wrap;">${safeMessage}</div>
+    </div>
+    <p style="margin-top: 20px; font-size: 12px; color: #9ca3af;">
+      Reply directly to this email to respond to <strong>${safeName} (${safeEmail})</strong>.
+    </p>
+  </div>
+</div>`;
+
+        const rawInternal = buildMimeBase64Url({
+            from: fromHeader,
+            to: supportEmail,
+            cc: 'carlos@tacosgavilan.com',
+            replyTo: `${name.replace(/["<>]/g, '')} <${email}>`,
+            subject: `[Tacos Gavilan Web] Contact (${rawReason} - ${rawStore || 'General'}) — ${name} (${referenceId})`,
+            html: internalHtml
+        });
+
+        // 2. Customer confirmation email
+        const confirmHtml = `
+<div style="font-family: 'Segoe UI', Arial, sans-serif; max-width: 620px; margin: 0 auto; background: #141210; color: #ffffff; border: 1px solid #FFC72C; border-radius: 12px; overflow: hidden;">
+  <div style="background: linear-gradient(135deg, #DA291C 0%, #9e1b11 100%); padding: 20px 24px; border-bottom: 2px solid #FFC72C;">
+    <h2 style="margin: 0; font-size: 20px; color: #ffffff;">Thank You for Contacting Tacos Gavilan!</h2>
+    <p style="margin: 4px 0 0; font-size: 13px; color: #FFC72C; font-weight: 600;">Confirmation ID: ${referenceId}</p>
+  </div>
+  <div style="padding: 24px; font-size: 14px; line-height: 1.6; color: #f3f4f6;">
+    <p>Hi <strong>${safeName}</strong>,</p>
+    <p>We have received your message at <strong>Tacos Gavilan</strong> and our team will review it shortly.</p>
+    <div style="margin: 18px 0; padding: 14px 16px; background: rgba(255,255,255,0.06); border-left: 4px solid #FFC72C; border-radius: 6px;">
+      <div><strong style="color: #FFC72C;">Topic:</strong> ${safeReason}</div>
+      <div><strong style="color: #FFC72C;">Store:</strong> ${safeStore}</div>
+      <div style="margin-top: 8px;"><strong style="color: #FFC72C;">Your Message:</strong><br>${safeMessage}</div>
+    </div>
+    <p style="font-size: 12px; color: #9ca3af;">If you need additional assistance, please email us at <a href="mailto:support@tacosgavilan.com" style="color: #FFC72C;">support@tacosgavilan.com</a>.</p>
+  </div>
+</div>`;
+
+        const rawConfirm = buildMimeBase64Url({
+            from: fromHeader,
+            to: email,
+            replyTo: supportEmail,
+            subject: `We received your message — Tacos Gavilan (${referenceId})`,
+            html: confirmHtml
+        });
+
+        await Promise.all([
+            fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+                body: JSON.stringify({ raw: rawInternal })
+            }),
+            fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+                body: JSON.stringify({ raw: rawConfirm })
+            })
+        ]);
+        return true;
+    } catch (e) {
+        console.error('[api/contact] Email dispatch warning:', e);
+        return false;
+    }
+}
+
 module.exports = async function handler(req, res) {
+    const reqOrigin = req.headers['origin'] || '';
+    if (isAllowedOriginOrReferer(req) && reqOrigin) {
+        res.setHeader('Access-Control-Allow-Origin', reqOrigin);
+        res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+        res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    }
+    if (req.method === 'OPTIONS') {
+        return res.status(204).end();
+    }
     // 1. Method check: only POST
     if (req.method !== 'POST') {
         res.setHeader('Allow', ['POST']);
@@ -246,7 +436,7 @@ module.exports = async function handler(req, res) {
         res.setHeader('Retry-After', '600');
         return res.status(429).json({
             ok: false,
-            error: 'Too many requests. Please wait a few minutes before sending another message or email us at info@tacosgavilan.com.'
+            error: 'Too many requests. Please wait a few minutes before sending another message or email us at support@tacosgavilan.com.'
         });
     }
 
@@ -344,7 +534,7 @@ module.exports = async function handler(req, res) {
         }
 
         // If a store is specified, it MUST be in the approved list
-        if (rawStore && !STORE_NAME_TO_ID[rawStore]) {
+        if (rawStore && !resolveStoreId(rawStore)) {
             return res.status(400).json({
                 ok: false,
                 field: 'store',
@@ -352,11 +542,11 @@ module.exports = async function handler(req, res) {
             });
         }
 
-        if (!message || message.length < 5 || message.length > 2000) {
+        if (!message || message.length < 2 || message.length > 2000) {
             return res.status(400).json({
                 ok: false,
                 field: 'message',
-                error: 'Please write a message between 5 and 2000 characters.'
+                error: 'Please write a message between 2 and 2000 characters.'
             });
         }
 
@@ -379,12 +569,12 @@ module.exports = async function handler(req, res) {
             return res.status(503).json({
                 ok: false,
                 code: 'CONTACT_SERVICE_UNAVAILABLE',
-                error: 'Contact service is temporarily unavailable. Please contact us via email at info@tacosgavilan.com.'
+                error: 'Contact service is temporarily unavailable. Please contact us via email at support@tacosgavilan.com.'
             });
         }
 
         // Resolve store_id (default to Lynwood: 14 if store is not specified)
-        const storeId = rawStore ? STORE_NAME_TO_ID[rawStore] : 14;
+        const storeId = rawStore ? (resolveStoreId(rawStore) || 14) : 14;
         const ua = (req.headers['user-agent'] || '').slice(0, 200);
         const submittedAt = new Date().toISOString();
         const isCcpaRequest = rawReason.startsWith('ccpa_') || rawReason === 'privacy';
@@ -423,7 +613,7 @@ module.exports = async function handler(req, res) {
             console.error('[api/contact] Supabase write failed:', dbRes.status, dbError);
             return res.status(500).json({
                 ok: false,
-                error: 'Unable to save your message right now. Please try again or contact us at info@tacosgavilan.com.'
+                error: 'Unable to save your message right now. Please try again or contact us at support@tacosgavilan.com.'
             });
         }
 
@@ -432,7 +622,7 @@ module.exports = async function handler(req, res) {
             console.error('[api/contact] Supabase returned empty representation:', insertedRows);
             return res.status(500).json({
                 ok: false,
-                error: 'Message could not be verified in our records. Please contact us at info@tacosgavilan.com.'
+                error: 'Message could not be verified in our records. Please contact us at support@tacosgavilan.com.'
             });
         }
 
@@ -441,6 +631,20 @@ module.exports = async function handler(req, res) {
         const dateCompact = confirmedTimestamp.slice(0, 10).replace(/-/g, '');
         const referenceId = `TG-${dateCompact}-${recordId}`;
 
+        // Dispatch notification email to support@tacosgavilan.com and confirmation to customer
+        const emailDispatched = await dispatchContactEmails({
+            supabaseUrl,
+            supabaseKey,
+            name,
+            email,
+            phone,
+            rawReason,
+            rawStore,
+            message,
+            referenceId,
+            confirmedTimestamp
+        });
+
         // Return HTTP 200 ONLY after confirmed database persistence
         return res.status(200).json({
             ok: true,
@@ -448,6 +652,7 @@ module.exports = async function handler(req, res) {
             id: recordId,
             reference_id: referenceId,
             submitted_at: confirmedTimestamp,
+            email_dispatched: emailDispatched,
             category: rawReason,
             message: `Thank you! Your submission has been received by Tacos Gavilan. Confirmation Reference ID: ${referenceId} (Recorded at ${confirmedTimestamp}).`,
             message_es: `¡Gracias! Tu solicitud ha sido recibida por Tacos Gavilan. ID de Confirmación: ${referenceId} (Registrado el ${confirmedTimestamp}).`
@@ -457,7 +662,7 @@ module.exports = async function handler(req, res) {
         console.error('[api/contact] Unhandled exception:', err);
         return res.status(500).json({
             ok: false,
-            error: 'An unexpected server error occurred. Please try again or email info@tacosgavilan.com.'
+            error: 'An unexpected server error occurred. Please try again or email support@tacosgavilan.com.'
         });
     }
 };
