@@ -2227,10 +2227,49 @@ document.addEventListener('DOMContentLoaded', () => {
                     });
                 }
 
-                setTimeout(() => {
+                const fitAllStoresToViewport = () => {
+                    if (!map || !bounds) return;
+                    const w = mapContainer.clientWidth || window.innerWidth;
+                    const h = mapContainer.clientHeight || window.innerHeight;
+                    if (w < 40 || h < 40) return;
+                    const padY = Math.max(22, Math.min(48, Math.round(h * 0.075)));
+                    const padX = Math.max(24, Math.min(56, Math.round(w * 0.06)));
                     google.maps.event.trigger(map, 'resize');
-                    map.fitBounds(bounds);
-                }, 150);
+                    map.fitBounds(bounds, {
+                        top: padY,
+                        right: padX,
+                        bottom: padY,
+                        left: padX
+                    });
+                };
+                window._fitAllGavilanStores = fitAllStoresToViewport;
+
+                let userInteractedWithMap = false;
+                map.addListener('dragstart', () => { userInteractedWithMap = true; });
+                markers.forEach(m => {
+                    m.addListener('click', () => { userInteractedWithMap = true; });
+                });
+
+                if (typeof ResizeObserver !== 'undefined') {
+                    let roTimer = null;
+                    const mapResizeObserver = new ResizeObserver(() => {
+                        clearTimeout(roTimer);
+                        roTimer = setTimeout(() => {
+                            if (!userInteractedWithMap) {
+                                fitAllStoresToViewport();
+                            } else {
+                                google.maps.event.trigger(map, 'resize');
+                            }
+                        }, 80);
+                    });
+                    mapResizeObserver.observe(mapContainer);
+                }
+
+                [60, 180, 420].forEach((delay) => {
+                    setTimeout(() => {
+                        if (!userInteractedWithMap) fitAllStoresToViewport();
+                    }, delay);
+                });
 
             } catch (err) {
                 console.error('Error during Google Maps initialization:', err);
@@ -2249,16 +2288,20 @@ document.addEventListener('DOMContentLoaded', () => {
         document.body.style.overflow = 'hidden';
         trapFocus(mapOverlay);
 
-        setTimeout(() => {
-            if (!mapInitialized) {
-                initGavilanGoogleMap();
-            } else if (window._gavilanGoogleMap) {
-                google.maps.event.trigger(window._gavilanGoogleMap, 'resize');
-                if (window._gavilanBounds) {
-                    window._gavilanGoogleMap.fitBounds(window._gavilanBounds);
+        [80, 200, 420].forEach((delay) => {
+            setTimeout(() => {
+                if (!mapInitialized) {
+                    if (delay === 80) initGavilanGoogleMap();
+                } else if (typeof window._fitAllGavilanStores === 'function') {
+                    window._fitAllGavilanStores();
+                } else if (window._gavilanGoogleMap) {
+                    google.maps.event.trigger(window._gavilanGoogleMap, 'resize');
+                    if (window._gavilanBounds) {
+                        window._gavilanGoogleMap.fitBounds(window._gavilanBounds);
+                    }
                 }
-            }
-        }, 150);
+            }, delay);
+        });
     };
 
     const closeMapModal = () => {
@@ -2286,19 +2329,28 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    window.addEventListener('resize', () => {
+    const handleMapViewportResize = () => {
         if (window._gavilanGoogleMap) {
             const isModalOpen = mapOverlay && mapOverlay.classList.contains('is-open');
             const mapEl = document.getElementById('gavilan-map');
             const isInline = mapEl && !mapEl.closest('.map-modal-overlay');
             if (isModalOpen || isInline) {
-                google.maps.event.trigger(window._gavilanGoogleMap, 'resize');
-                if (window._gavilanBounds) {
-                    window._gavilanGoogleMap.fitBounds(window._gavilanBounds);
+                if (typeof window._fitAllGavilanStores === 'function') {
+                    window._fitAllGavilanStores();
+                } else {
+                    google.maps.event.trigger(window._gavilanGoogleMap, 'resize');
+                    if (window._gavilanBounds) {
+                        window._gavilanGoogleMap.fitBounds(window._gavilanBounds);
+                    }
                 }
             }
         }
-    }, { passive: true });
+    };
+
+    window.addEventListener('resize', handleMapViewportResize, { passive: true });
+    if (window.visualViewport) {
+        window.visualViewport.addEventListener('resize', handleMapViewportResize, { passive: true });
+    }
 
     // Auto-initialize inline Google Map if container is embedded on page (e.g. /locations/)
     const inlineMapContainer = document.getElementById('gavilan-map');
