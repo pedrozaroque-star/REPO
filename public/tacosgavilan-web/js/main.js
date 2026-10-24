@@ -18,11 +18,16 @@
  *
  * @dataFlow
  *   - data/stores.json -> static HTML cards in index.html & gavilanLocations markers.
+ *   - GET /api/store-ranking -> Supabase public.sales_daily_cache -> live monthly Net Sales ranking
+ *     (descending) applied automatically to #locations-grid, #locations-list, store <select> dropdowns,
+ *     and gavilanLocations.
  *   - #contact-form -> POST /api/contact -> Supabase public.customer_feedback.
  *   - Google Maps API -> Interactive locator with dark/light/satellite themes and 15-store fallback card.
  *
  * @notes
  *   - Slauson / LA Broadway store ID collision resolved (Slauson assigned 23989119).
+ *   - Automatic monthly store ordering (initLiveStoreRanking) syncs store card positions with the
+ *     VENTAS monitoring module (6:00 AM America/Los_Angeles business day boundary).
  *   - Fixed translation text node replacement to prevent destroying child SVGs.
  *   - Enhanced keyboard accessibility (WCAG 2.2 AA) with roving tabindex and focus traps.
  *   - Protected storage access with safeStorage helper against Private Browsing exceptions.
@@ -1692,6 +1697,7 @@ document.addEventListener('DOMContentLoaded', () => {
             {
                 id: '8685e942-3f07-403a-afb6-faec697cd2cb',
                 code: 'LACENTRAL',
+                slug: 'la-central',
                 city: 'Los Angeles',
                 crossStreets: 'Central & Washington',
                 name: 'Los Angeles Central & Washington',
@@ -1704,6 +1710,7 @@ document.addEventListener('DOMContentLoaded', () => {
             {
                 id: '80a1ec95-bc73-402e-8884-e5abbe9343e6',
                 code: 'LYNWOOD',
+                slug: 'lynwood',
                 city: 'Lynwood',
                 crossStreets: 'Imperial & Long Beach',
                 name: 'Lynwood Imperial & Long Beach',
@@ -1716,6 +1723,7 @@ document.addEventListener('DOMContentLoaded', () => {
             {
                 id: '475bc112-187d-4b9c-884d-1f6a041698ce',
                 code: 'LABROADWY',
+                slug: 'la-broadway',
                 city: 'Los Angeles',
                 crossStreets: 'Vernon & Broadway',
                 name: 'Los Angeles Vernon & Broadway',
@@ -1728,6 +1736,7 @@ document.addEventListener('DOMContentLoaded', () => {
             {
                 id: '42ed15a6-106b-466a-9076-1e8f72451f6b',
                 code: 'NORWALK',
+                slug: 'norwalk',
                 city: 'Norwalk',
                 crossStreets: 'Rosecrans & Studebaker',
                 name: 'Norwalk Rosecrans & Studebaker',
@@ -1740,6 +1749,7 @@ document.addEventListener('DOMContentLoaded', () => {
             {
                 id: '9625621e-1b5e-48d7-87ae-7094fab5a4fd',
                 code: 'SLAUSON',
+                slug: 'slauson',
                 city: 'Los Angeles',
                 crossStreets: 'Slauson & Broadway',
                 name: 'Los Angeles Slauson & Broadway',
@@ -1750,20 +1760,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 order: 'https://order.online/store/tacos-gavilan-slauson-broadway-23989119'
             },
             {
-                id: 'acf15327-54c8-4da4-8d0d-3ac0544dc422',
-                code: 'RIALTO',
-                city: 'Rialto',
-                crossStreets: 'Baseline & Riverside',
-                name: 'Rialto Baseline & Riverside',
-                address: '115 E. Baseline Rd, Rialto, CA 92376',
-                phone: '(909) 562-0430',
-                lat: 34.1211,
-                lng: -117.370048,
-                order: 'https://order.online/store/tacos-gavilan-rialto-841931'
-            },
-            {
                 id: '5f4a006e-9a6e-4bcf-b5bd-7f5e9d801a02',
                 code: 'WCOVINA',
+                slug: 'west-covina',
                 city: 'West Covina',
                 crossStreets: '10 FWY & Azusa',
                 name: 'West Covina 10 FWY & Azusa',
@@ -1774,8 +1773,22 @@ document.addEventListener('DOMContentLoaded', () => {
                 order: 'https://order.online/store/tacos-gavilan-west-covina-725035'
             },
             {
+                id: 'acf15327-54c8-4da4-8d0d-3ac0544dc422',
+                code: 'RIALTO',
+                slug: 'rialto',
+                city: 'Rialto',
+                crossStreets: 'Baseline & Riverside',
+                name: 'Rialto Baseline & Riverside',
+                address: '115 E. Baseline Rd, Rialto, CA 92376',
+                phone: '(909) 562-0430',
+                lat: 34.1211,
+                lng: -117.370048,
+                order: 'https://order.online/store/tacos-gavilan-rialto-841931'
+            },
+            {
                 id: '95866cfc-eeb8-4af9-9586-f78931e1ea04',
                 code: 'SOUTHGATE',
+                slug: 'south-gate',
                 city: 'South Gate',
                 crossStreets: 'Firestone & Garfield',
                 name: 'South Gate Firestone & Garfield',
@@ -1788,6 +1801,7 @@ document.addEventListener('DOMContentLoaded', () => {
             {
                 id: 'b7f63b01-f089-4ad7-a346-afdb1803dc1a',
                 code: 'DOWNEY',
+                slug: 'downey',
                 city: 'Downey',
                 crossStreets: 'Florence & Paramount',
                 name: 'Downey Florence & Paramount',
@@ -1800,6 +1814,7 @@ document.addEventListener('DOMContentLoaded', () => {
             {
                 id: '5fbb58f5-283c-4ea4-9415-04100ee6978b',
                 code: 'HOLLYWOOD',
+                slug: 'hollywood',
                 city: 'Hollywood',
                 crossStreets: 'Sunset & La Brea',
                 name: 'Hollywood Sunset & La Brea',
@@ -1812,6 +1827,7 @@ document.addEventListener('DOMContentLoaded', () => {
             {
                 id: '3c2d8251-c43c-43b8-8306-387e0a4ed7c2',
                 code: 'SANTAANA',
+                slug: 'santa-ana',
                 city: 'Santa Ana',
                 crossStreets: '17th & Grand',
                 name: 'Santa Ana 17th & Grand',
@@ -1824,6 +1840,7 @@ document.addEventListener('DOMContentLoaded', () => {
             {
                 id: '47256ade-2cd4-4073-9632-84567ad9e2c8',
                 code: 'HPARK',
+                slug: 'huntington-park',
                 city: 'Huntington Park',
                 crossStreets: 'Florence & Santa Fe',
                 name: 'Huntington Park Florence & Santa Fe',
@@ -1836,6 +1853,7 @@ document.addEventListener('DOMContentLoaded', () => {
             {
                 id: '3a803939-eb13-4def-a1a4-462df8e90623',
                 code: 'LAPUENTE',
+                slug: 'la-puente',
                 city: 'La Puente',
                 crossStreets: '605 FWY & Valley',
                 name: 'La Puente 605 FWY & Valley',
@@ -1848,6 +1866,7 @@ document.addEventListener('DOMContentLoaded', () => {
             {
                 id: 'e0345b1f-d6d6-40b2-bd06-5f9f4fd944e8',
                 code: 'AZUSA',
+                slug: 'azusa',
                 city: 'Azusa',
                 crossStreets: 'Azusa & Arrow',
                 name: 'Azusa Azusa & Arrow',
@@ -1860,6 +1879,7 @@ document.addEventListener('DOMContentLoaded', () => {
             {
                 id: 'a83901db-2431-4283-834e-9502a2ba4b3b',
                 code: 'BELL',
+                slug: 'bell',
                 city: 'Bell',
                 crossStreets: 'Florence & Atlantic',
                 name: 'Bell Florence & Atlantic',
@@ -1873,28 +1893,88 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const buildPopupContent = (loc, distance) => {
         const isEs = currentLang === 'es';
-        const distHtml = (distance !== null && !isNaN(distance))
-            ? `<div class="map-popup-distance">${distance.toFixed(1)} ${isEs ? 'millas de ti' : 'miles from you'}</div>`
-            : '';
+        const hasDist = (distance !== null && distance !== undefined && !isNaN(distance));
+        const isNearest = Boolean(loc && loc._isNearest && hasDist);
+
+        let badgeHtml = '';
+        if (isNearest) {
+            badgeHtml = `<div class="map-popup-badge map-popup-badge--nearest">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+                <span>${isEs ? `MÁS CERCANO · ${distance.toFixed(1)} MI` : `NEAREST · ${distance.toFixed(1)} MI`}</span>
+            </div>`;
+        } else if (hasDist) {
+            badgeHtml = `<div class="map-popup-badge map-popup-badge--distance">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+                <span>${distance.toFixed(1)} ${isEs ? 'millas de ti' : 'miles away'}</span>
+            </div>`;
+        } else {
+            badgeHtml = `<div class="map-popup-badge map-popup-badge--brand">
+                <span>TACOS GAVILAN</span>
+            </div>`;
+        }
+
         const dirUrl = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(loc.address)}`;
-        const orderText = isEs ? 'Ordenar en Línea' : 'Order Online';
+        const orderUrl = loc.order.includes('?') ? loc.order : `${loc.order}/?hideModal=true&pickup=true`;
+        const orderText = isEs ? 'Ordenar Ahora' : 'Order Online';
         const dirText = isEs ? 'Cómo llegar' : 'Directions';
         const phoneE164 = loc.phone ? `+1${loc.phone.replace(/\D/g, '')}` : '';
+
+        // Pull store schedule rows if available in storeCatalogBySlug
+        const catalogMeta = (typeof storeCatalogBySlug !== 'undefined' && loc.slug && storeCatalogBySlug[loc.slug])
+            ? storeCatalogBySlug[loc.slug]
+            : null;
+        let hoursHtml = '';
+        if (catalogMeta && Array.isArray(catalogMeta.rows) && catalogMeta.rows.length > 0) {
+            const rowsMarkup = catalogMeta.rows.map(r => `
+                <div class="map-popup-hour-line ${r.highlight ? 'is-weekend' : ''}">
+                    <span class="map-popup-hour-day">${isEs ? r.dayEs : r.dayEn}</span>
+                    <span class="map-popup-hour-time">${r.time}</span>
+                </div>
+            `).join('');
+            hoursHtml = `
+                <div class="map-popup-row map-popup-row--hours">
+                    <svg class="map-popup-row-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                    <div class="map-popup-hours-grid">${rowsMarkup}</div>
+                </div>
+            `;
+        }
+
         const phoneHtml = loc.phone
-            ? `<div class="map-popup-phone" style="margin-top: 4px; font-weight: 600;"><a href="tel:${phoneE164}" style="color: #FFC72C; text-decoration: none;">${loc.phone}</a></div>`
+            ? `<div class="map-popup-row">
+                <svg class="map-popup-row-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+                <a href="tel:${phoneE164}" class="map-popup-phone-link">${loc.phone}</a>
+               </div>`
             : '';
+
         const titleHtml = loc.crossStreets
-            ? `<div class="map-popup-name"><span class="map-popup-city">${loc.city || loc.name}</span> <span class="map-popup-cross" style="color: #FFC72C; font-weight: 700; display: block; font-size: 0.85em; margin-top: 2px;">${loc.crossStreets}</span></div>`
-            : `<div class="map-popup-name">${loc.name}</div>`;
+            ? `<div class="map-popup-header">
+                <div class="map-popup-city">${loc.city || loc.name}</div>
+                <div class="map-popup-cross">${loc.crossStreets}</div>
+               </div>`
+            : `<div class="map-popup-header"><div class="map-popup-city">${loc.name}</div></div>`;
 
         return `<div class="map-popup">
+            <div class="map-popup-top">
+                ${badgeHtml}
+            </div>
             ${titleHtml}
-            <div class="map-popup-address">${loc.address}</div>
-            ${phoneHtml}
-            ${distHtml}
+            <div class="map-popup-meta">
+                <div class="map-popup-row">
+                    <svg class="map-popup-row-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+                    <span class="map-popup-address">${loc.address}</span>
+                </div>
+                ${phoneHtml}
+                ${hoursHtml}
+            </div>
             <div class="map-popup-actions">
-                <a href="${loc.order}" target="_blank" rel="noopener noreferrer" class="map-popup-btn-order">${orderText}</a>
-                <a href="${dirUrl}" target="_blank" rel="noopener noreferrer" class="map-popup-btn-directions">${dirText}</a>
+                <a href="${orderUrl}" target="_blank" rel="noopener noreferrer" class="map-popup-btn-order">
+                    <span>${orderText}</span>
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+                </a>
+                <a href="${dirUrl}" target="_blank" rel="noopener noreferrer" class="map-popup-btn-directions">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="3 11 22 2 13 21 11 13 3 11"/></svg>
+                    <span>${dirText}</span>
+                </a>
             </div>
         </div>`;
     };
@@ -2091,6 +2171,16 @@ document.addEventListener('DOMContentLoaded', () => {
                     anchor: new google.maps.Point(12, 22)
                 };
 
+                const activePinIcon = {
+                    path: "M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z",
+                    fillColor: "#DA291C",
+                    fillOpacity: 1,
+                    strokeColor: "#F5C424",
+                    strokeWeight: 2.8,
+                    scale: 1.85,
+                    anchor: new google.maps.Point(12, 22)
+                };
+
                 const calcDistanceMiles = (lat1, lon1, lat2, lon2) => {
                     const R = 3958.8;
                     const dLat = (lat2 - lat1) * Math.PI / 180;
@@ -2099,6 +2189,13 @@ document.addEventListener('DOMContentLoaded', () => {
                         Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
                         Math.sin(dLon/2) * Math.sin(dLon/2);
                     return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+                };
+
+                let userInteractedWithMap = false;
+                window._gavilanUserInteracted = false;
+                const markMapInteracted = () => {
+                    userInteractedWithMap = true;
+                    window._gavilanUserInteracted = true;
                 };
 
                 const markers = gavilanLocations.map(loc => {
@@ -2113,9 +2210,14 @@ document.addEventListener('DOMContentLoaded', () => {
                     marker._gavilanData = loc;
 
                     marker.addListener('click', () => {
+                        markMapInteracted();
+                        markers.forEach(m => {
+                            m.setIcon(m === marker ? activePinIcon : pinIcon);
+                            m.setZIndex(m === marker ? 9990 : 100);
+                        });
                         window._activeGavilanMarker = marker;
-                        infoWindow.setContent(buildPopupContent(loc, loc._lastDistance || null));
-                        infoWindow.open(map, marker);
+                        infoWindow.setContent(buildPopupContent(loc, loc._lastDistance ?? null));
+                        infoWindow.open({ map, anchor: marker, shouldFocus: false });
                     });
 
                     return marker;
@@ -2124,106 +2226,267 @@ document.addEventListener('DOMContentLoaded', () => {
                 window._gavilanMarkers = markers;
                 window._gavilanBounds = bounds;
 
-                // Geolocation "Find Me"
+                // Resilient 3-Tier Geolocation "Find Me" Engine
                 const locateBtn = document.getElementById('map-locate-btn');
                 const nearestInfo = document.getElementById('map-nearest-info');
                 const nearestText = document.getElementById('map-nearest-text');
                 let userMarker = null;
+                let userHaloMarker = null;
+                let lastNearestTarget = null;
 
-                if (locateBtn) {
-                    locateBtn.addEventListener('click', () => {
-                        if (!navigator.geolocation) {
-                            if (nearestText && nearestInfo) {
-                                nearestText.textContent = currentLang === 'es'
-                                    ? 'Geolocalización no soportada en tu navegador.'
-                                    : 'Geolocation is not supported by your browser.';
-                                nearestInfo.style.display = 'flex';
-                            }
-                            return;
+                const focusNearestOnMap = (userLatLng, nearest, nearestMarker, minDist) => {
+                    if (!nearest || !nearestMarker) return;
+                    markMapInteracted();
+
+                    markers.forEach(m => {
+                        const isTarget = (m === nearestMarker);
+                        m.setIcon(isTarget ? activePinIcon : pinIcon);
+                        m.setZIndex(isTarget ? 9995 : 100);
+                    });
+
+                    if (minDist <= 42 && userLatLng) {
+                        const userBounds = new google.maps.LatLngBounds();
+                        userBounds.extend(userLatLng);
+                        userBounds.extend(nearestMarker.getPosition());
+                        const mapH = mapContainer.clientHeight || 540;
+                        const topPad = Math.max(240, Math.min(315, Math.round(mapH * 0.52)));
+                        map.fitBounds(userBounds, {
+                            top: topPad,
+                            right: 90,
+                            bottom: 55,
+                            left: 90
+                        });
+                        google.maps.event.addListenerOnce(map, 'idle', () => {
+                            const z = map.getZoom();
+                            if (z > 13) map.setZoom(13);
+                            else if (z < 11 && minDist <= 12) map.setZoom(12);
+                        });
+                    } else {
+                        map.panTo(nearestMarker.getPosition());
+                        map.setZoom(13);
+                        map.panBy(0, -95);
+                    }
+
+                    setTimeout(() => {
+                        window._activeGavilanMarker = nearestMarker;
+                        infoWindow.setContent(buildPopupContent(nearest, minDist));
+                        infoWindow.open({ map, anchor: nearestMarker, shouldFocus: false });
+                    }, 220);
+                };
+
+                const applyUserCoordinates = (lat, lng) => {
+                    const userLatLng = { lat: Number(lat), lng: Number(lng) };
+                    markMapInteracted();
+
+                    if (userHaloMarker) userHaloMarker.setMap(null);
+                    if (userMarker) userMarker.setMap(null);
+
+                    userHaloMarker = new google.maps.Marker({
+                        position: userLatLng,
+                        map: map,
+                        clickable: false,
+                        icon: {
+                            path: google.maps.SymbolPath.CIRCLE,
+                            fillColor: "#3B82F6",
+                            fillOpacity: 0.22,
+                            strokeColor: "#60A5FA",
+                            strokeWeight: 1.5,
+                            scale: 18
+                        },
+                        zIndex: 9998
+                    });
+
+                    userMarker = new google.maps.Marker({
+                        position: userLatLng,
+                        map: map,
+                        title: currentLang === 'es' ? 'Tu ubicación actual' : 'Your Current Location',
+                        icon: {
+                            path: google.maps.SymbolPath.CIRCLE,
+                            fillColor: "#2563EB",
+                            fillOpacity: 1,
+                            strokeColor: "#FFFFFF",
+                            strokeWeight: 3,
+                            scale: 8.5
+                        },
+                        zIndex: 9999
+                    });
+
+                    userMarker.addListener('click', () => {
+                        markMapInteracted();
+                        infoWindow.setContent(`<div class="map-popup map-popup--user"><div class="map-popup-city">${currentLang === 'es' ? 'Tu ubicación actual' : 'Your Current Location'}</div></div>`);
+                        infoWindow.open({ map, anchor: userMarker, shouldFocus: false });
+                    });
+
+                    let nearest = null;
+                    let minDist = Infinity;
+                    let nearestMarker = null;
+
+                    markers.forEach(m => {
+                        const loc = m._gavilanData;
+                        loc._isNearest = false;
+                        const d = calcDistanceMiles(userLatLng.lat, userLatLng.lng, loc.lat, loc.lng);
+                        loc._lastDistance = d;
+                        if (d < minDist) {
+                            minDist = d;
+                            nearest = loc;
+                            nearestMarker = m;
                         }
+                    });
 
-                        locateBtn.classList.add('locating');
-                        const btnSpan = locateBtn.querySelector('span');
-                        const originalText = btnSpan ? btnSpan.textContent : 'Find Me';
-                        if (btnSpan) btnSpan.textContent = currentLang === 'es' ? 'Buscando...' : 'Locating...';
+                    if (nearest) {
+                        nearest._isNearest = true;
+                        lastNearestTarget = { userLatLng, nearest, nearestMarker, minDist };
+                    }
 
-                        navigator.geolocation.getCurrentPosition(
-                            (pos) => {
-                                const userLatLng = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+                    if (nearest && nearestInfo && nearestText) {
+                        const conciseNameMap = {
+                            'la-central': 'LA Central',
+                            'la-broadway': 'LA Broadway',
+                            'slauson': 'LA Slauson'
+                        };
+                        const shortLabel = conciseNameMap[nearest.slug] || nearest.city || nearest.name;
+                        nearestText.textContent = currentLang === 'es'
+                            ? `Más cercano: ${shortLabel} (${minDist.toFixed(1)} mi)`
+                            : `Nearest: ${shortLabel} (${minDist.toFixed(1)} mi)`;
+                        nearestInfo.style.display = 'inline-flex';
+                        nearestInfo.setAttribute('role', 'button');
+                        nearestInfo.setAttribute('tabindex', '0');
+                        nearestInfo.setAttribute('title', currentLang === 'es' ? 'Centrar en tienda más cercana' : 'Center on nearest store');
+                    }
 
-                                if (userMarker) userMarker.setMap(null);
+                    focusNearestOnMap(userLatLng, nearest, nearestMarker, minDist);
+                };
 
-                                userMarker = new google.maps.Marker({
-                                    position: userLatLng,
-                                    map: map,
-                                    title: currentLang === 'es' ? 'Tu ubicación' : 'Your Location',
-                                    icon: {
-                                        path: google.maps.SymbolPath.CIRCLE,
-                                        fillColor: "#2563EB",
-                                        fillOpacity: 1,
-                                        strokeColor: "#FFFFFF",
-                                        strokeWeight: 3,
-                                        scale: 9
-                                    },
-                                    zIndex: 9999
+                const fetchIpGeoFallback = async () => {
+                    const endpoints = [
+                        'https://get.geojs.io/v1/ip/geo.json',
+                        'https://ipapi.co/json/'
+                    ];
+                    for (const url of endpoints) {
+                        try {
+                            const ctrl = new AbortController();
+                            const tid = setTimeout(() => ctrl.abort(), 3500);
+                            const r = await fetch(url, { signal: ctrl.signal, headers: { 'Accept': 'application/json' } });
+                            clearTimeout(tid);
+                            if (!r.ok) continue;
+                            const d = await r.json();
+                            const lat = parseFloat(d.latitude);
+                            const lng = parseFloat(d.longitude);
+                            if (Number.isFinite(lat) && Number.isFinite(lng)) {
+                                return { lat, lng };
+                            }
+                        } catch (_) {}
+                    }
+                    return null;
+                };
+
+                const getPositionPromise = (options) => new Promise((resolve, reject) => {
+                    if (!navigator.geolocation) {
+                        reject({ code: 2, message: 'Geolocation API unavailable' });
+                        return;
+                    }
+                    navigator.geolocation.getCurrentPosition(resolve, reject, options);
+                });
+
+                if (nearestInfo && !nearestInfo._tgClickBound) {
+                    nearestInfo._tgClickBound = true;
+                    const reFocus = () => {
+                        if (lastNearestTarget) {
+                            focusNearestOnMap(
+                                lastNearestTarget.userLatLng,
+                                lastNearestTarget.nearest,
+                                lastNearestTarget.nearestMarker,
+                                lastNearestTarget.minDist
+                            );
+                        }
+                    };
+                    nearestInfo.addEventListener('click', reFocus);
+                    nearestInfo.addEventListener('keydown', (e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            reFocus();
+                        }
+                    });
+                }
+
+                const runFindMe = async () => {
+                    if (!locateBtn) return;
+                    markMapInteracted();
+
+                    locateBtn.classList.add('locating');
+                    locateBtn.disabled = true;
+                    const btnSpan = locateBtn.querySelector('span');
+                    const defaultLabel = currentLang === 'es' ? 'Mi Ubicación' : 'Find Me';
+                    if (btnSpan) btnSpan.textContent = currentLang === 'es' ? 'Ubicando' : 'Locating';
+
+                    let coords = null;
+                    let permissionDenied = false;
+
+                    // Tier 1: High-accuracy GPS lock (up to 4.5s)
+                    try {
+                        const pos = await getPositionPromise({
+                            enableHighAccuracy: true,
+                            timeout: 4500,
+                            maximumAge: 120000
+                        });
+                        coords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+                    } catch (err1) {
+                        if (err1 && err1.code === 1) {
+                            permissionDenied = true;
+                        } else {
+                            // Tier 2: Fast Wi-Fi / Network triangulation fallback (up to 5s)
+                            try {
+                                const pos2 = await getPositionPromise({
+                                    enableHighAccuracy: false,
+                                    timeout: 5000,
+                                    maximumAge: 600000
                                 });
-
-                                userMarker.addListener('click', () => {
-                                    infoWindow.setContent(`<div class="map-popup"><div class="map-popup-name">${currentLang === 'es' ? 'Tu ubicación' : 'Your Location'}</div></div>`);
-                                    infoWindow.open(map, userMarker);
-                                });
-
-                                let nearest = null;
-                                let minDist = Infinity;
-                                let nearestMarker = null;
-
-                                markers.forEach(m => {
-                                    const loc = m._gavilanData;
-                                    const d = calcDistanceMiles(userLatLng.lat, userLatLng.lng, loc.lat, loc.lng);
-                                    loc._lastDistance = d;
-                                    if (d < minDist) {
-                                        minDist = d;
-                                        nearest = loc;
-                                        nearestMarker = m;
-                                    }
-                                });
-
-                                if (nearest && nearestInfo && nearestText) {
-                                    nearestText.textContent = currentLang === 'es'
-                                        ? `Más cercano: ${nearest.name} (${minDist.toFixed(1)} mi)`
-                                        : `Nearest: ${nearest.name} (${minDist.toFixed(1)} mi)`;
-                                    nearestInfo.style.display = 'flex';
+                                coords = { lat: pos2.coords.latitude, lng: pos2.coords.longitude };
+                            } catch (err2) {
+                                if (err2 && err2.code === 1) {
+                                    permissionDenied = true;
                                 }
+                            }
+                        }
+                    }
 
-                                if (nearest && nearestMarker) {
-                                    const userBounds = new google.maps.LatLngBounds();
-                                    userBounds.extend(userLatLng);
-                                    userBounds.extend(nearestMarker.getPosition());
-                                    map.fitBounds(userBounds);
+                    // Tier 3: Geo-IP fallback when hardware GPS/Wi-Fi sensor is unavailable (never if user denied permission)
+                    if (!coords && !permissionDenied) {
+                        coords = await fetchIpGeoFallback();
+                    }
 
-                                    setTimeout(() => {
-                                        window._activeGavilanMarker = nearestMarker;
-                                        infoWindow.setContent(buildPopupContent(nearest, minDist));
-                                        infoWindow.open(map, nearestMarker);
-                                    }, 500);
-                                }
+                    locateBtn.classList.remove('locating');
+                    locateBtn.disabled = false;
 
-                                locateBtn.classList.remove('locating');
-                                if (btnSpan) btnSpan.textContent = currentLang === 'es' ? 'Ubicado' : 'Located';
-                                setTimeout(() => { if (btnSpan) btnSpan.textContent = originalText; }, 3000);
-                            },
-                            (err) => {
-                                locateBtn.classList.remove('locating');
-                                if (btnSpan) btnSpan.textContent = originalText;
-                                if (nearestText && nearestInfo) {
-                                    nearestText.textContent = currentLang === 'es'
-                                        ? 'No se pudo acceder a tu ubicación. Verifica permisos.'
-                                        : 'Location access denied or unavailable.';
-                                    nearestInfo.style.display = 'flex';
-                                }
-                            },
-                            { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 }
-                        );
+                    if (coords && Number.isFinite(coords.lat) && Number.isFinite(coords.lng)) {
+                        applyUserCoordinates(coords.lat, coords.lng);
+                        if (btnSpan) btnSpan.textContent = currentLang === 'es' ? 'Ubicado' : 'Located';
+                        setTimeout(() => {
+                            if (btnSpan) btnSpan.textContent = currentLang === 'es' ? 'Mi Ubicación' : 'Find Me';
+                        }, 2800);
+                    } else {
+                        if (btnSpan) btnSpan.textContent = defaultLabel;
+                        if (nearestText && nearestInfo) {
+                            nearestText.textContent = permissionDenied
+                                ? (currentLang === 'es'
+                                    ? 'Permiso de ubicación bloqueado en el navegador.'
+                                    : 'Location permission is blocked in your browser.')
+                                : (currentLang === 'es'
+                                    ? 'No se pudo detectar tu ubicación en este momento.'
+                                    : 'Unable to detect your location right now.');
+                            nearestInfo.style.display = 'inline-flex';
+                        }
+                    }
+                };
+
+                window._triggerGavilanFindMe = runFindMe;
+
+                if (locateBtn && !locateBtn._tgLocateBound) {
+                    locateBtn._tgLocateBound = true;
+                    locateBtn.addEventListener('click', () => {
+                        if (typeof window._triggerGavilanFindMe === 'function') {
+                            window._triggerGavilanFindMe();
+                        }
                     });
                 }
 
@@ -2244,10 +2507,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 };
                 window._fitAllGavilanStores = fitAllStoresToViewport;
 
-                let userInteractedWithMap = false;
-                map.addListener('dragstart', () => { userInteractedWithMap = true; });
-                markers.forEach(m => {
-                    m.addListener('click', () => { userInteractedWithMap = true; });
+                map.addListener('dragstart', markMapInteracted);
+                map.addListener('zoom_changed', () => {
+                    // Only mark interacted if user manually zoomed after initial load
                 });
 
                 if (typeof ResizeObserver !== 'undefined') {
@@ -2255,7 +2517,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     const mapResizeObserver = new ResizeObserver(() => {
                         clearTimeout(roTimer);
                         roTimer = setTimeout(() => {
-                            if (!userInteractedWithMap) {
+                            if (!userInteractedWithMap && !window._gavilanUserInteracted) {
                                 fitAllStoresToViewport();
                             } else {
                                 google.maps.event.trigger(map, 'resize');
@@ -2267,7 +2529,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 [60, 180, 420].forEach((delay) => {
                     setTimeout(() => {
-                        if (!userInteractedWithMap) fitAllStoresToViewport();
+                        if (!userInteractedWithMap && !window._gavilanUserInteracted) {
+                            fitAllStoresToViewport();
+                        }
                     }, delay);
                 });
 
@@ -2292,13 +2556,10 @@ document.addEventListener('DOMContentLoaded', () => {
             setTimeout(() => {
                 if (!mapInitialized) {
                     if (delay === 80) initGavilanGoogleMap();
-                } else if (typeof window._fitAllGavilanStores === 'function') {
+                } else if (!window._gavilanUserInteracted && typeof window._fitAllGavilanStores === 'function') {
                     window._fitAllGavilanStores();
                 } else if (window._gavilanGoogleMap) {
                     google.maps.event.trigger(window._gavilanGoogleMap, 'resize');
-                    if (window._gavilanBounds) {
-                        window._gavilanGoogleMap.fitBounds(window._gavilanBounds);
-                    }
                 }
             }, delay);
         });
@@ -2335,13 +2596,10 @@ document.addEventListener('DOMContentLoaded', () => {
             const mapEl = document.getElementById('gavilan-map');
             const isInline = mapEl && !mapEl.closest('.map-modal-overlay');
             if (isModalOpen || isInline) {
-                if (typeof window._fitAllGavilanStores === 'function') {
+                if (!window._gavilanUserInteracted && typeof window._fitAllGavilanStores === 'function') {
                     window._fitAllGavilanStores();
                 } else {
                     google.maps.event.trigger(window._gavilanGoogleMap, 'resize');
-                    if (window._gavilanBounds) {
-                        window._gavilanGoogleMap.fitBounds(window._gavilanBounds);
-                    }
                 }
             }
         }
@@ -3520,5 +3778,160 @@ document.addEventListener('DOMContentLoaded', () => {
         openStoreDetailsModal(initialStoreSlug);
     }
 
+    /* ==========================================================
+       19. AUTOMATIC MONTHLY STORE RANKING ENGINE (VENTAS SYNC)
+       ========================================================== */
+    const STORE_RANKING_STORAGE_KEY = 'tg_store_ranking_v1';
+
+    const reorderContainerBySlug = (container, itemSelector, rankMap) => {
+        if (!container) return false;
+        const items = Array.from(container.querySelectorAll(itemSelector));
+        if (items.length < 2) return false;
+
+        const sorted = items.slice().sort((a, b) => {
+            const slugA = a.getAttribute('data-store') || '';
+            const slugB = b.getAttribute('data-store') || '';
+            const rankA = Object.prototype.hasOwnProperty.call(rankMap, slugA) ? rankMap[slugA] : 999;
+            const rankB = Object.prototype.hasOwnProperty.call(rankMap, slugB) ? rankMap[slugB] : 999;
+            return rankA - rankB;
+        });
+
+        let changed = false;
+        for (let i = 0; i < items.length; i++) {
+            if (items[i] !== sorted[i]) {
+                changed = true;
+                break;
+            }
+        }
+        if (!changed) return false;
+
+        sorted.forEach((node) => container.appendChild(node));
+        return true;
+    };
+
+    const reorderSelectOptionsBySlug = (selectEl, rankMap) => {
+        if (!selectEl) return false;
+        const currentValue = selectEl.value;
+        const storeOptions = Array.from(selectEl.querySelectorAll('option[data-store]'));
+        if (storeOptions.length < 2) return false;
+
+        const sorted = storeOptions.slice().sort((a, b) => {
+            const slugA = a.getAttribute('data-store') || '';
+            const slugB = b.getAttribute('data-store') || '';
+            const rankA = Object.prototype.hasOwnProperty.call(rankMap, slugA) ? rankMap[slugA] : 999;
+            const rankB = Object.prototype.hasOwnProperty.call(rankMap, slugB) ? rankMap[slugB] : 999;
+            return rankA - rankB;
+        });
+
+        let changed = false;
+        for (let i = 0; i < storeOptions.length; i++) {
+            if (storeOptions[i] !== sorted[i]) {
+                changed = true;
+                break;
+            }
+        }
+        if (!changed) return false;
+
+        sorted.forEach((opt) => selectEl.appendChild(opt));
+        selectEl.value = currentValue;
+        return true;
+    };
+
+    const applyStoreOrderToDom = (orderedSlugs) => {
+        if (!Array.isArray(orderedSlugs) || orderedSlugs.length === 0) return false;
+
+        const rankMap = {};
+        orderedSlugs.forEach((slug, idx) => {
+            if (typeof slug === 'string' && slug.trim()) {
+                rankMap[slug.trim()] = idx;
+            }
+        });
+
+        // 1. Homepage Locations Grid (#locations-grid > .location-card[data-store])
+        const homeGrid = document.getElementById('locations-grid');
+        reorderContainerBySlug(homeGrid, '.location-card[data-store]', rankMap);
+
+        // 2. Locations Directory Page (#locations-list > .store-card[data-store])
+        const directoryList = document.getElementById('locations-list');
+        reorderContainerBySlug(directoryList, '.store-card[data-store]', rankMap);
+
+        // 3. Store Dropdowns (#store on Homepage & #contact-store on Contact Page)
+        reorderSelectOptionsBySlug(document.getElementById('store'), rankMap);
+        reorderSelectOptionsBySlug(document.getElementById('contact-store'), rankMap);
+
+        // 4. In-Memory gavilanLocations & Map Fallback List
+        if (Array.isArray(gavilanLocations) && gavilanLocations.length > 1) {
+            gavilanLocations.sort((a, b) => {
+                const rankA = Object.prototype.hasOwnProperty.call(rankMap, a.slug) ? rankMap[a.slug] : 999;
+                const rankB = Object.prototype.hasOwnProperty.call(rankMap, b.slug) ? rankMap[b.slug] : 999;
+                return rankA - rankB;
+            });
+            const mapContainer = document.getElementById('gavilan-map');
+            if (mapContainer && mapContainer.querySelector('.map-fallback-card')) {
+                renderMapFallback();
+            }
+        }
+
+        return true;
+    };
+
+    // Expose helper for diagnostics and automated runtime verification
+    window.__tgApplyStoreRanking = applyStoreOrderToDom;
+
+    const initLiveStoreRanking = async () => {
+        // Only run network sync if the current page actually displays store locations or store selectors
+        const hasStoreElements = Boolean(
+            document.getElementById('locations-grid') ||
+            document.getElementById('locations-list') ||
+            document.getElementById('store') ||
+            document.getElementById('contact-store') ||
+            document.getElementById('gavilan-map')
+        );
+        if (!hasStoreElements) return;
+
+        // 1. Instant Stale-While-Revalidate pass from localStorage
+        try {
+            const cachedRaw = safeStorage.getItem(STORE_RANKING_STORAGE_KEY);
+            if (cachedRaw) {
+                const cached = JSON.parse(cachedRaw);
+                if (cached && Array.isArray(cached.order) && cached.order.length >= 14) {
+                    applyStoreOrderToDom(cached.order);
+                }
+            }
+        } catch (_) {}
+
+        // 2. Live background fetch from /api/store-ranking/ (synced with VENTAS module)
+        try {
+            const isLocalHost = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+            let res = await fetch('/api/store-ranking/', {
+                method: 'GET',
+                headers: { 'Accept': 'application/json' }
+            }).catch(() => null);
+
+            if ((!res || !res.ok) && isLocalHost) {
+                res = await fetch('https://tacosgavilan.com/api/store-ranking/', {
+                    method: 'GET',
+                    headers: { 'Accept': 'application/json' }
+                }).catch(() => null);
+            }
+
+            if (!res || !res.ok) return;
+            const data = await res.json();
+            if (data && data.ok && Array.isArray(data.order) && data.order.length >= 14) {
+                applyStoreOrderToDom(data.order);
+                safeStorage.setItem(STORE_RANKING_STORAGE_KEY, JSON.stringify({
+                    order: data.order,
+                    window: data.window || null,
+                    ts: Date.now()
+                }));
+            }
+        } catch (_) {
+            // Silently preserve static baseline order if offline
+        }
+    };
+
+    initLiveStoreRanking();
+
 });
+
 

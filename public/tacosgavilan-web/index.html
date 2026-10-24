@@ -134,7 +134,7 @@
     </script>
 
     <!-- Styles -->
-    <link rel="stylesheet" href="css/style.css?v=114">
+    <link rel="stylesheet" href="css/style.css?v=116">
     <link rel="stylesheet" href="css/compliance-a11y.css?v=36">
 
     <!-- Google Maps JavaScript API -->
@@ -1366,10 +1366,10 @@
                     </button>
                 </div>
 
-                <!-- Locations Grid (15 Stores - Canonical Single Source) -->
+                <!-- Locations Grid (15 Stores - Canonical Single Source, Dynamically Ranked by Monthly Sales) -->
                 <div class="locations-grid" id="locations-grid">
-                    <!-- 1. Los Angeles Central Central & Washington -->
-                    <div class="location-card fade-in-up">
+                    <!-- 1. Los Angeles Central & Washington -->
+                    <div class="location-card fade-in-up" data-store="la-central">
                         <h3 class="location-name">
                             <a href="/locations/la-central/" class="location-name-link">
                                 <span class="location-city-name">Los Angeles</span>
@@ -1392,7 +1392,7 @@
                     </div>
 
                     <!-- 2. Lynwood -->
-                    <div class="location-card fade-in-up">
+                    <div class="location-card fade-in-up" data-store="lynwood">
                         <h3 class="location-name">
                             <a href="/locations/lynwood/" class="location-name-link">
                                 <span class="location-city-name">Lynwood</span>
@@ -1415,7 +1415,7 @@
                     </div>
 
                     <!-- 3. LA Broadway -->
-                    <div class="location-card fade-in-up">
+                    <div class="location-card fade-in-up" data-store="la-broadway">
                         <h3 class="location-name">
                             <a href="/locations/la-broadway/" class="location-name-link">
                                 <span class="location-city-name">Los Angeles</span>
@@ -1438,7 +1438,7 @@
                     </div>
 
                     <!-- 4. Norwalk -->
-                    <div class="location-card fade-in-up">
+                    <div class="location-card fade-in-up" data-store="norwalk">
                         <h3 class="location-name">
                             <a href="/locations/norwalk/" class="location-name-link">
                                 <span class="location-city-name">Norwalk</span>
@@ -1461,7 +1461,7 @@
                     </div>
 
                     <!-- 5. Los Angeles Slauson & Broadway -->
-                    <div class="location-card fade-in-up">
+                    <div class="location-card fade-in-up" data-store="slauson">
                         <h3 class="location-name">
                             <a href="/locations/slauson/" class="location-name-link">
                                 <span class="location-city-name">Los Angeles</span>
@@ -1483,31 +1483,8 @@
                         </div>
                     </div>
 
-                    <!-- 6. Rialto -->
-                    <div class="location-card fade-in-up">
-                        <h3 class="location-name">
-                            <a href="/locations/rialto/" class="location-name-link">
-                                <span class="location-city-name">Rialto</span>
-                                <span class="location-cross-streets">Baseline <span class="amp">&amp;</span> Riverside</span>
-                            </a>
-                        </h3>
-                        <div class="location-card-actions">
-                            <a href="https://order.online/store/tacos-gavilan-rialto-841931" target="_blank" rel="noopener noreferrer" class="btn btn-primary magnetic-btn btn-block btn-location-order" data-i18n="locations.orderBtn">Order Online</a>
-                            <div class="location-card-secondary-links">
-                                <a href="https://www.google.com/maps/dir/?api=1&destination=115%20E.%20Baseline%20Rd%2C%20Rialto%2C%20CA%2092376" target="_blank" rel="noopener noreferrer" class="location-directions-link">
-                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
-                                    <span data-i18n="locations.directions">Directions</span>
-                                </a>
-                                <a href="/locations/rialto/" class="location-details-link">
-                                    <span data-i18n="locations.storeDetails">Store Details</span>
-                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="9 18 15 12 9 6"/></svg>
-                                </a>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- 7. West Covina -->
-                    <div class="location-card fade-in-up">
+                    <!-- 6. West Covina -->
+                    <div class="location-card fade-in-up" data-store="west-covina">
                         <h3 class="location-name">
                             <a href="/locations/west-covina/" class="location-name-link">
                                 <span class="location-city-name">West Covina</span>
@@ -1529,8 +1506,31 @@
                         </div>
                     </div>
 
+                    <!-- 7. Rialto -->
+                    <div class="location-card fade-in-up" data-store="rialto">
+                        <h3 class="location-name">
+                            <a href="/locations/rialto/" class="location-name-link">
+                                <span class="location-city-name">Rialto</span>
+                                <span class="location-cross-streets">Baseline <span class="amp">&amp;</span> Riverside</span>
+                            </a>
+                        </h3>
+                        <div class="location-card-actions">
+                            <a href="https://order.online/store/tacos-gavilan-rialto-841931" target="_blank" rel="noopener noreferrer" class="btn btn-primary magnetic-btn btn-block btn-location-order" data-i18n="locations.orderBtn">Order Online</a>
+                            <div class="location-card-secondary-links">
+                                <a href="https://www.google.com/maps/dir/?api=1&destination=115%20E.%20Baseline%20Rd%2C%20Rialto%2C%20CA%2092376" target="_blank" rel="noopener noreferrer" class="location-directions-link">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+                                    <span data-i18n="locations.directions">Directions</span>
+                                </a>
+                                <a href="/locations/rialto/" class="location-details-link">
+                                    <span data-i18n="locations.storeDetails">Store Details</span>
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="9 18 15 12 9 6"/></svg>
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+
                     <!-- 8. South Gate -->
-                    <div class="location-card fade-in-up">
+                    <div class="location-card fade-in-up" data-store="south-gate">
                         <h3 class="location-name">
                             <a href="/locations/south-gate/" class="location-name-link">
                                 <span class="location-city-name">South Gate</span>
@@ -1553,7 +1553,7 @@
                     </div>
 
                     <!-- 9. Downey -->
-                    <div class="location-card fade-in-up">
+                    <div class="location-card fade-in-up" data-store="downey">
                         <h3 class="location-name">
                             <a href="/locations/downey/" class="location-name-link">
                                 <span class="location-city-name">Downey</span>
@@ -1576,7 +1576,7 @@
                     </div>
 
                     <!-- 10. Hollywood -->
-                    <div class="location-card fade-in-up">
+                    <div class="location-card fade-in-up" data-store="hollywood">
                         <h3 class="location-name">
                             <a href="/locations/hollywood/" class="location-name-link">
                                 <span class="location-city-name">Hollywood</span>
@@ -1599,7 +1599,7 @@
                     </div>
 
                     <!-- 11. Santa Ana -->
-                    <div class="location-card fade-in-up">
+                    <div class="location-card fade-in-up" data-store="santa-ana">
                         <h3 class="location-name">
                             <a href="/locations/santa-ana/" class="location-name-link">
                                 <span class="location-city-name">Santa Ana</span>
@@ -1622,7 +1622,7 @@
                     </div>
 
                     <!-- 12. Huntington Park -->
-                    <div class="location-card fade-in-up">
+                    <div class="location-card fade-in-up" data-store="huntington-park">
                         <h3 class="location-name">
                             <a href="/locations/huntington-park/" class="location-name-link">
                                 <span class="location-city-name">Huntington Park</span>
@@ -1645,7 +1645,7 @@
                     </div>
 
                     <!-- 13. La Puente -->
-                    <div class="location-card fade-in-up">
+                    <div class="location-card fade-in-up" data-store="la-puente">
                         <h3 class="location-name">
                             <a href="/locations/la-puente/" class="location-name-link">
                                 <span class="location-city-name">La Puente</span>
@@ -1668,7 +1668,7 @@
                     </div>
 
                     <!-- 14. Azusa -->
-                    <div class="location-card fade-in-up">
+                    <div class="location-card fade-in-up" data-store="azusa">
                         <h3 class="location-name">
                             <a href="/locations/azusa/" class="location-name-link">
                                 <span class="location-city-name">Azusa</span>
@@ -1691,7 +1691,7 @@
                     </div>
 
                     <!-- 15. Bell -->
-                    <div class="location-card fade-in-up">
+                    <div class="location-card fade-in-up" data-store="bell">
                         <h3 class="location-name">
                             <a href="/locations/bell/" class="location-name-link">
                                 <span class="location-city-name">Bell</span>
@@ -1822,21 +1822,21 @@
                             <label for="store" data-i18n="contact.store">Nearest Store (Optional)</label>
                             <select id="store" name="store">
                                 <option value="" data-i18n="contact.storeSelect">Select a location...</option>
-                                <option value="Los Angeles Central & Washington">Los Angeles Central & Washington (1900 S. Central Ave)</option>
-                                <option value="Lynwood">Lynwood (3220 E. Imperial Hwy)</option>
-                                <option value="LA Broadway">Los Angeles Vernon & Broadway (4380 S. Broadway)</option>
-                                <option value="Norwalk">Norwalk (10968 Rosecrans Ave)</option>
-                                <option value="Slauson">Los Angeles Slauson & Broadway (5833 S. Broadway)</option>
-                                <option value="Rialto">Rialto (115 E. Baseline Rd)</option>
-                                <option value="West Covina">West Covina (101 S. Azusa Ave)</option>
-                                <option value="South Gate">South Gate (5800 Firestone Blvd)</option>
-                                <option value="Downey">Downey (7947 E. Florence Ave)</option>
-                                <option value="Hollywood">Hollywood (7070 Sunset Blvd)</option>
-                                <option value="Santa Ana">Santa Ana (1258 E. 17th St)</option>
-                                <option value="Huntington Park">Huntington Park (2425 E. Florence Ave)</option>
-                                <option value="La Puente">La Puente (13009 Valley Blvd)</option>
-                                <option value="Azusa">Azusa (887 S. Azusa Ave)</option>
-                                <option value="Bell">Bell (4406 E Florence Ave)</option>
+                                <option value="Los Angeles Central & Washington" data-store="la-central">Los Angeles Central & Washington (1900 S. Central Ave)</option>
+                                <option value="Lynwood" data-store="lynwood">Lynwood (3220 E. Imperial Hwy)</option>
+                                <option value="LA Broadway" data-store="la-broadway">Los Angeles Vernon & Broadway (4380 S. Broadway)</option>
+                                <option value="Norwalk" data-store="norwalk">Norwalk (10968 Rosecrans Ave)</option>
+                                <option value="Slauson" data-store="slauson">Los Angeles Slauson & Broadway (5833 S. Broadway)</option>
+                                <option value="West Covina" data-store="west-covina">West Covina (101 S. Azusa Ave)</option>
+                                <option value="Rialto" data-store="rialto">Rialto (115 E. Baseline Rd)</option>
+                                <option value="South Gate" data-store="south-gate">South Gate (5800 Firestone Blvd)</option>
+                                <option value="Downey" data-store="downey">Downey (7947 E. Florence Ave)</option>
+                                <option value="Hollywood" data-store="hollywood">Hollywood (7070 Sunset Blvd)</option>
+                                <option value="Santa Ana" data-store="santa-ana">Santa Ana (1258 E. 17th St)</option>
+                                <option value="Huntington Park" data-store="huntington-park">Huntington Park (2425 E. Florence Ave)</option>
+                                <option value="La Puente" data-store="la-puente">La Puente (13009 Valley Blvd)</option>
+                                <option value="Azusa" data-store="azusa">Azusa (887 S. Azusa Ave)</option>
+                                <option value="Bell" data-store="bell">Bell (4406 E Florence Ave)</option>
                             </select>
                         </div>
 
@@ -2241,7 +2241,7 @@
     </div>
 
     <!-- Main JavaScript -->
-    <script src="js/main.js?v=114" defer></script>
+    <script src="js/main.js?v=116" defer></script>
     <script src="js/compliance-a11y.js?v=36" defer></script>
 </body>
 </html>

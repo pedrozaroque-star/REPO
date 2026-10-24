@@ -2412,15 +2412,16 @@ html:not(.tg-stop-animations) .marquee-track:hover .marquee-set {
     background: #ffffff;
     border-bottom: 1px solid rgba(0, 0, 0, 0.08);
     flex-shrink: 0;
-    gap: 0.75rem;
-    flex-wrap: wrap;
+    gap: 0.65rem;
+    flex-wrap: nowrap;
 }
 
 .map-modal-title {
     display: flex;
     align-items: center;
-    gap: 0.6rem;
+    gap: 0.55rem;
     color: var(--clr-white);
+    flex-shrink: 0;
 }
 
 .map-modal-title svg {
@@ -2430,7 +2431,7 @@ html:not(.tg-stop-animations) .marquee-track:hover .marquee-set {
 
 .map-modal-title h3 {
     font-family: var(--ff-heading);
-    font-size: 1.1rem;
+    font-size: clamp(0.95rem, 1.3vw, 1.1rem);
     font-weight: 700;
     color: var(--clr-black-deep);
     white-space: nowrap;
@@ -2439,8 +2440,11 @@ html:not(.tg-stop-animations) .marquee-track:hover .marquee-set {
 .map-modal-actions {
     display: flex;
     align-items: center;
-    gap: 0.75rem;
+    justify-content: flex-end;
+    gap: 0.55rem;
     margin-left: auto;
+    min-width: 0;
+    flex: 1 1 auto;
 }
 
 /* --- Map Theme Switcher --- */
@@ -2449,9 +2453,10 @@ html:not(.tg-stop-animations) .marquee-track:hover .marquee-set {
     align-items: center;
     background: #f3f4f6;
     border: 1px solid rgba(0, 0, 0, 0.08);
-    border-radius: var(--radius-full);
+    border-radius: 999px;
     padding: 3px;
     gap: 2px;
+    flex-shrink: 0;
 }
 
 .map-theme-btn {
@@ -2462,7 +2467,7 @@ html:not(.tg-stop-animations) .marquee-track:hover .marquee-set {
     padding: 0.45rem 0.8rem;
     min-height: 36px;
     border: none;
-    border-radius: var(--radius-full);
+    border-radius: 999px;
     background: transparent;
     color: #4b5563;
     font-family: var(--ff-body);
@@ -2590,9 +2595,16 @@ html:not(.tg-stop-animations) .marquee-track:hover .marquee-set {
     .map-modal-actions {
         grid-area: actions;
         display: flex;
+        flex-wrap: wrap;
         align-items: center;
-        gap: 0.5rem;
+        gap: 0.45rem;
         width: 100%;
+    }
+
+    .map-nearest-info {
+        flex: 1 1 100%;
+        max-width: 100%;
+        justify-content: center;
     }
 
     .map-theme-switcher {
@@ -2716,21 +2728,40 @@ html:not(.tg-stop-animations) .marquee-track:hover .marquee-set {
 }
 
 .map-nearest-info {
-    display: flex;
+    display: inline-flex;
     align-items: center;
-    gap: 0.5rem;
-    padding: 0.5rem 1rem;
+    gap: 0.42rem;
+    padding: 0.48rem 0.95rem;
     background: rgba(218, 41, 28, 0.08);
-    border: 1px solid rgba(218, 41, 28, 0.15);
-    border-radius: var(--radius-md);
+    border: 1px solid rgba(218, 41, 28, 0.28);
+    border-radius: 999px;
     color: var(--clr-black-deep);
-    font-size: 0.85rem;
-    font-weight: 500;
-    animation: fadeInScale 0.4s ease;
+    font-size: 0.82rem;
+    font-weight: 700;
+    max-width: clamp(180px, 26vw, 320px);
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+    animation: fadeInScale 0.3s ease;
+}
+
+.map-nearest-info:hover {
+    background: rgba(218, 41, 28, 0.15);
+    border-color: var(--clr-red);
+}
+
+.map-nearest-text {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .map-nearest-icon {
-    font-size: 1.1rem;
+    color: var(--clr-red);
+    flex-shrink: 0;
 }
 
 .gavilan-map {
@@ -2745,14 +2776,23 @@ html:not(.tg-stop-animations) .marquee-track:hover .marquee-set {
     filter: none;
 }
 
-/* Google Maps InfoWindow Styling */
+/* Google Maps InfoWindow — Luxury Dark & Gold Brand Card */
 .gm-style .gm-style-iw-c {
-    background: #ffffff !important;
-    border-radius: var(--radius-md) !important;
-    border: 1px solid rgba(0, 0, 0, 0.08) !important;
-    box-shadow: 0 12px 36px rgba(0, 0, 0, 0.25) !important;
+    background: linear-gradient(165deg, #17171B 0%, #0E0E11 100%) !important;
+    border-radius: 16px !important;
+    border: 1px solid rgba(245, 196, 36, 0.42) !important;
+    box-shadow: 0 22px 52px rgba(0, 0, 0, 0.75), 0 0 0 1px rgba(255, 255, 255, 0.05) inset !important;
     padding: 0 !important;
-    max-width: 300px !important;
+    max-width: 320px !important;
+    min-width: 276px !important;
+    outline: none !important;
+}
+
+.gm-style .gm-style-iw-c:focus,
+.gm-style .gm-style-iw-c:focus-visible,
+.gm-style .gm-style-iw-d:focus,
+.gm-style .gm-style-iw-d:focus-visible {
+    outline: none !important;
 }
 
 .gm-style .gm-style-iw-d {
@@ -2761,42 +2801,77 @@ html:not(.tg-stop-animations) .marquee-track:hover .marquee-set {
     max-height: none !important;
 }
 
+/* Hide Google Maps default header/chr spacer if injected by newer Maps API */
+.gm-style .gm-style-iw-chr {
+    position: absolute !important;
+    top: 8px !important;
+    right: 8px !important;
+    z-index: 10 !important;
+    height: 0 !important;
+    overflow: visible !important;
+}
+
+.gm-style .gm-style-iw-ch {
+    display: none !important;
+}
+
 .gm-style .gm-style-iw-tc::after {
-    background: #ffffff !important;
+    background: #0E0E11 !important;
+    box-shadow: -1px 1px 0 rgba(245, 196, 36, 0.42) !important;
 }
 
 .gm-style .gm-ui-hover-effect {
-    top: 4px !important;
-    right: 4px !important;
+    top: 10px !important;
+    right: 10px !important;
     width: 28px !important;
     height: 28px !important;
+    border-radius: 50% !important;
+    background: rgba(255, 255, 255, 0.08) !important;
+    border: 1px solid rgba(255, 255, 255, 0.16) !important;
+    opacity: 0.9 !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    transition: all 0.2s ease !important;
+}
+
+.gm-style .gm-ui-hover-effect > span {
+    filter: invert(1) brightness(2) !important;
+    margin: 0 !important;
+}
+
+.gm-style .gm-ui-hover-effect:hover {
+    background: var(--clr-red) !important;
+    border-color: var(--clr-red) !important;
+    opacity: 1 !important;
+    transform: scale(1.06);
 }
 
 /* Custom popup styling */
 .gavilan-map .leaflet-popup-content-wrapper {
-    background: #ffffff;
-    color: var(--clr-black-deep);
-    border-radius: var(--radius-md);
-    border: 1px solid rgba(0, 0, 0, 0.08);
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15);
+    background: #141418;
+    color: #ffffff;
+    border-radius: 16px;
+    border: 1px solid rgba(245, 196, 36, 0.42);
+    box-shadow: 0 18px 44px rgba(0, 0, 0, 0.65);
     padding: 0;
 }
 
 .gavilan-map .leaflet-popup-content {
     margin: 0;
-    min-width: 220px;
+    min-width: 260px;
 }
 
 .gavilan-map .leaflet-popup-tip {
-    background: #ffffff;
-    border: 1px solid rgba(0, 0, 0, 0.08);
+    background: #0E0E11;
+    border: 1px solid rgba(245, 196, 36, 0.42);
 }
 
 .gavilan-map .leaflet-popup-close-button {
-    color: #9ca3af !important;
+    color: #e5e7eb !important;
     font-size: 20px !important;
-    top: 6px !important;
-    right: 8px !important;
+    top: 8px !important;
+    right: 10px !important;
 }
 
 .gavilan-custom-pin,
@@ -2829,30 +2904,171 @@ html:not(.tg-stop-animations) .marquee-track:hover .marquee-set {
     border-top-color: var(--clr-gold) !important;
 }
 
+/* --- Redesigned Store Info Card inside Map --- */
 .map-popup {
-    padding: 1rem 1.25rem;
+    position: relative;
+    padding: 1.05rem 1.15rem 1.1rem;
+    color: #FFFFFF;
+    font-family: var(--ff-body);
+    text-align: left;
 }
 
-.map-popup-name {
+.map-popup::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 3px;
+    background: linear-gradient(90deg, #DA291C 0%, #F5C424 55%, #DA291C 100%);
+}
+
+.map-popup--user {
+    padding: 0.85rem 1.25rem;
+    text-align: center;
+}
+
+.map-popup-top {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    padding-right: 2rem;
+    margin-bottom: 0.5rem;
+}
+
+.map-popup-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.32rem;
+    padding: 0.22rem 0.6rem;
+    border-radius: 999px;
+    font-size: 0.68rem;
+    font-weight: 800;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    line-height: 1.2;
+}
+
+.map-popup-badge--nearest {
+    background: linear-gradient(135deg, rgba(218, 41, 28, 0.28) 0%, rgba(245, 196, 36, 0.22) 100%);
+    border: 1px solid rgba(245, 196, 36, 0.55);
+    color: #F5C424;
+}
+
+.map-popup-badge--distance {
+    background: rgba(245, 196, 36, 0.14);
+    border: 1px solid rgba(245, 196, 36, 0.38);
+    color: #F5C424;
+}
+
+.map-popup-badge--brand {
+    background: rgba(255, 255, 255, 0.07);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    color: rgba(255, 255, 255, 0.8);
+}
+
+.map-popup-header {
+    margin-bottom: 0.65rem;
+    padding-right: 1.5rem;
+}
+
+.map-popup-city {
     font-family: var(--ff-heading);
-    font-size: 1.1rem;
+    font-size: 1.24rem;
+    font-weight: 800;
+    color: #FFFFFF;
+    line-height: 1.12;
+    letter-spacing: -0.02em;
+}
+
+.map-popup-cross {
+    font-family: var(--ff-body, 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif);
+    font-size: 0.96rem;
     font-weight: 700;
-    color: var(--clr-black-deep);
-    margin-bottom: 0.35rem;
+    color: var(--clr-gold, #FFC72C);
+    text-transform: none;
+    letter-spacing: 0.01em;
+    margin-top: 0.18rem;
+    line-height: 1.22;
+}
+
+.map-popup-meta {
+    display: flex;
+    flex-direction: column;
+    gap: 0.42rem;
+    padding: 0.62rem 0.7rem;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 10px;
+    margin-bottom: 0.8rem;
+}
+
+.map-popup-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.48rem;
+    font-size: 0.78rem;
+    line-height: 1.38;
+    color: #E4E4E7;
+}
+
+.map-popup-row-icon {
+    color: #F5C424;
+    flex-shrink: 0;
+    margin-top: 1px;
 }
 
 .map-popup-address {
-    font-size: 0.82rem;
-    color: #6b7280;
-    line-height: 1.5;
-    margin-bottom: 0.75rem;
+    color: #D4D4D8;
+    font-size: 0.77rem;
+    line-height: 1.35;
 }
 
-.map-popup-distance {
-    font-size: 0.78rem;
-    color: var(--clr-red);
-    margin-bottom: 0.75rem;
-    font-weight: 500;
+.map-popup-phone-link {
+    color: #FFFFFF !important;
+    font-weight: 700;
+    font-size: 0.8rem;
+    text-decoration: none;
+    transition: color 0.15s ease;
+}
+
+.map-popup-phone-link:hover {
+    color: #F5C424 !important;
+    text-decoration: underline;
+}
+
+.map-popup-row--hours {
+    padding-top: 0.35rem;
+    border-top: 1px dashed rgba(255, 255, 255, 0.1);
+}
+
+.map-popup-hours-grid {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+}
+
+.map-popup-hour-line {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    font-size: 0.72rem;
+    color: #D4D4D8;
+}
+
+.map-popup-hour-line.is-weekend {
+    color: #F5C424;
+    font-weight: 700;
+}
+
+.map-popup-hour-day {
+    font-weight: 600;
+}
+
+.map-popup-hour-time {
+    font-variant-numeric: tabular-nums;
 }
 
 .map-popup-actions {
@@ -2866,31 +3082,43 @@ html:not(.tg-stop-animations) .marquee-track:hover .marquee-set {
     align-items: center;
     justify-content: center;
     gap: 0.35rem;
-    padding: 0.5rem 0.75rem;
-    border-radius: var(--radius-sm);
-    font-size: 0.78rem;
-    font-weight: 600;
+    padding: 0.58rem 0.75rem;
+    border-radius: 10px;
+    font-family: var(--ff-heading);
+    font-size: 0.76rem;
+    font-weight: 800;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
     text-align: center;
-    transition: all var(--transition-fast);
+    text-decoration: none;
+    transition: all 0.2s ease;
+    white-space: nowrap;
 }
 
 .map-popup-btn-order {
-    background: var(--clr-red);
-    color: var(--clr-white) !important;
+    background: linear-gradient(135deg, #E02B1D 0%, #B81D13 100%);
+    color: #FFFFFF !important;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    box-shadow: 0 6px 16px rgba(218, 41, 28, 0.38);
 }
 
 .map-popup-btn-order:hover {
-    background: var(--clr-red-dark);
+    background: linear-gradient(135deg, #EF3526 0%, #C82116 100%);
+    transform: translateY(-1px);
+    box-shadow: 0 8px 20px rgba(218, 41, 28, 0.52);
 }
 
 .map-popup-btn-directions {
-    background: #f3f4f6;
-    border: 1px solid #e5e7eb;
-    color: #374151 !important;
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    color: #FFFFFF !important;
 }
 
 .map-popup-btn-directions:hover {
-    background: #e5e7eb;
+    background: rgba(245, 196, 36, 0.14);
+    border-color: #F5C424;
+    color: #F5C424 !important;
+    transform: translateY(-1px);
 }
 
 /* User location pulse */

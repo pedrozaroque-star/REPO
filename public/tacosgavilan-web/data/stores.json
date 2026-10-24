@@ -120,30 +120,6 @@
     "isActive": true
   },
   {
-    "id": "acf15327-54c8-4da4-8d0d-3ac0544dc422",
-    "code": "RIALTO",
-    "slug": "rialto",
-    "city": "Rialto",
-    "crossStreets": "Baseline & Riverside",
-    "name": "Rialto Baseline & Riverside",
-    "displayName": {
-      "en": "Rialto Baseline & Riverside",
-      "es": "Rialto Baseline & Riverside"
-    },
-    "address": "115 E. Baseline Rd",
-    "state": "CA",
-    "zip": "92376",
-    "phone": "(909) 562-0430",
-    "lat": 34.1211,
-    "lng": -117.370048,
-    "toastUrl": "https://order.online/store/tacos-gavilan-rialto-841931",
-    "hours": {
-      "en": "Sun – Thu: 10:00 AM – 12:00 AM | Fri – Sat: 10:00 AM – 2:00 AM",
-      "es": "Dom – Jue: 10:00 AM – 12:00 AM | Vie – Sáb: 10:00 AM – 2:00 AM"
-    },
-    "isActive": true
-  },
-  {
     "id": "5f4a006e-9a6e-4bcf-b5bd-7f5e9d801a02",
     "code": "WCOVINA",
     "slug": "west-covina",
@@ -164,6 +140,30 @@
     "hours": {
       "en": "Sun – Thu: 10:00 AM – 1:00 AM | Fri – Sat: 10:00 AM – 3:00 AM",
       "es": "Dom – Jue: 10:00 AM – 1:00 AM | Vie – Sáb: 10:00 AM – 3:00 AM"
+    },
+    "isActive": true
+  },
+  {
+    "id": "acf15327-54c8-4da4-8d0d-3ac0544dc422",
+    "code": "RIALTO",
+    "slug": "rialto",
+    "city": "Rialto",
+    "crossStreets": "Baseline & Riverside",
+    "name": "Rialto Baseline & Riverside",
+    "displayName": {
+      "en": "Rialto Baseline & Riverside",
+      "es": "Rialto Baseline & Riverside"
+    },
+    "address": "115 E. Baseline Rd",
+    "state": "CA",
+    "zip": "92376",
+    "phone": "(909) 562-0430",
+    "lat": 34.1211,
+    "lng": -117.370048,
+    "toastUrl": "https://order.online/store/tacos-gavilan-rialto-841931",
+    "hours": {
+      "en": "Sun – Thu: 10:00 AM – 12:00 AM | Fri – Sat: 10:00 AM – 2:00 AM",
+      "es": "Dom – Jue: 10:00 AM – 12:00 AM | Vie – Sáb: 10:00 AM – 2:00 AM"
     },
     "isActive": true
   },
