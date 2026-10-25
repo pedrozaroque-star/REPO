@@ -27,8 +27,58 @@ export async function GET(req: NextRequest) {
             return NextResponse.json({ error: 'Missing Realm ID (Company ID)' }, { status: 400 });
         }
 
-        // 2. Store tokens: Local Sandbox file OR Production Supabase DB
-        if (process.env.QUICKBOOKS_ENVIRONMENT === 'sandbox') {
+        // 2. Store tokens: Check if this realmId belongs to External Accounting (Raquel's 8 companies) or main Tacos Gavilan
+        const stateParam = url.searchParams.get('state') || '';
+        const { data: extCompany } = await supabase
+            .from('external_accounting_companies')
+            .select('realm_id, company_name, metadata')
+            .eq('realm_id', realmId)
+            .maybeSingle();
+
+        const isExternalCompany = Boolean(extCompany) || stateParam.startsWith('external:');
+
+        if (isExternalCompany) {
+            const expiresIso = new Date(Date.now() + Number(tokens.expires_in || 3600) * 1000).toISOString();
+            const nowIso = new Date().toISOString();
+
+            // Save in integrations under a dedicated service_name so we NEVER overwrite Tacos Gavilan's main `quickbooks` row (187736243)
+            const { error: intErr } = await supabase
+                .from('integrations')
+                .upsert({
+                    service_name: `quickbooks_ext_${realmId}`,
+                    realm_id: realmId,
+                    access_token: tokens.access_token,
+                    refresh_token: tokens.refresh_token,
+                    token_type: tokens.token_type || 'Bearer',
+                    expires_at: expiresIso,
+                    updated_at: nowIso,
+                }, { onConflict: 'service_name' });
+
+            if (intErr) {
+                console.error('Database error saving external QB integration:', intErr);
+            }
+
+            if (extCompany) {
+                const currMeta = extCompany.metadata && typeof extCompany.metadata === 'object' ? extCompany.metadata : {};
+                const updatedMeta = {
+                    ...currMeta,
+                    qbo_sync_enabled: currMeta.qbo_sync_enabled !== false,
+                    qbo_oauth: {
+                        access_token: tokens.access_token,
+                        refresh_token: tokens.refresh_token,
+                        token_type: tokens.token_type || 'Bearer',
+                        expires_at: expiresIso,
+                        connected_at: nowIso,
+                        updated_at: nowIso,
+                        last_sync_error: null,
+                    }
+                };
+                await supabase
+                    .from('external_accounting_companies')
+                    .update({ metadata: updatedMeta, updated_at: nowIso })
+                    .eq('realm_id', realmId);
+            }
+        } else if (process.env.QUICKBOOKS_ENVIRONMENT === 'sandbox') {
             saveLocalSandboxIntegration(tokens, realmId);
             console.log('✅ Sandbox tokens saved locally to .sandbox_tokens.json');
         } else {

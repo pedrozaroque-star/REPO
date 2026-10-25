@@ -174,18 +174,187 @@ function sanitizePhotoUrls(input: unknown): string[] {
     .slice(0, 5)
 }
 
+const GENERIC_TRADE_LABELS = new Set([
+  'servicio de campanas y ductos',
+  'hood & exhaust cleaning service',
+  'técnico de refrigeración y hielo',
+  'refrigeration & ice machine service',
+  'control de plagas y fumigación',
+  'pest control & extermination',
+  'plomería y trampa de grasa',
+  'plumbing & grease trap service',
+  'técnico de equipos de cocina',
+  'cooking equipment technician',
+  'servicio eléctrico e iluminación',
+  'electrical & lighting service',
+  'servicio de plomería y drenajes',
+  'test'
+])
+
 // ============================================================================
 // GET /api/mantenimiento
 // ============================================================================
 export async function GET(request: NextRequest) {
   try {
+    const { searchParams } = new URL(request.url)
+
+    // Modo público de directorio (?directory=1) para el Paso 2 del portal móvil QR:
+    // Retorna únicamente los proveedores y técnicos que ya han realizado trabajos en las tiendas (sin datos sensibles).
+    if (searchParams.get('directory') === '1') {
+      const supabase = await getSupabaseAdminClient()
+      const targetStoreId = (searchParams.get('store_id') || '').trim()
+
+      const { data: rawLogs, error: dirErr } = await supabase
+        .from('maintenance_service_logs')
+        .select('company_name, technician_name, technician_phone, category, store_id, service_date, created_at')
+        .order('service_date', { ascending: false })
+        .order('created_at', { ascending: false })
+        .limit(500)
+
+      if (dirErr) {
+        return NextResponse.json({ success: false, error: dirErr.message }, { status: 500 })
+      }
+
+      const companiesMap = new Map<
+        string,
+        {
+          company_name: string
+          last_technician_name: string
+          last_technician_phone: string
+          last_category: string
+          visit_count: number
+          store_ids: Set<string>
+        }
+      >()
+
+      const techniciansMap = new Map<
+        string,
+        {
+          technician_name: string
+          company_name: string
+          technician_phone: string
+          category: string
+          visit_count: number
+          store_ids: Set<string>
+        }
+      >()
+
+      for (const row of rawLogs || []) {
+        const compRaw = String(row.company_name || '').trim()
+        const techRaw = String(row.technician_name || '').trim()
+        const phoneRaw = String(row.technician_phone || '').trim()
+        const catRaw = ALLOWED_CATEGORIES.includes(String(row.category || '').trim())
+          ? String(row.category).trim()
+          : 'general'
+        const stRaw = String(row.store_id || '').trim()
+
+        const compLower = compRaw.toLowerCase()
+        const techLower = techRaw.toLowerCase()
+        const isGenericTrade = GENERIC_TRADE_LABELS.has(compLower)
+        const isTestTech =
+          techLower === 'test' ||
+          techLower.includes('verificación') ||
+          techLower.includes('verificacion')
+
+        if (compRaw && !isGenericTrade && !isTestTech) {
+          const existingComp = companiesMap.get(compLower)
+          if (!existingComp) {
+            const storeSet = new Set<string>()
+            if (stRaw) storeSet.add(stRaw)
+            companiesMap.set(compLower, {
+              company_name: compRaw,
+              last_technician_name: techRaw,
+              last_technician_phone: phoneRaw,
+              last_category: catRaw,
+              visit_count: 1,
+              store_ids: storeSet
+            })
+          } else {
+            existingComp.visit_count += 1
+            if (stRaw) existingComp.store_ids.add(stRaw)
+            if (!existingComp.last_technician_name && techRaw) {
+              existingComp.last_technician_name = techRaw
+            }
+            if (!existingComp.last_technician_phone && phoneRaw) {
+              existingComp.last_technician_phone = phoneRaw
+            }
+          }
+        }
+
+        if (techRaw && !isTestTech) {
+          const cleanCompany = !isGenericTrade ? compRaw : ''
+          const techKey = `${techLower}__${cleanCompany.toLowerCase()}`
+          const existingTech = techniciansMap.get(techKey)
+          if (!existingTech) {
+            const storeSet = new Set<string>()
+            if (stRaw) storeSet.add(stRaw)
+            techniciansMap.set(techKey, {
+              technician_name: techRaw,
+              company_name: cleanCompany,
+              technician_phone: phoneRaw,
+              category: catRaw,
+              visit_count: 1,
+              store_ids: storeSet
+            })
+          } else {
+            existingTech.visit_count += 1
+            if (stRaw) existingTech.store_ids.add(stRaw)
+            if (!existingTech.technician_phone && phoneRaw) {
+              existingTech.technician_phone = phoneRaw
+            }
+            if (!existingTech.company_name && cleanCompany) {
+              existingTech.company_name = cleanCompany
+            }
+          }
+        }
+      }
+
+      const sortByStoreAndVisits = <T extends { store_ids: Set<string>; visit_count: number }>(list: T[]) => {
+        return list.sort((a, b) => {
+          if (targetStoreId) {
+            const aInStore = a.store_ids.has(targetStoreId) ? 1 : 0
+            const bInStore = b.store_ids.has(targetStoreId) ? 1 : 0
+            if (aInStore !== bInStore) return bInStore - aInStore
+          }
+          return b.visit_count - a.visit_count
+        })
+      }
+
+      const companies = sortByStoreAndVisits(Array.from(companiesMap.values()))
+        .slice(0, 20)
+        .map(c => ({
+          company_name: c.company_name,
+          last_technician_name: c.last_technician_name,
+          last_technician_phone: c.last_technician_phone,
+          last_category: c.last_category,
+          visit_count: c.visit_count,
+          store_ids: Array.from(c.store_ids)
+        }))
+
+      const technicians = sortByStoreAndVisits(Array.from(techniciansMap.values()))
+        .slice(0, 20)
+        .map(t => ({
+          technician_name: t.technician_name,
+          company_name: t.company_name,
+          technician_phone: t.technician_phone,
+          category: t.category,
+          visit_count: t.visit_count,
+          store_ids: Array.from(t.store_ids)
+        }))
+
+      return NextResponse.json({
+        success: true,
+        companies,
+        technicians
+      })
+    }
+
     const auth = verifyMaintenanceAuth(request, false)
     if (!auth.authorized) {
       return NextResponse.json({ success: false, error: auth.error }, { status: auth.status || 401 })
     }
 
     const supabase = await getSupabaseAdminClient()
-    const { searchParams } = new URL(request.url)
 
     const storeId = searchParams.get('store_id')
     const category = searchParams.get('category')

@@ -1,13 +1,18 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { getAuthClient } from '@/lib/quickbooks';
 import OAuthClient from 'intuit-oauth';
 
-export async function GET() {
+export async function GET(req: NextRequest) {
     try {
+        const url = new URL(req.url);
+        const mode = url.searchParams.get('mode') || '';
+        const targetRealmId = url.searchParams.get('realmId') || '';
+        const stateStr = mode === 'external' ? `external:${targetRealmId}` : 'init';
+
         const client = getAuthClient();
         const authUri = client.authorizeUri({
             scope: [OAuthClient.scopes.Accounting, OAuthClient.scopes.OpenId],
-            state: 'init',
+            state: stateStr,
         });
 
         console.log('Redirecting to QuickBooks Auth URI:', authUri);

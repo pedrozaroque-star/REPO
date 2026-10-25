@@ -123,6 +123,8 @@ export default function MaintenanceQRModal({
       ? escapeHtml(`${selectedStore.address}${selectedStore.city ? `, ${selectedStore.city}` : ''}`)
       : ''
 
+    const originUrl = typeof window !== 'undefined' ? window.location.origin : domain
+
     printWindow.document.write(`
       <!DOCTYPE html>
       <html>
@@ -140,10 +142,47 @@ export default function MaintenanceQRModal({
             .sticker-card {
               border: 3px solid #dc2626;
               border-radius: 24px;
-              padding: 30px 20px;
+              padding: 26px 20px;
               max-width: 480px;
               margin: 0 auto;
               box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+            }
+            .brand-row {
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              gap: 12px;
+              margin-bottom: 6px;
+            }
+            .logo-circle {
+              width: 56px;
+              height: 56px;
+              border-radius: 9999px;
+              background: linear-gradient(135deg, #fdc82f, #e69b00);
+              padding: 3px;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+            }
+            .logo-inner {
+              width: 100%;
+              height: 100%;
+              border-radius: 9999px;
+              background: #ffffff;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              overflow: hidden;
+            }
+            .logo-img {
+              width: 86%;
+              height: 86%;
+              object-fit: contain;
+            }
+            .ya-esta-img {
+              height: 36px;
+              width: auto;
+              object-fit: contain;
             }
             .brand {
               font-size: 26px;
@@ -215,7 +254,15 @@ export default function MaintenanceQRModal({
         </head>
         <body>
           <div class="sticker-card">
-            <div class="brand">Tacos Gavilan</div>
+            <div class="brand-row">
+              <div class="logo-circle">
+                <div class="logo-inner">
+                  <img class="logo-img" src="${originUrl}/logo.png" alt="Tacos Gavilan" />
+                </div>
+              </div>
+              <div class="brand">Tacos Gavilan</div>
+              <img class="ya-esta-img" src="${originUrl}/ya%20esta.png" alt="¡Ya está!" />
+            </div>
             <div class="tagline">Bitácora Oficial de Mantenimiento y Proveedores</div>
             <div class="store-badge">${safeLabel}</div>
             ${safeAddress ? `<div class="store-address">📍 ${safeAddress}</div>` : ''}
@@ -307,11 +354,20 @@ export default function MaintenanceQRModal({
 
             {/* QR Sticker Preview */}
             <div className="flex flex-col items-center justify-center p-6 bg-gray-50 dark:bg-gray-900/60 rounded-3xl border border-gray-200 dark:border-gray-700">
-              <div className="flex items-center gap-2 mb-3">
-                <Wrench className="text-red-600 dark:text-red-400" size={18} />
+              <div className="flex items-center justify-center gap-2.5 mb-3">
+                <div className="w-10 h-10 rounded-full bg-gradient-to-br from-[#fdc82f] to-[#e69b00] p-0.5 shadow-sm shrink-0">
+                  <div className="w-full h-full rounded-full bg-white flex items-center justify-center overflow-hidden border border-[#fffbeb]">
+                    <img src="/logo.png" alt="Tacos Gavilan" className="w-[88%] h-[88%] object-contain" />
+                  </div>
+                </div>
                 <span className="text-xs font-black tracking-widest text-red-700 dark:text-red-400 uppercase">
                   {t('maintenance.qr_sticker_header')}
                 </span>
+                <img
+                  src="/ya esta.png"
+                  alt="¡Ya está!"
+                  className="h-7 w-auto object-contain shrink-0"
+                />
               </div>
 
               <div className="px-3 py-1 rounded-full bg-red-100 dark:bg-red-950/80 text-red-700 dark:text-red-300 text-xs font-extrabold mb-1">

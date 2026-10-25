@@ -20,20 +20,40 @@ export interface VersionMilestone {
 }
 
 export const SYSTEM_VERSION = {
-    version: 'v2.19.0',
-    versionNumber: '2.19.0',
+    version: 'v2.20.0',
+    versionNumber: '2.20.0',
     releaseMonthEs: 'Octubre 2026',
     releaseMonthEn: 'October 2026',
     stage: 'Producción',
     stageEn: 'Production',
     year: '2026',
-    labelEs: 'Octubre 2026 • SM TEG v2.19.0',
-    labelEn: 'October 2026 • SM TEG v2.19.0',
+    labelEs: 'Octubre 2026 • SM TEG v2.20.0',
+    labelEn: 'October 2026 • SM TEG v2.20.0',
     brand: 'SM TEG',
-    lastUpdated: '2026-10-23'
+    lastUpdated: '2026-10-24'
 } as const;
 
 export const VERSION_HISTORY: readonly VersionMilestone[] = [
+    {
+        version: 'v2.20.0',
+        date: '24-Oct-2026',
+        titleEs: 'Contabilidad Externa Sync Bidireccional QBO V3 & Vista Previa Total, App Clientes V1/V2 OTP por Correo Real & Home Limpio, Web Ranking Mensual Automático & Mapa Tesla y Mantenimiento Directorio Real + GPS',
+        titleEn: 'External Accounting Live Bidirectional QBO V3 Sync & Universal Preview, Customer App V1/V2 Live Email OTP & Clean Home, Web Monthly Sales Store Ranking & Tesla Map & Maintenance Live Vendor Directory + GPS',
+        highlightsEs: [
+            'Contabilidad Externa Multi-Empresa (/admin/contabilidad-externa, lib/external-accounting-qbo-sync.ts y /api/external-accounting): sincronización bidireccional en vivo con Intuit QuickBooks Online V3 (creación, edición y eliminación con SyncToken en las 8 compañías), rediseño institucional Cero Ruido con Registro Bancario de 2 líneas (QBO 2-Line Bank Register), captura rápida en línea, desglose Split, impresión PDF contable en ventana limpia y Modal de Vista Previa Oficial al dar clic en cualquier elemento de todas las pestañas con botones de Imprimir, Editar y Eliminar con doble confirmación',
+            'App Móvil Clientes (/app, /app/v1, /app/v2, CustomerAppV2Pro.tsx, gavilan-app y lib/mobile-auth-email.ts): apertura directa en 1 toque de la sucursal seleccionada sobre order.online al pulsar Menu en V1 y V2, autenticación y registro real por Correo Electrónico con código OTP de 6 dígitos enviado en vivo vía Gmail/Supabase (/api/mobile/auth/send-otp, /api/mobile/auth/verify-otp y /api/mobile/user/profile), política estricta Cero Emojis, retiro de elementos ficticios (Fast-Pass QR), logo oficial con aro blanco idéntico a la web y rediseño limpio sin amontonamiento en Home de V2',
+            'Sitio Web tacosgavilan.com (v112–v117): ordenamiento automático mensual de las 15 sucursales de mayor a menor venta conectado en vivo a Supabase (homologado con el módulo VENTAS), adaptación proporcional del mapa interactivo y fitBounds para pantallas de Tesla y cualquier dispositivo, geolocalización Find Me de 3 capas con tarjeta Obsidian & Gold, correo oficial support@tacosgavilan.com con envío real Gmail OAuth2 (/api/contact), pestañas en Gotham Ultra amarillo, Taco de Cabeza Opción 5 en 4K y leyenda "Auténtica Comida Mexicana / Authentic Mexican Food"',
+            'Módulo Mantenimiento y Proveedores (/mantenimiento/registro, /admin/mantenimiento y /api/mantenimiento?directory=1): sugerencias rápidas en el Paso 2 alimentadas dinámicamente del historial real de empresas y técnicos que han dado servicio en las tiendas (autocompletando empresa, técnico, teléfono y categoría en 1 toque), tarjeta de bienvenida explicativa con el logo oficial de Tacos Gavilan y lema "¡Ya está!" sin duplicaciones, y selección híbrida en el Paso 1 (GPS automático + selector manual en respaldo mutuo)',
+            'Módulo Contabilidad Cohesion (/contabilidad): apertura automática de la semana anterior completa (Lunes a Domingo) exclusivamente al entrar al módulo en día lunes (getDay() === 1 en horario de Los Ángeles), y consolidación de 187.7 horas de ingeniería + 151.0 horas de turnos en Lynwood #14 (1 al 24 de Octubre 2026)'
+        ],
+        highlightsEn: [
+            'Multi-Company External Accounting (/admin/contabilidad-externa, lib/external-accounting-qbo-sync.ts & /api/external-accounting): live bidirectional Intuit QuickBooks Online V3 synchronization (create, edit, and delete with SyncToken across all 8 companies), zero-noise institutional UI with QBO 2-Line Bank Register, Inline Quick-Add, Split Breakdown, dedicated clean-window PDF print engine, and Universal Click-to-Preview Modal across every tab with Print, Edit, and two-step confirmed Delete actions',
+            'Customer Mobile App (/app, /app/v1, /app/v2, CustomerAppV2Pro.tsx, gavilan-app & lib/mobile-auth-email.ts): 1-tap direct order.online launch for the active store from the Menu tab in both V1 and V2, live 6-digit Email OTP sign-in and profile persistence via Gmail/Supabase (/api/mobile/auth/send-otp, /api/mobile/auth/verify-otp, and /api/mobile/user/profile), strict Zero-Emoji policy, removal of mock elements (Fast-Pass QR), unified white-ring website logo, and decluttered V2 Home screen layout',
+            'tacosgavilan.com Website (v112–v117): automatic monthly ordering of all 15 branches from highest to lowest sales synced live with Supabase (matching the VENTAS module), proportional interactive map and fitBounds scaling for Tesla vehicle displays and all viewports, 3-tier Find Me geolocation with Obsidian & Gold store popup cards, live support@tacosgavilan.com Gmail OAuth2 dispatch (/api/contact), Gotham Ultra brand-yellow category tabs, 4K Cabeza Taco Option 5, and "Authentic Mexican Food / Auténtica Comida Mexicana" header tag',
+            'Maintenance & Service Providers (/mantenimiento/registro, /admin/mantenimiento & /api/mantenimiento?directory=1): dynamic Step 2 quick-suggestion chips powered by real historical service companies and technicians per store (auto-filling company, technician, phone, and category in 1 tap), onboarding welcome banner with the official Tacos Gavilan logo and "¡Ya está!" motto without visual duplication, and Step 1 mutual-fallback hybrid GPS + manual branch selection',
+            'Cohesion Accounting Module (/contabilidad): automatic full prior-week loading (Monday–Sunday) when opening the module on Mondays (getDay() === 1 in Los Angeles time), and 187.7 engineering hours + 151.0 Lynwood #14 shift hours consolidated (October 1–24, 2026)'
+        ]
+    },
     {
         version: 'v2.19.0',
         date: '23-Oct-2026',

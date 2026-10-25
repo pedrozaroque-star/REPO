@@ -1,24 +1,32 @@
 /**
  * @module app/api/mobile/auth/send-otp/route
- * @description Endpoint de envío de código OTP vía SMS para autenticación de comensales en Tacos Gavilan App.
+ * @description Endpoint de envío de código OTP de 6 dígitos (vía Correo Electrónico Real con Gmail SMTP
+ * de Tacos Gavilan + soporte determinístico de números de prueba NANPA/FCC para Apple/Google App Review).
  *
  * @businessRules
- * - Normaliza y valida que el número telefónico tenga exactamente 10 dígitos numéricos de EE. UU. y lo formatea a E.164 (`+1XXXXXXXXXX`).
- * - Soporta números oficiales de prueba NANPA/FCC (`^\d{3}55501\d{2}$`, ej. `2135550199`) para revisiones de Apple App Store Review y Google Play Review.
- * - Delega la emisión y envío de SMS a Supabase Auth (`supabaseAdmin.auth.signInWithOtp`).
- * - La creación/vinculación del perfil en `public.app_users` ocurre determinísticamente al verificar el OTP en `/api/mobile/auth/verify-otp`.
+ * - Acepta correo electrónico (`email` / `identifier` / `phone` con `@`) y envía al instante un código real de 6 dígitos
+ *   mediante el transporte SMTP oficial de Tacos Gavilan (`lib/mobile-auth-email.ts`), guardando el hash HMAC-SHA256
+ *   con vigencia de 10 minutos en `auth.users`.
+ * - Conserva soporte determinístico para números oficiales de prueba NANPA/FCC (`^\d{3}55501\d{2}$`, ej. `2135550199`)
+ *   y correos de revisión (`reviewer@tacosgavilan.com`) para Apple App Store Review y Google Play Review.
  *
  * @dataFlow
- * - App Móvil POST `/api/mobile/auth/send-otp` -> `supabaseAdmin.auth.signInWithOtp` -> Proveedor SMS de Supabase.
+ * - App Móvil POST `/api/mobile/auth/send-otp` -> `saveEmailOtpForUser` + `sendMobileOtpEmail` -> Buzón del comensal.
  *
  * @notes
- * - Usa `corsHeaders()` y `corsResponse()` de `@/app/api/mobile/_helpers` para soportar preflight `OPTIONS` (`HTTP 204`) con cabeceras móviles completas.
+ * - Usa `corsHeaders()` y `corsResponse()` de `@/app/api/mobile/_helpers` para soportar preflight `OPTIONS` (`HTTP 204`).
  * - Responde en inglés o español según la cabecera `Accept-Language`.
  */
 
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 import { corsHeaders, corsResponse } from '@/app/api/mobile/_helpers'
+import {
+  EMAIL_REGEX,
+  generateEmailOtpCode,
+  saveEmailOtpForUser,
+  sendMobileOtpEmail,
+} from '@/lib/mobile-auth-email'
 
 const APP_REVIEW_TEST_PHONE_REGEX = /^\d{3}55501\d{2}$/
 
@@ -39,9 +47,9 @@ export async function POST(request: Request): Promise<NextResponse> {
   const headers = corsHeaders()
   const isEn = (request.headers.get('Accept-Language') || '').toLowerCase().startsWith('en')
   try {
-    let body: { phone?: string }
+    let body: { email?: string; phone?: string; identifier?: string }
     try {
-      body = (await request.json()) as { phone?: string }
+      body = (await request.json()) as { email?: string; phone?: string; identifier?: string }
     } catch {
       return NextResponse.json(
         {
@@ -53,14 +61,71 @@ export async function POST(request: Request): Promise<NextResponse> {
       )
     }
 
-    const phone = normalizeUsPhone10(body.phone)
+    const rawEmailCandidate = (body.email || body.identifier || body.phone || '').trim()
+
+    // -------------------------------------------------------------------------
+    // CASO A: Autenticación por Correo Electrónico Real (Opción 1 Principal)
+    // -------------------------------------------------------------------------
+    if (rawEmailCandidate.includes('@')) {
+      const cleanEmail = rawEmailCandidate.toLowerCase()
+      if (!EMAIL_REGEX.test(cleanEmail) || cleanEmail.length > 120) {
+        return NextResponse.json(
+          {
+            ok: false,
+            code: 'INVALID_EMAIL',
+            error: isEn
+              ? 'Please enter a valid email address.'
+              : 'Por favor ingresa un correo electrónico válido.',
+          },
+          { status: 400, headers }
+        )
+      }
+
+      const code = generateEmailOtpCode(cleanEmail)
+      await saveEmailOtpForUser(cleanEmail, code)
+
+      const emailResult = await sendMobileOtpEmail(cleanEmail, code, isEn)
+      if (!emailResult.ok) {
+        return NextResponse.json(
+          {
+            ok: false,
+            code: 'OTP_SEND_FAILED',
+            error:
+              emailResult.error ||
+              (isEn
+                ? 'Could not send verification email. Please try again.'
+                : 'No se pudo enviar el correo de verificación. Inténtalo de nuevo.'),
+          },
+          { status: 500, headers }
+        )
+      }
+
+      return NextResponse.json(
+        {
+          ok: true,
+          success: true,
+          channel: 'email',
+          message: isEn
+            ? '6-digit verification code sent to your email'
+            : 'Código de verificación de 6 dígitos enviado a tu correo',
+        },
+        { status: 200, headers }
+      )
+    }
+
+    // -------------------------------------------------------------------------
+    // CASO B: Número Telefónico (Soporte de Revisión Apple/Google 213-555-0199)
+    // -------------------------------------------------------------------------
+    const phone = normalizeUsPhone10(rawEmailCandidate)
 
     if (!phone) {
       return NextResponse.json(
         {
           ok: false,
-          code: 'INVALID_PHONE',
-          error: isEn ? 'Phone number is required.' : 'El número de teléfono es requerido.',
+          code: 'INVALID_IDENTIFIER',
+          error: isEn
+            ? 'Email address is required.'
+            : 'El correo electrónico es requerido.',
         },
         { status: 400, headers }
       )
@@ -73,8 +138,8 @@ export async function POST(request: Request): Promise<NextResponse> {
           ok: false,
           code: 'INVALID_PHONE',
           error: isEn
-            ? 'Phone number must be exactly 10 digits.'
-            : 'El teléfono debe tener exactamente 10 dígitos numéricos.',
+            ? 'Please enter a valid email address or 10-digit phone number.'
+            : 'Ingresa un correo electrónico válido o un número de 10 dígitos.',
         },
         { status: 400, headers }
       )
@@ -83,7 +148,12 @@ export async function POST(request: Request): Promise<NextResponse> {
     // Soporte determinístico para cuentas de revisión de Apple App Store / Google Play (rango reservado 555-01XX)
     if (APP_REVIEW_TEST_PHONE_REGEX.test(phone)) {
       return NextResponse.json(
-        { ok: true, success: true, message: isEn ? 'Verification code sent' : 'Código enviado' },
+        {
+          ok: true,
+          success: true,
+          channel: 'phone',
+          message: isEn ? 'Verification code sent' : 'Código enviado',
+        },
         { status: 200, headers }
       )
     }
@@ -95,20 +165,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     })
 
     if (otpError) {
-      console.error('[MOBILE AUTH] Error al enviar OTP:', otpError.message)
-
-      if (otpError.message.includes('rate') || otpError.message.includes('limit')) {
-        return NextResponse.json(
-          {
-            ok: false,
-            code: 'RATE_LIMITED',
-            error: isEn
-              ? 'Too many attempts. Please wait a moment before trying again.'
-              : 'Demasiados intentos. Espera un momento antes de intentar de nuevo.',
-          },
-          { status: 429, headers }
-        )
-      }
+      console.error('[MOBILE AUTH] Error al enviar OTP SMS:', otpError.message)
 
       if (otpError.message.toLowerCase().includes('unsupported phone provider')) {
         return NextResponse.json(
@@ -116,10 +173,10 @@ export async function POST(request: Request): Promise<NextResponse> {
             ok: false,
             code: 'SMS_PROVIDER_UNAVAILABLE',
             error: isEn
-              ? 'SMS delivery is temporarily under maintenance. You can continue as a guest to order immediately.'
-              : 'El envío de SMS está en mantenimiento temporal. Puedes continuar como invitado para ordenar de inmediato.',
+              ? 'Please enter your email address to receive your 6-digit verification code immediately.'
+              : 'Por favor ingresa tu correo electrónico para recibir tu código de verificación de 6 dígitos al instante.',
           },
-          { status: 503, headers }
+          { status: 400, headers }
         )
       }
 
@@ -128,15 +185,15 @@ export async function POST(request: Request): Promise<NextResponse> {
           ok: false,
           code: 'OTP_SEND_FAILED',
           error: isEn
-            ? 'Could not send verification code. Please try again later.'
-            : 'No se pudo enviar el código. Intenta de nuevo más tarde.',
+            ? 'Please enter your email address to receive your 6-digit verification code.'
+            : 'Por favor ingresa tu correo electrónico para recibir tu código de 6 dígitos.',
         },
-        { status: 500, headers }
+        { status: 400, headers }
       )
     }
 
     return NextResponse.json(
-      { ok: true, success: true, message: isEn ? 'Verification code sent' : 'Código enviado' },
+      { ok: true, success: true, channel: 'phone', message: isEn ? 'Verification code sent' : 'Código enviado' },
       { status: 200, headers }
     )
   } catch (error: unknown) {

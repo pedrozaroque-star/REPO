@@ -6,7 +6,11 @@
  * - Acceso abierto sin inicio de sesión (ruta pública en middleware.ts y ClientLayout.tsx).
  * - Splash interactivo institucional con la animación oficial del logo cayendo ("¡Ya está!").
  * - Flujo por diapositivas (Step-by-Step Slide Wizard) optimizado para pantallas táctiles de celulares.
- * - Si se ingresa mediante código QR con parámetro ?store={id}, la sucursal se pre-selecciona automáticamente.
+ * - Selección híbrida de sucursal con fallback mutuo en Paso 1:
+ *   1) Si se ingresa mediante código QR con parámetro ?store={id}, selecciona esa tienda de inmediato.
+ *   2) Si no viene ?store= (o si el usuario pulsa "Detectar Sucursal por GPS"), geolocaliza por GPS (fórmula Haversine contra las coordenadas reales de las 15 sucursales + La Bodega) y selecciona automáticamente la tienda más cercana, ordenando el selector por proximidad en millas.
+ *   3) Si el GPS es denegado, falla o el técnico desea cambiarla, el selector desplegable manual permite elegir cualquier sucursal al instante.
+ * - En Paso 2, las sugerencias rápidas provienen del directorio histórico real de empresas y técnicos (`GET /api/mantenimiento?directory=1`) combinado con la memoria local del dispositivo (`localStorage`).
  * - Evidencias fotográficas obligatorias (Antes, Después o Nota/Factura física).
  * - Firma digital táctil del encargado en turno requerida para validar la entrega del servicio.
  * - Soporta idioma dual (Español / Inglés) con selector instantáneo.
@@ -28,7 +32,7 @@ import {
   X, Sparkles, RefreshCw, Flame, Snowflake, Bug, Droplets,
   Zap, Lock, Cpu, ArrowRight, ArrowLeft,
   Globe, MapPin, Check, SkipForward, ExternalLink,
-  Clock, LogOut, Plus
+  Clock, LogOut, Plus, Loader2
 } from 'lucide-react'
 import imageCompression from 'browser-image-compression'
 import { useLanguage } from '@/lib/i18n'
@@ -41,11 +45,60 @@ interface Store {
   code?: string
   city?: string
   address?: string
+  latitude?: number | null
+  longitude?: number | null
+  distanceMiles?: number | null
+}
+
+function calculateDistanceMiles(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const toRad = (deg: number) => (deg * Math.PI) / 180
+  const R = 3958.8 // Radio de la Tierra en millas
+  const dLat = toRad(lat2 - lat1)
+  const dLon = toRad(lon2 - lon1)
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) * Math.sin(dLon / 2)
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+  return R * c
+}
+
+interface DirectoryCompany {
+  company_name: string
+  last_technician_name: string
+  last_technician_phone: string
+  last_category: string
+  visit_count: number
+  store_ids?: string[]
+}
+
+interface DirectoryTechnician {
+  technician_name: string
+  company_name: string
+  technician_phone: string
+  category: string
+  visit_count: number
+  store_ids?: string[]
 }
 
 const TOTAL_SLIDES = 7
 const DRAFT_STORAGE_KEY = 'teg_maintenance_draft_v1'
 const TECH_MEMORY_KEY = 'teg_maintenance_tech_v1'
+
+const LEGACY_GENERIC_TRADES = new Set([
+  'servicio de campanas y ductos',
+  'hood & exhaust cleaning service',
+  'técnico de refrigeración y hielo',
+  'refrigeration & ice machine service',
+  'control de plagas y fumigación',
+  'pest control & extermination',
+  'plomería y trampa de grasa',
+  'plumbing & grease trap service',
+  'técnico de equipos de cocina',
+  'cooking equipment technician',
+  'servicio eléctrico e iluminación',
+  'electrical & lighting service',
+  'servicio de plomería y drenajes'
+])
 
 function getCurrentTimeHHMM(): string {
   const laDate = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
@@ -106,13 +159,25 @@ function MaintenanceFormContent() {
   const [photosInvoice, setPhotosInvoice] = useState<string[]>([])
   const [uploadingSection, setUploadingSection] = useState<'before' | 'after' | 'invoice' | null>(null)
 
+  // Directorio dinámico de proveedores y técnicos que ya han realizado trabajos en las tiendas
+  const [directoryCompanies, setDirectoryCompanies] = useState<DirectoryCompany[]>([])
+  const [directoryTechnicians, setDirectoryTechnicians] = useState<DirectoryTechnician[]>([])
+
+  // Estado de Geolocalización GPS + Respaldo Manual
+  const [locatingGps, setLocatingGps] = useState(false)
+  const [gpsDetectedDistance, setGpsDetectedDistance] = useState<number | null>(null)
+  const [gpsFallbackNotice, setGpsFallbackNotice] = useState(false)
+
   // Restaurar borrador de sessionStorage (protección contra recarga de cámara en móviles) y memoria del técnico
   useEffect(() => {
     try {
       const savedTech = localStorage.getItem(TECH_MEMORY_KEY)
       if (savedTech) {
         const parsedTech = JSON.parse(savedTech)
-        if (parsedTech.companyName) setCompanyName(parsedTech.companyName)
+        const savedComp = String(parsedTech.companyName || '').trim()
+        if (savedComp && !LEGACY_GENERIC_TRADES.has(savedComp.toLowerCase())) {
+          setCompanyName(savedComp)
+        }
         if (parsedTech.technicianName) setTechnicianName(parsedTech.technicianName)
         if (parsedTech.technicianPhone) setTechnicianPhone(parsedTech.technicianPhone)
       }
@@ -125,7 +190,9 @@ function MaintenanceFormContent() {
           if (d.currentStep > 1) setShowSplash(false)
         }
         if (!storeParam && d.selectedStoreId) setSelectedStoreId(d.selectedStoreId)
-        if (d.companyName) setCompanyName(d.companyName)
+        if (d.companyName && !LEGACY_GENERIC_TRADES.has(String(d.companyName).trim().toLowerCase())) {
+          setCompanyName(d.companyName)
+        }
         if (d.technicianName) setTechnicianName(d.technicianName)
         if (d.technicianPhone) setTechnicianPhone(d.technicianPhone)
         if (d.category) setCategory(d.category)
@@ -151,6 +218,75 @@ function MaintenanceFormContent() {
       setDraftHydrated(true)
     }
   }, [storeParam])
+
+  // Cargar directorio real de proveedores y técnicos que ya han realizado trabajos en las tiendas
+  useEffect(() => {
+    let active = true
+    async function loadProviderDirectory() {
+      try {
+        const qs = selectedStoreId ? `&store_id=${encodeURIComponent(selectedStoreId)}` : ''
+        const res = await fetch(`/api/mantenimiento?directory=1${qs}`)
+        const json = await res.json()
+        if (!active) return
+
+        const apiCompanies: DirectoryCompany[] = Array.isArray(json?.companies) ? json.companies : []
+        const apiTechs: DirectoryTechnician[] = Array.isArray(json?.technicians) ? json.technicians : []
+
+        // Combinar también con el último registro guardado en este dispositivo (si existe y no es genérico)
+        try {
+          const savedTechRaw = localStorage.getItem(TECH_MEMORY_KEY)
+          if (savedTechRaw) {
+            const parsed = JSON.parse(savedTechRaw)
+            const localComp = String(parsed.companyName || '').trim()
+            const localTech = String(parsed.technicianName || '').trim()
+            const localPhone = String(parsed.technicianPhone || '').trim()
+
+            if (
+              localComp &&
+              !LEGACY_GENERIC_TRADES.has(localComp.toLowerCase()) &&
+              !apiCompanies.some(c => c.company_name.toLowerCase() === localComp.toLowerCase())
+            ) {
+              apiCompanies.unshift({
+                company_name: localComp,
+                last_technician_name: localTech,
+                last_technician_phone: localPhone,
+                last_category: category || 'general',
+                visit_count: 1
+              })
+            }
+
+            if (
+              localTech &&
+              !apiTechs.some(
+                t =>
+                  t.technician_name.toLowerCase() === localTech.toLowerCase() &&
+                  t.company_name.toLowerCase() === localComp.toLowerCase()
+              )
+            ) {
+              apiTechs.unshift({
+                technician_name: localTech,
+                company_name: !LEGACY_GENERIC_TRADES.has(localComp.toLowerCase()) ? localComp : '',
+                technician_phone: localPhone,
+                category: category || 'general',
+                visit_count: 1
+              })
+            }
+          }
+        } catch {
+          // Ignore localStorage error
+        }
+
+        setDirectoryCompanies(apiCompanies)
+        setDirectoryTechnicians(apiTechs)
+      } catch (err) {
+        console.warn('No se pudo cargar el directorio de proveedores previos:', err)
+      }
+    }
+    loadProviderDirectory()
+    return () => {
+      active = false
+    }
+  }, [selectedStoreId, successData])
 
   // Guardar borrador automáticamente en sessionStorage y recordar datos del técnico
   useEffect(() => {
@@ -253,7 +389,76 @@ function MaintenanceFormContent() {
     return () => clearTimeout(timer)
   }, [])
 
-  // Cargar lista de tiendas ordenadas numéricamente + La Bodega (Almacén Central)
+  // Detectar sucursal más cercana mediante GPS (Fórmula Haversine) con respaldo manual automático
+  const detectNearestStoreByGPS = (catalogToUse?: Store[], forceSelect = false) => {
+    const list = catalogToUse || stores
+    if (!list || list.length === 0) return
+
+    if (typeof navigator === 'undefined' || !('geolocation' in navigator)) {
+      if (forceSelect) setGpsFallbackNotice(true)
+      return
+    }
+
+    setLocatingGps(true)
+    setGpsFallbackNotice(false)
+
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const userLat = pos.coords.latitude
+        const userLng = pos.coords.longitude
+
+        let nearest: Store | null = null
+        let minDist = Infinity
+
+        const updatedStores = list.map((s) => {
+          const lat = Number(s.latitude)
+          const lng = Number(s.longitude)
+          if (!Number.isNaN(lat) && !Number.isNaN(lng) && lat !== 0 && lng !== 0) {
+            const dist = calculateDistanceMiles(userLat, userLng, lat, lng)
+            if (dist < minDist) {
+              minDist = dist
+              nearest = { ...s, distanceMiles: dist }
+            }
+            return { ...s, distanceMiles: dist }
+          }
+          return s
+        })
+
+        // Ordenar por cercanía cuando hay GPS activo
+        updatedStores.sort((a, b) => {
+          const da = typeof a.distanceMiles === 'number' ? a.distanceMiles : 99999
+          const db = typeof b.distanceMiles === 'number' ? b.distanceMiles : 99999
+          return da - db
+        })
+
+        setStores(updatedStores)
+        setLocatingGps(false)
+
+        if (nearest && (forceSelect || !selectedStoreId)) {
+          const foundNearest = nearest as Store
+          setSelectedStoreId(String(foundNearest.id))
+          setGpsDetectedDistance(
+            typeof foundNearest.distanceMiles === 'number'
+              ? Number(foundNearest.distanceMiles.toFixed(1))
+              : null
+          )
+          setErrorMessage(null)
+        }
+      },
+      () => {
+        // Si falla el GPS (permiso denegado o sin señal), activar aviso suave y dejar selector manual listo
+        setLocatingGps(false)
+        setGpsFallbackNotice(true)
+      },
+      {
+        enableHighAccuracy: true,
+        timeout: 7000,
+        maximumAge: 60000
+      }
+    )
+  }
+
+  // Cargar lista de tiendas ordenadas numéricamente + La Bodega (Almacén Central) + Coordenadas GPS
   useEffect(() => {
     async function loadStores() {
       const bodegaEntry: Store = {
@@ -261,14 +466,16 @@ function MaintenanceFormContent() {
         name: 'La Bodega (Almacén Central)',
         code: 'BODEGA',
         city: 'Vernon / Los Angeles',
-        address: 'Almacén Central Tacos Gavilan'
+        address: 'Almacén Central Tacos Gavilan',
+        latitude: 34.0039,
+        longitude: -118.2301
       }
 
       try {
         const supabase = await getSupabaseClient()
         const { data, error } = await supabase
           .from('stores')
-          .select('id, name, code, city, address, is_active')
+          .select('id, name, code, city, address, latitude, longitude, is_active')
           .order('id')
 
         if (!error && data) {
@@ -278,7 +485,8 @@ function MaintenanceFormContent() {
           ]
           setStores(activeStores)
 
-          // Preselección robusta si viene ?store= en URL (ID numérico con o sin cero inicial, código, nombre o BODEGA)
+          // 1. Preselección si viene ?store= en el código QR
+          let matchedFromUrl = false
           if (storeParam) {
             const p = String(storeParam).trim().toLowerCase()
             const pNoZeros = p.replace(/^0+/, '') || '0'
@@ -290,7 +498,15 @@ function MaintenanceFormContent() {
               s.name?.toLowerCase() === p ||
               formatStoreName(s.name).toLowerCase() === p
             )
-            if (matched) setSelectedStoreId(String(matched.id))
+            if (matched) {
+              setSelectedStoreId(String(matched.id))
+              matchedFromUrl = true
+            }
+          }
+
+          // 2. Si no viene tienda en el QR (o falló el parámetro), intentar detectar automáticamente por GPS
+          if (!matchedFromUrl) {
+            detectNearestStoreByGPS(activeStores, false)
           }
         } else {
           setStores([bodegaEntry])
@@ -624,16 +840,37 @@ function MaintenanceFormContent() {
     setErrorMessage(null)
   }
 
-  // Sugerencias rápidas 100% libres de marcas comerciales para Paso 2 (Giro / Tipo de Proveedor)
-  const vendorSuggestions = [
-    { label: t('maintenance.vendor_chip_hood'), categoryId: 'hood_cleaning' },
-    { label: t('maintenance.vendor_chip_refrigeration'), categoryId: 'refrigeration' },
-    { label: t('maintenance.vendor_chip_pest'), categoryId: 'pest_control' },
-    { label: t('maintenance.vendor_chip_plumbing'), categoryId: 'grease_trap' },
-    { label: t('maintenance.vendor_chip_cooking'), categoryId: 'cooking_equipment' },
-    { label: t('maintenance.vendor_chip_electrical'), categoryId: 'electrical' },
-    { label: t('maintenance.vendor_chip_internal'), categoryId: 'general' }
+  // Sugerencias dinámicas en Paso 2 basadas en los proveedores y técnicos reales que ya han trabajado en las tiendas
+  const internalCompanyLabel = t('maintenance.vendor_chip_internal')
+  const companySuggestions: DirectoryCompany[] = [
+    ...directoryCompanies,
+    ...(directoryCompanies.some(
+      c => c.company_name.toLowerCase() === internalCompanyLabel.toLowerCase()
+    )
+      ? []
+      : [
+          {
+            company_name: internalCompanyLabel,
+            last_technician_name: '',
+            last_technician_phone: '',
+            last_category: 'general',
+            visit_count: 0
+          }
+        ])
   ]
+
+  // Filtrar técnicos: si ya hay una empresa seleccionada que tiene técnicos registrados, priorizarlos primero
+  const normalizedSelectedComp = companyName.trim().toLowerCase()
+  const technicianSuggestions: DirectoryTechnician[] = normalizedSelectedComp
+    ? [
+        ...directoryTechnicians.filter(
+          tech => tech.company_name.toLowerCase() === normalizedSelectedComp
+        ),
+        ...directoryTechnicians.filter(
+          tech => tech.company_name.toLowerCase() !== normalizedSelectedComp
+        )
+      ].slice(0, 12)
+    : directoryTechnicians.slice(0, 12)
 
   // Sugerencias rápidas 100% libres de marcas comerciales para Paso 4 (Equipo o Área Atendida — Multi-Select)
   const equipmentSuggestions = [
@@ -701,9 +938,23 @@ function MaintenanceFormContent() {
           transition={{ duration: 0.4, ease: 'easeOut' }}
           className="max-w-md w-full bg-slate-900/90 backdrop-blur-xl border border-slate-800 rounded-3xl shadow-2xl p-6 sm:p-8 text-center relative z-10 my-auto"
         >
-          {/* Icono de Verificación Verde Animado */}
-          <div className="w-20 h-20 mx-auto rounded-full bg-emerald-500/10 text-emerald-400 flex items-center justify-center mb-5 ring-8 ring-emerald-500/5 shadow-inner">
-            <CheckCircle2 size={44} className="animate-pulse" />
+          {/* Emblema Oficial Tacos Gavilan + Sello "¡Ya está!" */}
+          <div className="flex flex-col items-center justify-center mb-4">
+            <div className="relative">
+              <div className="w-20 h-20 rounded-full bg-gradient-to-br from-[#fdc82f] to-[#e69b00] p-1 shadow-[0_0_30px_rgba(253,200,47,0.35)]">
+                <div className="w-full h-full rounded-full bg-white flex items-center justify-center overflow-hidden border-2 border-[#fffbeb]">
+                  <img src="/logo.png" alt="Tacos Gavilan" className="w-[86%] h-[86%] object-contain" />
+                </div>
+              </div>
+              <div className="absolute -bottom-1 -right-1 w-7 h-7 rounded-full bg-emerald-500 text-white flex items-center justify-center ring-2 ring-slate-900 shadow-md">
+                <CheckCircle2 size={16} />
+              </div>
+            </div>
+            <img
+              src="/ya esta.png"
+              alt="¡Ya está!"
+              className="h-9 w-auto object-contain mt-2 drop-shadow-[0_0_10px_rgba(253,200,47,0.45)]"
+            />
           </div>
 
           <h2 className="text-2xl font-black text-white uppercase tracking-tight mb-1.5">
@@ -885,16 +1136,25 @@ function MaintenanceFormContent() {
         <div className="max-w-xl w-full mx-auto">
           <div className="flex items-center justify-between pb-2">
             <div className="flex items-center gap-2.5">
-              <div className="w-9 h-9 rounded-2xl bg-red-600 text-white flex items-center justify-center font-black text-xs shadow-md shadow-red-600/20">
-                TG
+              <div className="w-10 h-10 rounded-full bg-gradient-to-br from-[#fdc82f] to-[#e69b00] p-0.5 shadow-md shadow-amber-500/20 shrink-0">
+                <div className="w-full h-full rounded-full bg-white flex items-center justify-center overflow-hidden border border-[#fffbeb]">
+                  <img src="/logo.png" alt="Tacos Gavilan" className="w-[88%] h-[88%] object-contain" />
+                </div>
               </div>
-              <div>
-                <h1 className="text-sm font-black text-slate-900 dark:text-white uppercase tracking-tight">
-                  Tacos Gavilan
-                </h1>
-                <p className="text-[10px] text-slate-500 font-semibold">
-                  {t('maintenance.slide_step_of')?.replace('{current}', String(currentStep)).replace('{total}', String(TOTAL_SLIDES))}
-                </p>
+              <div className="flex items-center gap-2">
+                <div>
+                  <h1 className="text-sm font-black text-slate-900 dark:text-white uppercase tracking-tight leading-tight">
+                    Tacos Gavilan
+                  </h1>
+                  <p className="text-[10px] text-slate-500 font-semibold leading-tight">
+                    {t('maintenance.slide_step_of')?.replace('{current}', String(currentStep)).replace('{total}', String(TOTAL_SLIDES))}
+                  </p>
+                </div>
+                <img
+                  src="/ya esta.png"
+                  alt="¡Ya está!"
+                  className="h-7 w-auto object-contain shrink-0 drop-shadow-xs"
+                />
               </div>
             </div>
 
@@ -960,7 +1220,7 @@ function MaintenanceFormContent() {
           <div className="flex-1 relative overflow-hidden flex flex-col justify-start py-1">
             <AnimatePresence custom={slideDirection} mode="wait">
               {/* ========================================================================= */}
-              {/* DIAPOSITIVA 1: SUCURSAL */}
+              {/* DIAPOSITIVA 1: SUCURSAL + BIENVENIDA Y PROPÓSITO DEL REGISTRO */}
               {/* ========================================================================= */}
               {currentStep === 1 && (
                 <motion.div
@@ -972,28 +1232,102 @@ function MaintenanceFormContent() {
                   exit="exit"
                   className="w-full bg-white dark:bg-slate-900 rounded-3xl p-5 sm:p-6 shadow-sm border border-slate-200/80 dark:border-slate-800 space-y-5"
                 >
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-2xl bg-red-100 dark:bg-red-950/60 text-red-600 flex items-center justify-center shrink-0">
-                      <Building2 size={20} />
-                    </div>
+                  {/* Tarjeta de Bienvenida y Explicación del Porqué del Registro en Cada Visita */}
+                  <div className="p-4 rounded-2xl bg-gradient-to-br from-amber-50/90 via-orange-50/50 to-red-50/60 dark:from-amber-950/30 dark:via-slate-900 dark:to-red-950/20 border border-amber-200/80 dark:border-amber-800/50 space-y-3">
                     <div>
-                      <h2 className="text-base sm:text-lg font-black uppercase tracking-tight text-slate-900 dark:text-white">
-                        1. {t('maintenance.select_store')}
-                      </h2>
-                      <p className="text-xs text-slate-500 font-medium">
-                        {t('maintenance.store_question')}
+                      <h3 className="text-xs sm:text-sm font-black text-slate-900 dark:text-white tracking-tight">
+                        {technicianName.trim()
+                          ? t('maintenance.welcome_title_named').replace('{name}', technicianName.trim())
+                          : t('maintenance.welcome_title')}
+                      </h3>
+                      <p className="text-[11px] text-slate-600 dark:text-slate-300 font-medium leading-snug mt-0.5">
+                        {t('maintenance.welcome_subtitle')}
                       </p>
                     </div>
+
+                    <div className="space-y-2 pt-1 border-t border-amber-200/60 dark:border-amber-800/40 text-[11px] leading-snug">
+                      <div className="flex items-start gap-2">
+                        <CheckCircle2 size={14} className="text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
+                        <p className="text-slate-700 dark:text-slate-300">
+                          <span className="font-bold text-slate-900 dark:text-white">
+                            {t('maintenance.welcome_reason_1_title')}{' '}
+                          </span>
+                          {t('maintenance.welcome_reason_1_desc')}
+                        </p>
+                      </div>
+                      <div className="flex items-start gap-2">
+                        <Wrench size={14} className="text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                        <p className="text-slate-700 dark:text-slate-300">
+                          <span className="font-bold text-slate-900 dark:text-white">
+                            {t('maintenance.welcome_reason_2_title')}{' '}
+                          </span>
+                          {t('maintenance.welcome_reason_2_desc')}
+                        </p>
+                      </div>
+                      <div className="flex items-start gap-2">
+                        <Sparkles size={14} className="text-red-600 dark:text-red-400 shrink-0 mt-0.5" />
+                        <p className="text-slate-700 dark:text-slate-300">
+                          <span className="font-bold text-slate-900 dark:text-white">
+                            {t('maintenance.welcome_reason_3_title')}{' '}
+                          </span>
+                          {t('maintenance.welcome_reason_3_desc')}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-2xl bg-red-100 dark:bg-red-950/60 text-red-600 flex items-center justify-center shrink-0">
+                        <Building2 size={20} />
+                      </div>
+                      <div>
+                        <h2 className="text-base sm:text-lg font-black uppercase tracking-tight text-slate-900 dark:text-white">
+                          1. {t('maintenance.select_store')}
+                        </h2>
+                        <p className="text-xs text-slate-500 font-medium">
+                          {t('maintenance.store_question')}
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Botón de detección por GPS en tiempo real */}
+                    <button
+                      type="button"
+                      onClick={() => detectNearestStoreByGPS(stores, true)}
+                      disabled={locatingGps || loadingStores}
+                      className="inline-flex items-center justify-center gap-2 px-3.5 py-2.5 rounded-xl bg-red-50 hover:bg-red-100 dark:bg-red-950/50 dark:hover:bg-red-900/50 border border-red-200 dark:border-red-800/70 text-red-700 dark:text-red-300 text-xs font-extrabold transition-all active:scale-95 disabled:opacity-60"
+                    >
+                      {locatingGps ? (
+                        <>
+                          <Loader2 size={14} className="animate-spin text-red-600" />
+                          <span>{t('maintenance.gps_detecting')}</span>
+                        </>
+                      ) : (
+                        <>
+                          <MapPin size={14} className="text-red-600 dark:text-red-400" />
+                          <span>{t('maintenance.gps_detect_btn')}</span>
+                        </>
+                      )}
+                    </button>
                   </div>
 
                   {/* Tarjeta de Confirmación de Tienda */}
                   {selectedStore && (
-                    <div className="p-4 rounded-2xl bg-red-50/80 dark:bg-red-950/40 border-2 border-red-500/40 space-y-1">
-                      <div className="flex items-center gap-2">
-                        <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
-                        <span className="text-xs sm:text-sm font-black uppercase tracking-wide text-red-700 dark:text-red-300">
-                          Tacos Gavilan • {formatStoreName(selectedStore.name)}
-                        </span>
+                    <div className="p-4 rounded-2xl bg-red-50/80 dark:bg-red-950/40 border-2 border-red-500/40 space-y-1.5">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
+                          <span className="text-xs sm:text-sm font-black uppercase tracking-wide text-red-700 dark:text-red-300">
+                            Tacos Gavilan • {formatStoreName(selectedStore.name)}
+                          </span>
+                        </div>
+                        {gpsDetectedDistance !== null && (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950/80 border border-emerald-300 dark:border-emerald-700 text-[10px] font-black text-emerald-800 dark:text-emerald-300">
+                            <MapPin size={10} />
+                            {t('maintenance.gps_detected_badge', { distance: gpsDetectedDistance })}
+                          </span>
+                        )}
                       </div>
                       {selectedStore.address && (
                         <p className="text-xs text-slate-600 dark:text-slate-300 font-semibold pl-4.5 flex items-center gap-1.5">
@@ -1004,21 +1338,40 @@ function MaintenanceFormContent() {
                     </div>
                   )}
 
-                  {/* Selector Dropdown con Nombres Limpios */}
+                  {/* Aviso amigable si el GPS no estuvo disponible -> Fallback manual */}
+                  {gpsFallbackNotice && !selectedStore && (
+                    <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/70 flex items-center gap-2 text-xs font-semibold text-amber-800 dark:text-amber-200">
+                      <AlertTriangle size={15} className="text-amber-600 shrink-0" />
+                      <span>{t('maintenance.gps_fallback_notice')}</span>
+                    </div>
+                  )}
+
+                  {/* Selector Manual Dropdown con Nombres Limpios y Distancia GPS */}
                   <div>
                     <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-2">
                       {t('maintenance.change_store')}
                     </label>
                     <select
                       value={selectedStoreId}
-                      onChange={(e) => setSelectedStoreId(e.target.value)}
+                      onChange={(e) => {
+                        setSelectedStoreId(e.target.value);
+                        setGpsFallbackNotice(false);
+                        const found = stores.find(s => String(s.id) === e.target.value);
+                        if (found && typeof found.distanceMiles === 'number') {
+                          setGpsDetectedDistance(Number(found.distanceMiles.toFixed(1)));
+                        } else {
+                          setGpsDetectedDistance(null);
+                        }
+                      }}
                       disabled={loadingStores}
                       className="w-full px-4 py-3.5 rounded-2xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white font-medium text-base sm:text-sm focus:ring-2 focus:ring-red-500 focus:outline-none transition-shadow"
                     >
                       <option value="">{t('maintenance.select_store_placeholder')}</option>
                       {stores.map(s => (
                         <option key={s.id} value={s.id}>
-                          {formatStoreName(s.name)}{s.address ? ` — ${s.address}` : ''}
+                          {formatStoreName(s.name)}
+                          {typeof s.distanceMiles === 'number' ? ` (${s.distanceMiles.toFixed(1)} mi)` : ''}
+                          {s.address ? ` — ${s.address}` : ''}
                         </option>
                       ))}
                     </select>
@@ -1053,7 +1406,17 @@ function MaintenanceFormContent() {
                     </div>
                   </div>
 
-                  {/* Nombre de la Empresa + Sugerencias Rápidas Libres de Marcas */}
+                  {/* Saludo personalizado de bienvenida al técnico en Paso 2 */}
+                  {technicianName.trim() && (
+                    <div className="p-3 rounded-2xl bg-emerald-50/80 dark:bg-emerald-950/30 border border-emerald-200/80 dark:border-emerald-800/50 flex items-center gap-2.5 text-xs text-emerald-800 dark:text-emerald-200 font-medium">
+                      <CheckCircle2 size={16} className="text-emerald-600 dark:text-emerald-400 shrink-0" />
+                      <span>
+                        {t('maintenance.step2_welcome_banner').replace('{name}', technicianName.trim())}
+                      </span>
+                    </div>
+                  )}
+
+                  {/* Nombre de la Empresa + Sugerencias Dinámicas de Proveedores Reales */}
                   <div>
                     <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
                       {t('maintenance.company_name')} *
@@ -1070,31 +1433,52 @@ function MaintenanceFormContent() {
                         {t('maintenance.quick_vendors')}
                       </span>
                       <div className="flex flex-wrap gap-1.5">
-                        {vendorSuggestions.map((chip) => {
-                          const isSelected = companyName === chip.label
+                        {companySuggestions.map((chip) => {
+                          const isSelected =
+                            companyName.trim().toLowerCase() === chip.company_name.toLowerCase()
                           return (
                             <button
-                              key={chip.label}
+                              key={chip.company_name}
                               type="button"
                               onClick={() => {
-                                setCompanyName(chip.label)
-                                setCategory(chip.categoryId)
+                                setCompanyName(chip.company_name)
+                                if (chip.last_category) setCategory(chip.last_category)
+                                if (chip.last_technician_name) {
+                                  setTechnicianName(chip.last_technician_name)
+                                }
+                                if (chip.last_technician_phone) {
+                                  setTechnicianPhone(chip.last_technician_phone)
+                                }
                               }}
-                              className={`px-2.5 py-1.5 rounded-xl text-[11px] font-semibold border transition-all active:scale-95 ${
+                              className={`px-2.5 py-1.5 rounded-xl text-[11px] font-semibold border transition-all active:scale-95 flex items-center gap-1.5 ${
                                 isSelected
                                   ? 'bg-red-600 text-white border-red-600 shadow-xs'
                                   : 'bg-slate-100 dark:bg-slate-800/80 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-red-400'
                               }`}
                             >
-                              {chip.label}
+                              <span>{chip.company_name}</span>
+                              {chip.last_technician_name && (
+                                <span
+                                  className={`text-[10px] font-normal ${
+                                    isSelected ? 'text-red-100' : 'text-slate-400 dark:text-slate-500'
+                                  }`}
+                                >
+                                  • {chip.last_technician_name}
+                                </span>
+                              )}
                             </button>
                           )
                         })}
                       </div>
+                      {directoryCompanies.length === 0 && (
+                        <p className="mt-1.5 text-[10px] text-slate-400 dark:text-slate-500 font-medium">
+                          {t('maintenance.quick_vendors_hint')}
+                        </p>
+                      )}
                     </div>
                   </div>
 
-                  {/* Nombre del Técnico */}
+                  {/* Nombre del Técnico + Sugerencias Dinámicas de Técnicos Registrados */}
                   <div>
                     <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
                       {t('maintenance.technician_name')} *
@@ -1106,6 +1490,51 @@ function MaintenanceFormContent() {
                       placeholder={t('maintenance.technician_placeholder')}
                       className="w-full px-4 py-3 rounded-2xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white font-medium text-base sm:text-sm focus:ring-2 focus:ring-red-500 focus:outline-none"
                     />
+                    {technicianSuggestions.length > 0 && (
+                      <div className="mt-2.5">
+                        <span className="block text-[11px] font-bold text-slate-500 dark:text-slate-400 mb-1.5">
+                          {t('maintenance.quick_technicians')}
+                        </span>
+                        <div className="flex flex-wrap gap-1.5">
+                          {technicianSuggestions.map((tech) => {
+                            const isTechSelected =
+                              technicianName.trim().toLowerCase() === tech.technician_name.toLowerCase() &&
+                              (!tech.company_name ||
+                                companyName.trim().toLowerCase() === tech.company_name.toLowerCase())
+                            return (
+                              <button
+                                key={`${tech.technician_name}_${tech.company_name}`}
+                                type="button"
+                                onClick={() => {
+                                  setTechnicianName(tech.technician_name)
+                                  if (tech.company_name) setCompanyName(tech.company_name)
+                                  if (tech.technician_phone) setTechnicianPhone(tech.technician_phone)
+                                  if (tech.category) setCategory(tech.category)
+                                }}
+                                className={`px-2.5 py-1.5 rounded-xl text-[11px] font-semibold border transition-all active:scale-95 flex items-center gap-1.5 ${
+                                  isTechSelected
+                                    ? 'bg-red-600 text-white border-red-600 shadow-xs'
+                                    : 'bg-slate-100 dark:bg-slate-800/80 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-red-400'
+                                }`}
+                              >
+                                <User size={11} className="shrink-0" />
+                                <span>{tech.technician_name}</span>
+                                {tech.company_name &&
+                                  tech.company_name.toLowerCase() !== companyName.trim().toLowerCase() && (
+                                    <span
+                                      className={`text-[10px] font-normal ${
+                                        isTechSelected ? 'text-red-100' : 'text-slate-400 dark:text-slate-500'
+                                      }`}
+                                    >
+                                      ({tech.company_name})
+                                    </span>
+                                  )}
+                              </button>
+                            )
+                          })}
+                        </div>
+                      </div>
+                    )}
                   </div>
 
                   {/* Teléfono */}

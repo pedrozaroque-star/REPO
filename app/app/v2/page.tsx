@@ -36,9 +36,9 @@ export default function MobileCustomerAppV2Page() {
   const [showTestDrawer, setShowTestDrawer] = useState(false)
   const [hideFloatingPill, setHideFloatingPill] = useState(false)
 
-  const [v2Stage, setV2Stage] = useState<V2Stage | null>('stories')
-  const [v2StoryIdx, setV2StoryIdx] = useState<number | null>(0)
-  const [v2MainTab, setV2MainTab] = useState<MainTab | null>('home')
+  const [v2Stage, setV2Stage] = useState<V2Stage | null>(null)
+  const [v2StoryIdx, setV2StoryIdx] = useState<number | null>(null)
+  const [v2MainTab, setV2MainTab] = useState<MainTab | null>(null)
   const [v2AuthSheet, setV2AuthSheet] = useState<V2AuthSheet>(null)
   const [v2LoggedInDemo, setV2LoggedInDemo] = useState(false)
   const [controlTick, setControlTick] = useState(0)
@@ -101,7 +101,7 @@ export default function MobileCustomerAppV2Page() {
         </div>
       )}
 
-      {/* Cajón Inferior para Saltar entre las 12 Pantallas de Versión 2 */}
+      {/* Cajón Inferior para Saltar entre las 10 Pantallas de Versión 2 (Modo 100% Directo sin Login) */}
       <AnimatePresence>
         {showTestDrawer && (
           <motion.div
@@ -126,7 +126,7 @@ export default function MobileCustomerAppV2Page() {
                     TACOS GAVILAN • VERSIÓN 2
                   </p>
                   <h3 className="text-sm font-black text-white">
-                    {isEn ? 'Jump to Any Screen (1–12)' : 'Saltar a Cualquier Pantalla (1–12)'}
+                    {isEn ? 'Jump to Any Screen (1–10)' : 'Saltar a Cualquier Pantalla (1–10)'}
                   </h3>
                 </div>
                 <button
@@ -152,7 +152,7 @@ export default function MobileCustomerAppV2Page() {
                   onClick={() => jumpToV2State('stories', 1)}
                   className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-left text-xs font-bold"
                 >
-                  <span>2. Lámina 2: Plancha Taquera + Alertas en Vivo</span>
+                  <span>2. Lámina 2: Auténtica Comida Mexicana (Pickup / Delivery)</span>
                   <span className="text-[10px] text-[#FDC82F] font-mono">00:08</span>
                 </button>
                 <button
@@ -160,7 +160,7 @@ export default function MobileCustomerAppV2Page() {
                   onClick={() => jumpToV2State('stories', 2)}
                   className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-left text-xs font-bold"
                 >
-                  <span>3. Lámina 3: &quot;URGENTE. TACOS. YA.&quot; (GPS + Vasos Reales)</span>
+                  <span>3. Lámina 3: &quot;URGENTE. TACOS. YA.&quot; (GPS + 15 Sucursales)</span>
                   <span className="text-[10px] text-[#FDC82F] font-mono">00:13</span>
                 </button>
                 <button
@@ -168,7 +168,7 @@ export default function MobileCustomerAppV2Page() {
                   onClick={() => jumpToV2State('stories', 3)}
                   className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-left text-xs font-bold"
                 >
-                  <span>4. Lámina 4: Tarjeta QR Fast-Pass</span>
+                  <span>4. Lámina 4: Especialidades Tradicionales (1 Toque)</span>
                   <span className="text-[10px] text-[#FDC82F] font-mono">00:16</span>
                 </button>
                 <button
@@ -181,59 +181,59 @@ export default function MobileCustomerAppV2Page() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => jumpToV2State('hello', 0, 'home', null, false)}
+                  onClick={() => jumpToV2State('hello', 4, 'home', null, false)}
+                  className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-left text-xs font-bold"
+                >
+                  <span>6. Puerta de Bienvenida: &quot;¡HOLA! / HELLO!&quot;</span>
+                  <span className="text-[10px] text-[#FDC82F] font-mono">00:26</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => jumpToV2State('hello', 4, 'home', 'sms-otp', false)}
+                  className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-left text-xs font-bold"
+                >
+                  <span>7. Login Real con Código de 6 Dígitos al Correo</span>
+                  <span className="text-[10px] text-emerald-400 font-mono">Email OTP</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => jumpToV2State('main', 0, 'home', null, false)}
                   className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl bg-[#FDC82F]/15 hover:bg-[#FDC82F]/25 border border-[#FDC82F]/50 text-left text-xs font-black text-[#FDC82F]"
                 >
-                  <span>6. Portada &quot;¡HOLA!&quot; (Apple + Google Android)</span>
-                  <span className="text-[10px] font-mono">02:05</span>
+                  <span>8. Pestaña Inicio (Especialidades + Nuestro Menú Oficial)</span>
+                  <span className="text-[10px] font-mono">Home</span>
                 </button>
                 <button
                   type="button"
-                  onClick={() => jumpToV2State('hello', 0, 'home', 'apple-sheet', false)}
+                  onClick={() => jumpToV2State('main', 0, 'order', null, false)}
                   className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-left text-xs font-bold"
                 >
-                  <span>7. Acceso con Apple (iOS Face ID)</span>
-                  <span className="text-[10px] text-white/60 font-mono">iOS</span>
+                  <span>9. Pestaña Ordenar (Checkout Oficial Toast POS)</span>
+                  <span className="text-[10px] text-white/60 font-mono">Order</span>
                 </button>
                 <button
                   type="button"
-                  onClick={() => jumpToV2State('hello', 0, 'home', 'google-sheet', false)}
+                  onClick={() => jumpToV2State('main', 0, 'stores', null, false)}
                   className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-left text-xs font-bold"
                 >
-                  <span>8. Acceso con Google (Android)</span>
-                  <span className="text-[10px] text-blue-400 font-mono">Android</span>
+                  <span>10. Pestaña Sucursales (15 Tiendas + Horarios en Vivo)</span>
+                  <span className="text-[10px] text-white/60 font-mono">Stores</span>
                 </button>
                 <button
                   type="button"
-                  onClick={() => jumpToV2State('hello', 0, 'home', 'login', false)}
+                  onClick={() => jumpToV2State('main', 0, 'account', null, false)}
                   className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-left text-xs font-bold"
                 >
-                  <span>9. Modal &quot;Iniciar Sesión&quot; (Correo + Clave)</span>
-                  <span className="text-[10px] text-white/60 font-mono">02:05</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => jumpToV2State('hello', 0, 'home', 'signup', false)}
-                  className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-left text-xs font-bold"
-                >
-                  <span>10. Formulario &quot;Crear Cuenta&quot; (Registro)</span>
-                  <span className="text-[10px] text-white/60 font-mono">02:14</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => jumpToV2State('hello', 0, 'home', 'verify-email', false)}
-                  className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-left text-xs font-bold"
-                >
-                  <span>11. Verificación de Correo + Notificación</span>
-                  <span className="text-[10px] text-white/60 font-mono">02:15</span>
+                  <span>11. Pestaña Cuenta (Perfil, Código al Correo y Soporte)</span>
+                  <span className="text-[10px] text-white/60 font-mono">Account</span>
                 </button>
                 <button
                   type="button"
                   onClick={() => jumpToV2State('main', 0, 'home', null, true)}
-                  className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl bg-gradient-to-r from-[#50050a] to-red-700 text-[#FDC82F] border border-[#FDC82F]/50 text-left text-xs font-black"
+                  className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/40 text-left text-xs font-black text-emerald-300"
                 >
-                  <span>12. Home Logueado (&quot;Buenas tardes, CARLOS&quot; + Menú Real)</span>
-                  <span className="text-[10px] font-mono">02:16</span>
+                  <span>12. Inicio con Sesión Activa (Saludo Personalizado)</span>
+                  <span className="text-[10px] font-mono">Active</span>
                 </button>
               </div>
             </motion.div>

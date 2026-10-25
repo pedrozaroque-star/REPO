@@ -5,6 +5,7 @@
  * 
  * @businessRules
  * - Shows weekly view (Monday to Sunday) based on America/Los_Angeles business date.
+ * - On Mondays (day === 1 in America/Los_Angeles), automatically initializes to the previous week (Mon-Sun) so accounting can finish reviewing/publishing the prior week's closing days.
  * - Stores are loaded from active stores in Supabase.
  * - Packets flow through states: pending → ready → reviewed → published (or rejected).
  * - Publish All sends all ready/reviewed packets for the selected date to QuickBooks Online.
@@ -72,7 +73,12 @@ export default function AccountingPage() {
 
   const [currentDate, setCurrentDate] = useState<Date>(() => {
     const nowStr = new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles' })
-    return new Date(nowStr)
+    const laDate = new Date(nowStr)
+    // Si el día actual en Los Ángeles es lunes (1), mostrar automáticamente la semana anterior
+    if (laDate.getDay() === 1) {
+      laDate.setDate(laDate.getDate() - 7)
+    }
+    return laDate
   })
 
   const [stores, setStores] = useState<Store[]>([])

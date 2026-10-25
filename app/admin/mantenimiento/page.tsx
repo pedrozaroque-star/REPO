@@ -463,14 +463,23 @@ export default function AdminMaintenanceDashboardPage() {
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 p-4 sm:p-8 space-y-8">
       {/* HEADER PRINCIPAL */}
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <div className="p-3 rounded-2xl bg-red-600 text-white shadow-lg shadow-red-600/20">
-            <Wrench size={26} />
+        <div className="flex items-center gap-3.5">
+          <div className="w-14 h-14 rounded-full bg-gradient-to-br from-[#fdc82f] to-[#e69b00] p-1 shadow-lg shadow-amber-500/20 shrink-0">
+            <div className="w-full h-full rounded-full bg-white flex items-center justify-center overflow-hidden border border-[#fffbeb]">
+              <img src="/logo.png" alt="Tacos Gavilan" className="w-[88%] h-[88%] object-contain" />
+            </div>
           </div>
           <div>
-            <h1 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white uppercase tracking-tight">
-              {t('maintenance.dashboard_title')}
-            </h1>
+            <div className="flex items-center gap-2.5 flex-wrap">
+              <h1 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white uppercase tracking-tight">
+                {t('maintenance.dashboard_title')}
+              </h1>
+              <img
+                src="/ya esta.png"
+                alt="¡Ya está!"
+                className="h-8 w-auto object-contain drop-shadow-xs"
+              />
+            </div>
             <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400">
               {t('maintenance.dashboard_subtitle')}
             </p>

@@ -25,6 +25,13 @@ import {
   applyAccountDeltasAtomically,
   logExternalAccountingAudit,
 } from '@/lib/external-accounting-auth'
+import {
+  pushTransactionToQbo,
+  pushAccountToQbo,
+  pushContactToQbo,
+  queuePendingQboDelete,
+  syncCompanyWithQbo,
+} from '@/lib/external-accounting-qbo-sync'
 
 export const dynamic = 'force-dynamic'
 
@@ -49,6 +56,7 @@ export async function GET(req: NextRequest) {
     const txnType = searchParams.get('txnType') || 'ALL'
     const direction = searchParams.get('direction') || 'ALL'
     const accountId = searchParams.get('accountId') || 'ALL'
+    const department = searchParams.get('department') || 'ALL'
     const startDate = searchParams.get('startDate') || ''
     const endDate = searchParams.get('endDate') || ''
     const search = (searchParams.get('search') || '').trim().toLowerCase()
@@ -101,11 +109,17 @@ export async function GET(req: NextRequest) {
         a => a.company_realm_id === c.realm_id && a.account_type === 'Bank' && a.is_active
       )
       const totalCashBalance = compBanks.reduce((s, b) => s + Number(b.current_balance || 0), 0)
+      const meta = c.metadata && typeof c.metadata === 'object' ? c.metadata : {}
+      const oauth = meta.qbo_oauth && typeof meta.qbo_oauth === 'object' ? meta.qbo_oauth : null
       return {
         ...c,
         active_banks_count: compBanks.length,
         total_cash_balance: Number(totalCashBalance.toFixed(2)),
         total_txns_count: countByRealm.get(c.realm_id) || 0,
+        qbo_connected: Boolean(oauth?.refresh_token),
+        qbo_sync_enabled: meta.qbo_sync_enabled !== false,
+        qbo_last_synced_at: oauth?.last_synced_at || null,
+        qbo_last_sync_error: oauth?.last_sync_error || null,
       }
     })
 
@@ -187,8 +201,17 @@ export async function GET(req: NextRequest) {
     const actualsByAccountAndYear: Record<string, Record<string, number>> = {}
 
     const txnsWithRunningBalance = allCompanyTxns.map((t: any) => {
-      const accId = t.account_qb_id
-      const currentBal = (accId && runningCursor.has(accId)) ? runningCursor.get(accId)! : null
+      const touchesFilteredAccount = Boolean(
+        accountId &&
+        accountId !== 'ALL' &&
+        (
+          t.account_qb_id === accountId ||
+          t.to_account_qb_id === accountId ||
+          (Array.isArray(t.line_items) && t.line_items.some((l: any) => l.account_qb_id === accountId))
+        )
+      )
+      const targetAccId = touchesFilteredAccount ? accountId : t.account_qb_id
+      const currentBal = (targetAccId && runningCursor.has(targetAccId)) ? runningCursor.get(targetAccId)! : null
       const rowWithBal = {
         ...t,
         running_balance: currentBal !== null ? Number(currentBal.toFixed(2)) : null
@@ -227,8 +250,12 @@ export async function GET(req: NextRequest) {
         const lineHit = Array.isArray(t.line_items) && t.line_items.some((l: any) => l.account_qb_id === accountId)
         if (t.account_qb_id !== accountId && t.to_account_qb_id !== accountId && !lineHit) return false
       }
+      if (department && department !== 'ALL') {
+        const deptLineHit = Array.isArray(t.line_items) && t.line_items.some((l: any) => l.department_name === department || l.department_qb_id === department)
+        if (t.department_name !== department && t.department_qb_id !== department && !deptLineHit) return false
+      }
       if (search) {
-        const hay = `${t.doc_number || ''} ${t.entity_name || ''} ${t.account_name || ''} ${t.to_account_name || ''} ${t.category_summary || ''} ${t.memo || ''} ${t.txn_type || ''} ${t.total_amount || ''}`.toLowerCase()
+        const hay = `${t.doc_number || ''} ${t.entity_name || ''} ${t.account_name || ''} ${t.to_account_name || ''} ${t.category_summary || ''} ${t.memo || ''} ${t.txn_type || ''} ${t.department_name || ''} ${t.total_amount || ''}`.toLowerCase()
         if (!hay.includes(search)) return false
       }
       return true
@@ -691,6 +718,9 @@ export async function POST(req: NextRequest) {
         const netDeltas = mergeAccountDeltas(oldReversalDeltas, newApplyDeltas)
         await applyAccountDeltasAtomically(supabase, realmId, netDeltas)
 
+        // Two-way mirror push to Intuit QuickBooks Online V3 (if company is connected & mirror mode active)
+        const qboSync = await pushTransactionToQbo(supabase, realmId, savedTxn, 'UPSERT')
+
         await logExternalAccountingAudit(supabase, {
           realmId,
           user: auth.user,
@@ -699,11 +729,11 @@ export async function POST(req: NextRequest) {
           entityId: savedTxn.id,
           docNumber: savedTxn.doc_number,
           amount: Number(savedTxn.total_amount || 0),
-          summary: `Editó ${savedTxn.txn_type} ${savedTxn.doc_number ? `#${savedTxn.doc_number} ` : ''}(${savedTxn.entity_name || savedTxn.category_summary || ''}) por $${Number(savedTxn.total_amount || 0).toFixed(2)}`,
-          details: { before: { total_amount: existingTxn?.total_amount, category_summary: existingTxn?.category_summary }, after: { total_amount: savedTxn.total_amount, category_summary: savedTxn.category_summary } }
+          summary: `Editó ${savedTxn.txn_type} ${savedTxn.doc_number ? `#${savedTxn.doc_number} ` : ''}(${savedTxn.entity_name || savedTxn.category_summary || ''}) por $${Number(savedTxn.total_amount || 0).toFixed(2)}${qboSync.synced ? ` [QBO #${qboSync.qbTxnId}]` : ''}`,
+          details: { before: { total_amount: existingTxn?.total_amount, category_summary: existingTxn?.category_summary }, after: { total_amount: savedTxn.total_amount, category_summary: savedTxn.category_summary }, qboSync }
         })
 
-        return NextResponse.json({ success: true, transaction: savedTxn })
+        return NextResponse.json({ success: true, transaction: savedTxn, qboSync })
       } else {
         const { data: savedTxn, error: insErr } = await supabase
           .from('external_accounting_transactions')
@@ -722,6 +752,9 @@ export async function POST(req: NextRequest) {
           throw balErr
         }
 
+        // Two-way mirror push to Intuit QuickBooks Online V3 (if company is connected & mirror mode active)
+        const qboSync = await pushTransactionToQbo(supabase, realmId, savedTxn, 'UPSERT')
+
         await logExternalAccountingAudit(supabase, {
           realmId,
           user: auth.user,
@@ -730,11 +763,11 @@ export async function POST(req: NextRequest) {
           entityId: savedTxn.id,
           docNumber: savedTxn.doc_number,
           amount: Number(savedTxn.total_amount || 0),
-          summary: `Creó ${savedTxn.txn_type} ${savedTxn.doc_number ? `#${savedTxn.doc_number} ` : ''}(${savedTxn.entity_name || savedTxn.category_summary || ''}) por $${Number(savedTxn.total_amount || 0).toFixed(2)}`,
-          details: { account_name: savedTxn.account_name, category_summary: savedTxn.category_summary }
+          summary: `Creó ${savedTxn.txn_type} ${savedTxn.doc_number ? `#${savedTxn.doc_number} ` : ''}(${savedTxn.entity_name || savedTxn.category_summary || ''}) por $${Number(savedTxn.total_amount || 0).toFixed(2)}${qboSync.synced ? ` [QBO #${qboSync.qbTxnId}]` : ''}`,
+          details: { account_name: savedTxn.account_name, category_summary: savedTxn.category_summary, qboSync }
         })
 
-        return NextResponse.json({ success: true, transaction: savedTxn })
+        return NextResponse.json({ success: true, transaction: savedTxn, qboSync })
       }
     }
 
@@ -844,6 +877,8 @@ export async function POST(req: NextRequest) {
         await applyAccountDeltasAtomically(supabase, realmId, reversalDeltas)
       }
 
+      const qboSync = await pushTransactionToQbo(supabase, realmId, existing, 'VOID')
+
       await logExternalAccountingAudit(supabase, {
         realmId,
         user: auth.user,
@@ -852,10 +887,11 @@ export async function POST(req: NextRequest) {
         entityId: existing.id,
         docNumber: existing.doc_number,
         amount: Number(existing.total_amount || 0),
-        summary: `Anuló (VOID) ${existing.txn_type} ${existing.doc_number ? `#${existing.doc_number} ` : ''}(${existing.entity_name || ''}) — revertido $${Number(existing.total_amount || 0).toFixed(2)}`
+        summary: `Anuló (VOID) ${existing.txn_type} ${existing.doc_number ? `#${existing.doc_number} ` : ''}(${existing.entity_name || ''}) — revertido $${Number(existing.total_amount || 0).toFixed(2)}`,
+        details: { qboSync }
       })
 
-      return NextResponse.json({ success: true, transaction: updated })
+      return NextResponse.json({ success: true, transaction: updated, qboSync })
     }
 
     // -------------------------------------------------------------------------
@@ -903,6 +939,8 @@ export async function POST(req: NextRequest) {
         await applyAccountDeltasAtomically(supabase, realmId, reversalDeltas)
       }
 
+      const qboSync = await pushTransactionToQbo(supabase, realmId, existing, 'DELETE')
+
       await logExternalAccountingAudit(supabase, {
         realmId,
         user: auth.user,
@@ -911,10 +949,11 @@ export async function POST(req: NextRequest) {
         entityId: existing.id,
         docNumber: existing.doc_number,
         amount: Number(existing.total_amount || 0),
-        summary: `Eliminó ${existing.txn_type} ${existing.doc_number ? `#${existing.doc_number} ` : ''}(${existing.entity_name || ''}) por $${Number(existing.total_amount || 0).toFixed(2)}`
+        summary: `Eliminó ${existing.txn_type} ${existing.doc_number ? `#${existing.doc_number} ` : ''}(${existing.entity_name || ''}) por $${Number(existing.total_amount || 0).toFixed(2)}`,
+        details: { qboSync }
       })
 
-      return NextResponse.json({ success: true })
+      return NextResponse.json({ success: true, qboSync })
     }
 
     // -------------------------------------------------------------------------
@@ -1249,7 +1288,19 @@ export async function POST(req: NextRequest) {
     // 8. SAVE ACCOUNT (Chart of Accounts)
     // -------------------------------------------------------------------------
     if (action === 'save_account') {
-      const { id, name, acct_num, classification, account_type, account_sub_type, current_balance } = body
+      const {
+        id,
+        name,
+        acct_num,
+        classification,
+        account_type,
+        account_sub_type,
+        current_balance,
+        description,
+        is_sub_account,
+        parent_qb_id,
+        is_active,
+      } = body
       if (!name || !account_type) {
         return NextResponse.json({ error: 'Name and account_type are required' }, { status: 400 })
       }
@@ -1262,11 +1313,14 @@ export async function POST(req: NextRequest) {
         tLow.includes('expense') || tLow.includes('cost of goods') ? 'Expense' :
         (classification || 'Asset')
 
+      const parentAcc = parent_qb_id ? acctByQbId.get(String(parent_qb_id)) : null
+      const fqn = is_sub_account && parentAcc ? `${parentAcc.name}:${name}` : name
+
       let savedAcc: any = null
       if (id) {
         const { data: existingAcc } = await supabase
           .from('external_accounting_accounts')
-          .select('id')
+          .select('id, raw_data, is_active')
           .eq('id', id)
           .eq('company_realm_id', realmId)
           .maybeSingle()
@@ -1278,16 +1332,25 @@ export async function POST(req: NextRequest) {
           )
         }
 
+        const existingRaw = existingAcc.raw_data && typeof existingAcc.raw_data === 'object' ? existingAcc.raw_data : {}
+        const nextRaw = description !== undefined
+          ? { ...existingRaw, Description: description || null }
+          : existingRaw
+
         const { data, error } = await supabase
           .from('external_accounting_accounts')
           .update({
             name,
-            fully_qualified_name: name,
+            fully_qualified_name: fqn,
             acct_num: acct_num || null,
             classification: derivedClass,
             account_type,
             account_sub_type: account_sub_type || account_type,
             current_balance: Number(current_balance || 0),
+            is_sub_account: Boolean(is_sub_account && parent_qb_id),
+            parent_qb_id: is_sub_account && parent_qb_id ? String(parent_qb_id) : null,
+            is_active: is_active !== undefined ? Boolean(is_active) : existingAcc.is_active,
+            raw_data: nextRaw,
             updated_at: new Date().toISOString()
           })
           .eq('id', id)
@@ -1303,14 +1366,17 @@ export async function POST(req: NextRequest) {
             company_realm_id: realmId,
             qb_account_id: `LOCAL-ACC-${Date.now()}`,
             name,
-            fully_qualified_name: name,
+            fully_qualified_name: fqn,
             acct_num: acct_num || null,
             classification: derivedClass,
             account_type,
             account_sub_type: account_sub_type || account_type,
             current_balance: Number(current_balance || 0),
             initial_qbo_balance: Number(current_balance || 0),
-            is_active: true
+            is_sub_account: Boolean(is_sub_account && parent_qb_id),
+            parent_qb_id: is_sub_account && parent_qb_id ? String(parent_qb_id) : null,
+            is_active: is_active !== undefined ? Boolean(is_active) : true,
+            raw_data: description ? { Description: description } : {},
           })
           .select()
           .single()
@@ -1328,14 +1394,71 @@ export async function POST(req: NextRequest) {
         summary: `${id ? 'Editó' : 'Creó'} cuenta contable "${name}" (${account_type})`
       })
 
-      return NextResponse.json({ success: true, account: savedAcc })
+      const qboSync = await pushAccountToQbo(supabase, realmId, savedAcc)
+      return NextResponse.json({ success: true, account: savedAcc, qboSync })
+    }
+
+    if (action === 'delete_account') {
+      const { id, qb_account_id } = body
+      if (!id && !qb_account_id) {
+        return NextResponse.json({ error: 'Account id or qb_account_id is required' }, { status: 400 })
+      }
+      let query = supabase
+        .from('external_accounting_accounts')
+        .select('*')
+        .eq('company_realm_id', realmId)
+      if (id) {
+        query = query.eq('id', id)
+      } else {
+        query = query.eq('qb_account_id', String(qb_account_id))
+      }
+      const { data: existingAcc } = await query.maybeSingle()
+      if (!existingAcc) {
+        return NextResponse.json({ error: 'Cuenta contable no encontrada en la empresa activa.' }, { status: 404 })
+      }
+
+      const qboSync = await pushAccountToQbo(supabase, realmId, existingAcc, 'DELETE')
+
+      const { error: delErr } = await supabase
+        .from('external_accounting_accounts')
+        .delete()
+        .eq('id', existingAcc.id)
+        .eq('company_realm_id', realmId)
+      if (delErr) throw delErr
+
+      await logExternalAccountingAudit(supabase, {
+        realmId,
+        user: auth.user,
+        actionType: 'DELETE_ACCOUNT',
+        entityType: 'Account',
+        entityId: existingAcc.id,
+        docNumber: existingAcc.acct_num || existingAcc.qb_account_id,
+        amount: Number(existingAcc.current_balance || 0),
+        summary: `Eliminó cuenta contable "${existingAcc.name}" (${existingAcc.account_type}) y sincronizó baja con QuickBooks Online (${qboSync.status || 'OK'})`
+      })
+
+      return NextResponse.json({ success: true, qboSync })
     }
 
     // -------------------------------------------------------------------------
-    // 9. SAVE CONTACT (Vendor / Customer)
+    // 9. SAVE / DELETE CONTACT (Vendor / Customer)
     // -------------------------------------------------------------------------
     if (action === 'save_contact') {
-      const { id, contact_type, display_name, company_name, email, phone, tax_identifier, vendor_1099 } = body
+      const {
+        id,
+        contact_type,
+        display_name,
+        company_name,
+        print_on_check_name,
+        email,
+        phone,
+        tax_identifier,
+        vendor_1099,
+        acct_num,
+        address,
+        balance,
+        is_active,
+      } = body
       if (!display_name) {
         return NextResponse.json({ error: 'display_name is required' }, { status: 400 })
       }
@@ -1343,7 +1466,7 @@ export async function POST(req: NextRequest) {
       if (id) {
         const { data: existingCon } = await supabase
           .from('external_accounting_contacts')
-          .select('id')
+          .select('id, address, acct_num, balance, is_active, print_on_check_name')
           .eq('id', id)
           .eq('company_realm_id', realmId)
           .maybeSingle()
@@ -1361,11 +1484,15 @@ export async function POST(req: NextRequest) {
             contact_type: contact_type || 'Vendor',
             display_name,
             company_name: company_name || display_name,
-            print_on_check_name: display_name,
+            print_on_check_name: print_on_check_name || existingCon.print_on_check_name || display_name,
             email: email || null,
             phone: phone || null,
             tax_identifier: tax_identifier || null,
             vendor_1099: Boolean(vendor_1099),
+            acct_num: acct_num !== undefined ? (acct_num || null) : existingCon.acct_num,
+            address: address !== undefined ? (address || {}) : existingCon.address,
+            balance: balance !== undefined ? Number(balance || 0) : Number(existingCon.balance || 0),
+            is_active: is_active !== undefined ? Boolean(is_active) : existingCon.is_active,
             updated_at: new Date().toISOString()
           })
           .eq('id', id)
@@ -1383,12 +1510,15 @@ export async function POST(req: NextRequest) {
             qb_contact_id: `LOCAL-CON-${Date.now()}`,
             display_name,
             company_name: company_name || display_name,
-            print_on_check_name: display_name,
+            print_on_check_name: print_on_check_name || display_name,
             email: email || null,
             phone: phone || null,
             tax_identifier: tax_identifier || null,
             vendor_1099: Boolean(vendor_1099),
-            is_active: true
+            acct_num: acct_num || null,
+            address: address || {},
+            balance: Number(balance || 0),
+            is_active: is_active !== undefined ? Boolean(is_active) : true
           })
           .select()
           .single()
@@ -1405,7 +1535,107 @@ export async function POST(req: NextRequest) {
         summary: `${id ? 'Editó' : 'Creó'} ${contact_type || 'Vendor'} "${display_name}"${vendor_1099 ? ' (1099)' : ''}`
       })
 
-      return NextResponse.json({ success: true, contact: savedCon })
+      const qboSync = await pushContactToQbo(supabase, realmId, savedCon)
+      return NextResponse.json({ success: true, contact: savedCon, qboSync })
+    }
+
+    if (action === 'delete_contact') {
+      const { id, qb_contact_id } = body
+      if (!id && !qb_contact_id) {
+        return NextResponse.json({ error: 'Contact id or qb_contact_id is required' }, { status: 400 })
+      }
+      let query = supabase
+        .from('external_accounting_contacts')
+        .select('*')
+        .eq('company_realm_id', realmId)
+      if (id) {
+        query = query.eq('id', id)
+      } else {
+        query = query.eq('qb_contact_id', String(qb_contact_id))
+      }
+      const { data: existingCon } = await query.maybeSingle()
+      if (!existingCon) {
+        return NextResponse.json({ error: 'Proveedor/Cliente no encontrado en la empresa activa.' }, { status: 404 })
+      }
+
+      const qboSync = await pushContactToQbo(supabase, realmId, existingCon, 'DELETE')
+
+      const { error: delErr } = await supabase
+        .from('external_accounting_contacts')
+        .delete()
+        .eq('id', existingCon.id)
+        .eq('company_realm_id', realmId)
+      if (delErr) throw delErr
+
+      await logExternalAccountingAudit(supabase, {
+        realmId,
+        user: auth.user,
+        actionType: 'DELETE_CONTACT',
+        entityType: existingCon.contact_type || 'Vendor',
+        entityId: existingCon.id,
+        docNumber: existingCon.acct_num || existingCon.qb_contact_id,
+        amount: Number(existingCon.balance || 0),
+        summary: `Eliminó ${existingCon.contact_type || 'Vendor'} "${existingCon.display_name}" y sincronizó baja con QuickBooks Online (${qboSync.status || 'OK'})`
+      })
+
+      return NextResponse.json({ success: true, qboSync })
+    }
+
+    // -------------------------------------------------------------------------
+    // 9B. TWO-WAY SYNC WITH INTUIT QUICKBOOKS ONLINE V3 (`sync_with_qbo` & `toggle_qbo_mirror_mode`)
+    // -------------------------------------------------------------------------
+    if (action === 'sync_with_qbo') {
+      const syncRes = await syncCompanyWithQbo(supabase, realmId)
+      if (!syncRes.ok) {
+        return NextResponse.json({ error: syncRes.error || 'Error sincronizando con QuickBooks Online', syncResult: syncRes }, { status: 400 })
+      }
+      await logExternalAccountingAudit(supabase, {
+        realmId,
+        user: auth.user,
+        actionType: 'QBO_TWO_WAY_SYNC',
+        entityType: 'Company',
+        entityId: realmId,
+        summary: `Sincronizó con QuickBooks Online: Push (${syncRes.pushedTransactions} txns, ${syncRes.pushedAccounts} cuentas, ${syncRes.pushedContacts} contactos) · Pull (${syncRes.pulledTransactions} txns, ${syncRes.pulledAccounts} cuentas, ${syncRes.pulledContacts} contactos)`
+      })
+      return NextResponse.json({ success: true, syncResult: syncRes })
+    }
+
+    if (action === 'toggle_qbo_mirror_mode') {
+      const enabled = Boolean(body.enabled)
+      const applyToAll = Boolean(body.applyToAll)
+
+      if (applyToAll) {
+        const { data: allComps } = await supabase.from('external_accounting_companies').select('realm_id, metadata')
+        for (const c of allComps || []) {
+          const m = c.metadata && typeof c.metadata === 'object' ? c.metadata : {}
+          await supabase
+            .from('external_accounting_companies')
+            .update({ metadata: { ...m, qbo_sync_enabled: enabled }, updated_at: new Date().toISOString() })
+            .eq('realm_id', c.realm_id)
+        }
+      } else {
+        const { data: currComp } = await supabase
+          .from('external_accounting_companies')
+          .select('metadata')
+          .eq('realm_id', realmId)
+          .maybeSingle()
+        const m = currComp?.metadata && typeof currComp.metadata === 'object' ? currComp.metadata : {}
+        await supabase
+          .from('external_accounting_companies')
+          .update({ metadata: { ...m, qbo_sync_enabled: enabled }, updated_at: new Date().toISOString() })
+          .eq('realm_id', realmId)
+      }
+
+      await logExternalAccountingAudit(supabase, {
+        realmId,
+        user: auth.user,
+        actionType: 'TOGGLE_QBO_MIRROR_MODE',
+        entityType: 'Company',
+        entityId: realmId,
+        summary: `${enabled ? 'Activó Modo Espejo QBO (Two-Way Sync)' : 'Activó Modo 100% Autónomo (QBO Desconectado)'}${applyToAll ? ' para las 8 empresas' : ''}`
+      })
+
+      return NextResponse.json({ success: true, qbo_sync_enabled: enabled })
     }
 
     // -------------------------------------------------------------------------
@@ -2425,9 +2655,11 @@ export async function POST(req: NextRequest) {
       if (!allowedKeys.includes(listKey) || !itemId) {
         return NextResponse.json({ error: 'listKey and itemId are required' }, { status: 400 })
       }
-      const currentList: any[] = Array.isArray(companyRecord.metadata?.[listKey])
-        ? companyRecord.metadata[listKey].filter((x: any) => String(x.Id) !== String(itemId))
+      const existingArr: any[] = Array.isArray(companyRecord.metadata?.[listKey])
+        ? companyRecord.metadata[listKey]
         : []
+      const removedItem = existingArr.find((x: any) => String(x.Id ?? x.id) === String(itemId))
+      const currentList: any[] = existingArr.filter((x: any) => String(x.Id ?? x.id) !== String(itemId))
 
       const nextMeta = {
         ...(companyRecord.metadata || {}),
@@ -2441,13 +2673,31 @@ export async function POST(req: NextRequest) {
 
       if (error) throw error
 
+      const entityMap: Record<string, { entityType: string; endpoint: string }> = {
+        items: { entityType: 'Item', endpoint: 'item' },
+        departments: { entityType: 'Department', endpoint: 'department' },
+        paymentMethods: { entityType: 'PaymentMethod', endpoint: 'paymentmethod' },
+        terms: { entityType: 'Term', endpoint: 'term' },
+        classes: { entityType: 'Class', endpoint: 'class' },
+      }
+      if (entityMap[listKey] && !String(itemId).startsWith('LOCAL-')) {
+        await queuePendingQboDelete(supabase, realmId, {
+          kind: 'LIST_ITEM',
+          entityType: entityMap[listKey].entityType,
+          endpoint: entityMap[listKey].endpoint,
+          qbId: String(itemId),
+          operation: 'DEACTIVATE',
+          label: removedItem?.Name || removedItem?.name || String(itemId),
+        })
+      }
+
       await logExternalAccountingAudit(supabase, {
         realmId,
         user: auth.user,
         actionType: 'DELETE_LIST_ITEM',
         entityType: listKey,
         entityId: String(itemId),
-        summary: `Eliminó elemento #${itemId} de catálogo ${listKey}`
+        summary: `Eliminó elemento "${removedItem?.Name || removedItem?.name || itemId}" de catálogo ${listKey} y encoló baja para QuickBooks Online`
       })
 
       return NextResponse.json({ success: true, list: currentList })

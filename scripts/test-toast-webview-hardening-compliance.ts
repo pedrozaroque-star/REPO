@@ -703,6 +703,18 @@ async function runComplianceSuite(): Promise<void> {
     path.join(GAVILAN_APP_ROOT, 'app/+not-found.tsx'),
     'utf8'
   )
+  const tabsLayoutTsx = fs.readFileSync(
+    path.join(GAVILAN_APP_ROOT, 'app/(tabs)/_layout.tsx'),
+    'utf8'
+  )
+  const trackerTabTsx = fs.readFileSync(
+    path.join(GAVILAN_APP_ROOT, 'app/(tabs)/tracker.tsx'),
+    'utf8'
+  )
+  const accountTabTsx = fs.readFileSync(
+    path.join(GAVILAN_APP_ROOT, 'app/(tabs)/account.tsx'),
+    'utf8'
+  )
   check(
     !fs.existsSync(path.join(GAVILAN_APP_ROOT, 'app/index.tsx')) &&
       fs.existsSync(path.join(GAVILAN_APP_ROOT, 'app/(tabs)/index.tsx')),
@@ -715,6 +727,25 @@ async function runComplianceSuite(): Promise<void> {
   check(
     notFoundRouteTsx.includes('<Redirect href="/" />'),
     'app/+not-found.tsx debe redirigir automáticamente a /'
+  )
+  check(
+    tabsLayoutTsx.includes("route.name === 'menu'") &&
+      tabsLayoutTsx.includes('openToastOnlineStore(currentStore.id') &&
+      tabsLayoutTsx.includes('recordOrderSession(currentStore.id'),
+    'app/(tabs)/_layout.tsx debe abrir de inmediato (de un solo) la tienda seleccionada y registrar la sesión al tocar la pestaña Menú'
+  )
+  check(
+    trackerTabTsx.includes('recentOrderSessions') &&
+      trackerTabTsx.includes('handleOpenStoreOrder') &&
+      trackerTabTsx.includes('hasActiveWebViewSession'),
+    'app/(tabs)/tracker.tsx (Orders) debe permitir continuar el pedido activo y reordenar con 1 toque desde sucursales recientes'
+  )
+  check(
+    accountTabTsx.includes('updateProfile') &&
+      accountTabTsx.includes("setLang('en')") &&
+      accountTabTsx.includes("setLang('es')") &&
+      accountTabTsx.includes('clearRecentOrderSessions'),
+    'app/(tabs)/account.tsx (Account) debe permitir editar perfil, cambiar idioma EN/ES, modalidad Pickup/Delivery y limpiar historial'
   )
 
   console.log('   ✅ Configuración EAS, lockfile, API 36, redirección post-splash y cabeceras JSDoc verificadas.\n')
@@ -873,6 +904,27 @@ async function runComplianceSuite(): Promise<void> {
   check(
     !userCreateErr && createdProfile?.id === authUserId,
     `Inserción en public.app_users exitosa (${testPhone10})`
+  )
+
+  // 6.3b Verificar actualización real de perfil en public.app_users (Nombre, Apellido y Email)
+  const { data: updatedProfile, error: profileUpdateErr } = await supabaseAdmin
+    .from('app_users')
+    .update({
+      first_name: 'Carlos',
+      last_name: 'Gavilan',
+      email: testEmail,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', authUserId)
+    .select('id, first_name, last_name, email')
+    .single()
+
+  check(
+    !profileUpdateErr &&
+      updatedProfile?.first_name === 'Carlos' &&
+      updatedProfile?.last_name === 'Gavilan' &&
+      updatedProfile?.email === testEmail,
+    'Actualización real de perfil (first_name, last_name, email) en public.app_users exitosa'
   )
 
   // 6.4 Invocar endpoint real DELETE /api/mobile/user/delete con el Bearer JWT

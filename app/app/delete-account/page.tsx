@@ -33,8 +33,12 @@ export default function MobileDeleteAccountPage(): React.JSX.Element {
   const [deletedSuccess, setDeletedSuccess] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
 
-  const normalizeTenDigitPhone = (raw: string): string => {
-    const digits = raw.replace(/\D/g, '')
+  const normalizeIdentifier = (raw: string): string => {
+    const trimmed = raw.trim()
+    if (trimmed.includes('@')) {
+      return trimmed.toLowerCase()
+    }
+    const digits = trimmed.replace(/\D/g, '')
     if (digits.length === 11 && digits.startsWith('1')) {
       return digits.slice(1)
     }
@@ -44,8 +48,9 @@ export default function MobileDeleteAccountPage(): React.JSX.Element {
   const handleSendOtp = async (e: React.FormEvent) => {
     e.preventDefault()
     setErrorMessage(null)
-    const cleanPhone = normalizeTenDigitPhone(phone)
-    if (cleanPhone.length !== 10) {
+    const identifier = normalizeIdentifier(phone)
+    const isEmail = identifier.includes('@')
+    if (!isEmail && identifier.length !== 10) {
       setErrorMessage(t('mobile_legal.delete_err_invalid_phone'))
       return
     }
@@ -58,7 +63,7 @@ export default function MobileDeleteAccountPage(): React.JSX.Element {
           'Content-Type': 'application/json',
           'Accept-Language': language,
         },
-        body: JSON.stringify({ phone: cleanPhone }),
+        body: JSON.stringify(isEmail ? { email: identifier } : { phone: identifier }),
       })
       const data = await res.json()
       if (!res.ok) {
@@ -78,9 +83,10 @@ export default function MobileDeleteAccountPage(): React.JSX.Element {
   const handleVerifyAndDelete = async (e: React.FormEvent) => {
     e.preventDefault()
     setErrorMessage(null)
-    const cleanPhone = normalizeTenDigitPhone(phone)
+    const identifier = normalizeIdentifier(phone)
+    const isEmail = identifier.includes('@')
     const cleanOtp = otpCode.replace(/\D/g, '')
-    if (cleanPhone.length !== 10) {
+    if (!isEmail && identifier.length !== 10) {
       setErrorMessage(t('mobile_legal.delete_err_invalid_phone'))
       return
     }
@@ -97,7 +103,11 @@ export default function MobileDeleteAccountPage(): React.JSX.Element {
           'Content-Type': 'application/json',
           'Accept-Language': language,
         },
-        body: JSON.stringify({ phone: cleanPhone, code: cleanOtp }),
+        body: JSON.stringify(
+          isEmail
+            ? { email: identifier, code: cleanOtp }
+            : { phone: identifier, code: cleanOtp }
+        ),
       })
       const verifyData = await verifyRes.json()
       const jwtToken =

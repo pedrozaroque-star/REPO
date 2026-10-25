@@ -732,8 +732,8 @@ document.addEventListener('DOMContentLoaded', () => {
             'about.meats':     'Meat Options',
 
             // Menu (Homepage & Menu Page)
-            'menu.tag':        'AUTHENTIC STREET FOOD',
-            'menu.title':      'Our Full Menu',
+            'menu.tag':        'AUTHENTIC MEXICAN FOOD',
+            'menu.title':      'Our Menu',
             'menu.subtitle':   'Generational Mexican recipes made fresh daily. Order for pickup at any of our 15 locations.',
             'menu.orderOnlineBtn': 'Order Online',
 
@@ -1159,8 +1159,8 @@ document.addEventListener('DOMContentLoaded', () => {
             'about.meats':     'Opciones de Carne',
 
             // Menú (Página de Inicio y Menú Completo)
-            'menu.tag':        'AUTÉNTICA COMIDA DE CALLE',
-            'menu.title':      'Nuestro Menú Completo',
+            'menu.tag':        'AUTÉNTICA COMIDA MEXICANA',
+            'menu.title':      'Nuestro Menú',
             'menu.subtitle':   'Recetas tradicionales mexicanas preparadas diariamente. Ordena para recoger en cualquiera de nuestras 15 sucursales.',
             'menu.orderOnlineBtn': 'Ordenar en Línea',
 
