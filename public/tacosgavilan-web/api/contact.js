@@ -19,6 +19,8 @@
  *   - Verified against live Supabase schema for public.customer_feedback (references stores.id).
  *   - Default fallback store_id: 14 (Lynwood) when no specific store is chosen.
  *   - Expired in-memory rate-limit entries are periodically purged to bound memory use in warm instances.
+ *   - Includes B2B Cold-Outreach / Commercial Solicitation Filter (isB2BSolicitationSpam) to shadow-drop
+ *     unsolicited agency pitches (website redesigns, AI tools, SEO/backlinks, lead gen, merchant cash advances).
  */
 
 const RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000; // 10 minutes
@@ -128,6 +130,76 @@ function isAutomatedBotSubmission({ name, email, message, userAgent }) {
     const trimmedMsg = String(message || '').trim();
     if (trimmedMsg.length >= 16 && !/\s/.test(trimmedMsg)) {
         return true;
+    }
+
+    return false;
+}
+
+/**
+ * Detects unsolicited B2B cold outreach and commercial solicitation spam
+ * (e.g., web design agencies claiming "I rebuilt your homepage", AI tool pitches,
+ * SEO/backlink sellers, lead-generation agencies, virtual assistants, or merchant cash advances)
+ * while preserving 100% of real restaurant guest feedback, catering inquiries, job applicants, and CCPA/ADA requests.
+ */
+function isB2BSolicitationSpam({ email, message }) {
+    const emailLower = String(email || '').toLowerCase().trim();
+    const domainPart = emailLower.split('@')[1] || '';
+
+    // 1. Known cold-outreach burner domains
+    const BLOCKED_OUTREACH_DOMAINS = new Set([
+        'signalsetbase.com'
+    ]);
+    if (BLOCKED_OUTREACH_DOMAINS.has(domainPart)) {
+        return true;
+    }
+
+    const msgNorm = String(message || '')
+        .toLowerCase()
+        .replace(/[\u2018\u2019`]/g, "'")
+        .replace(/[\u2013\u2014]/g, '-')
+        .replace(/\s+/g, ' ')
+        .trim();
+
+    if (!msgNorm) return false;
+
+    // 2. High-confidence B2B cold solicitation phrases (single match is definitive commercial spam)
+    const HIGH_CONFIDENCE_SOLICITATION_PATTERNS = [
+        /\b(rebuilt|redesigned|revamped|remade)\s+your\s+(homepage|website|site|landing\s+page|web\s+page)\b/i,
+        /\b(live,?\s+working\s+version|not\s+a\s+mockup)\b/i,
+        /\bfocused\s+on\s+clarity,\s+trust,\s+and\s+decision\s+flow\b/i,
+        /\btop\s+ai\s+tools\s+on\s+the\s+market\b/i,
+        /\b(seo\s+services|search\s+engine\s+optimization|high[- ]authority\s+backlinks|guest\s+post\s+opportunities|domain\s+authority)\b/i,
+        /\b(rank\s+higher\s+on\s+google|first\s+page\s+of\s+google|google\s+page\s+1\s+ranking)\b/i,
+        /\b(lead\s+generation\s+agency|b2b\s+lead\s+generation|qualified\s+leads\s+for\s+your\s+business)\b/i,
+        /\b(ai\s+voice\s+agent|ai\s+receptionist|ai\s+phone\s+answering)\b/i,
+        /\b(merchant\s+cash\s+advance|business\s+working\s+capital|unsecured\s+business\s+funding|lower\s+your\s+credit\s+card\s+processing\s+fees)\b/i,
+        /\b(offshore\s+developers|dedicated\s+virtual\s+assistant|hire\s+virtual\s+assistants)\b/i,
+        /\b(rediseñamos\s+tu\s+sitio\s+web|posicionamiento\s+seo\s+en\s+google|agencia\s+de\s+marketing\s+digital)\b/i
+    ];
+
+    for (const pattern of HIGH_CONFIDENCE_SOLICITATION_PATTERNS) {
+        if (pattern.test(msgNorm)) {
+            return true;
+        }
+    }
+
+    // 3. Multi-signal cold-outreach scoring (requires 2+ distinct B2B pitch signals in the same message)
+    const COLD_OUTREACH_SIGNALS = [
+        /\bi\s+see\s+you\s+serve\s+authentic\s+mexican\s+food\b/i,
+        /\busing\s+your\s+existing\s+positioning\b/i,
+        /\bif\s+not,?\s+you\s+can\s+feel\s+free\s+to\s+ignore\s+this\b/i,
+        /\bi\s+can\s+send\s+it\s+over\s+and\s+you\s+can\s+review\s+it\s+directly\b/i,
+        /\b(calendly\.com\/|loom\.com\/share\/)\b/i,
+        /\b(quick\s+10[- ]minute\s+call|book\s+a\s+quick\s+call|15[- ]minute\s+discovery\s+call)\b/i,
+        /\b(web\s+design\s+agency|digital\s+marketing\s+services|social\s+media\s+management\s+agency)\b/i
+    ];
+
+    let signalMatches = 0;
+    for (const sig of COLD_OUTREACH_SIGNALS) {
+        if (sig.test(msgNorm)) {
+            signalMatches++;
+            if (signalMatches >= 2) return true;
+        }
     }
 
     return false;
@@ -550,8 +622,11 @@ module.exports = async function handler(req, res) {
             });
         }
 
-        // 6b. Automated Bot / Gibberish / Scanner Filter (Shadow-Drop)
-        if (isAutomatedBotSubmission({ name, email, message, userAgent: req.headers['user-agent'] })) {
+        // 6b. Automated Bot / Gibberish / Scanner / B2B Cold-Outreach Solicitation Filter (Shadow-Drop)
+        if (
+            isAutomatedBotSubmission({ name, email, message, userAgent: req.headers['user-agent'] }) ||
+            isB2BSolicitationSpam({ email, message })
+        ) {
             return res.status(200).json({
                 ok: true,
                 reference_id: 'TG-FILTERED',
