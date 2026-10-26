@@ -2,18 +2,21 @@
  * @module api/mantenimiento
  * @description API route principal para el Registro de Actividades de Mantenimiento y Proveedores de Tacos Gavilan.
  * @businessRules
- * - GET: Protegido con autenticación JWT (teg_token). Retorna la bitácora de mantenimientos con soporte de filtros
- *   por sucursal, categoría, estado y rango de fechas, además de métricas globales (KPIs) en tiempo real.
+ * - GET: Protegido con autenticación JWT (teg_token) para la bitácora completa; incluye modos públicos acotados
+ *   `?directory=1` (directorio de empresas/técnicos recurrentes para el Paso 2) y `?shift_leaders=1&store_id=...`
+ *   (encargados del turno del día en curso desde el Módulo PLANIFICADOR `shifts` y el Módulo HORARIOS `schedules`
+ *   para elegir en el Paso 7 a Supervisor, Manager, Asistente Manager o Shift Leader).
  * - POST: Permite el registro público de actividades de técnicos y proveedores desde el portal QR móvil, validando
  *   estrictamente sucursal existente, categoría, tipo de servicio, evidencias fotográficas y firma digital del encargado.
  * - DELETE: Protegido exclusivamente para roles 'admin' y 'supervisor'. Elimina permanentemente un registro de
  *   mantenimiento por su ID único, purgando también todas sus evidencias fotográficas, PDFs y firmas del bucket
  *   'checklist-photos' en Supabase Storage.
- * - En cada registro exitoso, genera notificaciones de sistema para supervisores y administradores.
+ * - En cada registro exitoso, genera notificaciones de sistema para supervisores y administradores y despacha
+ *   automáticamente por correo electrónico el reporte de los 7 pasos a Administración/Contabilidad (raquel@tacosgavilan.com).
  * - Las fechas y horas respetan la zona horaria oficial 'America/Los_Angeles' y la jornada de 6:00 AM a 5:59 AM.
  * @dataFlow
  * - Frontend (Portal QR Móvil / Panel Admin) -> /api/mantenimiento -> PostgreSQL (maintenance_service_logs & stores)
- *   & Supabase Storage (checklist-photos).
+ *   & Supabase Storage (checklist-photos) & Nodemailer SMTP (raquel@tacosgavilan.com).
  * @notes
  * - Utiliza getSupabaseAdminClient() en el servidor tras validar permisos y entradas.
  */
@@ -21,6 +24,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getSupabaseAdminClient } from '@/lib/supabase'
 import { verifyAuthToken, getCronSecret } from '@/lib/auth-server'
+import { sendMaintenanceServiceEmail } from '@/lib/maintenance-email'
 
 export const dynamic = 'force-dynamic'
 
@@ -191,6 +195,172 @@ const GENERIC_TRADE_LABELS = new Set([
   'test'
 ])
 
+export type LeadershipRoleType = 'supervisor' | 'manager' | 'assistant_manager' | 'shift_leader'
+
+function classifyLeadershipRole(rawTitleOrRole: string | null | undefined): LeadershipRoleType | null {
+  const t = (rawTitleOrRole || '').toLowerCase().trim()
+  if (!t) return null
+  if (t.includes('supervisor') || t === 'sup') return 'supervisor'
+  if (t.includes('asst') || t.includes('assist') || t.includes('asistente') || t.includes('subgerente')) {
+    return 'assistant_manager'
+  }
+  if (t.includes('shift') || t.includes('leader') || t.includes('lider') || t.includes('líder') || t.includes('encargado')) {
+    return 'shift_leader'
+  }
+  if (t.includes('manager') || t.includes('gerente')) return 'manager'
+  return null
+}
+
+function getLeadershipRank(role: LeadershipRoleType): number {
+  switch (role) {
+    case 'supervisor':
+      return 1
+    case 'manager':
+      return 2
+    case 'assistant_manager':
+      return 3
+    case 'shift_leader':
+      return 4
+    default:
+      return 5
+  }
+}
+
+function isAbsenceSchedule(label: string | null | undefined, startTime?: string | null, endTime?: string | null): boolean {
+  const l = (label || '').toLowerCase()
+  if (
+    l.includes('enferm') ||
+    l.includes('sick') ||
+    l.includes('vacac') ||
+    l.includes('vacat') ||
+    l.includes('permis') ||
+    l.includes('leave') ||
+    l.includes('unpaid') ||
+    l.includes('off') ||
+    l.includes('descanso') ||
+    l.includes('ausenc') ||
+    l.includes('absence')
+  ) {
+    return true
+  }
+  if (startTime && endTime && startTime.startsWith('00:00') && endTime.startsWith('00:00')) {
+    return true
+  }
+  return false
+}
+
+function formatToLATimeHHMM(timeInput: string | null | undefined): string {
+  if (!timeInput) return ''
+  const trimmed = String(timeInput).trim()
+  if (!trimmed.includes('T')) {
+    const m = trimmed.match(/^(\d{1,2}):(\d{2})/)
+    return m ? `${m[1].padStart(2, '0')}:${m[2]}` : ''
+  }
+  try {
+    const d = new Date(trimmed)
+    if (isNaN(d.getTime())) return ''
+    return new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'America/Los_Angeles',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false
+    }).format(d)
+  } catch {
+    return ''
+  }
+}
+
+function normalizePhoneticPersonName(name: string | null | undefined): string {
+  return (name || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/ck/g, 'k')
+    .replace(/z/g, 's')
+    .replace(/v/g, 'b')
+    .replace(/[^a-z0-9\s]/g, '')
+    .trim()
+    .replace(/\s+/g, ' ')
+}
+
+function areSameLeaderName(nameA: string, nameB: string): boolean {
+  const a = normalizePhoneticPersonName(nameA)
+  const b = normalizePhoneticPersonName(nameB)
+  if (!a || !b) return false
+  if (a === b) return true
+  const partsA = a.split(' ')
+  const partsB = b.split(' ')
+  if (partsA.length >= 2 && partsB.length >= 2) {
+    if (partsA[0] === partsB[0] && partsA[partsA.length - 1] === partsB[partsB.length - 1]) {
+      return true
+    }
+  }
+  return false
+}
+
+function titleCasePersonName(name: string): string {
+  return (name || '')
+    .trim()
+    .replace(/\s+/g, ' ')
+    .split(' ')
+    .map(w => (w.length > 0 ? w[0].toUpperCase() + w.slice(1).toLowerCase() : ''))
+    .join(' ')
+}
+
+function computeShiftBlockAndActive(
+  startHHMM: string,
+  endHHMM: string,
+  refTimeHHMM: string
+): { shift_block: 'AM' | 'PM' | 'FULL' | null; is_on_shift_now: boolean } {
+  if (!startHHMM || !endHHMM) {
+    return { shift_block: null, is_on_shift_now: false }
+  }
+  const toMin = (hhmm: string) => {
+    const [h, m] = hhmm.split(':').map(Number)
+    if (isNaN(h) || isNaN(m)) return null
+    return h * 60 + m
+  }
+  const sMin = toMin(startHHMM)
+  let eMin = toMin(endHHMM)
+  const rMinRaw = toMin(refTimeHHMM)
+  if (sMin === null || eMin === null) {
+    return { shift_block: null, is_on_shift_now: false }
+  }
+  if (eMin <= sMin) {
+    eMin += 24 * 60
+  }
+
+  // En Tacos Gavilan el día laboral empieza a las 6:00 AM y el turno PM inicia a las 5:00 PM (17:00 = 1020 min)
+  const pmBoundary = 17 * 60
+  const overlapAM = Math.max(0, Math.min(eMin, pmBoundary) - Math.max(sMin, 6 * 60))
+  const overlapPM = Math.max(0, eMin - Math.max(sMin, pmBoundary))
+
+  let shift_block: 'AM' | 'PM' | 'FULL' = 'AM'
+  if (overlapAM >= 180 && overlapPM >= 180) {
+    shift_block = 'FULL'
+  } else if (overlapPM > overlapAM || sMin >= 14 * 60) {
+    shift_block = 'PM'
+  } else {
+    shift_block = 'AM'
+  }
+
+  let is_on_shift_now = false
+  if (rMinRaw !== null) {
+    // Ventana con 45 minutos de tolerancia antes de entrada y después de salida
+    const grace = 45
+    const rMin1 = rMinRaw
+    const rMin2 = rMinRaw + 24 * 60
+    if (
+      (rMin1 >= sMin - grace && rMin1 <= eMin + grace) ||
+      (rMin2 >= sMin - grace && rMin2 <= eMin + grace)
+    ) {
+      is_on_shift_now = true
+    }
+  }
+
+  return { shift_block, is_on_shift_now }
+}
+
 // ============================================================================
 // GET /api/mantenimiento
 // ============================================================================
@@ -346,6 +516,365 @@ export async function GET(request: NextRequest) {
         success: true,
         companies,
         technicians
+      })
+    }
+
+    // Modo público de encargados en turno (?shift_leaders=1&store_id=...&date=...) para el Paso 7 del portal móvil QR:
+    // Cruza el Módulo PLANIFICADOR (shifts + toast_employees + toast_jobs) y el Módulo HORARIOS (schedules + users)
+    // del día laboral en curso para retornar los encargados elegibles: Supervisor, Manager, Asistente Manager y Shift Leader.
+    if (searchParams.get('shift_leaders') === '1') {
+      const supabase = await getSupabaseAdminClient()
+      const rawStoreId = (searchParams.get('store_id') || '').trim()
+      const rawDate = (searchParams.get('date') || '').trim()
+      const targetDate = /^\d{4}-\d{2}-\d{2}$/.test(rawDate) ? rawDate : getBusinessDatePST()
+      const refTimeHHMM = sanitizeTimePST(searchParams.get('time'), true) || getCurrentTimePST()
+
+      if (!rawStoreId) {
+        return NextResponse.json({
+          success: true,
+          business_date: targetDate,
+          reference_time: refTimeHHMM,
+          leaders: []
+        })
+      }
+
+      // Caso especial: La Bodega (Almacén Central) -> Retornar supervisores activos
+      if (rawStoreId.toUpperCase() === 'BODEGA') {
+        const { data: supUsers } = await supabase
+          .from('users')
+          .select('id, full_name, role, is_active')
+          .eq('is_active', true)
+          .ilike('role', '%supervisor%')
+          .order('full_name')
+
+        const bodegaLeaders = (supUsers || []).map((u: any) => ({
+          id: `user_${u.id}`,
+          name: titleCasePersonName(u.full_name),
+          role: 'supervisor' as LeadershipRoleType,
+          start_time: '',
+          end_time: '',
+          shift_block: null,
+          shift_label: 'Supervisor Corporativo',
+          source: 'supervisor',
+          scheduled_today: true,
+          is_on_shift_now: true
+        }))
+
+        return NextResponse.json({
+          success: true,
+          business_date: targetDate,
+          reference_time: refTimeHHMM,
+          leaders: bodegaLeaders
+        })
+      }
+
+      // Resolver la sucursal en stores (por id numérico, code o external_id)
+      const { data: allStores } = await supabase
+        .from('stores')
+        .select('id, name, code, external_id, supervisor_id')
+
+      const matchedStore = (allStores || []).find(
+        (s: any) =>
+          String(s.id) === rawStoreId ||
+          String(s.code || '').toUpperCase() === rawStoreId.toUpperCase() ||
+          String(s.external_id || '') === rawStoreId
+      )
+
+      if (!matchedStore) {
+        return NextResponse.json({
+          success: true,
+          business_date: targetDate,
+          reference_time: refTimeHHMM,
+          leaders: []
+        })
+      }
+
+      const storeNumId = Number(matchedStore.id)
+      const storeGuid = String(matchedStore.external_id || '')
+      const storeSupId = matchedStore.supervisor_id ? Number(matchedStore.supervisor_id) : null
+
+      // Consultar en paralelo Horarios (schedules), Planificador (shifts), Usuarios (users) y Puestos (toast_jobs)
+      const [schedulesRes, shiftsRes, usersRes, jobsRes] = await Promise.all([
+        supabase
+          .from('schedules')
+          .select('id, user_id, store_id, date, start_time, end_time, shift_label, role')
+          .eq('date', targetDate)
+          .eq('store_id', storeNumId),
+        storeGuid
+          ? supabase
+              .from('shifts')
+              .select('id, store_id, employee_id, job_id, shift_date, start_time, end_time, status')
+              .eq('store_id', storeGuid)
+              .eq('shift_date', targetDate)
+          : Promise.resolve({ data: [] as any[] }),
+        supabase
+          .from('users')
+          .select('id, full_name, role, store_id, is_active, toast_guid')
+          .eq('is_active', true),
+        supabase
+          .from('toast_jobs')
+          .select('id, guid, title')
+      ])
+
+      const stSchedules = schedulesRes.data || []
+      const stShifts = shiftsRes.data || []
+      const activeUsers = usersRes.data || []
+      const allJobs = jobsRes.data || []
+
+      const jobById = new Map<string, any>()
+      const jobByGuid = new Map<string, any>()
+      for (const j of allJobs) {
+        if (j.id) jobById.set(String(j.id), j)
+        if (j.guid) jobByGuid.set(String(j.guid), j)
+      }
+
+      // Cargar empleados de Toast de los turnos del día + empleados activos de la sucursal
+      const shiftEmpIds = Array.from(new Set(stShifts.map((s: any) => String(s.employee_id)).filter(Boolean)))
+      const [shiftEmpsRes, storeEmpsRes] = await Promise.all([
+        shiftEmpIds.length > 0
+          ? supabase
+              .from('toast_employees')
+              .select('id, toast_guid, first_name, last_name, chosen_name, job_references, deleted')
+              .in('id', shiftEmpIds)
+          : Promise.resolve({ data: [] as any[] }),
+        storeGuid
+          ? supabase
+              .from('toast_employees')
+              .select('id, toast_guid, first_name, last_name, chosen_name, job_references, deleted')
+              .contains('store_ids', JSON.stringify([storeGuid]))
+              .eq('deleted', false)
+          : Promise.resolve({ data: [] as any[] })
+      ])
+
+      const empById = new Map<string, any>()
+      for (const e of [...(storeEmpsRes.data || []), ...(shiftEmpsRes.data || [])]) {
+        if (e?.id) empById.set(String(e.id), e)
+      }
+
+      interface LeaderCandidate {
+        id: string
+        name: string
+        role: LeadershipRoleType
+        start_time: string
+        end_time: string
+        shift_block: 'AM' | 'PM' | 'FULL' | null
+        shift_label: string
+        source: 'horarios' | 'planificador' | 'horarios+planificador' | 'supervisor' | 'store_roster'
+        scheduled_today: boolean
+        is_on_shift_now: boolean
+        toast_guid?: string
+        user_id?: number
+      }
+
+      const candidates: LeaderCandidate[] = []
+
+      const upsertCandidate = (incoming: LeaderCandidate) => {
+        const existing = candidates.find(c => {
+          if (incoming.toast_guid && c.toast_guid && incoming.toast_guid === c.toast_guid) return true
+          if (incoming.user_id && c.user_id && incoming.user_id === c.user_id) return true
+          return areSameLeaderName(c.name, incoming.name)
+        })
+
+        if (existing) {
+          if (incoming.scheduled_today) existing.scheduled_today = true
+          if (incoming.is_on_shift_now) existing.is_on_shift_now = true
+          if (
+            (existing.source === 'horarios' && incoming.source === 'planificador') ||
+            (existing.source === 'planificador' && incoming.source === 'horarios')
+          ) {
+            existing.source = 'horarios+planificador'
+          } else if (existing.source === 'store_roster' && incoming.scheduled_today) {
+            existing.source = incoming.source
+          }
+          if (!existing.start_time && incoming.start_time) existing.start_time = incoming.start_time
+          if (!existing.end_time && incoming.end_time) existing.end_time = incoming.end_time
+          if (!existing.shift_block && incoming.shift_block) existing.shift_block = incoming.shift_block
+          if (getLeadershipRank(incoming.role) < getLeadershipRank(existing.role)) {
+            existing.role = incoming.role
+          }
+          if (!existing.toast_guid && incoming.toast_guid) existing.toast_guid = incoming.toast_guid
+          if (!existing.user_id && incoming.user_id) existing.user_id = incoming.user_id
+        } else {
+          candidates.push(incoming)
+        }
+      }
+
+      // Identificar usuarios en ausencia hoy (Vacaciones / Enfermedad / Permiso) para excluirlos
+      const absentUserIdsToday = new Set<number>()
+      for (const sc of stSchedules) {
+        if (isAbsenceSchedule(sc.shift_label, sc.start_time, sc.end_time) && sc.user_id) {
+          absentUserIdsToday.add(Number(sc.user_id))
+        }
+      }
+
+      // 1. Procesar Módulo HORARIOS (schedules del día en curso)
+      for (const sc of stSchedules) {
+        if (isAbsenceSchedule(sc.shift_label, sc.start_time, sc.end_time)) continue
+        const u = activeUsers.find((x: any) => Number(x.id) === Number(sc.user_id))
+        if (!u) continue
+        const roleKey = classifyLeadershipRole(sc.role || u.role)
+        if (!roleKey) continue
+
+        const startHHMM = formatToLATimeHHMM(sc.start_time)
+        const endHHMM = formatToLATimeHHMM(sc.end_time)
+        const { shift_block, is_on_shift_now } = computeShiftBlockAndActive(startHHMM, endHHMM, refTimeHHMM)
+
+        upsertCandidate({
+          id: `sched_${sc.id}`,
+          name: titleCasePersonName(u.full_name),
+          role: roleKey,
+          start_time: startHHMM,
+          end_time: endHHMM,
+          shift_block,
+          shift_label: sc.shift_label || 'Horarios',
+          source: 'horarios',
+          scheduled_today: true,
+          is_on_shift_now,
+          toast_guid: u.toast_guid ? String(u.toast_guid) : undefined,
+          user_id: Number(u.id)
+        })
+      }
+
+      // 2. Procesar Módulo PLANIFICADOR (shifts del día en curso)
+      for (const sh of stShifts) {
+        const job = jobById.get(String(sh.job_id))
+        const emp = empById.get(String(sh.employee_id))
+        if (!emp) continue
+
+        const matchedUser = emp.toast_guid
+          ? activeUsers.find((u: any) => u.toast_guid && String(u.toast_guid) === String(emp.toast_guid))
+          : activeUsers.find(
+              (u: any) =>
+                Number(u.store_id) === storeNumId &&
+                areSameLeaderName(u.full_name, `${emp.first_name || ''} ${emp.last_name || ''}`)
+            )
+
+        if (matchedUser && absentUserIdsToday.has(Number(matchedUser.id))) continue
+
+        const roleFromJob = classifyLeadershipRole(job?.title)
+        const roleFromUser = matchedUser ? classifyLeadershipRole(matchedUser.role) : null
+        const roleKey =
+          roleFromJob && roleFromUser
+            ? getLeadershipRank(roleFromUser) < getLeadershipRank(roleFromJob)
+              ? roleFromUser
+              : roleFromJob
+            : roleFromJob || roleFromUser
+
+        if (!roleKey) continue
+
+        const startHHMM = formatToLATimeHHMM(sh.start_time)
+        const endHHMM = formatToLATimeHHMM(sh.end_time)
+        const { shift_block, is_on_shift_now } = computeShiftBlockAndActive(startHHMM, endHHMM, refTimeHHMM)
+        const displayName = matchedUser?.full_name
+          ? titleCasePersonName(matchedUser.full_name)
+          : titleCasePersonName(`${emp.first_name || ''} ${emp.last_name || ''}`)
+
+        upsertCandidate({
+          id: `shift_${sh.id}`,
+          name: displayName,
+          role: roleKey,
+          start_time: startHHMM,
+          end_time: endHHMM,
+          shift_block,
+          shift_label: 'Planificador',
+          source: 'planificador',
+          scheduled_today: true,
+          is_on_shift_now,
+          toast_guid: emp.toast_guid ? String(emp.toast_guid) : undefined,
+          user_id: matchedUser ? Number(matchedUser.id) : undefined
+        })
+      }
+
+      // 3. Incluir al Supervisor Asignado de la Sucursal (stores.supervisor_id)
+      if (storeSupId) {
+        const supUser = activeUsers.find((u: any) => Number(u.id) === storeSupId)
+        if (supUser && !absentUserIdsToday.has(Number(supUser.id))) {
+          upsertCandidate({
+            id: `sup_${supUser.id}`,
+            name: titleCasePersonName(supUser.full_name),
+            role: 'supervisor',
+            start_time: '',
+            end_time: '',
+            shift_block: null,
+            shift_label: 'Supervisor de Sucursal',
+            source: 'supervisor',
+            scheduled_today: false,
+            is_on_shift_now: false,
+            toast_guid: supUser.toast_guid ? String(supUser.toast_guid) : undefined,
+            user_id: Number(supUser.id)
+          })
+        }
+      }
+
+      // 4. Respaldo de Plantilla Activa de Liderazgo de la Sucursal (por si cubren turno o no se ha publicado el día)
+      const storeUsers = activeUsers.filter((u: any) => Number(u.store_id) === storeNumId)
+      for (const u of storeUsers) {
+        if (absentUserIdsToday.has(Number(u.id))) continue
+        const rKey = classifyLeadershipRole(u.role)
+        if (!rKey) continue
+        upsertCandidate({
+          id: `user_${u.id}`,
+          name: titleCasePersonName(u.full_name),
+          role: rKey,
+          start_time: '',
+          end_time: '',
+          shift_block: null,
+          shift_label: 'Plantilla de Sucursal',
+          source: 'store_roster',
+          scheduled_today: false,
+          is_on_shift_now: false,
+          toast_guid: u.toast_guid ? String(u.toast_guid) : undefined,
+          user_id: Number(u.id)
+        })
+      }
+
+      // Si no hubo Shift Leaders en los turnos del día, agregar Shift Leaders activos de la tienda desde toast_employees
+      const hasScheduledShiftLeader = candidates.some(c => c.role === 'shift_leader' && c.scheduled_today)
+      if (!hasScheduledShiftLeader) {
+        for (const emp of storeEmpsRes.data || []) {
+          if (emp.deleted) continue
+          const refs = Array.isArray(emp.job_references) ? emp.job_references : []
+          let bestRole: LeadershipRoleType | null = null
+          for (const ref of refs) {
+            const j = ref?.guid ? jobByGuid.get(String(ref.guid)) : null
+            const r = classifyLeadershipRole(j?.title)
+            if (r && (!bestRole || getLeadershipRank(r) < getLeadershipRank(bestRole))) {
+              bestRole = r
+            }
+          }
+          if (bestRole) {
+            upsertCandidate({
+              id: `emp_${emp.id}`,
+              name: titleCasePersonName(`${emp.first_name || ''} ${emp.last_name || ''}`),
+              role: bestRole,
+              start_time: '',
+              end_time: '',
+              shift_block: null,
+              shift_label: 'Plantilla de Sucursal',
+              source: 'store_roster',
+              scheduled_today: false,
+              is_on_shift_now: false,
+              toast_guid: emp.toast_guid ? String(emp.toast_guid) : undefined
+            })
+          }
+        }
+      }
+
+      // Ordenar: 1) En turno ahora (is_on_shift_now), 2) Programados hoy (scheduled_today), 3) Supervisor de tienda, 4) Jerarquía (Supervisor > Manager > Asistente > Shift Leader), 5) Nombre
+      candidates.sort((a, b) => {
+        if (a.is_on_shift_now !== b.is_on_shift_now) return a.is_on_shift_now ? -1 : 1
+        if (a.scheduled_today !== b.scheduled_today) return a.scheduled_today ? -1 : 1
+        const rankDiff = getLeadershipRank(a.role) - getLeadershipRank(b.role)
+        if (rankDiff !== 0) return rankDiff
+        return a.name.localeCompare(b.name)
+      })
+
+      return NextResponse.json({
+        success: true,
+        business_date: targetDate,
+        reference_time: refTimeHHMM,
+        store_name: matchedStore.name,
+        leaders: candidates.map(({ toast_guid, user_id, ...rest }) => rest)
       })
     }
 
@@ -591,14 +1120,14 @@ export async function POST(request: NextRequest) {
 
     // Verificar que la sucursal exista en la tabla stores o sea La Bodega
     const rawStoreParam = String(store_id).trim().toLowerCase()
-    let matchedStore: { id: string | number; name: string; code?: string } | undefined
+    let matchedStore: { id: string | number; name: string; code?: string; address?: string; city?: string } | undefined
 
     if (rawStoreParam === 'bodega' || rawStoreParam === 'la bodega') {
       matchedStore = BODEGA_LOCATION
     } else {
       const { data: storesList } = await supabase
         .from('stores')
-        .select('id, name, code')
+        .select('id, name, code, address, city')
 
       matchedStore = (storesList || []).find((s: any) =>
         String(s.id).toLowerCase() === rawStoreParam ||
@@ -680,8 +1209,9 @@ export async function POST(request: NextRequest) {
     }
 
     const storeDisplayName = matchedStore.name || `Sucursal #${matchedStore.id}`
+    const storeAddressFormatted = [matchedStore.address, matchedStore.city].filter(Boolean).join(', ') || null
 
-    // Generar notificación del sistema para supervisores y administradores
+    // 1. Generar notificación del sistema para supervisores y administradores
     try {
       const { data: targetUsers } = await supabase
         .from('users')
@@ -706,9 +1236,46 @@ export async function POST(request: NextRequest) {
       console.warn('[mantenimiento] No se pudo crear notificación:', notifErr)
     }
 
+    // 2. Despachar automáticamente correo electrónico ejecutivo con los 7 pasos a raquel@tacosgavilan.com
+    let emailNotified = false
+    try {
+      const emailRes = await sendMaintenanceServiceEmail({
+        id: insertedRecord.id,
+        store_id: insertPayload.store_id,
+        store_name: storeDisplayName,
+        store_address: storeAddressFormatted,
+        company_name: insertPayload.company_name,
+        technician_name: insertPayload.technician_name,
+        technician_phone: insertPayload.technician_phone,
+        category: insertPayload.category,
+        service_type: insertPayload.service_type,
+        area_equipment: insertPayload.area_equipment,
+        work_description: insertPayload.work_description,
+        parts_replaced: insertPayload.parts_replaced,
+        status: insertPayload.status,
+        service_date: insertPayload.service_date,
+        start_time: insertPayload.start_time,
+        end_time: insertPayload.end_time,
+        photos_before: insertPayload.photos_before,
+        photos_after: insertPayload.photos_after,
+        photos_invoice: insertPayload.photos_invoice,
+        invoice_number: insertPayload.invoice_number,
+        cost_estimate: insertPayload.cost_estimate,
+        manager_name: insertPayload.manager_name,
+        manager_signature_url: insertPayload.manager_signature_url,
+        notes: insertPayload.notes,
+        is_after_hours: isAfterHours,
+        warranty_days: !isNaN(parsedWarrantyDays) && [30, 60, 90].includes(parsedWarrantyDays) ? parsedWarrantyDays : null
+      })
+      emailNotified = emailRes.success
+    } catch (emailErr) {
+      console.warn('[mantenimiento] No se pudo despachar correo a raquel@tacosgavilan.com:', emailErr)
+    }
+
     return NextResponse.json({
       success: true,
       message: 'Actividad de mantenimiento registrada exitosamente',
+      emailNotified,
       data: insertedRecord
     }, { status: 201 })
   } catch (err: any) {

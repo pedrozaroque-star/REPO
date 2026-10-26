@@ -12,7 +12,7 @@
  *   3) Si el GPS es denegado, falla o el técnico desea cambiarla, el selector desplegable manual permite elegir cualquier sucursal al instante.
  * - En Paso 2, las sugerencias rápidas provienen del directorio histórico real de empresas y técnicos (`GET /api/mantenimiento?directory=1`) combinado con la memoria local del dispositivo (`localStorage`).
  * - Evidencias fotográficas obligatorias (Antes, Después o Nota/Factura física).
- * - Firma digital táctil del encargado en turno requerida para validar la entrega del servicio.
+ * - En Paso 7, permite elegir con 1 toque a cualquiera de los encargados del turno del día en curso (`GET /api/mantenimiento?shift_leaders=1&store_id=...`), cruzando el Módulo PLANIFICADOR (`shifts` + `toast_employees` + `toast_jobs`) y el Módulo HORARIOS (`schedules` + `users`) para mostrar a los Supervisores, Managers, Asistentes Manager y Shift Leaders con su horario del día y estado "En Turno Ahora", además de requerir su firma digital táctil (o activar el Protocolo de Verificación por Cámaras de Seguridad CCTV si es servicio nocturno sin firma).
  * - Soporta idioma dual (Español / Inglés) con selector instantáneo.
  * @dataFlow
  * - Selección de tienda y captura por pasos -> Subida de imágenes a /api/mantenimiento/upload ->
@@ -78,6 +78,19 @@ interface DirectoryTechnician {
   category: string
   visit_count: number
   store_ids?: string[]
+}
+
+interface ShiftLeaderOption {
+  id: string
+  name: string
+  role: 'supervisor' | 'manager' | 'assistant_manager' | 'shift_leader'
+  start_time: string
+  end_time: string
+  shift_block: 'AM' | 'PM' | 'FULL' | null
+  shift_label: string
+  source: 'horarios' | 'planificador' | 'horarios+planificador' | 'supervisor' | 'store_roster'
+  scheduled_today: boolean
+  is_on_shift_now: boolean
 }
 
 const TOTAL_SLIDES = 7
@@ -162,6 +175,10 @@ function MaintenanceFormContent() {
   // Directorio dinámico de proveedores y técnicos que ya han realizado trabajos en las tiendas
   const [directoryCompanies, setDirectoryCompanies] = useState<DirectoryCompany[]>([])
   const [directoryTechnicians, setDirectoryTechnicians] = useState<DirectoryTechnician[]>([])
+
+  // Encargados del turno del día en curso (Módulo PLANIFICADOR + Módulo HORARIOS: Supervisor, Manager, Asistente Manager, Shift Leader)
+  const [shiftLeaders, setShiftLeaders] = useState<ShiftLeaderOption[]>([])
+  const [loadingShiftLeaders, setLoadingShiftLeaders] = useState(false)
 
   // Estado de Geolocalización GPS + Respaldo Manual
   const [locatingGps, setLocatingGps] = useState(false)
@@ -287,6 +304,40 @@ function MaintenanceFormContent() {
       active = false
     }
   }, [selectedStoreId, successData])
+
+  // Cargar encargados del turno del día en curso (Planificador + Horarios) cuando cambia la tienda o la hora
+  useEffect(() => {
+    let active = true
+    async function loadStoreShiftLeaders() {
+      if (!selectedStoreId) {
+        setShiftLeaders([])
+        return
+      }
+      setLoadingShiftLeaders(true)
+      try {
+        const refTime = endTime || startTime || getCurrentTimeHHMM()
+        const res = await fetch(
+          `/api/mantenimiento?shift_leaders=1&store_id=${encodeURIComponent(selectedStoreId)}&time=${encodeURIComponent(refTime)}`
+        )
+        const json = await res.json()
+        if (!active) return
+        if (json?.success && Array.isArray(json.leaders)) {
+          setShiftLeaders(json.leaders)
+        } else {
+          setShiftLeaders([])
+        }
+      } catch (err) {
+        console.warn('No se pudieron cargar los encargados del turno:', err)
+        if (active) setShiftLeaders([])
+      } finally {
+        if (active) setLoadingShiftLeaders(false)
+      }
+    }
+    loadStoreShiftLeaders()
+    return () => {
+      active = false
+    }
+  }, [selectedStoreId, endTime, startTime])
 
   // Guardar borrador automáticamente en sessionStorage y recordar datos del técnico
   useEffect(() => {
@@ -988,6 +1039,11 @@ function MaintenanceFormContent() {
               <span className="text-slate-400">{t('maintenance.manager_name')}:</span>
               <span className="font-bold text-emerald-400">{successData.manager_name}</span>
             </div>
+            {!successData.manager_signature_url && (
+              <div className="mt-2 pt-2 border-t border-amber-500/30 text-[11px] text-amber-300 font-semibold leading-relaxed">
+                {t('maintenance.after_hours_success_cctv_notice')}
+              </div>
+            )}
           </div>
 
           {/* Cuenta Regresiva de Redirección Automática */}
@@ -2184,20 +2240,170 @@ function MaintenanceFormContent() {
                           🌙 {t('maintenance.after_hours_toggle')}
                         </span>
                         {isAfterHours && (
-                          <p className="text-[11px] text-amber-800 dark:text-amber-300 mt-1 leading-relaxed font-medium">
-                            {t('maintenance.after_hours_desc')}
-                          </p>
+                          <div className="mt-2.5 space-y-2.5">
+                            <p className="text-[11px] text-amber-900 dark:text-amber-200 leading-relaxed font-medium">
+                              {t('maintenance.after_hours_desc')}
+                            </p>
+
+                            {/* Tarjeta de Protocolo de Verificación por Cámaras de Seguridad (CCTV) */}
+                            <div className="p-3 rounded-xl bg-white/90 dark:bg-slate-900/80 border border-amber-300 dark:border-amber-700/80 space-y-1.5 shadow-2xs">
+                              <div className="flex items-center gap-1.5 text-amber-900 dark:text-amber-200 font-black text-[11px] uppercase tracking-wide">
+                                <Camera size={13} className="text-red-600 dark:text-red-400 shrink-0" />
+                                <span>{t('maintenance.after_hours_cctv_title')}</span>
+                              </div>
+                              <p className="text-[11px] text-slate-700 dark:text-slate-300 font-medium leading-snug">
+                                {t('maintenance.after_hours_cctv_desc')}
+                              </p>
+                              <ul className="space-y-1 pt-0.5 text-[11px] text-slate-800 dark:text-slate-200 font-semibold">
+                                <li className="flex items-start gap-1.5">
+                                  <CheckCircle2 size={12} className="text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
+                                  <span>{t('maintenance.after_hours_cctv_point_1')}</span>
+                                </li>
+                                <li className="flex items-start gap-1.5">
+                                  <CheckCircle2 size={12} className="text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
+                                  <span>{t('maintenance.after_hours_cctv_point_2')}</span>
+                                </li>
+                                <li className="flex items-start gap-1.5">
+                                  <CheckCircle2 size={12} className="text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
+                                  <span>{t('maintenance.after_hours_cctv_point_3')}</span>
+                                </li>
+                              </ul>
+                            </div>
+                          </div>
                         )}
                       </div>
                     </label>
                   </div>
+
+                  {/* Selector de Encargados del Turno (Módulo PLANIFICADOR + Módulo HORARIOS del día en curso) */}
+                  {!isAfterHours && (
+                    <div className="p-3.5 rounded-2xl bg-slate-50/90 dark:bg-slate-800/50 border border-slate-200/90 dark:border-slate-700/80 space-y-2.5">
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <span className="block text-xs font-black text-slate-800 dark:text-slate-100 uppercase tracking-wide">
+                            👥 {t('maintenance.select_shift_leader_title')}
+                          </span>
+                          <p className="text-[11px] text-slate-600 dark:text-slate-400 font-medium mt-0.5 leading-snug">
+                            {t('maintenance.select_shift_leader_desc')}
+                          </p>
+                        </div>
+                      </div>
+
+                      {loadingShiftLeaders ? (
+                        <div className="flex items-center gap-2 py-3 px-3 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/70 dark:border-slate-700 text-xs text-slate-500 dark:text-slate-400 font-semibold">
+                          <Loader2 size={15} className="animate-spin text-red-600 shrink-0" />
+                          <span>{t('maintenance.loading_shift_leaders')}</span>
+                        </div>
+                      ) : shiftLeaders.length > 0 ? (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-56 overflow-y-auto pr-0.5">
+                          {shiftLeaders.map((leader) => {
+                            const roleLabel =
+                              leader.role === 'supervisor'
+                                ? t('maintenance.role_supervisor')
+                                : leader.role === 'manager'
+                                  ? t('maintenance.role_manager')
+                                  : leader.role === 'assistant_manager'
+                                    ? t('maintenance.role_assistant_manager')
+                                    : t('maintenance.role_shift_leader')
+
+                            const formattedOptionValue = `${leader.name} (${roleLabel})`
+                            const isSelected =
+                              managerName.trim().toLowerCase() === formattedOptionValue.toLowerCase() ||
+                              managerName.trim().toLowerCase() === leader.name.trim().toLowerCase()
+
+                            const roleBadgeClass =
+                              leader.role === 'supervisor'
+                                ? 'bg-purple-100 text-purple-800 border-purple-200 dark:bg-purple-950/70 dark:text-purple-200 dark:border-purple-800/70'
+                                : leader.role === 'manager'
+                                  ? 'bg-blue-100 text-blue-800 border-blue-200 dark:bg-blue-950/70 dark:text-blue-200 dark:border-blue-800/70'
+                                  : leader.role === 'assistant_manager'
+                                    ? 'bg-emerald-100 text-emerald-800 border-emerald-200 dark:bg-emerald-950/70 dark:text-emerald-200 dark:border-emerald-800/70'
+                                    : 'bg-amber-100 text-amber-800 border-amber-200 dark:bg-amber-950/70 dark:text-amber-200 dark:border-amber-800/70'
+
+                            const shiftBlockLabel =
+                              leader.shift_block === 'AM'
+                                ? t('maintenance.shift_am_badge')
+                                : leader.shift_block === 'PM'
+                                  ? t('maintenance.shift_pm_badge')
+                                  : leader.shift_block === 'FULL'
+                                    ? t('maintenance.shift_full_badge')
+                                    : null
+
+                            return (
+                              <button
+                                key={leader.id}
+                                type="button"
+                                onClick={() => {
+                                  setManagerName(formattedOptionValue)
+                                  setErrorMessage(null)
+                                }}
+                                className={`text-left p-2.5 rounded-xl border transition-all flex items-start justify-between gap-2 ${
+                                  isSelected
+                                    ? 'bg-emerald-50/90 dark:bg-emerald-950/50 border-emerald-500 dark:border-emerald-500 ring-2 ring-emerald-500/20 shadow-xs'
+                                    : 'bg-white dark:bg-slate-900 border-slate-200/90 dark:border-slate-700/80 hover:border-red-300 dark:hover:border-red-700'
+                                }`}
+                              >
+                                <div className="min-w-0 flex-1">
+                                  <div className="flex items-center gap-1.5 flex-wrap">
+                                    <span className="text-xs font-black text-slate-900 dark:text-white truncate">
+                                      {leader.name}
+                                    </span>
+                                    <span className={`px-1.5 py-0.5 rounded-md text-[9.5px] font-extrabold border ${roleBadgeClass}`}>
+                                      {roleLabel}
+                                    </span>
+                                  </div>
+
+                                  <div className="flex items-center gap-1.5 flex-wrap mt-1">
+                                    {leader.start_time && leader.end_time ? (
+                                      <span className="text-[10.5px] font-semibold text-slate-600 dark:text-slate-300 font-mono">
+                                        🕒 {leader.start_time} – {leader.end_time}
+                                      </span>
+                                    ) : null}
+                                    {shiftBlockLabel && (
+                                      <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400">
+                                        • {shiftBlockLabel}
+                                      </span>
+                                    )}
+                                    {leader.is_on_shift_now ? (
+                                      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950/70 text-emerald-800 dark:text-emerald-300 text-[9.5px] font-extrabold">
+                                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                                        {t('maintenance.on_shift_now_badge')}
+                                      </span>
+                                    ) : leader.scheduled_today ? (
+                                      <span className="px-1.5 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-[9.5px] font-bold">
+                                        📅 {t('maintenance.scheduled_today_badge')}
+                                      </span>
+                                    ) : (
+                                      <span className="px-1.5 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 text-[9.5px] font-semibold">
+                                        {t('maintenance.store_roster_badge')}
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+
+                                <div className="shrink-0 mt-0.5">
+                                  {isSelected ? (
+                                    <CheckCircle2 size={17} className="text-emerald-600 dark:text-emerald-400" />
+                                  ) : (
+                                    <div className="w-4 h-4 rounded-full border-2 border-slate-300 dark:border-slate-600" />
+                                  )}
+                                </div>
+                              </button>
+                            )
+                          })}
+                        </div>
+                      ) : null}
+                    </div>
+                  )}
 
                   {/* Nombre del Encargado o Testigo Nocturno */}
                   <div>
                     <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
                       {isAfterHours
                         ? t('maintenance.after_hours_witness_label')
-                        : `${t('maintenance.manager_name')} *`}
+                        : shiftLeaders.length > 0
+                          ? `${t('maintenance.manual_manager_hint')} *`
+                          : `${t('maintenance.manager_name')} *`}
                     </label>
                     <input
                       type="text"

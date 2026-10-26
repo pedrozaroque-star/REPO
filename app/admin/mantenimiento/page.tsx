@@ -5,6 +5,7 @@
  * - Muestra todas las intervenciones técnicas de las 15 sucursales con evidencias fotográficas y firmas.
  * - Permite exportación de reportes a CSV para auditorías de salud, bomberos o contabilidad.
  * - Permite abrir el generador de Códigos QR para imprimir las calcomanías oficiales de cada sucursal.
+ * - En el modal de edición/seguimiento administrativo, permite elegir con 1 toque al Encargado en Turno (Supervisor, Manager, Asistente Manager o Shift Leader) cruzando el Módulo PLANIFICADOR (`shifts`) y el Módulo HORARIOS (`schedules`) para la tienda y fecha del servicio (`GET /api/mantenimiento?shift_leaders=1&store_id=...&date=...`).
  * - Permite a administradores y supervisores eliminar registros de servicios con diálogo de confirmación y purga de Storage.
  * - Aplica zona horaria PST 'America/Los_Angeles' y soporte bilingüe con useLanguage().
  * @dataFlow
@@ -69,6 +70,19 @@ interface GlobalKpis {
   distinctStoresCount: number
 }
 
+interface ShiftLeaderOption {
+  id: string
+  name: string
+  role: 'supervisor' | 'manager' | 'assistant_manager' | 'shift_leader'
+  start_time: string
+  end_time: string
+  shift_block: 'AM' | 'PM' | 'FULL' | null
+  shift_label: string
+  source: 'horarios' | 'planificador' | 'horarios+planificador' | 'supervisor' | 'store_roster'
+  scheduled_today: boolean
+  is_on_shift_now: boolean
+}
+
 function formatTimeAndDuration(start?: string, end?: string): string | null {
   if (!start && !end) return null
   const cleanStart = start ? start.slice(0, 5) : ''
@@ -119,9 +133,12 @@ export default function AdminMaintenanceDashboardPage() {
   const [editPhotosInvoice, setEditPhotosInvoice] = useState<string[]>([])
   const [isSavingEdit, setIsSavingEdit] = useState(false)
   const [isUploadingAdminInvoice, setIsUploadingAdminInvoice] = useState(false)
+  const [modalShiftLeaders, setModalShiftLeaders] = useState<ShiftLeaderOption[]>([])
+  const [loadingModalLeaders, setLoadingModalLeaders] = useState(false)
 
-  // Sincronizar campos de edición al abrir un registro en el modal
+  // Sincronizar campos de edición y consultar encargados del turno (Planificador + Horarios) al abrir un registro en el modal
   useEffect(() => {
+    let active = true
     if (selectedLog) {
       setEditStatus(selectedLog.status || 'completed')
       setEditInvoiceNumber(selectedLog.invoice_number || '')
@@ -133,6 +150,44 @@ export default function AdminMaintenanceDashboardPage() {
       setEditManagerName(selectedLog.manager_name || '')
       setEditNotes(selectedLog.notes || '')
       setEditPhotosInvoice(Array.isArray(selectedLog.photos_invoice) ? selectedLog.photos_invoice : [])
+
+      // Cargar encargados del turno de esa tienda y fecha (Supervisor, Manager, Asistente Manager, Shift Leader)
+      const loadLeadersForLog = async () => {
+        if (!selectedLog.store_id) {
+          setModalShiftLeaders([])
+          return
+        }
+        setLoadingModalLeaders(true)
+        try {
+          const refTime = (selectedLog.end_time || selectedLog.start_time || '').slice(0, 5)
+          const qs = new URLSearchParams({
+            shift_leaders: '1',
+            store_id: String(selectedLog.store_id)
+          })
+          if (selectedLog.service_date) qs.set('date', selectedLog.service_date)
+          if (refTime) qs.set('time', refTime)
+
+          const res = await fetch(`/api/mantenimiento?${qs.toString()}`)
+          const json = await res.json()
+          if (!active) return
+          if (json?.success && Array.isArray(json.leaders)) {
+            setModalShiftLeaders(json.leaders)
+          } else {
+            setModalShiftLeaders([])
+          }
+        } catch (err) {
+          console.warn('Error cargando encargados del turno en modal admin:', err)
+          if (active) setModalShiftLeaders([])
+        } finally {
+          if (active) setLoadingModalLeaders(false)
+        }
+      }
+      loadLeadersForLog()
+    } else {
+      setModalShiftLeaders([])
+    }
+    return () => {
+      active = false
     }
   }, [selectedLog?.id])
 
@@ -1139,14 +1194,118 @@ export default function AdminMaintenanceDashboardPage() {
                       </select>
                     </div>
 
-                    <div>
-                      <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300 mb-1">
-                        {t('maintenance.manager_validation_label')}
+                    <div className="sm:col-span-2 space-y-2">
+                      <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300">
+                        {t('maintenance.manager_validation_label')} — 👥 {t('maintenance.select_shift_leader_title')}
                       </label>
+
+                      {loadingModalLeaders ? (
+                        <div className="flex items-center gap-2 py-2.5 px-3 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs text-slate-500 dark:text-slate-400 font-semibold">
+                          <Loader2 size={14} className="animate-spin text-red-600 shrink-0" />
+                          <span>{t('maintenance.loading_shift_leaders')}</span>
+                        </div>
+                      ) : modalShiftLeaders.length > 0 ? (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-48 overflow-y-auto p-1 rounded-xl bg-white/60 dark:bg-slate-900/40 border border-slate-200/80 dark:border-slate-700/80">
+                          {modalShiftLeaders.map((leader) => {
+                            const roleLabel =
+                              leader.role === 'supervisor'
+                                ? t('maintenance.role_supervisor')
+                                : leader.role === 'manager'
+                                  ? t('maintenance.role_manager')
+                                  : leader.role === 'assistant_manager'
+                                    ? t('maintenance.role_assistant_manager')
+                                    : t('maintenance.role_shift_leader')
+
+                            const formattedOptionValue = `${leader.name} (${roleLabel})`
+                            const isSelected =
+                              editManagerName.trim().toLowerCase() === formattedOptionValue.toLowerCase() ||
+                              editManagerName.trim().toLowerCase() === leader.name.trim().toLowerCase()
+
+                            const roleBadgeClass =
+                              leader.role === 'supervisor'
+                                ? 'bg-purple-100 text-purple-800 border-purple-200 dark:bg-purple-950/70 dark:text-purple-200 dark:border-purple-800/70'
+                                : leader.role === 'manager'
+                                  ? 'bg-blue-100 text-blue-800 border-blue-200 dark:bg-blue-950/70 dark:text-blue-200 dark:border-blue-800/70'
+                                  : leader.role === 'assistant_manager'
+                                    ? 'bg-emerald-100 text-emerald-800 border-emerald-200 dark:bg-emerald-950/70 dark:text-emerald-200 dark:border-emerald-800/70'
+                                    : 'bg-amber-100 text-amber-800 border-amber-200 dark:bg-amber-950/70 dark:text-amber-200 dark:border-amber-800/70'
+
+                            const shiftBlockLabel =
+                              leader.shift_block === 'AM'
+                                ? t('maintenance.shift_am_badge')
+                                : leader.shift_block === 'PM'
+                                  ? t('maintenance.shift_pm_badge')
+                                  : leader.shift_block === 'FULL'
+                                    ? t('maintenance.shift_full_badge')
+                                    : null
+
+                            return (
+                              <button
+                                key={leader.id}
+                                type="button"
+                                onClick={() => setEditManagerName(formattedOptionValue)}
+                                className={`text-left p-2 rounded-xl border transition-all flex items-start justify-between gap-2 ${
+                                  isSelected
+                                    ? 'bg-emerald-50/90 dark:bg-emerald-950/50 border-emerald-500 dark:border-emerald-500 ring-2 ring-emerald-500/20 shadow-xs'
+                                    : 'bg-white dark:bg-slate-900 border-slate-200/90 dark:border-slate-700/80 hover:border-red-300 dark:hover:border-red-700'
+                                }`}
+                              >
+                                <div className="min-w-0 flex-1">
+                                  <div className="flex items-center gap-1.5 flex-wrap">
+                                    <span className="text-xs font-black text-slate-900 dark:text-white truncate">
+                                      {leader.name}
+                                    </span>
+                                    <span className={`px-1.5 py-0.5 rounded-md text-[9.5px] font-extrabold border ${roleBadgeClass}`}>
+                                      {roleLabel}
+                                    </span>
+                                  </div>
+
+                                  <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
+                                    {leader.start_time && leader.end_time ? (
+                                      <span className="text-[10px] font-semibold text-slate-600 dark:text-slate-300 font-mono">
+                                        🕒 {leader.start_time} – {leader.end_time}
+                                      </span>
+                                    ) : null}
+                                    {shiftBlockLabel && (
+                                      <span className="text-[9.5px] font-bold text-slate-500 dark:text-slate-400">
+                                        • {shiftBlockLabel}
+                                      </span>
+                                    )}
+                                    {leader.is_on_shift_now ? (
+                                      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950/70 text-emerald-800 dark:text-emerald-300 text-[9px] font-extrabold">
+                                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                                        {t('maintenance.on_shift_now_badge')}
+                                      </span>
+                                    ) : leader.scheduled_today ? (
+                                      <span className="px-1.5 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-[9px] font-bold">
+                                        📅 {t('maintenance.scheduled_today_badge')}
+                                      </span>
+                                    ) : (
+                                      <span className="px-1.5 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 text-[9px] font-semibold">
+                                        {t('maintenance.store_roster_badge')}
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+
+                                <div className="shrink-0 mt-0.5">
+                                  {isSelected ? (
+                                    <CheckCircle2 size={15} className="text-emerald-600 dark:text-emerald-400" />
+                                  ) : (
+                                    <div className="w-3.5 h-3.5 rounded-full border-2 border-slate-300 dark:border-slate-600" />
+                                  )}
+                                </div>
+                              </button>
+                            )
+                          })}
+                        </div>
+                      ) : null}
+
                       <input
                         type="text"
                         value={editManagerName}
                         onChange={(e) => setEditManagerName(e.target.value)}
+                        placeholder={t('maintenance.manager_placeholder')}
                         className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 font-semibold text-xs focus:ring-2 focus:ring-red-500 focus:outline-none"
                       />
                     </div>
