@@ -30,7 +30,7 @@ import { formatDateISO, formatStoreName, getMonday, addDays, getRoleWeight } fro
 import { Shift, Employee, Job } from '@/app/planificador/lib/types'
 import { useAuth } from '@/components/ProtectedRoute'
 
-import { scheduleBreaksWithDemand, LearnedPreference, getLocalDayOfWeek, getLocalHourMinute, getTypeSpecificBreakIndex, encodeLearnedSlotMeta, isGeneralManagerRole } from '@/lib/breaks-engine'
+import { scheduleBreaksWithDemand, LearnedPreference, getLocalDayOfWeek, getLocalHourMinute, getTypeSpecificBreakIndex, encodeLearnedSlotMeta, isGeneralManagerRole, getShiftOperationalTieRank } from '@/lib/breaks-engine'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
 
@@ -133,6 +133,9 @@ export default function DescansosPage() {
             const sMsA = new Date(a.start_time).getTime();
             const sMsB = new Date(b.start_time).getTime();
             if (sMsA !== sMsB) return sMsA - sMsB;
+            const tieA = getShiftOperationalTieRank(a);
+            const tieB = getShiftOperationalTieRank(b);
+            if (tieA !== tieB) return tieA - tieB;
             return String(a.employee_id || a.id || '').localeCompare(String(b.employee_id || b.id || ''));
         });
 
@@ -239,48 +242,49 @@ export default function DescansosPage() {
             const supabase = await getSupabaseClient();
             await supabase.from('shifts').update({ breaks_schedule: newBreaks }).eq('id', shift.id);
 
-            // ── 🧠 AI LEARNING: Guardar la preferencia con índice por tipo y metadatos de bloque/cohort ──
             const currentStoreGuid = storeGuid || (stores.find(s => String(s.id) === String(selectedStoreId))?.external_id) || searchParams.get('store_guid') || 'b7f63b01-f089-4ad7-a346-afdb1803dc1a';
-            const offsetMin = Math.round((newStartMs - shiftStart) / 60000);
             const shiftDurationMin = Math.round((shiftEnd - shiftStart) / 60000);
             const dayOfWeek = getLocalDayOfWeek(shiftStart);
             const cohortIdx = computeShiftCohortIndex(shift);
             const slotMeta = encodeLearnedSlotMeta(shiftStart, cohortIdx);
-            
+            const nowIso = new Date().toISOString();
+
             await supabase.from('break_manual_overrides').delete().match({
                 store_id: currentStoreGuid,
                 role: rk,
                 day_of_week: dayOfWeek,
-                break_type: b.type,
-                break_index: typeBreakIndex,
-                peak_hour: slotMeta
-            });
-            
-            await supabase.from('break_manual_overrides').insert({
-                store_id: currentStoreGuid,
-                role: rk,
-                day_of_week: dayOfWeek,
-                break_type: b.type,
-                break_index: typeBreakIndex,
-                offset_from_start_min: offsetMin,
-                shift_duration_min: shiftDurationMin,
                 peak_hour: slotMeta
             });
 
-            // Actualizar memoria local para no tener que recargar
-            const newPref: LearnedPreference = {
+            const rowsToInsert = newBreaks.map((brk, idx) => ({
+                store_id: currentStoreGuid,
                 role: rk,
                 day_of_week: dayOfWeek,
-                break_type: b.type,
-                break_index: typeBreakIndex,
-                offset_from_start_min: offsetMin,
+                break_type: brk.type,
+                break_index: getTypeSpecificBreakIndex(newBreaks, idx),
+                offset_from_start_min: Math.round((new Date(brk.start_time).getTime() - shiftStart) / 60000),
                 shift_duration_min: shiftDurationMin,
                 peak_hour: slotMeta
-            };
+            }));
+
+            if (rowsToInsert.length > 0) {
+                await supabase.from('break_manual_overrides').insert(rowsToInsert);
+            }
+
+            const newPrefsForSlot: LearnedPreference[] = rowsToInsert.map(r => ({
+                role: r.role,
+                day_of_week: r.day_of_week,
+                break_type: r.break_type,
+                break_index: r.break_index,
+                offset_from_start_min: r.offset_from_start_min,
+                shift_duration_min: r.shift_duration_min,
+                peak_hour: r.peak_hour,
+                updated_at: nowIso
+            }));
             const currentPrefs = lastDataRef.current.learnedPrefs || [];
             lastDataRef.current.learnedPrefs = [
-                ...currentPrefs.filter(p => !(p.role === rk && p.day_of_week === dayOfWeek && p.break_type === b.type && p.break_index === typeBreakIndex && p.peak_hour === slotMeta)),
-                newPref
+                ...currentPrefs.filter(p => !(p.role === rk && p.day_of_week === dayOfWeek && p.peak_hour === slotMeta)),
+                ...newPrefsForSlot
             ];
 
             // Si el movimiento manual aplastó un descanso automático (!is_manual) del mismo turno, reacomodarlo automáticamente
@@ -302,8 +306,7 @@ export default function DescansosPage() {
         if (!b.is_manual) return;
 
         const shiftDurHrs = (new Date(shift.end_time).getTime() - new Date(shift.start_time).getTime()) / 3600000;
-        // En turnos de 6h o menos, restaurar IA elimina el lunch opcional
-        if (shiftDurHrs <= 6 && b.type === 'meal_30') {
+        if (shiftDurHrs < 6 && b.type === 'meal_30') {
             await handleRemoveBreak(shift, breakIdx);
             return;
         }

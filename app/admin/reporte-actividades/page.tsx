@@ -457,26 +457,42 @@ function ExecutiveReportDashboard() {
                         </div>
                     </div>
 
-                    {/* KPI 2: Lynwood Store Shift Presence */}
+                    {/* KPI 2: Role & Presence (IT La Bodega & System Developer for Oct+, Historical Lynwood Shifts for Jun-Sep) */}
                     <div className="bg-white dark:bg-[#111827] border border-slate-200 dark:border-slate-800/80 rounded-2xl p-5 shadow-sm space-y-3 relative overflow-hidden">
                         <div className="flex items-center justify-between">
                             <span className="text-[11px] font-black uppercase tracking-wider text-slate-400 dark:text-slate-500">
-                                Jornada Tienda Lynwood #14
+                                {selectedMonth === 'octubre' ? 'Rol & Sede Operativa' : 'Jornada Tienda Lynwood #14'}
                             </span>
                             <div className="w-8 h-8 rounded-lg bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 flex items-center justify-center">
-                                <Store className="w-4 h-4" />
+                                {selectedMonth === 'octubre' ? <Building2 className="w-4 h-4" /> : <Store className="w-4 h-4" />}
                             </div>
                         </div>
-                        <div className="flex items-baseline gap-2">
-                            <span className="text-3xl font-black font-mono tracking-tight text-blue-600 dark:text-blue-400">
-                                {storeShiftsStats.totalShiftHours.toFixed(1)}
-                            </span>
-                            <span className="text-xs font-bold text-slate-400">horas en tienda</span>
-                        </div>
-                        <div className="text-[11px] text-slate-500 dark:text-slate-400 font-medium flex items-center justify-between border-t border-slate-100 dark:border-slate-800/80 pt-2.5">
-                            <span>{storeShiftsStats.shiftsCount} turnos Planificador</span>
-                            <span className="font-semibold text-blue-600 dark:text-blue-400">General Manager</span>
-                        </div>
+                        {selectedMonth === 'octubre' ? (
+                            <>
+                                <div className="flex items-baseline gap-2">
+                                    <span className="text-2xl font-black tracking-tight text-blue-600 dark:text-blue-400">
+                                        IT en La Bodega
+                                    </span>
+                                </div>
+                                <div className="text-[11px] text-slate-500 dark:text-slate-400 font-medium flex items-center justify-between border-t border-slate-100 dark:border-slate-800/80 pt-2.5">
+                                    <span>15 Sucursales & Bodega</span>
+                                    <span className="font-semibold text-blue-600 dark:text-blue-400">Desarrollador del Sistema</span>
+                                </div>
+                            </>
+                        ) : (
+                            <>
+                                <div className="flex items-baseline gap-2">
+                                    <span className="text-3xl font-black font-mono tracking-tight text-blue-600 dark:text-blue-400">
+                                        {storeShiftsStats.totalShiftHours.toFixed(1)}
+                                    </span>
+                                    <span className="text-xs font-bold text-slate-400">horas en tienda</span>
+                                </div>
+                                <div className="text-[11px] text-slate-500 dark:text-slate-400 font-medium flex items-center justify-between border-t border-slate-100 dark:border-slate-800/80 pt-2.5">
+                                    <span>{storeShiftsStats.shiftsCount} turnos Planificador</span>
+                                    <span className="font-semibold text-blue-600 dark:text-blue-400">General Manager</span>
+                                </div>
+                            </>
+                        )}
                     </div>
 
                     {/* KPI 3: Task Roadmap Progression */}
@@ -536,12 +552,14 @@ function ExecutiveReportDashboard() {
                         </div>
                         <div className="space-y-0.5">
                             <div className="text-base font-black text-slate-900 dark:text-white truncate">
+                                {selectedMonth === 'octubre' && `Blindaje Delivery, Actividades, KDS & ${SYSTEM_VERSION.version}`}
                                 {selectedMonth === 'septiembre' && `Cohesion, Viele, RONOS & ${SYSTEM_VERSION.version}`}
                                 {selectedMonth === 'agosto' && 'RONOS HR, MilesIQ & Viele v3'}
                                 {selectedMonth === 'julio' && 'Preparador KDS & Tableros TV'}
                                 {selectedMonth === 'junio' && 'Telemetría Drive-Thru Nitro'}
                             </div>
                             <div className="text-xs text-slate-400 font-medium truncate">
+                                {selectedMonth === 'octubre' && 'IT La Bodega, Mantenimiento CCTV, Motor V29 y 15 Sucursales'}
                                 {selectedMonth === 'septiembre' && 'Compras V&S, ausencias RONOS, QBO y centinela'}
                                 {selectedMonth === 'agosto' && 'Auditoría Cingular, nóminas y geofencing'}
                                 {selectedMonth === 'julio' && 'Menús digitales y órdenes automáticas'}
@@ -624,17 +642,19 @@ function ExecutiveReportDashboard() {
                                         </span>
                                     </div>
                                     <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                                        Horarios oficiales de Tienda Lynwood cruzados de forma sincronizada con las sesiones de programación TEG.
+                                        {selectedMonth === 'octubre'
+                                            ? 'Cronograma diario de Desarrollo del Sistema SM TEG e Ingeniería IT desde La Bodega Central.'
+                                            : 'Horarios oficiales de Tienda Lynwood cruzados de forma sincronizada con las sesiones de programación TEG.'}
                                     </p>
                                 </div>
                                 <div className="flex items-center gap-2 flex-wrap text-xs">
                                     <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg font-bold bg-blue-50 dark:bg-blue-950/80 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
                                         <span className="w-2 h-2 rounded-full bg-blue-600 dark:bg-blue-400" />
-                                        <span>Turno Presencial Lynwood #14</span>
+                                        <span>{selectedMonth === 'octubre' ? 'IT en La Bodega • Infraestructura & Soporte' : 'Turno Presencial Lynwood #14'}</span>
                                     </span>
                                     <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg font-bold bg-orange-50 dark:bg-orange-950/80 text-orange-700 dark:text-orange-300 border border-orange-200 dark:border-orange-800">
                                         <span className="w-2 h-2 rounded-full bg-orange-500" />
-                                        <span>Desarrollo de Software TEG</span>
+                                        <span>{selectedMonth === 'octubre' ? 'Desarrollador del Sistema SM TEG' : 'Desarrollo de Software TEG'}</span>
                                     </span>
                                 </div>
                             </div>
@@ -709,12 +729,12 @@ function ExecutiveReportDashboard() {
                                             <div className="flex items-center gap-2 flex-wrap">
                                                 <span
                                                     className={`px-3 py-1 rounded-lg text-xs font-bold border ${
-                                                        shiftInfo.hasShift
+                                                        selectedMonth === 'octubre' || shiftInfo.hasShift
                                                             ? 'bg-blue-50 dark:bg-blue-950/80 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800'
                                                             : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-700'
                                                     }`}
                                                 >
-                                                    {shiftInfo.badgeText}
+                                                    {selectedMonth === 'octubre' ? 'IT en La Bodega • Desarrollador del Sistema' : shiftInfo.badgeText}
                                                 </span>
 
                                                 <span className="bg-orange-50 dark:bg-orange-950/80 text-orange-700 dark:text-orange-300 border border-orange-200 dark:border-orange-900/60 px-3 py-1 rounded-lg text-xs font-mono font-black">
@@ -733,13 +753,17 @@ function ExecutiveReportDashboard() {
 
                                         {/* Double Track Timeline Bar */}
                                         <div className="bg-slate-50 dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-xl p-3 space-y-2.5">
-                                            {/* Track 1: Store Shift */}
+                                            {/* Track 1: IT La Bodega (Oct+) or Store Shift (Jun-Sep) */}
                                             <div className="flex items-center gap-2">
                                                 <span className="text-[10px] font-black tracking-wider text-blue-600 dark:text-blue-400 w-16 uppercase shrink-0">
-                                                    Tienda
+                                                    {selectedMonth === 'octubre' ? 'IT Bodega' : 'Tienda'}
                                                 </span>
                                                 <div className="flex-1 h-6 bg-slate-200/60 dark:bg-slate-800 rounded-md relative overflow-hidden flex items-center justify-center">
-                                                    {shiftInfo.hasShift && shiftInfo.startDec !== null && shiftInfo.startDec !== undefined && shiftInfo.endDec !== null && shiftInfo.endDec !== undefined ? (
+                                                    {selectedMonth === 'octubre' ? (
+                                                        <span className="text-[10px] font-bold text-blue-700 dark:text-blue-300 tracking-wide">
+                                                            Sede Central La Bodega • IT & Desarrollador del Sistema SM TEG (15 Sucursales)
+                                                        </span>
+                                                    ) : shiftInfo.hasShift && shiftInfo.startDec !== null && shiftInfo.startDec !== undefined && shiftInfo.endDec !== null && shiftInfo.endDec !== undefined ? (
                                                         (() => {
                                                             const pos = intervalToPercentages(shiftInfo.startDec, shiftInfo.endDec);
                                                             if (!pos) return null;

@@ -377,9 +377,12 @@ assert.equal(
   deliveryArmorSource.includes('delivery_armor_l2_orders_') &&
     deliveryArmorSource.includes('loadStoreOrdersL2Cache') &&
     deliveryArmorSource.includes('saveStoreOrdersL2Cache') &&
+    deliveryArmorSource.includes('Error temporal leyendo auditorías de entrega:') &&
+    empaqueSource.includes('persistStickyAudits') &&
+    empaqueSource.includes('blindaje_sticky_audits_') &&
     empaqueSource.includes("console.warn('[BlindajeDelivery] Aviso transitorio en sincronización de fondo:'"),
   true,
-  'Debe contar con caché L2 compartida en Supabase ante rate-limit 429 de Toast API y silenciar errores transitorios de polling en la tableta'
+  'Debe contar con caché L2 compartida en Supabase ante rate-limit 429 de Toast API, persistir stickyAudits en localStorage y abortar polls sin auditorías para que órdenes entregadas jamás regresen'
 )
 
 assert.equal(

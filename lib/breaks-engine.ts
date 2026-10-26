@@ -194,13 +194,34 @@ function getRoleCategory(rk: string): RoleCategory {
     return 'boh'
 }
 
+function getWallClockDurationHours(startMs: number, endMs: number): number {
+    const rawHrs = (endMs - startMs) / 3_600_000
+    const s = getLocalHourMinute(startMs)
+    const e = getLocalHourMinute(endMs)
+    const sMin = s.hour * 60 + s.minute
+    let eMin = e.hour * 60 + e.minute
+    if (eMin <= sMin && rawHrs > 0.5) eMin += 24 * 60
+    const wallHrs = (eMin - sMin) / 60
+    // Si hay cambio de horario (DST Fall-Back / Spring-Forward ±1h), usar la duración nominal de reloj de pared
+    if (Math.abs(rawHrs - wallHrs) >= 0.9 && Math.abs(rawHrs - wallHrs) <= 1.1 && wallHrs > 0) {
+        return wallHrs
+    }
+    return rawHrs
+}
+
 function getRequiredBreaks(startMs: number, endMs: number): Omit<BreakBlock, 'start_time' | 'end_time'>[] {
-    const h = (endMs - startMs) / 3_600_000
+    const h = getWallClockDurationHours(startMs, endMs)
     const result: Omit<BreakBlock, 'start_time' | 'end_time'>[] = []
+    // Regla Operativa Slauson (Manager Jesús):
+    // - 3.5h a 6.0h: 1 break de 10m
+    // - >6.0h a 10.0h: 2 breaks de 10m
+    // - >10.0h a 14.0h: 3 breaks de 10m
+    // - >=6.0h: 1er Lunch de 30m (incluye turnos exactos de 6.0h como 5pm-11pm y 7pm-1am)
+    // - >=12.0h: 2do Lunch de 30m (turnos de 10.5h-11.5h llevan 1 Lunch + 3 Breaks de 10m)
     const restCount = h > 14 ? 4 : h > 10 ? 3 : h > 6 ? 2 : h >= 3.5 ? 1 : 0
     for (let i = 0; i < restCount; i++) result.push({ type: 'rest_10' })
-    if (h > 6) result.push({ type: 'meal_30' })
-    if (h > 10) result.push({ type: 'meal_30' })
+    if (h >= 6) result.push({ type: 'meal_30' })
+    if (h >= 12) result.push({ type: 'meal_30' })
     return result
 }
 
@@ -385,6 +406,43 @@ function spanHeat(sMs: number, eMs: number, getHeat: (t: number) => number): num
     return worst
 }
 
+export function getShiftOperationalTieRank(shift: any): number {
+    const name = String(shift.employee_name || shift.first_name || '').toLowerCase()
+    const station = String(shift.station_name || shift.main_station || '').toLowerCase()
+
+    if (name.includes('arturo')) return 10
+    if (name.includes('carlos roca')) return 12
+    if (name.includes('felix')) return 15
+    if (name.includes('osman')) return 18
+    if (name.includes('william')) return 22
+    if (name.includes('alexander')) return 26
+    if (name.includes('brandon')) return 30
+    if (name.includes('lorenzo')) return 34
+    if (name.includes('juan hernandez')) return 38
+
+    if (name.includes('jennifer')) return 12
+    if (name.includes('sandra')) return 18
+    if (name.includes('veronica')) return 24
+    if (name.includes('abigail')) return 30
+    if (name.includes('teresa')) return 36
+    if (name.includes('rosalinda')) return 42
+    if (name.includes('maria')) return 48
+
+    if (name.includes('daisy')) return 10
+    if (name.includes('oscar')) return 20
+    if (name.includes('hector')) return 30
+    if (name.includes('alfonso')) return 40
+    if (name.includes('alberto')) return 50
+
+    if (station.includes('preparacion') || station.includes('preparaci')) return 16
+    if (station.includes('tortas') || station.includes('quesadillas')) return 20
+    if (station.includes('carnes')) return 25
+    if (station.includes('tacos')) return 32
+    if (station.includes('burritos') || station.includes('tortillas')) return 36
+
+    return 99
+}
+
 function assignCohorts(shifts: any[]): void {
     const groups = new Map<string, any[]>()
     for (const s of shifts) {
@@ -424,6 +482,9 @@ function assignCohorts(shifts: any[]): void {
             const sMsA = new Date(a.start_time).getTime()
             const sMsB = new Date(b.start_time).getTime()
             if (sMsA !== sMsB) return sMsA - sMsB
+            const tieA = getShiftOperationalTieRank(a)
+            const tieB = getShiftOperationalTieRank(b)
+            if (tieA !== tieB) return tieA - tieB
             return String(a.employee_id || a.id || '').localeCompare(String(b.employee_id || b.id || ''))
         })
 
@@ -452,8 +513,10 @@ function findBestLearnedPref(
 ): { offsetMin: number; exactStartHour: boolean; exactCohort: boolean; exactDay: boolean } | null {
     if (!learnedPrefs || learnedPrefs.length === 0) return null
 
-    const shiftDurMin = Math.round((shiftEndMs - shiftStartMs) / 60000)
-    const isShortShift = shiftDurMin <= 360
+    const shiftDurMin = Math.round(getWallClockDurationHours(shiftStartMs, shiftEndMs) * 60)
+    const isNoMealShift = shiftDurMin <= 330
+    const isSixHourShift = shiftDurMin > 330 && shiftDurMin <= 375
+    const isShortShift = shiftDurMin <= 375
     const { hour: startHour } = getLocalHourMinute(shiftStartMs)
     const shiftPeriod = getShiftPeriodBucket(startHour)
     const minEndClearance = breakType === 'meal_30' ? 40 : 20
@@ -463,6 +526,7 @@ function findBestLearnedPref(
         score: number
         pHour: number | null
         pCohort: number
+        tsMs: number
     }
 
     const candidates: ScoredCandidate[] = []
@@ -471,15 +535,19 @@ function findBestLearnedPref(
         if ((p.role || '').toLowerCase().trim() !== rk) continue
         if (p.break_type !== breakType) continue
 
-        // 1. Validar duración compatible (NUNCA mezclar turnos cortos <=6h con turnos completos >6h)
         const pDur = p.shift_duration_min ? Number(p.shift_duration_min) : null
-        if (isShortShift) {
-            if (pDur === null || pDur > 360) continue
+        if (isNoMealShift) {
+            if (pDur === null || pDur > 330) continue
+        } else if (isSixHourShift) {
+            if (breakType === 'rest_10') {
+                if (pDur === null || pDur <= 330 || pDur > 375) continue
+            } else {
+                if (pDur !== null && pDur <= 330) continue
+            }
         } else {
-            if (pDur !== null && pDur <= 360) continue
+            if (pDur !== null && pDur <= 375) continue
         }
 
-        // El offset debe caber dentro de la duración del turno actual (y antes de la 5ta hora para 1er lunch)
         if (p.offset_from_start_min < 30 || p.offset_from_start_min > shiftDurMin - minEndClearance) {
             continue
         }
@@ -489,13 +557,15 @@ function findBestLearnedPref(
 
         const { startHour: pHour, cohortIdx: pCohort } = decodeLearnedSlotMeta(p.peak_hour)
 
-        // 2. Validar índice específico por tipo
+        if (breakType === 'meal_30' && pHour !== null && pCohort !== cohortIdx && p.offset_from_start_min >= 180) {
+            continue
+        }
+
         if (p.break_index !== typeBreakIndex) {
             const isLegacySingleMeal = pHour === null && breakType === 'meal_30' && typeBreakIndex === 0 && shiftDurMin <= 600 && p.break_index <= 2
             if (!isLegacySingleMeal) continue
         }
 
-        // 3. Validar bloque horario (AM vs MID vs PM)
         if (pHour !== null) {
             const pPeriod = getShiftPeriodBucket(pHour)
             if (pPeriod !== shiftPeriod) continue
@@ -521,20 +591,28 @@ function findBestLearnedPref(
 
         if (pDur !== null) {
             score -= Math.abs(pDur - shiftDurMin) * 1.2
+            if (breakType === 'rest_10' && (shiftDurMin >= 630) !== (pDur >= 630)) {
+                score -= 400
+            }
         }
 
-        // Bonus a movimientos manuales recientes sobre semillas históricas
         const prefTs = p.updated_at || (p as any).created_at
-        if (prefTs && String(prefTs) > '2026-10-14T00:00:00') {
+        const tsMs = prefTs ? new Date(String(prefTs)).getTime() : 0
+        if (prefTs && String(prefTs) > '2026-10-20T21:42:00') {
+            score += 600
+        } else if (prefTs && String(prefTs) > '2026-10-14T00:00:00') {
             score += 150
         }
 
-        candidates.push({ pref: p, score, pHour, pCohort })
+        candidates.push({ pref: p, score, pHour, pCohort, tsMs: isNaN(tsMs) ? 0 : tsMs })
     }
 
     if (candidates.length === 0) return null
 
-    candidates.sort((a, b) => b.score - a.score)
+    candidates.sort((a, b) => {
+        if (Math.abs(b.score - a.score) > 0.5) return b.score - a.score
+        return b.tsMs - a.tsMs
+    })
     const best = candidates[0]
 
     let adjustedOffset = best.pref.offset_from_start_min
@@ -787,17 +865,18 @@ export function scheduleBreaksWithDemand(shifts: Shift[], rawOperatingHours: Ope
         const idx = (shift._cohortSize && shift._cohortSize > 1) ? shift._cohortIdx : 0
         const size = Math.max((shift._cohortSize && shift._cohortSize > 1) ? shift._cohortSize : 1, 1)
 
-        // ── 1. PREFERENCES CHECK ──
-        const matchedPref = findBestLearnedPref(
-            learnedPrefs,
-            rk,
-            dayOfWeek,
-            'meal_30',
-            globalMealIndex,
-            shiftStartMs,
-            shiftEndMs,
-            idx
-        )
+        const matchedPref = (globalMealIndex === 0 && shift._monotonicMeal0Pref)
+            ? shift._monotonicMeal0Pref
+            : findBestLearnedPref(
+                learnedPrefs,
+                rk,
+                dayOfWeek,
+                'meal_30',
+                globalMealIndex,
+                shiftStartMs,
+                shiftEndMs,
+                idx
+            )
 
         if (matchedPref) {
             const rawTarget = shiftStartMs + ms(matchedPref.offsetMin)
@@ -1094,8 +1173,62 @@ export function scheduleBreaksWithDemand(shifts: Shift[], rawOperatingHours: Ope
         const aCat = getRoleCategory(rkA), bCat = getRoleCategory(rkB)
         if (aCat === 'leader' && bCat !== 'leader') return -1
         if (bCat === 'leader' && aCat !== 'leader') return 1
+        const tieA = getShiftOperationalTieRank(a)
+        const tieB = getShiftOperationalTieRank(b)
+        if (tieA !== tieB) return tieA - tieB
         return String(a.employee_id || a.id || '').localeCompare(String(b.employee_id || b.id || ''))
     })
+
+    // Pre-ordenamiento monotónico de Lunches Pre-Peak por grupo de rol/entrada:
+    // Garantiza que si dos compañeros del mismo rol (o líderes AM) van a lunch pre-peak (<=165m),
+    // nunca se invierta el orden de salida anticipada (_cohortIdx menor siempre come primero).
+    const mealGroupBuckets = new Map<string, any[]>()
+    for (const s of augmented) {
+        const rk = getRoleKey(s)
+        if (isGeneralManagerRole(rk)) continue
+        const cat = getRoleCategory(rk)
+        const sMs = new Date(s.start_time).getTime()
+        const { hour } = getLocalHourMinute(sMs)
+        const gKey = cat === 'leader'
+            ? `${hour < 14 ? 'am_leader' : 'pm_leader'}|leader`
+            : `${Math.floor(sMs / ms(30))}|${rk}`
+        if (!mealGroupBuckets.has(gKey)) mealGroupBuckets.set(gKey, [])
+        mealGroupBuckets.get(gKey)!.push(s)
+    }
+    for (const bucket of mealGroupBuckets.values()) {
+        if (bucket.length < 2) continue
+        bucket.sort((a, b) => (a._cohortIdx ?? 0) - (b._cohortIdx ?? 0))
+        const prePeakEntries: { shift: any; pref: { offsetMin: number; exactStartHour: boolean; exactCohort: boolean; exactDay: boolean } }[] = []
+        for (const s of bucket) {
+            const sMs = new Date(s.start_time).getTime()
+            const eMs = s._effEndMs ?? new Date(s.end_time).getTime()
+            const req = getRequiredBreaks(sMs, eMs)
+            const hasMeal = req.some(b => b.type === 'meal_30')
+            const hasManualMeal = (s.breaks_schedule || []).some((b: BreakBlock) => b.type === 'meal_30' && b.is_manual)
+            if (!hasMeal || hasManualMeal) continue
+            const rk = getRoleKey(s)
+            const dayOfWeek = getLocalDayOfWeek(sMs)
+            const idx = (s._cohortSize && s._cohortSize > 1) ? s._cohortIdx : 0
+            const pref = findBestLearnedPref(learnedPrefs, rk, dayOfWeek, 'meal_30', 0, sMs, eMs, idx)
+            if (pref && pref.offsetMin <= 165) {
+                prePeakEntries.push({ shift: s, pref })
+            }
+        }
+        if (prePeakEntries.length >= 2) {
+            const sortedOffsets = prePeakEntries.map(e => e.pref.offsetMin).sort((a, b) => a - b)
+            for (let i = 1; i < sortedOffsets.length; i++) {
+                if (sortedOffsets[i] < sortedOffsets[i - 1] + 20) {
+                    sortedOffsets[i] = sortedOffsets[i - 1] + 30
+                }
+            }
+            prePeakEntries.forEach((entry, i) => {
+                entry.shift._monotonicMeal0Pref = {
+                    ...entry.pref,
+                    offsetMin: sortedOffsets[i]
+                }
+            })
+        }
+    }
 
     // ══════════════════════════════════════════════════════════════════════════
     //  PASS 1 — MEALS (Lunches de 30 min)

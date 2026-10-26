@@ -209,6 +209,14 @@ export async function purgeTabletStaleCaches(options: CacheCleanerOptions = {}):
         }
         continue
       }
+
+      // g) Auditorías confirmadas en Delivery de fechas pasadas: blindaje_sticky_audits_${storeId}_${date}
+      if (key.startsWith('blindaje_sticky_audits_')) {
+        if (!activeDate || !key.endsWith(`_${activeDate}`)) {
+          keysToRemove.push(key)
+        }
+        continue
+      }
     }
 
     for (const k of keysToRemove) {

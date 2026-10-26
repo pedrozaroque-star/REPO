@@ -1251,13 +1251,13 @@ function getStoreOrdersL2CacheRowId(storeId: number, modeKey: string): string {
 async function saveStoreOrdersL2Cache(storeId: number, modeKey: string, orders: OffPremiseOrder[]): Promise<void> {
   try {
     const rowId = getStoreOrdersL2CacheRowId(storeId, modeKey)
-    const stripped = orders.slice(0, 60).map(o => ({ ...o, audit: undefined }))
+    const snapshot = orders.slice(0, 60)
     await supabaseAdmin.from('order_ready_settings').upsert(
       {
         id: rowId,
         voice_name: 'Kore',
         updated_at: new Date().toISOString(),
-        updated_by: JSON.stringify({ at: Date.now(), orders: stripped })
+        updated_by: JSON.stringify({ at: Date.now(), orders: snapshot })
       },
       { onConflict: 'id' }
     )
@@ -1583,11 +1583,22 @@ export async function fetchOffPremiseOrders(storeId: number, targetBusinessDate?
   // Consultar exactamente las auditorías de los GUIDs presentes en rawOrders (evita el techo de 1,000 filas de PostgREST)
   for (let i = 0; i < rawOrderGuids.length; i += 200) {
     const chunkGuids = rawOrderGuids.slice(i, i + 200)
-    const { data: chunkAudits, error: chunkErr } = await supabaseAdmin
+    let { data: chunkAudits, error: chunkErr } = await supabaseAdmin
       .from('delivery_packing_audits')
       .select('*')
       .eq('store_id', storeId)
       .in('toast_order_guid', chunkGuids)
+
+    if (chunkErr) {
+      await new Promise(r => setTimeout(r, 250))
+      const retryRes = await supabaseAdmin
+        .from('delivery_packing_audits')
+        .select('*')
+        .eq('store_id', storeId)
+        .in('toast_order_guid', chunkGuids)
+      chunkAudits = retryRes.data
+      chunkErr = retryRes.error
+    }
 
     if (!chunkErr && Array.isArray(chunkAudits)) {
       chunkAudits.forEach(a => {
@@ -1596,6 +1607,10 @@ export async function fetchOffPremiseOrders(storeId: number, targetBusinessDate?
           lastKnownAuditsByGuid.set(a.toast_order_guid, a)
         }
       })
+    } else if (chunkErr && auditsMap.size === 0) {
+      // Si la instancia estaba fría y falló la lectura de auditorías en Supabase tras reintentar,
+      // abortar este poll para que la tableta conserve su estado actual y JAMÁS muestre órdenes ya entregadas como pendientes.
+      throw new Error(`Error temporal leyendo auditorías de entrega: ${chunkErr.message}`)
     }
   }
 

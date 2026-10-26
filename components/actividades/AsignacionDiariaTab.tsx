@@ -2835,7 +2835,7 @@ export default function AsignacionDiariaTab() {
                       ? employees.find((e) => String(e.id) === String(currentAssignee.employee_id)) || (currentAssignee as any).toast_employees
                       : null;
 
-                    if ((currentEmp && !isReassigning) || !canEditAssignments) {
+                    if (!isReassigning || !canEditAssignments) {
                       // Display Employee Profile (or Station Header if vacant & read-only) + Activities
                       // Collect activities from ALL stations this employee is assigned to (not just the clicked one)
                       const empAssignments = currentEmp
@@ -2852,80 +2852,14 @@ export default function AsignacionDiariaTab() {
                         empStationKeys.push(clickedStation);
                       }
                       // Merge activities from all assigned stations, deduplicated by activity_id / normalized title (A11).
-                      // Hallazgo B (Etapa 2): Si el slot tiene un empleado con turno activo (`empShiftForCard`),
-                      // se resuelven sus tareas personales filtrando por su ventana horaria (`enforceShiftWindow: true`).
-                      // Si el puesto está vacante o el empleado no tiene turno en `todayShifts`, se muestran las tareas de la estación (`activityMap`, `enforceShiftWindow: false`).
-                      const empShiftForCard = currentEmp
-                        ? todayShifts.find(
-                            (s) =>
-                              String(s.employee_id) === String(currentEmp.id) &&
-                              !s.is_callback &&
-                              Boolean(s.start_time && s.end_time)
-                          )
-                        : undefined;
-                      const storeContextForCard = selectedStore
-                        ? { ...selectedStore, has_drive_thru: hasDriveThru }
-                        : { has_drive_thru: hasDriveThru };
-                      const procByIdForCard = new Map<string, NonNullable<PositionActivity['operating_procedures']>>();
-                      for (const proc of allProcedures) {
-                        if (proc?.id) procByIdForCard.set(proc.id, proc);
-                      }
-                      for (const pa of approvedPositionActivities) {
-                        if (pa.operating_procedures?.id && !procByIdForCard.has(pa.operating_procedures.id)) {
-                          procByIdForCard.set(pa.operating_procedures.id, pa.operating_procedures);
-                        }
-                      }
-                      const catalogProcsForCard = Array.from(procByIdForCard.values());
-
+                      // En el Tablero Operativo se muestran todas las actividades configuradas para la estación
+                      // (y demás estaciones cubiertas por el empleado en este turno) usando `activityMap[sk]`
+                      // (`enforceShiftWindow: false`), garantizando paridad 100% con "2. Configurar Posiciones"
+                      // y "3. Asignación Diaria" sin ocultar tareas de estación por la hora de entrada del turno.
                       const seenIds = new Set<string>();
                       const stationActivitiesList: PositionActivity[] = [];
                       empStationKeys.forEach(sk => {
-                        let acts: PositionActivity[] = [];
-                        if (empShiftForCard) {
-                          const subPosForCard = `${sk}_${activeShift}`;
-                          const assignedForCard = assignmentMap[subPosForCard];
-                          const resolvedItems = resolveStationActivities({
-                            mainStation: sk,
-                            subPosition: subPosForCard,
-                            shift: activeShift,
-                            businessDateStr: selectedDateStr,
-                            store: storeContextForCard,
-                            procedures: catalogProcsForCard as Parameters<typeof resolveStationActivities>[0]['procedures'],
-                            positionActivities: approvedPositionActivities as Parameters<typeof resolveStationActivities>[0]['positionActivities'],
-                            legacyTasks: assignedForCard?.tasks || null,
-                            storeOffsets,
-                            shiftStartTime: empShiftForCard.start_time,
-                            shiftEndTime: empShiftForCard.end_time,
-                            enforceShiftWindow: true,
-                          });
-                          acts = resolvedItems.map((item) => {
-                            const rawProc = item.activity_id ? procByIdForCard.get(item.activity_id) : undefined;
-                            return {
-                              id: item.occurrence_key,
-                              position_key: sk,
-                              shift: item.shift,
-                              activity_id: item.activity_id || item.occurrence_key,
-                              frequency: item.frequency,
-                              store_model: item.store_model,
-                              sort_order: item.order_index ?? 999,
-                              operating_procedures: {
-                                id: item.activity_id || item.occurrence_key,
-                                activity: item.title,
-                                start_time: item.effective_start_time || '',
-                                duration_minutes: item.duration_minutes ?? rawProc?.duration_minutes ?? 15,
-                                shift_type: item.category,
-                                shift: item.shift,
-                                frequency: item.frequency,
-                                role: rawProc?.role || 'STAFF',
-                                store_model: item.store_model,
-                                description: sanitizeUnsafeProcedureDescription(item.description),
-                                overrides: rawProc?.overrides || null,
-                              },
-                            };
-                          });
-                        } else {
-                          acts = activityMap[sk] || [];
-                        }
+                        const acts: PositionActivity[] = activityMap[sk] || [];
                         acts.forEach(a => {
                           const key =
                             a.activity_id ||
@@ -3446,14 +3380,12 @@ export default function AsignacionDiariaTab() {
                           <h4 className="text-xl sm:text-2xl font-black text-slate-500 dark:text-slate-400 uppercase tracking-widest italic">
                             {t('actividades.daily.reassign_position')}
                           </h4>
-                          {currentEmp && (
-                            <button
-                              onClick={() => setIsReassigning(false)}
-                              className="text-sm font-bold text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-950 px-4 py-2 rounded-xl transition-all border border-indigo-200 dark:border-indigo-800/50"
-                            >
-                              {t('actividades.daily.back_to_profile')}
-                            </button>
-                          )}
+                          <button
+                            onClick={() => setIsReassigning(false)}
+                            className="text-sm font-bold text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-950 px-4 py-2 rounded-xl transition-all border border-indigo-200 dark:border-indigo-800/50"
+                          >
+                            {t('actividades.daily.back_to_profile')}
+                          </button>
                         </div>
                         <div className="flex-1 overflow-y-auto space-y-4 pr-2 custom-scrollbar min-h-0">
                           <button

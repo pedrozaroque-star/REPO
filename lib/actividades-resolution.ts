@@ -508,7 +508,8 @@ const STATION_EQUIVALENCE_GROUPS: string[][] = [
     ['Ventana 2 (B)', 'VENTANA 2 (B)', 'Ventanilla 2 (B)', 'CAJERO DRIVE THRU|Ventana 2 (B)'],
     ['MANAGER', 'Manager', 'LIDERAZGO|Manager', 'Gerente'],
     ['ASSISTANT', 'Asistente', 'Asistente de Manager', 'LIDERAZGO|Asistente de Manager', 'LIDERAZGO|Asistente'],
-    ['SHIFT_LEADER_MALE', 'SHIFT_LEADER_FEMALE', 'Shift Leader', 'LIDERAZGO|Shift Leader'],
+    ['SHIFT_LEADER_MALE', 'Shift Leader (M)', 'Shift Leader Male', 'LIDERAZGO|Shift Leader (M)', 'LIDERAZGO|Shift Leader Male'],
+    ['SHIFT_LEADER_FEMALE', 'Shift Leader (F)', 'Shift Leader Female', 'LIDERAZGO|Shift Leader (F)', 'LIDERAZGO|Shift Leader Female'],
 ];
 
 /**
@@ -1571,15 +1572,21 @@ export function resolveStationActivities(params: {
             Boolean(baseStartTime) && baseSortMins >= 360 && baseSortMins < 1020;
 
         // Hallazgo B (Etapa 2): Contrato de separación entre tareas de estación y tareas personales.
-        // 1) Las 10 responsabilidades continuas de puesto (`CONTINUOUS_STATION_DUTY_IDS`) fueron sembradas
-        //    con `10:00:00` (apertura AM). Cuando se resuelven para el turno `PM`, operan como tareas
-        //    continuas sin hora específica (`EVENT_NO_TIME`, `effective_start_time = null`), para nunca
-        //    mostrar una etiqueta falsa de "10:00 AM" en un turno de tarde/noche.
+        // 1) Las responsabilidades continuas de puesto (`CONTINUOUS_STATION_DUTY_IDS`) o cualquier
+        //    actividad que el manager haya asignado explícitamente al turno `PM` en `position_activities`
+        //    (`mapping?.shift === 'PM'`), aunque tengan hora semilla matutina en `operating_procedures`
+        //    (06:00–16:59), se preservan en el turno `PM` operando como tareas del turno sin hora matutina
+        //    falsa (`EVENT_NO_TIME`, `effective_start_time = null`).
+        const mappingShiftUpper = (mapping?.shift || '').toString().trim().toUpperCase();
+        const isExplicitPmCatalogMapping =
+            origin === 'catalog_mapping' &&
+            (mappingShiftUpper === 'PM' || mappingShiftUpper === 'AMBOS');
         const isContinuousStationDutyInPm =
             shift === 'PM' &&
             isMorningCatalogClockTime &&
-            CONTINUOUS_STATION_DUTY_IDS.has(String(proc.id)) &&
-            category.toLowerCase() === 'regular';
+            (isExplicitPmCatalogMapping ||
+                (CONTINUOUS_STATION_DUTY_IDS.has(String(proc.id)) &&
+                    category.toLowerCase() === 'regular'));
 
         // 2) Cualquier otra actividad con hora base matutina en catálogo (06:00–16:59, ej. 09:20 AM, 10:00 AM,
         //    11:00 AM, tareas de Apertura o "(AM)") pertenece exclusivamente a la mañana y NO debe

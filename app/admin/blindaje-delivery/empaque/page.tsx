@@ -910,6 +910,8 @@ export default function BlindajeDeliveryEmpaquePage() {
       packerRef.current = null
       setPacker(null)
       setSelected(null)
+      setShowHistory(false)
+      setSearch('')
       setPin('')
       if (expiredNotice) {
         setError(expiredNotice)
@@ -1137,7 +1139,17 @@ export default function BlindajeDeliveryEmpaquePage() {
     }
   }, [packer, logout, recordCashierActivity, t])
 
-  // Cargar historial de órdenes ya anunciadas en esta sesión por sucursal
+  const persistStickyAudits = useCallback(() => {
+    try {
+      const storageKey = `blindaje_sticky_audits_${storeId}_${effectiveDateRef.current}`
+      const entries = Array.from(stickyAuditsRef.current.entries()).slice(-300)
+      localStorage.setItem(storageKey, JSON.stringify(entries))
+    } catch {
+      // ignore storage quota
+    }
+  }, [storeId])
+
+  // Cargar historial de órdenes ya anunciadas y auditorías confirmadas (stickyAudits) en esta fecha laboral por sucursal
   useEffect(() => {
     try {
       const raw = sessionStorage.getItem(`blindaje_kds_announced_${storeId}`)
@@ -1146,8 +1158,25 @@ export default function BlindajeDeliveryEmpaquePage() {
     } catch {
       announcedGuidsRef.current = new Set()
     }
+    const restoredSticky = new Map<string, NonNullable<Order['audit']>>()
+    try {
+      const storageKey = `blindaje_sticky_audits_${storeId}_${getLAEffectiveBusinessDate()}`
+      const rawSticky = localStorage.getItem(storageKey)
+      if (rawSticky) {
+        const parsedEntries: [string, NonNullable<Order['audit']>][] = JSON.parse(rawSticky)
+        if (Array.isArray(parsedEntries)) {
+          for (const [g, aud] of parsedEntries) {
+            if (g && aud && typeof aud.status === 'string') {
+              restoredSticky.set(g, aud)
+            }
+          }
+        }
+      }
+    } catch {
+      // ignore parse error
+    }
     prevKdsStatusRef.current = new Map()
-    stickyAuditsRef.current = new Map()
+    stickyAuditsRef.current = restoredSticky
     recentActiveOrdersRef.current = new Map()
     initializedStoreRef.current = null
   }, [storeId])
@@ -1342,6 +1371,7 @@ export default function BlindajeDeliveryEmpaquePage() {
         }
       }
 
+      persistStickyAudits()
       setOrders(next)
       // Si había un mensaje de error de red/polling previo, limpiarlo automáticamente al recibir datos frescos
       setError(prev =>
@@ -1358,7 +1388,7 @@ export default function BlindajeDeliveryEmpaquePage() {
         if (!current) return null
         const currentObj = next.find(o => o.guid === current) || null
         if (!currentObj) return null
-        if (showHistoryRef.current || searchRef.current.trim().length > 0) {
+        if (showHistoryRef.current) {
           return current
         }
         return isOrderCurrentlyActive(currentObj, dismissedVoidedRef.current) ? current : null
@@ -1372,7 +1402,7 @@ export default function BlindajeDeliveryEmpaquePage() {
     } finally {
       setLoading(false)
     }
-  }, [storeId, packer, persistAnnouncedGuid, enqueueOrderAnnouncement, handleSessionReplacedError, t])
+  }, [storeId, packer, persistAnnouncedGuid, persistStickyAudits, enqueueOrderAnnouncement, handleSessionReplacedError, t])
 
   // Monitoreo continuo del KDS cada 4 segundos (incluso cuando está en la pantalla de PIN)
   useEffect(() => {
@@ -1582,17 +1612,27 @@ export default function BlindajeDeliveryEmpaquePage() {
   )
   const isCollisionConfirmed = order ? currentCollisions.length === 0 || !!collisionAck[order.guid] : true
 
+  // Si la cajera abre la vista de "Pasadas" para consultar alguna orden, cerrarla automáticamente a los 45 segundos
+  // para que nunca se queden visibles las órdenes con estatus ENTREGADA en la cola operativa
+  useEffect(() => {
+    if (!showHistory) return
+    const timer = window.setTimeout(() => {
+      setShowHistory(false)
+    }, 45_000)
+    return () => window.clearTimeout(timer)
+  }, [showHistory])
+
   const visible = useMemo(() => {
     const q = search.trim().toLowerCase()
     if (!q) return activeQueueOrders
-    return orders.filter(value =>
+    return activeQueueOrders.filter(value =>
       `${value.customer} #${value.ticket} ${value.ticket} ${value.platformOrderKey} ${value.shortOrderKey} ${
         value.assignedDriverHint || ''
       } ${label(value.platform)}`
         .toLowerCase()
         .includes(q)
     )
-  }, [orders, activeQueueOrders, search])
+  }, [activeQueueOrders, search])
 
   async function login(event: React.FormEvent) {
     event.preventDefault()
@@ -1832,6 +1872,8 @@ export default function BlindajeDeliveryEmpaquePage() {
         packedAt: new Date().toISOString()
       }
       stickyAuditsRef.current.set(targetGuid, optimisticAudit)
+      persistStickyAudits()
+      setShowHistory(false)
       setOrders(prev =>
         prev.map(o => (o.guid === targetGuid ? { ...o, audit: optimisticAudit } : o))
       )
@@ -1939,7 +1981,9 @@ export default function BlindajeDeliveryEmpaquePage() {
       const existingSticky = stickyAuditsRef.current.get(targetGuid)
       if (existingSticky) {
         stickyAuditsRef.current.set(targetGuid, { ...existingSticky, status: 'ready' })
+        persistStickyAudits()
       }
+      setShowHistory(false)
       setDriverPresentAck(prev => ({ ...prev, [targetGuid]: false }))
       setSuccess(`${t('blindaje_delivery.reopen_success')}: ${order.customer} (Check #${order.ticket})`)
       await fetchOrders()
@@ -2017,7 +2061,9 @@ export default function BlindajeDeliveryEmpaquePage() {
         courierReference: `${order.customer} (#${order.ticket} • ${order.platformOrderKey})`
       }
       stickyAuditsRef.current.set(targetGuid, releasedAudit)
+      persistStickyAudits()
       recentActiveOrdersRef.current.delete(targetGuid)
+      setShowHistory(false)
       setOrders(prev =>
         prev.map(o => (o.guid === targetGuid ? { ...o, audit: releasedAudit } : o))
       )
@@ -2381,15 +2427,11 @@ export default function BlindajeDeliveryEmpaquePage() {
                   {activeQueueOrders.filter(o => getOrderStageInfo(o, t).stage === 'LISTA').length}
                 </span>
                 {orders.some(o => getOrderStageInfo(o, t).stage === 'NO_RECOGIDA') && (
-                  <button
-                    type="button"
-                    onClick={() => setShowHistory(true)}
-                    className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-orange-100 text-orange-950 border border-orange-400 hover:bg-orange-200 transition-colors"
-                  >
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-orange-100 text-orange-950 border border-orange-400">
                     <span className="w-2 h-2 rounded-full bg-orange-600" />
                     {t('blindaje_delivery.stage_unclaimed')}:{' '}
                     {orders.filter(o => getOrderStageInfo(o, t).stage === 'NO_RECOGIDA').length}
-                  </button>
+                  </span>
                 )}
               </div>
 

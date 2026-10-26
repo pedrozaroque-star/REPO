@@ -133,9 +133,9 @@ function mapRoleKeyToCatalogPositionKey(roleKey: string): { mainStation: string;
         case 'ASSISTANT':
             return { mainStation: 'ASSISTANT', subPosition: 'LIDERAZGO|Asistente de Manager' }
         case 'SHIFT_LEADER_MALE':
-            return { mainStation: 'SHIFT_LEADER_MALE', subPosition: 'LIDERAZGO|Shift Leader' }
+            return { mainStation: 'SHIFT_LEADER_MALE', subPosition: 'LIDERAZGO|Shift Leader (M)' }
         case 'SHIFT_LEADER_FEMALE':
-            return { mainStation: 'SHIFT_LEADER_FEMALE', subPosition: 'LIDERAZGO|Shift Leader' }
+            return { mainStation: 'SHIFT_LEADER_FEMALE', subPosition: 'LIDERAZGO|Shift Leader (F)' }
         case 'COOK_MALE':
             return { mainStation: 'TACOS', subPosition: null }
         case 'CASHIER':
@@ -495,6 +495,7 @@ export async function POST(req: Request) {
             offset_from_start_min: o.offset_from_start_min,
             shift_duration_min: o.shift_duration_min,
             peak_hour: o.peak_hour,
+            updated_at: o.updated_at || o.created_at || null,
         }))
 
         if (!previewOnly && shifts.length > 0) {
@@ -548,7 +549,7 @@ export async function POST(req: Request) {
                                 empNameLower.includes('alberto romero') ||
                                 empNameLower.includes('manager')
 
-                            return { ...s, is_leader: isLeader, job_title: extTitle }
+                            return { ...s, is_leader: isLeader, job_title: extTitle, employee_name: empNameLower }
                         })
 
                     const augmented = scheduleBreaksWithDemand(
@@ -695,7 +696,7 @@ export async function POST(req: Request) {
                                     isCallback: false,
                                     shiftStartTime: s.start_time,
                                     shiftEndTime: s.end_time,
-                                    enforceShiftWindow: true,
+                                    enforceShiftWindow: posPeriods.length > 1,
                                     isClosingShift: Boolean(pos.is_closing),
                                 })
                             )
