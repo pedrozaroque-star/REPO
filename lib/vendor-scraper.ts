@@ -1,13 +1,14 @@
 /**
  * @module lib/vendor-scraper
  * @description Motor universal de sincronización automatizada de portales y APIs de proveedores.
- *   - Autenticación HTTP directa con manejo de cookies de sesión.
+ *   - Autenticación HTTP directa con manejo de cookies de sesión deduplicadas.
  *   - Ingesta estructurada desde endpoints REST JSON de distribuidores (Viele & Sons API v3).
  *   - Normalización directa a ParsedSupplierItem sin necesidad de parsing manual de portapapeles.
  *   - Soporta doble motor: Fetch nativo con timeout y motor de ejecución curl de alta resiliencia.
  *
  * @businessRules
- *   - Autentica con credenciales corporativas almacenadas de forma segura en variables de entorno.
+ *   - Autentica con credenciales corporativas almacenadas de forma segura en variables de entorno
+ *     (VIELE_PORTAL_USER / VIELE_PORTAL_PASS con respaldo automático a VIELE_STORE_ACCOUNTS_JSON).
  *   - Extrae el catálogo activo con precios vigentes por caja (Price), SKU (ItemID), descripción y unidad (UnitOfMeasure).
  *   - Infiere la cantidad de piezas/unidades por caja a través de inferPackQuantity.
  *   - Diseñado para ser extensible a futuros proveedores broadline (Sysco, US Foods, Restaurant Depot).
@@ -18,6 +19,8 @@
  * @notes
  *   - Reemplaza el flujo manual de copiar y pegar por una sincronización 100% automática en < 2 segundos.
  *   - Extrae directamente JSON estructurado de la API interna v3 de Viele & Sons.
+ *   - [2026-10-26] Fix crítico: Respaldo automático de credenciales desde VIELE_STORE_ACCOUNTS_JSON (Sucursal #14 Lynwood)
+ *     cuando VIELE_PORTAL_USER / VIELE_PORTAL_PASS no están definidas por separado, y deduplicación de cookies en Fetch.
  */
 import { ParsedSupplierItem, cleanPriceNumber, inferPackQuantity } from './supplier-price-parser'
 import { execFile } from 'child_process'
@@ -129,6 +132,25 @@ async function syncVieleViaFetch(user: string, pass: string): Promise<VieleApiRe
   const LOGIN_URL = 'https://shop.vieleandsons.com/login/'
   const DATA_API_URL = 'https://shop.vieleandsons.com/api/v3/order_guide'
 
+  const cookieMap = new Map<string, string>()
+  const mergeSetCookies = (headers: Headers) => {
+    const rawList = headers.getSetCookie?.() || []
+    if (rawList.length === 0) {
+      const single = headers.get('set-cookie')
+      if (single) rawList.push(single)
+    }
+    for (const c of rawList) {
+      const pair = c.split(';')[0]?.trim()
+      if (!pair) continue
+      const eqIdx = pair.indexOf('=')
+      if (eqIdx > 0) {
+        cookieMap.set(pair.slice(0, eqIdx).trim(), pair.slice(eqIdx + 1).trim())
+      }
+    }
+  }
+  const getCookieHeader = () =>
+    Array.from(cookieMap.entries()).map(([k, v]) => `${k}=${v}`).join('; ')
+
   // Paso 1: GET sesión
   const initialRes = await fetch(LOGIN_URL, {
     method: 'GET',
@@ -138,8 +160,7 @@ async function syncVieleViaFetch(user: string, pass: string): Promise<VieleApiRe
     signal: AbortSignal.timeout(10000)
   })
 
-  const initialCookies = initialRes.headers.getSetCookie?.() || []
-  let cookieJar = initialCookies.map(c => c.split(';')[0]).join('; ')
+  mergeSetCookies(initialRes.headers)
 
   // Paso 2: POST login
   const formParams = new URLSearchParams({
@@ -156,18 +177,15 @@ async function syncVieleViaFetch(user: string, pass: string): Promise<VieleApiRe
       'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
       'Referer': LOGIN_URL,
       'Origin': 'https://shop.vieleandsons.com',
-      'Cookie': cookieJar,
+      'Cookie': getCookieHeader(),
     },
     body: formParams.toString(),
     redirect: 'manual',
     signal: AbortSignal.timeout(12000)
   })
 
-  const loginCookies = loginRes.headers.getSetCookie?.() || []
-  if (loginCookies.length > 0) {
-    const extraCookies = loginCookies.map(c => c.split(';')[0]).join('; ')
-    cookieJar = cookieJar ? `${cookieJar}; ${extraCookies}` : extraCookies
-  }
+  mergeSetCookies(loginRes.headers)
+  const cookieJar = getCookieHeader()
 
   // Paso 3: GET API JSON
   const apiRes = await fetch(DATA_API_URL, {
@@ -190,6 +208,36 @@ async function syncVieleViaFetch(user: string, pass: string): Promise<VieleApiRe
 }
 
 /**
+ * Resuelve las credenciales del portal de Viele & Sons con respaldo automático:
+ * 1) Parámetros explícitos (username / password)
+ * 2) Variables dedicadas VIELE_PORTAL_USER / VIELE_PORTAL_PASS
+ * 3) Bóveda multi-sucursal VIELE_STORE_ACCOUNTS_JSON (priorizando Sucursal #14 Lynwood o primera cuenta activa)
+ */
+function resolveVielePortalCredentials(username?: string, password?: string): { user?: string; pass?: string } {
+  const directUser = (username || process.env.VIELE_PORTAL_USER || '').trim()
+  const directPass = (password || process.env.VIELE_PORTAL_PASS || '').trim()
+  if (directUser && directPass) {
+    return { user: directUser, pass: directPass }
+  }
+
+  const rawJson = process.env.VIELE_STORE_ACCOUNTS_JSON
+  if (rawJson) {
+    try {
+      const cleaned = rawJson.trim().replace(/^['"]|['"]$/g, '')
+      const parsed = JSON.parse(cleaned) as Record<string, { email?: string; password?: string }>
+      const preferred = parsed?.['14'] || Object.values(parsed || {}).find(acc => acc?.email && acc?.password)
+      if (preferred?.email?.trim() && preferred?.password) {
+        return { user: preferred.email.trim(), pass: preferred.password }
+      }
+    } catch (err) {
+      console.warn('[VendorScraper] No se pudo parsear VIELE_STORE_ACCOUNTS_JSON como respaldo:', err)
+    }
+  }
+
+  return { user: directUser || undefined, pass: directPass || undefined }
+}
+
+/**
  * Función principal: Extrae el catálogo completo de Viele & Sons con fallback de motores.
  */
 export async function syncVielePortalDirect(
@@ -197,14 +245,13 @@ export async function syncVielePortalDirect(
   password?: string
 ): Promise<VendorSyncResult> {
   const startTime = Date.now()
-  const user = username || process.env.VIELE_PORTAL_USER
-  const pass = password || process.env.VIELE_PORTAL_PASS
+  const { user, pass } = resolveVielePortalCredentials(username, password)
   if (!user || !pass) {
     return {
       success: false, items: [], totalItems: 0,
       supplierCode: 'VIELE',
       durationMs: Date.now() - startTime,
-      errorMessage: 'Credenciales de Viele & Sons no configuradas. Set VIELE_PORTAL_USER y VIELE_PORTAL_PASS en variables de entorno.'
+      errorMessage: 'Credenciales de Viele & Sons no configuradas. Set VIELE_PORTAL_USER y VIELE_PORTAL_PASS (o VIELE_STORE_ACCOUNTS_JSON) en variables de entorno.'
     }
   }
 

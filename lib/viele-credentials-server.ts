@@ -16,6 +16,7 @@
  *
  * @notes
  * - [2026-09-21] Separado de VIELE_STORE_ACCOUNTS público para resolver el hallazgo de seguridad #1 de la auditoría.
+ * - [2026-10-26] Sanitización defensiva de comillas envolventes al parsear VIELE_STORE_ACCOUNTS_JSON.
  */
 
 import 'server-only';
@@ -38,7 +39,8 @@ function getVieleStoreSecrets(): Record<string, VieleStoreSecret> {
   if (!raw) return {};
 
   try {
-    const parsed = JSON.parse(raw) as Record<string, VieleStoreSecret>;
+    const cleaned = raw.trim().replace(/^['"]|['"]$/g, '');
+    const parsed = JSON.parse(cleaned) as Record<string, VieleStoreSecret>;
     return parsed && typeof parsed === 'object' ? parsed : {};
   } catch {
     console.error('[VieleCredentials] VIELE_STORE_ACCOUNTS_JSON no contiene JSON válido');

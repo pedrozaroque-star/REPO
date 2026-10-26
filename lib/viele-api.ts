@@ -163,67 +163,84 @@ export async function clearVieleCart(cookieHeader: string): Promise<boolean> {
  * Autentica una cuenta de sucursal contra Viele & Sons
  */
 export async function loginViele(email: string, password: string): Promise<{ success: boolean; cookieHeader: string; error?: string }> {
-  try {
-    const params = new URLSearchParams();
-    params.append('UserID', email);
-    params.append('Password', password);
-    params.append('RememberMe', 'RememberMe');
-    params.append('submit', 'User Login');
+  let lastError = 'Error desconocido';
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try {
+      const params = new URLSearchParams();
+      params.append('UserID', email);
+      params.append('Password', password);
+      params.append('RememberMe', 'RememberMe');
+      params.append('submit', 'User Login');
 
-    const res = await fetch(`${BASE_URL}/login/`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-        'User-Agent': BROWSER_USER_AGENT,
-        'Origin': BASE_URL,
-        'Referer': `${BASE_URL}/login/`
-      },
-      body: params.toString(),
-      redirect: 'manual'
-    });
+      const res = await fetch(`${BASE_URL}/login/`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'User-Agent': BROWSER_USER_AGENT,
+          'Origin': BASE_URL,
+          'Referer': `${BASE_URL}/login/`
+        },
+        body: params.toString(),
+        redirect: 'manual',
+        signal: AbortSignal.timeout(15000)
+      });
 
-    const setCookies = res.headers.getSetCookie ? res.headers.getSetCookie() : [];
-    if (setCookies.length === 0) {
-      const singleCookie = res.headers.get('set-cookie');
-      if (singleCookie) setCookies.push(singleCookie);
+      const setCookies = res.headers.getSetCookie ? res.headers.getSetCookie() : [];
+      if (setCookies.length === 0) {
+        const singleCookie = res.headers.get('set-cookie');
+        if (singleCookie) setCookies.push(singleCookie);
+      }
+
+      const cookieHeader = setCookies.map(c => c.split(';')[0]).join('; ');
+
+      if ((res.status === 302 || res.status === 200) && cookieHeader.length > 0) {
+        return { success: true, cookieHeader };
+      }
+
+      lastError = cookieHeader.length === 0 ? `HTTP ${res.status} (sin cookie de sesión)` : `HTTP ${res.status}`;
+    } catch (err: any) {
+      lastError = err.message || 'Timeout de red';
     }
-
-    const cookieHeader = setCookies.map(c => c.split(';')[0]).join('; ');
-
-    if (res.status === 302 || res.status === 200) {
-      return { success: true, cookieHeader };
+    if (attempt < 2) {
+      await new Promise(r => setTimeout(r, 800));
     }
-
-    return { success: false, cookieHeader: '', error: `HTTP ${res.status}` };
-  } catch (err: any) {
-    return { success: false, cookieHeader: '', error: err.message };
   }
+  return { success: false, cookieHeader: '', error: lastError };
 }
 
 /**
- * Obtiene el catálogo y guía de orden viva desde la API de Viele
+ * Obtiene el catálogo y guía de orden viva desde la API de Viele (con timeout y reintento automático)
  */
 export async function fetchVieleOrderGuide(cookieHeader: string): Promise<{ success: boolean; items?: any[]; error?: string }> {
-  try {
-    const res = await fetch(`${BASE_URL}/api/v3/order_guide`, {
-      method: 'GET',
-      headers: {
-        'Cookie': cookieHeader,
-        'User-Agent': BROWSER_USER_AGENT,
-        'Accept': 'application/json, text/javascript, */*; q=0.01',
-        'Referer': `${BASE_URL}/orderguide_new/`
+  let lastError = 'Error desconocido';
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try {
+      const res = await fetch(`${BASE_URL}/api/v3/order_guide`, {
+        method: 'GET',
+        headers: {
+          'Cookie': cookieHeader,
+          'User-Agent': BROWSER_USER_AGENT,
+          'Accept': 'application/json, text/javascript, */*; q=0.01',
+          'X-Requested-With': 'XMLHttpRequest',
+          'Referer': `${BASE_URL}/orderguide_new/`
+        },
+        signal: AbortSignal.timeout(15000)
+      });
+
+      if (!res.ok) {
+        lastError = `HTTP ${res.status}`;
+      } else {
+        const json = await res.json();
+        return { success: true, items: json?.data?.detail || [] };
       }
-    });
-
-    if (!res.ok) {
-      return { success: false, error: `HTTP ${res.status}` };
+    } catch (err: any) {
+      lastError = err.message || 'Timeout al leer Order Guide';
     }
-
-    const json = await res.json();
-    return { success: true, items: json?.data?.detail || [] };
-  } catch (err: any) {
-    return { success: false, error: err.message };
+    if (attempt < 2) {
+      await new Promise(r => setTimeout(r, 800));
+    }
   }
+  return { success: false, error: lastError };
 }
 
 /**

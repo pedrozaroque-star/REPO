@@ -301,15 +301,8 @@ async function handleSync(request: NextRequest) {
     if (!vielePurchasesSync.success) throw new Error(vielePurchasesSync.errorMessage || 'Falló sincronización del catálogo Viele')
     console.log(`[Cron:SyncSupplierPrices] 🛒 viele_items sincronizado: ${vielePurchasesSync.totalUpdated} precios actualizados, ${vielePurchasesSync.totalNew} productos nuevos.`)
 
-    // 6.7. SINCRONIZACIÓN DE ORDER GUIDES POR TIENDA
-    // Login a cada tienda, jala su Order Guide de V&S, y actualiza viele_store_sort_orders
-    // Detecta items nuevos y los inserta en viele_items automáticamente
-    console.log('[Cron:SyncSupplierPrices] 📋 Sincronizando Order Guides de todas las tiendas...')
-    const orderGuideSync = await syncVieleOrderGuides()
-    if (!orderGuideSync.success) throw new Error(`Falló sincronización de ${orderGuideSync.storesFailed} sucursales: ${orderGuideSync.details.filter(d => d.status === 'error').map(d => `${d.storeId}: ${d.error}`).join('; ')}`)
-    console.log(`[Cron:SyncSupplierPrices] 📋 Order Guides sincronizados: ${orderGuideSync.storesSynced}/${orderGuideSync.storesSynced + orderGuideSync.storesFailed} tiendas, ${orderGuideSync.totalItemsSynced} items, ${orderGuideSync.newItemsDetected.length} nuevos.`)
-
-    // 7. Enviar Alerta por Correo a Directivos si se detectaron variaciones (Aumentos o Rebajas de Precio)
+    // 7. Enviar Alerta por Correo a Directivos ANTES de recorrer los Order Guides individuales,
+    // garantizando que cualquier variación de precios ya auto-aprobada se notifique inmediatamente.
     let emailAlertSent = false
     let emailMessageId: string | undefined
     if (increasesForEmail.length > 0 || decreasesForEmail.length > 0) {
@@ -326,6 +319,14 @@ async function handleSync(request: NextRequest) {
       emailAlertSent = emailResult.success
       emailMessageId = emailResult.messageId
     }
+
+    // 6.7. SINCRONIZACIÓN DE ORDER GUIDES POR TIENDA
+    // Login a cada tienda, jala su Order Guide de V&S, y actualiza viele_store_sort_orders
+    // Detecta items nuevos y los inserta en viele_items automáticamente
+    console.log('[Cron:SyncSupplierPrices] 📋 Sincronizando Order Guides de todas las tiendas...')
+    const orderGuideSync = await syncVieleOrderGuides()
+    if (!orderGuideSync.success) throw new Error(`Falló sincronización de ${orderGuideSync.storesFailed} sucursales: ${orderGuideSync.details.filter(d => d.status === 'error').map(d => `${d.storeId}: ${d.error}`).join('; ')}`)
+    console.log(`[Cron:SyncSupplierPrices] 📋 Order Guides sincronizados: ${orderGuideSync.storesSynced}/${orderGuideSync.storesSynced + orderGuideSync.storesFailed} tiendas, ${orderGuideSync.totalItemsSynced} items, ${orderGuideSync.newItemsDetected.length} nuevos.`)
 
     const durationMs = Date.now() - startTime
 

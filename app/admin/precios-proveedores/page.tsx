@@ -112,6 +112,7 @@ export default function SupplierPricesPage() {
   const [isLoadingInitial, setIsLoadingInitial] = useState<boolean>(true)
   const [lastCronRun, setLastCronRun] = useState<{
     status?: string
+    error_message?: string
     total_items_scraped?: number
     total_increases?: number
     total_decreases?: number
@@ -270,15 +271,15 @@ export default function SupplierPricesPage() {
       
       const countIncreases = json.summary?.totalIncreases || 0
       const countDecreases = json.summary?.totalDecreases || 0
-      const impactFormatted = json.summary?.netAnnualImpactUsd !== undefined
-        ? Math.abs(json.summary.netAnnualImpactUsd).toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })
-        : '$0'
+      const netImpact = Number(json.summary?.netAnnualImpactUsd || 0)
+      const signPrefix = netImpact > 0 ? '+' : netImpact < 0 ? '-' : ''
+      const impactFormatted = `${signPrefix}${Math.abs(netImpact).toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })}`
 
-      if (countIncreases > 0) {
+      if (countIncreases > 0 || countDecreases > 0) {
         setSuccessMessage(
           language === 'en'
-            ? `⚡ Live sync complete in ${durationSec}s! Found ${countIncreases} price increases with a net annual impact of +${impactFormatted}.`
-            : `⚡ ¡Sincronización en vivo completada en ${durationSec}s! Se detectaron ${countIncreases} aumentos con impacto anual de +${impactFormatted}.`
+            ? `⚡ Live sync complete in ${durationSec}s! Found ${countIncreases} increases and ${countDecreases} decreases (net annual impact: ${impactFormatted}).`
+            : `⚡ ¡Sincronización en vivo completada en ${durationSec}s! Se detectaron ${countIncreases} alzas y ${countDecreases} rebajas (impacto neto anual: ${impactFormatted}).`
         )
       } else {
         setSuccessMessage(
@@ -606,15 +607,23 @@ export default function SupplierPricesPage() {
                     {lastCronRun.executedAt ? new Date(lastCronRun.executedAt).toLocaleString(language === 'en' ? 'en-US' : 'es-MX', {
                       month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
                     }) : ''}
-                    {' · '}{lastCronRun.total_items_scraped || 87} {language === 'en' ? 'items scanned' : 'insumos escaneados'}
-                    {lastCronRun.total_increases || lastCronRun.total_decreases ? (
-                      <span className="text-amber-600 dark:text-amber-400 font-bold">
-                        {' · '}{lastCronRun.total_increases || 0} {language === 'en' ? 'up' : 'alzas'}, {lastCronRun.total_decreases || 0} {language === 'en' ? 'down' : 'bajas'}
+                    {lastCronRun.status === 'failed' ? (
+                      <span className="text-red-600 dark:text-red-400 font-bold">
+                        {' · '}{lastCronRun.error_message || (language === 'en' ? 'Connection error' : 'Error de conexión')}
                       </span>
                     ) : (
-                      <span className="text-emerald-600 dark:text-emerald-400 font-bold">
-                        {' · '}{language === 'en' ? '0 variations' : '0 variaciones'}
-                      </span>
+                      <>
+                        {' · '}{lastCronRun.total_items_scraped || 87} {language === 'en' ? 'items scanned' : 'insumos escaneados'}
+                        {lastCronRun.total_increases || lastCronRun.total_decreases ? (
+                          <span className="text-amber-600 dark:text-amber-400 font-bold">
+                            {' · '}{lastCronRun.total_increases || 0} {language === 'en' ? 'up' : 'alzas'}, {lastCronRun.total_decreases || 0} {language === 'en' ? 'down' : 'bajas'}
+                          </span>
+                        ) : (
+                          <span className="text-emerald-600 dark:text-emerald-400 font-bold">
+                            {' · '}{language === 'en' ? '0 variations' : '0 variaciones'}
+                          </span>
+                        )}
+                      </>
                     )}
                   </span>
                 </div>
