@@ -996,6 +996,57 @@ function renderWebsiteLockup(
   )
 }
 
+/**
+ * Official "TACOS Gavilan" Name Graphic from Gavilan Brand Standards (1).pdf (Pages 4, 7, 10, 14–18).
+ * Rule (Page 4): "The 'Tacos' text is always placed in the crevice of the 'G' and the 'i' and is never allowed anywhere else."
+ * Colors (Page 5): Pantone 485 Red (#DA291C), Pantone 021 Orange (#FE5000), Pantone 123 Yellow (#FFC72C).
+ */
+function GavilanBrandStandardsWordmark({
+  className = 'h-[31px] w-auto',
+  withTaglineSide = false,
+}: {
+  className?: string
+  withTaglineSide?: boolean
+}) {
+  return (
+    <svg
+      viewBox={withTaglineSide ? '535 100 2390 304' : '535 100 1238 304'}
+      className={className}
+      role="img"
+      aria-label={withTaglineSide ? 'Tacos Gavilan — Ya está.' : 'Tacos Gavilan'}
+    >
+      {/* Official "Gavilan" vector paths (Pantone 485 #DA291C) */}
+      <g fill="#DA291C">
+        <path d="M540.4,288.9v-0.6c0-61.8,48.8-107.8,114-107.8c35.5,0,64.1,11.8,86.6,31.3l-38.7,46.7c-13.6-11.5-28.7-18-45.8-18c-26.9,0-46.4,20.7-46.4,48.8v0.6c0,29.3,20.4,49.3,49.3,49.3c11.8,0,18.3-1.8,23.6-4.7v-20.7h-35.5v-44.3h100.2v95.7c-22.5,18.3-53.8,31-91.3,31C592.1,396.2,540.4,353,540.4,288.9z" />
+        <path d="M1387.5,345.4c0-67.9,85.2-58.4,104.7-50.3c0-50.7-71.7-25.3-82.4-21l-11.8-44.6c34.3-17.2,112-23.7,142.9,7.1c22.2,22.2,18.1,47.2,18.1,159.7h-67.1v-20.7C1456.3,413.9,1387.5,396.3,1387.5,345.4z M1492.8,319.3c-0.1,0-38.6-5.7-38.6,21.4c0,13.1,12.6,16.3,18,16.3C1495.6,356.9,1492.8,328.1,1492.8,319.3z" />
+        <path d="M778.6,345.4c0-67.9,85.2-58.4,104.7-50.3c0-50.7-71.7-25.3-82.4-21l-11.8-44.6c34.3-17.2,112-23.7,142.9,7.1c22.2,22.2,18.1,47.2,18.1,159.7H883v-20.7C847.5,413.9,778.6,396.3,778.6,345.4z M882.9,319.3c-0.1,0-38.6-5.7-38.6,21.4c0,13.1,12.6,16.3,18,16.3C885.8,356.9,882.9,328.1,882.9,319.3z" />
+        <path d="M969.4,216.2h70.3l29.4,90l22.9-90h69.4l-61.9,180h-61.5L969.4,216.2z" />
+        <path d="M1188.4,180.2h69.4v54h-69.4V180.2z M1188.4,252.2h69.4v144h-69.4V252.2z" />
+        <path d="M1294.6,180.2h67.1v216h-67.1V180.2z" />
+        <path d="M1592.7,216.2h67.1v26.3c10.3-13.3,26.6-26.3,49.3-26.3c34,0,55.3,22.5,55.3,58.8v121.2h-67.1v-108c0-13.9-8.3-21.9-18.3-21.9c-10,0-19.2,8-19.2,21.9v108h-67.1V216.2z" />
+        {/* Official "TACOS" in the crevice between G and i */}
+        <path d="M778.2,125.7h-20.8v-17.5h60.7v17.5h-20.8v54.5h-19.2V125.7z" />
+        <path d="M860.9,108.2h18.5l29.5,72h-20.6l-5-12.8h-26.7l-4.9,12.8h-20.2L860.9,108.2z M877.8,152l-7.7-20.3l-7.8,20.3H877.8z" />
+        <path d="M922.5,144.4v-0.2c0-20.2,15.5-36,36.5-36c14.1,0,23.2,5.9,29.4,14.4l-14.4,11.2c-4-4.9-8.5-8.1-15.1-8.1c-9.7,0-16.5,8.2-16.5,18.3v0.2c0,10.4,6.8,18.5,16.5,18.5c7.2,0,11.5-3.4,15.6-8.4l14.4,10.3c-6.5,9-15.3,15.6-30.7,15.6C938.4,180.2,922.5,165,922.5,144.4z" />
+        <path d="M1006.9,144.4v-0.2c0-19.9,16-36,37.4-36c21.4,0,37.2,15.9,37.2,35.8v0.2c0,19.9-16,36-37.4,36C1022.7,180.2,1006.9,164.2,1006.9,144.4z M1061.9,144.4v-0.2c0-10-7.2-18.7-17.8-18.7c-10.5,0-17.5,8.5-17.5,18.5v0.2c0,10,7.2,18.7,17.7,18.7C1054.9,162.9,1061.9,154.4,1061.9,144.4z" />
+        <path d="M1092,168.3l10.7-12.8c6.8,5.4,14.4,8.3,22.4,8.3c5.1,0,7.9-1.8,7.9-4.7v-0.2c0-2.9-2.3-4.5-11.7-6.6c-14.7-3.4-26.1-7.5-26.1-21.8v-0.2c0-12.9,10.2-22.2,26.8-22.2c11.8,0,21,3.2,28.5,9.2l-9.6,13.5c-6.3-4.5-13.3-6.8-19.4-6.8c-4.6,0-6.9,2-6.9,4.5v0.2c0,3.2,2.4,4.5,12,6.7c15.9,3.5,25.8,8.6,25.8,21.6v0.2c0,14.1-11.2,22.5-28,22.5C1112.1,179.8,1100.5,175.9,1092,168.3z" />
+      </g>
+      {/* Optional "Ya está." Tagline on side (Pantone 021 #FE5000, Page 15/16) */}
+      {withTaglineSide && (
+        <g fill="#FE5000">
+          <path d="M1999.2,356.9l3.5-22l19.7-6.3l5.3-33.9l-27.1-88.3l-19.2-5.6l3.3-21l47.6-1.3l22.8,83.3l32.1-55.4l-17.2-5.6l3.3-21l71.6-1.3l-3.5,22.3l-18.7,7.1l-58,90.9l-4.8,29.9l17.7,6.3l-3.5,22H1999.2z" />
+          <path d="M2214.3,356.9l8.9-37.5c-1.3,2.5-22.3,40-54.2,40c-22.3,0-36.2-20.2-36.2-45.8c0-63.3,38.2-95.9,77.5-95.9c17.5,0,29.6,9.4,29.6,9.4l7.3-6.8h23l-17.7,110.4l19.5,3.8l-3.3,20L2214.3,356.9z M2229.3,248c0,0-7.3-3-18.5-3c-23.3,0-40,27.1-40,63.8c0,13.4,4.8,21,12.4,21c25.3,0,42.3-60.8,42.3-60.8L2229.3,248z" />
+          <path d="M2470.5,339.9c-7.3,5.1-32.7,19.5-59.5,19.5c-30.4,0-50.4-17.2-50.4-46.8c0-55.9,34.7-94.9,76.2-94.9c29.9,0,48.1,14.2,48.1,36.2c0,28.6-31.6,48.6-87.3,49.1c0,22,8.9,27.3,23.8,27.3c14.9,0,32.9-7.3,38.5-9.1L2470.5,339.9z M2433.8,246.3c-15.2,0-28.1,14.4-33.2,34.4c32.1-0.8,47.6-10.9,47.6-22.3C2448.2,250.3,2443.4,246.3,2433.8,246.3z" />
+          <path d="M2517.3,330.3c0,0,7.3,2.8,17.5,2.8c13.4,0,21.5-5.1,21.5-14.7c0-20.8-53.7-20.3-53.7-57.7c0-29.6,24.8-43,56.4-43c22.5,0,43,7.1,43,7.1l-6.8,38h-21.8l-1.3-16.5c0,0-5.3-2.3-14.7-2.3c-11.1,0-17.7,5.1-17.7,13.4c0,20.8,54.9,20.5,54.9,56.7c0,29.1-25.8,45.3-61.8,45.3c-22.8,0-44-6.3-44-6.3l6.6-40.5h21.8V330.3z" />
+          <path d="M2702.8,344.2c-6.8,4.3-28.4,15.2-43.3,15.2c-20.5,0-29.6-11.4-29.6-33.2c0-4.6,0.3-9.6,1.3-15.2l9.4-59.7h-22.8l3.8-24l23.3-3.3l5.6-34.7l37-7.1l-6.8,41.8h33.9l-4.3,27.3h-33.9l-8.9,54.9c-1,5.6-1.3,8.9-1.3,12.4c0,8.1,3.3,12.4,10.6,12.4c7.3,0,20.5-5.1,20.5-5.1L2702.8,344.2z" />
+          <path d="M2799.8,356.9l8.9-37.5c-1.3,2.5-22.3,40-54.2,40c-22.3,0-36.2-20.2-36.2-45.8c0-63.3,38.2-95.9,77.5-95.9c17.5,0,29.6,9.4,29.6,9.4l7.3-6.8h23L2838,330.5l19.5,3.8l-3.3,20L2799.8,356.9z M2814.7,248c0,0-7.3-3-18.5-3c-23.3,0-40,27.1-40,63.8c0,13.4,4.8,21,12.4,21c25.3,0,42.3-60.8,42.3-60.8L2814.7,248z M2842.8,143l-63,43.5l11.6,18.5l64.5-35.7L2842.8,143z" />
+          <path d="M2898.7,314.3c11.1,0,18.7,6.8,18.7,18c0,14.7-8.4,27.8-24.8,27.8c-11.1,0-18.2-7.1-18.2-18.2C2874.4,327.3,2882.3,314.3,2898.7,314.3z" />
+        </g>
+      )}
+    </svg>
+  )
+}
+
 export type V2Stage = 'stories' | 'hello' | 'main'
 export type MainTab = 'home' | 'order' | 'stores' | 'cravings' | 'account'
 export type V2AuthSheet = null | 'sms-otp' | 'contact-support'
@@ -2047,34 +2098,32 @@ export default function CustomerAppV2Pro({
                     }`}
                   />
 
-                  {/* Warm Neon Light-Leak Edge Glow */}
+                  {/* Warm Neon Light-Leak Edge Glow (Pantone 485 #DA291C -> Pantone 021 #FE5000 -> Pantone 123 #FFC72C) */}
                   <div
                     className={`absolute inset-y-0 w-16 pointer-events-none ${
                       activeSlide.lightLeakSide === 'left'
-                        ? 'left-0 bg-gradient-to-r from-[#ff2a1f]/55 via-[#fdc82f]/20 to-transparent'
-                        : 'right-0 bg-gradient-to-l from-[#ff2a1f]/55 via-[#fdc82f]/20 to-transparent'
+                        ? 'left-0 bg-gradient-to-r from-[#DA291C]/55 via-[#FE5000]/25 to-transparent'
+                        : 'right-0 bg-gradient-to-l from-[#DA291C]/55 via-[#FE5000]/25 to-transparent'
                     }`}
                   />
                 </motion.div>
               </AnimatePresence>
 
-              {/* Top Bar: Mini Circular Logo + Language Toggle */}
+              {/* Top Bar: Official Standard Horizontal Logo (Gavilan Brand Standards Page 14) + Language Toggle */}
               <div
                 className={`relative z-20 flex items-center justify-between px-5 pb-2 ${
                   !fullscreenNative ? 'pt-[50px]' : 'pt-5'
                 }`}
               >
-                <div className="flex items-center gap-2.5">
+                <div className="flex items-center gap-3">
                   <img
                     src="/logo.png?v=75"
                     alt="Tacos Gavilan"
-                    className="w-10 h-10 object-contain drop-shadow-[0_4px_12px_rgba(0,0,0,0.6)]"
+                    className="w-14 h-14 object-contain drop-shadow-[0_4px_14px_rgba(0,0,0,0.75)] shrink-0"
                   />
-                  <div>
-                    <span className="block text-[10px] font-black tracking-[0.2em] text-[#FDC82F] uppercase">
-                      TACOS GAVILAN
-                    </span>
-                    <span className="block text-[11px] font-bold text-white/80">
+                  <div className="flex flex-col items-start">
+                    <GavilanBrandStandardsWordmark className="h-[30px] w-auto drop-shadow-[0_2px_10px_rgba(0,0,0,0.95)]" />
+                    <span className="block text-[13px] font-extrabold text-white leading-tight mt-1 drop-shadow-[0_2px_8px_rgba(0,0,0,0.9)]">
                       {lang === 'en' ? '15 Locations • Since 1992' : '15 Sucursales • Desde 1992'}
                     </span>
                   </div>
@@ -2434,15 +2483,8 @@ export default function CustomerAppV2Pro({
                       <ArrowDown size={22} strokeWidth={2.5} />
                     </motion.button>
 
-                    {/* Skip > Button (Goes to Welcome Gate: Order Directly or Sign In with Email Code) */}
-                    <button
-                      type="button"
-                      onClick={() => setStage('hello')}
-                      className="w-16 flex items-center justify-end gap-0.5 text-xs font-black uppercase tracking-wider text-white/90 hover:text-[#FDC82F] transition-colors cursor-pointer"
-                    >
-                      <span>{lang === 'en' ? 'Skip' : 'Saltar'}</span>
-                      <ChevronRight size={15} />
-                    </button>
+                    {/* Right spacer to keep the Next Slide arrow centered */}
+                    <div className="w-16" aria-hidden="true" />
                   </div>
                 ) : (
                   /* Slide 5 Final Full-Width CTA Bar ("GET STARTED!" -> Welcome Gate) */
@@ -2501,19 +2543,22 @@ export default function CustomerAppV2Pro({
                 </button>
               </div>
 
-              {/* Center Logo & Headline */}
+              {/* Center Logo & Headline (Gavilan Brand Standards Page 17/18: Icon + TACOS Gavilan + Ya está.) */}
               <div className="my-auto py-4 text-center space-y-4">
-                <div className="w-24 h-24 mx-auto flex items-center justify-center">
-                  <img
-                    src="/logo.png?v=75"
-                    alt="Tacos Gavilan"
-                    className="w-full h-full object-contain drop-shadow-[0_8px_24px_rgba(0,0,0,0.75)]"
-                  />
+                <div className="flex flex-col items-center justify-center gap-2.5">
+                  <div className="w-24 h-24 mx-auto flex items-center justify-center">
+                    <img
+                      src="/logo.png?v=75"
+                      alt="Tacos Gavilan"
+                      className="w-full h-full object-contain drop-shadow-[0_8px_24px_rgba(0,0,0,0.75)]"
+                    />
+                  </div>
+                  <GavilanBrandStandardsWordmark className="h-[34px] w-auto mx-auto drop-shadow-[0_3px_12px_rgba(0,0,0,0.9)]" />
                 </div>
 
                 <div>
-                  <span className="inline-block text-[10px] font-black uppercase tracking-[0.22em] text-[#FDC82F]">
-                    TACOS GAVILAN • SINCE 1992
+                  <span className="inline-block text-[11px] font-black uppercase tracking-[0.2em] text-[#FFC72C]">
+                    {lang === 'en' ? '15 LOCATIONS • SINCE 1992' : '15 SUCURSALES • DESDE 1992'}
                   </span>
                   <h2 className="v2-gotham text-4xl text-white uppercase tracking-tight mt-1">
                     {lang === 'en' ? 'HELLO!' : '¡HOLA!'}
