@@ -107,20 +107,23 @@ export default function ClientLayout({
     ]
 
     // Dedicated kiosk / TV mode for order-ready-board or fullscreen app preview via query param
-    const [isDedicatedKiosk, setIsDedicatedKiosk] = useState(false)
+    const checkDedicatedKioskSync = (currentPath: string | null) => {
+        if (typeof window !== 'undefined' && (currentPath === '/order-ready-board' || currentPath === '/app')) {
+            const params = new URLSearchParams(window.location.search)
+            return (
+                params.get('tv') === '1' ||
+                params.get('kiosk') === '1' ||
+                params.get('fullscreen') === '1' ||
+                params.get('test') === '1'
+            )
+        }
+        return false
+    }
+
+    const [isDedicatedKiosk, setIsDedicatedKiosk] = useState(() => checkDedicatedKioskSync(pathname))
     useEffect(() => {
         const evaluateFullscreen = () => {
-            if (typeof window !== 'undefined' && (pathname === '/order-ready-board' || pathname === '/app')) {
-                const params = new URLSearchParams(window.location.search)
-                setIsDedicatedKiosk(
-                    params.get('tv') === '1' ||
-                    params.get('kiosk') === '1' ||
-                    params.get('fullscreen') === '1' ||
-                    params.get('test') === '1'
-                )
-            } else {
-                setIsDedicatedKiosk(false)
-            }
+            setIsDedicatedKiosk(checkDedicatedKioskSync(pathname))
         }
         evaluateFullscreen()
         window.addEventListener('popstate', evaluateFullscreen)
@@ -137,7 +140,8 @@ export default function ClientLayout({
         pathname.startsWith('/tablet') ||
         pathname.startsWith('/t/') ||
         pathname.startsWith('/auth/') ||
-        isDedicatedKiosk
+        isDedicatedKiosk ||
+        checkDedicatedKioskSync(pathname)
 
     const isPrintSheetPage = printSheetRoutes.some(r => pathname === r || pathname.startsWith(r + '/'))
 
