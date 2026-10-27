@@ -27,6 +27,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
+import { verifyStaffAuth } from '@/lib/auth-server'
 import path from 'path'
 import fs from 'fs'
 import dns from 'dns'
@@ -355,6 +356,9 @@ export async function GET(
     request: Request,
     context: { params: Promise<{ slug?: string[] }> }
 ) {
+    const auth = await verifyStaffAuth(request)
+    if (!auth.authorized) return auth.response!
+
     const { slug } = await context.params
     const url = new URL(request.url)
     const action = url.searchParams.get('action')
@@ -1167,9 +1171,12 @@ export async function GET(
 
     const targetPath = path.resolve(baseDir, relativePath)
 
-    // Seguridad: Prevenir Directory Traversal
-    if (!targetPath.startsWith(path.resolve(baseDir))) {
-        return new Response('Forbidden: Invalid path traversal', { status: 403 })
+    // Seguridad: Prevenir Directory Traversal y bloqueo de archivos ocultos (.env, .git) o directorio api/
+    if (
+        !targetPath.startsWith(path.resolve(baseDir)) ||
+        slugParts.some(part => part.startsWith('.') || part.toLowerCase() === 'api')
+    ) {
+        return new Response('Forbidden: Access denied', { status: 403 })
     }
 
     // Si es un directorio, buscar index.html dentro de él
@@ -1249,6 +1256,9 @@ export async function POST(
     request: Request,
     context: { params: Promise<{ slug?: string[] }> }
 ) {
+    const auth = await verifyStaffAuth(request)
+    if (!auth.authorized) return auth.response!
+
     const { slug } = await context.params
     if (slug?.length === 1 && slug[0] === 'launch') {
         return handleLaunch()

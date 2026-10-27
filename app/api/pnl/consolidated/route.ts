@@ -36,6 +36,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
+import { verifyStaffAuth } from '@/lib/auth-server'
 import { createClient } from '@supabase/supabase-js'
 
 export const dynamic = 'force-dynamic'
@@ -107,6 +108,9 @@ function round2(val: number): number {
 }
 
 export async function GET(request: NextRequest) {
+  const auth = await verifyStaffAuth(request, { allowedRoles: ['admin', 'supervisor', 'manager'] })
+  if (!auth.authorized) return auth.response!
+
   try {
     const supabase = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,

@@ -72,14 +72,24 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Payload de token inválido' }, { status: 401 })
     }
 
-    // Verificar en vivo en Supabase que el usuario exista y siga activo
+    // Bloquear colisión de IDs entre toast_employees (user_type: 'employee') y public.users
+    if (decoded.user_type === 'employee') {
+      return NextResponse.json({ error: 'Sesión de empleado expirada, inicie sesión nuevamente' }, { status: 401 })
+    }
+
+    // Verificar en vivo en Supabase que el usuario exista, coincida en email y siga activo
     const { data: user, error } = await supabaseAdmin
       .from('users')
       .select('id, email, full_name, role, store_scope, store_id, is_active')
       .eq('id', decoded.sub)
       .maybeSingle()
 
-    if (error || !user || user.is_active === false) {
+    if (
+      error ||
+      !user ||
+      user.is_active === false ||
+      (decoded.email && String(user.email || '').trim().toLowerCase() !== String(decoded.email).trim().toLowerCase())
+    ) {
       return NextResponse.json({ error: 'Usuario inactivo o no encontrado' }, { status: 401 })
     }
 

@@ -48,6 +48,7 @@ let bucketReady = false
 const inflight = new Map<string, Promise<Buffer>>()
 let poolIndex = 0
 const keyBlockedUntil = new Map<string, number>()
+let remoteKeyPoolCache: { keys: string[]; fetchedAt: number } | null = null
 
 export function getGeminiKeyPool(): string[] {
   const raw = [
@@ -61,9 +62,34 @@ export function getGeminiKeyPool(): string[] {
     process.env.GEMINI_API_KEY,
     process.env.GEMINI_API_KEY_2,
     process.env.GEMINI_API_KEY_3,
-    ...(process.env.GEMINI_API_KEYS ? process.env.GEMINI_API_KEYS.split(',') : [])
+    ...(process.env.GEMINI_API_KEYS ? process.env.GEMINI_API_KEYS.split(',') : []),
+    ...(remoteKeyPoolCache?.keys || [])
   ]
   return Array.from(new Set(raw.map((k) => (k || '').trim()).filter(Boolean)))
+}
+
+async function getGeminiKeyPoolWithRemote(): Promise<string[]> {
+  const now = Date.now()
+  if (!remoteKeyPoolCache || now - remoteKeyPoolCache.fetchedAt > 10 * 60 * 1000) {
+    try {
+      const hit = await supabaseAdmin.storage.from(BUCKET).download('_config/gemini-keys.json')
+      if (hit.data) {
+        const parsed = JSON.parse(await hit.data.text())
+        if (Array.isArray(parsed?.keys)) {
+          remoteKeyPoolCache = {
+            keys: parsed.keys.map((k: any) => String(k || '').trim()).filter(Boolean),
+            fetchedAt: now
+          }
+        }
+      }
+    } catch {
+      // Ignorar si no existe
+    }
+    if (!remoteKeyPoolCache) {
+      remoteKeyPoolCache = { keys: [], fetchedAt: now }
+    }
+  }
+  return getGeminiKeyPool()
 }
 
 export function isValidVoice(v: string | null | undefined): v is VoiceId {
@@ -153,7 +179,7 @@ async function generateTextWithGemini(
   voice: VoiceId,
   stylePrompt?: string
 ): Promise<Buffer> {
-  const allKeys = getGeminiKeyPool()
+  const allKeys = await getGeminiKeyPoolWithRemote()
   if (allKeys.length === 0) throw new Error('No hay ninguna GEMINI_API_KEY configurada')
 
   // Priorizar llaves que no estén temporalmente bloqueadas por 429
@@ -172,15 +198,13 @@ async function generateTextWithGemini(
   ]
 
   let lastErr = ''
+  const languageCode = lang === 'es' ? 'es-US' : 'en-US'
 
-  for (const key of rotatedKeys) {
-    let allModels429 = true
-    let dailyExhaustedModels = 0
-
-    for (const model of MODELS) {
+  // Priorizar los modelos neuronales puros (gemini-3.8-*) a través de TODAS las llaves antes de tocar 2.5
+  for (const model of MODELS) {
+    for (const key of rotatedKeys) {
       const kmKey = `${key}:${model}`
       if ((keyBlockedUntil.get(kmKey) || 0) > Date.now()) {
-        dailyExhaustedModels++
         continue
       }
 
@@ -213,6 +237,7 @@ async function generateTextWithGemini(
               generationConfig: {
                 responseModalities: ['AUDIO'],
                 speechConfig: {
+                  languageCode,
                   voiceConfig: {
                     prebuiltVoiceConfig: {
                       voiceName: voice
@@ -231,40 +256,33 @@ async function generateTextWithGemini(
               return ensureWav(raw)
             }
             lastErr = `${model}: respuesta sin audio (${json.candidates?.[0]?.finishReason || 'no part'})`
-            allModels429 = false
             break
           } else {
             const errText = await res.text()
             lastErr = `${model} (key ...${key.slice(-4)}): ${res.status} ${errText.slice(0, 160)}`
             if (res.status === 429 || /quota|exceeded/i.test(errText)) {
               if (/PerDay|per_day|per_model_per_day|limit:\s*0|Please retry in [0-9]+h/i.test(errText)) {
-                dailyExhaustedModels++
                 keyBlockedUntil.set(kmKey, Date.now() + 90 * 60 * 1000)
+              } else {
+                keyBlockedUntil.set(kmKey, Date.now() + 45 * 1000)
               }
               break
+            } else if (res.status === 403 || /leaked|API_KEY_INVALID/i.test(errText)) {
+              keyBlockedUntil.set(key, Date.now() + 12 * 60 * 60 * 1000)
+              break
             } else {
-              allModels429 = false
               break
             }
           }
         } catch (fetchErr: any) {
           lastErr = `${model}: ${fetchErr.message}`
           if (attempt === 0) {
-            // Reintentar intento 2 tras 600ms si hubo caída de socket (ECONNRESET) o timeout
             await new Promise((r) => setTimeout(r, 600))
             continue
           }
-          allModels429 = false
           break
         }
       }
-    }
-
-    if (allModels429) {
-      // Solo bloquear por 4 horas si TODOS los modelos agotaron su cuota diaria. Si al menos un modelo solo tuvo límite por minuto (RPM), enfriar 45s.
-      const keyDailyExhausted = dailyExhaustedModels >= MODELS.length
-      const blockDuration = keyDailyExhausted ? 4 * 60 * 60 * 1000 : 45 * 1000
-      keyBlockedUntil.set(key, Date.now() + blockDuration)
     }
   }
 
@@ -373,7 +391,14 @@ export async function getAnnouncementSpeech(
       const wav = await generateTextWithGemini(clean, lang, selectedVoice, stylePrompt)
       try {
         await ensureBucket()
-        await supabaseAdmin.storage.from(BUCKET).upload(path, wav, { contentType: 'audio/wav', upsert: true })
+        if (forceRegenerate) {
+          await supabaseAdmin.storage.from(BUCKET).remove([path])
+        }
+        await supabaseAdmin.storage.from(BUCKET).upload(path, wav, {
+          contentType: 'audio/wav',
+          cacheControl: '0',
+          upsert: true
+        })
       } catch (e) {
         console.warn('[order-ready-tts] no se pudo cachear anuncio en Storage:', e)
       }

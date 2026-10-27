@@ -15,7 +15,6 @@ const TARGET_DIR = path.join(process.cwd(), 'public', 'tacosgavilan-web')
 
 const DIRS_TO_COPY = [
     'accessibility',
-    'api',
     'blog',
     'contact',
     'css',

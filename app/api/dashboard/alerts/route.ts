@@ -20,6 +20,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
+import { verifyStaffAuth } from '@/lib/auth-server'
 import { createClient } from '@supabase/supabase-js'
 import { fetchToastData } from '@/lib/toast-api'
 import { GET as foodCostGet } from '@/app/api/inventory/food-cost/route'
@@ -53,6 +54,9 @@ function getBusinessDateLA(): { dateStr: string; timeStr: string } {
 }
 
 export async function GET(req: NextRequest) {
+  const auth = await verifyStaffAuth(req)
+  if (!auth.authorized) return auth.response!
+
   try {
     const { searchParams } = new URL(req.url)
     const { dateStr: todayBusinessStr, timeStr: nowTimeLA } = getBusinessDateLA()
@@ -160,7 +164,9 @@ export async function GET(req: NextRequest) {
     const distinctFcStores = new Set(foodCosts.map(r => r.store_id).filter(Boolean))
     if (rangeDays === 1 && distinctFcStores.size < 14) {
       try {
-        const directReq = new NextRequest(`http://localhost:3000/api/inventory/food-cost?storeId=all&startDate=${startDate}&endDate=${endDate}`)
+        const directReq = new NextRequest(`http://localhost:3000/api/inventory/food-cost?storeId=all&startDate=${startDate}&endDate=${endDate}`, {
+          headers: req.headers
+        })
         const directRes = await foodCostGet(directReq)
         if (directRes.ok) {
           const directJson = await directRes.json()

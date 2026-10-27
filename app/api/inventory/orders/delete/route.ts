@@ -9,11 +9,15 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
+import { verifyStaffAuth } from '@/lib/auth-server'
 import { getSupabaseAdminClient } from '@/lib/supabase'
 import { authClient } from '@/lib/quickbooks'
 import QuickBooks from 'node-quickbooks'
 
 export async function POST(request: NextRequest) {
+    const auth = await verifyStaffAuth(request)
+    if (!auth.authorized) return auth.response!
+
     try {
         const body = await request.json()
         const { orderId } = body

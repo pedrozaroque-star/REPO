@@ -14,11 +14,15 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
+import { verifyStaffAuth } from '@/lib/auth-server'
 import { supabaseAdmin } from '@/lib/supabase'
 
 export const maxDuration = 300
 
 export async function POST(request: NextRequest) {
+  const auth = await verifyStaffAuth(request)
+  if (!auth.authorized) return auth.response!
+
   try {
     const body = await request.json()
     const { businessDate } = body as { businessDate: string }
@@ -65,9 +69,15 @@ export async function POST(request: NextRequest) {
       }
 
       try {
+        const forwardHeaders: Record<string, string> = { 'Content-Type': 'application/json' }
+        const cookieHeader = request.headers.get('cookie')
+        const authHeader = request.headers.get('authorization')
+        if (cookieHeader) forwardHeaders['cookie'] = cookieHeader
+        if (authHeader) forwardHeaders['authorization'] = authHeader
+
         const res = await fetch(`${baseUrl}/api/accounting/packets/${packet.id}/publish`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: forwardHeaders,
         })
 
         const result = await res.json()

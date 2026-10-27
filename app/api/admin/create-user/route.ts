@@ -2,17 +2,18 @@
  * @module CreateUserRoute
  * @description API route to register a new user in Supabase Auth and save their profile in the database.
  * @businessRules
+ * - Requires authenticated admin or supervisor session via verifyStaffAuth.
  * - Creates a credentials-based entry in Supabase Auth with auto-confirmed email.
- * - Upserts the user record in public.users to ensure proper role, store scope, and position mappings.
+ * - Inserts the user record in public.users and returns only non-sensitive columns.
  * @dataFlow
- * - Request (email, password, fullName, role, storeId, otherData) -> Create Auth User -> Upsert public.users profile -> Response (success)
+ * - Request (email, password, fullName, role, storeId, otherData) -> Verify Admin/Supervisor -> Create Auth User -> Insert public.users profile -> Response (success)
  */
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { verifyStaffAuth } from '@/lib/auth-server'
 
 // Cliente admin con service_role key (solo del lado del servidor)
-// Esto asegura que podemos crear usuarios en Auth y escribir en public.users sin restricciones de RLS
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co'
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || 'placeholder'
 
@@ -28,13 +29,16 @@ const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey, {
 })
 
 export async function POST(request: NextRequest) {
+    const auth = await verifyStaffAuth(request, { allowedRoles: ['admin', 'supervisor'] })
+    if (!auth.authorized) return auth.response!
+
     try {
         const body = await request.json()
         const { email, password, fullName, role, storeId, otherData } = body
 
         console.log('🔧 API: Creando usuario', email, role)
 
-        // 1. Crear usuario en Supabase Check (Authentication)
+        // 1. Crear usuario en Supabase Auth
         const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
             email,
             password,
@@ -55,22 +59,17 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ success: false, error: 'No se obtuvo ID del nuevo usuario' }, { status: 500 })
         }
 
-        // 2. Insertar/Actualizar en public.users (Base de datos por defecto)
-        // Usamos upsert para manejar el caso donde un Trigger ya haya creado la fila
+        // 2. Insertar en public.users
         const userPayload = {
-            auth_id: newUserId, // Link al usuario de Auth
+            auth_id: newUserId,
             email: email,
             full_name: fullName,
-            role: role || 'auditor', // Default role
+            role: role || 'auditor',
             store_id: storeId,
             is_active: true,
-            // Agregamos cualquier otra data extra que venga
             ...(otherData || {})
         }
 
-        // Removemos password del payload de public.users si viene, ya que public.users no debe tener la contraseña real (solo auth)
-        // A menos que tu sistema use la columna 'password' en public.users para logins legacy, pero idealmente no.
-        // Si tu sistema anterior lo usaba, descomenta la siguiente línea:
         if (password) {
             // @ts-ignore
             userPayload.password = password
@@ -79,17 +78,16 @@ export async function POST(request: NextRequest) {
         const { data: insertedUser, error: dbError } = await supabaseAdmin
             .from('users')
             .insert(userPayload)
-            .select()
+            .select('id, email, full_name, role, phone, is_active, store_scope, avatar_url, last_login, created_at, updated_at, auth_id, store_id, google_email_connected, position_type, toast_guid')
             .single()
 
         if (dbError) {
             console.error('❌ Error DB public.users:', dbError)
-            // Intentar borrar el usuario de Auth si falló la DB para no dejar registros huerfanos (Rollback manual)
             await supabaseAdmin.auth.admin.deleteUser(newUserId)
             return NextResponse.json({ success: false, error: 'Error DB: ' + dbError.message }, { status: 500 })
         }
 
-        console.log('✅ Usuario creado exitosamente:', insertedUser)
+        console.log('✅ Usuario creado exitosamente:', insertedUser?.email)
         return NextResponse.json({ success: true, data: insertedUser })
 
     } catch (err: any) {

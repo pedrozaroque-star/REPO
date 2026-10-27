@@ -23,6 +23,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
+import { verifyStaffAuth } from '@/lib/auth-server'
 import { supabaseAdmin } from '@/lib/supabase'
 import { generateJournalLines, calculateExpectedCash, formatDocNumber } from '@/lib/accounting-journal'
 import type { SalesPacketData, SiteMappingConfig } from '@/lib/accounting-journal'
@@ -33,6 +34,9 @@ export const dynamic = 'force-dynamic'
 export const maxDuration = 300
 
 export async function GET(request: NextRequest) {
+  const auth = await verifyStaffAuth(request)
+  if (!auth.authorized) return auth.response!
+
   try {
     const { searchParams } = new URL(request.url)
     const startDate = searchParams.get('startDate')
@@ -73,6 +77,9 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
+  const auth = await verifyStaffAuth(request)
+  if (!auth.authorized) return auth.response!
+
   try {
     const body = await request.json()
     const { startDate, endDate, storeIds } = body as {

@@ -21,6 +21,7 @@ import AppSidebar from './AppSidebar'
 import BottomTabBar from './BottomTabBar'
 import SupportChatWidget from './SupportChatWidget'
 import SupervisorAutoTracker from './miles/SupervisorAutoTracker'
+import ProtectedRoute from './ProtectedRoute'
 import { useState, useEffect, useRef } from 'react'
 import { LanguageProvider } from '@/lib/i18n'
 
@@ -75,7 +76,7 @@ export default function ClientLayout({
         }
     }, [isCollapsed, pathname])
 
-    // Public routes - no navigation chrome
+    // Truly public routes (no login required, no navigation chrome)
     const publicRoutes = [
         '/login', 
         '/', 
@@ -91,14 +92,18 @@ export default function ClientLayout({
         '/evaluacion/kiosk', 
         '/feedback-publico', 
         '/mantenimiento/registro',
-        '/planificador/imprimir', 
         '/tv', 
-        '/procedimientos/imprimir',
-        '/inventory/orders/print-sheet',
-        '/admin/compras/viele/print-sheet',
         '/admin/blindaje-delivery/empaque',
         '/tablet',
         '/gavilan-pos'
+    ]
+
+    // Internal print-sheet routes (REQUIRE login via ProtectedRoute, but render without sidebar/chrome for printing)
+    const printSheetRoutes = [
+        '/planificador/imprimir',
+        '/procedimientos/imprimir',
+        '/inventory/orders/print-sheet',
+        '/admin/compras/viele/print-sheet',
     ]
 
     // Dedicated kiosk / TV mode for order-ready-board or fullscreen app preview via query param
@@ -126,7 +131,15 @@ export default function ClientLayout({
         }
     }, [pathname])
 
-    const isPublicPage = publicRoutes.some(r => pathname === r || pathname.startsWith(r + '/')) || pathname.startsWith('/mantenimiento/registro') || pathname.startsWith('/tablet') || isDedicatedKiosk
+    const isPublicPage =
+        publicRoutes.some(r => pathname === r || pathname.startsWith(r + '/')) ||
+        pathname.startsWith('/mantenimiento/registro') ||
+        pathname.startsWith('/tablet') ||
+        pathname.startsWith('/t/') ||
+        pathname.startsWith('/auth/') ||
+        isDedicatedKiosk
+
+    const isPrintSheetPage = printSheetRoutes.some(r => pathname === r || pathname.startsWith(r + '/'))
 
     // Full-width routes (large tables, schedules, etc.)
     const fullWidthRoutes = ['/horarios', '/admin/plantillas', '/order-ready-board', '/admin/blindaje-delivery/empaque', '/app']
@@ -137,54 +150,60 @@ export default function ClientLayout({
         <LanguageProvider>
             {isPublicPage ? (
                 children
+            ) : isPrintSheetPage ? (
+                <ProtectedRoute>
+                    {children}
+                </ProtectedRoute>
             ) : (
-                <div className="min-h-screen bg-transparent relative transition-colors duration-300">
-                    {/* Background pattern */}
-                    <div
-                        className="fixed inset-0 z-0 opacity-[0.2] dark:opacity-[0.4] invert dark:invert-0 pointer-events-none bg-[url('https://www.transparenttextures.com/patterns/cubes.png')]"
-                        aria-hidden="true"
-                    />
+                <ProtectedRoute>
+                    <div className="min-h-screen bg-transparent relative transition-colors duration-300">
+                        {/* Background pattern */}
+                        <div
+                            className="fixed inset-0 z-0 opacity-[0.2] dark:opacity-[0.4] invert dark:invert-0 pointer-events-none bg-[url('https://www.transparenttextures.com/patterns/cubes.png')]"
+                            aria-hidden="true"
+                        />
 
-                    {/* Sidebar (desktop) + Mobile top bar + Mobile drawer */}
-                    <AppSidebar
-                        isCollapsed={isCollapsed}
-                        setIsCollapsed={setIsCollapsed}
-                        mobileDrawerOpen={mobileDrawerOpen}
-                        setMobileDrawerOpen={setMobileDrawerOpen}
-                    />
+                        {/* Sidebar (desktop) + Mobile top bar + Mobile drawer */}
+                        <AppSidebar
+                            isCollapsed={isCollapsed}
+                            setIsCollapsed={setIsCollapsed}
+                            mobileDrawerOpen={mobileDrawerOpen}
+                            setMobileDrawerOpen={setMobileDrawerOpen}
+                        />
 
-                    {/* Main Content Area */}
-                    <div
-                        className={`relative z-10 min-h-screen transition-all duration-300 ease-in-out ${
-                            /* Desktop: offset by sidebar width */
-                            isCollapsed ? 'lg:ml-[64px]' : 'lg:ml-[260px]'
-                        } ${
-                            /* Mobile: offset by top bar height + floating bottom tab bar */
-                            'pt-14 pb-[90px] lg:pt-14 lg:pb-0'
-                        }`}
-                    >
-                        <main
-                            className={`w-full mx-auto animate-in fade-in duration-500 ${
-                                pathname === '/inicio'
-                                    ? 'max-w-[1720px] px-4 sm:px-6 lg:px-8 pt-2 pb-6'
-                                    : isFullWidth
-                                        ? 'max-w-full px-4 md:px-8 py-4 lg:py-6'
-                                        : 'max-w-[1600px] p-4 sm:p-6 lg:p-8'
+                        {/* Main Content Area */}
+                        <div
+                            className={`relative z-10 min-h-screen transition-all duration-300 ease-in-out ${
+                                /* Desktop: offset by sidebar width */
+                                isCollapsed ? 'lg:ml-[64px]' : 'lg:ml-[260px]'
+                            } ${
+                                /* Mobile: offset by top bar height + floating bottom tab bar */
+                                'pt-14 pb-[90px] lg:pt-14 lg:pb-0'
                             }`}
                         >
-                            {children}
-                        </main>
+                            <main
+                                className={`w-full mx-auto animate-in fade-in duration-500 ${
+                                    pathname === '/inicio'
+                                        ? 'max-w-[1720px] px-4 sm:px-6 lg:px-8 pt-2 pb-6'
+                                        : isFullWidth
+                                            ? 'max-w-full px-4 md:px-8 py-4 lg:py-6'
+                                            : 'max-w-[1600px] p-4 sm:p-6 lg:p-8'
+                                }`}
+                            >
+                                {children}
+                            </main>
+                        </div>
+
+                        {/* Bottom Tab Bar (mobile only) */}
+                        <BottomTabBar onOpenDrawer={() => setMobileDrawerOpen(true)} />
+                        
+                        {/* TEG Assistant Chat Widget */}
+                        <SupportChatWidget />
+
+                        {/* Supervisor Smart Mileage Auto-Tracker */}
+                        <SupervisorAutoTracker />
                     </div>
-
-                    {/* Bottom Tab Bar (mobile only) */}
-                    <BottomTabBar onOpenDrawer={() => setMobileDrawerOpen(true)} />
-                    
-                    {/* TEG Assistant Chat Widget */}
-                    <SupportChatWidget />
-
-                    {/* Supervisor Smart Mileage Auto-Tracker */}
-                    <SupervisorAutoTracker />
-                </div>
+                </ProtectedRoute>
             )}
         </LanguageProvider>
     )

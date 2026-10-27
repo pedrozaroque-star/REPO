@@ -24,6 +24,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { verifyStaffAuth } from '@/lib/auth-server';
 import {
     createQuickBooksBillsForVieleBatch,
     CreateVieleBillInput,
@@ -38,6 +39,9 @@ import { VieleInvoiceCategory } from '@/types/quickbooks-bills';
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest) {
+    const auth = await verifyStaffAuth(request);
+    if (!auth.authorized) return auth.response!;
+
     try {
 
         const { searchParams } = new URL(request.url);
@@ -103,6 +107,9 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
+    const auth = await verifyStaffAuth(request);
+    if (!auth.authorized) return auth.response!;
+
     try {
         const body = await request.json();
         const action = String(body?.action || 'create_bills');

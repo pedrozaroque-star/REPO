@@ -30,6 +30,7 @@
  *   y costo total de receta.
  */
 import { createServerClient, type CookieOptions } from '@supabase/ssr'
+import { verifyStaffAuth } from '@/lib/auth-server'
 import { cookies } from 'next/headers'
 import { NextResponse } from 'next/server'
 import { getSupabaseAdminClient } from '@/lib/supabase'

@@ -54,7 +54,7 @@ export default function ProtectedRoute({ children, allowedRoles, allowEmployee =
 
   useEffect(() => {
     checkAuth()
-  }, [])
+  }, [pathname])
 
   const checkAuth = () => {
     try {
@@ -62,7 +62,7 @@ export default function ProtectedRoute({ children, allowedRoles, allowEmployee =
       const userStr = localStorage.getItem('teg_user')
 
       if (!token || !userStr) {
-        router.push('/login')
+        router.replace('/login')
         return
       }
 
@@ -71,7 +71,7 @@ export default function ProtectedRoute({ children, allowedRoles, allowEmployee =
       if (!userData.id || !userData.email || !userData.role) {
         localStorage.removeItem('teg_token')
         localStorage.removeItem('teg_user')
-        router.push('/login')
+        router.replace('/login')
         return
       }
 
@@ -81,7 +81,7 @@ export default function ProtectedRoute({ children, allowedRoles, allowEmployee =
           console.log('Employee token expired, redirecting to login')
           localStorage.removeItem('teg_token')
           localStorage.removeItem('teg_user')
-          router.push('/login')
+          router.replace('/login')
           return
         }
         // Para managers/admins/tabletas 24/7: renovar silenciosamente vía /api/auth/refresh
@@ -90,7 +90,7 @@ export default function ProtectedRoute({ children, allowedRoles, allowEmployee =
             console.log('Token expired and renewal rejected, redirecting to login')
             localStorage.removeItem('teg_token')
             localStorage.removeItem('teg_user')
-            router.push('/login')
+            router.replace('/login')
           }
         })
       } else if (userData.user_type !== 'employee') {
@@ -100,7 +100,7 @@ export default function ProtectedRoute({ children, allowedRoles, allowEmployee =
       // Sincronizar la cookie 'teg_token' desde localStorage si no existe
       const hasCookie = document.cookie.split('; ').some(row => row.trim().startsWith('teg_token='))
       if (!hasCookie) {
-        const maxAge = userData.user_type === 'employee' ? 15 * 60 : 30 * 24 * 60 * 60
+        const maxAge = userData.user_type === 'employee' ? 15 * 60 : 365 * 24 * 60 * 60
         document.cookie = `teg_token=${token}; path=/; max-age=${maxAge}; SameSite=Lax${window.location.protocol === 'https:' ? '; Secure' : ''}`
         console.log('✅ [ProtectedRoute] Cookie teg_token sincronizada desde localStorage')
       }
@@ -149,11 +149,11 @@ export default function ProtectedRoute({ children, allowedRoles, allowEmployee =
       console.error('Error verificando autenticación:', err)
       localStorage.removeItem('teg_token')
       localStorage.removeItem('teg_user')
-      router.push('/login')
+      router.replace('/login')
     }
   }
 
-  if (loading) {
+  if (loading || !user) {
     return <SurpriseLoader />
   }
 

@@ -1,7 +1,11 @@
 import { NextResponse } from 'next/server'
+import { verifyAdminAuth } from '@/lib/auth-server'
 import { getSupabaseAdminClient } from '@/lib/supabase'
 
-export async function GET() {
+export async function GET(request: Request) {
+    const auth = await verifyAdminAuth(request)
+    if (!auth.authorized) return auth.response!
+
     try {
         const supabase = await getSupabaseAdminClient()
 

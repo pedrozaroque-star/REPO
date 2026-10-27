@@ -16,12 +16,16 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { verifyStaffAuth } from '@/lib/auth-server';
 import {
     getWarehouseInvoicesWithBills,
     createQuickBooksBillForInvoice
 } from '@/lib/quickbooks-bills';
 
 export async function GET(request: NextRequest) {
+    const auth = await verifyStaffAuth(request);
+    if (!auth.authorized) return auth.response!;
+
     try {
         const { searchParams } = new URL(request.url);
         const storeId = searchParams.get('storeId') || undefined;
@@ -93,6 +97,9 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
+    const auth = await verifyStaffAuth(request);
+    if (!auth.authorized) return auth.response!;
+
     try {
         const body = await request.json();
         const { invoiceDocNumbers, customOptions } = body;

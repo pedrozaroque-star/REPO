@@ -23,6 +23,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
+import { verifyStaffAuth } from '@/lib/auth-server'
 import { supabaseAdmin } from '@/lib/supabase'
 import { getQuickBooksClient } from '@/lib/quickbooks'
 
@@ -46,6 +47,9 @@ const QB_TYPE_MAP: Record<string, string> = {
 }
 
 export async function GET(request: NextRequest) {
+  const auth = await verifyStaffAuth(request)
+  if (!auth.authorized) return auth.response!
+
   try {
     const { searchParams } = new URL(request.url)
     const accountType = searchParams.get('type')
@@ -97,6 +101,9 @@ interface QBQueryResponse {
 }
 
 export async function POST(request: NextRequest) {
+  const auth = await verifyStaffAuth(request)
+  if (!auth.authorized) return auth.response!
+
   try {
     const body = await request.json().catch(() => ({})) as { performed_by?: string }
 

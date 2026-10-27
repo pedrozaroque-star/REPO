@@ -20,9 +20,13 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
+import { verifyStaffAuth } from '@/lib/auth-server'
 import { supabaseAdmin } from '@/lib/supabase'
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const auth = await verifyStaffAuth(request)
+  if (!auth.authorized) return auth.response!
+
   try {
     const { data, error } = await supabaseAdmin
       .from('accounting_site_mappings')
@@ -53,6 +57,9 @@ export async function GET() {
 }
 
 export async function PUT(request: NextRequest) {
+  const auth = await verifyStaffAuth(request)
+  if (!auth.authorized) return auth.response!
+
   try {
     const body = await request.json()
     const { store_id, ...updateFields } = body

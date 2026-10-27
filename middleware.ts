@@ -1,15 +1,38 @@
+/**
+ * @module middleware
+ * @description Edge Middleware de Next.js para protección de rutas API y marcado de cabeceras de autenticación.
+ *
+ * @businessRules
+ * - Protege `/api/viele/*` exigiendo `teg_token` (cookie o Bearer) o `CRON_SECRET`.
+ * - Define explícitamente las rutas públicas reales (login, kioscos, TV, app de clientes, feedback público).
+ * - El bloqueo visual (cero vista previa en SSR/cliente) de todas las rutas internas lo ejecuta globalmente
+ *   `<ProtectedRoute>` dentro de `components/ClientLayout.tsx`, manteniendo `loading = true` en SSR para que
+ *   Next.js jamás envíe HTML de módulos internos ni sidebar a sesiones sin autenticar, sin romper tabletas 24/7
+ *   cuya sesión reside en `localStorage`.
+ *
+ * @dataFlow
+ * - `NextRequest` -> validación `/api/viele` -> `x-require-auth` en rutas internas -> `NextResponse.next()`.
+ */
+
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
 
 // Rutas públicas que NO requieren autenticación
 const PUBLIC_ROUTES = [
   '/login',
+  '/auth',
   '/app',
+  '/ordenar',
   '/clientes',
-  '/evaluacion',
-  '/admin',
+  '/gavilan-pos',
+  '/evaluacion/kiosk',
   '/feedback-publico',
-  '/mantenimiento'
+  '/mantenimiento/registro',
+  '/tv',
+  '/t/',
+  '/order-ready-board',
+  '/tablet',
+  '/admin/blindaje-delivery/empaque'
 ]
 
 // Rutas protegidas que SÍ requieren autenticación

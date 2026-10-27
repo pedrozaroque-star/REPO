@@ -14,6 +14,7 @@
  */
 
 import { NextResponse } from 'next/server'
+import { verifyStaffAuth } from '@/lib/auth-server'
 import { getSupabaseAdminClient } from '@/lib/supabase'
 import { fetchUniformsSafeBalance } from '@/app/inventory/uniforms/actions'
 import type { UniformsSafeBalance } from '@/app/inventory/uniforms/utils'
@@ -22,6 +23,9 @@ import type { UniformsSafeBalance } from '@/app/inventory/uniforms/utils'
 // GET — Listar conteos con diferencias y sincronización en vivo con Uniformes
 // ============================================================================
 export async function GET(request: Request) {
+  const auth = await verifyStaffAuth(request)
+  if (!auth.authorized) return auth.response!
+
   const supabase = await getSupabaseAdminClient()
   const { searchParams } = new URL(request.url)
 
@@ -135,6 +139,9 @@ export async function GET(request: Request) {
 // POST — Crear nuevo conteo
 // ============================================================================
 export async function POST(request: Request) {
+  const auth = await verifyStaffAuth(request)
+  if (!auth.authorized) return auth.response!
+
   const supabase = await getSupabaseAdminClient()
 
   let body: any

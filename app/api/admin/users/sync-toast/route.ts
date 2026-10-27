@@ -19,6 +19,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
+import { verifyStaffAuth } from '@/lib/auth-server'
 import { createClient } from '@supabase/supabase-js'
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co'
@@ -58,7 +59,10 @@ function detectRole(titles: string[]): 'manager' | 'asistente' | null {
     return null
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+    const auth = await verifyStaffAuth(request, { allowedRoles: ['admin', 'supervisor'] })
+    if (!auth.authorized) return auth.response!
+
     try {
         // 1. Fetch active stores
         const { data: dbStores, error: storesErr } = await supabaseAdmin
@@ -239,6 +243,9 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
+    const auth = await verifyStaffAuth(req, { allowedRoles: ['admin', 'supervisor'] })
+    if (!auth.authorized) return auth.response!
+
     try {
         const body = await req.json()
         const { promotions, demotions } = body

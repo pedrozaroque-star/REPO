@@ -10,11 +10,15 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
+import { verifyStaffAuth } from '@/lib/auth-server'
 import { getSupabaseAdminClient } from '@/lib/supabase'
 import nodemailer from 'nodemailer'
 import { generateSupervisorMileagePdf, formatUsaDate } from '@/lib/miles-pdf'
 
 export async function POST(req: NextRequest) {
+  const auth = await verifyStaffAuth(req)
+  if (!auth.authorized) return auth.response!
+
   try {
     const body = await req.json()
     const {

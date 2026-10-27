@@ -1,11 +1,14 @@
 
 import { NextResponse } from 'next/server'
+import { verifyAdminAuth } from '@/lib/auth-server'
 import { getSupabaseClient } from '@/lib/supabase'
 import { fetchToastData } from '@/lib/toast-api'
 
 export const dynamic = 'force-dynamic'
 
 export async function GET(request: Request) {
+    const auth = await verifyAdminAuth(request)
+    if (!auth.authorized) return auth.response!
     // 1. HARDCODE TARGET DATE
     const TARGET_DATE = '2026-01-22'
 

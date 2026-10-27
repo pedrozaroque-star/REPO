@@ -214,14 +214,7 @@ function SettingsPage() {
       const result = await response.json()
       if (!result.success) throw new Error(result.error)
 
-      // 2. Also update via RPC if available
-      try {
-        const supabase = await getSupabaseClient()
-        await supabase.rpc('update_user_password_plaintext', {
-          target_user_id: dbUser.id,
-          new_password: passwords.new_password
-        })
-      } catch (_) { /* Silent — RPC may not exist */ }
+      // Password & Auth sync is handled server-side inside /api/admin/update-user
 
       setPasswords({ new_password: '', confirm_password: '' })
       setPasswordSuccess(true)

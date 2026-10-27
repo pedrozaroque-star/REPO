@@ -3,18 +3,31 @@
  * @description API route to update a user's password in Supabase Auth.
  * Supports both UUIDs and database integer IDs as target user IDs.
  * @businessRules
+ * - Requires authenticated session via verifyStaffAuth (admin/supervisor or self).
  * - Synchronizes the hashed credential in Supabase Auth to ensure standard login compatibility.
  * @dataFlow
- * - Request (userId/email, password) -> Resolve to Auth UUID -> Supabase admin.updateUserById() -> Response (success)
+ * - Request (userId/email, password) -> Verify Auth -> Resolve to Auth UUID -> Supabase admin.updateUserById() -> Response (success)
  * @notes Resolves database integer IDs (bigint) to Supabase Auth UUIDs using a lookup in the public.users table.
  */
 
 import { createClient } from '@supabase/supabase-js'
 import { NextResponse } from 'next/server'
+import { verifyStaffAuth } from '@/lib/auth-server'
 
 export async function POST(request: Request) {
+    const auth = await verifyStaffAuth(request)
+    if (!auth.authorized || !auth.user) return auth.response!
+
     try {
         const { email, password, userId } = await request.json()
+
+        const isAdminOrSupervisor = ['admin', 'supervisor'].includes((auth.user.role || '').toLowerCase())
+        const isSelfById = userId !== undefined && userId !== null && String(auth.user.id) === String(userId)
+        const isSelfByEmail = email && auth.user.email && auth.user.email.toLowerCase() === String(email).toLowerCase()
+
+        if (!isAdminOrSupervisor && !isSelfById && !isSelfByEmail) {
+            return NextResponse.json({ error: 'Forbidden: Insufficient privileges to reset another user password' }, { status: 403 })
+        }
 
         // Validar Service Key
         const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
@@ -22,12 +35,12 @@ export async function POST(request: Request) {
 
         if (!supabaseUrl || !serviceKey) {
             console.log('Skipping Supabase Auth sync: Missing SUPABASE_SERVICE_ROLE_KEY')
-            // Devolvemos 200 OK para no generar ruido rojo en consola, ya que esto es opcional
             return NextResponse.json(
                 { success: false, message: 'Sync skipped (missing keys)', skipped: true },
                 { status: 200 }
             )
         }
+
         // Crear cliente Admin
         const supabaseAdmin = createClient(supabaseUrl, serviceKey, {
             auth: {
@@ -45,7 +58,7 @@ export async function POST(request: Request) {
                 .select('auth_id')
                 .eq('id', Number(targetUserId))
                 .single()
-            
+
             if (dbError) {
                 console.error('Error fetching auth_id for user:', dbError)
             } else if (dbUser && dbUser.auth_id) {
@@ -55,7 +68,6 @@ export async function POST(request: Request) {
 
         // Si no tenemos ID, intentamos buscar por email (fallback)
         if (!targetUserId && email) {
-            // Nota: Esto es ineficiente si hay muchos usuarios, pero sirve de fallback
             const { data, error } = await supabaseAdmin.auth.admin.listUsers()
             if (error) throw error
             const user = data.users.find(u => u.email?.toLowerCase() === email.toLowerCase())
@@ -71,8 +83,8 @@ export async function POST(request: Request) {
             targetUserId,
             {
                 password: password,
-                email_confirm: true, // Auto-confirmar
-                user_metadata: { email_verified: true } // Forzar metadatos visuales
+                email_confirm: true,
+                user_metadata: { email_verified: true }
             }
         )
 

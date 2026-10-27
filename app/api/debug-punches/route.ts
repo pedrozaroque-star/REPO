@@ -1,9 +1,12 @@
 import { NextResponse } from 'next/server'
+import { verifyAdminAuth } from '@/lib/auth-server'
 import { getSupabaseClient } from '@/lib/supabase'
 
 export const dynamic = 'force-dynamic'
 
 export async function GET(request: Request) {
+    const auth = await verifyAdminAuth(request)
+    if (!auth.authorized) return auth.response!
     const { searchParams } = new URL(request.url)
     const date = searchParams.get('date') || new Date().toISOString().split('T')[0]
     const storeId = searchParams.get('storeId') || '80a1ec95-bc73-402e-8884-e5abbe9343e6' // Lynwood

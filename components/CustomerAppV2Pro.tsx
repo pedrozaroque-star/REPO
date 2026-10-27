@@ -1751,7 +1751,7 @@ export default function CustomerAppV2Pro({
       },
       {
         id: 'order-ahead',
-        image: '/app-v2/slide-4-hero.jpg?v=5',
+        image: '/tacosgavilan-web/img/hero-bg-mobile.webp?v=114',
         lightLeakSide: 'left' as const,
         kicker: lang === 'en' ? 'YA ESTÁ. READY WHEN YOU ARE' : 'YA ESTÁ. LISTO CUANDO LLEGUES',
         lines:
@@ -2032,13 +2032,17 @@ export default function CustomerAppV2Pro({
                   <img
                     src={activeSlide.image}
                     alt={activeSlide.kicker}
-                    className="w-full h-full object-cover object-center"
+                    className={`w-full h-full object-cover object-center ${
+                      storyIndex === 0 ? 'brightness-[1.1] contrast-[1.03]' : ''
+                    }`}
                   />
                   {/* Moody Top & Bottom Vignette for 100% Text Legibility */}
                   <div
                     className={`absolute inset-0 ${
-                      storyIndex === 4
-                        ? 'bg-gradient-to-b from-black/80 via-black/10 to-black/40'
+                      storyIndex === 0
+                        ? 'bg-gradient-to-b from-black/55 via-transparent to-black/70'
+                        : storyIndex === 4
+                        ? 'bg-gradient-to-b from-black/75 via-black/15 to-black/85'
                         : 'bg-gradient-to-b from-black/85 via-black/35 to-black/90'
                     }`}
                   />
@@ -2057,7 +2061,7 @@ export default function CustomerAppV2Pro({
               {/* Top Bar: Mini Circular Logo + Language Toggle */}
               <div
                 className={`relative z-20 flex items-center justify-between px-5 pb-2 ${
-                  !fullscreenNative && !islandOverlayMode ? 'pt-[50px]' : 'pt-5'
+                  !fullscreenNative ? 'pt-[50px]' : 'pt-5'
                 }`}
               >
                 <div className="flex items-center gap-2.5">
@@ -2105,13 +2109,9 @@ export default function CustomerAppV2Pro({
               </div>
 
               {/* Middle Content Area: Interactive Cards + Staggered Kinetic Typography */}
-              <div
-                className={`relative z-20 flex-1 flex flex-col px-6 py-4 ${
-                  storyIndex === 4 ? 'justify-start pt-2' : 'justify-between'
-                }`}
-              >
+              <div className="relative z-20 flex-1 flex flex-col justify-between px-6 py-4">
                 {/* Interactive Overlay Cards per Slide */}
-                <div className={storyIndex === 4 ? 'mb-3' : 'mt-2'}>
+                <div className="mt-2">
                   <AnimatePresence mode="wait">
                     {(storyIndex === 0 || storyIndex === 4) && (
                       <motion.div
@@ -2477,7 +2477,7 @@ export default function CustomerAppV2Pro({
               {/* Top Bar */}
               <div
                 className={`flex items-center justify-between ${
-                  !fullscreenNative && !islandOverlayMode ? 'pt-[52px]' : 'pt-6'
+                  !fullscreenNative ? 'pt-[52px]' : 'pt-6'
                 }`}
               >
                 <button
@@ -2599,7 +2599,7 @@ export default function CustomerAppV2Pro({
               {/* Top Store Selector & Quick Controls Bar */}
               <div
                 className={`relative z-30 flex items-center justify-between px-4 pb-3 bg-[#141414]/95 border-b border-white/10 backdrop-blur-md ${
-                  !fullscreenNative && !islandOverlayMode ? 'pt-[50px]' : 'pt-3'
+                  !fullscreenNative ? 'pt-[50px]' : 'pt-3'
                 }`}
               >
                 <button
@@ -2683,7 +2683,7 @@ export default function CustomerAppV2Pro({
                       <img
                         src="/tacosgavilan-web/img/hero-bg-mobile.webp?v=114"
                         alt="Tacos Gavilan"
-                        className="w-full h-full object-cover object-center scale-105"
+                        className="absolute inset-0 w-full h-full object-cover object-center scale-105"
                       />
                       <div className="absolute inset-0 bg-gradient-to-r from-black/92 via-black/75 to-black/40" />
                       <div className="absolute inset-0 bg-gradient-to-t from-[#121212] via-black/25 to-black/70" />
@@ -2752,15 +2752,15 @@ export default function CustomerAppV2Pro({
                       </div>
                     </div>
 
-                    {/* Compact Mode Switcher & Store Quick Actions Bar (Zero Store Title Repetition) */}
+                    {/* Compact Mode Switcher & Store Quick Actions Bar (Zero Truncation, Zero Store Repetition) */}
                     <div className="px-4 mt-3">
-                      <div className="p-2.5 rounded-2xl bg-[#18181b] border border-white/10 shadow-lg flex items-center justify-between gap-2">
+                      <div className="p-2 rounded-2xl bg-[#18181b] border border-white/10 shadow-lg flex items-center justify-between gap-2">
                         {/* Segmented Pickup / Delivery Toggle */}
                         <div className="inline-flex rounded-xl bg-black/60 p-1 border border-white/10 shrink-0">
                           <button
                             type="button"
                             onClick={() => setFulfillmentMode('pickup')}
-                            className={`px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer flex items-center gap-1 ${
+                            className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer flex items-center gap-1.5 ${
                               fulfillmentMode === 'pickup'
                                 ? 'bg-[#DA291C] text-white shadow'
                                 : 'text-white/60 hover:text-white'
@@ -2772,7 +2772,7 @@ export default function CustomerAppV2Pro({
                           <button
                             type="button"
                             onClick={() => setFulfillmentMode('delivery')}
-                            className={`px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer flex items-center gap-1 ${
+                            className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer flex items-center gap-1.5 ${
                               fulfillmentMode === 'delivery'
                                 ? 'bg-[#DA291C] text-white shadow'
                                 : 'text-white/60 hover:text-white'
@@ -2783,20 +2783,15 @@ export default function CustomerAppV2Pro({
                           </button>
                         </div>
 
-                        {/* Street Address + Quick Call / Maps / GPS */}
-                        <div className="min-w-0 flex-1 px-1">
-                          <p className="text-[11px] font-semibold text-white/80 truncate">
-                            {currentStore.address}
-                          </p>
-                        </div>
-
-                        <div className="flex items-center gap-1 shrink-0">
+                        {/* Quick Store Actions: Call, Maps, Nearest GPS */}
+                        <div className="flex items-center gap-1.5 shrink-0">
                           <a
                             href={`tel:${currentStore.phone.replace(/[^\d+]/g, '')}`}
-                            className="p-2 rounded-xl bg-white/8 hover:bg-white/15 text-white transition-colors"
+                            className="px-2.5 py-1.5 rounded-xl bg-white/8 hover:bg-white/15 text-white text-[10px] font-bold flex items-center gap-1 transition-colors"
                             title={currentStore.phone}
                           >
-                            <Phone size={13} />
+                            <Phone size={12} />
+                            <span>{lang === 'en' ? 'Call' : 'Llamar'}</span>
                           </a>
                           <a
                             href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(
@@ -2804,16 +2799,17 @@ export default function CustomerAppV2Pro({
                             )}`}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="p-2 rounded-xl bg-white/8 hover:bg-white/15 text-[#FDC82F] transition-colors"
-                            title="Maps"
+                            className="px-2.5 py-1.5 rounded-xl bg-white/8 hover:bg-white/15 text-[#FDC82F] text-[10px] font-bold flex items-center gap-1 transition-colors"
+                            title={currentStore.address}
                           >
-                            <Navigation size={13} />
+                            <Navigation size={12} />
+                            <span>{lang === 'en' ? 'Map' : 'Mapa'}</span>
                           </a>
                           <button
                             type="button"
                             onClick={() => handleLocateGps(false)}
-                            className="p-2 rounded-xl bg-[#DA291C]/20 hover:bg-[#DA291C]/35 text-[#FDC82F] border border-[#DA291C]/40 transition-colors cursor-pointer"
-                            title="GPS"
+                            className="p-1.5 rounded-xl bg-[#DA291C]/20 hover:bg-[#DA291C]/35 text-[#FDC82F] border border-[#DA291C]/40 transition-colors cursor-pointer"
+                            title={lang === 'en' ? 'Locate nearest store' : 'Buscar sucursal más cercana'}
                           >
                             <LocateFixed size={13} className={isLocating ? 'animate-spin' : ''} />
                           </button>

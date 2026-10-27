@@ -61,7 +61,13 @@ export async function GET(request: Request) {
         let itemCount = 0
         try {
             console.log(`🔄 [CRON FC TODAY] Calculando in-process para ${todayStr}...`)
-            const directReq = new NextRequest(`http://localhost:3000/api/inventory/food-cost?storeId=all&startDate=${todayStr}&endDate=${todayStr}`)
+            const directReq = new NextRequest(`http://localhost:3000/api/inventory/food-cost?storeId=all&startDate=${todayStr}&endDate=${todayStr}`, {
+                headers: {
+                    'x-cron-auth': process.env.CRON_SECRET || '',
+                    authorization: request.headers.get('authorization') || '',
+                    cookie: request.headers.get('cookie') || ''
+                }
+            })
             const directRes = await foodCostGet(directReq)
             
             if (directRes.ok) {
@@ -83,7 +89,12 @@ export async function GET(request: Request) {
             
             const apiUrl = `${baseUrl}/api/inventory/food-cost?storeId=all&startDate=${todayStr}&endDate=${todayStr}`
             const res = await fetch(apiUrl, {
-                headers: { 'Content-Type': 'application/json' }
+                headers: {
+                    'Content-Type': 'application/json',
+                    'x-cron-auth': process.env.CRON_SECRET || '',
+                    authorization: request.headers.get('authorization') || '',
+                    cookie: request.headers.get('cookie') || ''
+                }
             })
 
             if (!res.ok) {

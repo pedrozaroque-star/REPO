@@ -22,11 +22,15 @@
  *     para mantener consistencia con el cron semanal.
  */
 import { NextRequest, NextResponse } from 'next/server'
+import { verifyStaffAuth } from '@/lib/auth-server'
 import { getSupabaseAdminClient } from '@/lib/supabase'
 
 export const dynamic = 'force-dynamic'
 
 export async function POST(request: NextRequest) {
+  const auth = await verifyStaffAuth(request, { allowedRoles: ['admin', 'supervisor'] })
+  if (!auth.authorized) return auth.response!
+
   try {
     const body = await request.json()
     const { approvedItems, supplierId, sourceType = 'clipboard', approvedBy = 'Admin' } = body

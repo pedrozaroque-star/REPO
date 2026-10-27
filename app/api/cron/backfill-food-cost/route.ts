@@ -109,7 +109,12 @@ export async function GET(request: NextRequest) {
                 console.log(`🔄 [BACKFILL] Calculando ${dateStr} (${results.length + 1}/${datesToProcess.length})...`)
 
                 const res = await fetch(apiUrl, {
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'x-cron-auth': process.env.CRON_SECRET || '',
+                        authorization: request.headers.get('authorization') || '',
+                        cookie: request.headers.get('cookie') || ''
+                    },
                     signal: AbortSignal.timeout(60000) // 60s timeout per day
                 })
 

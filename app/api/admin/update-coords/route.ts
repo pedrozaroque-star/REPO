@@ -1,8 +1,20 @@
+/**
+ * @module UpdateCoordsRoute
+ * @description API route to update store coordinates in the database.
+ * @businessRules
+ * - Requires authenticated admin or supervisor session via verifyStaffAuth.
+ * @dataFlow
+ * - Request (storeId, lat, lon) -> Verify Auth -> Supabase stores update -> Response (success)
+ */
 
 import { getSupabaseAdminClient } from '@/lib/supabase'
 import { NextResponse } from 'next/server'
+import { verifyStaffAuth } from '@/lib/auth-server'
 
 export async function POST(request: Request) {
+    const auth = await verifyStaffAuth(request, { allowedRoles: ['admin', 'supervisor'] })
+    if (!auth.authorized) return auth.response!
+
     try {
         const { storeId, lat, lon } = await request.json()
 

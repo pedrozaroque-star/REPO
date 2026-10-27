@@ -1,3 +1,19 @@
+/**
+ * @module lib/supabase
+ * @description Cliente centralizado de Supabase para servidor (Node.js / API Routes / Server Actions) y cliente (PCs, Tablets, TVs y Kioscos).
+ *
+ * @businessRules
+ * - En entorno de servidor (`typeof window === 'undefined'`), utiliza automáticamente `SUPABASE_SERVICE_ROLE_KEY` para que los endpoints de backend y Cron Jobs operen con privilegio `service_role` sin abrir permisos anónimos en tablas financieras o de integraciones.
+ * - En entorno de navegador (`typeof window !== 'undefined'`), utiliza estrictamente `NEXT_PUBLIC_SUPABASE_ANON_KEY`, manteniendo compatibilidad 100% zero-downtime con todas las PCs, Tablets, TVs y Kioscos en tienda.
+ *
+ * @dataFlow
+ * - Browser -> `supabase` (`NEXT_PUBLIC_SUPABASE_ANON_KEY`) -> PostgREST / Realtime
+ * - Server -> `supabase` / `supabaseAdmin` (`SUPABASE_SERVICE_ROLE_KEY`) -> PostgREST / Storage / RPC
+ *
+ * @notes
+ * - [2026-10-26] Removido fallback `NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY` para impedir cualquier exposición accidental de la llave maestra en el bundle cliente.
+ */
+
 import { createClient } from '@supabase/supabase-js'
 import dotenv from 'dotenv'
 import path from 'path'
@@ -9,20 +25,26 @@ if (!process.env.NEXT_PUBLIC_SUPABASE_URL) {
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co'
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'placeholder'
+const isServerRuntime = typeof window === 'undefined'
+const supabaseServiceKey = isServerRuntime ? process.env.SUPABASE_SERVICE_ROLE_KEY : undefined
 
 // ============================================================================
 // SINGLE CLIENT INSTANCE - Configurado para minimizar warnings
 // ============================================================================
 // Este cliente único se reutiliza en toda la aplicación.
-// Las opciones de auth están configuradas para evitar conflictos con GoTrueClient.
-export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
-  auth: {
-    persistSession: false,     // No persistir sesión automáticamente
-    autoRefreshToken: false,    // No refrescar tokens automáticamente
-    detectSessionInUrl: false,  // No detectar sesión en URL
-    flowType: 'pkce'            // Flow type recomendado
+// En el servidor usa SUPABASE_SERVICE_ROLE_KEY; en el navegador usa NEXT_PUBLIC_SUPABASE_ANON_KEY.
+export const supabase = createClient(
+  supabaseUrl,
+  isServerRuntime && supabaseServiceKey ? supabaseServiceKey : supabaseAnonKey,
+  {
+    auth: {
+      persistSession: false,     // No persistir sesión automáticamente
+      autoRefreshToken: false,    // No refrescar tokens automáticamente
+      detectSessionInUrl: false,  // No detectar sesión en URL
+      flowType: 'pkce'            // Flow type recomendado
+    }
   }
-})
+)
 
 // ============================================================================
 // FUNCIÓN DE CONVENIENCIA (ASYNC)
@@ -36,10 +58,6 @@ export async function getSupabaseClient() {
 // ADMIN CLIENT - Para operaciones que requieren bypasear RLS
 // ============================================================================
 // Este cliente usa el service_role key que ignora las políticas RLS.
-// ⚠️ SOLO usar en operaciones administrativas del lado del servidor o
-// en componentes client-side que requieran permisos elevados (como gestión de usuarios).
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY!
-
 export const supabaseAdmin = supabaseServiceKey
   ? createClient(supabaseUrl, supabaseServiceKey, {
     auth: {
@@ -48,7 +66,7 @@ export const supabaseAdmin = supabaseServiceKey
       detectSessionInUrl: false
     }
   })
-  : supabase // Fallback al cliente normal si no hay service key
+  : supabase // Fallback al cliente normal en navegador
 
 export async function getSupabaseAdminClient() {
   return supabaseAdmin
@@ -107,4 +125,4 @@ export function getSupabaseWithAuth() {
       }
     }
   })
-}
+}

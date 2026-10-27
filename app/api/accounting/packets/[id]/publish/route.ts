@@ -28,6 +28,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
+import { verifyStaffAuth } from '@/lib/auth-server'
 import { supabaseAdmin } from '@/lib/supabase'
 import { getQuickBooksClient, getAuthClient } from '@/lib/quickbooks'
 import { getQBStoreRefs } from '@/lib/qb-classes-locations'

@@ -1504,7 +1504,65 @@ function OrderReadyBoardContent() {
     enqueueReminderRef.current = enqueueReminder
   }, [enqueueReminder])
 
-  // Regla de Negocio Tacos Gavilan: Reproducción de anuncios personalizados (manual o periódica)
+  // Detectar automáticamente el idioma del anuncio (ES vs EN) según su contenido o preferencia
+  const detectAnnouncementLang = useCallback(
+    (text: string): 'es' | 'en' => {
+      const sample = (text || '').trim()
+      if (!sample) return voiceLanguage === 'en' ? 'en' : 'es'
+      const hasSpanishMarkers = /[áéíóúñ¡¿]/i.test(sample) || /\b(favor|gracias|bienvenidos|recuerde|disfrute|orden|mostrador|nuestra|nuestras|salsas|limones|visita)\b/i.test(sample)
+      const hasEnglishMarkers = /\b(please|thank you|welcome|remember|enjoy|picking up|counter|salsa bar|house-made|authentic|visiting|daily)\b/i.test(sample)
+      if (hasEnglishMarkers && !hasSpanishMarkers) return 'en'
+      if (hasSpanishMarkers && !hasEnglishMarkers) return 'es'
+      return voiceLanguage === 'en' ? 'en' : 'es'
+    },
+    [voiceLanguage]
+  )
+
+  // Obtener y cachear en memoria (Blob URL) el clip neuronal de Anuncio al Comedor usando SIEMPRE la voz oficial Kore (la misma de todas las órdenes)
+  const getAnnouncementClipUrl = useCallback((text: string, lang: 'es' | 'en'): Promise<string | null> => {
+    const clean = text.trim().slice(0, 500)
+    if (!clean) return Promise.resolve(null)
+    const key = `ann:Kore:${lang}:${clean.toLowerCase()}`
+    const cached = clipCacheRef.current.get(key)
+    if (cached) return cached
+
+    const job = (async (): Promise<string | null> => {
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          const ttsUrl = `/api/order-ready/announcement-tts?text=${encodeURIComponent(clean)}&lang=${lang}&voice=Kore&v=3`
+          const res = await fetch(ttsUrl, { signal: AbortSignal.timeout(18000) })
+          if (!res.ok) throw new Error('announcement-tts ' + res.status)
+          const blob = await res.blob()
+          if (blob.size < 1000) throw new Error('announcement-tts empty blob')
+          return URL.createObjectURL(blob)
+        } catch (e) {
+          if (attempt === 0) {
+            await new Promise((r) => setTimeout(r, 400))
+          } else {
+            console.warn(`[order-ready] Error al obtener audio neuronal Kore para anuncio (${lang}):`, e)
+          }
+        }
+      }
+      clipCacheRef.current.delete(key)
+      return null
+    })()
+
+    clipCacheRef.current.set(key, job)
+    return job
+  }, [])
+
+  // Precargar en segundo plano el anuncio activo con la voz Kore para que al presionar "Reproducir Ahora" suene en 0ms
+  useEffect(() => {
+    const clean = (announcementText || '').trim()
+    if (!clean) return
+    const timer = setTimeout(() => {
+      const lang = detectAnnouncementLang(clean)
+      void getAnnouncementClipUrl(clean, lang)
+    }, 350)
+    return () => clearTimeout(timer)
+  }, [announcementText, detectAnnouncementLang, getAnnouncementClipUrl])
+
+  // Regla de Negocio Tacos Gavilan: Reproducción de anuncios personalizados (manual o periódica) usando siempre la voz Kore de las órdenes
   const playCustomAnnouncement = useCallback(
     async (textOverride?: string) => {
       const textToPlay = (textOverride || announcementTextRef.current || '').trim()
@@ -1527,27 +1585,28 @@ function OrderReadyBoardContent() {
       setActiveSpeech(displayBanner)
 
       try {
+        // Descargar/obtener de caché el clip de Kore mientras suena la campanilla Ding-Dong
+        const lang = detectAnnouncementLang(textToPlay)
+        const clipPromise = getAnnouncementClipUrl(textToPlay, lang)
+
         // 1. Tocar campanilla Ding-Dong si está habilitada
         if (enableChime) {
           await playChime()
           await new Promise((r) => setTimeout(r, 250))
         }
 
-        // 2. Intentar reproducir con Gemini Neural TTS (/api/order-ready/announcement-tts)
-        const lang = voiceLanguage === 'en' ? 'en' : 'es'
-        const ttsUrl = `/api/order-ready/announcement-tts?text=${encodeURIComponent(textToPlay)}&lang=${lang}&voice=${selectedVoice}`
-
+        // 2. Reproducir con la voz neuronal oficial Kore (/api/order-ready/announcement-tts)
         let playedOk = false
-        try {
-          const res = await fetch(ttsUrl, { signal: AbortSignal.timeout(10000) })
-          if (res.ok) {
-            const blob = await res.blob()
-            const blobUrl = URL.createObjectURL(blob)
-            playedOk = await playClip(blobUrl)
-            URL.revokeObjectURL(blobUrl)
+        let clipUrl = await clipPromise
+        if (clipUrl) {
+          playedOk = await playClip(clipUrl)
+          if (!playedOk) {
+            clipCacheRef.current.delete(`ann:Kore:${lang}:${textToPlay.toLowerCase()}`)
+            clipUrl = await getAnnouncementClipUrl(textToPlay, lang)
+            if (clipUrl) {
+              playedOk = await playClip(clipUrl)
+            }
           }
-        } catch (fetchErr) {
-          console.warn('[order-ready] Error al obtener audio neuronal para anuncio, usando fallback:', fetchErr)
         }
 
         // 3. Fallback seguro a síntesis del navegador con estricto filtro anti-Raúl
@@ -1555,8 +1614,7 @@ function OrderReadyBoardContent() {
           await new Promise<void>((resolve) => {
             const rawVoices = availableVoices.length > 0 ? availableVoices : window.speechSynthesis.getVoices()
             const voices = rawVoices.filter((v) => !isForbiddenRaulVoice(v.name))
-            const isFemale = selectedVoice === 'Kore' || selectedVoice === 'Aoede' || selectedVoice === 'Zephyr'
-            const targetVoice = getBestBrowserVoice(lang, voices, selectedVoice)
+            const targetVoice = getBestBrowserVoice(lang, voices, 'Kore')
 
             // REGLA CRÍTICA TACOS GAVILAN: Bloquear si no hay voz explícita (para que Windows SAPI no use Raúl)
             if (!targetVoice || isForbiddenRaulVoice(targetVoice.name)) {
@@ -1565,13 +1623,11 @@ function OrderReadyBoardContent() {
               return
             }
 
-            if (isFemale) {
-              const vNameNorm = targetVoice.name.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
-              if (/raul|david|male|hombre|jorge|diego|pablo|miguel|guy|mark|george/i.test(vNameNorm)) {
-                console.warn('[order-ready] Bloqueo de seguridad en anuncio: voz masculina descartada para meta femenina.')
-                resolve()
-                return
-              }
+            const vNameNorm = targetVoice.name.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+            if (/raul|david|male|hombre|jorge|diego|pablo|miguel|guy|mark|george/i.test(vNameNorm)) {
+              console.warn('[order-ready] Bloqueo de seguridad en anuncio: voz masculina descartada para meta femenina.')
+              resolve()
+              return
             }
 
             const utt = new SpeechSynthesisUtterance(textToPlay)
@@ -1609,14 +1665,15 @@ function OrderReadyBoardContent() {
       isMuted,
       enableChime,
       playChime,
-      voiceLanguage,
-      selectedVoice,
+      detectAnnouncementLang,
+      getAnnouncementClipUrl,
       playClip,
       availableVoices,
       getBestBrowserVoice,
       voiceSpeed,
       voiceVolume,
       processAudioQueue,
+      unlockAudio,
       t
     ]
   )
@@ -3238,7 +3295,7 @@ function OrderReadyBoardContent() {
                     <span>{isPlayingAnnouncement ? t('orderReadyBoard.announcement_playing') : t('orderReadyBoard.announcement_play_now')}</span>
                   </div>
                   <span className="text-[10px] font-normal opacity-90">
-                    ({selectedVoice} • {voiceLanguage === 'en' ? 'EN' : 'ES'})
+                    (Kore • {detectAnnouncementLang(announcementText).toUpperCase()})
                   </span>
                 </button>
               </div>

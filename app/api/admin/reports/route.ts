@@ -14,10 +14,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import fs from 'fs';
 import path from 'path';
+import { verifyStaffAuth } from '@/lib/auth-server';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest) {
+    const auth = await verifyStaffAuth(request, { allowedRoles: ['admin', 'supervisor'] });
+    if (!auth.authorized) return auth.response!;
+
     try {
         const { searchParams } = new URL(request.url);
         const month = (searchParams.get('month') || 'septiembre').toLowerCase().trim();

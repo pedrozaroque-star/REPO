@@ -12,9 +12,13 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { verifyStaffAuth } from '@/lib/auth-server';
 import { supabaseAdmin } from '@/lib/supabase';
 
 export async function GET(req: NextRequest) {
+  const auth = await verifyStaffAuth(req);
+  if (!auth.authorized) return auth.response!;
+
   try {
     const { searchParams } = new URL(req.url);
     const userEmail = searchParams.get('user_email');
@@ -53,6 +57,9 @@ export async function GET(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
+  const auth = await verifyStaffAuth(req);
+  if (!auth.authorized) return auth.response!;
+
   try {
     const { searchParams } = new URL(req.url);
     const conversationId = searchParams.get('id');

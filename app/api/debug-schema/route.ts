@@ -1,7 +1,10 @@
 import { NextResponse } from 'next/server';
+import { verifyAdminAuth } from '@/lib/auth-server';
 import { supabaseAdmin } from '@/lib/supabase';
 
-export async function GET() {
+export async function GET(request: Request) {
+  const auth = await verifyAdminAuth(request);
+  if (!auth.authorized) return auth.response!;
   // Check what position_type values exist
   const { data: users } = await supabaseAdmin
     .from('users')

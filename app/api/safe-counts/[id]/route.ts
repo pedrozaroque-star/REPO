@@ -12,6 +12,7 @@
  */
 
 import { NextResponse } from 'next/server'
+import { verifyStaffAuth } from '@/lib/auth-server'
 import { getSupabaseAdminClient } from '@/lib/supabase'
 
 // ============================================================================
@@ -21,6 +22,9 @@ export async function PUT(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const auth = await verifyStaffAuth(request)
+  if (!auth.authorized) return auth.response!
+
   const supabase = await getSupabaseAdminClient()
   const { id } = await params
 
@@ -104,6 +108,9 @@ export async function DELETE(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const auth = await verifyStaffAuth(request, { allowedRoles: ['admin', 'supervisor'] })
+  if (!auth.authorized) return auth.response!
+
   const supabase = await getSupabaseAdminClient()
   const { id } = await params
 

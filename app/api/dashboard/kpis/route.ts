@@ -13,6 +13,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
+import { verifyStaffAuth } from '@/lib/auth-server'
 import { fetchToastData, ToastMetricsOptions } from '@/lib/toast-api'
 import { getSupabaseAdminClient } from '@/lib/supabase'
 import { GET as foodCostGet } from '@/app/api/inventory/food-cost/route'
@@ -20,6 +21,9 @@ import { GET as foodCostGet } from '@/app/api/inventory/food-cost/route'
 export const dynamic = 'force-dynamic'
 
 export async function GET(req: NextRequest) {
+    const auth = await verifyStaffAuth(req)
+    if (!auth.authorized) return auth.response!
+
     try {
         const { searchParams } = new URL(req.url)
         const startDate = searchParams.get('startDate')
@@ -95,7 +99,9 @@ export async function GET(req: NextRequest) {
                 fcTotalCost = tempCost
                 fcTotalSales = tempSales
                 try {
-                    const directReq = new NextRequest(`http://localhost:3000/api/inventory/food-cost?storeId=all&startDate=${startDate}&endDate=${endDate}`)
+                    const directReq = new NextRequest(`http://localhost:3000/api/inventory/food-cost?storeId=all&startDate=${startDate}&endDate=${endDate}`, {
+                        headers: req.headers
+                    })
                     const directRes = await foodCostGet(directReq)
                     if (directRes.ok) {
                         const directJson = await directRes.json()
@@ -123,7 +129,13 @@ export async function GET(req: NextRequest) {
                                 ? `https://${process.env.VERCEL_URL}` 
                                 : 'http://localhost:3000'))
                     const fcUrl = `${baseUrl}/api/inventory/food-cost?storeId=all&startDate=${startDate}&endDate=${endDate}`
-                    const fcRes = await fetch(fcUrl)
+                    const fcRes = await fetch(fcUrl, {
+                        headers: {
+                            cookie: req.headers.get('cookie') || '',
+                            authorization: req.headers.get('authorization') || '',
+                            'x-cron-auth': process.env.CRON_SECRET || ''
+                        }
+                    })
                     const fcJson = await fcRes.json()
 
                     if (fcJson.data && fcJson.data.length > 0) {

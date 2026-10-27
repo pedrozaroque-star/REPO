@@ -11,12 +11,16 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { verifyStaffAuth } from '@/lib/auth-server';
 import { supabaseAdmin } from '@/lib/supabase';
 
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const auth = await verifyStaffAuth(req);
+  if (!auth.authorized) return auth.response!;
+
   try {
     const { id } = await params;
 
@@ -61,6 +65,9 @@ export async function DELETE(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const auth = await verifyStaffAuth(req);
+  if (!auth.authorized) return auth.response!;
+
   try {
     const { id } = await params;
 

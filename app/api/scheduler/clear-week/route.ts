@@ -1,7 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { verifyStaffAuth } from '@/lib/auth-server'
 import { getSupabaseClient } from '@/lib/supabase'
 
 export async function POST(req: NextRequest) {
+    const auth = await verifyStaffAuth(req, { allowedRoles: ['admin', 'supervisor', 'manager', 'asistente'] })
+    if (!auth.authorized) return auth.response!
+
     try {
         const { storeId, startDate, endDate } = await req.json()
 

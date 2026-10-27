@@ -22,6 +22,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
+import { verifyStaffAuth } from '@/lib/auth-server'
 import { supabaseAdmin } from '@/lib/supabase'
 import { generateJournalLines } from '@/lib/accounting-journal'
 import type { SalesPacketData, SiteMappingConfig } from '@/lib/accounting-journal'
@@ -46,6 +47,9 @@ export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const auth = await verifyStaffAuth(request)
+  if (!auth.authorized) return auth.response!
+
   try {
     const { id } = await params
 
@@ -83,6 +87,9 @@ export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const auth = await verifyStaffAuth(request)
+  if (!auth.authorized) return auth.response!
+
   try {
     const { id } = await params
     const body: PatchBody = await request.json()

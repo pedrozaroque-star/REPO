@@ -157,8 +157,10 @@ export async function GET(request: Request) {
                 
                 const res = await fetch(apiUrl, {
                     headers: {
-                        // No necesita auth header ya que es una API interna pública
-                        'Content-Type': 'application/json'
+                        'Content-Type': 'application/json',
+                        'x-cron-auth': process.env.CRON_SECRET || '',
+                        authorization: request.headers.get('authorization') || '',
+                        cookie: request.headers.get('cookie') || ''
                     }
                 })
 
