@@ -38,6 +38,16 @@ export default function MobileLegalShell({
   const pathname = usePathname()
   const { language, setLanguage, t } = useLanguage()
 
+  React.useEffect(() => {
+    try {
+      if (!sessionStorage.getItem('gavilan_mobile_legal_lang_set')) {
+        setLanguage('en')
+      }
+    } catch {
+      // Ignore storage errors
+    }
+  }, [setLanguage])
+
   const navItems = [
     { href: '/app/privacy', label: t('mobile_legal.nav_privacy'), icon: Shield },
     { href: '/app/terms', label: t('mobile_legal.nav_terms'), icon: FileText },
@@ -71,7 +81,15 @@ export default function MobileLegalShell({
           <div className="flex items-center gap-2">
             <button
               type="button"
-              onClick={() => setLanguage(language === 'en' ? 'es' : 'en')}
+              onClick={() => {
+                const next = language === 'en' ? 'es' : 'en'
+                try {
+                  sessionStorage.setItem('gavilan_mobile_legal_lang_set', next)
+                } catch {
+                  // Ignore storage errors
+                }
+                setLanguage(next)
+              }}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#FDC82F] text-[#50050a] font-black text-xs shadow-sm hover:bg-[#eab308] transition-colors"
             >
               <Globe size={14} />

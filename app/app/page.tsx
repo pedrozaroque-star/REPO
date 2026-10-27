@@ -172,6 +172,15 @@ function AppClientesWorkspaceContent() {
   const [showSplashModal, setShowSplashModal] = useState(false)
 
   useEffect(() => {
+    try {
+      // Ensure Version 1 (/app/index.html) also boots in English ('en') by default
+      localStorage.setItem('gavilan_app_lang', 'en')
+    } catch {
+      // Ignore storage errors
+    }
+  }, [])
+
+  useEffect(() => {
     if (vParam === '1') setActiveTab('v1')
     else if (vParam === '2') setActiveTab('v2')
     else if (vParam === 'compare') setActiveTab('compare')

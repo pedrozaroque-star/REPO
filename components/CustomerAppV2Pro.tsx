@@ -29,7 +29,7 @@
 
 'use client'
 
-import React, { useState, useEffect, useMemo, useCallback } from 'react'
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   ArrowDown,
@@ -1129,8 +1129,20 @@ export default function CustomerAppV2Pro({
   externalLoggedInDemo = false,
   controlTick = 0,
 }: CustomerAppV2ProProps = {}) {
-  const { language, setLanguage, t } = useLanguage()
-  const lang: 'es' | 'en' = language === 'en' ? 'en' : 'es'
+  const { setLanguage: setGlobalLanguage, t } = useLanguage()
+  // Customer App defaults strictly to English ('en') on launch; synced with global i18n for t()
+  const [lang, setLang] = useState<'es' | 'en'>('en')
+  const setLanguage = useCallback(
+    (nextLang: 'es' | 'en') => {
+      setLang(nextLang)
+      setGlobalLanguage(nextLang)
+    },
+    [setGlobalLanguage]
+  )
+
+  useEffect(() => {
+    setGlobalLanguage('en')
+  }, [setGlobalLanguage])
 
   const [stage, setStage] = useState<V2Stage>('stories')
   const [storyIndex, setStoryIndex] = useState(0)
@@ -1140,6 +1152,16 @@ export default function CustomerAppV2Pro({
   const [fulfillmentMode, setFulfillmentMode] = useState<FulfillmentMode>('pickup')
   const [selectedStoreId, setSelectedStoreId] = useState<number>(14) // Lynwood default
   const [storeModalOpen, setStoreModalOpen] = useState(false)
+  const [mapModalOpen, setMapModalOpen] = useState(false)
+  const [mapFocusedStoreId, setMapFocusedStoreId] = useState<number>(14)
+  const [mapTheme, setMapTheme] = useState<'dark' | 'light' | 'satellite'>('dark')
+  const [mapViewAll, setMapViewAll] = useState<boolean>(false)
+  const [mapSdkFailed, setMapSdkFailed] = useState<boolean>(false)
+  const mapContainerRef = useRef<HTMLDivElement | null>(null)
+  const googleMapInstanceRef = useRef<any>(null)
+  const googleMapMarkersRef = useRef<Map<number, any>>(new Map())
+  const googleMapUserMarkerRef = useRef<any>(null)
+  const googleMapUserHaloRef = useRef<any>(null)
   const [userCoords, setUserCoords] = useState<{ lat: number; lng: number } | null>(null)
   const [isLocating, setIsLocating] = useState(false)
   const [brandLoader, setBrandLoader] = useState<{ visible: boolean; label: string; done?: boolean }>({
@@ -1205,6 +1227,225 @@ export default function CustomerAppV2Pro({
     () => getStoreStatusInLA(currentStore, lang),
     [currentStore, lang]
   )
+
+  const mapFocusedStore = useMemo(() => {
+    return storesWithDistance.find((s) => s.id === mapFocusedStoreId) || currentStore
+  }, [storesWithDistance, mapFocusedStoreId, currentStore])
+
+  const mapFocusedStoreStatus = useMemo(
+    () => getStoreStatusInLA(mapFocusedStore, lang),
+    [mapFocusedStore, lang]
+  )
+
+  const openInAppMap = useCallback(
+    (storeId?: number, viewAll = false) => {
+      const targetId = storeId ?? currentStore.id
+      setMapFocusedStoreId(targetId)
+      setMapViewAll(viewAll)
+      setMapModalOpen(true)
+    },
+    [currentStore.id]
+  )
+
+  // Sync and initialize the 1:1 tacosgavilan.com Google Maps Store Locator inside the app modal
+  useEffect(() => {
+    if (!mapModalOpen || mapSdkFailed) return
+    const container = mapContainerRef.current
+    if (!container) return
+
+    const GOOGLE_MAPS_SCRIPT_ID = 'tacos-gavilan-google-maps'
+    const GOOGLE_MAPS_BROWSER_KEY = 'AIzaSyCdu1R10kWbD-FaSMh4MMyxgqmhEG8xVko'
+
+    const darkMapStyles = [
+      { elementType: 'geometry', stylers: [{ color: '#212121' }] },
+      { elementType: 'labels.icon', stylers: [{ visibility: 'off' }] },
+      { elementType: 'labels.text.fill', stylers: [{ color: '#757575' }] },
+      { elementType: 'labels.text.stroke', stylers: [{ color: '#212121' }] },
+      { featureType: 'administrative', elementType: 'geometry', stylers: [{ color: '#757575' }] },
+      { featureType: 'administrative.country', elementType: 'labels.text.fill', stylers: [{ color: '#9e9e9e' }] },
+      { featureType: 'administrative.locality', elementType: 'labels.text.fill', stylers: [{ color: '#bdbdbd' }] },
+      { featureType: 'poi', elementType: 'labels.text.fill', stylers: [{ color: '#757575' }] },
+      { featureType: 'poi.park', elementType: 'geometry', stylers: [{ color: '#181818' }] },
+      { featureType: 'poi.park', elementType: 'labels.text.fill', stylers: [{ color: '#616161' }] },
+      { featureType: 'poi.park', elementType: 'labels.text.stroke', stylers: [{ color: '#1b1b1b' }] },
+      { featureType: 'road', elementType: 'geometry.fill', stylers: [{ color: '#2c2c2c' }] },
+      { featureType: 'road', elementType: 'labels.text.fill', stylers: [{ color: '#8a8a8a' }] },
+      { featureType: 'road.arterial', elementType: 'geometry', stylers: [{ color: '#373737' }] },
+      { featureType: 'road.highway', elementType: 'geometry', stylers: [{ color: '#3c3c3c' }] },
+      { featureType: 'road.highway.controlled_access', elementType: 'geometry', stylers: [{ color: '#4e4e4e' }] },
+      { featureType: 'road.local', elementType: 'labels.text.fill', stylers: [{ color: '#616161' }] },
+      { featureType: 'transit', elementType: 'labels.text.fill', stylers: [{ color: '#757575' }] },
+      { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#000000' }] },
+      { featureType: 'water', elementType: 'labels.text.fill', stylers: [{ color: '#3d3d3d' }] },
+    ]
+
+    const prevAuthFailure = (window as any).gm_authFailure
+    ;(window as any).gm_authFailure = () => {
+      setMapSdkFailed(true)
+      if (typeof prevAuthFailure === 'function') prevAuthFailure()
+    }
+
+    const loadMapsScript = (): Promise<void> => {
+      const w = window as any
+      if (w.google && w.google.maps) return Promise.resolve()
+      return new Promise((resolve, reject) => {
+        const existing = document.getElementById(GOOGLE_MAPS_SCRIPT_ID) as HTMLScriptElement | null
+        const script = existing || document.createElement('script')
+        const onLoad = () => {
+          if ((window as any).google && (window as any).google.maps) resolve()
+          else reject(new Error('Google Maps unavailable'))
+        }
+        const onError = () => reject(new Error('Google Maps script failed'))
+        script.addEventListener('load', onLoad, { once: true })
+        script.addEventListener('error', onError, { once: true })
+        if (!existing) {
+          script.id = GOOGLE_MAPS_SCRIPT_ID
+          script.async = true
+          script.defer = true
+          script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(GOOGLE_MAPS_BROWSER_KEY)}`
+          document.head.appendChild(script)
+        }
+      })
+    }
+
+    let cancelled = false
+
+    loadMapsScript()
+      .then(() => {
+        if (cancelled || !mapContainerRef.current) return
+        const gmaps = (window as any).google?.maps
+        if (!gmaps) {
+          setMapSdkFailed(true)
+          return
+        }
+
+        const getThemeOpts = (theme: 'dark' | 'light' | 'satellite') => {
+          if (theme === 'satellite') return { mapTypeId: 'hybrid', styles: [] }
+          if (theme === 'light') return { mapTypeId: 'roadmap', styles: [] }
+          return { mapTypeId: 'roadmap', styles: darkMapStyles }
+        }
+
+        const pinIcon = {
+          path: 'M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z',
+          fillColor: '#DA291C',
+          fillOpacity: 1,
+          strokeColor: '#FFC72C',
+          strokeWeight: 2,
+          scale: 1.5,
+          anchor: new gmaps.Point(12, 22),
+        }
+
+        const activePinIcon = {
+          path: 'M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z',
+          fillColor: '#DA291C',
+          fillOpacity: 1,
+          strokeColor: '#F5C424',
+          strokeWeight: 2.8,
+          scale: 1.9,
+          anchor: new gmaps.Point(12, 22),
+        }
+
+        let map = googleMapInstanceRef.current
+        const themeOpts = getThemeOpts(mapTheme)
+
+        if (!map || map.getDiv() !== mapContainerRef.current) {
+          map = new gmaps.Map(mapContainerRef.current, {
+            center: { lat: mapFocusedStore.latitude, lng: mapFocusedStore.longitude },
+            zoom: mapViewAll ? 10 : 14,
+            styles: themeOpts.styles,
+            mapTypeId: themeOpts.mapTypeId,
+            mapTypeControl: false,
+            streetViewControl: false,
+            fullscreenControl: false,
+            zoomControl: true,
+            gestureHandling: 'greedy',
+          })
+          googleMapInstanceRef.current = map
+          googleMapMarkersRef.current.clear()
+
+          V2_STORES.forEach((st) => {
+            const isTarget = st.id === mapFocusedStore.id
+            const marker = new gmaps.Marker({
+              position: { lat: st.latitude, lng: st.longitude },
+              map,
+              title: `Tacos Gavilan ${st.cityTitle} (${st.crossStreets})`,
+              icon: isTarget ? activePinIcon : pinIcon,
+              zIndex: isTarget ? 9990 : 100,
+            })
+            marker.addListener('click', () => {
+              setMapFocusedStoreId(st.id)
+              setSelectedStoreId(st.id)
+              setMapViewAll(false)
+            })
+            googleMapMarkersRef.current.set(st.id, marker)
+          })
+        } else {
+          map.setMapTypeId(themeOpts.mapTypeId)
+          map.setOptions({ styles: themeOpts.styles })
+        }
+
+        // Update active marker pin styling
+        googleMapMarkersRef.current.forEach((marker, stId) => {
+          const isTarget = stId === mapFocusedStore.id
+          marker.setIcon(isTarget ? activePinIcon : pinIcon)
+          marker.setZIndex(isTarget ? 9990 : 100)
+        })
+
+        // Update user blue GPS dot if available
+        if (userCoords) {
+          if (googleMapUserHaloRef.current) googleMapUserHaloRef.current.setMap(null)
+          if (googleMapUserMarkerRef.current) googleMapUserMarkerRef.current.setMap(null)
+          googleMapUserHaloRef.current = new gmaps.Marker({
+            position: userCoords,
+            map,
+            clickable: false,
+            icon: {
+              path: gmaps.SymbolPath.CIRCLE,
+              fillColor: '#3B82F6',
+              fillOpacity: 0.22,
+              strokeColor: '#60A5FA',
+              strokeWeight: 1.5,
+              scale: 18,
+            },
+            zIndex: 9998,
+          })
+          googleMapUserMarkerRef.current = new gmaps.Marker({
+            position: userCoords,
+            map,
+            title: lang === 'en' ? 'Your Current Location' : 'Tu ubicación actual',
+            icon: {
+              path: gmaps.SymbolPath.CIRCLE,
+              fillColor: '#2563EB',
+              fillOpacity: 1,
+              strokeColor: '#FFFFFF',
+              strokeWeight: 3,
+              scale: 8.5,
+            },
+            zIndex: 9999,
+          })
+        }
+
+        // Position camera
+        if (mapViewAll) {
+          const bounds = new gmaps.LatLngBounds()
+          V2_STORES.forEach((st) => bounds.extend({ lat: st.latitude, lng: st.longitude }))
+          if (userCoords) bounds.extend(userCoords)
+          map.fitBounds(bounds, { top: 36, right: 28, bottom: 36, left: 28 })
+        } else {
+          map.panTo({ lat: mapFocusedStore.latitude, lng: mapFocusedStore.longitude })
+          if ((map.getZoom() || 10) < 13) {
+            map.setZoom(14)
+          }
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setMapSdkFailed(true)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [mapModalOpen, mapSdkFailed, mapTheme, mapFocusedStore, mapViewAll, userCoords, lang])
 
   const currentOrderOnlineUrl = useMemo(() => {
     const base = currentStore.toastOrderingUrl.replace(/\/+$/, '')
@@ -2724,14 +2965,14 @@ export default function CustomerAppV2Pro({
                 {activeTab === 'home' && (
                   <div className="pb-10">
                     {/* Full-bleed Hero Poster (Clean, High-Contrast 1:1 Website Hero) */}
-                    <div className="relative w-full h-[295px] overflow-hidden border-b border-white/10">
+                    <div className="relative w-full h-[215px] overflow-hidden border-b border-white/10">
                       <img
                         src="/tacosgavilan-web/img/hero-bg-mobile.webp?v=114"
                         alt="Tacos Gavilan"
                         className="absolute inset-0 w-full h-full object-cover object-center scale-105"
                       />
-                      <div className="absolute inset-0 bg-gradient-to-r from-black/92 via-black/75 to-black/40" />
-                      <div className="absolute inset-0 bg-gradient-to-t from-[#121212] via-black/25 to-black/70" />
+                      <div className="absolute inset-0 bg-gradient-to-r from-black/88 via-black/60 to-black/25" />
+                      <div className="absolute inset-0 bg-gradient-to-t from-[#121212] via-black/15 to-black/55" />
 
                       {/* Official Website Hero Content (.hero-content) */}
                       <div className="relative z-10 h-full px-5 py-4 flex flex-col justify-between items-start">
@@ -2741,58 +2982,25 @@ export default function CustomerAppV2Pro({
                             : 'Desde 1992 · 15 Sucursales en So-Cal'}
                         </span>
 
-                        <div className="my-auto pt-1">
-                          <div className="flex items-end gap-3 flex-wrap">
-                            <h2 className="v2-outfit text-[30px] sm:text-[33px] font-black uppercase leading-[0.95] tracking-tight text-white drop-shadow-[0_4px_16px_rgba(0,0,0,0.95)]">
-                              {lang === 'en' ? (
-                                <>
-                                  AUTHENTIC
-                                  <span className="block text-[#FDC82F]">MEXICAN FOOD</span>
-                                </>
-                              ) : (
-                                <>
-                                  AUTÉNTICA
-                                  <span className="block text-[#FDC82F]">COMIDA MEXICANA</span>
-                                </>
-                              )}
-                            </h2>
-                            <img
-                              src="/tacosgavilan-web/img/tagline.webp?v=47"
-                              alt="Ya está"
-                              className="h-8 sm:h-9 w-auto object-contain mb-0.5 drop-shadow-[0_4px_12px_rgba(0,0,0,0.9)]"
-                            />
-                          </div>
-
-                          <p className="mt-2 text-xs font-medium text-white/90 max-w-[330px] leading-snug drop-shadow">
-                            {lang === 'en'
-                              ? 'Flame-grilled meats, hand-pressed tortillas, and fresh salsas made from scratch every day'
-                              : 'Carnes asadas a la parrilla, tortillas recién hechas y salsas frescas preparadas todos los días'}
-                          </p>
-                        </div>
-
-                        <div className="flex items-center gap-2.5 pt-1">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              launchWrappedOrderOnline(currentStore, fulfillmentMode)
-                              setActiveTab('order')
-                            }}
-                            className="px-4 py-2.5 rounded-full bg-[#DA291C] hover:bg-[#b81d13] text-white text-xs font-black uppercase tracking-wider shadow-lg border border-[#FDC82F]/50 transition-all active:scale-95 cursor-pointer"
-                          >
-                            {lang === 'en' ? 'Order Online' : 'Ordenar en Línea'}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const el = document.getElementById('v2-our-menu-section')
-                              if (el) {
-                                el.scrollIntoView({ behavior: 'smooth', block: 'start' })
-                              }
-                            }}
-                            className="px-4 py-2.5 rounded-full bg-white/10 hover:bg-white/20 text-white text-xs font-extrabold uppercase tracking-wider border border-white/25 backdrop-blur-md transition-all active:scale-95 cursor-pointer"
-                          >
-                            {lang === 'en' ? 'View Menu' : 'Ver Menú'}
-                          </button>
+                        <div className="my-auto pt-1 space-y-2">
+                          <h2 className="v2-outfit text-[30px] sm:text-[33px] font-black uppercase leading-[0.95] tracking-tight text-white drop-shadow-[0_4px_16px_rgba(0,0,0,0.95)]">
+                            {lang === 'en' ? (
+                              <>
+                                AUTHENTIC
+                                <span className="block text-[#FDC82F]">MEXICAN FOOD</span>
+                              </>
+                            ) : (
+                              <>
+                                AUTÉNTICA
+                                <span className="block text-[#FDC82F]">COMIDA MEXICANA</span>
+                              </>
+                            )}
+                          </h2>
+                          <img
+                            src="/tacosgavilan-web/img/tagline.webp?v=47"
+                            alt="Ya está"
+                            className="h-9 sm:h-10 w-auto object-contain drop-shadow-[0_4px_12px_rgba(0,0,0,0.9)]"
+                          />
                         </div>
                       </div>
                     </div>
@@ -2828,7 +3036,7 @@ export default function CustomerAppV2Pro({
                           </button>
                         </div>
 
-                        {/* Quick Store Actions: Call, Maps, Nearest GPS */}
+                        {/* Quick Store Actions: Call, In-App Map, Nearest GPS */}
                         <div className="flex items-center gap-1.5 shrink-0">
                           <a
                             href={`tel:${currentStore.phone.replace(/[^\d+]/g, '')}`}
@@ -2838,18 +3046,15 @@ export default function CustomerAppV2Pro({
                             <Phone size={12} />
                             <span>{lang === 'en' ? 'Call' : 'Llamar'}</span>
                           </a>
-                          <a
-                            href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(
-                              `${currentStore.address}`
-                            )}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="px-2.5 py-1.5 rounded-xl bg-white/8 hover:bg-white/15 text-[#FDC82F] text-[10px] font-bold flex items-center gap-1 transition-colors"
-                            title={currentStore.address}
+                          <button
+                            type="button"
+                            onClick={() => openInAppMap(currentStore.id, false)}
+                            className="px-2.5 py-1.5 rounded-xl bg-white/8 hover:bg-white/15 text-[#FDC82F] text-[10px] font-bold flex items-center gap-1 transition-colors cursor-pointer"
+                            title={lang === 'en' ? 'Open store map' : 'Abrir mapa de sucursales'}
                           >
                             <Navigation size={12} />
                             <span>{lang === 'en' ? 'Map' : 'Mapa'}</span>
-                          </a>
+                          </button>
                           <button
                             type="button"
                             onClick={() => handleLocateGps(false)}
@@ -3529,14 +3734,24 @@ export default function CustomerAppV2Pro({
                             : 'Horarios en tiempo real (Hora de Los Ángeles)'}
                         </p>
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => handleLocateGps(false)}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#FDC82F] text-[#121212] text-xs font-black cursor-pointer"
-                      >
-                        <LocateFixed size={13} className={isLocating ? 'animate-spin' : ''} />
-                        <span>{lang === 'en' ? 'Near Me' : 'Cerca de mí'}</span>
-                      </button>
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => openInAppMap(currentStore.id, true)}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#DA291C] text-white border border-[#FDC82F]/50 text-xs font-black cursor-pointer"
+                        >
+                          <Navigation size={13} className="text-[#FDC82F]" />
+                          <span>{lang === 'en' ? 'Map' : 'Mapa'}</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleLocateGps(false)}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#FDC82F] text-[#121212] text-xs font-black cursor-pointer"
+                        >
+                          <LocateFixed size={13} className={isLocating ? 'animate-spin' : ''} />
+                          <span>{lang === 'en' ? 'Near Me' : 'Cerca de mí'}</span>
+                        </button>
+                      </div>
                     </div>
 
                     {storesWithDistance.map((st) => {
@@ -3589,17 +3804,14 @@ export default function CustomerAppV2Pro({
                                 <Phone size={12} />
                                 <span>{st.phone}</span>
                               </a>
-                              <a
-                                href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(
-                                  st.address
-                                )}`}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-[#FDC82F] text-[11px] font-bold"
+                              <button
+                                type="button"
+                                onClick={() => openInAppMap(st.id, false)}
+                                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-[#FDC82F] text-[11px] font-bold cursor-pointer"
                               >
                                 <Navigation size={12} />
-                                <span>Maps</span>
-                              </a>
+                                <span>{lang === 'en' ? 'Map' : 'Mapa'}</span>
+                              </button>
                             </div>
 
                             <button
@@ -4569,6 +4781,324 @@ export default function CustomerAppV2Pro({
                       </button>
                     )
                   })}
+                </div>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* =====================================================================
+            IN-APP INTERACTIVE MAP MODAL (1:1 Website #map-modal-overlay)
+            Google Maps Store Locator + Dark/Light/Satellite Themes + Find Me + Luxury Dark & Gold Store Card
+           ===================================================================== */}
+        <AnimatePresence>
+          {mapModalOpen && (
+            <motion.div
+              key="v2-in-app-map-modal"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className={`absolute inset-0 z-[60] bg-black/85 backdrop-blur-md flex flex-col ${
+                !fullscreenNative ? 'pt-[48px]' : 'pt-2'
+              }`}
+            >
+              <motion.div
+                initial={{ y: 24, scale: 0.98, opacity: 0 }}
+                animate={{ y: 0, scale: 1, opacity: 1 }}
+                exit={{ y: 24, scale: 0.98, opacity: 0 }}
+                transition={{ duration: 0.25 }}
+                className="flex-1 flex flex-col bg-[#121212] rounded-t-3xl border-t border-white/15 overflow-hidden shadow-2xl"
+              >
+                {/* Website Map Modal Header (.map-modal-header) */}
+                <div className="bg-white text-[#121212] px-3.5 py-2.5 border-b border-black/10 space-y-2 shrink-0">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <svg
+                        width="19"
+                        height="19"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="#DA291C"
+                        strokeWidth="2.2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        className="shrink-0"
+                      >
+                        <polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6" />
+                        <line x1="8" y1="2" x2="8" y2="18" />
+                        <line x1="16" y1="6" x2="16" y2="22" />
+                      </svg>
+                      <h3 className="v2-outfit text-sm font-extrabold text-[#121212] truncate">
+                        {lang === 'en'
+                          ? 'Find Your Nearest Location'
+                          : 'Encuentra tu Sucursal Más Cercana'}
+                      </h3>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => setMapModalOpen(false)}
+                      aria-label={lang === 'en' ? 'Close map dialog' : 'Cerrar mapa'}
+                      className="w-8 h-8 rounded-full bg-gray-100 hover:bg-[#DA291C] text-gray-700 hover:text-white border border-black/10 flex items-center justify-center transition-all cursor-pointer shrink-0"
+                    >
+                      <X size={16} />
+                    </button>
+                  </div>
+
+                  {/* Theme Switcher (Dark | Light | Satellite) + Find Me + All 15 Toggle */}
+                  <div className="flex items-center justify-between gap-1.5 flex-wrap">
+                    <div
+                      role="radiogroup"
+                      aria-label="Map theme"
+                      className="inline-flex items-center bg-gray-100 border border-black/10 rounded-full p-0.5 gap-0.5"
+                    >
+                      <button
+                        type="button"
+                        onClick={() => setMapTheme('dark')}
+                        className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold transition-all cursor-pointer ${
+                          mapTheme === 'dark'
+                            ? 'bg-[#121212] text-[#FFC72C] shadow-xs'
+                            : 'text-gray-600 hover:text-[#121212]'
+                        }`}
+                      >
+                        <svg
+                          width="12"
+                          height="12"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2.2"
+                        >
+                          <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+                        </svg>
+                        <span>{lang === 'en' ? 'Dark' : 'Oscuro'}</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setMapTheme('light')}
+                        className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold transition-all cursor-pointer ${
+                          mapTheme === 'light'
+                            ? 'bg-[#121212] text-[#FFC72C] shadow-xs'
+                            : 'text-gray-600 hover:text-[#121212]'
+                        }`}
+                      >
+                        <svg
+                          width="12"
+                          height="12"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2.2"
+                        >
+                          <circle cx="12" cy="12" r="5" />
+                          <line x1="12" y1="1" x2="12" y2="3" />
+                          <line x1="12" y1="21" x2="12" y2="23" />
+                          <line x1="4.22" y1="4.22" x2="5.64" y2="5.64" />
+                          <line x1="18.36" y1="18.36" x2="19.78" y2="19.78" />
+                          <line x1="1" y1="12" x2="3" y2="12" />
+                          <line x1="21" y1="12" x2="23" y2="12" />
+                          <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" />
+                          <line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
+                        </svg>
+                        <span>{lang === 'en' ? 'Light' : 'Claro'}</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setMapTheme('satellite')}
+                        className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold transition-all cursor-pointer ${
+                          mapTheme === 'satellite'
+                            ? 'bg-[#121212] text-[#FFC72C] shadow-xs'
+                            : 'text-gray-600 hover:text-[#121212]'
+                        }`}
+                      >
+                        <svg
+                          width="12"
+                          height="12"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2.2"
+                        >
+                          <polygon points="12 2 2 7 12 12 22 7 12 2" />
+                          <polyline points="2 17 12 22 22 17" />
+                          <polyline points="2 12 12 17 22 12" />
+                        </svg>
+                        <span>{lang === 'en' ? 'Satellite' : 'Satélite'}</span>
+                      </button>
+                    </div>
+
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          handleLocateGps(false)
+                          setMapViewAll(false)
+                        }}
+                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-white hover:bg-[#DA291C] text-[#121212] hover:text-white border border-[#DA291C]/35 text-[11px] font-bold transition-all cursor-pointer"
+                      >
+                        <LocateFixed size={12} className={isLocating ? 'animate-spin text-[#DA291C]' : ''} />
+                        <span>
+                          {isLocating
+                            ? lang === 'en'
+                              ? 'Locating...'
+                              : 'Ubicando...'
+                            : lang === 'en'
+                            ? 'Find Me'
+                            : 'Mi Ubicación'}
+                        </span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setMapViewAll((prev) => !prev)}
+                        className={`px-2 py-1 rounded-lg text-[10px] font-extrabold border transition-all cursor-pointer ${
+                          mapViewAll
+                            ? 'bg-[#DA291C] text-white border-[#DA291C]'
+                            : 'bg-gray-100 text-gray-700 border-black/10 hover:bg-gray-200'
+                        }`}
+                      >
+                        {lang === 'en' ? 'All 15' : 'Las 15'}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Quick 15-Store Selector Strip */}
+                <div className="bg-[#18181b] border-b border-white/10 px-3 py-2 flex items-center gap-1.5 overflow-x-auto no-scrollbar shrink-0">
+                  {storesWithDistance.map((st) => {
+                    const isFocused = st.id === mapFocusedStore.id
+                    return (
+                      <button
+                        key={st.id}
+                        type="button"
+                        onClick={() => {
+                          setMapFocusedStoreId(st.id)
+                          setSelectedStoreId(st.id)
+                          setMapViewAll(false)
+                        }}
+                        className={`shrink-0 px-2.5 py-1 rounded-full text-[10px] font-black transition-all cursor-pointer border flex items-center gap-1 ${
+                          isFocused
+                            ? 'bg-[#DA291C] text-white border-[#FFC72C] shadow'
+                            : 'bg-black/60 text-white/75 border-white/15 hover:text-white'
+                        }`}
+                      >
+                        <span>{st.cityTitle}</span>
+                        {st.distanceMiles !== null && (
+                          <span className="text-[#FFC72C]">({st.distanceMiles.toFixed(1)} mi)</span>
+                        )}
+                      </button>
+                    )
+                  })}
+                </div>
+
+                {/* Interactive Google Map Canvas (#gavilan-map) with automatic live embed fallback */}
+                <div className="relative flex-1 bg-[#141414] overflow-hidden">
+                  {!mapSdkFailed ? (
+                    <div
+                      ref={mapContainerRef}
+                      className="w-full h-full"
+                      role="region"
+                      aria-label="Interactive Map of Tacos Gavilan Locations"
+                    />
+                  ) : (
+                    <iframe
+                      key={`${mapFocusedStore.id}-${mapTheme}-${mapViewAll}-${lang}`}
+                      title={`Tacos Gavilan ${mapFocusedStore.cityTitle} Map`}
+                      src={`https://maps.google.com/maps?q=${encodeURIComponent(
+                        `Tacos Gavilan ${mapFocusedStore.address}`
+                      )}&ll=${mapFocusedStore.latitude},${mapFocusedStore.longitude}&z=${
+                        mapViewAll ? 10 : 15
+                      }&t=${mapTheme === 'satellite' ? 'h' : 'm'}&hl=${lang}&output=embed`}
+                      className={`w-full h-full border-0 ${
+                        mapTheme === 'dark'
+                          ? 'invert-[90%] hue-rotate-180 contrast-[95%] brightness-[92%]'
+                          : ''
+                      }`}
+                      loading="eager"
+                      referrerPolicy="no-referrer-when-downgrade"
+                    />
+                  )}
+                </div>
+
+                {/* Official Website Luxury Dark & Gold Store Popup Card (.map-popup) */}
+                <div className="p-3.5 bg-gradient-to-b from-[#17171B] to-[#0E0E11] border-t border-[#F5C424]/45 shadow-[0_-14px_35px_rgba(0,0,0,0.75)] shrink-0 space-y-2.5">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-[#DA291C]/25 border border-[#FFC72C]/45 text-[#FFC72C] text-[9px] font-black uppercase tracking-wider">
+                          {mapFocusedStore.distanceMiles !== null
+                            ? `${
+                                lang === 'en' ? 'DISTANCE' : 'DISTANCIA'
+                              } · ${mapFocusedStore.distanceMiles.toFixed(1)} MI`
+                            : 'TACOS GAVILAN'}
+                        </span>
+                        <span
+                          className={`text-[10px] font-black ${
+                            mapFocusedStoreStatus.isOpen ? 'text-emerald-400' : 'text-amber-400'
+                          }`}
+                        >
+                          ● {mapFocusedStoreStatus.badgeText}
+                        </span>
+                      </div>
+
+                      <h4 className="v2-outfit text-base font-black text-white leading-tight mt-1">
+                        {mapFocusedStore.cityTitle}{' '}
+                        <span className="text-xs font-extrabold text-[#FFC72C] font-sans">
+                          • {mapFocusedStore.crossStreets}
+                        </span>
+                      </h4>
+                    </div>
+                  </div>
+
+                  <div className="space-y-1 text-xs text-white/80">
+                    <div className="flex items-center gap-1.5">
+                      <MapPin size={13} className="text-[#FFC72C] shrink-0" />
+                      <span className="truncate">{mapFocusedStore.address}</span>
+                    </div>
+                    <div className="flex items-center justify-between gap-2">
+                      <a
+                        href={`tel:${mapFocusedStore.phone.replace(/[^\d+]/g, '')}`}
+                        className="inline-flex items-center gap-1.5 text-[#FFC72C] font-bold hover:underline"
+                      >
+                        <Phone size={12} />
+                        <span>{mapFocusedStore.phone}</span>
+                      </a>
+                      <span className="text-[11px] text-white/60 truncate">
+                        {mapFocusedStoreStatus.todayHours}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Popup Actions (.map-popup-actions: Order Online + Directions) */}
+                  <div className="grid grid-cols-2 gap-2 pt-1 pb-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedStoreId(mapFocusedStore.id)
+                        setMapModalOpen(false)
+                        launchWrappedOrderOnline(mapFocusedStore, fulfillmentMode)
+                        setActiveTab('order')
+                      }}
+                      className="py-2.5 px-3 rounded-xl bg-gradient-to-r from-[#DA291C] to-[#b81d13] hover:from-[#e63225] hover:to-[#c92015] text-white text-xs font-black uppercase tracking-wider border border-[#FFC72C]/50 shadow-lg flex items-center justify-center gap-1.5 cursor-pointer"
+                    >
+                      <span>{lang === 'en' ? 'Order Online' : 'Ordenar Ahora'}</span>
+                      <ChevronRight size={14} />
+                    </button>
+
+                    <a
+                      href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(
+                        mapFocusedStore.address
+                      )}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="py-2.5 px-3 rounded-xl bg-white/8 hover:bg-white/15 text-[#FFC72C] text-xs font-extrabold uppercase tracking-wider border border-[#FFC72C]/35 flex items-center justify-center gap-1.5 transition-colors"
+                    >
+                      <Navigation size={13} />
+                      <span>{lang === 'en' ? 'Directions' : 'Cómo llegar'}</span>
+                    </a>
+                  </div>
                 </div>
               </motion.div>
             </motion.div>

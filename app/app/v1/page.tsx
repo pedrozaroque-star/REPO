@@ -27,6 +27,14 @@ export default function MobileCustomerAppV1Page() {
   const [withSplash, setWithSplash] = useState(false)
   const [hideControls, setHideControls] = useState(false)
 
+  React.useEffect(() => {
+    try {
+      localStorage.setItem('gavilan_app_lang', 'en')
+    } catch {
+      // Ignore storage errors
+    }
+  }, [])
+
   return (
     <div className="fixed inset-0 z-[9999] w-screen h-[100dvh] bg-white overflow-hidden select-none">
       {hideControls ? (
