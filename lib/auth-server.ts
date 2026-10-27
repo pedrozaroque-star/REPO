@@ -26,6 +26,7 @@
  */
 
 import { cookies } from 'next/headers'
+import { NextResponse } from 'next/server'
 import jwt from 'jsonwebtoken'
 
 export function getJwtSecret(): string | null {
@@ -106,13 +107,26 @@ export async function getServerUser(req?: Request): Promise<ServerUser | null> {
     let decoded: any = null
     for (const candidate of candidateTokens) {
       try {
-        const verified = jwt.verify(candidate, secret) as any
+        const verified = jwt.verify(candidate, secret, { algorithms: ['HS256'] }) as any
         if (verified && verified.sub && verified.email) {
           decoded = verified
           break
         }
-      } catch {
-        // Intentar con el siguiente token candidato si el primero expiró o no es válido
+      } catch (verifyErr: any) {
+        if (verifyErr?.name === 'TokenExpiredError') {
+          try {
+            const verifiedGrace = jwt.verify(candidate, secret, {
+              algorithms: ['HS256'],
+              ignoreExpiration: true
+            }) as any
+            if (verifiedGrace && verifiedGrace.sub && verifiedGrace.email && verifiedGrace.user_type !== 'employee') {
+              decoded = verifiedGrace
+              break
+            }
+          } catch {
+            // Ignorar si la firma no es válida
+          }
+        }
       }
     }
 
@@ -413,6 +427,7 @@ export interface DecodedToken {
   id: string
   sub: string
   email: string
+  role: string
   user_role: string
   user_type?: string
   user_metadata?: {
@@ -443,11 +458,41 @@ export function verifyAuthToken(token: string): DecodedToken | null {
       return null
     }
 
-    const decoded = jwt.verify(token, secret) as any
-    if (!decoded || !decoded.sub || !decoded.email) {
+    let decoded: any = null
+    try {
+      decoded = jwt.verify(token, secret, { algorithms: ['HS256'] }) as any
+    } catch (verifyErr: any) {
+      if (verifyErr?.name === 'TokenExpiredError') {
+        const verifiedGrace = jwt.verify(token, secret, {
+          algorithms: ['HS256'],
+          ignoreExpiration: true
+        }) as any
+        if (verifiedGrace && verifiedGrace.user_type !== 'employee') {
+          decoded = verifiedGrace
+        }
+      } else {
+        throw verifyErr
+      }
+    }
+
+    const userId = decoded?.sub ?? decoded?.id
+    if (!decoded || !userId || !decoded.email) {
       return null
     }
-    decoded.id = decoded.sub
+
+    const resolvedRole = (
+      decoded.user_role ||
+      (decoded.role && decoded.role !== 'authenticated' ? decoded.role : '') ||
+      decoded.user_metadata?.role ||
+      'user'
+    )
+      .toString()
+      .toLowerCase()
+
+    decoded.id = String(userId)
+    decoded.sub = String(userId)
+    decoded.role = resolvedRole
+    decoded.user_role = resolvedRole
     return decoded as DecodedToken
   } catch (err: any) {
     console.error('❌ [verifyAuthToken] Verification failed:', err.message)
@@ -455,11 +500,96 @@ export function verifyAuthToken(token: string): DecodedToken | null {
   }
 }
 
+/**
+ * Valida que una petición HTTP cuente con sesión JWT válida de personal interno (admin, supervisor,
+ * manager, asistente, shift_leader, planificador, etc.) o provenga de un Cron autorizado con CRON_SECRET.
+ */
+export function verifyStaffAuth(
+  request: Request,
+  options?: { allowedRoles?: string[]; allowCron?: boolean; allowEmployee?: boolean }
+): AdminAuthResult {
+  const allowCron = options?.allowCron ?? true
+  const cronSecret = getCronSecret()
+
+  const authHeader = request.headers.get('authorization') || request.headers.get('Authorization')
+  const cookieHeader = request.headers.get('cookie') || request.headers.get('Cookie') || ''
+  const cronHeader = request.headers.get('x-cron-auth') || authHeader
+
+  if (allowCron && cronSecret) {
+    const isCronAuthorized = cronHeader === `Bearer ${cronSecret}` || cronHeader === cronSecret
+    if (isCronAuthorized) {
+      return { authorized: true }
+    }
+  }
+
+  let token: string | null = null
+  if (authHeader?.startsWith('Bearer ')) {
+    const candidate = authHeader.substring(7).trim()
+    if (candidate && candidate !== 'null' && candidate !== 'undefined') {
+      token = candidate
+    }
+  }
+  if (!token) {
+    const cookieMatch = cookieHeader.match(/(?:^|;\s*)teg_token=([^;]+)/)
+    if (cookieMatch?.[1]) {
+      token = decodeURIComponent(cookieMatch[1].trim())
+    }
+  }
+
+  if (!token) {
+    const error = 'No autorizado: Token de autenticación no proporcionado'
+    return {
+      authorized: false,
+      error,
+      status: 401,
+      response: NextResponse.json({ error }, { status: 401 })
+    }
+  }
+
+  const user = verifyAuthToken(token)
+  if (!user) {
+    const error = 'No autorizado: Token inválido o expirado'
+    return {
+      authorized: false,
+      error,
+      status: 401,
+      response: NextResponse.json({ error }, { status: 401 })
+    }
+  }
+
+  const userRole = (user.role || user.user_role || '').toLowerCase()
+  if (!options?.allowEmployee && (user.user_type === 'employee' || userRole === 'employee')) {
+    const error = 'No autorizado: Credenciales de empleado no tienen acceso a este recurso administrativo'
+    return {
+      authorized: false,
+      error,
+      status: 401,
+      response: NextResponse.json({ error }, { status: 401 })
+    }
+  }
+
+  if (options?.allowedRoles && options.allowedRoles.length > 0) {
+    const normalizedAllowed = options.allowedRoles.map(r => r.toLowerCase())
+    if (userRole !== 'admin' && userRole !== 'administrador' && !normalizedAllowed.includes(userRole)) {
+      const error = 'Acceso denegado: Permisos insuficientes para esta operación'
+      return {
+        authorized: false,
+        error,
+        status: 403,
+        response: NextResponse.json({ error }, { status: 403 })
+      }
+    }
+  }
+
+  return { authorized: true, user }
+}
+
 export interface AdminAuthResult {
   authorized: boolean
   user?: DecodedToken
   error?: string
   status?: number
+  response?: NextResponse
 }
 
 /**
@@ -488,10 +618,12 @@ export function verifyAdminAuth(request: Request, options?: { allowCron?: boolea
     : (cookieHeader.match(/teg_token=([^;]+)/)?.[1]?.trim() || null)
 
   if (!token) {
+    const error = 'No autorizado: Token de autenticación no proporcionado'
     return {
       authorized: false,
-      error: 'No autorizado: Token de autenticación no proporcionado',
-      status: 401
+      error,
+      status: 401,
+      response: NextResponse.json({ error }, { status: 401 })
     }
   }
 
@@ -499,30 +631,36 @@ export function verifyAdminAuth(request: Request, options?: { allowCron?: boolea
   const jwtSecret = getJwtSecret()
   if (!jwtSecret) {
     console.error('❌ [verifyAdminAuth] Fail-closed: JWT_SECRET / SUPABASE_JWT_SECRET no configurado')
+    const error = 'No autorizado: Configuración de seguridad del servidor no disponible'
     return {
       authorized: false,
-      error: 'No autorizado: Configuración de seguridad del servidor no disponible',
-      status: 401
+      error,
+      status: 401,
+      response: NextResponse.json({ error }, { status: 401 })
     }
   }
 
   // 4. Validación de firma y contenido de token
   const user = verifyAuthToken(token)
   if (!user) {
+    const error = 'No autorizado: Token inválido o expirado'
     return {
       authorized: false,
-      error: 'No autorizado: Token inválido o expirado',
-      status: 401
+      error,
+      status: 401,
+      response: NextResponse.json({ error }, { status: 401 })
     }
   }
 
   // 5. Exigir rol 'admin' obligatorio
-  const userRole = (user.user_role || (user as any).role || user.user_metadata?.role || '').toLowerCase()
+  const userRole = (user.role || user.user_role || '').toLowerCase()
   if (userRole !== 'admin') {
+    const error = 'Acceso denegado: Se requiere rol de administrador'
     return {
       authorized: false,
-      error: 'Acceso denegado: Se requiere rol de administrador',
-      status: 403
+      error,
+      status: 403,
+      response: NextResponse.json({ error }, { status: 403 })
     }
   }
 
