@@ -1331,63 +1331,13 @@ export default function AsignacionDiariaTab() {
     return assignments.find((a) => a.assignment_date === dateStr && a.sub_position === station);
   }, [assignments]);
 
-  const updateAssignment = useCallback((dateStr: string, station: string, employeeId: string, group: string) => {
-    if (!canEditAssignments) return;
-    const subPos = `${station}_${activeShift}`;
-    const stationActivitiesList = activityMap[station] || [];
-    const defaultTasks = stationActivitiesList
-      .map(pa => pa.operating_procedures?.activity)
-      .filter(Boolean) as string[];
-
-    setAssignments((prev) => {
-      const filtered = prev.filter(
-        (a) => !(a.assignment_date === dateStr && a.sub_position === subPos)
-      );
-
-      if (!employeeId) return filtered;
-
-      return [
-        ...filtered,
-        {
-          store_id: selectedStoreGuid,
-          employee_id: employeeId,
-          assignment_date: dateStr,
-          main_station: station,
-          sub_position: subPos,
-          station_group: group,
-          tasks: defaultTasks,
-        },
-      ];
-    });
-  }, [canEditAssignments, selectedStoreGuid, activeShift, activityMap]);
-
-  const handleSlotClick = useCallback((stationKey: string, label: string, group: string, emp: any, assignee: any) => {
-    setSelectedSlotForCard({ 
-      stationKey, 
-      label, 
-      assignee: assignee ? { ...assignee, station_group: group } : null
-    });
-    setSelectedEmployeeCard(emp);
-    setIsReassigning(false);
-  }, []);
-
-  const handleAssignEmployee = (stationName: string, employeeId: string) => {
-    if (!canEditAssignments) return;
-    const group = getSectionForStation(stationName);
-    updateAssignment(selectedDateStr, stationName, employeeId, group);
-  };
-
-  const handleDiscardChanges = useCallback(() => {
-    setAssignments(persistedAssignments);
-    setRemoteUpdatePending(false);
-  }, [persistedAssignments]);
-
-  const handleSave = async (forceWithoutRevision = false) => {
+  const handleSave = async (forceWithoutRevision = false, overrideAssignments?: Assignment[]) => {
     if (!canEditAssignments || !selectedStoreGuid) return;
     setSaving(true);
     setSaveSuccess(false);
 
-    const currentSlice = assignments
+    const sourceAssignments = overrideAssignments ?? assignments;
+    const currentSlice = sourceAssignments
       .map((a) => ({
         ...a,
         sub_position: normalizeAssignmentSubPosition(a.main_station, a.sub_position, 'AM'),
@@ -1490,6 +1440,80 @@ export default function AsignacionDiariaTab() {
       setSaving(false);
     }
   };
+
+  const updateAssignment = useCallback(
+    (
+      dateStr: string,
+      station: string,
+      employeeId: string,
+      group: string,
+      options?: { autoSave?: boolean }
+    ) => {
+      if (!canEditAssignments) return;
+      const subPos = `${station}_${activeShift}`;
+      const stationActivitiesList = activityMap[station] || [];
+      const defaultTasks = stationActivitiesList
+        .map((pa) => pa.operating_procedures?.activity)
+        .filter(Boolean) as string[];
+
+      const existingForStation = assignments.find(
+        (a) => a.assignment_date === dateStr && a.sub_position === subPos
+      );
+      const mergedTasks = Array.from(
+        new Set([
+          ...(Array.isArray(existingForStation?.tasks)
+            ? existingForStation.tasks.filter(Boolean)
+            : []),
+          ...defaultTasks,
+        ])
+      );
+
+      const filtered = assignments.filter(
+        (a) => !(a.assignment_date === dateStr && a.sub_position === subPos)
+      );
+      const nextAssignments: Assignment[] = !employeeId
+        ? filtered
+        : [
+            ...filtered,
+            {
+              store_id: selectedStoreGuid,
+              employee_id: employeeId,
+              assignment_date: dateStr,
+              main_station: station,
+              sub_position: subPos,
+              station_group: group,
+              tasks: mergedTasks,
+            },
+          ];
+
+      setAssignments(nextAssignments);
+      if (options?.autoSave) {
+        void handleSave(false, nextAssignments);
+      }
+    },
+    [canEditAssignments, selectedStoreGuid, activeShift, activityMap, assignments, handleSave]
+  );
+
+  const handleSlotClick = useCallback((stationKey: string, label: string, group: string, emp: any, assignee: any) => {
+    setSelectedSlotForCard({ 
+      stationKey, 
+      label, 
+      assignee: assignee ? { ...assignee, station_group: group } : null
+    });
+    setSelectedEmployeeCard(emp);
+    setIsReassigning(false);
+  }, []);
+
+  const handleAssignEmployee = (stationName: string, employeeId: string) => {
+    if (!canEditAssignments) return;
+    const group = getSectionForStation(stationName);
+    updateAssignment(selectedDateStr, stationName, employeeId, group);
+  };
+
+  const handleDiscardChanges = useCallback(() => {
+    setAssignments(persistedAssignments);
+    setRemoteUpdatePending(false);
+  }, [persistedAssignments]);
 
   const handleOpenPublishPreview = useCallback(async () => {
     if (!selectedStoreGuid) return;
@@ -2841,7 +2865,7 @@ export default function AsignacionDiariaTab() {
                       const empAssignments = currentEmp
                         ? assignments.filter(a => 
                             a.assignment_date === selectedDateStr && 
-                            a.employee_id === String(currentEmp.id) &&
+                            String(a.employee_id) === String(currentEmp.id) &&
                             a.sub_position?.endsWith(`_${activeShift}`)
                           )
                         : [];
@@ -3015,11 +3039,13 @@ export default function AsignacionDiariaTab() {
                                   {currentEmp && (
                                     <button
                                       onClick={() => {
+                                        const targetKey = selectedSlotForCard.stationKey || selectedSlotForCard.label;
                                         updateAssignment(
                                           formatDateISO(selectedDay),
-                                          selectedSlotForCard.stationKey || selectedSlotForCard.label,
+                                          targetKey,
                                           '',
-                                          currentAssignee?.station_group || 'front'
+                                          currentAssignee?.station_group || getSectionForStation(targetKey),
+                                          { autoSave: true }
                                         );
                                         setSelectedSlotForCard(null);
                                       }}
@@ -3390,13 +3416,16 @@ export default function AsignacionDiariaTab() {
                         <div className="flex-1 overflow-y-auto space-y-4 pr-2 custom-scrollbar min-h-0">
                           <button
                             onClick={() => {
+                              const targetKey = selectedSlotForCard.stationKey || selectedSlotForCard.label;
                               updateAssignment(
                                 formatDateISO(selectedDay),
-                                selectedSlotForCard.stationKey || selectedSlotForCard.label,
+                                targetKey,
                                 '',
-                                currentAssignee?.station_group || 'front'
+                                currentAssignee?.station_group || getSectionForStation(targetKey),
+                                { autoSave: true }
                               );
-                              setSelectedSlotForCard(null);
+                              setSelectedEmployeeCard(null);
+                              setIsReassigning(false);
                             }}
                             className="w-full p-4 rounded-2xl border border-dashed border-slate-300 dark:border-slate-700 text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 font-black uppercase tracking-widest text-sm sm:text-base hover:bg-white dark:hover:bg-slate-800/50 transition-all text-left flex items-center gap-4"
                           >
@@ -3435,9 +3464,11 @@ export default function AsignacionDiariaTab() {
                                       formatDateISO(selectedDay),
                                       targetStationKey,
                                       String(e.id),
-                                      currentAssignee?.station_group || 'front'
+                                      currentAssignee?.station_group || getSectionForStation(targetStationKey),
+                                      { autoSave: true }
                                     );
-                                    setSelectedSlotForCard(null);
+                                    setSelectedEmployeeCard(e);
+                                    setIsReassigning(false);
                                   }}
                                   className="w-full p-4 rounded-2xl bg-white dark:bg-slate-800 border border-slate-200/80 dark:border-slate-700 shadow-sm hover:border-indigo-500 dark:hover:border-indigo-500 hover:bg-indigo-50/30 dark:hover:bg-indigo-950/10 transition-all text-left flex items-center gap-4 group"
                                 >
@@ -3491,9 +3522,11 @@ export default function AsignacionDiariaTab() {
                                           formatDateISO(selectedDay),
                                           targetStationKey,
                                           String(e.id),
-                                          currentAssignee?.station_group || 'front'
+                                          currentAssignee?.station_group || getSectionForStation(targetStationKey),
+                                          { autoSave: true }
                                         );
-                                        setSelectedSlotForCard(null);
+                                        setSelectedEmployeeCard(e);
+                                        setIsReassigning(false);
                                       }}
                                       className="w-full p-4 rounded-2xl bg-amber-50/50 dark:bg-amber-950/10 border border-dashed border-amber-200 dark:border-amber-800/40 shadow-sm hover:border-indigo-500 dark:hover:border-indigo-500 hover:bg-indigo-50/30 dark:hover:bg-indigo-950/10 transition-all text-left flex items-center gap-4 group"
                                     >
