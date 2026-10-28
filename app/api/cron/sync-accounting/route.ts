@@ -188,8 +188,9 @@ export async function GET(request: Request) {
             // For yesterday OR older unpublished packets: fetch fresh Toast data and calculate
             const toastData = await fetchToastAccountingData(extId, targetDateYMD)
 
-            // Step 11 Open Orders Rule
-            const hasOpenOrders = toastData.hasOpenOrders || (toastData.openOrdersCount > 0)
+            // Step 11 Open Orders Rule (respects Tab 9 SalesReconCheckForOpenOrders per store)
+            const checkOpenOrdersEnabled = (mapping as any).check_open_orders !== false
+            const hasOpenOrders = checkOpenOrdersEnabled && (toastData.hasOpenOrders || (toastData.openOrdersCount > 0))
 
           const siteConfig: SiteMappingConfig = {
             location: mapping.qb_location || storeName,
@@ -260,6 +261,7 @@ export async function GET(request: Request) {
             cash_in: toastData.cashInTotal || 0,
             cash_out: toastData.cashOutTotal || 0,
             tip_out: toastData.tipOutTotal || 0,
+            dining_option_memos: toastData.diningOptionMemos,
           }
 
           // Calculate Expected Cash (from gross receipts minus non-cash payments)

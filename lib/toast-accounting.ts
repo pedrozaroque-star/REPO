@@ -110,6 +110,7 @@ export interface ToastAccountingData {
   deliveryFee6Miles: number
   discountsTotal: number
   discountBreakdown?: Record<string, number>
+  diningOptionMemos?: Record<string, string>
   creditCardGross: number
   creditCardFees: number
   creditCardOtherDeductions: number
@@ -174,10 +175,11 @@ export async function fetchToastAccountingData(
     'Toast-Restaurant-External-ID': storeExternalId,
   }
 
-  // 1. Obtener Dining Options Map, Alternate Payment Types Map, Depósitos y Payouts de Cash Management de Toast POS
-  const [optRes, altRes, depRes, entriesRes, payoutReasonsRes] = await Promise.all([
+  // 1. Obtener Dining Options Map, Alternate Payment Types Map, Discounts Map, Depósitos y Payouts de Cash Management de Toast POS
+  const [optRes, altRes, discRes, depRes, entriesRes, payoutReasonsRes] = await Promise.all([
     fetchToastWithRetry(`${TOAST_API_HOST}/config/v2/diningOptions`, { headers: toastHeaders }).catch(() => null),
     fetchToastWithRetry(`${TOAST_API_HOST}/config/v2/alternatePaymentTypes`, { headers: toastHeaders }).catch(() => null),
+    fetchToastWithRetry(`${TOAST_API_HOST}/config/v2/discounts`, { headers: toastHeaders }).catch(() => null),
     fetchToastWithRetry(`${TOAST_API_HOST}/cashmgmt/v1/deposits?businessDate=${businessDate}`, { headers: toastHeaders }).catch(() => null),
     fetchToastWithRetry(`${TOAST_API_HOST}/cashmgmt/v1/entries?businessDate=${businessDate}`, { headers: toastHeaders }).catch(() => null),
     fetchToastWithRetry(`${TOAST_API_HOST}/config/v2/payoutReasons`, { headers: toastHeaders }).catch(() => null),
@@ -197,6 +199,16 @@ export async function fetchToastAccountingData(
     if (Array.isArray(altData)) {
       for (const alt of altData) {
         if (alt.guid && alt.name) altMap[alt.guid] = alt.name
+      }
+    }
+  }
+
+  const discountsMap: Record<string, string> = {}
+  if (discRes && discRes.ok) {
+    const discData = await discRes.json().catch(() => [])
+    if (Array.isArray(discData)) {
+      for (const d of discData) {
+        if (d.guid && d.name) discountsMap[d.guid] = d.name
       }
     }
   }
@@ -331,6 +343,8 @@ export async function fetchToastAccountingData(
     'server',
     'source',
     'deliveryService',
+    'checks.voided',
+    'checks.deleted',
     'checks.amount',
     'checks.taxAmount',
     'checks.totalAmount',
@@ -435,6 +449,7 @@ export async function fetchToastAccountingData(
   let deliveryFee6Miles = 0
   let discountsTotal = 0
   const discountBreakdown: Record<string, number> = {}
+  const diningOptionMemos: Record<string, string> = {}
 
   let creditCardGross = 0
   let creditCardActualFees = 0
@@ -540,7 +555,7 @@ export async function fetchToastAccountingData(
     const optName = `${dService} ${dOptionRaw} ${sourceRaw}`.toLowerCase()
 
     for (const check of order.checks || []) {
-      if (check.voided) continue
+      if (check.voided || check.deleted) continue
 
       // Impuesto del check
       const checkTax = Number(check.taxAmount || 0)
@@ -551,7 +566,7 @@ export async function fetchToastAccountingData(
       // sino estrictamente en su refundBusinessDate (ver bloque REFUNDS PASS más abajo).
       if (check.appliedServiceCharges) {
         for (const sc of check.appliedServiceCharges) {
-          if (sc.voided) continue
+          if (sc.voided || sc.deleted) continue
           const scAmt = Math.max(0, Number(sc.chargeAmount ?? sc.amount ?? 0))
           if (scAmt <= 0) continue
           if (sc.gratuity) {
@@ -573,9 +588,10 @@ export async function fetchToastAccountingData(
       let checkNet = 0
       let checkItemNetSum = 0
       let checkItemGrossSum = 0
+      const seenDiscGuids = new Set<string>()
 
       for (const sel of check.selections || []) {
-        if (sel.voided) continue
+        if (sel.voided || sel.deleted) continue
         let p = Number(sel.price || 0)
         let pre = Number(sel.preDiscountPrice || sel.price || 0)
         if (sel.taxInclusion === 'INCLUDED') {
@@ -596,8 +612,9 @@ export async function fetchToastAccountingData(
         // Acumular descuentos a nivel de item (ej. Senior Discount)
         if (sel.appliedDiscounts && Array.isArray(sel.appliedDiscounts)) {
           for (const d of sel.appliedDiscounts) {
+            if (d.guid) seenDiscGuids.add(d.guid)
             const dAmt = Number(d.discountAmount ?? d.nonTaxDiscountAmount ?? d.amount ?? 0)
-            const dName = d.name || 'Descuento Item'
+            const dName = (d.discount?.guid && discountsMap[d.discount.guid]) || d.name || 'Descuento Item'
             discountBreakdown[dName] = Math.round(((discountBreakdown[dName] || 0) + dAmt) * 100) / 100
           }
         }
@@ -608,8 +625,9 @@ export async function fetchToastAccountingData(
       const checkDiscounts = Math.max(0, checkItemGrossSum - checkItemNetSum)
       if (check.appliedDiscounts && Array.isArray(check.appliedDiscounts)) {
         for (const d of check.appliedDiscounts) {
+          if (d.guid && seenDiscGuids.has(d.guid)) continue
           const dAmt = Number(d.discountAmount ?? d.nonTaxDiscountAmount ?? d.amount ?? 0)
-          const dName = d.name || 'Descuento General'
+          const dName = (d.discount?.guid && discountsMap[d.discount.guid]) || d.name || 'Descuento General'
           discountBreakdown[dName] = Math.round(((discountBreakdown[dName] || 0) + dAmt) * 100) / 100
         }
       }
@@ -625,6 +643,7 @@ export async function fetchToastAccountingData(
         uberTake += checkNet
         uberTakeGross += checkGross
         taxPaidByUber += checkTax
+        if (dOptionRaw && dOptionRaw.trim()) diningOptionMemos.uber_takeout = dOptionRaw.trim()
       } else if (optName.includes('uber') || optName.includes('postmates')) {
         uberDel += checkNet
         uberDelGross += checkGross
@@ -645,6 +664,7 @@ export async function fetchToastAccountingData(
         ghDel += checkNet
         ghDelGross += checkGross
         marketplaceTax += checkTax
+        if (dOptionRaw && dOptionRaw.trim()) diningOptionMemos.grubhub_delivery = dOptionRaw.trim()
       } else if (dOptLower.includes('toast delivery')) {
         // Dining Option "Toast Delivery Services" -> línea propia en Cohesion
         toastDelivery += checkNet
@@ -1113,6 +1133,18 @@ export async function fetchToastAccountingData(
                 }
               }
             }
+          } else {
+            // Fallback defensivo si el reembolso no tiene orden vinculada (Unlinked Refund)
+            const refTxGuid = refObj.refundTransaction?.guid || null
+            const dedupKey = refTxGuid || rp.guid
+            if (!processedRefundTxGuids.has(dedupKey)) {
+              processedRefundTxGuids.add(dedupKey)
+              const unlinkedTax = Math.round(Number(refObj.taxRefundAmount || 0) * 100) / 100
+              const unlinkedNet = Math.max(0, Math.round((rAmt - unlinkedTax) * 100) / 100)
+              totalTax -= unlinkedTax
+              forHere -= unlinkedNet
+              forHereGross -= unlinkedNet
+            }
           }
         } catch (refItemErr) {
           console.warn(`[toast-accounting] Error procesando reembolso ${rGuid}:`, (refItemErr as Error).message)
@@ -1281,6 +1313,7 @@ export async function fetchToastAccountingData(
     deliveryFee6Miles,
     discountsTotal: r(discountsTotal),
     discountBreakdown,
+    diningOptionMemos,
     creditCardGross,
     creditCardFees: ccFees,
     creditCardOtherDeductions,

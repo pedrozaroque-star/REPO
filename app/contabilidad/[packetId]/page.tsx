@@ -1,14 +1,14 @@
 /**
  * @module AccountingPacketDetailPage
  * @description Detailed review and reconciliation view for a single daily sales packet.
- * Allows managers/admins to verify 9 sections (reconciliation, sales channels, taxes, credit cards, third-party payments, cash over/short, and journal entry), edit the actual bank cash deposit, and publish directly to QuickBooks Online.
+ * Allows managers/admins to verify 9 sections (reconciliation, sales channels, discounts, taxes, credit cards, third-party payments, cash over/short, and journal entry) and publish directly to QuickBooks Online.
  * 
  * @businessRules
  * - Follows the exact light/dark adaptive theme of the SM TEG design system.
  * - Shows exact business date in America/Los_Angeles timezone.
- * - Editing actual bank deposit automatically updates the cash_over_short and regenerates the 17-line balanced journal in the database.
- * - Publish button sends the complete JournalEntry to QuickBooks Online and marks the packet as 'published'.
- * - Recalculate fetches fresh calculations from sales metrics for this store and date.
+ * - Actual bank deposit (`cash_deposit`) is strictly read-only from Toast POS Cash Management (`/cashmgmt/v1/deposits`).
+ * - Publish button sends the complete JournalEntry to QuickBooks Online and marks the packet as 'published' (blocked when `cash_deposit <= 0 && expected_cash > 0`).
+ * - Recalculate fetches fresh calculations from Toast POS for this store and date.
  * 
  * @dataFlow
  * /api/accounting/packets/[id] (GET/PATCH) + /api/accounting/packets/[id]/publish (POST)
@@ -787,6 +787,7 @@ export default function PacketDetailPage() {
                   const onlineOrderingTakeoutNet = Number(getNetFromJournal(['online ordering - takeout'], 0))
                   const toastDeliveryNet = Number(packet.toast_delivery_sales ?? getNetFromJournal(['toast delivery services'], 0))
                   const deliveryServiceNet = Number(getNetFromJournal(['delivery service', 'delivery charge'], 0))
+                  const deliveryFee6MilesNet = Number(getNetFromJournal(['delivery fee > 6 miles', 'delivery fee 6 miles'], 0))
                   const uberDeliveryNet = Number(packet.uber_delivery_sales ?? getNetFromJournal(['uber eats - delivery'], 0))
                   const uberTakeoutNet = Number(packet.uber_takeout_sales ?? getNetFromJournal(['uber eats takeout', 'uber eats - takeout'], 0))
                   const ddDeliveryNet = Number(packet.doordash_delivery_sales ?? getNetFromJournal(['doordash - delivery'], 0))
@@ -796,6 +797,7 @@ export default function PacketDetailPage() {
 
                   const rows = [
                     ...(Math.abs(curbsideNet) > 0 || grossMap.curbside ? [{ name: 'Curbside Pickup', gross: grossMap.curbside ?? curbsideNet, net: curbsideNet }] : []),
+                    ...(Math.abs(deliveryFee6MilesNet) > 0 ? [{ name: 'Delivery Fee > 6 Miles', gross: deliveryFee6MilesNet, net: deliveryFee6MilesNet }] : []),
                     ...(Math.abs(deliveryServiceNet) > 0 ? [{ name: 'Delivery Service', gross: deliveryServiceNet, net: deliveryServiceNet }] : []),
                     { name: 'DoorDash - Delivery', gross: grossMap.doordashDelivery ?? ddDeliveryNet, net: ddDeliveryNet },
                     ...(Math.abs(ddTakeoutNet) > 0 || grossMap.doordashTakeout ? [{ name: 'DoorDash - Takeout', gross: grossMap.doordashTakeout ?? ddTakeoutNet, net: ddTakeoutNet }] : []),
@@ -1015,9 +1017,9 @@ export default function PacketDetailPage() {
             )
 
             // Cash In, Cash Out & Tip Out de Toast POS Cash Management
-            const cashInLine = packet.journal_lines?.find((l: any) => l.account === '12100' && l.memo === 'Cash In' && l.credit > 0)
-            const cashOutLine = packet.journal_lines?.find((l: any) => l.account === '12100' && l.memo === 'Cash Out' && l.debit > 0)
-            const tipOutLine = packet.journal_lines?.find((l: any) => l.account === '12100' && l.memo === 'Tip Out' && l.debit > 0)
+            const cashInLine = packet.journal_lines?.find((l: any) => (l.memo === 'Cash In' || l.sourceMemo === 'Cash In: Drawer') && l.credit > 0)
+            const cashOutLine = packet.journal_lines?.find((l: any) => (l.memo === 'Cash Out' || l.sourceMemo === 'Cash Out: Drawer') && l.debit > 0)
+            const tipOutLine = packet.journal_lines?.find((l: any) => (l.memo === 'Tip Out' || l.sourceMemo === 'Cash Payout: Tips' || l.sourceMemo === 'Cash Out: Tip Out') && l.debit > 0)
             const cashInAmount = Number(
               (packet.qb_sync_response as any)?.cash_in ??
               (packet.qb_sync_response as any)?.validation?.cash_in ??

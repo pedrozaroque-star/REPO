@@ -2,14 +2,14 @@
  * @module api/accounting/packets/[id]
  * @description API route for viewing and updating a single accounting sales packet.
  * GET: Returns detailed packet data including journal lines and store info.
- * PATCH: Updates packet status (review, reject, reopen), cash_deposit, and notes.
+ * PATCH: Updates packet status (review, reject, reopen) and notes (`cash_deposit` is strictly read-only from Toast POS).
  *
  * @businessRules
  * - Status transitions: ready → reviewed → published (forward flow).
  * - A packet can be rejected from 'ready' or 'reviewed' → 'rejected'.
- * - A rejected or reviewed packet can be reopened back to 'ready'.
+ * - A rejected, reviewed, or published packet can be reopened back to 'ready'.
  * - When status changes to 'reviewed', sets reviewed_at and reviewed_by.
- * - Updating cash_deposit recalculates cash_over_short (cash_deposit - expected_cash).
+ * - Direct manual edits to `cash_deposit` are blocked (HTTP 400); deposits come exclusively from Toast POS Cash Management (`/cashmgmt/v1/deposits`).
  * - Every status change or meaningful update is logged to accounting_sync_logs.
  *
  * @dataFlow

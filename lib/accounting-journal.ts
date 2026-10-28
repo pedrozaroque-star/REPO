@@ -73,6 +73,7 @@ export interface SalesPacketData {
   cash_in?: number;
   cash_out?: number;
   tip_out?: number;
+  dining_option_memos?: Record<string, string>;
 }
 
 export interface SiteMappingConfig {
@@ -206,14 +207,14 @@ export function generateJournalLines(salesData: SalesPacketData, siteMapping: Si
     addLine(onlineTakeoutAcct, 'Online Ordering - Takeout', 0, salesData.online_ordering_takeout_sales, 'Dining Option: Online Ordering - Takeout', 'online_ordering_takeout');
   }
   addLine(uberSalesAcct, 'Uber Eats - Delivery', 0, salesData.uber_delivery_sales, 'Dining Option: Uber Eats - Delivery', 'uber_delivery');
-  const uberTakeoutMemo = isRialto ? 'Uber Eats - Takeout' : 'Uber Eats Takeout';
-  const uberTakeoutSrc = isRialto ? 'Dining Option: Uber Eats - Takeout' : 'Dining Option: Uber Eats Takeout';
+  const uberTakeoutMemo = salesData.dining_option_memos?.uber_takeout || 'Uber Eats Takeout';
+  const uberTakeoutSrc = `Dining Option: ${uberTakeoutMemo}`;
   addLine(uberSalesAcct, uberTakeoutMemo, 0, salesData.uber_takeout_sales, uberTakeoutSrc, 'uber_takeout');
   addLine(ddSalesAcct, 'DoorDash - Takeout', 0, salesData.doordash_takeout_sales, 'Dining Option: DoorDash - Takeout', 'doordash_takeout');
   addLine(ddSalesAcct, 'DoorDash - Delivery', 0, salesData.doordash_delivery_sales, 'Dining Option: DoorDash - Delivery', 'doordash_delivery');
 
-  const ghDelMemo = isRialto ? 'Grubhub - Delivery' : 'GrubHub Delivery';
-  const ghDelSrc = isRialto ? 'Dining Option: Grubhub - Delivery' : 'Dining Option: GrubHub Delivery';
+  const ghDelMemo = salesData.dining_option_memos?.grubhub_delivery || (isRialto ? 'Grubhub - Delivery' : 'GrubHub Delivery');
+  const ghDelSrc = `Dining Option: ${ghDelMemo}`;
   addLine(ghSalesAcct, ghDelMemo, 0, salesData.grubhub_delivery_sales, ghDelSrc, 'grubhub_delivery');
 
   if (salesData.grubhub_takeout_sales) {
@@ -226,8 +227,9 @@ export function generateJournalLines(salesData: SalesPacketData, siteMapping: Si
   }
   if (salesData.delivery_fee_6_miles) {
     // Cohesion Table 22: Downey -> 40050, Rialto -> 51040, resto -> 51030
+    // Cohesion sanitizes '>' in Memo ('Delivery Fee 6 Miles') while keeping '>' in Source Memo ('Service Charge: Delivery Fee > 6 Miles')
     const del6Acct = isDowney ? dineInAcct : isRialto ? '51040' : ccFeesAcct;
-    addLine(del6Acct, 'Delivery Fee > 6 Miles', 0, salesData.delivery_fee_6_miles, 'Service Charge: Delivery Fee > 6 Miles', 'delivery_fee_6_miles');
+    addLine(del6Acct, 'Delivery Fee 6 Miles', 0, salesData.delivery_fee_6_miles, 'Service Charge: Delivery Fee > 6 Miles', 'delivery_fee_6_miles');
   }
   if (salesData.deferred_gift_cards) {
     addLine(giftCardAcct, 'Deferred Sales - Gift Cards', 0, salesData.deferred_gift_cards, 'Deferred: Gift Cards', 'deferred_gift_cards');
@@ -255,8 +257,10 @@ export function generateJournalLines(salesData: SalesPacketData, siteMapping: Si
   addLine(salesTaxAcct, mktTaxMemo, 0, salesData.marketplace_tax, 'Tax Rate: Marketplace Facilitator Taxes Not Paid', 'marketplace_tax');
 
   if (salesData.tips_payable) {
-    // Cohesion Table 7 (Tips): La Puente -> 51050, resto -> 12100
-    const effectiveTipsAcct = isLaPuente ? cashOverShortAcct : tipsAcct;
+    // Cohesion Table 7 (Tips): La Puente -> 51050, resto -> 12100 (unless customized in siteMapping.tips_account)
+    const effectiveTipsAcct = isLaPuente && (!siteMapping.tips_account || siteMapping.tips_account === '12100')
+      ? cashOverShortAcct
+      : tipsAcct;
     addLine(effectiveTipsAcct, 'Tips/Grat Payable', 0, salesData.tips_payable, 'Tips Payable', 'tips_payable');
   }
   if (salesData.paid_in) {
@@ -270,7 +274,9 @@ export function generateJournalLines(salesData: SalesPacketData, siteMapping: Si
     const paidInCr = salesData.paid_in > 0 ? salesData.paid_in : 0;
     addLine(paidInAcct, 'Paid In Total (Deposits Received)', paidInDr, paidInCr, 'Paid In Totals', 'paid_in');
   }
-  const cashDrawerAcct = isHollywood ? cashOverShortAcct : tipsAcct;
+  const cashDrawerAcct = isHollywood && (!siteMapping.cash_on_hand_account || siteMapping.cash_on_hand_account === '12100')
+    ? cashOverShortAcct
+    : (siteMapping.cash_on_hand_account || tipsAcct);
   if (salesData.cash_in && salesData.cash_in > 0) {
     // Cohesion Table 7 (Cash Recon): Hollywood -> 51050, resto -> 12100
     addLine(cashDrawerAcct, 'Cash In', 0, salesData.cash_in, 'Cash In: Drawer', 'cash_in');

@@ -151,7 +151,11 @@ export async function POST(req: NextRequest) {
     const storeId = Number(body.storeId);
     const positionKey = String(body.positionKey || '').trim();
     const trainerName = String(body.trainerName || 'Manager de Turno').trim();
-    const employeeId = body.employeeId ? Number(body.employeeId) : null;
+    const parsedEmpId = Number(body.employeeId);
+    const employeeId =
+      body.employeeId && Number.isInteger(parsedEmpId) && parsedEmpId > 0
+        ? parsedEmpId
+        : null;
     const employeePhone = body.employeePhone ? String(body.employeePhone).trim() : null;
     const durationDays = Math.max(1, Math.min(14, Number(body.durationDays || 4)));
 
@@ -165,7 +169,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Obtener nombre limpio de la sucursal
+    // Obtener nombre limpio de la sucursal desde public.stores
     let storeName = String(body.storeName || '').trim();
     if (!storeName) {
       const { data: storeRow } = await supabaseAdmin
@@ -174,6 +178,45 @@ export async function POST(req: NextRequest) {
         .eq('id', storeId)
         .maybeSingle();
       storeName = formatStoreName(storeRow?.name || `Sucursal #${storeId}`);
+    }
+
+    // Verificar si el empleado del Planificador ya tiene un entrenamiento para esta sucursal y estación
+    const { data: existingEnrollment } = await supabaseAdmin
+      .from('training_enrollments')
+      .select('*')
+      .eq('store_id', storeId)
+      .ilike('employee_name', employeeName)
+      .eq('position_key', positionKey)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (existingEnrollment) {
+      const expMs = new Date(existingEnrollment.expires_at).getTime();
+      if (expMs < Date.now() && existingEnrollment.status !== 'CERTIFIED') {
+        const refreshedExp = new Date(Date.now() + durationDays * 24 * 60 * 60 * 1000).toISOString();
+        const { data: refreshed } = await supabaseAdmin
+          .from('training_enrollments')
+          .update({
+            expires_at: refreshedExp,
+            status: 'IN_PROGRESS',
+            trainer_name: trainerName || existingEnrollment.trainer_name,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', existingEnrollment.id)
+          .select('*')
+          .single();
+        return NextResponse.json({
+          ok: true,
+          enrollment: refreshed || existingEnrollment,
+          existed: true,
+        });
+      }
+      return NextResponse.json({
+        ok: true,
+        enrollment: existingEnrollment,
+        existed: true,
+      });
     }
 
     // Generar código temporal único TG-XXXX

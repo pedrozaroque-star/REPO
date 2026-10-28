@@ -173,111 +173,73 @@ export async function POST(request: NextRequest) {
       const storeName = (mapping as any).stores?.name || `Store ${mapping.store_id}`
 
       try {
-        let salesPacketData: SalesPacketData | null = null
         const extId = (mapping as any).stores?.external_id
-
-        let toastAccountingResult: any = null
-        if (extId) {
-          try {
-            const toastData = await fetchToastAccountingData(extId, sale.business_date.replace(/-/g, ''))
-            toastAccountingResult = toastData
-            salesPacketData = {
-              net_sales: toastData.netSales,
-              total_taxes: toastData.totalTaxes,
-              for_here_sales: toastData.forHereSales,
-              to_go_sales: toastData.toGoSales,
-              phone_sales: toastData.phoneSales,
-              curbside_sales: toastData.curbsideSales,
-              drive_thru_sales: toastData.driveThruSales,
-              kiosk_dine_in_sales: toastData.kioskDineInSales,
-              kiosk_takeout_sales: toastData.kioskTakeOutSales,
-              toast_online_sales: toastData.toastOnlineSales,
-              online_ordering_takeout_sales: toastData.onlineOrderingTakeoutSales,
-              toast_delivery_sales: toastData.toastDeliverySales,
-              tips_payable: toastData.tipsPayable,
-              deposits_collected: toastData.depositsCollected,
-              paid_in: toastData.paidIn,
-              uber_delivery_sales: toastData.uberDeliverySales,
-              uber_takeout_sales: toastData.uberTakeoutSales,
-              doordash_takeout_sales: toastData.doordashTakeoutSales,
-              doordash_delivery_sales: toastData.doordashDeliverySales,
-              grubhub_delivery_sales: toastData.grubhubDeliverySales,
-              grubhub_takeout_sales: toastData.grubhubTakeoutSales,
-              deferred_gift_cards: toastData.deferredSalesGiftCards,
-              gift_card_redemption: toastData.giftCardRedemption,
-              delivery_service_charges: toastData.deliveryServiceCharges,
-              delivery_fee_6_miles: toastData.deliveryFee6Miles,
-              tax_paid_by_uber: toastData.taxPaidByUber,
-              sales_tax: toastData.salesTax,
-              marketplace_tax: toastData.marketplaceTax,
-              ebt_amount: toastData.ebtAmount,
-              uber_payment: toastData.uberPayment,
-              doordash_payment: toastData.doordashPayment,
-              grubhub_payment: toastData.grubhubPayment,
-              credit_card_deposit: toastData.creditCardDeposit,
-              credit_card_fees: toastData.creditCardFees,
-              credit_card_other_deductions: toastData.creditCardOtherDeductions,
-              cash_deposits: 0,
-              cash_payouts: toastData.toastCashPayoutsList || [],
-              cash_payouts_total: toastData.cashPayoutsTotal || 0,
-              cash_in: toastData.cashInTotal || 0,
-              cash_out: toastData.cashOutTotal || 0,
-              tip_out: toastData.tipOutTotal || 0,
-            }
-          } catch (toastErr: any) {
-            console.warn(`[Accounting] Granular Toast API fetch failed for ${storeName}, falling back to cache:`, toastErr.message)
-          }
+        if (!extId) {
+          throw new Error(`Missing Toast external_id for store ${storeName}`)
         }
 
-        // Fallback to cache estimation if direct Toast API fetch wasn't available
-        if (!salesPacketData) {
-          const uberSales = sale.uber_sales || 0
-          const doordashSales = sale.doordash_sales || 0
-          const grubhubSales = sale.grubhub_sales || 0
-          const netSales = sale.net_sales || 0
-          const taxes = sale.taxes || 0
-          const ebtAmount = sale.ebt_amount || 0
-
-          const inStoreSales = Math.max(0, netSales - uberSales - doordashSales - grubhubSales)
-          const forHereSales = round(inStoreSales * 0.52)
-          const toGoSales = round(inStoreSales - forHereSales)
-
-          const salesTax = round(taxes * 0.829)
-          const marketplaceTax = round(taxes * 0.110)
-          const facilitatorTaxPaid = round(taxes - salesTax - marketplaceTax)
-
-          const totalGrossReceipts = round(netSales + taxes)
-          const uberPayment = round(uberSales + facilitatorTaxPaid)
-          const doordashPayment = round(doordashSales + (doordashSales > 0 ? round(doordashSales / netSales * taxes * 0.11) : 0))
-          const grubhubPayment = round(grubhubSales + (grubhubSales > 0 ? round(grubhubSales / netSales * taxes * 0.11) : 0))
-
-          const ccFeeRate = 0.018
-          const cashFromSales = round(totalGrossReceipts - uberPayment - doordashPayment - grubhubPayment - ebtAmount)
-          const ccGross = round(cashFromSales * 0.70)
-          const ccFees = round(ccGross * ccFeeRate)
-          const ccDeposit = round(ccGross - ccFees)
-
-          salesPacketData = {
-            net_sales: netSales,
-            total_taxes: taxes,
-            for_here_sales: forHereSales,
-            to_go_sales: toGoSales,
-            uber_delivery_sales: round(uberSales * 0.90),
-            uber_takeout_sales: round(uberSales * 0.10),
-            doordash_takeout_sales: round(doordashSales * 0.30),
-            doordash_delivery_sales: round(doordashSales * 0.70),
-            grubhub_delivery_sales: grubhubSales,
-            tax_paid_by_uber: facilitatorTaxPaid,
-            sales_tax: salesTax,
-            marketplace_tax: marketplaceTax,
-            ebt_amount: ebtAmount,
-            uber_payment: uberPayment,
-            doordash_payment: doordashPayment,
-            grubhub_payment: grubhubPayment,
-            credit_card_deposit: ccDeposit,
-            credit_card_fees: ccFees,
-            cash_deposits: 0,
+        let toastData: any = null
+        let lastToastErr: any = null
+        for (let attempt = 1; attempt <= 3; attempt++) {
+          try {
+            toastData = await fetchToastAccountingData(extId, sale.business_date.replace(/-/g, ''))
+            break
+          } catch (toastErr: any) {
+            lastToastErr = toastErr
+            console.warn(`[Accounting] Toast API fetch attempt ${attempt}/3 failed for ${storeName} (${sale.business_date}):`, toastErr.message)
+            if (attempt < 3) {
+              await new Promise(r => setTimeout(r, 1000 * attempt))
+            }
           }
+        }
+        if (!toastData) {
+          throw new Error(`Granular Toast API fetch failed for ${storeName} (${sale.business_date}): ${lastToastErr?.message || 'Unknown error'}`)
+        }
+
+        const toastAccountingResult = toastData
+        const salesPacketData: SalesPacketData = {
+          net_sales: toastData.netSales,
+          total_taxes: toastData.totalTaxes,
+          for_here_sales: toastData.forHereSales,
+          to_go_sales: toastData.toGoSales,
+          phone_sales: toastData.phoneSales,
+          curbside_sales: toastData.curbsideSales,
+          drive_thru_sales: toastData.driveThruSales,
+          kiosk_dine_in_sales: toastData.kioskDineInSales,
+          kiosk_takeout_sales: toastData.kioskTakeOutSales,
+          toast_online_sales: toastData.toastOnlineSales,
+          online_ordering_takeout_sales: toastData.onlineOrderingTakeoutSales,
+          toast_delivery_sales: toastData.toastDeliverySales,
+          tips_payable: toastData.tipsPayable,
+          deposits_collected: toastData.depositsCollected,
+          paid_in: toastData.paidIn,
+          uber_delivery_sales: toastData.uberDeliverySales,
+          uber_takeout_sales: toastData.uberTakeoutSales,
+          doordash_takeout_sales: toastData.doordashTakeoutSales,
+          doordash_delivery_sales: toastData.doordashDeliverySales,
+          grubhub_delivery_sales: toastData.grubhubDeliverySales,
+          grubhub_takeout_sales: toastData.grubhubTakeoutSales,
+          deferred_gift_cards: toastData.deferredSalesGiftCards,
+          gift_card_redemption: toastData.giftCardRedemption,
+          delivery_service_charges: toastData.deliveryServiceCharges,
+          delivery_fee_6_miles: toastData.deliveryFee6Miles,
+          tax_paid_by_uber: toastData.taxPaidByUber,
+          sales_tax: toastData.salesTax,
+          marketplace_tax: toastData.marketplaceTax,
+          ebt_amount: toastData.ebtAmount,
+          uber_payment: toastData.uberPayment,
+          doordash_payment: toastData.doordashPayment,
+          grubhub_payment: toastData.grubhubPayment,
+          credit_card_deposit: toastData.creditCardDeposit,
+          credit_card_fees: toastData.creditCardFees,
+          credit_card_other_deductions: toastData.creditCardOtherDeductions,
+          cash_deposits: 0,
+          cash_payouts: toastData.toastCashPayoutsList || [],
+          cash_payouts_total: toastData.cashPayoutsTotal || 0,
+          cash_in: toastData.cashInTotal || 0,
+          cash_out: toastData.cashOutTotal || 0,
+          tip_out: toastData.tipOutTotal || 0,
+          dining_option_memos: toastData.diningOptionMemos,
         }
 
         const siteConfig: SiteMappingConfig = {
@@ -341,10 +303,11 @@ export async function POST(request: NextRequest) {
         const docNumber = formatDocNumber(storeName.replace(/^Tacos Gavilan\s+/i, '').trim(), sale.business_date)
 
         // Determine status based on Open Orders validation (Step 11 Cohesion Rule) and Journal Balance
-        const hasOpenOrders = toastAccountingResult?.hasOpenOrders ?? false
-        const openOrdersCount = toastAccountingResult?.openOrdersCount ?? 0
-        const outOfBalanceOrdersCount = toastAccountingResult?.outOfBalanceOrdersCount ?? 0
-        const openOrdersList = toastAccountingResult?.openOrdersList ?? []
+        const checkOpenOrdersEnabled = (mapping as any).check_open_orders !== false
+        const hasOpenOrders = checkOpenOrdersEnabled ? (toastAccountingResult?.hasOpenOrders ?? false) : false
+        const openOrdersCount = checkOpenOrdersEnabled ? (toastAccountingResult?.openOrdersCount ?? 0) : 0
+        const outOfBalanceOrdersCount = checkOpenOrdersEnabled ? (toastAccountingResult?.outOfBalanceOrdersCount ?? 0) : 0
+        const openOrdersList = checkOpenOrdersEnabled ? (toastAccountingResult?.openOrdersList ?? []) : []
 
         const isBalanced = journal.isBalanced
         const isDepositPending = finalDeposit === 0 && expectedCashDeposit > 0

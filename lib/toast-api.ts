@@ -638,7 +638,7 @@ async function getSalesForStore(token: string, storeId: string, startDate: strin
                     if (fastMode) {
                         // --- FAST MODE LOGIC ---
                         order.checks.forEach((check: any) => {
-                            if (check.voided) return
+                            if (check.voided || check.deleted) return
                             // check.payments?.some(...) removed
 
                             // Simple Net = Amount - Tax - Tip + ServiceCharges
@@ -679,7 +679,7 @@ async function getSalesForStore(token: string, storeId: string, startDate: strin
                     } else {
                         // --- FULL PRECISION LOGIC ---
                         order.checks.forEach((check: any) => {
-                            if (check.voided) return
+                            if (check.voided || check.deleted) return
                             // check.payments?.some(...) removed to include re-paid checks
 
                             // --- EBT DETECTION (Check Level) ---

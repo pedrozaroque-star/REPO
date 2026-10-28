@@ -42,6 +42,9 @@
  *     1) Canal Realtime aislado por sucursal (`order-ready-realtime:${storeCode}`) y filtro server-side `store_code=eq.${storeCode}` en `order_ready_announcements`.
  *     2) Guardia `channelDisposed` por instancia de canal para evitar reconexión por evento `CLOSED` intencional al ejecutar `removeChannel`.
  *     3) Debounce de 500ms + guardia `fetchingReadyOrdersRef` en refrescos Realtime, manteniendo `syncToast=false` en eventos Realtime y reconexión.
+ *   - MODO SOLO ÓRDENES / OCULTAR COCCIÓN (2026-10-28):
+ *     Permite ocultar el panel izquierdo de Ritmo de Cocción en la tableta mediante botón en cabecera o adorno divisor lateral retráctil,
+ *     dedicando el 100% del ancho de pantalla exclusivamente a la vista de ÓRDENES EN PREPARACIÓN con cuadrícula expandida.
  */
 'use client'
 
@@ -52,7 +55,7 @@ import {
     X, Loader2, Play, Maximize, Minimize, HelpCircle, CheckCircle2, TrendingDown, 
     Calendar, FileText, BookOpen, Sun, ChevronLeft, ChevronRight, Store, Flame, 
     BarChart3, SlidersHorizontal, ShoppingBag, Utensils, Volume2, RefreshCw, Megaphone,
-    CupSoda, Coffee 
+    CupSoda, Coffee, PanelLeftClose, PanelLeftOpen 
 } from 'lucide-react'
 import { useAuth } from '@/components/ProtectedRoute'
 import { createClient } from '@/lib/supabase-client'
@@ -543,20 +546,39 @@ export default function PreparadorPage() {
     const [callSuccessOrderIds, setCallSuccessOrderIds] = useState<Set<string>>(new Set())
     const realtimeChannelRef = useRef<any>(null)
     const [hideDrinks, setHideDrinks] = useState(true)
+    const [hideCookingPanel, setHideCookingPanel] = useState(false)
 
-    // Cargar preferencias persistidas de la tableta (ocultar bebidas y pestaña activa)
+    // Cargar preferencias persistidas de la tableta (ocultar bebidas, pestaña activa y modo solo órdenes)
     useEffect(() => {
         try {
             const saved = localStorage.getItem('prep_hide_drinks')
             if (saved !== null) {
                 setHideDrinks(saved === 'true')
             }
-            const savedTab = localStorage.getItem('teg_preparador_active_tab')
-            if (savedTab === 'alimentos' || savedTab === 'ordenes') {
-                setActiveTabState(savedTab)
+            const savedHideCooking = localStorage.getItem('teg_preparador_hide_cooking')
+            if (savedHideCooking === 'true') {
+                setHideCookingPanel(true)
+                setActiveTabState('ordenes')
+            } else {
+                const savedTab = localStorage.getItem('teg_preparador_active_tab')
+                if (savedTab === 'alimentos' || savedTab === 'ordenes') {
+                    setActiveTabState(savedTab)
+                }
             }
         } catch {}
     }, [])
+
+    const toggleHideCookingPanel = (explicitState?: boolean) => {
+        setHideCookingPanel(prev => {
+            const next = typeof explicitState === 'boolean' ? explicitState : !prev
+            try { localStorage.setItem('teg_preparador_hide_cooking', String(next)) } catch {}
+            if (next) {
+                setActiveTab('ordenes')
+                fetchReadyOrdersRef.current?.(false)
+            }
+            return next
+        })
+    }
 
     const toggleHideDrinks = () => {
         setHideDrinks(prev => {
@@ -1835,6 +1857,30 @@ export default function PreparadorPage() {
                         <h1 className="font-black text-lg md:text-xl text-slate-800 dark:text-white uppercase tracking-wider">{t('prep.title')}</h1>
                         {!isFullscreen && <p className="text-xs text-slate-500 font-medium hidden sm:block">{t('prep.subtitle')}</p>}
                     </div>
+
+                    {/* Botón / Píldora Rápida para Ocultar Cocción y Ver Solo Órdenes (Visible siempre en Tableta / Pantalla Completa) */}
+                    <button
+                        type="button"
+                        onClick={() => toggleHideCookingPanel()}
+                        title={hideCookingPanel ? t('prep.showCookingTooltip') : t('prep.hideCookingTooltip')}
+                        className={`ml-1 flex items-center gap-2 px-3.5 py-2 rounded-xl font-black text-xs uppercase tracking-wider transition-all cursor-pointer border shadow-xs active:scale-95 ${
+                            hideCookingPanel
+                                ? 'bg-blue-600 hover:bg-blue-700 text-white border-blue-500 shadow-blue-500/20'
+                                : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border-emerald-300 dark:bg-emerald-950/50 dark:hover:bg-emerald-900/60 dark:text-emerald-300 dark:border-emerald-800'
+                        }`}
+                    >
+                        {hideCookingPanel ? (
+                            <>
+                                <PanelLeftOpen size={16} className="shrink-0" />
+                                <span>{t('prep.showCookingPace')}</span>
+                            </>
+                        ) : (
+                            <>
+                                <PanelLeftClose size={16} className="shrink-0" />
+                                <span>{t('prep.onlyOrdersMode')}</span>
+                            </>
+                        )}
+                    </button>
                 </div>
 
                 {!isFullscreen && (
@@ -1943,10 +1989,10 @@ export default function PreparadorPage() {
             </div>
 
             {/* CONTENEDOR PRINCIPAL: VISTA APP EN MÓVIL (< lg) / SPLIT SCREEN EN DESKTOP (>= lg) */}
-            <div className="flex flex-col lg:flex-row flex-1 overflow-hidden min-h-0 pb-16 lg:pb-0">
+            <div className="flex flex-col lg:flex-row flex-1 overflow-hidden min-h-0 pb-16 lg:pb-0 relative">
                 
-                {/* 1. PANEL RITMO DE COCCIÓN / PARRILLA (Visible en móvil si mobileTab === 'parrilla', siempre en desktop) */}
-                <div ref={grillPanelRef} className={`w-full lg:w-[48%] border-b lg:border-b-0 lg:border-r border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-3 sm:p-4 md:p-6 xl:p-8 flex-col shrink-0 lg:shrink overflow-y-auto lg:overflow-y-hidden ${mobileTab === 'parrilla' ? 'flex flex-1' : 'hidden lg:flex'}`}>
+                {/* 1. PANEL RITMO DE COCCIÓN / PARRILLA (Visible en móvil si mobileTab === 'parrilla', ocultable en desktop/tableta con hideCookingPanel) */}
+                <div ref={grillPanelRef} className={`w-full lg:w-[48%] border-b lg:border-b-0 lg:border-r border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-3 sm:p-4 md:p-6 xl:p-8 flex-col shrink-0 lg:shrink overflow-y-auto lg:overflow-y-hidden transition-all duration-300 ${mobileTab === 'parrilla' ? 'flex flex-1' : 'hidden'} ${hideCookingPanel ? 'lg:hidden' : 'lg:flex'}`}>
                     
                     {/* Header del Ritmo de Cocción */}
                     <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 sm:gap-3 mb-3 sm:mb-6 bg-slate-50 dark:bg-slate-800/50 p-2.5 sm:p-4 rounded-xl border border-slate-200 dark:border-slate-700">
@@ -1967,12 +2013,21 @@ export default function PreparadorPage() {
                             </div>
                         </div>
                         <div className="flex items-center gap-1.5 sm:gap-2 shrink-0 w-full sm:w-auto justify-end">
-                            <button onClick={() => setShowGuideModal(true)} className="bg-red-600 hover:bg-red-700 text-white px-2.5 py-1.5 sm:px-3 sm:py-2 md:px-5 md:py-3 rounded-xl text-xs sm:text-sm md:text-base font-black transition-colors shrink-0 shadow-sm flex items-center gap-1 cursor-pointer">
+                            <button onClick={() => setShowGuideModal(true)} className="bg-red-600 hover:bg-red-700 text-white px-2.5 py-1.5 sm:px-3 sm:py-2 md:px-4 md:py-2.5 rounded-xl text-xs sm:text-sm md:text-base font-black transition-colors shrink-0 shadow-sm flex items-center gap-1 cursor-pointer">
                                 <BookOpen size={14} />
                                 <span>{t('prep.viewGuide')}</span>
                             </button>
-                            <button onClick={() => setShowDayModal(true)} className="hidden lg:flex bg-blue-100 hover:bg-blue-200 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300 dark:hover:bg-blue-900 px-4 py-2 md:py-3 rounded-xl text-sm md:text-lg font-black transition-colors shrink-0 shadow-sm cursor-pointer">
+                            <button onClick={() => setShowDayModal(true)} className="hidden lg:flex bg-blue-100 hover:bg-blue-200 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300 dark:hover:bg-blue-900 px-3.5 py-2 md:py-2.5 rounded-xl text-sm md:text-base font-black transition-colors shrink-0 shadow-sm cursor-pointer">
                                 {t('prep.viewDay')}
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => toggleHideCookingPanel(true)}
+                                title={t('prep.hideCookingTooltip')}
+                                className="hidden lg:flex items-center gap-1.5 bg-slate-200/80 hover:bg-emerald-600 text-slate-700 hover:text-white dark:bg-slate-700 dark:hover:bg-emerald-600 dark:text-slate-200 px-3 py-2 md:py-2.5 rounded-xl text-xs md:text-sm font-black transition-all shrink-0 shadow-xs cursor-pointer active:scale-95"
+                            >
+                                <PanelLeftClose size={17} />
+                                <span className="hidden xl:inline">{t('prep.hideCookingPace')}</span>
                             </button>
                         </div>
                     </div>
@@ -2228,11 +2283,38 @@ export default function PreparadorPage() {
                     )}
                 </div>
 
-                {/* 2. PANEL PEDIR INSUMOS (ALIMENTOS / DESECHABLES) (Visible en móvil si mobileTab === 'insumos', siempre en desktop) */}
+                {/* ADORNO / PESTAÑA TÁCTIL DIVISORA LATERAL (Permite ocultar o desplegar el panel de cocción con un toque) */}
+                <div className="hidden lg:flex items-center justify-center relative z-30 shrink-0 w-0">
+                    <button
+                        type="button"
+                        onClick={() => toggleHideCookingPanel()}
+                        title={hideCookingPanel ? t('prep.showCookingTooltip') : t('prep.hideCookingTooltip')}
+                        className={`group flex flex-col items-center justify-center gap-1.5 transition-all duration-300 cursor-pointer select-none touch-manipulation active:scale-95 shadow-lg border ${
+                            hideCookingPanel
+                                ? 'translate-x-3.5 w-7 h-28 rounded-r-2xl bg-gradient-to-b from-blue-600 to-indigo-700 hover:from-blue-500 hover:to-indigo-600 text-white border-blue-400/60 shadow-[4px_0_20px_rgba(37,99,235,0.35)]'
+                                : 'w-6 h-24 rounded-full bg-white hover:bg-emerald-600 dark:bg-slate-800 dark:hover:bg-emerald-600 text-slate-500 hover:text-white dark:text-slate-300 border-slate-300 dark:border-slate-700 hover:border-emerald-500'
+                        }`}
+                    >
+                        {hideCookingPanel ? (
+                            <>
+                                <Flame size={14} className="text-amber-300 animate-pulse shrink-0" />
+                                <ChevronRight size={18} strokeWidth={3} className="shrink-0 group-hover:translate-x-0.5 transition-transform" />
+                            </>
+                        ) : (
+                            <>
+                                <div className="w-1 h-2.5 rounded-full bg-slate-300 dark:bg-slate-600 group-hover:bg-white/70 transition-colors" />
+                                <ChevronLeft size={16} strokeWidth={3} className="shrink-0 group-hover:-translate-x-0.5 transition-transform" />
+                                <div className="w-1 h-2.5 rounded-full bg-slate-300 dark:bg-slate-600 group-hover:bg-white/70 transition-colors" />
+                            </>
+                        )}
+                    </button>
+                </div>
+
+                {/* 2. PANEL PEDIR INSUMOS / ÓRDENES (Visible en móvil si mobileTab === 'insumos', siempre en desktop) */}
                 <div className={`w-full lg:flex-1 flex-col bg-slate-100 dark:bg-slate-950 shrink-0 lg:shrink min-h-0 overflow-hidden ${mobileTab === 'insumos' ? 'flex flex-1' : 'hidden lg:flex'}`}>
                     
-                    {/* TABS DE INSUMOS Y ÓRDENES LISTAS */}
-                    <div className="flex p-2 sm:p-4 gap-2 sm:gap-4 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 shadow-sm shrink-0">
+                    {/* TABS DE INSUMOS Y ÓRDENES LISTAS (Se ocultan en desktop cuando está activo el modo Solo Órdenes / hideCookingPanel) */}
+                    <div className={`p-2 sm:p-4 gap-2 sm:gap-4 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 shadow-sm shrink-0 ${hideCookingPanel ? 'flex lg:hidden' : 'flex'}`}>
                         <button 
                             onClick={() => setActiveTab('alimentos')}
                             className={`flex-1 py-2.5 sm:py-4 font-black flex items-center justify-center gap-1.5 sm:gap-2 rounded-xl transition-all shadow-sm text-xs sm:text-base cursor-pointer
@@ -2290,7 +2372,7 @@ export default function PreparadorPage() {
                         </div>
                     ) : (
                         /* VISTA DE ÓRDENES EN PREPARACIÓN (ENVIADAS POR CAJERA) */
-                        <div className="flex-1 flex flex-col overflow-hidden p-2 sm:p-4">
+                        <div className={`flex-1 flex flex-col overflow-hidden p-2 sm:p-4 ${hideCookingPanel ? 'lg:pl-7' : ''}`}>
                             {/* Cabecera del Panel de Órdenes */}
                             <div className="flex items-center justify-between gap-2 pb-3 mb-3 border-b border-slate-200 dark:border-slate-800 shrink-0">
                                 <div>
@@ -2308,6 +2390,17 @@ export default function PreparadorPage() {
                                 </div>
 
                                 <div className="flex items-center gap-2">
+                                    {hideCookingPanel && (
+                                        <button
+                                            type="button"
+                                            onClick={() => toggleHideCookingPanel(false)}
+                                            title={t('prep.showCookingTooltip')}
+                                            className="hidden lg:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-black text-xs uppercase tracking-wider shadow-sm transition active:scale-95 cursor-pointer"
+                                        >
+                                            <Flame size={14} className="text-amber-300 shrink-0" />
+                                            <span>{t('prep.showCookingPace')}</span>
+                                        </button>
+                                    )}
                                     <span className="hidden sm:inline-flex items-center gap-1.5 text-[11px] font-black text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/50 px-2.5 py-1 rounded-full border border-emerald-300 dark:border-emerald-800">
                                         <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping" />
                                         {t('prep.liveIndicator')}
@@ -2427,7 +2520,11 @@ export default function PreparadorPage() {
                                         </p>
                                     </div>
                                 ) : (
-                                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-2 lg:grid-cols-2 xl:grid-cols-2 2xl:grid-cols-3 gap-3.5 sm:gap-5">
+                                    <div className={`grid gap-3.5 sm:gap-5 ${
+                                        hideCookingPanel
+                                            ? 'grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5'
+                                            : 'grid-cols-1 sm:grid-cols-2 md:grid-cols-2 lg:grid-cols-2 xl:grid-cols-2 2xl:grid-cols-3'
+                                    }`}>
                                         {readyOrdersList.map((order) => {
                                             const isCalling = callingOrderIds.has(order.id)
                                             const isSuccess = callSuccessOrderIds.has(order.id)

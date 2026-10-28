@@ -369,16 +369,6 @@ export default function AccountingPage() {
                             <Sparkles className="w-2.5 h-2.5 text-blue-500" />
                             <span>{t('accounting.btn_recalculate') || 'Recalc'}</span>
                           </button>
-                          <button
-                            type="button"
-                            onClick={() => handlePublishDay(dateStr)}
-                            disabled={isPublishingDay || isLoading}
-                            title={`${t('accounting.btn_publish_day') || 'Publicar Día'}: ${dateStr}`}
-                            className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-bold text-slate-500 hover:text-emerald-600 dark:text-slate-400 dark:hover:text-emerald-400 bg-white/60 dark:bg-slate-800/60 hover:bg-emerald-50 dark:hover:bg-emerald-900/40 rounded-lg border border-slate-200 dark:border-slate-700/60 transition-colors disabled:opacity-40"
-                          >
-                            <Send className="w-2.5 h-2.5 text-emerald-500" />
-                            <span>{t('accounting.btn_publish_day') || 'Publicar'}</span>
-                          </button>
                         </div>
                       </div>
                     </th>

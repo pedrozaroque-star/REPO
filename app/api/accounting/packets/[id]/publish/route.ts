@@ -193,6 +193,7 @@ export async function POST(
       const amount = line.debit > 0 ? line.debit : line.credit
       const postingType: 'Debit' | 'Credit' = line.debit > 0 ? 'Debit' : 'Credit'
 
+      const lineClassRefs = line.className ? getQBStoreRefs(line.className) : storeRefs
       const lineDetail: QBJournalEntryLine['JournalEntryLineDetail'] = {
         PostingType: postingType,
         AccountRef: {
@@ -200,8 +201,8 @@ export async function POST(
           name: `${line.account} - ${acct.name}`,
         },
         ClassRef: {
-          value: storeRefs.classId,
-          name: storeRefs.className,
+          value: lineClassRefs.classId || storeRefs.classId,
+          name: lineClassRefs.className || storeRefs.className,
         },
         DepartmentRef: {
           value: storeRefs.locationId,

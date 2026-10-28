@@ -219,8 +219,19 @@ export const QB_STORE_REFS_MAP: Record<string, QBStoreRefs> = {
     bankAccountName: '10015 - Slauson',
   },
   'south gate': {
-    classId: '2200000000000140757',
+    classId: '2200000000000118610',
     className: 'Souht Gate', // Cohesion exact match with QB typo
+    locationId: '16',
+    locationName: 'South Gate',
+    cohCustomerId: '1240',
+    cohCustomerName: 'SOUTH GATE- COH',
+    bankAccount: '10009',
+    bankAccountQbId: '211',
+    bankAccountName: '10009 - South Gate',
+  },
+  'souht gate': {
+    classId: '2200000000000118610',
+    className: 'Souht Gate',
     locationId: '16',
     locationName: 'South Gate',
     cohCustomerId: '1240',
