@@ -20,20 +20,38 @@ export interface VersionMilestone {
 }
 
 export const SYSTEM_VERSION = {
-    version: 'v2.21.0',
-    versionNumber: '2.21.0',
+    version: 'v2.22.0',
+    versionNumber: '2.22.0',
     releaseMonthEs: 'Octubre 2026',
     releaseMonthEn: 'October 2026',
     stage: 'Producción',
     stageEn: 'Production',
     year: '2026',
-    labelEs: 'Octubre 2026 • SM TEG v2.21.0',
-    labelEn: 'October 2026 • SM TEG v2.21.0',
+    labelEs: 'Octubre 2026 • SM TEG v2.22.0',
+    labelEn: 'October 2026 • SM TEG v2.22.0',
     brand: 'SM TEG',
-    lastUpdated: '2026-10-26'
+    lastUpdated: '2026-10-27'
 } as const;
 
 export const VERSION_HISTORY: readonly VersionMilestone[] = [
+    {
+        version: 'v2.22.0',
+        date: '27-Oct-2026',
+        titleEs: 'Nuevo Módulo TRAINING (Academia SOP 4 Días + 9 Videos + Voz Orus), Contabilidad Externa Lists QBO + Drill-Down Universal PDF/XLS, App Clientes Brand Standards + Mapa In-App y Order Ready 5.ª Plantilla Editable',
+        titleEn: 'New TRAINING Module (4-Day SOP Academy + 9 Videos + Orus Voice), External Accounting QBO Lists + Universal Drill-Down PDF/XLS, Customer App Brand Standards + In-App Map & Order Ready 5th Editable Template',
+        highlightsEs: [
+            'Nuevo Módulo TRAINING — Academia SOP de Entrenamiento en 4 Días (/training, /training/portal, /api/training/* y lib/training-sop-catalog.ts): academia operativa por estación de trabajo (Cocina, Salón/Servicio, Drive-Thru y Liderazgo) conectada con las tareas reales del módulo Actividades, con 9 videos reales (.mp4) en Supabase Storage (training-media) y narración neuronal masculina paso a paso (voz Orus vía gemini-3.8-flash-lite-tts en ES/EN), gramajes oficiales de receta de Tacos Gavilan (Asada 6 oz, Aguacate 2.3 oz, Crema 1.5 oz, Torta con 0.6 oz de mayonesa y cero crema), programa estructurado de 4 días (Día 1 Videos y Quiz, Día 2 Práctica Guiada 5 repeticiones, Día 3 Cronómetro Autónomo de Velocidad, Día 4 Examen Final >= 90% y Certificado Oficial con folio) y portal temporal sin login mediante PIN/QR',
+            'Contabilidad Externa Multi-Empresa (/admin/contabilidad-externa, /api/external-accounting/reports y lib/external-accounting-qbo-sync.ts): integración de las tablas maestras de Lists de QuickBooks Online (Classes, Locations, Categories, Payment Methods, Terms, Products & Services y Chart of Accounts), conexión en bloque de las 7 empresas activas de Raquel (excluyendo Chicken Taco Catering cancelada) y Ecosistema Universal de Reportes Desglosados (Drill-Down Transaction Report) al dar clic en cualquier renglón o monto de P&L, Balance Sheet (con Beginning/Ending Balance acumulado), Trial Balance, A/R & A/P Aging, Expenses by Vendor, Sales by Customer, General Ledger y Journal con impresión PDF y exportación Excel (.xls)',
+            'App Móvil Clientes (/app, /app/v1, /app/v2, CustomerAppV2Pro.tsx y ClientLayout.tsx): detección síncrona en el primer render de ?fullscreen=1 y ?test=1 sin redirecciones, logotipo vectorial oficial TACOS Gavilan y paleta Pantone (Red 485 #DA291C, Orange 021 #FE5000, Yellow 123 #FFC72C) según Gavilan Brand Standards (1).pdf, retiro del botón Skip en el onboarding, idioma Inglés (EN) por defecto en todas las apps de clientes y modal interactivo de Google Maps integrado 1:1 dentro de la aplicación',
+            'Order Ready Board (/order-ready-board y /api/order-ready/settings): incorporación de la 5.ª plantilla de anuncio libre para comedor (Aviso Comedor / Dining Room Notice) y editor modal para personalizar y guardar cualquiera de las 5 plantillas regenerando en vivo su audio Kore (gemini-3.8-flash-lite-tts), más auditoría de salud en vivo de Supabase y 202.8 horas de desarrollo e ingeniería consolidadas (Desarrollador del Sistema & IT en La Bodega, 1 al 27 de Octubre 2026)'
+        ],
+        highlightsEn: [
+            'New TRAINING Module — 4-Day SOP Training Academy (/training, /training/portal, /api/training/* & lib/training-sop-catalog.ts): station-based SOP training academy (Kitchen, Dining Room/Service, Drive-Thru, and Leadership) synced with live Actividades tasks, featuring 9 real preparation videos (.mp4) in Supabase Storage (training-media) with step-by-step male neural voiceovers (Orus voice via gemini-3.8-flash-lite-tts in ES/EN), official Tacos Gavilan recipe portions (6 oz Asada, 2.3 oz Avocado, 1.5 oz Sour Cream, Torta with 0.6 oz mayo and zero sour cream), structured 4-day progression (Day 1 Video & Quiz, Day 2 Guided 5-Rep Practice, Day 3 Solo Speed Timer, Day 4 >= 90% Final Exam & Official Certificate), and temporary PIN/QR trainee portal',
+            'Multi-Company External Accounting (/admin/contabilidad-externa, /api/external-accounting/reports & lib/external-accounting-qbo-sync.ts): integrated QuickBooks Online master Lists tables (Classes, Locations, Categories, Payment Methods, Terms, Products & Services, and Chart of Accounts), batch-connected all 7 active Raquel companies (excluding cancelled Chicken Taco Catering), and built the Universal Interactive Drill-Down Transaction Report across P&L, Balance Sheet (with cumulative Beginning/Ending Balance), Trial Balance, A/R & A/P Aging, Expenses by Vendor, Sales by Customer, General Ledger, and Journal with 1-click PDF print and Excel (.xls) export',
+            'Customer Mobile App (/app, /app/v1, /app/v2, CustomerAppV2Pro.tsx & ClientLayout.tsx): synchronous first-render ?fullscreen=1 and ?test=1 detection without redirects, official TACOS Gavilan integrated vector wordmark and Pantone palette (Red 485 #DA291C, Orange 021 #FE5000, Yellow 123 #FFC72C) per Gavilan Brand Standards (1).pdf, removal of onboarding Skip button, English (EN) as default language across all customer apps, and 1:1 in-app interactive Google Maps modal',
+            'Order Ready Board (/order-ready-board & /api/order-ready/settings): added a 5th custom dining room announcement preset (Dining Room Notice) and an inline template editor to customize and save all 5 presets with live Kore (gemini-3.8-flash-lite-tts) audio synthesis, plus live Supabase health telemetry audit and 202.8 system development & engineering hours consolidated (System Developer & IT at La Bodega, October 1–27, 2026)'
+        ]
+    },
     {
         version: 'v2.21.0',
         date: '26-Oct-2026',

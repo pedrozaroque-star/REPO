@@ -593,6 +593,17 @@ export const TOOL_DECLARATIONS = [
         limit: { type: 'NUMBER', description: 'Máximo 50 registros; por defecto 20.' }
       }
     }
+  },
+  {
+    name: 'query_training_academy',
+    description: 'Consultar los módulos de entrenamiento SOP en 4 días (videos reales con voz masculina Orus y gramajes en oz) y el progreso/códigos temporales de 4 días (TG-XXXX) de los nuevos empleados inscritos en la Academia de Entrenamiento Tacos Gavilan.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        store_name: { type: 'STRING', description: 'Filtro opcional de sucursal.' },
+        position_code: { type: 'STRING', description: 'Filtro opcional de estación (ej. BURRITOS, CARNES, TACOS, TORTAS/QUESADILLAS).' }
+      }
+    }
   }
 ]
 
@@ -664,6 +675,7 @@ export async function executeTool(name: string, rawArgs: any): Promise<string> {
       case 'query_quickbooks_bills': return await queryQuickbooksBillsTool(args)
       case 'query_mobile_orders': return await queryMobileOrdersTool(args)
       case 'query_delivery_handoffs': return await queryDeliveryHandoffs(args)
+      case 'query_training_academy': return await queryTrainingAcademyTool(args)
       default: return `Tool "${name}" not found.`
     }
   } catch (e: any) {
@@ -3464,4 +3476,42 @@ async function queryMobileOrdersTool(args: any): Promise<string> {
     return `Error consultando órdenes móviles: ${e.message}`;
   }
 }
+
+/**
+ * Consulta la Academia de Entrenamiento SOP de 4 Días (videos con voz masculina Orus y aprendices inscritos con código TG-XXXX).
+ */
+async function queryTrainingAcademyTool(args: any): Promise<string> {
+  try {
+    const [{ data: modules }, { data: enrollments }] = await Promise.all([
+      supabaseAdmin.from('training_sop_modules').select('slug, title_es, position_key, duration_seconds').eq('is_active', true),
+      supabaseAdmin.from('training_enrollments').select('*').order('created_at', { ascending: false }).limit(30),
+    ]);
+
+    let filteredEnrollments = enrollments || [];
+    if (args?.store_name) {
+      const q = normText(args.store_name);
+      filteredEnrollments = filteredEnrollments.filter((e: any) => normText(e.store_name || '').includes(q));
+    }
+    if (args?.position_code) {
+      const p = normText(args.position_code);
+      filteredEnrollments = filteredEnrollments.filter((e: any) => normText(e.position_key || '').includes(p));
+    }
+
+    let out = `🎓 **Academia de Entrenamiento SOP en 4 Días — Tacos Gavilan (/training)**\n`;
+    out += `• **Módulos de Video SOP con Voz Masculina Neural (Orus)**: ${(modules || []).length}\n`;
+    out += `• **Aprendices Inscritos (Pases Temporales 4 Días)**: ${filteredEnrollments.length}\n\n`;
+
+    if (filteredEnrollments.length > 0) {
+      out += `| Aprendiz | Sucursal | Estación | Código 4 Días | Día Actual | Estatus / Folio |\n`;
+      out += `|----------|----------|----------|---------------|------------|-----------------|\n`;
+      filteredEnrollments.forEach((e: any) => {
+        out += `| ${e.employee_name} | ${e.store_name} | ${e.position_key} | \`${e.access_code}\` | Día ${e.current_day}/4 | ${e.certificate_folio || e.status} |\n`;
+      });
+    }
+    return out;
+  } catch (e: any) {
+    return `Error consultando la Academia de Entrenamiento: ${e.message}`;
+  }
+}
+
 

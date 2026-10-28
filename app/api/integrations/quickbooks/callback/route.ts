@@ -35,7 +35,10 @@ export async function GET(req: NextRequest) {
             .eq('realm_id', realmId)
             .maybeSingle();
 
-        const isExternalCompany = Boolean(extCompany) || stateParam.startsWith('external:');
+        const isExternalCompany =
+            Boolean(extCompany) ||
+            stateParam.startsWith('external:') ||
+            stateParam.startsWith('external_all:');
 
         if (isExternalCompany) {
             const expiresIso = new Date(Date.now() + Number(tokens.expires_in || 3600) * 1000).toISOString();
@@ -78,6 +81,54 @@ export async function GET(req: NextRequest) {
                     .update({ metadata: updatedMeta, updated_at: nowIso })
                     .eq('realm_id', realmId);
             }
+
+            // Si estamos en modo "Conectar Todas las 8 Empresas" (`external_all:`), encadenar automáticamente la siguiente empresa pendiente
+            if (stateParam.startsWith('external_all:')) {
+                const { data: allComps } = await supabase
+                    .from('external_accounting_companies')
+                    .select('realm_id, company_name, metadata')
+                    .order('company_name', { ascending: true });
+
+                const totalComps = (allComps || []).length;
+                const unconnected = (allComps || []).filter(
+                    (c: any) => !c.metadata?.qbo_oauth?.refresh_token
+                );
+                const connectedCount = totalComps - unconnected.length;
+
+                if (unconnected.length > 0) {
+                    const nextComp = unconnected[0];
+                    const nextAuthUrl = `/api/integrations/quickbooks/auth?mode=external_all&realmId=${encodeURIComponent(nextComp.realm_id)}`;
+                    return new NextResponse(
+                        `<html>
+                            <head>
+                                <meta charset="utf-8">
+                                <title>Conectando Empresas de Raquel (${connectedCount}/${totalComps})</title>
+                            </head>
+                            <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; text-align: center; padding: 50px; background: #f8fafc; color: #1e293b; display: flex; align-items: center; justify-content: center; height: 80vh; margin: 0;">
+                                <div style="max-width: 440px; background: white; padding: 40px; border-radius: 20px; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.05);">
+                                    <div style="font-size: 42px; margin-bottom: 16px;">⚡</div>
+                                    <h1 style="color: #10b981; font-size: 20px; font-weight: 800; margin: 0 0 8px 0;">
+                                        Conectada (${connectedCount}/${totalComps}): ${extCompany?.company_name || realmId}
+                                    </h1>
+                                    <p style="font-size: 13px; color: #64748b; line-height: 1.5; margin: 0 0 20px 0;">
+                                        Avanzando automáticamente a la siguiente empresa:<br/>
+                                        <strong style="color: #0f172a;">${nextComp.company_name}</strong>...
+                                    </p>
+                                    <div style="display: inline-block; width: 20px; height: 20px; border: 3px solid #e2e8f0; border-radius: 50%; border-top-color: #10b981; animation: spin 0.8s linear infinite;"></div>
+                                </div>
+                                <style>@keyframes spin { to { transform: rotate(360deg); } }</style>
+                                <script>
+                                    if (window.opener) {
+                                        window.opener.postMessage({ type: "qb_external_authorized", realmId: "${realmId}" }, "*");
+                                    }
+                                    setTimeout(() => { window.location.href = "${nextAuthUrl}"; }, 400);
+                                </script>
+                            </body>
+                        </html>`,
+                        { headers: { 'Content-Type': 'text/html; charset=utf-8' } }
+                    );
+                }
+            }
         } else if (process.env.QUICKBOOKS_ENVIRONMENT === 'sandbox') {
             saveLocalSandboxIntegration(tokens, realmId);
             console.log('✅ Sandbox tokens saved locally to .sandbox_tokens.json');
@@ -110,7 +161,7 @@ export async function GET(req: NextRequest) {
                     <div style="max-width: 420px; background: white; padding: 40px; border-radius: 20px; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.05), 0 4px 6px -4px rgba(0,0,0,0.05); border: 1px border-slate-100;">
                         <div style="font-size: 48px; margin-bottom: 20px;">🔌</div>
                         <h1 style="color: #10b981; font-size: 24px; font-weight: 800; margin: 0 0 10px 0; tracking: -0.025em;">¡Conexión Exitosa!</h1>
-                        <p style="font-size: 14px; color: #64748b; line-height: 1.5; margin: 0 0 24px 0;">La sesión con QuickBooks se ha iniciado correctamente. Esta ventana se cerrará automáticamente en un momento...</p>
+                        <p style="font-size: 14px; color: #64748b; line-height: 1.5; margin: 0 0 24px 0;">Todas las cuentas seleccionadas de QuickBooks están conectadas. Esta ventana se cerrará automáticamente...</p>
                         <div style="display: inline-block; width: 20px; height: 20px; border: 3px solid #e2e8f0; border-radius: 50%; border-top-color: #10b981; animation: spin 1s ease-in-out infinite;"></div>
                     </div>
                     <style>
@@ -120,7 +171,7 @@ export async function GET(req: NextRequest) {
                         if (window.opener) {
                             window.opener.postMessage("qb_authorized", "*");
                         }
-                        setTimeout(() => { window.close(); }, 2000);
+                        setTimeout(() => { window.close(); }, 1500);
                     </script>
                 </body>
             </html>`,

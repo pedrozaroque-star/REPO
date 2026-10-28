@@ -450,20 +450,28 @@ function ExternalAccountingContent() {
     const [actualsByAccountAndYear, setActualsByAccountAndYear] = useState<Record<string, Record<string, number>>>({})
     const [companyLists, setCompanyLists] = useState<{
         items: any[]
+        categories: any[]
         departments: any[]
+        classes: any[]
         paymentMethods: any[]
         terms: any[]
-        classes: any[]
+        customFields: any[]
+        attachments: any[]
+        costGroups: any[]
         closingDate: string | null
         accountingMethod: string
         fiscalYearStartMonth: string
         taxId: string
     }>({
         items: [],
+        categories: [],
         departments: [],
+        classes: [],
         paymentMethods: [],
         terms: [],
-        classes: [],
+        customFields: [],
+        attachments: [],
+        costGroups: [],
         closingDate: null,
         accountingMethod: 'Accrual',
         fiscalYearStartMonth: '01',
@@ -510,15 +518,34 @@ function ExternalAccountingContent() {
     const [budgetAnnualAmount, setBudgetAnnualAmount] = useState<string>('0')
     const [budgetNotes, setBudgetNotes] = useState<string>('')
 
-    // Lists & Products/Services State (Gear ⚙️ -> Lists)
-    const [activeListKey, setActiveListKey] = useState<'items' | 'departments' | 'paymentMethods' | 'terms'>('items')
+    // Lists & Products/Services State (Gear ⚙️ -> All Lists /app/lists)
+    type ListTabKey =
+        | 'items'
+        | 'categories'
+        | 'departments'
+        | 'classes'
+        | 'paymentMethods'
+        | 'terms'
+        | 'customFields'
+        | 'attachments'
+        | 'costGroups'
+    const [activeListKey, setActiveListKey] = useState<ListTabKey>('items')
     const [listItemModalOpen, setListItemModalOpen] = useState<boolean>(false)
     const [editingListItemId, setEditingListItemId] = useState<string | null>(null)
     const [listItemName, setListItemName] = useState<string>('')
+    const [listItemSku, setListItemSku] = useState<string>('')
     const [listItemDesc, setListItemDesc] = useState<string>('')
     const [listItemPrice, setListItemPrice] = useState<string>('0')
+    const [listItemPurchaseCost, setListItemPurchaseCost] = useState<string>('0')
     const [listItemType, setListItemType] = useState<string>('Service')
+    const [listItemPaymentType, setListItemPaymentType] = useState<string>('NON_CREDIT_CARD')
+    const [listItemCategoryId, setListItemCategoryId] = useState<string>('')
     const [listItemAccountId, setListItemAccountId] = useState<string>('')
+    const [listItemExpenseAccountId, setListItemExpenseAccountId] = useState<string>('')
+    const [listItemClassCode, setListItemClassCode] = useState<string>('')
+    const [listItemParentId, setListItemParentId] = useState<string>('')
+    const [listItemDueDays, setListItemDueDays] = useState<string>('30')
+    const [listItemDiscountPct, setListItemDiscountPct] = useState<string>('0')
 
     // Company Settings State (Gear ⚙️ -> Settings -> Company Settings)
     const [compSetName, setCompSetName] = useState<string>('')
@@ -595,12 +622,41 @@ function ExternalAccountingContent() {
     const [formToAccountQbId, setFormToAccountQbId] = useState<string>('')
     const [formPayeeName, setFormPayeeName] = useState<string>('')
     const [formPaymentMethod, setFormPaymentMethod] = useState<string>('Check')
+    const [formDepartmentQbId, setFormDepartmentQbId] = useState<string>('')
+    const [formClassQbId, setFormClassQbId] = useState<string>('')
     const [formMemo, setFormMemo] = useState<string>('')
     const [formPrintLater, setFormPrintLater] = useState<boolean>(false)
     const [formAmount, setFormAmount] = useState<string>('')
     const [formLines, setFormLines] = useState<LineItemDraft[]>([
         { account_qb_id: '', account_name: '', description: '', amount: '', posting_type: 'Debit' }
     ])
+
+    // Drill-Down Transaction Detail Report Modal (Profit & Loss / Balance Sheet / Chart of Accounts QuickReport)
+    const [drilldownReportModal, setDrilldownReportModal] = useState<{
+        title: string
+        subtitle: string
+        basis?: string
+        periodLabel?: string
+        sectionType?: string
+        totalBeginningBalance?: number
+        totalAmount: number
+        totalEndingBalance?: number
+        groups?: Array<{
+            account_id: string
+            account_name: string
+            account_type?: string
+            is_balance_sheet?: boolean
+            beginning_balance: number
+            period_net_change: number
+            ending_balance: number
+            transactions: any[]
+        }>
+        rows: any[]
+        loading?: boolean
+        accountObj?: any
+    } | null>(null)
+    const [drilldownSearch, setDrilldownSearch] = useState<string>('')
+    const [collapsedDrilldownGroups, setCollapsedDrilldownGroups] = useState<Record<string, boolean>>({})
 
     // Universal Record Preview Modal & 3-Step Security Delete Wizard
     type PreviewRecordKind =
@@ -797,10 +853,14 @@ function ExternalAccountingContent() {
                 }))
                 setCompanyLists({
                     items: normalizedItems,
+                    categories: json.lists.categories || [],
                     departments: json.lists.departments || [],
+                    classes: json.lists.classes || [],
                     paymentMethods: json.lists.paymentMethods || [],
                     terms: json.lists.terms || [],
-                    classes: json.lists.classes || [],
+                    customFields: json.lists.customFields || [],
+                    attachments: json.lists.attachments || [],
+                    costGroups: json.lists.costGroups || [],
                     closingDate: json.lists.closingDate || null,
                     accountingMethod: json.lists.accountingMethod || 'Accrual',
                     fiscalYearStartMonth: json.lists.fiscalYearStartMonth || '01',
@@ -957,6 +1017,8 @@ function ExternalAccountingContent() {
             setFormToAccountQbId(existing.to_account_qb_id || '')
             setFormPayeeName(existing.entity_name || '')
             setFormPaymentMethod(existing.payment_type || mode || 'Check')
+            setFormDepartmentQbId(existing.department_qb_id || '')
+            setFormClassQbId(existing.class_qb_id || '')
             setFormMemo(existing.memo || '')
             setFormPrintLater(existing.print_status === 'NeedToPrint')
             setFormAmount(String(existing.total_amount || ''))
@@ -1010,6 +1072,8 @@ function ExternalAccountingContent() {
                     ? 'Credit Card'
                     : 'Cash'
             )
+            setFormDepartmentQbId('')
+            setFormClassQbId('')
             setFormMemo('')
             setFormPrintLater(false)
             setFormAmount('')
@@ -1149,6 +1213,9 @@ function ExternalAccountingContent() {
                 ? Number(formAmount || 0)
                 : (sumLines > 0 ? sumLines : Number(formAmount || 0))
 
+            const deptObj = (companyLists.departments || []).find((d: any) => String(d.Id ?? d.qb_location_id) === String(formDepartmentQbId))
+            const clsObj = (companyLists.classes || []).find((c: any) => String(c.Id ?? c.qb_class_id) === String(formClassQbId))
+
             const res = await authFetch('/api/external-accounting', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -1167,6 +1234,11 @@ function ExternalAccountingContent() {
                     to_account_name: (modalMode === 'Transfer' || modalMode === 'PayDownCreditCard') ? (toAccObj?.name || '') : preparedLines[0]?.account_name,
                     entity_qb_id: matchedContact?.qb_contact_id || null,
                     entity_name: effectivePayeeName,
+                    department_qb_id: formDepartmentQbId || null,
+                    department_name: deptObj?.Name || deptObj?.FullyQualifiedName || null,
+                    class_qb_id: formClassQbId || null,
+                    class_name: clsObj?.Name || clsObj?.FullyQualifiedName || null,
+                    term_name: (modalMode === 'Bill' || modalMode === 'Invoice') ? formTerms : null,
                     memo: formMemo,
                     print_status: formPrintLater ? 'NeedToPrint' : 'NotSet',
                     total_amount: finalAmount,
@@ -1271,6 +1343,11 @@ function ExternalAccountingContent() {
         window.open(authUrl, 'qbo_oauth_popup', 'width=680,height=760')
     }
 
+    const handleConnectAllQbo = () => {
+        const authUrl = `/api/integrations/quickbooks/auth?mode=external_all`
+        window.open(authUrl, 'qbo_oauth_popup', 'width=680,height=760')
+    }
+
     const handleSyncWithQbo = async () => {
         setQboSyncing(true)
         try {
@@ -1288,6 +1365,32 @@ function ExternalAccountingContent() {
             notify(
                 'ok',
                 `${t('external_accounting.qbo_sync_success')} (↑${sr.pushedTransactions || 0} / ↓${sr.pulledTransactions || 0})`
+            )
+            await fetchWorkspaceData()
+        } catch (err: any) {
+            notify('err', err.message || 'Error')
+        } finally {
+            setQboSyncing(false)
+        }
+    }
+
+    const handleSyncAllWithQbo = async () => {
+        setQboSyncing(true)
+        try {
+            const res = await authFetch('/api/external-accounting', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    action: 'sync_all_with_qbo',
+                    realmId: activeRealmId,
+                }),
+            })
+            const json = await res.json()
+            if (!res.ok) throw new Error(json.error || 'Error syncing all companies with QBO')
+            const sr = json.syncResult || {}
+            notify(
+                'ok',
+                `${t('external_accounting.qbo_sync_all_success')} (${sr.companiesSynced || 0}/${sr.companiesTotal || 8}) · ↑${sr.pushedTransactions || 0} / ↓${sr.pulledTransactions || 0}`
             )
             await fetchWorkspaceData()
         } catch (err: any) {
@@ -2002,14 +2105,13 @@ function ExternalAccountingContent() {
               </table>
             `
         } else if (reportType === 'balance_sheet' && reportData.balanceSheet) {
-            const assetRows = (reportData.balanceSheet.assets || []).map((a: any) => `
-              <tr><td>${escapeHtml(a.name)}</td><td>${escapeHtml(a.account_type)}</td><td class="right mono">${escapeHtml(formatCurrency(a.current_balance))}</td></tr>
-            `).join('')
-            const liabRows = (reportData.balanceSheet.liabilities || []).map((a: any) => `
-              <tr><td>${escapeHtml(a.name)}</td><td>${escapeHtml(a.account_type)}</td><td class="right mono">${escapeHtml(formatCurrency(a.current_balance))}</td></tr>
-            `).join('')
-            const eqRows = (reportData.balanceSheet.equity || []).map((a: any) => `
-              <tr><td>${escapeHtml(a.name)}</td><td>Equity</td><td class="right mono">${escapeHtml(formatCurrency(a.current_balance))}</td></tr>
+            const bs = reportData.balanceSheet
+            const renderBsGroupRows = (rows: any[]) => (rows || []).map((a: any) => `
+              <tr>
+                <td style="padding-left:${a.is_sub_account ? '24px' : '12px'};">${escapeHtml(a.name)}</td>
+                <td>${escapeHtml(a.account_type || '')}</td>
+                <td class="right mono">${escapeHtml(formatCurrency(a.current_balance))}</td>
+              </tr>
             `).join('')
 
             contentHtml = `
@@ -2017,15 +2119,63 @@ function ExternalAccountingContent() {
                 <thead><tr><th>${escapeHtml(t('external_accounting.col_acct_name'))}</th><th>${escapeHtml(t('external_accounting.col_acct_type'))}</th><th class="right">${escapeHtml(t('external_accounting.col_current_balance'))}</th></tr></thead>
                 <tbody>
                   <tr class="section-row"><td colspan="3">${escapeHtml(t('external_accounting.assets_section'))}</td></tr>
-                  ${assetRows}
-                  <tr class="summary-row"><td colspan="2">${escapeHtml(t('external_accounting.total_assets'))}</td><td class="right mono">${escapeHtml(formatCurrency(reportData.balanceSheet.totalAssets))}</td></tr>
+                  <tr class="section-row"><td colspan="3" style="padding-left:8px;">${escapeHtml(t('external_accounting.bs_current_assets'))}</td></tr>
+                  ${(bs.bankAccounts?.length || 0) > 0 ? `
+                    <tr><td colspan="3" style="padding-left:10px; font-weight:800;">${escapeHtml(t('external_accounting.bs_bank_accounts'))}</td></tr>
+                    ${renderBsGroupRows(bs.bankAccounts)}
+                    <tr class="summary-row"><td colspan="2" style="padding-left:10px;">${escapeHtml(t('external_accounting.bs_total_bank_accounts'))}</td><td class="right mono">${escapeHtml(formatCurrency(bs.totalBankAccounts ?? 0))}</td></tr>
+                  ` : ''}
+                  ${(bs.accountsReceivable?.length || 0) > 0 ? `
+                    <tr><td colspan="3" style="padding-left:10px; font-weight:800;">${escapeHtml(t('external_accounting.bs_accounts_receivable'))}</td></tr>
+                    ${renderBsGroupRows(bs.accountsReceivable)}
+                    <tr class="summary-row"><td colspan="2" style="padding-left:10px;">${escapeHtml(t('external_accounting.bs_total_ar'))}</td><td class="right mono">${escapeHtml(formatCurrency(bs.totalAccountsReceivable ?? 0))}</td></tr>
+                  ` : ''}
+                  ${(bs.otherCurrentAssets?.length || 0) > 0 ? `
+                    <tr><td colspan="3" style="padding-left:10px; font-weight:800;">${escapeHtml(t('external_accounting.bs_other_current_assets'))}</td></tr>
+                    ${renderBsGroupRows(bs.otherCurrentAssets)}
+                    <tr class="summary-row"><td colspan="2" style="padding-left:10px;">${escapeHtml(t('external_accounting.bs_total_oca'))}</td><td class="right mono">${escapeHtml(formatCurrency(bs.totalOtherCurrentAssets ?? 0))}</td></tr>
+                  ` : ''}
+                  <tr class="summary-row"><td colspan="2" style="padding-left:8px;">${escapeHtml(t('external_accounting.bs_total_current_assets'))}</td><td class="right mono">${escapeHtml(formatCurrency(bs.totalCurrentAssets ?? bs.totalAssets ?? 0))}</td></tr>
+                  ${(bs.fixedAssets?.length || 0) > 0 ? `
+                    <tr><td colspan="3" style="padding-left:8px; font-weight:800;">${escapeHtml(t('external_accounting.bs_fixed_assets'))}</td></tr>
+                    ${renderBsGroupRows(bs.fixedAssets)}
+                    <tr class="summary-row"><td colspan="2" style="padding-left:8px;">${escapeHtml(t('external_accounting.bs_total_fixed_assets'))}</td><td class="right mono">${escapeHtml(formatCurrency(bs.totalFixedAssets ?? 0))}</td></tr>
+                  ` : ''}
+                  ${(bs.otherAssets?.length || 0) > 0 ? `
+                    <tr><td colspan="3" style="padding-left:8px; font-weight:800;">${escapeHtml(t('external_accounting.bs_other_assets'))}</td></tr>
+                    ${renderBsGroupRows(bs.otherAssets)}
+                    <tr class="summary-row"><td colspan="2" style="padding-left:8px;">${escapeHtml(t('external_accounting.bs_total_other_assets'))}</td><td class="right mono">${escapeHtml(formatCurrency(bs.totalOtherAssets ?? 0))}</td></tr>
+                  ` : ''}
+                  <tr class="summary-row"><td colspan="2">${escapeHtml(t('external_accounting.total_assets'))}</td><td class="right mono">${escapeHtml(formatCurrency(bs.totalAssets))}</td></tr>
+
                   <tr class="section-row"><td colspan="3">${escapeHtml(t('external_accounting.liabilities_section'))}</td></tr>
-                  ${liabRows}
-                  <tr class="summary-row"><td colspan="2">${escapeHtml(t('external_accounting.total_liabilities'))}</td><td class="right mono">${escapeHtml(formatCurrency(reportData.balanceSheet.totalLiabilities))}</td></tr>
+                  ${(bs.accountsPayable?.length || 0) > 0 ? `
+                    <tr><td colspan="3" style="padding-left:10px; font-weight:800;">${escapeHtml(t('external_accounting.bs_accounts_payable'))}</td></tr>
+                    ${renderBsGroupRows(bs.accountsPayable)}
+                    <tr class="summary-row"><td colspan="2" style="padding-left:10px;">${escapeHtml(t('external_accounting.bs_total_ap'))}</td><td class="right mono">${escapeHtml(formatCurrency(bs.totalAccountsPayable ?? 0))}</td></tr>
+                  ` : ''}
+                  ${(bs.creditCards?.length || 0) > 0 ? `
+                    <tr><td colspan="3" style="padding-left:10px; font-weight:800;">${escapeHtml(t('external_accounting.bs_credit_cards'))}</td></tr>
+                    ${renderBsGroupRows(bs.creditCards)}
+                    <tr class="summary-row"><td colspan="2" style="padding-left:10px;">${escapeHtml(t('external_accounting.bs_total_cc'))}</td><td class="right mono">${escapeHtml(formatCurrency(bs.totalCreditCards ?? 0))}</td></tr>
+                  ` : ''}
+                  ${(bs.otherCurrentLiabilities?.length || 0) > 0 ? `
+                    <tr><td colspan="3" style="padding-left:10px; font-weight:800;">${escapeHtml(t('external_accounting.bs_other_current_liabilities'))}</td></tr>
+                    ${renderBsGroupRows(bs.otherCurrentLiabilities)}
+                    <tr class="summary-row"><td colspan="2" style="padding-left:10px;">${escapeHtml(t('external_accounting.bs_total_ocl'))}</td><td class="right mono">${escapeHtml(formatCurrency(bs.totalOtherCurrentLiabilities ?? 0))}</td></tr>
+                  ` : ''}
+                  ${(bs.longTermLiabilities?.length || 0) > 0 ? `
+                    <tr><td colspan="3" style="padding-left:10px; font-weight:800;">${escapeHtml(t('external_accounting.bs_long_term_liabilities'))}</td></tr>
+                    ${renderBsGroupRows(bs.longTermLiabilities)}
+                    <tr class="summary-row"><td colspan="2" style="padding-left:10px;">${escapeHtml(t('external_accounting.bs_total_ltl'))}</td><td class="right mono">${escapeHtml(formatCurrency(bs.totalLongTermLiabilities ?? 0))}</td></tr>
+                  ` : ''}
+                  <tr class="summary-row"><td colspan="2">${escapeHtml(t('external_accounting.total_liabilities'))}</td><td class="right mono">${escapeHtml(formatCurrency(bs.totalLiabilities))}</td></tr>
+
                   <tr class="section-row"><td colspan="3">${escapeHtml(t('external_accounting.equity_section'))}</td></tr>
-                  ${eqRows}
-                  <tr><td><em>${escapeHtml(t('external_accounting.retained_net_income'))}</em></td><td>Equity</td><td class="right mono">${escapeHtml(formatCurrency(reportData.balanceSheet.retainedNetIncome))}</td></tr>
-                  <tr class="summary-row"><td colspan="2">${escapeHtml(t('external_accounting.total_liabilities_equity'))}</td><td class="right mono">${escapeHtml(formatCurrency(reportData.balanceSheet.totalLiabilitiesAndEquity))}</td></tr>
+                  ${renderBsGroupRows(bs.equity)}
+                  <tr><td style="padding-left:12px;"><em>${escapeHtml(t('external_accounting.retained_net_income'))}</em></td><td>Equity</td><td class="right mono">${escapeHtml(formatCurrency(bs.retainedNetIncome))}</td></tr>
+                  <tr class="summary-row"><td colspan="2">${escapeHtml(t('external_accounting.bs_total_equity'))}</td><td class="right mono">${escapeHtml(formatCurrency(bs.totalEquity ?? (Number(bs.statedEquity || 0) + Number(bs.retainedNetIncome || 0))))}</td></tr>
+                  <tr class="summary-row"><td colspan="2">${escapeHtml(t('external_accounting.total_liabilities_equity'))}</td><td class="right mono">${escapeHtml(formatCurrency(bs.totalLiabilitiesAndEquity))}</td></tr>
                 </tbody>
               </table>
             `
@@ -2171,6 +2321,42 @@ function ExternalAccountingContent() {
         }
     }
 
+    // Helper: Generate a formatted Microsoft Excel (.xls) workbook with styles and numeric formatting
+    const downloadStyledExcelXls = (fileBaseName: string, companyTitle: string, reportTitle: string, subtitleText: string, tableHtml: string) => {
+        const xlsHtml = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
+<head>
+<meta charset="utf-8" />
+<!--[if gte mso 9]><xml><x:ExcelWorkbook><x:ExcelWorksheets><x:ExcelWorksheet><x:Name>Report</x:Name><x:WorksheetOptions><x:DisplayGridlines/></x:WorksheetOptions></x:ExcelWorksheet></x:ExcelWorksheets></x:ExcelWorkbook></xml><![endif]-->
+<style>
+  body { font-family: Arial, Calibri, sans-serif; font-size: 10pt; color: #0f172a; }
+  table { border-collapse: collapse; width: 100%; }
+  th { background-color: #0f172a; color: #ffffff; font-weight: bold; padding: 6px 8px; border: 1px solid #cbd5e1; text-align: left; }
+  th.right { text-align: right; }
+  td { padding: 5px 8px; border: 1px solid #e2e8f0; vertical-align: middle; }
+  td.num { text-align: right; mso-number-format:"\\#\\,\\#\\#0\\.00"; font-family: Consolas, monospace; }
+  td.bold-num { text-align: right; font-weight: bold; mso-number-format:"\\#\\,\\#\\#0\\.00"; font-family: Consolas, monospace; }
+  tr.group-header td { background-color: #f1f5f9; font-weight: bold; color: #0f172a; border-top: 2px solid #94a3b8; }
+  tr.beg-bal td { background-color: #f8fafc; font-style: italic; font-weight: bold; color: #334155; }
+  tr.subtotal-row td { background-color: #ecfdf5; font-weight: bold; border-top: 1.5px solid #059669; border-bottom: 1.5px solid #059669; }
+  tr.grand-total td { background-color: #0f172a; color: #ffffff; font-weight: bold; border-top: 2px solid #0f172a; }
+</style>
+</head>
+<body>
+  <div style="font-size:14pt; font-weight:bold;">${escapeHtml(companyTitle)}</div>
+  <div style="font-size:12pt; font-weight:bold; color:#059669;">${escapeHtml(reportTitle)}</div>
+  <div style="font-size:9pt; color:#475569; margin-bottom:10px;">${escapeHtml(subtitleText)}</div>
+  ${tableHtml}
+</body>
+</html>`
+        const blob = new Blob(['\uFEFF' + xlsHtml], { type: 'application/vnd.ms-excel;charset=utf-8;' })
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = `${fileBaseName}_${new Date().toISOString().slice(0, 10)}.xls`
+        a.click()
+        URL.revokeObjectURL(url)
+    }
+
     // Export current transactions to CSV
     const exportTransactionsCsv = () => {
         const headers = ['Date', 'Type', 'Doc_No', 'Payee_Customer', 'Bank_Account', 'GL_Category', 'Memo', 'Payment', 'Deposit', 'Total_Amount', 'Status']
@@ -2191,7 +2377,7 @@ function ExternalAccountingContent() {
                 r.cleared_status || 'Cleared'
             ].join(',')
         })
-        const csv = [headers.join(','), ...rows].join('\n')
+        const csv = '\uFEFF' + [headers.join(','), ...rows].join('\n')
         const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
         const url = URL.createObjectURL(blob)
         const a = document.createElement('a')
@@ -2199,6 +2385,138 @@ function ExternalAccountingContent() {
         a.download = `${(activeCompany?.company_name || 'Company').replace(/\s+/g, '_')}_Transactions_${new Date().toISOString().slice(0, 10)}.csv`
         a.click()
         URL.revokeObjectURL(url)
+    }
+
+    // Export current transactions to Excel (.XLS)
+    const exportTransactionsXls = () => {
+        const compTitle = activeCompany?.legal_name || activeCompany?.company_name || 'Company'
+        const compSafe = (activeCompany?.company_name || 'Company').replace(/\s+/g, '_')
+        const rowsHtml = transactions.map(r => {
+            const isOutflow = ['Check', 'Expense', 'Bill', 'BillPayment', 'VendorCredit'].includes(r.txn_type)
+            const isInflow = ['Deposit', 'Invoice', 'Payment', 'SalesReceipt', 'CreditMemo'].includes(r.txn_type)
+            const amt = Number(r.total_amount || 0)
+            return `<tr>
+              <td>${escapeHtml(r.txn_date || '')}</td>
+              <td>${escapeHtml(r.txn_type || '')}</td>
+              <td>${escapeHtml(r.doc_number || '')}</td>
+              <td>${escapeHtml(r.entity_name || '')}</td>
+              <td>${escapeHtml(r.account_name || '')}</td>
+              <td>${escapeHtml(r.category_summary || '')}</td>
+              <td>${escapeHtml(r.memo || '')}</td>
+              <td class="num">${isOutflow ? amt.toFixed(2) : ''}</td>
+              <td class="num">${isInflow ? amt.toFixed(2) : ''}</td>
+              <td class="bold-num">${amt.toFixed(2)}</td>
+              <td>${escapeHtml(r.cleared_status || 'Cleared')}</td>
+            </tr>`
+        }).join('')
+        const tableHtml = `<table>
+          <thead><tr><th>Date</th><th>Type</th><th>Num</th><th>Name</th><th>Account</th><th>Category / Split</th><th>Memo</th><th class="right">Payment</th><th class="right">Deposit</th><th class="right">Amount</th><th>Status</th></tr></thead>
+          <tbody>${rowsHtml}</tbody>
+        </table>`
+        downloadStyledExcelXls(`${compSafe}_Transactions`, compTitle, 'Bank & General Ledger Transactions', `${startDate || 'All Dates'} — ${endDate || 'Present'}`, tableHtml)
+    }
+
+    // Export active CPA report to Excel (.XLS)
+    const exportActiveReportXls = () => {
+        if (!reportData) {
+            exportTransactionsXls()
+            return
+        }
+        const compTitle = activeCompany?.legal_name || activeCompany?.company_name || 'Company'
+        const compSafe = (activeCompany?.company_name || 'Company').replace(/\s+/g, '_')
+        const periodLabel = `${reportBasis} · ${startDate || 'All Dates'} — ${endDate || 'Present'}`
+        let tableHtml = ''
+
+        if (reportType === 'pnl' && reportData.pnl) {
+            const years: string[] = reportData.pnl.years || []
+            const showYrs = years.length > 1
+            tableHtml = `<table>
+              <thead><tr><th>Account / Category</th>${showYrs ? years.map(y => `<th class="right">${escapeHtml(y)}</th>`).join('') : ''}<th class="right">Total</th></tr></thead>
+              <tbody>
+                <tr class="group-header"><td colspan="${showYrs ? years.length + 2 : 2}">Income</td></tr>
+                ${(reportData.pnl.incomeRows || []).map((r: any) => `<tr><td>${escapeHtml(r.category)}</td>${showYrs ? years.map(y => `<td class="num">${Number(r.byYear?.[y] || 0).toFixed(2)}</td>`).join('') : ''}<td class="bold-num">${Number(r.amount || 0).toFixed(2)}</td></tr>`).join('')}
+                <tr class="subtotal-row"><td>Total Income</td>${showYrs ? years.map(y => `<td class="bold-num">${Number(reportData.pnl.incomeByYear?.[y] || 0).toFixed(2)}</td>`).join('') : ''}<td class="bold-num">${Number(reportData.pnl.totalIncome || 0).toFixed(2)}</td></tr>
+                <tr class="group-header"><td colspan="${showYrs ? years.length + 2 : 2}">Expenses</td></tr>
+                ${(reportData.pnl.expenseRows || []).map((r: any) => `<tr><td>${escapeHtml(r.category)}</td>${showYrs ? years.map(y => `<td class="num">${Number(r.byYear?.[y] || 0).toFixed(2)}</td>`).join('') : ''}<td class="bold-num">${Number(r.amount || 0).toFixed(2)}</td></tr>`).join('')}
+                <tr class="subtotal-row"><td>Total Expenses</td>${showYrs ? years.map(y => `<td class="bold-num">${Number(reportData.pnl.expenseByYear?.[y] || 0).toFixed(2)}</td>`).join('') : ''}<td class="bold-num">${Number(reportData.pnl.totalExpenses || 0).toFixed(2)}</td></tr>
+                <tr class="grand-total"><td colspan="${showYrs ? years.length + 1 : 1}">Net Income</td><td class="bold-num">${Number(reportData.pnl.netIncome || 0).toFixed(2)}</td></tr>
+              </tbody>
+            </table>`
+        } else if (reportType === 'balance_sheet' && reportData.balanceSheet) {
+            const bs = reportData.balanceSheet
+            const renderGroupXls = (rows: any[]) => (rows || []).map((a: any) => `<tr><td style="padding-left:${a.is_sub_account ? '22px' : '8px'};">${escapeHtml(a.name)}</td><td>${escapeHtml(a.account_type || '')}</td><td class="num">${Number(a.current_balance || 0).toFixed(2)}</td></tr>`).join('')
+            tableHtml = `<table>
+              <thead><tr><th>Account</th><th>Type</th><th class="right">Total</th></tr></thead>
+              <tbody>
+                <tr class="group-header"><td colspan="3">Assets</td></tr>
+                <tr class="group-header"><td colspan="3">Current Assets</td></tr>
+                <tr class="group-header"><td colspan="3">Bank Accounts</td></tr>
+                ${renderGroupXls(bs.bankAccounts)}
+                <tr class="subtotal-row"><td colspan="2">Total Bank Accounts</td><td class="bold-num">${Number(bs.totalBankAccounts ?? 0).toFixed(2)}</td></tr>
+                ${(bs.accountsReceivable?.length || 0) > 0 ? `<tr class="group-header"><td colspan="3">Accounts Receivable</td></tr>${renderGroupXls(bs.accountsReceivable)}<tr class="subtotal-row"><td colspan="2">Total Accounts Receivable</td><td class="bold-num">${Number(bs.totalAccountsReceivable ?? 0).toFixed(2)}</td></tr>` : ''}
+                ${(bs.otherCurrentAssets?.length || 0) > 0 ? `<tr class="group-header"><td colspan="3">Other Current Assets</td></tr>${renderGroupXls(bs.otherCurrentAssets)}<tr class="subtotal-row"><td colspan="2">Total Other Current Assets</td><td class="bold-num">${Number(bs.totalOtherCurrentAssets ?? 0).toFixed(2)}</td></tr>` : ''}
+                <tr class="subtotal-row"><td colspan="2">Total Current Assets</td><td class="bold-num">${Number(bs.totalCurrentAssets ?? bs.totalAssets ?? 0).toFixed(2)}</td></tr>
+                ${(bs.fixedAssets?.length || 0) > 0 ? `<tr class="group-header"><td colspan="3">Fixed Assets</td></tr>${renderGroupXls(bs.fixedAssets)}<tr class="subtotal-row"><td colspan="2">Total Fixed Assets</td><td class="bold-num">${Number(bs.totalFixedAssets ?? 0).toFixed(2)}</td></tr>` : ''}
+                ${(bs.otherAssets?.length || 0) > 0 ? `<tr class="group-header"><td colspan="3">Other Assets</td></tr>${renderGroupXls(bs.otherAssets)}<tr class="subtotal-row"><td colspan="2">Total Other Assets</td><td class="bold-num">${Number(bs.totalOtherAssets ?? 0).toFixed(2)}</td></tr>` : ''}
+                <tr class="grand-total"><td colspan="2">TOTAL ASSETS</td><td class="bold-num">${Number(bs.totalAssets || 0).toFixed(2)}</td></tr>
+                <tr class="group-header"><td colspan="3">Liabilities and Equity</td></tr>
+                ${(bs.accountsPayable?.length || 0) > 0 ? `<tr class="group-header"><td colspan="3">Accounts Payable</td></tr>${renderGroupXls(bs.accountsPayable)}<tr class="subtotal-row"><td colspan="2">Total Accounts Payable</td><td class="bold-num">${Number(bs.totalAccountsPayable ?? 0).toFixed(2)}</td></tr>` : ''}
+                ${(bs.creditCards?.length || 0) > 0 ? `<tr class="group-header"><td colspan="3">Credit Cards</td></tr>${renderGroupXls(bs.creditCards)}<tr class="subtotal-row"><td colspan="2">Total Credit Cards</td><td class="bold-num">${Number(bs.totalCreditCards ?? 0).toFixed(2)}</td></tr>` : ''}
+                ${(bs.otherCurrentLiabilities?.length || 0) > 0 ? `<tr class="group-header"><td colspan="3">Other Current Liabilities</td></tr>${renderGroupXls(bs.otherCurrentLiabilities)}<tr class="subtotal-row"><td colspan="2">Total Other Current Liabilities</td><td class="bold-num">${Number(bs.totalOtherCurrentLiabilities ?? 0).toFixed(2)}</td></tr>` : ''}
+                ${(bs.longTermLiabilities?.length || 0) > 0 ? `<tr class="group-header"><td colspan="3">Long-Term Liabilities</td></tr>${renderGroupXls(bs.longTermLiabilities)}<tr class="subtotal-row"><td colspan="2">Total Long-Term Liabilities</td><td class="bold-num">${Number(bs.totalLongTermLiabilities ?? 0).toFixed(2)}</td></tr>` : ''}
+                <tr class="subtotal-row"><td colspan="2">Total Liabilities</td><td class="bold-num">${Number(bs.totalLiabilities || 0).toFixed(2)}</td></tr>
+                <tr class="group-header"><td colspan="3">Equity</td></tr>
+                ${renderGroupXls(bs.equity)}
+                <tr><td>Net Income / Retained Earnings</td><td>Equity</td><td class="num">${Number(bs.retainedNetIncome || 0).toFixed(2)}</td></tr>
+                <tr class="subtotal-row"><td colspan="2">Total Equity</td><td class="bold-num">${Number(bs.totalEquity ?? (Number(bs.statedEquity || 0) + Number(bs.retainedNetIncome || 0))).toFixed(2)}</td></tr>
+                <tr class="grand-total"><td colspan="2">TOTAL LIABILITIES AND EQUITY</td><td class="bold-num">${Number(bs.totalLiabilitiesAndEquity || 0).toFixed(2)}</td></tr>
+              </tbody>
+            </table>`
+        } else if (reportType === 'trial_balance' && reportData.trialBalance) {
+            tableHtml = `<table>
+              <thead><tr><th>Account</th><th>Type</th><th class="right">Debit</th><th class="right">Credit</th></tr></thead>
+              <tbody>
+                ${(reportData.trialBalance.rows || []).map((r: any) => `<tr><td>${escapeHtml(r.name)}</td><td>${escapeHtml(r.account_type || '')}</td><td class="num">${Number(r.debit || 0).toFixed(2)}</td><td class="num">${Number(r.credit || 0).toFixed(2)}</td></tr>`).join('')}
+                <tr class="grand-total"><td colspan="2">TOTAL</td><td class="bold-num">${Number(reportData.trialBalance.totalDebit || 0).toFixed(2)}</td><td class="bold-num">${Number(reportData.trialBalance.totalCredit || 0).toFixed(2)}</td></tr>
+              </tbody>
+            </table>`
+        } else if ((reportType === 'vendor_expenses' || reportType === 'customer_income') && reportData.entitySummary) {
+            tableHtml = `<table>
+              <thead><tr><th>Name</th><th>Categories</th><th>Transactions</th><th>Last Date</th><th class="right">Total Amount</th></tr></thead>
+              <tbody>
+                ${(reportData.entitySummary.rows || []).map((r: any) => `<tr><td>${escapeHtml(r.name)}</td><td>${escapeHtml(r.categories || '')}</td><td>${r.count || 0}</td><td>${escapeHtml(r.last_date || '')}</td><td class="bold-num">${Number(r.total_amount || 0).toFixed(2)}</td></tr>`).join('')}
+                <tr class="grand-total"><td colspan="4">TOTAL</td><td class="bold-num">${Number(reportData.entitySummary.grandTotal || 0).toFixed(2)}</td></tr>
+              </tbody>
+            </table>`
+        } else if (reportType === 'general_ledger' && reportData.generalLedger) {
+            tableHtml = `<table>
+              <thead><tr><th>Account</th><th>Date</th><th>Type</th><th>Num</th><th>Name</th><th>Memo</th><th class="right">Debit</th><th class="right">Credit</th></tr></thead>
+              <tbody>
+                ${(reportData.generalLedger || []).map((acct: any) => `
+                  <tr class="group-header"><td colspan="6">${escapeHtml(acct.account_name)}</td><td class="bold-num">${Number(acct.total_debit || 0).toFixed(2)}</td><td class="bold-num">${Number(acct.total_credit || 0).toFixed(2)}</td></tr>
+                  ${(acct.entries || []).map((e: any) => `<tr><td>${escapeHtml(acct.account_name)}</td><td>${escapeHtml(e.date || '')}</td><td>${escapeHtml(e.type || '')}</td><td>${escapeHtml(e.doc || '')}</td><td>${escapeHtml(e.name || '')}</td><td>${escapeHtml(e.memo || '')}</td><td class="num">${Number(e.debit || 0).toFixed(2)}</td><td class="num">${Number(e.credit || 0).toFixed(2)}</td></tr>`).join('')}
+                `).join('')}
+              </tbody>
+            </table>`
+        } else if (reportType === 'qbo_archive' && reportData.archiveReport) {
+            const cols: string[] = reportData.archiveReport.columns || []
+            tableHtml = `<table>
+              <thead><tr>${cols.map((c, i) => `<th class="${i === 0 ? '' : 'right'}">${escapeHtml(c)}</th>`).join('')}</tr></thead>
+              <tbody>
+                ${(reportData.archiveReport.rows || []).map((r: any) => `<tr class="${r.rowType === 'summary' ? 'subtotal-row' : r.rowType === 'section_header' ? 'group-header' : ''}">${(r.cells || []).map((cell: string, ci: number) => `<td class="${ci === 0 ? '' : 'num'}">${escapeHtml(cell)}</td>`).join('')}</tr>`).join('')}
+              </tbody>
+            </table>`
+        } else {
+            const rows = reportData?.bankRegister?.rows || reportData?.detailReport?.rows || []
+            tableHtml = `<table>
+              <thead><tr><th>Date</th><th>Type</th><th>Num</th><th>Name</th><th>Category</th><th>Memo</th><th class="right">Payment</th><th class="right">Deposit</th><th class="right">Balance / Amount</th></tr></thead>
+              <tbody>
+                ${rows.map((r: any) => `<tr><td>${escapeHtml(r.txn_date || '')}</td><td>${escapeHtml(r.txn_type || '')}</td><td>${escapeHtml(r.doc_number || '')}</td><td>${escapeHtml(r.entity_name || '')}</td><td>${escapeHtml(r.category_summary || '')}</td><td>${escapeHtml(r.memo || '')}</td><td class="num">${Number(r.outflow || 0).toFixed(2)}</td><td class="num">${Number(r.inflow || 0).toFixed(2)}</td><td class="bold-num">${Number(r.running_balance ?? r.total_amount ?? 0).toFixed(2)}</td></tr>`).join('')}
+              </tbody>
+            </table>`
+        }
+
+        downloadStyledExcelXls(`${compSafe}_Report_${reportType}`, compTitle, reportType.toUpperCase(), periodLabel, tableHtml)
     }
 
     // Export active CPA report to CSV
@@ -2220,12 +2538,19 @@ function ExternalAccountingContent() {
             for (const a of (reportData.balanceSheet.assets || [])) {
                 csv += `Asset,"${a.acct_num || ''}","${(a.name || '').replace(/"/g, '""')}","${a.account_type || ''}",${Number(a.current_balance || 0).toFixed(2)}\n`
             }
+            csv += `Asset_Total,"","Total Bank Accounts","Bank",${Number(reportData.balanceSheet.totalBankAccounts || 0).toFixed(2)}\n`
+            csv += `Asset_Total,"","Total Current Assets","Current Assets",${Number(reportData.balanceSheet.totalCurrentAssets || 0).toFixed(2)}\n`
+            csv += `Asset_Total,"","Total Fixed Assets","Fixed Assets",${Number(reportData.balanceSheet.totalFixedAssets || 0).toFixed(2)}\n`
+            csv += `Asset_Total,"","TOTAL ASSETS","Asset",${Number(reportData.balanceSheet.totalAssets || 0).toFixed(2)}\n`
             for (const a of (reportData.balanceSheet.liabilities || [])) {
                 csv += `Liability,"${a.acct_num || ''}","${(a.name || '').replace(/"/g, '""')}","${a.account_type || ''}",${Number(a.current_balance || 0).toFixed(2)}\n`
             }
+            csv += `Liability_Total,"","Total Liabilities","Liability",${Number(reportData.balanceSheet.totalLiabilities || 0).toFixed(2)}\n`
             for (const a of (reportData.balanceSheet.equity || [])) {
                 csv += `Equity,"${a.acct_num || ''}","${(a.name || '').replace(/"/g, '""')}","${a.account_type || ''}",${Number(a.current_balance || 0).toFixed(2)}\n`
             }
+            csv += `Equity,"","Retained Earnings / Net Income","Equity",${Number(reportData.balanceSheet.retainedNetIncome || 0).toFixed(2)}\n`
+            csv += `Grand_Total,"","TOTAL LIABILITIES AND EQUITY","Total",${Number(reportData.balanceSheet.totalLiabilitiesAndEquity || 0).toFixed(2)}\n`
         } else if (reportType === 'trial_balance' && reportData.trialBalance) {
             csv += 'Account_No,Account_Name,Type,Debit,Credit\n'
             for (const r of (reportData.trialBalance.rows || [])) {
@@ -2265,13 +2590,604 @@ function ExternalAccountingContent() {
             exportTransactionsCsv()
             return
         }
-        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+        const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' })
         const url = URL.createObjectURL(blob)
         const a = document.createElement('a')
         a.href = url
         a.download = `${compName}_Report_${reportType}_${new Date().toISOString().slice(0, 10)}.csv`
         a.click()
         URL.revokeObjectURL(url)
+    }
+
+    // ── Drill-Down Transaction Detail Report (Profit & Loss / Balance Sheet / Chart of Accounts / Lists / Contacts) ──
+    const buildGroupsFromFlatRows = (rows: any[], defaultTitle: string, isBalanceSheet = false, defaultBegBal = 0) => {
+        const byAcc = new Map<string, any[]>()
+        for (const r of rows) {
+            const accKey = String(r.group_account_name || r.account_name || defaultTitle || 'Account')
+            const list = byAcc.get(accKey) || []
+            list.push(r)
+            byAcc.set(accKey, list)
+        }
+        if (byAcc.size === 0) {
+            const beg = Number(Number(defaultBegBal || 0).toFixed(2))
+            return [{
+                account_id: defaultTitle,
+                account_name: defaultTitle,
+                account_type: isBalanceSheet ? 'Asset' : 'Account',
+                is_balance_sheet: isBalanceSheet,
+                beginning_balance: beg,
+                period_net_change: 0,
+                ending_balance: beg,
+                transactions: [],
+            }]
+        }
+        const groups: Array<{
+            account_id: string
+            account_name: string
+            account_type?: string
+            is_balance_sheet?: boolean
+            beginning_balance: number
+            period_net_change: number
+            ending_balance: number
+            transactions: any[]
+        }> = []
+        for (const [accName, txList] of byAcc.entries()) {
+            const beg = byAcc.size === 1 ? Number(Number(defaultBegBal || 0).toFixed(2)) : 0
+            let run = beg
+            const normalized = txList.map(tx => {
+                const amt = Number(tx.amount ?? tx.total_amount ?? 0)
+                run += amt
+                return {
+                    ...tx,
+                    amount: Number(amt.toFixed(2)),
+                    running_balance: Number(run.toFixed(2)),
+                    account_name: tx.account_name || accName,
+                    split_account: tx.split_account || tx.to_account_name || tx.category_summary || '—',
+                }
+            })
+            const net = Number((run - beg).toFixed(2))
+            groups.push({
+                account_id: accName,
+                account_name: accName,
+                account_type: isBalanceSheet ? 'Asset' : 'Account',
+                is_balance_sheet: isBalanceSheet,
+                beginning_balance: beg,
+                period_net_change: net,
+                ending_balance: Number(run.toFixed(2)),
+                transactions: normalized,
+            })
+        }
+        return groups
+    }
+
+    const openPnlDrilldownReport = (
+        rowOrTitle: any,
+        sectionOrTxns?: any,
+        yearFilterOrTotal?: any,
+        subtitleExtra?: string
+    ) => {
+        const isRowObject = typeof rowOrTitle === 'object' && rowOrTitle !== null
+        const rowTitle: string = isRowObject
+            ? String(rowOrTitle.category || rowOrTitle.name || 'Account')
+            : String(rowOrTitle || 'Account')
+        const yearFilter: string | undefined = isRowObject && typeof yearFilterOrTotal === 'string'
+            ? yearFilterOrTotal
+            : undefined
+        const rawTxnsSource: any[] = isRowObject
+            ? (Array.isArray(rowOrTitle.transactions) ? rowOrTitle.transactions : [])
+            : (Array.isArray(sectionOrTxns) ? sectionOrTxns : [])
+        const rawTxns = yearFilter
+            ? rawTxnsSource.filter(tx => String(tx.txn_date || '').startsWith(yearFilter))
+            : rawTxnsSource
+        const totalAmt: number = isRowObject
+            ? (yearFilter && rowOrTitle.byYear?.[yearFilter] != null
+                ? Number(rowOrTitle.byYear[yearFilter])
+                : Number(rowOrTitle.amount || 0))
+            : Number(yearFilterOrTotal || 0)
+
+        const sorted = [...(rawTxns || [])].sort((a, b) => {
+            const dtCmp = String(a.txn_date || '').localeCompare(String(b.txn_date || ''))
+            if (dtCmp !== 0) return dtCmp
+            return Number(a.id || 0) - Number(b.id || 0)
+        })
+        let runBal = 0
+        const normalizedRows = sorted.map(tx => {
+            const amt = Number(tx.amount ?? tx.total_amount ?? 0)
+            runBal += amt
+            return {
+                ...tx,
+                amount: Number(amt.toFixed(2)),
+                running_balance: Number(runBal.toFixed(2)),
+                account_name: tx.account_name || rowTitle,
+                split_account: tx.split_account || tx.to_account_name || tx.category_summary || '—',
+                location_name: tx.location_name || tx.department_name || '',
+                department_name: tx.department_name || tx.location_name || '',
+                class_name: tx.class_name || '',
+            }
+        })
+        const computedSum = normalizedRows.length > 0
+            ? Number(runBal.toFixed(2))
+            : Number(Number(totalAmt || 0).toFixed(2))
+        const periodStr = yearFilter
+            ? `FY ${yearFilter}`
+            : `${startDate || t('external_accounting.period_all_dates')} — ${endDate || 'Present'}`
+        const groups = buildGroupsFromFlatRows(normalizedRows, rowTitle, false, 0)
+        setDrilldownSearch('')
+        setCollapsedDrilldownGroups({})
+        setDrilldownReportModal({
+            title: yearFilter ? `${rowTitle} (${yearFilter})` : rowTitle,
+            subtitle: subtitleExtra || `${activeCompany?.legal_name || activeCompany?.company_name || ''} · ${reportBasis} · ${periodStr}`,
+            basis: reportBasis,
+            periodLabel: periodStr,
+            sectionType: isRowObject && typeof sectionOrTxns === 'string' ? sectionOrTxns : 'Account',
+            totalBeginningBalance: 0,
+            totalAmount: computedSum,
+            totalEndingBalance: computedSum,
+            groups,
+            rows: normalizedRows,
+            loading: false,
+        })
+    }
+
+    const openAccountQuickReport = async (
+        accountOrQbId: any,
+        accountNameArg?: string,
+        accountObjArg?: any
+    ) => {
+        const isAccObject = typeof accountOrQbId === 'object' && accountOrQbId !== null
+        const accountObj = isAccObject ? accountOrQbId : accountObjArg
+        const accountQbId = isAccObject
+            ? (accountOrQbId.qb_account_id ?? accountOrQbId.account_id ?? '')
+            : accountOrQbId
+        const accountName = isAccObject
+            ? String(accountOrQbId.name || accountOrQbId.fully_qualified_name || 'Account')
+            : String(accountNameArg || 'Account')
+
+        const periodStr = `${startDate || t('external_accounting.period_all_dates')} — ${endDate || 'Present'}`
+        setDrilldownSearch('')
+        setCollapsedDrilldownGroups({})
+        setDrilldownReportModal({
+            title: accountName,
+            subtitle: `${t('external_accounting.drilldown_report_title')} · ${activeCompany?.company_name || ''}`,
+            basis: reportBasis,
+            periodLabel: periodStr,
+            totalBeginningBalance: 0,
+            totalAmount: Number(accountObj?.current_balance || 0),
+            totalEndingBalance: Number(accountObj?.current_balance || 0),
+            groups: [],
+            rows: [],
+            loading: true,
+            accountObj,
+        })
+        try {
+            const params = new URLSearchParams({
+                realmId: activeRealmId,
+                reportType: 'account_quickreport',
+                basis: reportBasis,
+                accountId: accountQbId ? String(accountQbId) : 'ALL',
+                accountName: accountName || '',
+            })
+            if (startDate) params.set('startDate', startDate)
+            if (endDate) params.set('endDate', endDate)
+            const res = await authFetch(`/api/external-accounting/reports?${params.toString()}`)
+            const json = await res.json()
+            if (!res.ok) throw new Error(json.error || 'Error loading transaction report')
+            const qr = json.quickReport || json || {}
+            const groups = Array.isArray(qr.groups) && qr.groups.length > 0
+                ? qr.groups
+                : buildGroupsFromFlatRows(qr.rows || [], qr.title || accountName, true, Number(qr.totalBeginningBalance ?? 0))
+            setDrilldownReportModal({
+                title: qr.title || accountName,
+                subtitle: `${t('external_accounting.drilldown_report_title')} · ${activeCompany?.company_name || ''}`,
+                basis: reportBasis,
+                periodLabel: periodStr,
+                totalBeginningBalance: Number(qr.totalBeginningBalance ?? 0),
+                totalAmount: Number(qr.totalAmount ?? 0),
+                totalEndingBalance: Number(qr.totalEndingBalance ?? qr.totalAmount ?? 0),
+                groups,
+                rows: qr.rows || [],
+                loading: false,
+                accountObj,
+            })
+        } catch (err: any) {
+            notify('err', err.message || 'Error')
+            setDrilldownReportModal(prev => prev ? { ...prev, loading: false } : null)
+        }
+    }
+
+    const openListOrContactQuickReport = async (
+        filterType: 'item' | 'location' | 'class' | 'payment_method' | 'term' | 'contact',
+        filterValue: string,
+        filterId?: string | number,
+        displayTitle?: string
+    ) => {
+        const periodStr = `${startDate || t('external_accounting.period_all_dates')} — ${endDate || 'Present'}`
+        const titleLabel = displayTitle || filterValue || 'Transactions'
+        setDrilldownSearch('')
+        setCollapsedDrilldownGroups({})
+        setDrilldownReportModal({
+            title: titleLabel,
+            subtitle: `${t('external_accounting.drilldown_report_title')} · ${activeCompany?.company_name || ''}`,
+            basis: reportBasis,
+            periodLabel: periodStr,
+            totalBeginningBalance: 0,
+            totalAmount: 0,
+            totalEndingBalance: 0,
+            groups: [],
+            rows: [],
+            loading: true,
+        })
+        try {
+            const params = new URLSearchParams({
+                realmId: activeRealmId,
+                reportType: 'account_quickreport',
+                basis: reportBasis,
+                filterType,
+                filterValue: String(filterValue || ''),
+                filterId: filterId != null ? String(filterId) : '',
+                accountName: titleLabel,
+            })
+            if (startDate) params.set('startDate', startDate)
+            if (endDate) params.set('endDate', endDate)
+            const res = await authFetch(`/api/external-accounting/reports?${params.toString()}`)
+            const json = await res.json()
+            if (!res.ok) throw new Error(json.error || 'Error loading transaction report')
+            const qr = json.quickReport || json || {}
+            const groups = Array.isArray(qr.groups) && qr.groups.length > 0
+                ? qr.groups
+                : buildGroupsFromFlatRows(qr.rows || [], titleLabel, false, 0)
+            setDrilldownReportModal({
+                title: qr.title || titleLabel,
+                subtitle: `${t('external_accounting.drilldown_report_title')} · ${activeCompany?.company_name || ''}`,
+                basis: reportBasis,
+                periodLabel: periodStr,
+                totalBeginningBalance: Number(qr.totalBeginningBalance ?? 0),
+                totalAmount: Number(qr.totalAmount ?? 0),
+                totalEndingBalance: Number(qr.totalEndingBalance ?? qr.totalAmount ?? 0),
+                groups,
+                rows: qr.rows || [],
+                loading: false,
+            })
+        } catch (err: any) {
+            notify('err', err.message || 'Error')
+            setDrilldownReportModal(prev => prev ? { ...prev, loading: false } : null)
+        }
+    }
+
+    const filteredDrilldownGroups = useMemo(() => {
+        if (!drilldownReportModal) return []
+        const rawGroups = Array.isArray(drilldownReportModal.groups) && drilldownReportModal.groups.length > 0
+            ? drilldownReportModal.groups
+            : buildGroupsFromFlatRows(drilldownReportModal.rows || [], drilldownReportModal.title, false, drilldownReportModal.totalBeginningBalance || 0)
+        const q = drilldownSearch.trim().toLowerCase()
+        if (!q) return rawGroups
+        return rawGroups
+            .map(g => {
+                const groupNameMatches = String(g.account_name || '').toLowerCase().includes(q)
+                const matchedTxns = groupNameMatches
+                    ? (g.transactions || [])
+                    : (g.transactions || []).filter((r: any) =>
+                        `${r.txn_date || ''} ${r.txn_type || ''} ${r.doc_number || ''} ${r.entity_name || ''} ${r.department_name || ''} ${r.class_name || ''} ${r.memo || ''} ${r.account_name || ''} ${r.split_account || ''} ${r.amount || ''}`
+                            .toLowerCase()
+                            .includes(q)
+                    )
+                const sumAmt = matchedTxns.reduce((s: number, r: any) => s + Number(r.amount || 0), 0)
+                return {
+                    ...g,
+                    transactions: matchedTxns,
+                    period_net_change: q ? Number(sumAmt.toFixed(2)) : g.period_net_change,
+                    ending_balance: q ? Number((Number(g.beginning_balance || 0) + sumAmt).toFixed(2)) : g.ending_balance,
+                }
+            })
+            .filter(g => g.transactions.length > 0 || String(g.account_name || '').toLowerCase().includes(q))
+    }, [drilldownReportModal, drilldownSearch])
+
+    const filteredDrilldownRows = useMemo(() => {
+        if (!drilldownReportModal?.rows) return []
+        const q = drilldownSearch.trim().toLowerCase()
+        if (!q) return drilldownReportModal.rows
+        return drilldownReportModal.rows.filter(r =>
+            `${r.txn_date || ''} ${r.txn_type || ''} ${r.doc_number || ''} ${r.entity_name || ''} ${r.department_name || ''} ${r.class_name || ''} ${r.memo || ''} ${r.account_name || ''} ${r.split_account || ''} ${r.amount || ''}`
+                .toLowerCase()
+                .includes(q)
+        )
+    }, [drilldownReportModal, drilldownSearch])
+
+    const exportDrilldownReportXls = () => {
+        if (!drilldownReportModal) return
+        const compTitle = activeCompany?.legal_name || activeCompany?.company_name || 'Company'
+        const compSafe = (activeCompany?.company_name || 'Company').replace(/\s+/g, '_')
+        const safeTitle = (drilldownReportModal.title || 'Account').replace(/[^a-zA-Z0-9_-]/g, '_')
+        const groupsToExport = filteredDrilldownGroups
+        const totalNetChange = groupsToExport.reduce((s, g) => s + Number(g.period_net_change || 0), 0)
+        const totalEndBal = groupsToExport.reduce((s, g) => s + Number(g.ending_balance || 0), 0)
+        const anyBalanceSheet = groupsToExport.some(g => g.is_balance_sheet || Number(g.beginning_balance || 0) !== 0)
+
+        const groupsHtml = groupsToExport.map(g => {
+            const countBadge = (g.transactions?.length || 0) + (g.is_balance_sheet ? 1 : 0)
+            const begRow = (g.is_balance_sheet || Number(g.beginning_balance || 0) !== 0)
+                ? `<tr class="beg-bal">
+                    <td><strong>${escapeHtml(t('external_accounting.beginning_balance'))}</strong></td>
+                    <td></td><td></td><td></td><td></td><td></td><td></td>
+                    <td>${escapeHtml(g.account_name)}</td>
+                    <td></td>
+                    <td></td>
+                    <td class="bold-num">${Number(g.beginning_balance || 0).toFixed(2)}</td>
+                  </tr>`
+                : ''
+            const txRows = (g.transactions || []).map((r: any) => `
+                <tr>
+                  <td>${escapeHtml(r.txn_date || '')}</td>
+                  <td>${escapeHtml(r.txn_type || '')}</td>
+                  <td>${escapeHtml(r.doc_number || '')}</td>
+                  <td>${escapeHtml(r.entity_name || '')}</td>
+                  <td>${escapeHtml(r.location_name || r.department_name || '')}</td>
+                  <td>${escapeHtml(r.class_name || '')}</td>
+                  <td>${escapeHtml(r.memo || '')}</td>
+                  <td>${escapeHtml(r.account_name || g.account_name || '')}</td>
+                  <td>${escapeHtml(r.split_account || '')}</td>
+                  <td class="num">${Number(r.amount || 0).toFixed(2)}</td>
+                  <td class="bold-num">${Number(r.running_balance || 0).toFixed(2)}</td>
+                </tr>
+            `).join('')
+            return `
+              <tr class="group-header">
+                <td colspan="11">▾ ${escapeHtml(g.account_name)} (${countBadge})</td>
+              </tr>
+              ${begRow}
+              ${txRows}
+              <tr class="subtotal-row">
+                <td colspan="9">${escapeHtml(t('external_accounting.total_for_account'))} ${escapeHtml(g.account_name)}</td>
+                <td class="bold-num">${Number(g.period_net_change || 0).toFixed(2)}</td>
+                <td class="bold-num">${(g.is_balance_sheet || Number(g.beginning_balance || 0) !== 0) ? Number(g.ending_balance || 0).toFixed(2) : ''}</td>
+              </tr>
+            `
+        }).join('')
+
+        const tableHtml = `
+          <table>
+            <thead>
+              <tr>
+                <th>Transaction Date</th>
+                <th>Transaction Type</th>
+                <th>Num</th>
+                <th>Name</th>
+                <th>Location / Property</th>
+                <th>Class</th>
+                <th>Memo / Description</th>
+                <th>Account Name</th>
+                <th>Item Split Account</th>
+                <th class="right">Amount</th>
+                <th class="right">Balance</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${groupsHtml}
+              <tr class="grand-total">
+                <td colspan="9">TOTAL (${filteredDrilldownRows.length} Transactions)</td>
+                <td class="bold-num">${totalNetChange.toFixed(2)}</td>
+                <td class="bold-num">${anyBalanceSheet ? totalEndBal.toFixed(2) : totalNetChange.toFixed(2)}</td>
+              </tr>
+            </tbody>
+          </table>
+        `
+        downloadStyledExcelXls(
+            `${compSafe}_TransactionReport_${safeTitle}`,
+            compTitle,
+            `${t('external_accounting.drilldown_report_title')} — ${drilldownReportModal.title}`,
+            drilldownReportModal.subtitle || '',
+            tableHtml
+        )
+    }
+
+    const exportDrilldownReportCsv = () => {
+        if (!drilldownReportModal) return
+        const compName = (activeCompany?.company_name || 'Company').replace(/\s+/g, '_')
+        const safeTitle = (drilldownReportModal.title || 'Account').replace(/[^a-zA-Z0-9_-]/g, '_')
+        const headers = [
+            'Account_Group',
+            'Date',
+            'Transaction_Type',
+            'Num',
+            'Name_Payee_Customer',
+            'Location_Property',
+            'Class',
+            'Memo_Description',
+            'Account',
+            'Split_Account',
+            'Amount',
+            'Running_Balance',
+        ]
+        const csvRows: string[] = []
+        for (const g of filteredDrilldownGroups) {
+            if (g.is_balance_sheet || Number(g.beginning_balance || 0) !== 0) {
+                csvRows.push([
+                    `"${String(g.account_name || '').replace(/"/g, '""')}"`,
+                    'Beginning Balance',
+                    '""',
+                    '""',
+                    '""',
+                    '""',
+                    '""',
+                    '""',
+                    `"${String(g.account_name || '').replace(/"/g, '""')}"`,
+                    '""',
+                    '',
+                    Number(g.beginning_balance || 0).toFixed(2),
+                ].join(','))
+            }
+            for (const r of (g.transactions || [])) {
+                csvRows.push([
+                    `"${String(g.account_name || '').replace(/"/g, '""')}"`,
+                    r.txn_date || '',
+                    `"${String(r.txn_type || '').replace(/"/g, '""')}"`,
+                    `"${String(r.doc_number || '').replace(/"/g, '""')}"`,
+                    `"${String(r.entity_name || '').replace(/"/g, '""')}"`,
+                    `"${String(r.department_name || '').replace(/"/g, '""')}"`,
+                    `"${String(r.class_name || '').replace(/"/g, '""')}"`,
+                    `"${String(r.memo || '').replace(/"/g, '""')}"`,
+                    `"${String(r.account_name || '').replace(/"/g, '""')}"`,
+                    `"${String(r.split_account || '').replace(/"/g, '""')}"`,
+                    Number(r.amount || 0).toFixed(2),
+                    Number(r.running_balance || 0).toFixed(2),
+                ].join(','))
+            }
+            csvRows.push([
+                `"Total for ${String(g.account_name || '').replace(/"/g, '""')}"`,
+                'SUBTOTAL',
+                '""',
+                '""',
+                '""',
+                '""',
+                '""',
+                '""',
+                `"${String(g.account_name || '').replace(/"/g, '""')}"`,
+                '""',
+                Number(g.period_net_change || 0).toFixed(2),
+                Number(g.ending_balance || 0).toFixed(2),
+            ].join(','))
+        }
+        const sumVisible = filteredDrilldownGroups.reduce((s, g) => s + Number(g.period_net_change || 0), 0)
+        const endVisible = filteredDrilldownGroups.reduce((s, g) => s + Number(g.ending_balance || 0), 0)
+        csvRows.push([
+            'TOTAL',
+            '""',
+            '""',
+            '""',
+            `"${filteredDrilldownRows.length} Transactions"`,
+            '""',
+            '""',
+            '""',
+            `"${String(drilldownReportModal.title || '').replace(/"/g, '""')}"`,
+            '""',
+            sumVisible.toFixed(2),
+            endVisible.toFixed(2),
+        ].join(','))
+        const csvContent = '\uFEFF' + [headers.join(','), ...csvRows].join('\n')
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = `${compName}_TransactionReport_${safeTitle}_${new Date().toISOString().slice(0, 10)}.csv`
+        a.click()
+        URL.revokeObjectURL(url)
+    }
+
+    const handlePrintDrilldownReportPdf = () => {
+        if (!drilldownReportModal) return
+        const compName = activeCompany?.legal_name || activeCompany?.company_name || 'Company'
+        const groupsToPrint = filteredDrilldownGroups
+        const sumVisible = groupsToPrint.reduce((s, g) => s + Number(g.period_net_change || 0), 0)
+        const begVisible = groupsToPrint.reduce((s, g) => s + Number(g.beginning_balance || 0), 0)
+        const endVisible = groupsToPrint.reduce((s, g) => s + Number(g.ending_balance || 0), 0)
+        const anyBalanceSheet = groupsToPrint.some(g => g.is_balance_sheet || Number(g.beginning_balance || 0) !== 0)
+
+        const groupedHtmlRows = groupsToPrint.map(g => {
+            const countBadge = (g.transactions?.length || 0) + (g.is_balance_sheet ? 1 : 0)
+            const begRowHtml = (g.is_balance_sheet || Number(g.beginning_balance || 0) !== 0)
+                ? `<tr style="background:#f8fafc; font-weight:700;">
+                    <td colspan="8" style="padding-left:16px;">${escapeHtml(t('external_accounting.beginning_balance'))}</td>
+                    <td class="right mono"></td>
+                    <td class="right mono"><strong>${escapeHtml(formatCurrency(g.beginning_balance || 0))}</strong></td>
+                  </tr>`
+                : ''
+            const txRowsHtml = (g.transactions || []).map((r: any) => `
+                <tr>
+                  <td class="mono" style="padding-left:16px;">${escapeHtml(r.txn_date || '')}</td>
+                  <td>${escapeHtml(r.txn_type || '')}</td>
+                  <td class="mono">${escapeHtml(r.doc_number || '—')}</td>
+                  <td><strong>${escapeHtml(r.entity_name || '—')}</strong></td>
+                  <td>${escapeHtml([r.department_name, r.class_name].filter(Boolean).join(' · ') || '—')}</td>
+                  <td>${escapeHtml(r.memo || '—')}</td>
+                  <td>${escapeHtml(r.account_name || g.account_name || '—')}</td>
+                  <td>${escapeHtml(r.split_account || '—')}</td>
+                  <td class="right mono"><strong>${escapeHtml(formatCurrency(r.amount || 0))}</strong></td>
+                  <td class="right mono">${escapeHtml(formatCurrency(r.running_balance || 0))}</td>
+                </tr>
+            `).join('')
+            return `
+              <tr class="section-row">
+                <td colspan="10">▾ ${escapeHtml(g.account_name)} (${countBadge})</td>
+              </tr>
+              ${begRowHtml}
+              ${txRowsHtml}
+              <tr class="summary-row">
+                <td colspan="8">${escapeHtml(t('external_accounting.total_for_account'))} ${escapeHtml(g.account_name)}</td>
+                <td class="right mono">${escapeHtml(formatCurrency(g.period_net_change || 0))}</td>
+                <td class="right mono">${(g.is_balance_sheet || Number(g.beginning_balance || 0) !== 0) ? escapeHtml(formatCurrency(g.ending_balance || 0)) : ''}</td>
+              </tr>
+            `
+        }).join('')
+
+        const bodyHtml = `
+          <div class="doc-header">
+            <div>
+              <div class="doc-company">${escapeHtml(compName)}</div>
+              <div class="doc-title">${escapeHtml(t('external_accounting.drilldown_report_title'))} — ${escapeHtml(drilldownReportModal.title)}</div>
+              <div style="font-size:11px; color:#475569; margin-top:2px;">${escapeHtml(drilldownReportModal.subtitle)}</div>
+            </div>
+            <div class="doc-meta">
+              <div><strong>${escapeHtml(t('external_accounting.accounting_basis'))}:</strong> ${escapeHtml(drilldownReportModal.basis)}</div>
+              <div><strong>${escapeHtml(t('external_accounting.date_range_label'))}:</strong> ${escapeHtml(drilldownReportModal.periodLabel)}</div>
+              <div><strong>${escapeHtml(t('external_accounting.records_label'))}:</strong> ${filteredDrilldownRows.length}</div>
+              <div><strong>${escapeHtml(t('external_accounting.print_generated_on'))}:</strong> ${escapeHtml(new Date().toLocaleString('en-US'))}</div>
+            </div>
+          </div>
+
+          <div class="kpi-strip">
+            <div class="kpi-box">
+              <div class="kpi-label">${escapeHtml(t('external_accounting.col_category'))} / Account</div>
+              <div class="kpi-val" style="font-size:13px;">${escapeHtml(drilldownReportModal.title)}</div>
+            </div>
+            ${anyBalanceSheet ? `
+            <div class="kpi-box">
+              <div class="kpi-label">${escapeHtml(t('external_accounting.beginning_balance'))}</div>
+              <div class="kpi-val" style="font-size:13px;">${escapeHtml(formatCurrency(begVisible))}</div>
+            </div>
+            ` : `
+            <div class="kpi-box">
+              <div class="kpi-label">${escapeHtml(t('external_accounting.accounting_basis'))}</div>
+              <div class="kpi-val" style="font-size:13px;">${escapeHtml(drilldownReportModal.basis)}</div>
+            </div>
+            `}
+            <div class="kpi-box">
+              <div class="kpi-label">NET CHANGE (${filteredDrilldownRows.length} TXNS)</div>
+              <div class="kpi-val">${escapeHtml(formatCurrency(sumVisible))}</div>
+            </div>
+            <div class="kpi-box">
+              <div class="kpi-label">${anyBalanceSheet ? escapeHtml(t('external_accounting.ending_balance_col')) : 'TOTAL AMOUNT'}</div>
+              <div class="kpi-val">${escapeHtml(formatCurrency(anyBalanceSheet ? endVisible : sumVisible))}</div>
+            </div>
+          </div>
+
+          <table>
+            <thead>
+              <tr>
+                <th>${escapeHtml(t('external_accounting.col_date'))}</th>
+                <th>${escapeHtml(t('external_accounting.col_type'))}</th>
+                <th>${escapeHtml(t('external_accounting.col_doc_num'))}</th>
+                <th>${escapeHtml(t('external_accounting.col_payee'))}</th>
+                <th>${escapeHtml(t('external_accounting.drilldown_col_location'))} / ${escapeHtml(t('external_accounting.drilldown_col_class'))}</th>
+                <th>${escapeHtml(t('external_accounting.col_memo'))}</th>
+                <th>${escapeHtml(t('external_accounting.col_account'))}</th>
+                <th>${escapeHtml(t('external_accounting.drilldown_col_split'))}</th>
+                <th class="right">${escapeHtml(t('external_accounting.col_amount'))}</th>
+                <th class="right">${escapeHtml(t('external_accounting.drilldown_running_balance'))}</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${groupedHtmlRows}
+              <tr class="summary-row">
+                <td colspan="8">TOTAL (${filteredDrilldownRows.length} TRANSACTIONS)</td>
+                <td class="right mono">${escapeHtml(formatCurrency(sumVisible))}</td>
+                <td class="right mono">${escapeHtml(formatCurrency(anyBalanceSheet ? endVisible : sumVisible))}</td>
+              </tr>
+            </tbody>
+          </table>
+        `
+        if (!openCleanPrintWindow(`${compName}_TransactionReport_${drilldownReportModal.title}`, bodyHtml, true)) {
+            notify('err', t('external_accounting.print_popup_blocked'))
+        }
     }
 
     const checksList = useMemo(
@@ -2846,19 +3762,48 @@ function ExternalAccountingContent() {
         }
     }
 
-    // ── Lists & Products/Services Handlers (Gear ⚙️ -> Lists) ──
+    // ── Lists & Products/Services Handlers (Gear ⚙️ -> All Lists /app/lists) ──
     const handleSaveListItem = async (e: React.FormEvent) => {
         e.preventDefault()
         setSaving(true)
         try {
-            const acc = accounts.find(a => a.qb_account_id === listItemAccountId)
+            const incomeAcc = accounts.find(a => a.qb_account_id === listItemAccountId)
+            const expenseAcc = accounts.find(a => a.qb_account_id === listItemExpenseAccountId)
+            const catObj = (companyLists.categories || []).find((c: any) => String(c.Id ?? c.id) === String(listItemCategoryId))
+            const parentArr =
+                activeListKey === 'departments' ? (companyLists.departments || [])
+                : activeListKey === 'classes' ? (companyLists.classes || [])
+                : (companyLists.categories || [])
+            const parentObj = listItemParentId
+                ? parentArr.find((p: any) => String(p.Id ?? p.id) === String(listItemParentId))
+                : null
+
+            const fqName = parentObj
+                ? `${parentObj.FullyQualifiedName || parentObj.Name}:${listItemName.trim()}`
+                : catObj && activeListKey === 'items'
+                ? `${catObj.FullyQualifiedName || catObj.Name}:${listItemName.trim()}`
+                : listItemName.trim()
+
             const itemObj: Record<string, any> = {
                 Id: editingListItemId || `LOCAL-${Date.now()}`,
                 Name: listItemName.trim(),
+                FullyQualifiedName: fqName,
+                Sku: listItemSku.trim() || null,
                 Description: listItemDesc.trim(),
+                PurchaseDesc: listItemDesc.trim() || null,
                 UnitPrice: Number(listItemPrice || 0),
-                Type: listItemType || 'Service',
-                IncomeAccountRef: acc ? { value: acc.qb_account_id, name: acc.name } : undefined,
+                Type: activeListKey === 'categories' ? 'Category' : (listItemType || 'Service'),
+                CategoryQbId: catObj ? String(catObj.Id) : null,
+                CategoryName: catObj ? String(catObj.Name) : null,
+                IncomeAccountRef: incomeAcc ? { value: incomeAcc.qb_account_id, name: incomeAcc.name } : undefined,
+                ExpenseAccountRef: expenseAcc ? { value: expenseAcc.qb_account_id, name: expenseAcc.name } : undefined,
+                ClassCode: listItemClassCode.trim() || null,
+                ParentRef: parentObj ? { value: String(parentObj.Id), name: String(parentObj.Name) } : undefined,
+                SubDepartment: Boolean(parentObj && activeListKey === 'departments'),
+                SubClass: Boolean(parentObj && activeListKey === 'classes'),
+                SubItem: Boolean((parentObj && activeListKey === 'categories') || (catObj && activeListKey === 'items')),
+                DueDays: Number(listItemDueDays || 0),
+                DiscountPercent: Number(listItemDiscountPct || 0),
                 Active: true,
             }
             const res = await authFetch('/api/external-accounting', {
@@ -2874,7 +3819,7 @@ function ExternalAccountingContent() {
             const json = await res.json()
             if (!res.ok) throw new Error(json.error || 'Error saving list item')
             setListItemModalOpen(false)
-            notify('ok', 'Elemento guardado en el catálogo.')
+            notify('ok', 'Elemento guardado en el catálogo y sincronizado.')
             await fetchWorkspaceData()
         } catch (err: any) {
             notify('err', err.message || 'Error')
@@ -2975,10 +3920,17 @@ function ExternalAccountingContent() {
             if (data.listKey) setActiveListKey(data.listKey)
             setEditingListItemId(String(data.Id ?? data.id ?? ''))
             setListItemName(data.Name ?? data.name ?? '')
+            setListItemSku(data.Sku ?? data.sku ?? '')
             setListItemDesc(data.Description ?? data.description ?? '')
             setListItemPrice(String(data.UnitPrice ?? data.unit_price ?? 0))
             setListItemType(data.Type ?? 'Service')
+            setListItemCategoryId(data.CategoryQbId ?? data.ParentRef?.value ?? '')
             setListItemAccountId(data.IncomeAccountRef?.value ?? data.account_qb_id ?? '')
+            setListItemExpenseAccountId(data.ExpenseAccountRef?.value ?? data.expense_account_qb_id ?? '')
+            setListItemClassCode(data.ClassCode ?? data.class_code ?? '')
+            setListItemParentId(data.ParentRef?.value ?? data.parent_qb_id ?? '')
+            setListItemDueDays(String(data.DueDays ?? data.due_days ?? 30))
+            setListItemDiscountPct(String(data.DiscountPercent ?? data.discount_percent ?? 0))
             setListItemModalOpen(true)
             return
         }
@@ -3655,7 +4607,7 @@ function ExternalAccountingContent() {
                             <div className="inline-flex items-center gap-2 px-2.5 py-1 rounded-md bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/60 text-[11px]">
                                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
                                 <span className="font-semibold text-emerald-800 dark:text-emerald-300">
-                                    {t('external_accounting.qbo_status_connected')}
+                                    {t('external_accounting.qbo_status_connected')} ({companies.filter(c => c.qbo_connected).length}/{companies.filter(c => c.qbo_sync_enabled !== false).length})
                                 </span>
                                 <button
                                     type="button"
@@ -3664,6 +4616,15 @@ function ExternalAccountingContent() {
                                     className="font-bold text-emerald-700 dark:text-emerald-300 hover:underline cursor-pointer disabled:opacity-50"
                                 >
                                     {qboSyncing ? t('external_accounting.qbo_syncing_msg') : `↻ ${t('external_accounting.qbo_btn_sync_now')}`}
+                                </button>
+                                <span className="text-slate-300 dark:text-slate-700">·</span>
+                                <button
+                                    type="button"
+                                    disabled={qboSyncing}
+                                    onClick={handleSyncAllWithQbo}
+                                    className="font-bold text-blue-700 dark:text-blue-300 hover:underline cursor-pointer disabled:opacity-50"
+                                >
+                                    ⚡ {t('external_accounting.qbo_btn_sync_all')}
                                 </button>
                                 <span className="text-slate-300 dark:text-slate-700">·</span>
                                 <button
@@ -3677,6 +4638,14 @@ function ExternalAccountingContent() {
                             </div>
                         ) : (
                             <div className="inline-flex items-center gap-2 px-2.5 py-1 rounded-md bg-slate-50 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700 text-[11px]">
+                                <button
+                                    type="button"
+                                    onClick={handleConnectAllQbo}
+                                    className="font-bold text-emerald-600 dark:text-emerald-400 hover:underline cursor-pointer"
+                                >
+                                    ⚡ {t('external_accounting.qbo_btn_connect_all')}
+                                </button>
+                                <span className="text-slate-300 dark:text-slate-700">·</span>
                                 <button
                                     type="button"
                                     onClick={handleConnectQbo}
@@ -3697,7 +4666,22 @@ function ExternalAccountingContent() {
                         <span className="text-slate-300 dark:text-slate-700">|</span>
                         <button
                             type="button"
-                            onClick={exportTransactionsCsv}
+                            onClick={() => {
+                                if (activeTab === 'reports') exportActiveReportXls()
+                                else exportTransactionsXls()
+                            }}
+                            className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400 hover:underline font-bold cursor-pointer"
+                        >
+                            <Download size={13} />
+                            <span>{t('external_accounting.btn_export_report_xls')}</span>
+                        </button>
+                        <span className="text-slate-300 dark:text-slate-700">|</span>
+                        <button
+                            type="button"
+                            onClick={() => {
+                                if (activeTab === 'reports') exportActiveReportCsv()
+                                else exportTransactionsCsv()
+                            }}
                             className="inline-flex items-center gap-1 text-slate-500 hover:text-slate-900 dark:hover:text-white font-semibold cursor-pointer"
                         >
                             <Download size={13} />
@@ -4100,38 +5084,90 @@ function ExternalAccountingContent() {
                ==================================================================== */}
             {activeTab === 'overview' && (
                 <div className="space-y-6">
-                    {/* Tira Financiera Unificada (1 sola tarjeta dividida en 4 métricas limpias) */}
+                    {/* Tira Financiera Unificada (1 sola tarjeta dividida en 4 métricas limpias — Clic en cualquiera abre el Reporte Detallado PDF/XLS) */}
                     <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 divide-y sm:divide-y-0 sm:divide-x divide-slate-200 dark:divide-slate-800">
-                        <div className="p-5">
-                            <div className="text-xs font-medium text-slate-500">{t('external_accounting.kpi_bank_balance')}</div>
-                            <div className="text-2xl font-black font-mono text-slate-900 dark:text-white mt-1">
+                        <div
+                            onClick={() => openAccountQuickReport({ qb_account_id: 'GROUP:BANK', name: t('external_accounting.bs_total_bank_accounts'), current_balance: summary.totalBankBalance })}
+                            title={t('external_accounting.drilldown_click_row_hint')}
+                            className="p-5 hover:bg-emerald-50/50 dark:hover:bg-emerald-950/20 cursor-pointer transition-colors group"
+                        >
+                            <div className="text-xs font-medium text-slate-500 flex items-center justify-between">
+                                <span>{t('external_accounting.kpi_bank_balance')}</span>
+                                <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 opacity-80 group-hover:underline">📊 {t('external_accounting.drilldown_view_txns_badge')}</span>
+                            </div>
+                            <div className="text-2xl font-black font-mono text-slate-900 dark:text-white mt-1 group-hover:text-emerald-600 dark:group-hover:text-emerald-400 group-hover:underline">
                                 {formatCurrency(summary.totalBankBalance)}
                             </div>
                             <div className="text-[11px] text-slate-400 mt-1">
                                 {bankAndCardAccounts.length} {t('external_accounting.banks_accounts_count_sub')}
                             </div>
                         </div>
-                        <div className="p-5">
-                            <div className="text-xs font-medium text-slate-500">{t('external_accounting.kpi_total_inflows')}</div>
-                            <div className="text-2xl font-black font-mono text-emerald-600 dark:text-emerald-400 mt-1">
+                        <div
+                            onClick={() => openPnlDrilldownReport(
+                                {
+                                    category: t('external_accounting.kpi_total_inflows'),
+                                    amount: summary.totalInflows,
+                                    transactions: depositsList.map(tx => ({
+                                        ...tx,
+                                        amount: Number(tx.total_amount || 0),
+                                        split_account: tx.category_summary || tx.to_account_name || 'Deposit',
+                                    })),
+                                },
+                                'Income'
+                            )}
+                            title={t('external_accounting.drilldown_click_row_hint')}
+                            className="p-5 hover:bg-emerald-50/50 dark:hover:bg-emerald-950/20 cursor-pointer transition-colors group"
+                        >
+                            <div className="text-xs font-medium text-slate-500 flex items-center justify-between">
+                                <span>{t('external_accounting.kpi_total_inflows')}</span>
+                                <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 opacity-80 group-hover:underline">📊 {t('external_accounting.drilldown_view_txns_badge')}</span>
+                            </div>
+                            <div className="text-2xl font-black font-mono text-emerald-600 dark:text-emerald-400 mt-1 group-hover:underline">
                                 +{formatCurrency(summary.totalInflows)}
                             </div>
                             <div className="text-[11px] text-slate-400 mt-1">
                                 {summary.depositsCount || 0} {t('external_accounting.registered_deposits_sub')}
                             </div>
                         </div>
-                        <div className="p-5">
-                            <div className="text-xs font-medium text-slate-500">{t('external_accounting.kpi_total_outflows')}</div>
-                            <div className="text-2xl font-black font-mono text-slate-900 dark:text-white mt-1">
+                        <div
+                            onClick={() => openPnlDrilldownReport(
+                                {
+                                    category: t('external_accounting.kpi_total_outflows'),
+                                    amount: summary.totalOutflows,
+                                    transactions: transactions
+                                        .filter(tx => tx.direction === 'OUT' || ['Check', 'Expense', 'Bill', 'BillPayment', 'VendorCredit'].includes(tx.txn_type))
+                                        .map(tx => ({
+                                            ...tx,
+                                            amount: Number(tx.total_amount || 0),
+                                            split_account: tx.category_summary || tx.to_account_name || 'Expense',
+                                        })),
+                                },
+                                'Expense'
+                            )}
+                            title={t('external_accounting.drilldown_click_row_hint')}
+                            className="p-5 hover:bg-slate-50 dark:hover:bg-slate-800/40 cursor-pointer transition-colors group"
+                        >
+                            <div className="text-xs font-medium text-slate-500 flex items-center justify-between">
+                                <span>{t('external_accounting.kpi_total_outflows')}</span>
+                                <span className="text-[10px] font-bold text-blue-600 dark:text-blue-400 opacity-80 group-hover:underline">📊 {t('external_accounting.drilldown_view_txns_badge')}</span>
+                            </div>
+                            <div className="text-2xl font-black font-mono text-slate-900 dark:text-white mt-1 group-hover:underline">
                                 -{formatCurrency(summary.totalOutflows)}
                             </div>
                             <div className="text-[11px] text-slate-400 mt-1">
                                 {summary.checksCount || 0} {t('external_accounting.checks_and_charges_sub')} ({summary.expensesCount || 0})
                             </div>
                         </div>
-                        <div className="p-5">
-                            <div className="text-xs font-medium text-slate-500">{t('external_accounting.kpi_net_flow')}</div>
-                            <div className="text-2xl font-black font-mono text-slate-900 dark:text-white mt-1">
+                        <div
+                            onClick={() => openAccountQuickReport({ qb_account_id: 'GROUP:BANK', name: `${t('external_accounting.kpi_net_flow')} — ${t('external_accounting.bs_total_bank_accounts')}`, current_balance: summary.totalBankBalance })}
+                            title={t('external_accounting.drilldown_click_row_hint')}
+                            className="p-5 hover:bg-slate-50 dark:hover:bg-slate-800/40 cursor-pointer transition-colors group"
+                        >
+                            <div className="text-xs font-medium text-slate-500 flex items-center justify-between">
+                                <span>{t('external_accounting.kpi_net_flow')}</span>
+                                <span className="text-[10px] font-bold text-blue-600 dark:text-blue-400 opacity-80 group-hover:underline">📊 {t('external_accounting.drilldown_view_txns_badge')}</span>
+                            </div>
+                            <div className="text-2xl font-black font-mono text-slate-900 dark:text-white mt-1 group-hover:underline">
                                 {formatCurrency(summary.netCashFlow)}
                             </div>
                             <div className="text-[11px] text-slate-400 mt-1">
@@ -4174,11 +5210,12 @@ function ExternalAccountingContent() {
                                         return (
                                             <div
                                                 key={acc.id}
-                                                onClick={() => openRecordPreview('account', acc)}
-                                                className="px-5 py-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition-colors cursor-pointer"
+                                                onClick={() => openAccountQuickReport(acc)}
+                                                title={t('external_accounting.drilldown_click_row_hint')}
+                                                className="px-5 py-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition-colors cursor-pointer group"
                                             >
                                                 <div>
-                                                    <div className="font-bold text-sm text-slate-900 dark:text-white">
+                                                    <div className="font-bold text-sm text-slate-900 dark:text-white group-hover:text-emerald-600 dark:group-hover:text-emerald-400 group-hover:underline">
                                                         {acc.name}
                                                     </div>
                                                     <div className="text-xs text-slate-400 mt-0.5 font-mono">
@@ -4187,12 +5224,19 @@ function ExternalAccountingContent() {
                                                 </div>
                                                 <div className="flex items-center gap-4">
                                                     <div className="text-right">
-                                                        <div className="text-base font-black font-mono text-slate-900 dark:text-white">
+                                                        <div className="text-base font-black font-mono text-slate-900 dark:text-white group-hover:text-emerald-600 dark:group-hover:text-emerald-400 group-hover:underline">
                                                             {formatCurrency(accBal)}
                                                         </div>
                                                         <div className="text-[10px] text-slate-400">{t('external_accounting.book_balance_short')}</div>
                                                     </div>
                                                     <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => openAccountQuickReport(acc)}
+                                                            className="px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold cursor-pointer"
+                                                        >
+                                                            📊 {t('external_accounting.coa_action_run_report')}
+                                                        </button>
                                                         <button
                                                             type="button"
                                                             onClick={() => {
@@ -4235,6 +5279,17 @@ function ExternalAccountingContent() {
                                             </div>
                                         )
                                     })}
+                                    <div
+                                        onClick={() => openAccountQuickReport({ qb_account_id: 'GROUP:BANK', name: t('external_accounting.bs_total_bank_accounts'), current_balance: summary.totalBankBalance })}
+                                        className="px-5 py-3.5 bg-emerald-50/70 dark:bg-emerald-950/30 hover:bg-emerald-100/70 dark:hover:bg-emerald-900/40 flex items-center justify-between cursor-pointer transition-colors"
+                                    >
+                                        <span className="text-xs font-black uppercase tracking-wider text-emerald-800 dark:text-emerald-300">
+                                            {t('external_accounting.bs_total_bank_accounts')} ({bankAndCardAccounts.length})
+                                        </span>
+                                        <span className="text-base font-black font-mono text-emerald-700 dark:text-emerald-300 underline decoration-dotted">
+                                            {formatCurrency(summary.totalBankBalance)}
+                                        </span>
+                                    </div>
                                 </div>
                             </div>
 
@@ -5506,29 +6561,38 @@ function ExternalAccountingContent() {
                                                     {acc.is_active !== false ? t('external_accounting.status_active') : t('external_accounting.status_inactive')}
                                                 </span>
                                             </td>
-                                            <td className="py-2.5 px-3 text-right font-mono tabular-nums font-bold text-slate-900 dark:text-white">
+                                            <td
+                                                onClick={(e) => {
+                                                    e.stopPropagation()
+                                                    openAccountQuickReport(acc)
+                                                }}
+                                                title={t('external_accounting.drilldown_click_hint')}
+                                                className="py-2.5 px-3 text-right font-mono tabular-nums font-bold text-slate-900 dark:text-white hover:text-emerald-600 dark:hover:text-emerald-400 hover:underline cursor-pointer"
+                                            >
                                                 {acc.current_balance != null ? formatCurrency(acc.current_balance) : '—'}
                                             </td>
                                             <td className="py-2.5 px-3 text-right whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
                                                 <div className="inline-flex items-center gap-1.5">
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => {
-                                                            if (isBalanceSheetAcct) {
+                                                    {isBalanceSheetAcct && (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => {
                                                                 setFilterAccountId(acc.qb_account_id)
                                                                 setSearchQuery('')
-                                                            } else {
-                                                                setFilterAccountId('ALL')
-                                                                setSearchQuery(acc.name)
-                                                            }
-                                                            setPage(1)
-                                                            setActiveTab('transactions')
-                                                        }}
+                                                                setPage(1)
+                                                                setActiveTab('transactions')
+                                                            }}
+                                                            className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 hover:underline cursor-pointer mr-1"
+                                                        >
+                                                            {t('external_accounting.coa_action_view_register')}
+                                                        </button>
+                                                    )}
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => openAccountQuickReport(acc)}
                                                         className="text-xs font-semibold text-blue-600 dark:text-blue-400 hover:underline cursor-pointer mr-1"
                                                     >
-                                                        {isBalanceSheetAcct
-                                                            ? t('external_accounting.coa_action_view_register')
-                                                            : t('external_accounting.coa_action_run_report')}
+                                                        {t('external_accounting.coa_action_run_report')}
                                                     </button>
                                                     <button
                                                         type="button"
@@ -5679,11 +6743,25 @@ function ExternalAccountingContent() {
                                                     <span className="px-2 py-0.5 rounded bg-amber-500/20 text-amber-700 dark:text-amber-300 font-black text-[10px]">1099</span>
                                                 ) : '—'}
                                             </td>
-                                            <td className="py-2.5 px-3 text-right font-mono tabular-nums font-bold text-slate-900 dark:text-white">
+                                            <td
+                                                onClick={(e) => {
+                                                    e.stopPropagation()
+                                                    openListOrContactQuickReport('contact', c.display_name, c.qb_contact_id || c.id, c.display_name)
+                                                }}
+                                                title={t('external_accounting.drilldown_click_hint')}
+                                                className="py-2.5 px-3 text-right font-mono tabular-nums font-bold text-slate-900 dark:text-white hover:text-emerald-600 dark:hover:text-emerald-400 hover:underline cursor-pointer"
+                                            >
                                                 {formatCurrency(c.balance || 0)}
                                             </td>
                                             <td className="py-2.5 px-3 text-right whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
                                                 <div className="inline-flex items-center gap-1.5">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => openListOrContactQuickReport('contact', c.display_name, c.qb_contact_id || c.id, c.display_name)}
+                                                        className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 hover:underline cursor-pointer mr-1"
+                                                    >
+                                                        {t('external_accounting.coa_action_run_report')}
+                                                    </button>
                                                     <button
                                                         type="button"
                                                         onClick={() => {
@@ -5836,22 +6914,30 @@ function ExternalAccountingContent() {
                             </>
                         )}
 
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-1.5">
+                            <button
+                                type="button"
+                                onClick={exportActiveReportXls}
+                                className="flex-1 inline-flex items-center justify-center gap-1 px-2.5 py-2.5 rounded-xl bg-emerald-600/15 hover:bg-emerald-600/25 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30 font-bold text-xs cursor-pointer"
+                            >
+                                <Download size={13} />
+                                <span>{t('external_accounting.btn_export_report_xls')}</span>
+                            </button>
                             <button
                                 type="button"
                                 onClick={exportActiveReportCsv}
-                                className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 font-bold text-xs cursor-pointer"
+                                className="flex-1 inline-flex items-center justify-center gap-1 px-2.5 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 font-bold text-xs cursor-pointer"
                             >
-                                <Download size={14} />
-                                <span>{t('external_accounting.btn_export_report_csv')}</span>
+                                <Download size={13} />
+                                <span>.CSV</span>
                             </button>
                             <button
                                 type="button"
                                 onClick={handlePrintActiveReport}
-                                className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs cursor-pointer"
+                                className="flex-1 inline-flex items-center justify-center gap-1 px-2.5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs cursor-pointer"
                             >
-                                <Printer size={14} />
-                                <span>{t('external_accounting.btn_print_report')}</span>
+                                <Printer size={13} />
+                                <span>PDF</span>
                             </button>
                         </div>
                     </div>
@@ -5885,6 +6971,10 @@ function ExternalAccountingContent() {
                             {/* 1. P&L View */}
                             {reportType === 'pnl' && reportData?.pnl && (
                                 <div className="space-y-6 overflow-x-auto">
+                                    <div className="flex items-center justify-between px-3 py-2 rounded-xl bg-blue-500/10 border border-blue-500/30 text-blue-700 dark:text-blue-300 text-xs font-semibold">
+                                        <span>💡 {t('external_accounting.drilldown_click_hint')}</span>
+                                        <span className="font-mono text-[11px]">PDF · Excel (.XLS) · .CSV</span>
+                                    </div>
                                     <div>
                                         <h3 className="text-xs font-black uppercase tracking-wider text-emerald-600 dark:text-emerald-400 mb-2">
                                             {t('external_accounting.income_section')}
@@ -5903,24 +6993,64 @@ function ExternalAccountingContent() {
                                             )}
                                             <tbody>
                                                 {reportData.pnl.incomeRows.map((r: any) => (
-                                                    <tr key={r.category} className="border-b border-slate-100 dark:border-slate-800/60">
-                                                        <td className="py-2 px-2 font-medium">{r.category}</td>
+                                                    <tr
+                                                        key={r.category}
+                                                        onClick={() => openPnlDrilldownReport(r, 'Income')}
+                                                        title={t('external_accounting.drilldown_click_hint')}
+                                                        className="border-b border-slate-100 dark:border-slate-800/60 hover:bg-emerald-500/10 cursor-pointer transition-colors group"
+                                                    >
+                                                        <td className="py-2 px-2 font-medium group-hover:text-emerald-600 dark:group-hover:text-emerald-400 group-hover:underline">
+                                                            <span>{r.category}</span>
+                                                            <span className="ml-2 text-[10px] font-mono text-slate-400">
+                                                                ({(r.transactions || []).length})
+                                                            </span>
+                                                        </td>
                                                         {reportData.pnl.years?.length > 1 && reportData.pnl.years.map((yr: string) => (
-                                                            <td key={yr} className="py-2 px-2 text-right font-mono text-slate-500">
+                                                            <td
+                                                                key={yr}
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation()
+                                                                    openPnlDrilldownReport(r, 'Income', yr)
+                                                                }}
+                                                                className="py-2 px-2 text-right font-mono text-slate-500 hover:text-emerald-600 dark:hover:text-emerald-400 hover:underline"
+                                                            >
                                                                 {r.byYear?.[yr] ? formatCurrency(r.byYear[yr]) : '—'}
                                                             </td>
                                                         ))}
-                                                        <td className="py-2 px-2 text-right font-mono font-bold">{formatCurrency(r.amount)}</td>
+                                                        <td className="py-2 px-2 text-right font-mono font-bold text-emerald-700 dark:text-emerald-300 group-hover:underline">
+                                                            {formatCurrency(r.amount)}
+                                                        </td>
                                                     </tr>
                                                 ))}
-                                                <tr className="bg-emerald-500/10 font-black">
+                                                <tr
+                                                    onClick={() => openPnlDrilldownReport({
+                                                        category: t('external_accounting.total_income'),
+                                                        amount: reportData.pnl.totalIncome,
+                                                        byYear: reportData.pnl.incomeByYear,
+                                                        transactions: reportData.pnl.incomeRows.flatMap((x: any) => x.transactions || [])
+                                                    }, 'Income')}
+                                                    title={t('external_accounting.drilldown_click_hint')}
+                                                    className="bg-emerald-500/10 hover:bg-emerald-500/20 font-black cursor-pointer transition-colors"
+                                                >
                                                     <td className="py-2.5 px-2">{t('external_accounting.total_income')}</td>
                                                     {reportData.pnl.years?.length > 1 && reportData.pnl.years.map((yr: string) => (
-                                                        <td key={yr} className="py-2.5 px-2 text-right font-mono text-emerald-600/80 dark:text-emerald-400/80">
+                                                        <td
+                                                            key={yr}
+                                                            onClick={(e) => {
+                                                                e.stopPropagation()
+                                                                openPnlDrilldownReport({
+                                                                    category: t('external_accounting.total_income'),
+                                                                    amount: reportData.pnl.totalIncome,
+                                                                    byYear: reportData.pnl.incomeByYear,
+                                                                    transactions: reportData.pnl.incomeRows.flatMap((x: any) => x.transactions || [])
+                                                                }, 'Income', yr)
+                                                            }}
+                                                            className="py-2.5 px-2 text-right font-mono text-emerald-600/80 dark:text-emerald-400/80 hover:underline"
+                                                        >
                                                             {formatCurrency(reportData.pnl.incomeByYear?.[yr] || 0)}
                                                         </td>
                                                     ))}
-                                                    <td className="py-2.5 px-2 text-right font-mono text-emerald-600 dark:text-emerald-400">
+                                                    <td className="py-2.5 px-2 text-right font-mono text-emerald-600 dark:text-emerald-400 underline decoration-dotted">
                                                         {formatCurrency(reportData.pnl.totalIncome)}
                                                     </td>
                                                 </tr>
@@ -5946,24 +7076,64 @@ function ExternalAccountingContent() {
                                             )}
                                             <tbody>
                                                 {reportData.pnl.expenseRows.map((r: any) => (
-                                                    <tr key={r.category} className="border-b border-slate-100 dark:border-slate-800/60">
-                                                        <td className="py-2 px-2 font-medium">{r.category}</td>
+                                                    <tr
+                                                        key={r.category}
+                                                        onClick={() => openPnlDrilldownReport(r, 'Expense')}
+                                                        title={t('external_accounting.drilldown_click_hint')}
+                                                        className="border-b border-slate-100 dark:border-slate-800/60 hover:bg-red-500/10 cursor-pointer transition-colors group"
+                                                    >
+                                                        <td className="py-2 px-2 font-medium group-hover:text-red-600 dark:group-hover:text-red-400 group-hover:underline">
+                                                            <span>{r.category}</span>
+                                                            <span className="ml-2 text-[10px] font-mono text-slate-400">
+                                                                ({(r.transactions || []).length})
+                                                            </span>
+                                                        </td>
                                                         {reportData.pnl.years?.length > 1 && reportData.pnl.years.map((yr: string) => (
-                                                            <td key={yr} className="py-2 px-2 text-right font-mono text-slate-500">
+                                                            <td
+                                                                key={yr}
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation()
+                                                                    openPnlDrilldownReport(r, 'Expense', yr)
+                                                                }}
+                                                                className="py-2 px-2 text-right font-mono text-slate-500 hover:text-red-600 dark:hover:text-red-400 hover:underline"
+                                                            >
                                                                 {r.byYear?.[yr] ? formatCurrency(r.byYear[yr]) : '—'}
                                                             </td>
                                                         ))}
-                                                        <td className="py-2 px-2 text-right font-mono font-bold">{formatCurrency(r.amount)}</td>
+                                                        <td className="py-2 px-2 text-right font-mono font-bold text-red-700 dark:text-red-300 group-hover:underline">
+                                                            {formatCurrency(r.amount)}
+                                                        </td>
                                                     </tr>
                                                 ))}
-                                                <tr className="bg-red-500/10 font-black">
+                                                <tr
+                                                    onClick={() => openPnlDrilldownReport({
+                                                        category: t('external_accounting.total_expenses'),
+                                                        amount: reportData.pnl.totalExpenses,
+                                                        byYear: reportData.pnl.expenseByYear,
+                                                        transactions: reportData.pnl.expenseRows.flatMap((x: any) => x.transactions || [])
+                                                    }, 'Expense')}
+                                                    title={t('external_accounting.drilldown_click_hint')}
+                                                    className="bg-red-500/10 hover:bg-red-500/20 font-black cursor-pointer transition-colors"
+                                                >
                                                     <td className="py-2.5 px-2">{t('external_accounting.total_expenses')}</td>
                                                     {reportData.pnl.years?.length > 1 && reportData.pnl.years.map((yr: string) => (
-                                                        <td key={yr} className="py-2.5 px-2 text-right font-mono text-red-600/80 dark:text-red-400/80">
+                                                        <td
+                                                            key={yr}
+                                                            onClick={(e) => {
+                                                                e.stopPropagation()
+                                                                openPnlDrilldownReport({
+                                                                    category: t('external_accounting.total_expenses'),
+                                                                    amount: reportData.pnl.totalExpenses,
+                                                                    byYear: reportData.pnl.expenseByYear,
+                                                                    transactions: reportData.pnl.expenseRows.flatMap((x: any) => x.transactions || [])
+                                                                }, 'Expense', yr)
+                                                            }}
+                                                            className="py-2.5 px-2 text-right font-mono text-red-600/80 dark:text-red-400/80 hover:underline"
+                                                        >
                                                             {formatCurrency(reportData.pnl.expenseByYear?.[yr] || 0)}
                                                         </td>
                                                     ))}
-                                                    <td className="py-2.5 px-2 text-right font-mono text-red-600 dark:text-red-400">
+                                                    <td className="py-2.5 px-2 text-right font-mono text-red-600 dark:text-red-400 underline decoration-dotted">
                                                         {formatCurrency(reportData.pnl.totalExpenses)}
                                                     </td>
                                                 </tr>
@@ -5971,71 +7141,387 @@ function ExternalAccountingContent() {
                                         </table>
                                     </div>
 
-                                    <div className="p-4 rounded-xl bg-slate-900 text-white flex items-center justify-between font-black text-base">
+                                    <div
+                                        onClick={() => openPnlDrilldownReport({
+                                            category: t('external_accounting.net_income'),
+                                            amount: reportData.pnl.netIncome,
+                                            transactions: [
+                                                ...reportData.pnl.incomeRows.flatMap((x: any) => x.transactions || []),
+                                                ...reportData.pnl.expenseRows.flatMap((x: any) => (x.transactions || []).map((tItem: any) => ({ ...tItem, amount: -Math.abs(Number(tItem.amount || 0)) })))
+                                            ]
+                                        }, 'Net')}
+                                        title={t('external_accounting.drilldown_click_hint')}
+                                        className="p-4 rounded-xl bg-slate-900 hover:bg-slate-800 text-white flex items-center justify-between font-black text-base cursor-pointer transition-colors"
+                                    >
                                         <span>{t('external_accounting.net_income')}</span>
-                                        <span className="font-mono text-emerald-400">{formatCurrency(reportData.pnl.netIncome)}</span>
+                                        <span className="font-mono text-emerald-400 underline decoration-dotted">{formatCurrency(reportData.pnl.netIncome)}</span>
                                     </div>
                                 </div>
                             )}
 
-                            {/* 2. Balance Sheet View */}
+                            {/* 2. Balance Sheet View (QBO Hierarchical & 100% Clickable) */}
                             {reportType === 'balance_sheet' && reportData?.balanceSheet && (
                                 <div className="space-y-6 text-xs">
-                                    <div>
-                                        <h3 className="font-black uppercase text-emerald-600 mb-2">{t('external_accounting.assets_section')}</h3>
-                                        {reportData.balanceSheet.assets.map((a: any) => (
-                                            <div
-                                                key={a.id}
-                                                onClick={() => openRecordPreview('account', a)}
-                                                className="flex justify-between py-1.5 px-2 rounded-lg border-b border-slate-100 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/50 cursor-pointer transition-colors"
-                                            >
-                                                <span>{a.name} ({a.account_type})</span>
-                                                <span className="font-mono font-bold">{formatCurrency(a.current_balance)}</span>
+                                    <div className="flex items-center justify-between px-3 py-2 rounded-xl bg-blue-500/10 border border-blue-500/30 text-blue-700 dark:text-blue-300 text-xs font-semibold">
+                                        <span>💡 {t('external_accounting.drilldown_click_hint')}</span>
+                                        <span className="font-mono text-[11px]">PDF · Excel (.XLS) · .CSV</span>
+                                    </div>
+
+                                    {/* ASSETS */}
+                                    <div className="rounded-xl border border-slate-200 dark:border-slate-800 overflow-hidden">
+                                        <div className="bg-emerald-500/10 px-3 py-2 font-black uppercase tracking-wider text-emerald-700 dark:text-emerald-300 border-b border-slate-200 dark:border-slate-800">
+                                            {t('external_accounting.assets_section')}
+                                        </div>
+
+                                        <div className="p-2 space-y-2">
+                                            <div className="font-bold text-slate-700 dark:text-slate-300 px-2 pt-1">
+                                                ▾ {t('external_accounting.bs_current_assets')}
                                             </div>
-                                        ))}
-                                        <div className="flex justify-between py-2.5 font-black bg-emerald-500/10 px-2 mt-1">
-                                            <span>{t('external_accounting.total_assets')}</span>
-                                            <span className="font-mono">{formatCurrency(reportData.balanceSheet.totalAssets)}</span>
+
+                                            {/* Bank Accounts */}
+                                            {(reportData.balanceSheet.bankAccounts?.length > 0) && (
+                                                <div className="pl-3 space-y-0.5">
+                                                    <div className="font-semibold text-slate-500 dark:text-slate-400 px-2 py-1">
+                                                        ▾ {t('external_accounting.bs_bank_accounts')}
+                                                    </div>
+                                                    {reportData.balanceSheet.bankAccounts.map((a: any) => (
+                                                        <div
+                                                            key={a.id}
+                                                            onClick={() => openAccountQuickReport(a)}
+                                                            style={{ paddingLeft: `${16 + (a.depth || 0) * 16}px` }}
+                                                            className="flex justify-between py-1.5 pr-3 rounded-lg hover:bg-emerald-500/10 cursor-pointer transition-colors group"
+                                                        >
+                                                            <span className="group-hover:text-emerald-600 dark:group-hover:text-emerald-400 group-hover:underline">
+                                                                {a.name}
+                                                            </span>
+                                                            <span className="font-mono font-bold tabular-nums group-hover:text-emerald-600 dark:group-hover:text-emerald-400 group-hover:underline">
+                                                                {formatCurrency(a.current_balance)}
+                                                            </span>
+                                                        </div>
+                                                    ))}
+                                                    <div
+                                                        onClick={() => openAccountQuickReport({ qb_account_id: 'GROUP:BANK', name: t('external_accounting.bs_total_bank_accounts'), account_type: 'Bank' })}
+                                                        className="flex justify-between py-1.5 px-3 rounded-lg bg-slate-50 dark:bg-slate-800/60 hover:bg-emerald-500/15 font-black cursor-pointer transition-colors border-t border-slate-200 dark:border-slate-700 group"
+                                                    >
+                                                        <span className="group-hover:text-emerald-600 dark:group-hover:text-emerald-400 group-hover:underline">
+                                                            {t('external_accounting.bs_total_bank_accounts')}
+                                                        </span>
+                                                        <span className="font-mono tabular-nums text-emerald-700 dark:text-emerald-300 underline decoration-dotted">
+                                                            {formatCurrency(reportData.balanceSheet.totalBankAccounts)}
+                                                        </span>
+                                                    </div>
+                                                </div>
+                                            )}
+
+                                            {/* Accounts Receivable */}
+                                            {(reportData.balanceSheet.accountsReceivable?.length > 0) && (
+                                                <div className="pl-3 space-y-0.5 pt-1">
+                                                    <div className="font-semibold text-slate-500 dark:text-slate-400 px-2 py-1">
+                                                        ▾ {t('external_accounting.bs_accounts_receivable')}
+                                                    </div>
+                                                    {reportData.balanceSheet.accountsReceivable.map((a: any) => (
+                                                        <div
+                                                            key={a.id}
+                                                            onClick={() => openAccountQuickReport(a)}
+                                                            style={{ paddingLeft: `${16 + (a.depth || 0) * 16}px` }}
+                                                            className="flex justify-between py-1.5 pr-3 rounded-lg hover:bg-emerald-500/10 cursor-pointer transition-colors group"
+                                                        >
+                                                            <span className="group-hover:text-emerald-600 dark:group-hover:text-emerald-400 group-hover:underline">{a.name}</span>
+                                                            <span className="font-mono font-bold tabular-nums group-hover:underline">{formatCurrency(a.current_balance)}</span>
+                                                        </div>
+                                                    ))}
+                                                    <div
+                                                        onClick={() => openAccountQuickReport({ qb_account_id: 'GROUP:AR', name: t('external_accounting.bs_total_ar'), account_type: 'Accounts Receivable' })}
+                                                        className="flex justify-between py-1.5 px-3 rounded-lg bg-slate-50 dark:bg-slate-800/60 hover:bg-emerald-500/15 font-black cursor-pointer transition-colors border-t border-slate-200 dark:border-slate-700 group"
+                                                    >
+                                                        <span className="group-hover:underline">{t('external_accounting.bs_total_ar')}</span>
+                                                        <span className="font-mono tabular-nums underline decoration-dotted">{formatCurrency(reportData.balanceSheet.totalAccountsReceivable)}</span>
+                                                    </div>
+                                                </div>
+                                            )}
+
+                                            {/* Other Current Assets */}
+                                            {(reportData.balanceSheet.otherCurrentAssets?.length > 0) && (
+                                                <div className="pl-3 space-y-0.5 pt-1">
+                                                    <div className="font-semibold text-slate-500 dark:text-slate-400 px-2 py-1">
+                                                        ▾ {t('external_accounting.bs_other_current_assets')}
+                                                    </div>
+                                                    {reportData.balanceSheet.otherCurrentAssets.map((a: any) => (
+                                                        <div
+                                                            key={a.id}
+                                                            onClick={() => openAccountQuickReport(a)}
+                                                            style={{ paddingLeft: `${16 + (a.depth || 0) * 16}px` }}
+                                                            className="flex justify-between py-1.5 pr-3 rounded-lg hover:bg-emerald-500/10 cursor-pointer transition-colors group"
+                                                        >
+                                                            <span className="group-hover:text-emerald-600 dark:group-hover:text-emerald-400 group-hover:underline">{a.name}</span>
+                                                            <span className="font-mono font-bold tabular-nums group-hover:underline">{formatCurrency(a.current_balance)}</span>
+                                                        </div>
+                                                    ))}
+                                                    <div
+                                                        onClick={() => openAccountQuickReport({ qb_account_id: 'GROUP:OCA', name: t('external_accounting.bs_total_oca'), account_type: 'Other Current Asset' })}
+                                                        className="flex justify-between py-1.5 px-3 rounded-lg bg-slate-50 dark:bg-slate-800/60 hover:bg-emerald-500/15 font-black cursor-pointer transition-colors border-t border-slate-200 dark:border-slate-700 group"
+                                                    >
+                                                        <span className="group-hover:underline">{t('external_accounting.bs_total_oca')}</span>
+                                                        <span className="font-mono tabular-nums underline decoration-dotted">{formatCurrency(reportData.balanceSheet.totalOtherCurrentAssets)}</span>
+                                                    </div>
+                                                </div>
+                                            )}
+
+                                            {/* Total Current Assets */}
+                                            <div
+                                                onClick={() => openAccountQuickReport({ qb_account_id: 'GROUP:CURRENT_ASSETS', name: t('external_accounting.bs_total_current_assets'), account_type: 'Current Assets' })}
+                                                className="flex justify-between py-2 px-3 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 font-black cursor-pointer transition-colors border-t border-emerald-500/30"
+                                            >
+                                                <span>{t('external_accounting.bs_total_current_assets')}</span>
+                                                <span className="font-mono tabular-nums underline decoration-dotted">{formatCurrency(reportData.balanceSheet.totalCurrentAssets)}</span>
+                                            </div>
+
+                                            {/* Fixed Assets */}
+                                            {(reportData.balanceSheet.fixedAssets?.length > 0) && (
+                                                <div className="pl-3 space-y-0.5 pt-2">
+                                                    <div className="font-semibold text-slate-500 dark:text-slate-400 px-2 py-1">
+                                                        ▾ {t('external_accounting.bs_fixed_assets')}
+                                                    </div>
+                                                    {reportData.balanceSheet.fixedAssets.map((a: any) => (
+                                                        <div
+                                                            key={a.id}
+                                                            onClick={() => openAccountQuickReport(a)}
+                                                            style={{ paddingLeft: `${16 + (a.depth || 0) * 16}px` }}
+                                                            className="flex justify-between py-1.5 pr-3 rounded-lg hover:bg-emerald-500/10 cursor-pointer transition-colors group"
+                                                        >
+                                                            <span className="group-hover:text-emerald-600 dark:group-hover:text-emerald-400 group-hover:underline">{a.name}</span>
+                                                            <span className="font-mono font-bold tabular-nums group-hover:underline">{formatCurrency(a.current_balance)}</span>
+                                                        </div>
+                                                    ))}
+                                                    <div
+                                                        onClick={() => openAccountQuickReport({ qb_account_id: 'GROUP:FIXED_ASSETS', name: t('external_accounting.bs_total_fixed_assets'), account_type: 'Fixed Asset' })}
+                                                        className="flex justify-between py-1.5 px-3 rounded-lg bg-slate-50 dark:bg-slate-800/60 hover:bg-emerald-500/15 font-black cursor-pointer transition-colors border-t border-slate-200 dark:border-slate-700 group"
+                                                    >
+                                                        <span className="group-hover:underline">{t('external_accounting.bs_total_fixed_assets')}</span>
+                                                        <span className="font-mono tabular-nums underline decoration-dotted">{formatCurrency(reportData.balanceSheet.totalFixedAssets)}</span>
+                                                    </div>
+                                                </div>
+                                            )}
+
+                                            {/* Other Assets */}
+                                            {(reportData.balanceSheet.otherAssets?.length > 0) && (
+                                                <div className="pl-3 space-y-0.5 pt-2">
+                                                    <div className="font-semibold text-slate-500 dark:text-slate-400 px-2 py-1">
+                                                        ▾ {t('external_accounting.bs_other_assets')}
+                                                    </div>
+                                                    {reportData.balanceSheet.otherAssets.map((a: any) => (
+                                                        <div
+                                                            key={a.id}
+                                                            onClick={() => openAccountQuickReport(a)}
+                                                            style={{ paddingLeft: `${16 + (a.depth || 0) * 16}px` }}
+                                                            className="flex justify-between py-1.5 pr-3 rounded-lg hover:bg-emerald-500/10 cursor-pointer transition-colors group"
+                                                        >
+                                                            <span className="group-hover:text-emerald-600 dark:group-hover:text-emerald-400 group-hover:underline">{a.name}</span>
+                                                            <span className="font-mono font-bold tabular-nums group-hover:underline">{formatCurrency(a.current_balance)}</span>
+                                                        </div>
+                                                    ))}
+                                                    <div
+                                                        onClick={() => openAccountQuickReport({ qb_account_id: 'GROUP:OTHER_ASSETS', name: t('external_accounting.bs_total_other_assets'), account_type: 'Other Asset' })}
+                                                        className="flex justify-between py-1.5 px-3 rounded-lg bg-slate-50 dark:bg-slate-800/60 hover:bg-emerald-500/15 font-black cursor-pointer transition-colors border-t border-slate-200 dark:border-slate-700 group"
+                                                    >
+                                                        <span className="group-hover:underline">{t('external_accounting.bs_total_other_assets')}</span>
+                                                        <span className="font-mono tabular-nums underline decoration-dotted">{formatCurrency(reportData.balanceSheet.totalOtherAssets)}</span>
+                                                    </div>
+                                                </div>
+                                            )}
+
+                                            {/* TOTAL ASSETS */}
+                                            <div
+                                                onClick={() => openAccountQuickReport({ qb_account_id: 'GROUP:TOTAL_ASSETS', name: t('external_accounting.total_assets'), account_type: 'Assets' })}
+                                                className="flex justify-between py-2.5 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-sm cursor-pointer transition-colors mt-2"
+                                            >
+                                                <span>{t('external_accounting.total_assets')}</span>
+                                                <span className="font-mono tabular-nums underline decoration-dotted">{formatCurrency(reportData.balanceSheet.totalAssets)}</span>
+                                            </div>
                                         </div>
                                     </div>
 
-                                    <div>
-                                        <h3 className="font-black uppercase text-amber-600 mb-2">{t('external_accounting.liabilities_section')}</h3>
-                                        {reportData.balanceSheet.liabilities.map((a: any) => (
-                                            <div
-                                                key={a.id}
-                                                onClick={() => openRecordPreview('account', a)}
-                                                className="flex justify-between py-1.5 px-2 rounded-lg border-b border-slate-100 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/50 cursor-pointer transition-colors"
-                                            >
-                                                <span>{a.name} ({a.account_type})</span>
-                                                <span className="font-mono font-bold">{formatCurrency(a.current_balance)}</span>
-                                            </div>
-                                        ))}
-                                        <div className="flex justify-between py-2.5 font-black bg-amber-500/10 px-2 mt-1">
-                                            <span>{t('external_accounting.total_liabilities')}</span>
-                                            <span className="font-mono">{formatCurrency(reportData.balanceSheet.totalLiabilities)}</span>
+                                    {/* LIABILITIES & EQUITY */}
+                                    <div className="rounded-xl border border-slate-200 dark:border-slate-800 overflow-hidden">
+                                        <div className="bg-amber-500/10 px-3 py-2 font-black uppercase tracking-wider text-amber-700 dark:text-amber-300 border-b border-slate-200 dark:border-slate-800">
+                                            {t('external_accounting.liabilities_section')} & {t('external_accounting.equity_section')}
                                         </div>
-                                    </div>
 
-                                    <div>
-                                        <h3 className="font-black uppercase text-blue-600 mb-2">{t('external_accounting.equity_section')}</h3>
-                                        {reportData.balanceSheet.equity.map((a: any) => (
-                                            <div
-                                                key={a.id}
-                                                onClick={() => openRecordPreview('account', a)}
-                                                className="flex justify-between py-1.5 px-2 rounded-lg border-b border-slate-100 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/50 cursor-pointer transition-colors"
-                                            >
-                                                <span>{a.name}</span>
-                                                <span className="font-mono font-bold">{formatCurrency(a.current_balance)}</span>
+                                        <div className="p-2 space-y-2">
+                                            <div className="font-bold text-slate-700 dark:text-slate-300 px-2 pt-1">
+                                                ▾ {t('external_accounting.bs_current_liabilities')}
                                             </div>
-                                        ))}
-                                        <div className="flex justify-between py-1.5 border-b border-slate-100 dark:border-slate-800 italic">
-                                            <span>{t('external_accounting.retained_net_income')}</span>
-                                            <span className="font-mono font-bold">{formatCurrency(reportData.balanceSheet.retainedNetIncome)}</span>
-                                        </div>
-                                        <div className="flex justify-between py-2.5 font-black bg-blue-500/10 px-2 mt-1">
-                                            <span>{t('external_accounting.total_liabilities_equity')}</span>
-                                            <span className="font-mono">{formatCurrency(reportData.balanceSheet.totalLiabilitiesAndEquity)}</span>
+
+                                            {/* Accounts Payable */}
+                                            {(reportData.balanceSheet.accountsPayable?.length > 0) && (
+                                                <div className="pl-3 space-y-0.5">
+                                                    <div className="font-semibold text-slate-500 dark:text-slate-400 px-2 py-1">
+                                                        ▾ {t('external_accounting.bs_accounts_payable')}
+                                                    </div>
+                                                    {reportData.balanceSheet.accountsPayable.map((a: any) => (
+                                                        <div
+                                                            key={a.id}
+                                                            onClick={() => openAccountQuickReport(a)}
+                                                            style={{ paddingLeft: `${16 + (a.depth || 0) * 16}px` }}
+                                                            className="flex justify-between py-1.5 pr-3 rounded-lg hover:bg-amber-500/10 cursor-pointer transition-colors group"
+                                                        >
+                                                            <span className="group-hover:underline">{a.name}</span>
+                                                            <span className="font-mono font-bold tabular-nums group-hover:underline">{formatCurrency(a.current_balance)}</span>
+                                                        </div>
+                                                    ))}
+                                                    <div
+                                                        onClick={() => openAccountQuickReport({ qb_account_id: 'GROUP:AP', name: t('external_accounting.bs_total_ap'), account_type: 'Accounts Payable' })}
+                                                        className="flex justify-between py-1.5 px-3 rounded-lg bg-slate-50 dark:bg-slate-800/60 hover:bg-amber-500/15 font-black cursor-pointer transition-colors border-t border-slate-200 dark:border-slate-700"
+                                                    >
+                                                        <span>{t('external_accounting.bs_total_ap')}</span>
+                                                        <span className="font-mono tabular-nums underline decoration-dotted">{formatCurrency(reportData.balanceSheet.totalAccountsPayable)}</span>
+                                                    </div>
+                                                </div>
+                                            )}
+
+                                            {/* Credit Cards */}
+                                            {(reportData.balanceSheet.creditCards?.length > 0) && (
+                                                <div className="pl-3 space-y-0.5 pt-1">
+                                                    <div className="font-semibold text-slate-500 dark:text-slate-400 px-2 py-1">
+                                                        ▾ {t('external_accounting.bs_credit_cards')}
+                                                    </div>
+                                                    {reportData.balanceSheet.creditCards.map((a: any) => (
+                                                        <div
+                                                            key={a.id}
+                                                            onClick={() => openAccountQuickReport(a)}
+                                                            style={{ paddingLeft: `${16 + (a.depth || 0) * 16}px` }}
+                                                            className="flex justify-between py-1.5 pr-3 rounded-lg hover:bg-amber-500/10 cursor-pointer transition-colors group"
+                                                        >
+                                                            <span className="group-hover:underline">{a.name}</span>
+                                                            <span className="font-mono font-bold tabular-nums group-hover:underline">{formatCurrency(a.current_balance)}</span>
+                                                        </div>
+                                                    ))}
+                                                    <div
+                                                        onClick={() => openAccountQuickReport({ qb_account_id: 'GROUP:CC', name: t('external_accounting.bs_total_cc'), account_type: 'Credit Card' })}
+                                                        className="flex justify-between py-1.5 px-3 rounded-lg bg-slate-50 dark:bg-slate-800/60 hover:bg-amber-500/15 font-black cursor-pointer transition-colors border-t border-slate-200 dark:border-slate-700"
+                                                    >
+                                                        <span>{t('external_accounting.bs_total_cc')}</span>
+                                                        <span className="font-mono tabular-nums underline decoration-dotted">{formatCurrency(reportData.balanceSheet.totalCreditCards)}</span>
+                                                    </div>
+                                                </div>
+                                            )}
+
+                                            {/* Other Current Liabilities */}
+                                            {(reportData.balanceSheet.otherCurrentLiabilities?.length > 0) && (
+                                                <div className="pl-3 space-y-0.5 pt-1">
+                                                    <div className="font-semibold text-slate-500 dark:text-slate-400 px-2 py-1">
+                                                        ▾ {t('external_accounting.bs_other_current_liabilities')}
+                                                    </div>
+                                                    {reportData.balanceSheet.otherCurrentLiabilities.map((a: any) => (
+                                                        <div
+                                                            key={a.id}
+                                                            onClick={() => openAccountQuickReport(a)}
+                                                            style={{ paddingLeft: `${16 + (a.depth || 0) * 16}px` }}
+                                                            className="flex justify-between py-1.5 pr-3 rounded-lg hover:bg-amber-500/10 cursor-pointer transition-colors group"
+                                                        >
+                                                            <span className="group-hover:underline">{a.name}</span>
+                                                            <span className="font-mono font-bold tabular-nums group-hover:underline">{formatCurrency(a.current_balance)}</span>
+                                                        </div>
+                                                    ))}
+                                                    <div
+                                                        onClick={() => openAccountQuickReport({ qb_account_id: 'GROUP:OCL', name: t('external_accounting.bs_total_ocl'), account_type: 'Other Current Liability' })}
+                                                        className="flex justify-between py-1.5 px-3 rounded-lg bg-slate-50 dark:bg-slate-800/60 hover:bg-amber-500/15 font-black cursor-pointer transition-colors border-t border-slate-200 dark:border-slate-700"
+                                                    >
+                                                        <span>{t('external_accounting.bs_total_ocl')}</span>
+                                                        <span className="font-mono tabular-nums underline decoration-dotted">{formatCurrency(reportData.balanceSheet.totalOtherCurrentLiabilities)}</span>
+                                                    </div>
+                                                </div>
+                                            )}
+
+                                            {/* Total Current Liabilities */}
+                                            <div
+                                                onClick={() => openAccountQuickReport({ qb_account_id: 'GROUP:CURRENT_LIABILITIES', name: t('external_accounting.bs_total_current_liabilities'), account_type: 'Current Liabilities' })}
+                                                className="flex justify-between py-2 px-3 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 font-black cursor-pointer transition-colors border-t border-amber-500/30"
+                                            >
+                                                <span>{t('external_accounting.bs_total_current_liabilities')}</span>
+                                                <span className="font-mono tabular-nums underline decoration-dotted">{formatCurrency(reportData.balanceSheet.totalCurrentLiabilities)}</span>
+                                            </div>
+
+                                            {/* Long-Term Liabilities */}
+                                            {(reportData.balanceSheet.longTermLiabilities?.length > 0) && (
+                                                <div className="pl-3 space-y-0.5 pt-2">
+                                                    <div className="font-semibold text-slate-500 dark:text-slate-400 px-2 py-1">
+                                                        ▾ {t('external_accounting.bs_long_term_liabilities')}
+                                                    </div>
+                                                    {reportData.balanceSheet.longTermLiabilities.map((a: any) => (
+                                                        <div
+                                                            key={a.id}
+                                                            onClick={() => openAccountQuickReport(a)}
+                                                            style={{ paddingLeft: `${16 + (a.depth || 0) * 16}px` }}
+                                                            className="flex justify-between py-1.5 pr-3 rounded-lg hover:bg-amber-500/10 cursor-pointer transition-colors group"
+                                                        >
+                                                            <span className="group-hover:underline">{a.name}</span>
+                                                            <span className="font-mono font-bold tabular-nums group-hover:underline">{formatCurrency(a.current_balance)}</span>
+                                                        </div>
+                                                    ))}
+                                                    <div
+                                                        onClick={() => openAccountQuickReport({ qb_account_id: 'GROUP:LTL', name: t('external_accounting.bs_total_ltl'), account_type: 'Long Term Liability' })}
+                                                        className="flex justify-between py-1.5 px-3 rounded-lg bg-slate-50 dark:bg-slate-800/60 hover:bg-amber-500/15 font-black cursor-pointer transition-colors border-t border-slate-200 dark:border-slate-700"
+                                                    >
+                                                        <span>{t('external_accounting.bs_total_ltl')}</span>
+                                                        <span className="font-mono tabular-nums underline decoration-dotted">{formatCurrency(reportData.balanceSheet.totalLongTermLiabilities)}</span>
+                                                    </div>
+                                                </div>
+                                            )}
+
+                                            {/* Total Liabilities */}
+                                            <div
+                                                onClick={() => openAccountQuickReport({ qb_account_id: 'GROUP:TOTAL_LIABILITIES', name: t('external_accounting.total_liabilities'), account_type: 'Liabilities' })}
+                                                className="flex justify-between py-2 px-3 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 font-black cursor-pointer transition-colors"
+                                            >
+                                                <span>{t('external_accounting.total_liabilities')}</span>
+                                                <span className="font-mono tabular-nums underline decoration-dotted">{formatCurrency(reportData.balanceSheet.totalLiabilities)}</span>
+                                            </div>
+
+                                            {/* Equity */}
+                                            <div className="pt-3">
+                                                <div className="font-bold text-blue-600 dark:text-blue-400 px-2 py-1">
+                                                    ▾ {t('external_accounting.equity_section')}
+                                                </div>
+                                                <div className="pl-3 space-y-0.5">
+                                                    {reportData.balanceSheet.equity.map((a: any) => (
+                                                        <div
+                                                            key={a.id}
+                                                            onClick={() => openAccountQuickReport(a)}
+                                                            style={{ paddingLeft: `${16 + (a.depth || 0) * 16}px` }}
+                                                            className="flex justify-between py-1.5 pr-3 rounded-lg hover:bg-blue-500/10 cursor-pointer transition-colors group"
+                                                        >
+                                                            <span className="group-hover:underline">{a.name}</span>
+                                                            <span className="font-mono font-bold tabular-nums group-hover:underline">{formatCurrency(a.current_balance)}</span>
+                                                        </div>
+                                                    ))}
+                                                    <div
+                                                        onClick={() => {
+                                                            setReportType('pnl')
+                                                        }}
+                                                        className="flex justify-between py-1.5 pl-4 pr-3 rounded-lg hover:bg-blue-500/10 cursor-pointer italic transition-colors group"
+                                                    >
+                                                        <span className="group-hover:underline">{t('external_accounting.retained_net_income')}</span>
+                                                        <span className="font-mono font-bold tabular-nums group-hover:underline">{formatCurrency(reportData.balanceSheet.retainedNetIncome)}</span>
+                                                    </div>
+                                                    <div
+                                                        onClick={() => openAccountQuickReport({ qb_account_id: 'GROUP:EQUITY', name: t('external_accounting.bs_total_equity'), account_type: 'Equity' })}
+                                                        className="flex justify-between py-2 px-3 rounded-lg bg-blue-500/10 hover:bg-blue-500/20 font-black cursor-pointer transition-colors border-t border-blue-500/30"
+                                                    >
+                                                        <span>{t('external_accounting.bs_total_equity')}</span>
+                                                        <span className="font-mono tabular-nums underline decoration-dotted">{formatCurrency(reportData.balanceSheet.totalEquity)}</span>
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            {/* TOTAL LIABILITIES AND EQUITY */}
+                                            <div
+                                                onClick={() => openAccountQuickReport({ qb_account_id: 'GROUP:LIABILITIES_AND_EQUITY', name: t('external_accounting.total_liabilities_equity'), account_type: 'Liabilities & Equity' })}
+                                                className="flex justify-between py-2.5 px-3 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-black text-sm cursor-pointer transition-colors mt-2"
+                                            >
+                                                <span>{t('external_accounting.total_liabilities_equity')}</span>
+                                                <span className="font-mono tabular-nums text-emerald-400 underline decoration-dotted">{formatCurrency(reportData.balanceSheet.totalLiabilitiesAndEquity)}</span>
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
@@ -6054,24 +7540,31 @@ function ExternalAccountingContent() {
                                     </thead>
                                     <tbody className="divide-y divide-slate-200/70 dark:divide-slate-800">
                                         {reportData.trialBalance.rows.map((r: any) => {
-                                            const matchedAcct = accounts.find(a => a.qb_account_id === r.account_id || a.name === r.name)
+                                            const matchedAcct = accounts.find(a => a.qb_account_id === r.account_id || a.name === r.name) || {
+                                                qb_account_id: r.account_id,
+                                                name: r.name,
+                                                account_type: r.account_type
+                                            }
                                             return (
                                                 <tr
                                                     key={r.account_id}
-                                                    onClick={() => matchedAcct && openRecordPreview('account', matchedAcct)}
-                                                    className={matchedAcct ? 'hover:bg-slate-50 dark:hover:bg-slate-800/50 cursor-pointer transition-colors' : ''}
+                                                    onClick={() => openAccountQuickReport(matchedAcct)}
+                                                    className="hover:bg-slate-50 dark:hover:bg-slate-800/50 cursor-pointer transition-colors"
                                                 >
-                                                    <td className="py-2 px-3 font-semibold">{r.name}</td>
+                                                    <td className="py-2 px-3 font-semibold hover:underline">{r.name}</td>
                                                     <td className="py-2 px-3 text-slate-500">{r.account_type}</td>
                                                     <td className="py-2 px-3 text-right font-mono">{r.debit ? formatCurrency(r.debit) : '—'}</td>
                                                     <td className="py-2 px-3 text-right font-mono">{r.credit ? formatCurrency(r.credit) : '—'}</td>
                                                 </tr>
                                             )
                                         })}
-                                        <tr className="bg-slate-100 dark:bg-slate-800 font-black">
-                                            <td colSpan={2} className="py-2.5 px-3">{t('external_accounting.totals_label')}</td>
-                                            <td className="py-2.5 px-3 text-right font-mono">{formatCurrency(reportData.trialBalance.totalDebit)}</td>
-                                            <td className="py-2.5 px-3 text-right font-mono">{formatCurrency(reportData.trialBalance.totalCredit)}</td>
+                                        <tr
+                                            onClick={() => openAccountQuickReport({ qb_account_id: 'GROUP:ALL_TRIAL_BALANCE', name: t('external_accounting.report_trial_balance') })}
+                                            className="bg-slate-100 dark:bg-slate-800 hover:bg-emerald-500/15 font-black cursor-pointer transition-colors"
+                                        >
+                                            <td colSpan={2} className="py-2.5 px-3 underline decoration-dotted">{t('external_accounting.totals_label')}</td>
+                                            <td className="py-2.5 px-3 text-right font-mono underline decoration-dotted">{formatCurrency(reportData.trialBalance.totalDebit)}</td>
+                                            <td className="py-2.5 px-3 text-right font-mono underline decoration-dotted">{formatCurrency(reportData.trialBalance.totalCredit)}</td>
                                         </tr>
                                     </tbody>
                                 </table>
@@ -6090,25 +7583,33 @@ function ExternalAccountingContent() {
                                         </tr>
                                     </thead>
                                     <tbody className="divide-y divide-slate-200/70 dark:divide-slate-800">
-                                        {reportData.entitySummary.rows.map((r: any) => {
-                                            const matchedContact = contacts.find(c => c.display_name === r.name)
-                                            return (
-                                                <tr
-                                                    key={r.name}
-                                                    onClick={() => matchedContact && openRecordPreview('contact', matchedContact)}
-                                                    className={matchedContact ? 'hover:bg-slate-50 dark:hover:bg-slate-800/50 cursor-pointer transition-colors' : ''}
-                                                >
-                                                    <td className="py-2 px-3 font-bold">{r.name}</td>
-                                                    <td className="py-2 px-3 text-slate-500">{r.categories}</td>
-                                                    <td className="py-2 px-3 text-center font-mono">{r.count}</td>
-                                                    <td className="py-2 px-3 text-center font-mono">{r.last_date}</td>
-                                                    <td className="py-2 px-3 text-right font-mono font-black">{formatCurrency(r.total_amount)}</td>
-                                                </tr>
-                                            )
-                                        })}
-                                        <tr className="bg-slate-100 dark:bg-slate-800 font-black">
-                                            <td colSpan={4} className="py-2.5 px-3">{t('external_accounting.totals_label')}</td>
-                                            <td className="py-2.5 px-3 text-right font-mono">{formatCurrency(reportData.entitySummary.grandTotal)}</td>
+                                        {reportData.entitySummary.rows.map((r: any) => (
+                                            <tr
+                                                key={r.name}
+                                                onClick={() => openPnlDrilldownReport({
+                                                    category: `${r.name} — ${reportType === 'vendor_expenses' ? t('external_accounting.report_vendor_expenses') : t('external_accounting.report_customer_income')}`,
+                                                    amount: Number(r.total_amount || 0),
+                                                    transactions: r.transactions || []
+                                                }, reportType === 'vendor_expenses' ? 'Expense' : 'Income')}
+                                                className="hover:bg-slate-50 dark:hover:bg-slate-800/50 cursor-pointer transition-colors group"
+                                            >
+                                                <td className="py-2 px-3 font-bold group-hover:underline">{r.name}</td>
+                                                <td className="py-2 px-3 text-slate-500">{r.categories}</td>
+                                                <td className="py-2 px-3 text-center font-mono">{r.count}</td>
+                                                <td className="py-2 px-3 text-center font-mono">{r.last_date}</td>
+                                                <td className="py-2 px-3 text-right font-mono font-black group-hover:underline">{formatCurrency(r.total_amount)}</td>
+                                            </tr>
+                                        ))}
+                                        <tr
+                                            onClick={() => openPnlDrilldownReport({
+                                                category: reportType === 'vendor_expenses' ? t('external_accounting.report_vendor_expenses') : t('external_accounting.report_customer_income'),
+                                                amount: Number(reportData.entitySummary.grandTotal || 0),
+                                                transactions: reportData.entitySummary.rows.flatMap((x: any) => x.transactions || [])
+                                            }, reportType === 'vendor_expenses' ? 'Expense' : 'Income')}
+                                            className="bg-slate-100 dark:bg-slate-800 hover:bg-emerald-500/15 font-black cursor-pointer transition-colors"
+                                        >
+                                            <td colSpan={4} className="py-2.5 px-3 underline decoration-dotted">{t('external_accounting.totals_label')}</td>
+                                            <td className="py-2.5 px-3 text-right font-mono underline decoration-dotted">{formatCurrency(reportData.entitySummary.grandTotal)}</td>
                                         </tr>
                                     </tbody>
                                 </table>
@@ -6204,9 +7705,12 @@ function ExternalAccountingContent() {
                                 <div className="space-y-4">
                                     {reportData.generalLedger.map((acct: any) => (
                                         <div key={acct.account_name} className="rounded-xl border border-slate-200 dark:border-slate-800 p-3.5">
-                                            <div className="flex items-center justify-between font-black text-xs mb-2">
-                                                <span>{acct.account_name} ({acct.entries?.length || 0})</span>
-                                                <span className="font-mono">
+                                            <div
+                                                onClick={() => openAccountQuickReport({ qb_account_id: acct.account_id || '', name: acct.account_name })}
+                                                className="flex items-center justify-between font-black text-xs mb-2 cursor-pointer hover:text-emerald-600 dark:hover:text-emerald-400 group"
+                                            >
+                                                <span className="group-hover:underline">▾ {acct.account_name} ({acct.entries?.length || 0})</span>
+                                                <span className="font-mono group-hover:underline">
                                                     Debit: {formatCurrency(acct.total_debit)} · Credit: {formatCurrency(acct.total_credit)}
                                                 </span>
                                             </div>
@@ -6254,28 +7758,42 @@ function ExternalAccountingContent() {
                                             </tr>
                                         </thead>
                                         <tbody className="divide-y divide-slate-200/70 dark:divide-slate-800">
-                                            {reportData.archiveReport.rows.map((r: any, idx: number) => (
-                                                <tr
-                                                    key={idx}
-                                                    className={
-                                                        r.rowType === 'summary'
-                                                            ? 'bg-emerald-500/10 font-black'
-                                                            : r.rowType === 'section_header'
-                                                            ? 'bg-slate-50 dark:bg-slate-800/40 font-bold'
-                                                            : ''
-                                                    }
-                                                >
-                                                    {r.cells.map((cell: string, ci: number) => (
-                                                        <td
-                                                            key={ci}
-                                                            style={ci === 0 ? { paddingLeft: `${12 + (r.depth || 0) * 14}px` } : undefined}
-                                                            className={`py-1.5 px-3 ${ci === 0 ? 'text-left' : 'text-right font-mono'}`}
-                                                        >
-                                                            {cell}
-                                                        </td>
-                                                    ))}
-                                                </tr>
-                                            ))}
+                                            {reportData.archiveReport.rows.map((r: any, idx: number) => {
+                                                const label = String(r.cells?.[0] || '').trim()
+                                                const matchedAcc = accounts.find(a =>
+                                                    a.name.toLowerCase() === label.toLowerCase() ||
+                                                    (a.fully_qualified_name && a.fully_qualified_name.toLowerCase().endsWith(label.toLowerCase()))
+                                                )
+                                                return (
+                                                    <tr
+                                                        key={idx}
+                                                        onClick={() => {
+                                                            if (matchedAcc) {
+                                                                openAccountQuickReport(matchedAcc)
+                                                            } else if (label && r.rowType !== 'section_header') {
+                                                                openAccountQuickReport({ qb_account_id: '', name: label, account_type: 'Archive' })
+                                                            }
+                                                        }}
+                                                        className={
+                                                            r.rowType === 'summary'
+                                                                ? 'bg-emerald-500/10 font-black cursor-pointer hover:bg-emerald-500/20'
+                                                                : r.rowType === 'section_header'
+                                                                ? 'bg-slate-50 dark:bg-slate-800/40 font-bold'
+                                                                : 'cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/40 group'
+                                                        }
+                                                    >
+                                                        {r.cells.map((cell: string, ci: number) => (
+                                                            <td
+                                                                key={ci}
+                                                                style={ci === 0 ? { paddingLeft: `${12 + (r.depth || 0) * 14}px` } : undefined}
+                                                                className={`py-1.5 px-3 ${ci === 0 ? 'text-left group-hover:underline' : 'text-right font-mono group-hover:underline'}`}
+                                                            >
+                                                                {cell}
+                                                            </td>
+                                                        ))}
+                                                    </tr>
+                                                )
+                                            })}
                                         </tbody>
                                     </table>
                                 </div>
@@ -6959,6 +8477,41 @@ function ExternalAccountingContent() {
                             </select>
                             <button
                                 type="button"
+                                onClick={() => {
+                                    const rowsHtml = budgetComparisonRows.map(b => `<tr>
+                                        <td>${escapeHtml(b.account_name)}</td>
+                                        <td>${escapeHtml(b.account_type)}</td>
+                                        <td class="num">${Number(b.annualBudget || 0).toFixed(2)}</td>
+                                        <td class="num">${Number(b.actual || 0).toFixed(2)}</td>
+                                        <td class="num">${Number(b.variance || 0).toFixed(2)}</td>
+                                        <td class="num">${escapeHtml(String(b.pct))}%</td>
+                                    </tr>`).join('')
+                                    const tableHtml = `<table>
+                                        <thead><tr>
+                                            <th>${escapeHtml(t('external_accounting.col_acct_name'))}</th>
+                                            <th>${escapeHtml(t('external_accounting.col_acct_type'))}</th>
+                                            <th class="right">${escapeHtml(t('external_accounting.budget_col_annual'))}</th>
+                                            <th class="right">${escapeHtml(t('external_accounting.budget_col_actual'))}</th>
+                                            <th class="right">${escapeHtml(t('external_accounting.budget_col_variance'))}</th>
+                                            <th class="right">${escapeHtml(t('external_accounting.budget_col_pct'))}</th>
+                                        </tr></thead>
+                                        <tbody>${rowsHtml}</tbody>
+                                    </table>`
+                                    downloadStyledExcelXls(
+                                        `Budget_${(activeCompany?.company_name || 'Company').replace(/\s+/g, '_')}_${budgetYear}`,
+                                        activeCompany?.legal_name || activeCompany?.company_name || 'Company',
+                                        `${t('external_accounting.budget_title')} (${budgetYear})`,
+                                        `Fiscal Year ${budgetYear}`,
+                                        tableHtml
+                                    )
+                                }}
+                                className="px-3.5 py-2 rounded-xl border border-emerald-500/30 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 text-xs font-bold cursor-pointer"
+                            >
+                                <Download size={14} className="inline mr-1" />
+                                .XLS
+                            </button>
+                            <button
+                                type="button"
                                 onClick={handlePrintBudgetReport}
                                 className="px-3.5 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 text-xs font-bold cursor-pointer"
                             >
@@ -7003,13 +8556,37 @@ function ExternalAccountingContent() {
                                         <td className="py-2 px-3 font-bold">{b.account_name}</td>
                                         <td className="py-2 px-3 text-slate-500">{b.account_type}</td>
                                         <td className="py-2 px-3 text-right font-mono font-bold">{formatCurrency(b.annualBudget)}</td>
-                                        <td className="py-2 px-3 text-right font-mono">{formatCurrency(b.actual)}</td>
+                                        <td
+                                            onClick={(e) => {
+                                                e.stopPropagation()
+                                                openAccountQuickReport({
+                                                    qb_account_id: b.account_qb_id,
+                                                    name: b.account_name,
+                                                    account_type: b.account_type
+                                                })
+                                            }}
+                                            title={t('external_accounting.drilldown_click_hint')}
+                                            className="py-2 px-3 text-right font-mono font-bold hover:text-emerald-600 dark:hover:text-emerald-400 hover:underline cursor-pointer"
+                                        >
+                                            {formatCurrency(b.actual)}
+                                        </td>
                                         <td className={`py-2 px-3 text-right font-mono font-bold ${b.variance > 0 ? 'text-amber-600' : 'text-emerald-600'}`}>
                                             {formatCurrency(b.variance)}
                                         </td>
                                         <td className="py-2 px-3 text-right font-mono">{b.pct}%</td>
                                         <td className="py-2 px-3 text-right whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
                                             <div className="inline-flex items-center gap-1">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => openAccountQuickReport({
+                                                        qb_account_id: b.account_qb_id,
+                                                        name: b.account_name,
+                                                        account_type: b.account_type
+                                                    })}
+                                                    className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 hover:underline cursor-pointer mr-1"
+                                                >
+                                                    {t('external_accounting.coa_action_run_report')}
+                                                </button>
                                                 <button
                                                     type="button"
                                                     onClick={() => handlePrintRecord('budget', b)}
@@ -7044,25 +8621,58 @@ function ExternalAccountingContent() {
                 </div>
             )}
 
-            {/* TAB 12: ALL LISTS — PRODUCTS & SERVICES, DEPARTMENTS, PAYMENT METHODS, TERMS (GEAR ⚙️ -> LISTS) */}
+            {/* TAB 12: ALL LISTS — QBO /app/lists 11-LIST RELATIONAL DIRECTORY */}
             {activeTab === 'lists' && (
-                <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 shadow-xs space-y-4">
-                    <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 shadow-xs space-y-5">
+                    {/* QBO /app/lists Top Relational Directory Banner (Chart of Accounts + Recurring + 9 Relational Lists) */}
+                    <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 dark:border-slate-800 pb-4">
+                        <div>
+                            <h2 className="text-base font-black text-slate-900 dark:text-white">
+                                {t('external_accounting.tab_lists')} — {activeCompany?.legal_name || activeCompany?.company_name}
+                            </h2>
+                            <p className="text-xs text-slate-500 dark:text-slate-400">
+                                QuickBooks Online `/app/lists` Relational Master Tables (Chart of Accounts · Products & Services · Categories · Locations/Properties · Classes · Payment Methods · Terms · Custom Fields · Attachments · Cost Groups)
+                            </p>
+                        </div>
                         <div className="flex flex-wrap items-center gap-2">
+                            <button
+                                type="button"
+                                onClick={() => setActiveTab('accounts')}
+                                className="px-3 py-1.5 rounded-xl border border-emerald-500/40 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 text-xs font-bold cursor-pointer"
+                            >
+                                📊 {t('external_accounting.tab_accounts')} ({accounts.length})
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setActiveTab('recurring')}
+                                className="px-3 py-1.5 rounded-xl border border-blue-500/40 bg-blue-500/10 hover:bg-blue-500/20 text-blue-700 dark:text-blue-300 text-xs font-bold cursor-pointer"
+                            >
+                                🔄 {t('external_accounting.tab_recurring')} ({recurring.length})
+                            </button>
+                        </div>
+                    </div>
+
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div className="flex flex-wrap items-center gap-1.5">
                             {([
                                 { key: 'items', label: `${t('external_accounting.lists_tab_items')} (${companyLists.items?.length || 0})` },
+                                { key: 'categories', label: `${t('external_accounting.lists_tab_categories')} (${companyLists.categories?.length || 0})` },
                                 { key: 'departments', label: `${t('external_accounting.lists_tab_departments')} (${companyLists.departments?.length || 0})` },
+                                { key: 'classes', label: `${t('external_accounting.lists_tab_classes')} (${companyLists.classes?.length || 0})` },
                                 { key: 'paymentMethods', label: `${t('external_accounting.lists_tab_payment_methods')} (${companyLists.paymentMethods?.length || 0})` },
                                 { key: 'terms', label: `${t('external_accounting.lists_tab_terms')} (${companyLists.terms?.length || 0})` },
+                                { key: 'customFields', label: `${t('external_accounting.lists_tab_custom_fields')} (${companyLists.customFields?.length || 0})` },
+                                { key: 'attachments', label: `${t('external_accounting.lists_tab_attachments')} (${companyLists.attachments?.length || 0})` },
+                                { key: 'costGroups', label: `${t('external_accounting.lists_tab_cost_groups')} (${companyLists.costGroups?.length || 0})` },
                             ] as const).map(sub => (
                                 <button
                                     key={sub.key}
                                     type="button"
                                     onClick={() => setActiveListKey(sub.key)}
-                                    className={`px-3.5 py-2 rounded-xl text-xs font-bold cursor-pointer ${
+                                    className={`px-3 py-2 rounded-xl text-xs font-bold cursor-pointer transition-colors ${
                                         activeListKey === sub.key
-                                            ? 'bg-emerald-600 text-white'
-                                            : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300'
+                                            ? 'bg-emerald-600 text-white shadow-xs'
+                                            : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
                                     }`}
                                 >
                                     {sub.label}
@@ -7076,7 +8686,16 @@ function ExternalAccountingContent() {
                                 setListItemName('')
                                 setListItemDesc('')
                                 setListItemPrice('0')
-                                setListItemAccountId(accounts[0]?.qb_account_id || '')
+                                setListItemPurchaseCost('0')
+                                setListItemSku('')
+                                setListItemType('Service')
+                                setListItemAccountId(accounts.find(a => a.account_type === 'Income')?.qb_account_id || accounts[0]?.qb_account_id || '')
+                                setListItemExpenseAccountId(accounts.find(a => a.account_type === 'Expense' || a.account_type === 'Cost of Goods Sold')?.qb_account_id || '')
+                                setListItemCategoryId('')
+                                setListItemClassCode('')
+                                setListItemPaymentType('NON_CREDIT_CARD')
+                                setListItemDueDays('30')
+                                setListItemDiscountPct('0')
                                 setListItemModalOpen(true)
                             }}
                             className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold cursor-pointer"
@@ -7085,32 +8704,95 @@ function ExternalAccountingContent() {
                         </button>
                     </div>
 
-                    <div className="overflow-x-auto">
+                    <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800">
                         <table className="w-full text-xs border-collapse">
                             <thead>
                                 <tr className="bg-slate-100 dark:bg-slate-800 font-black uppercase text-[10px]">
                                     <th className="py-2.5 px-3 text-left">ID</th>
-                                    <th className="py-2.5 px-3 text-left">Name</th>
-                                    <th className="py-2.5 px-3 text-left">Type / Details</th>
-                                    <th className="py-2.5 px-3 text-right">Price / Value</th>
+                                    <th className="py-2.5 px-3 text-left">{t('external_accounting.col_acct_name')}</th>
+                                    <th className="py-2.5 px-3 text-left">{t('external_accounting.col_type')} / SKU / Code</th>
+                                    <th className="py-2.5 px-3 text-left">{t('external_accounting.lists_col_income_account')} / Details</th>
+                                    <th className="py-2.5 px-3 text-left">{t('external_accounting.lists_col_expense_account')} / Category</th>
+                                    <th className="py-2.5 px-3 text-right">Price / Terms</th>
                                     <th className="py-2.5 px-3 text-right">{t('external_accounting.col_actions')}</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-200/70 dark:divide-slate-800">
                                 {(companyLists[activeListKey] || []).map((it: any, i: number) => {
                                     const enrichedItem = { ...it, listKey: activeListKey }
+                                    const itemName = it.Name || it.FullyQualifiedName || it.name || it.file_name || '—'
+                                    const incomeAcctLabel = it.IncomeAccountRef?.name || it.income_account_name || ''
+                                    const expenseAcctLabel = it.ExpenseAccountRef?.name || it.expense_account_name || ''
+                                    const parentCatLabel = it.ParentRef?.name || it.category_name || ''
                                     return (
                                         <tr
-                                            key={it.Id || i}
+                                            key={it.Id || it.id || i}
                                             onClick={() => openRecordPreview('list_item', enrichedItem)}
                                             className="hover:bg-slate-50 dark:hover:bg-slate-800/50 cursor-pointer transition-colors"
                                         >
-                                            <td className="py-2 px-3 font-mono">{it.Id || i + 1}</td>
-                                            <td className="py-2 px-3 font-bold">{it.Name || it.FullyQualifiedName || '—'}</td>
-                                            <td className="py-2 px-3 text-slate-500">{it.Type || it.Description || it.IncomeAccountRef?.name || 'Active'}</td>
-                                            <td className="py-2 px-3 text-right font-mono">{it.UnitPrice != null ? formatCurrency(it.UnitPrice) : (it.DueDays != null ? `${it.DueDays} days` : '—')}</td>
+                                            <td className="py-2 px-3 font-mono text-slate-500">{it.Id || it.qb_id || i + 1}</td>
+                                            <td className="py-2 px-3 font-bold text-slate-900 dark:text-white">{itemName}</td>
+                                            <td className="py-2 px-3 text-slate-600 dark:text-slate-300 font-mono text-[11px]">
+                                                {it.Type || it.item_type || it.class_code || it.payment_type || it.field_type || it.mime_type || 'Active'}
+                                                {(it.Sku || it.sku) ? ` · SKU: ${it.Sku || it.sku}` : ''}
+                                            </td>
+                                            <td className="py-2 px-3 text-slate-600 dark:text-slate-300">
+                                                {incomeAcctLabel ? (
+                                                    <span className="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 font-semibold text-[11px]">
+                                                        {incomeAcctLabel}
+                                                    </span>
+                                                ) : (
+                                                    it.Description || it.description || it.entity_type || '—'
+                                                )}
+                                            </td>
+                                            <td className="py-2 px-3 text-slate-500">
+                                                {expenseAcctLabel && (
+                                                    <span className="px-2 py-0.5 rounded bg-amber-500/10 text-amber-700 dark:text-amber-300 font-semibold text-[11px] mr-1">
+                                                        {expenseAcctLabel}
+                                                    </span>
+                                                )}
+                                                {parentCatLabel && (
+                                                    <span className="px-2 py-0.5 rounded bg-blue-500/10 text-blue-700 dark:text-blue-300 font-semibold text-[10px]">
+                                                        {parentCatLabel}
+                                                    </span>
+                                                )}
+                                                {!expenseAcctLabel && !parentCatLabel && '—'}
+                                            </td>
+                                            <td className="py-2 px-3 text-right font-mono font-bold">
+                                                {it.UnitPrice != null
+                                                    ? formatCurrency(it.UnitPrice)
+                                                    : it.DueDays != null
+                                                    ? `${it.DueDays}d${it.DiscountPercent ? ` (${it.DiscountPercent}%)` : ''}`
+                                                    : it.file_size != null
+                                                    ? `${Math.round(Number(it.file_size) / 1024)} KB`
+                                                    : '—'}
+                                            </td>
                                             <td className="py-2 px-3 text-right whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
                                                 <div className="inline-flex items-center gap-1">
+                                                    {(activeListKey === 'items' || activeListKey === 'categories' || activeListKey === 'departments' || activeListKey === 'classes' || activeListKey === 'paymentMethods' || activeListKey === 'terms') && (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => {
+                                                                const qbId = String(it.Id || it.qb_id || it.id || '')
+                                                                if (activeListKey === 'items') {
+                                                                    openListOrContactQuickReport('item', itemName, qbId, itemName)
+                                                                } else if (activeListKey === 'departments') {
+                                                                    openListOrContactQuickReport('location', itemName, qbId, itemName)
+                                                                } else if (activeListKey === 'classes') {
+                                                                    openListOrContactQuickReport('class', itemName, qbId, itemName)
+                                                                } else if (activeListKey === 'paymentMethods') {
+                                                                    openListOrContactQuickReport('payment_method', itemName, qbId, itemName)
+                                                                } else if (activeListKey === 'terms') {
+                                                                    openListOrContactQuickReport('term', itemName, qbId, itemName)
+                                                                } else {
+                                                                    openAccountQuickReport({ qb_account_id: qbId, name: itemName })
+                                                                }
+                                                            }}
+                                                            className="text-xs font-semibold text-blue-600 dark:text-blue-400 hover:underline cursor-pointer mr-1"
+                                                        >
+                                                            {t('external_accounting.coa_action_run_report')}
+                                                        </button>
+                                                    )}
                                                     <button
                                                         type="button"
                                                         onClick={() => handlePrintRecord('list_item', enrichedItem)}
@@ -7127,7 +8809,7 @@ function ExternalAccountingContent() {
                                                     >
                                                         <Edit3 size={13} />
                                                     </button>
-                                                    {it.Id && (
+                                                    {(it.Id || it.id) && (
                                                         <button
                                                             type="button"
                                                             onClick={() => handleDeleteListItem(enrichedItem)}
@@ -7418,31 +9100,184 @@ function ExternalAccountingContent() {
                 </div>
             )}
 
-            {/* MODAL: CREATE LIST ITEM (PRODUCT / SERVICE / DEPARTMENT / TERM) */}
+            {/* MODAL: CREATE / EDIT LIST ITEM (ALL 9 QBO /app/lists RELATIONAL TABLES) */}
             {listItemModalOpen && (
-                <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
-                    <div className="w-full max-w-md rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 shadow-2xl space-y-4">
-                        <h3 className="text-base font-black">{t('external_accounting.lists_btn_new_item')}</h3>
-                        <form onSubmit={handleSaveListItem} className="space-y-3 text-xs">
+                <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
+                    <div className="w-full max-w-lg rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 shadow-2xl space-y-4">
+                        <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3">
                             <div>
-                                <label className="block font-bold mb-1">Name</label>
-                                <input
-                                    type="text"
-                                    required
-                                    value={listItemName}
-                                    onChange={(e) => setListItemName(e.target.value)}
-                                    className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 font-bold"
-                                />
+                                <h3 className="text-base font-black">
+                                    {editingListItemId ? t('external_accounting.action_edit') : t('external_accounting.lists_btn_new_item')} ({activeListKey})
+                                </h3>
+                                <p className="text-xs text-slate-500">{activeCompany?.legal_name || activeCompany?.company_name}</p>
                             </div>
-                            <div>
-                                <label className="block font-bold mb-1">Unit Price ($)</label>
-                                <input
-                                    type="number"
-                                    step="0.01"
-                                    value={listItemPrice}
-                                    onChange={(e) => setListItemPrice(e.target.value)}
-                                    className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 font-mono"
-                                />
+                            <button type="button" onClick={() => setListItemModalOpen(false)} className="font-bold cursor-pointer">✕</button>
+                        </div>
+                        <form onSubmit={handleSaveListItem} className="space-y-3 text-xs">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                <div className="sm:col-span-2">
+                                    <label className="block font-bold mb-1">{t('external_accounting.col_acct_name')} *</label>
+                                    <input
+                                        type="text"
+                                        required
+                                        value={listItemName}
+                                        onChange={(e) => setListItemName(e.target.value)}
+                                        className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 font-bold"
+                                    />
+                                </div>
+
+                                {activeListKey === 'items' && (
+                                    <>
+                                        <div>
+                                            <label className="block font-bold mb-1">{t('external_accounting.col_type')}</label>
+                                            <select
+                                                value={listItemType}
+                                                onChange={(e) => setListItemType(e.target.value)}
+                                                className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 font-bold"
+                                            >
+                                                <option value="Service">Service</option>
+                                                <option value="NonInventory">Non-Inventory</option>
+                                                <option value="Inventory">Inventory</option>
+                                                <option value="Bundle">Bundle</option>
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label className="block font-bold mb-1">SKU</label>
+                                            <input
+                                                type="text"
+                                                value={listItemSku}
+                                                onChange={(e) => setListItemSku(e.target.value)}
+                                                placeholder="SKU-001"
+                                                className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 font-mono"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block font-bold mb-1">Sales Price / Rate ($)</label>
+                                            <input
+                                                type="number"
+                                                step="0.01"
+                                                value={listItemPrice}
+                                                onChange={(e) => setListItemPrice(e.target.value)}
+                                                className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 font-mono font-bold"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block font-bold mb-1">Purchase Cost ($)</label>
+                                            <input
+                                                type="number"
+                                                step="0.01"
+                                                value={listItemPurchaseCost}
+                                                onChange={(e) => setListItemPurchaseCost(e.target.value)}
+                                                className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 font-mono"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block font-bold mb-1">{t('external_accounting.lists_col_income_account')}</label>
+                                            <select
+                                                value={listItemAccountId}
+                                                onChange={(e) => setListItemAccountId(e.target.value)}
+                                                className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 font-bold"
+                                            >
+                                                <option value="">— Select Income Account —</option>
+                                                {accounts.map(a => (
+                                                    <option key={a.qb_account_id} value={a.qb_account_id}>
+                                                        {a.name} ({a.account_type})
+                                                    </option>
+                                                ))}
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label className="block font-bold mb-1">{t('external_accounting.lists_col_expense_account')}</label>
+                                            <select
+                                                value={listItemExpenseAccountId}
+                                                onChange={(e) => setListItemExpenseAccountId(e.target.value)}
+                                                className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 font-bold"
+                                            >
+                                                <option value="">— Select Expense Account —</option>
+                                                {accounts.map(a => (
+                                                    <option key={a.qb_account_id} value={a.qb_account_id}>
+                                                        {a.name} ({a.account_type})
+                                                    </option>
+                                                ))}
+                                            </select>
+                                        </div>
+                                        <div className="sm:col-span-2">
+                                            <label className="block font-bold mb-1">{t('external_accounting.lists_tab_categories')}</label>
+                                            <select
+                                                value={listItemCategoryId}
+                                                onChange={(e) => setListItemCategoryId(e.target.value)}
+                                                className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 font-bold"
+                                            >
+                                                <option value="">— None —</option>
+                                                {(companyLists.categories || []).map((cat: any) => (
+                                                    <option key={cat.Id} value={cat.Id}>{cat.Name}</option>
+                                                ))}
+                                            </select>
+                                        </div>
+                                    </>
+                                )}
+
+                                {activeListKey === 'classes' && (
+                                    <div className="sm:col-span-2">
+                                        <label className="block font-bold mb-1">{t('external_accounting.lists_col_class_code')}</label>
+                                        <input
+                                            type="text"
+                                            value={listItemClassCode}
+                                            onChange={(e) => setListItemClassCode(e.target.value)}
+                                            placeholder="e.g. CLS-OPS, CLS-PROP"
+                                            className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 font-mono font-bold"
+                                        />
+                                    </div>
+                                )}
+
+                                {activeListKey === 'paymentMethods' && (
+                                    <div className="sm:col-span-2">
+                                        <label className="block font-bold mb-1">{t('external_accounting.col_type')}</label>
+                                        <select
+                                            value={listItemPaymentType}
+                                            onChange={(e) => setListItemPaymentType(e.target.value)}
+                                            className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 font-bold"
+                                        >
+                                            <option value="NON_CREDIT_CARD">Non-Credit Card (Cash, Check, ACH, Wire, Zelle)</option>
+                                            <option value="CREDIT_CARD">Credit Card (Visa, Mastercard, Amex)</option>
+                                        </select>
+                                    </div>
+                                )}
+
+                                {activeListKey === 'terms' && (
+                                    <>
+                                        <div>
+                                            <label className="block font-bold mb-1">{t('external_accounting.lists_col_due_days')}</label>
+                                            <input
+                                                type="number"
+                                                value={listItemDueDays}
+                                                onChange={(e) => setListItemDueDays(e.target.value)}
+                                                className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 font-mono font-bold"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block font-bold mb-1">{t('external_accounting.lists_col_discount_pct')}</label>
+                                            <input
+                                                type="number"
+                                                step="0.01"
+                                                value={listItemDiscountPct}
+                                                onChange={(e) => setListItemDiscountPct(e.target.value)}
+                                                className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 font-mono"
+                                            />
+                                        </div>
+                                    </>
+                                )}
+
+                                <div className="sm:col-span-2">
+                                    <label className="block font-bold mb-1">Description / Notes</label>
+                                    <input
+                                        type="text"
+                                        value={listItemDesc}
+                                        onChange={(e) => setListItemDesc(e.target.value)}
+                                        placeholder="Optional description or notes"
+                                        className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950"
+                                    />
+                                </div>
                             </div>
                             <div className="flex justify-end gap-2 pt-2">
                                 <button type="button" onClick={() => setListItemModalOpen(false)} className="px-4 py-2 rounded-xl border border-slate-300 dark:border-slate-700 font-bold cursor-pointer">
@@ -8985,18 +10820,52 @@ function ExternalAccountingContent() {
                                             </div>
                                         )}
 
-                                        {/* QBO Bottom Memo Field */}
-                                        <div className="pt-2">
-                                            <label className="block font-bold text-slate-600 dark:text-slate-300 mb-1">
-                                                {t('external_accounting.field_memo')}
-                                            </label>
-                                            <input
-                                                type="text"
-                                                value={formMemo}
-                                                onChange={(e) => setFormMemo(e.target.value)}
-                                                placeholder="Memo / Notes"
-                                                className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950"
-                                            />
+                                        {/* QBO Relational Location/Property, Class & Bottom Memo Fields */}
+                                        <div className="pt-2 grid grid-cols-1 sm:grid-cols-3 gap-3">
+                                            <div>
+                                                <label className="block font-bold text-slate-600 dark:text-slate-300 mb-1">
+                                                    {t('external_accounting.drilldown_col_location')}
+                                                </label>
+                                                <select
+                                                    value={formDepartmentQbId}
+                                                    onChange={(e) => setFormDepartmentQbId(e.target.value)}
+                                                    className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 font-semibold"
+                                                >
+                                                    <option value="">— No Location / Property —</option>
+                                                    {(companyLists.departments || []).map((dep: any) => (
+                                                        <option key={dep.Id} value={dep.Id}>{dep.Name}</option>
+                                                    ))}
+                                                </select>
+                                            </div>
+                                            <div>
+                                                <label className="block font-bold text-slate-600 dark:text-slate-300 mb-1">
+                                                    {t('external_accounting.drilldown_col_class')}
+                                                </label>
+                                                <select
+                                                    value={formClassQbId}
+                                                    onChange={(e) => setFormClassQbId(e.target.value)}
+                                                    className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 font-semibold"
+                                                >
+                                                    <option value="">— No Class —</option>
+                                                    {(companyLists.classes || []).map((cls: any) => (
+                                                        <option key={cls.Id} value={cls.Id}>
+                                                            {cls.Name}{cls.class_code ? ` (${cls.class_code})` : ''}
+                                                        </option>
+                                                    ))}
+                                                </select>
+                                            </div>
+                                            <div>
+                                                <label className="block font-bold text-slate-600 dark:text-slate-300 mb-1">
+                                                    {t('external_accounting.field_memo')}
+                                                </label>
+                                                <input
+                                                    type="text"
+                                                    value={formMemo}
+                                                    onChange={(e) => setFormMemo(e.target.value)}
+                                                    placeholder="Memo / Notes"
+                                                    className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950"
+                                                />
+                                            </div>
                                         </div>
                                     </div>
                                 )}
@@ -9023,6 +10892,277 @@ function ExternalAccountingContent() {
                                     </div>
                                 </div>
                             </form>
+                        </div>
+                    </div>
+                )
+            })()}
+
+            {/* MODAL: QBO TRANSACTION DETAIL DRILL-DOWN REPORT (PROFIT & LOSS / BALANCE SHEET / CHART OF ACCOUNTS RUN REPORT) */}
+            {drilldownReportModal && (() => {
+                const groups = filteredDrilldownGroups
+                const totalTxnsCount = groups.reduce((s, g) => s + (g.transactions || []).length, 0)
+                const totalBeginningBalance = groups.reduce((s, g) => s + Number(g.beginning_balance || 0), 0)
+                const totalNetChange = groups.reduce((s, g) => s + Number(g.period_net_change || 0), 0)
+                const totalEndingBalance = groups.reduce((s, g) => s + Number(g.ending_balance || 0), 0)
+                const hasBalanceSheetGroup = groups.some(g => g.is_balance_sheet || Math.abs(Number(g.beginning_balance || 0)) > 0.004)
+                return (
+                    <div
+                        className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto"
+                        onClick={() => setDrilldownReportModal(null)}
+                    >
+                        <div
+                            className="w-full max-w-6xl rounded-2xl bg-white dark:bg-slate-900 text-slate-900 dark:text-white border border-slate-200 dark:border-slate-800 p-6 shadow-2xl space-y-4 max-h-[92vh] overflow-y-auto"
+                            onClick={(e) => e.stopPropagation()}
+                        >
+                            {/* Top Report Header + Export Excel (.XLS / .CSV) & Print PDF Actions */}
+                            <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-200 dark:border-slate-800 pb-4">
+                                <div>
+                                    <div className="flex items-center gap-2">
+                                        <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-emerald-500/15 text-emerald-700 dark:text-emerald-300">
+                                            {t('external_accounting.drilldown_modal_title')}
+                                        </span>
+                                        <span className="text-xs font-mono text-slate-500">
+                                            ({groups.length} {t('external_accounting.tab_accounts')} · {totalTxnsCount} {t('external_accounting.col_txns_count')})
+                                        </span>
+                                    </div>
+                                    <h3 className="text-lg font-black text-slate-900 dark:text-white mt-1">
+                                        {drilldownReportModal.title}
+                                    </h3>
+                                    <p className="text-xs text-slate-500 dark:text-slate-400">
+                                        {drilldownReportModal.subtitle}
+                                    </p>
+                                </div>
+
+                                <div className="flex flex-wrap items-center gap-2">
+                                    <div className="relative w-52">
+                                        <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                                        <input
+                                            type="text"
+                                            value={drilldownSearch}
+                                            onChange={(e) => setDrilldownSearch(e.target.value)}
+                                            placeholder={t('external_accounting.search_placeholder')}
+                                            className="w-full pl-8 pr-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-xs"
+                                        />
+                                    </div>
+
+                                    <button
+                                        type="button"
+                                        onClick={exportDrilldownReportXls}
+                                        className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold cursor-pointer shadow-xs"
+                                    >
+                                        <Download size={14} />
+                                        <span>{t('external_accounting.drilldown_btn_export_xls')}</span>
+                                    </button>
+
+                                    <button
+                                        type="button"
+                                        onClick={exportDrilldownReportCsv}
+                                        className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-xs font-bold cursor-pointer"
+                                    >
+                                        <Download size={14} />
+                                        <span>.CSV</span>
+                                    </button>
+
+                                    <button
+                                        type="button"
+                                        onClick={handlePrintDrilldownReportPdf}
+                                        className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold cursor-pointer shadow-xs"
+                                    >
+                                        <Printer size={14} />
+                                        <span>{t('external_accounting.drilldown_btn_print_pdf')}</span>
+                                    </button>
+
+                                    <button
+                                        type="button"
+                                        onClick={() => setDrilldownReportModal(null)}
+                                        className="px-3.5 py-2 rounded-xl border border-slate-300 dark:border-slate-700 text-xs font-bold cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800"
+                                    >
+                                        {t('external_accounting.close_btn')}
+                                    </button>
+                                </div>
+                            </div>
+
+                            {/* KPI Summary Strip */}
+                            <div className={`grid grid-cols-2 ${hasBalanceSheetGroup ? 'sm:grid-cols-4' : 'sm:grid-cols-3'} gap-2.5 text-xs`}>
+                                {hasBalanceSheetGroup && (
+                                    <div className="p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/60">
+                                        <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                                            {t('external_accounting.beginning_balance')}
+                                        </div>
+                                        <div className="text-sm font-black font-mono tabular-nums mt-0.5">
+                                            {formatCurrency(totalBeginningBalance)}
+                                        </div>
+                                    </div>
+                                )}
+                                <div className="p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/60">
+                                    <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                                        {t('external_accounting.col_txns_count')}
+                                    </div>
+                                    <div className="text-sm font-black font-mono tabular-nums mt-0.5">
+                                        {totalTxnsCount}
+                                    </div>
+                                </div>
+                                <div className="p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/60">
+                                    <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                                        {t('external_accounting.col_amount')} (Net Change)
+                                    </div>
+                                    <div className={`text-sm font-black font-mono tabular-nums mt-0.5 ${totalNetChange < 0 ? 'text-red-600 dark:text-red-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
+                                        {formatCurrency(totalNetChange)}
+                                    </div>
+                                </div>
+                                <div className="p-3 rounded-xl border border-emerald-500/30 bg-emerald-500/10">
+                                    <div className="text-[10px] font-bold uppercase tracking-wider text-emerald-700 dark:text-emerald-300">
+                                        {hasBalanceSheetGroup ? t('external_accounting.ending_balance_col') : 'TOTAL'}
+                                    </div>
+                                    <div className="text-sm font-black font-mono tabular-nums text-emerald-700 dark:text-emerald-300 mt-0.5">
+                                        {formatCurrency(hasBalanceSheetGroup ? totalEndingBalance : totalNetChange)}
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Grouped Transaction Detail Table (QBO Transaction Report 11 Columns + Collapsible Account Groups + Beginning Balance + Subtotals) */}
+                            <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800 max-h-[60vh]">
+                                <table className="w-full text-xs border-collapse">
+                                    <thead className="sticky top-0 bg-slate-100 dark:bg-slate-800 font-black uppercase text-[10px] z-10 border-b border-slate-200 dark:border-slate-700">
+                                        <tr>
+                                            <th className="py-2.5 px-3 text-left">{t('external_accounting.col_date')}</th>
+                                            <th className="py-2.5 px-3 text-left">{t('external_accounting.col_type')}</th>
+                                            <th className="py-2.5 px-3 text-left">{t('external_accounting.col_doc_num')}</th>
+                                            <th className="py-2.5 px-3 text-left">{t('external_accounting.col_payee')}</th>
+                                            <th className="py-2.5 px-3 text-left">{t('external_accounting.drilldown_col_location')}</th>
+                                            <th className="py-2.5 px-3 text-left">{t('external_accounting.drilldown_col_class')}</th>
+                                            <th className="py-2.5 px-3 text-left">{t('external_accounting.col_memo')}</th>
+                                            <th className="py-2.5 px-3 text-left">{t('external_accounting.col_account')}</th>
+                                            <th className="py-2.5 px-3 text-left">{t('external_accounting.drilldown_col_split')}</th>
+                                            <th className="py-2.5 px-3 text-right">{t('external_accounting.col_amount')}</th>
+                                            <th className="py-2.5 px-3 text-right">{t('external_accounting.col_balance')}</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-200/70 dark:divide-slate-800">
+                                        {groups.length === 0 ? (
+                                            <tr>
+                                                <td colSpan={11} className="py-10 text-center text-slate-400">
+                                                    {t('external_accounting.no_transactions')}
+                                                </td>
+                                            </tr>
+                                        ) : (
+                                            groups.map((g) => {
+                                                const isCollapsed = !!collapsedDrilldownGroups[g.account_id]
+                                                const showBegBal = g.is_balance_sheet || Math.abs(Number(g.beginning_balance || 0)) > 0.004
+                                                const txList = g.transactions || []
+                                                const countBadge = txList.length + (showBegBal ? 1 : 0)
+                                                return (
+                                                    <React.Fragment key={g.account_id}>
+                                                        {/* Account Group Collapsible Header Row */}
+                                                        <tr
+                                                            onClick={() => setCollapsedDrilldownGroups(prev => ({
+                                                                ...prev,
+                                                                [g.account_id]: !prev[g.account_id]
+                                                            }))}
+                                                            className="bg-slate-100/90 dark:bg-slate-800/90 hover:bg-slate-200/70 dark:hover:bg-slate-700/70 font-black cursor-pointer transition-colors"
+                                                        >
+                                                            <td colSpan={9} className="py-2 px-3 text-slate-900 dark:text-white">
+                                                                <span className="inline-block w-4 font-mono">{isCollapsed ? '▸' : '▾'}</span>
+                                                                <span>{g.account_name}</span>
+                                                                <span className="ml-1.5 text-[11px] font-mono text-slate-500">({countBadge})</span>
+                                                            </td>
+                                                            <td className="py-2 px-3 text-right font-mono text-slate-600 dark:text-slate-300">
+                                                                {isCollapsed ? formatCurrency(g.period_net_change || 0) : ''}
+                                                            </td>
+                                                            <td className="py-2 px-3 text-right font-mono text-emerald-700 dark:text-emerald-300">
+                                                                {isCollapsed ? formatCurrency(g.ending_balance || 0) : ''}
+                                                            </td>
+                                                        </tr>
+
+                                                        {/* Beginning Balance Row */}
+                                                        {!isCollapsed && showBegBal && (
+                                                            <tr className="bg-slate-50/70 dark:bg-slate-900/50 font-bold text-slate-700 dark:text-slate-300">
+                                                                <td className="py-1.5 pl-7 pr-3 whitespace-nowrap">
+                                                                    {t('external_accounting.beginning_balance')}
+                                                                </td>
+                                                                <td colSpan={8} className="py-1.5 px-3 text-slate-400 font-normal">
+                                                                    {g.account_name}
+                                                                </td>
+                                                                <td className="py-1.5 px-3 text-right font-mono">—</td>
+                                                                <td className="py-1.5 px-3 text-right font-mono font-black text-slate-900 dark:text-white whitespace-nowrap">
+                                                                    {formatCurrency(g.beginning_balance || 0)}
+                                                                </td>
+                                                            </tr>
+                                                        )}
+
+                                                        {/* Chronological Transactions in Group */}
+                                                        {!isCollapsed && txList.map((r: any, idx: number) => {
+                                                            const matchedTx = transactions.find(tx =>
+                                                                (r.id && String(tx.id) === String(r.id)) ||
+                                                                (r.qb_txn_id && tx.qb_txn_id === r.qb_txn_id)
+                                                            )
+                                                            return (
+                                                                <tr
+                                                                    key={`${g.account_id}-${r.id || r.qb_txn_id || idx}-${idx}`}
+                                                                    onClick={() => {
+                                                                        if (matchedTx) {
+                                                                            openRecordPreview('transaction', matchedTx)
+                                                                        } else {
+                                                                            openRecordPreview('transaction', r)
+                                                                        }
+                                                                    }}
+                                                                    className="hover:bg-emerald-500/10 cursor-pointer transition-colors"
+                                                                >
+                                                                    <td className="py-2 pl-7 pr-3 font-mono whitespace-nowrap">{r.txn_date}</td>
+                                                                    <td className="py-2 px-3 whitespace-nowrap font-semibold">{r.txn_type}</td>
+                                                                    <td className="py-2 px-3 font-mono whitespace-nowrap">{r.doc_number || '—'}</td>
+                                                                    <td className="py-2 px-3 font-bold text-slate-900 dark:text-white">{r.entity_name || '—'}</td>
+                                                                    <td className="py-2 px-3 text-slate-600 dark:text-slate-300">{r.location_name || '—'}</td>
+                                                                    <td className="py-2 px-3 text-slate-600 dark:text-slate-300">{r.class_name || '—'}</td>
+                                                                    <td className="py-2 px-3 text-slate-500 max-w-[220px] truncate" title={r.memo || ''}>
+                                                                        {r.memo || '—'}
+                                                                    </td>
+                                                                    <td className="py-2 px-3 font-medium">{r.account_name || g.account_name || '—'}</td>
+                                                                    <td className="py-2 px-3 text-slate-500">{r.split_account || '—'}</td>
+                                                                    <td className={`py-2 px-3 text-right font-mono font-bold whitespace-nowrap ${Number(r.amount || 0) < 0 ? 'text-red-600 dark:text-red-400' : 'text-slate-900 dark:text-white'}`}>
+                                                                        {formatCurrency(r.amount || 0)}
+                                                                    </td>
+                                                                    <td className="py-2 px-3 text-right font-mono font-black text-emerald-600 dark:text-emerald-400 whitespace-nowrap">
+                                                                        {formatCurrency(r.running_balance ?? r.amount ?? 0)}
+                                                                    </td>
+                                                                </tr>
+                                                            )
+                                                        })}
+
+                                                        {/* Group Subtotal Row: Total for [Account] */}
+                                                        {!isCollapsed && (
+                                                            <tr className="bg-slate-50 dark:bg-slate-800/60 font-black border-t border-slate-300 dark:border-slate-700">
+                                                                <td colSpan={9} className="py-2 pl-5 pr-3 text-slate-800 dark:text-slate-200">
+                                                                    {t('external_accounting.total_for_account')} {g.account_name}
+                                                                </td>
+                                                                <td className={`py-2 px-3 text-right font-mono whitespace-nowrap ${Number(g.period_net_change || 0) < 0 ? 'text-red-600 dark:text-red-400' : 'text-slate-900 dark:text-white'}`}>
+                                                                    {formatCurrency(g.period_net_change || 0)}
+                                                                </td>
+                                                                <td className="py-2 px-3 text-right font-mono text-emerald-700 dark:text-emerald-300 whitespace-nowrap">
+                                                                    {showBegBal ? formatCurrency(g.ending_balance || 0) : ''}
+                                                                </td>
+                                                            </tr>
+                                                        )}
+                                                    </React.Fragment>
+                                                )
+                                            })
+                                        )}
+                                    </tbody>
+                                    <tfoot>
+                                        <tr className="bg-slate-900 text-white font-black text-xs">
+                                            <td colSpan={9} className="py-3 px-3">
+                                                TOTAL — {drilldownReportModal.title} ({totalTxnsCount} {t('external_accounting.col_txns_count')})
+                                            </td>
+                                            <td className="py-3 px-3 text-right font-mono text-emerald-400 whitespace-nowrap">
+                                                {formatCurrency(totalNetChange)}
+                                            </td>
+                                            <td className="py-3 px-3 text-right font-mono text-emerald-400 whitespace-nowrap">
+                                                {formatCurrency(hasBalanceSheetGroup ? totalEndingBalance : totalNetChange)}
+                                            </td>
+                                        </tr>
+                                    </tfoot>
+                                </table>
+                            </div>
                         </div>
                     </div>
                 )
@@ -9082,6 +11222,35 @@ function ExternalAccountingContent() {
                                 </div>
 
                                 <div className="flex flex-wrap items-center gap-2">
+                                    {(kind === 'account' || kind === 'contact' || kind === 'budget' || kind === 'list_item') && (
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                closePreview()
+                                                if (kind === 'account') {
+                                                    openAccountQuickReport(data)
+                                                } else if (kind === 'contact') {
+                                                    openListOrContactQuickReport('contact', data.display_name, data.qb_contact_id || data.id, data.display_name)
+                                                } else if (kind === 'budget') {
+                                                    openAccountQuickReport({ qb_account_id: data.account_qb_id, name: data.account_name, account_type: data.account_type })
+                                                } else if (kind === 'list_item') {
+                                                    const lk = data.listKey
+                                                    const nm = data.Name || data.FullyQualifiedName || data.name || ''
+                                                    const qid = String(data.Id || data.qb_id || data.id || '')
+                                                    if (lk === 'items') openListOrContactQuickReport('item', nm, qid, nm)
+                                                    else if (lk === 'departments') openListOrContactQuickReport('location', nm, qid, nm)
+                                                    else if (lk === 'classes') openListOrContactQuickReport('class', nm, qid, nm)
+                                                    else if (lk === 'paymentMethods') openListOrContactQuickReport('payment_method', nm, qid, nm)
+                                                    else if (lk === 'terms') openListOrContactQuickReport('term', nm, qid, nm)
+                                                    else openAccountQuickReport({ qb_account_id: qid, name: nm })
+                                                }
+                                            }}
+                                            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold cursor-pointer transition-colors shadow-xs"
+                                        >
+                                            <span>📊 {t('external_accounting.coa_action_run_report')}</span>
+                                        </button>
+                                    )}
+
                                     <button
                                         type="button"
                                         onClick={() => handlePrintRecord(kind, data)}

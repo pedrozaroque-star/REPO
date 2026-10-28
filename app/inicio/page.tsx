@@ -403,6 +403,17 @@ function InicioHubContent() {
                     roles: ['manager', 'supervisor', 'admin', 'asistente'],
                 },
                 {
+                    id: 'training',
+                    title: t('items.training'),
+                    description: t('home_hub.desc.training'),
+                    path: '/training',
+                    icon: <Sparkles size={20} />,
+                    iconColorClass: 'bg-red-600/15 text-[#DA291C] dark:bg-red-500/20 dark:text-red-400 border-red-500/30',
+                    roles: ['manager', 'supervisor', 'admin', 'asistente'],
+                    badgeType: 'new',
+                    badgeLabel: 'new',
+                },
+                {
                     id: 'maintenance',
                     title: t('items.maintenance'),
                     description: t('home_hub.desc.maintenance'),

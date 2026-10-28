@@ -360,6 +360,17 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
                         : 'Asignación y seguimiento de tareas individuales de mantenimiento y limpieza'
                 },
                 {
+                    name: t('items.training') || 'Training (Academia 4 Días)',
+                    plainName: 'Training (Academia 4 Días)',
+                    path: '/training',
+                    icon: <Sparkles size={20} />,
+                    roles: ['manager', 'supervisor', 'admin', 'asistente'],
+                    badgeText: 'new',
+                    tooltip: language === 'en'
+                        ? 'Interactive 4-day SOP training academy with real kitchen videos, neural male voiceover (Orus), exact oz portions, and temporary 4-day access codes'
+                        : 'Academia interactiva de entrenamiento SOP en 4 días con videos reales, locutor masculino neural (Orus), gramajes en oz y códigos temporales de 4 días'
+                },
+                {
                     name: t('items.maintenance') || 'Mantenimiento & Proveedores',
                     plainName: 'Mantenimiento',
                     path: '/admin/mantenimiento',

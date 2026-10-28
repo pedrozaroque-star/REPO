@@ -95,7 +95,8 @@ export default function ClientLayout({
         '/tv', 
         '/admin/blindaje-delivery/empaque',
         '/tablet',
-        '/gavilan-pos'
+        '/gavilan-pos',
+        '/training/portal'
     ]
 
     // Internal print-sheet routes (REQUIRE login via ProtectedRoute, but render without sidebar/chrome for printing)
@@ -146,7 +147,7 @@ export default function ClientLayout({
     const isPrintSheetPage = printSheetRoutes.some(r => pathname === r || pathname.startsWith(r + '/'))
 
     // Full-width routes (large tables, schedules, etc.)
-    const fullWidthRoutes = ['/horarios', '/admin/plantillas', '/order-ready-board', '/admin/blindaje-delivery/empaque', '/app']
+    const fullWidthRoutes = ['/horarios', '/admin/plantillas', '/order-ready-board', '/admin/blindaje-delivery/empaque', '/app', '/training']
 
     const isFullWidth = fullWidthRoutes.some(route => pathname.startsWith(route))
 

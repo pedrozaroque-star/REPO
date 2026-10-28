@@ -101,7 +101,10 @@ import {
   Minimize,
   X,
   Megaphone,
-  Trash2
+  Trash2,
+  Pencil,
+  Save,
+  RotateCcw
 } from 'lucide-react'
 import { useLanguage } from '@/lib/i18n'
 import { createClient } from '@supabase/supabase-js'
@@ -337,6 +340,96 @@ function OrderReadyBoardContent() {
     }
   }
 
+  // Regla de Negocio Tacos Gavilan: 5 Plantillas de Anuncios al Comedor (4 oficiales + 1 aviso libre aleatorio) editables y guardables
+  type PresetKey = 'ticket' | 'salsas' | 'aguas' | 'welcome' | 'custom'
+  interface CustomPresetOverride {
+    labelEs?: string
+    labelEn?: string
+    textEs?: string
+    textEn?: string
+  }
+
+  const [selectedPresetKey, setSelectedPresetKey] = useState<PresetKey>('ticket')
+  const [customPresets, setCustomPresets] = useState<Record<string, CustomPresetOverride>>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const raw = localStorage.getItem('teg_order_ready_custom_presets_v1')
+        if (raw) return JSON.parse(raw)
+      } catch {}
+    }
+    return {}
+  })
+  const [isEditingPreset, setIsEditingPreset] = useState<boolean>(false)
+  const [editingPresetLabel, setEditingPresetLabel] = useState<string>('')
+  const [isSavingPreset, setIsSavingPreset] = useState<boolean>(false)
+  const [presetSavedFlash, setPresetSavedFlash] = useState<boolean>(false)
+
+  const getDefaultPresetMeta = useCallback(
+    (key: PresetKey): { icon: string; defaultLabel: string; defaultText: string } => {
+      switch (key) {
+        case 'ticket':
+          return {
+            icon: '🎫',
+            defaultLabel: t('orderReadyBoard.announcement_preset_ticket'),
+            defaultText: t('orderReadyBoard.announcement_preset_ticket_text')
+          }
+        case 'salsas':
+          return {
+            icon: '🍋',
+            defaultLabel: t('orderReadyBoard.announcement_preset_salsas'),
+            defaultText: t('orderReadyBoard.announcement_preset_salsas_text')
+          }
+        case 'aguas':
+          return {
+            icon: '🥤',
+            defaultLabel: t('orderReadyBoard.announcement_preset_aguas'),
+            defaultText: t('orderReadyBoard.announcement_preset_aguas_text')
+          }
+        case 'welcome':
+          return {
+            icon: '🌮',
+            defaultLabel: t('orderReadyBoard.announcement_preset_welcome'),
+            defaultText: t('orderReadyBoard.announcement_preset_welcome_text')
+          }
+        case 'custom':
+        default:
+          return {
+            icon: '📢',
+            defaultLabel: t('orderReadyBoard.announcement_preset_custom'),
+            defaultText: t('orderReadyBoard.announcement_preset_custom_text')
+          }
+      }
+    },
+    [t]
+  )
+
+  const getPresetLabel = useCallback(
+    (key: PresetKey): string => {
+      const ov = customPresets[key]
+      const customLbl = language === 'en' ? ov?.labelEn || ov?.labelEs : ov?.labelEs || ov?.labelEn
+      return (customLbl && customLbl.trim()) || getDefaultPresetMeta(key).defaultLabel
+    },
+    [customPresets, language, getDefaultPresetMeta]
+  )
+
+  const getPresetText = useCallback(
+    (key: PresetKey): string => {
+      const ov = customPresets[key]
+      const customTxt = language === 'en' ? ov?.textEn || ov?.textEs : ov?.textEs || ov?.textEn
+      return (customTxt && customTxt.trim()) || getDefaultPresetMeta(key).defaultText
+    },
+    [customPresets, language, getDefaultPresetMeta]
+  )
+
+  const hasCustomPresetOverride = useCallback(
+    (key: PresetKey): boolean => {
+      const ov = customPresets[key]
+      if (!ov) return false
+      return Boolean(ov.labelEs || ov.labelEn || ov.textEs || ov.textEn)
+    },
+    [customPresets]
+  )
+
   // Regla de Negocio Tacos Gavilan: Anuncios personalizados para el comedor con reproducción periódica automática
   const [announcementText, setAnnouncementText] = useState<string>(() => {
     if (typeof window !== 'undefined') {
@@ -391,6 +484,89 @@ function OrderReadyBoardContent() {
     }
   }
 
+  const handleSelectPreset = (key: PresetKey) => {
+    setSelectedPresetKey(key)
+    const txt = getPresetText(key)
+    updateAnnouncementText(txt)
+    setEditingPresetLabel(getPresetLabel(key))
+  }
+
+  const handleSaveCurrentPreset = async () => {
+    const cleanText = announcementText.trim().slice(0, 500)
+    if (!cleanText) return
+    setIsSavingPreset(true)
+    try {
+      const prev = customPresets[selectedPresetKey] || {}
+      const cleanLabel = editingPresetLabel.trim().slice(0, 40)
+      const defaultMeta = getDefaultPresetMeta(selectedPresetKey)
+      const nextOverride: CustomPresetOverride = {
+        ...prev,
+        ...(language === 'en'
+          ? {
+              textEn: cleanText,
+              ...(isEditingPreset && cleanLabel ? { labelEn: cleanLabel } : {})
+            }
+          : {
+              textEs: cleanText,
+              ...(isEditingPreset && cleanLabel ? { labelEs: cleanLabel } : {})
+            })
+      }
+      // Si el usuario no había guardado el otro idioma aún y editó en modo libre, usar también como respaldo
+      if (!nextOverride.textEs && language === 'en' && selectedPresetKey === 'custom') {
+        nextOverride.textEs = cleanText
+      }
+      if (isEditingPreset && cleanLabel && cleanLabel !== defaultMeta.defaultLabel) {
+        if (language === 'en') nextOverride.labelEn = cleanLabel
+        else nextOverride.labelEs = cleanLabel
+      }
+
+      const nextPresets = {
+        ...customPresets,
+        [selectedPresetKey]: nextOverride
+      }
+      setCustomPresets(nextPresets)
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('teg_order_ready_custom_presets_v1', JSON.stringify(nextPresets))
+      }
+
+      const detectedLang = cleanText.match(/\b(please|thank you|welcome|remember|enjoy|counter|order)\b/i) && !cleanText.match(/[áéíóúñ¡¿]/i) ? 'en' : 'es'
+      await fetch('/api/order-ready/settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          presets: nextPresets,
+          pregenerateText: cleanText,
+          pregenerateLang: detectedLang
+        })
+      }).catch(() => {})
+
+      setIsEditingPreset(false)
+      setPresetSavedFlash(true)
+      setTimeout(() => setPresetSavedFlash(false), 3000)
+    } finally {
+      setIsSavingPreset(false)
+    }
+  }
+
+  const handleResetCurrentPreset = async () => {
+    const nextPresets = { ...customPresets }
+    delete nextPresets[selectedPresetKey]
+    setCustomPresets(nextPresets)
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('teg_order_ready_custom_presets_v1', JSON.stringify(nextPresets))
+    }
+    const defMeta = getDefaultPresetMeta(selectedPresetKey)
+    updateAnnouncementText(defMeta.defaultText)
+    setEditingPresetLabel(defMeta.defaultLabel)
+    setIsEditingPreset(false)
+
+    await fetch('/api/order-ready/settings', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ presets: nextPresets })
+    }).catch(() => {})
+  }
+
   const toggleAnnouncementEnabled = (enabled: boolean) => {
     setAnnouncementEnabled(enabled)
     announcementEnabledRef.current = enabled
@@ -408,7 +584,7 @@ function OrderReadyBoardContent() {
     }
   }
 
-  // Cargar configuración global de voz desde Supabase (/api/order-ready/settings)
+  // Cargar configuración global de voz y plantillas desde Supabase (/api/order-ready/settings)
   const fetchGlobalSettings = useCallback(async () => {
     try {
       const res = await fetch('/api/order-ready/settings', { cache: 'no-store' })
@@ -417,6 +593,12 @@ function OrderReadyBoardContent() {
         setSelectedVoice(data.settings.voice)
         if (typeof window !== 'undefined') {
           localStorage.setItem('teg_order_ready_voice', data.settings.voice)
+        }
+      }
+      if (data.success && data.presets && typeof data.presets === 'object') {
+        setCustomPresets(data.presets)
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('teg_order_ready_custom_presets_v1', JSON.stringify(data.presets))
         }
       }
     } catch (e) {
@@ -3185,67 +3367,131 @@ function OrderReadyBoardContent() {
               </div>
             </div>
 
-            {/* Plantillas Rápidas Sugeridas (1 clic para cargar mensaje oficial de Tacos Gavilan) */}
+            {/* 5 Plantillas Rápidas Editables y Guardables (4 oficiales + 1 aviso libre de comedor) */}
             <div className="mb-3">
-              <span className={`text-[10px] font-bold uppercase tracking-wider block mb-1.5 ${
-                isDark ? 'text-slate-400' : 'text-slate-500'
-              }`}>
-                {t('orderReadyBoard.announcement_presets_title')}
-              </span>
-              <div className="flex flex-wrap gap-1.5">
-                <button
-                  type="button"
-                  onClick={() => updateAnnouncementText(t('orderReadyBoard.announcement_preset_ticket_text'))}
-                  className={`text-xs px-2.5 py-1 rounded-lg font-semibold transition border ${
-                    announcementText === t('orderReadyBoard.announcement_preset_ticket_text')
-                      ? 'bg-amber-500 text-white border-amber-600 shadow-sm'
-                      : isDark
-                        ? 'bg-slate-900 hover:bg-slate-800 text-slate-300 border-slate-800'
-                        : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200'
-                  }`}
-                >
-                  🎫 {t('orderReadyBoard.announcement_preset_ticket')}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => updateAnnouncementText(t('orderReadyBoard.announcement_preset_salsas_text'))}
-                  className={`text-xs px-2.5 py-1 rounded-lg font-semibold transition border ${
-                    announcementText === t('orderReadyBoard.announcement_preset_salsas_text')
-                      ? 'bg-amber-500 text-white border-amber-600 shadow-sm'
-                      : isDark
-                        ? 'bg-slate-900 hover:bg-slate-800 text-slate-300 border-slate-800'
-                        : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200'
-                  }`}
-                >
-                  🍋 {t('orderReadyBoard.announcement_preset_salsas')}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => updateAnnouncementText(t('orderReadyBoard.announcement_preset_aguas_text'))}
-                  className={`text-xs px-2.5 py-1 rounded-lg font-semibold transition border ${
-                    announcementText === t('orderReadyBoard.announcement_preset_aguas_text')
-                      ? 'bg-amber-500 text-white border-amber-600 shadow-sm'
-                      : isDark
-                        ? 'bg-slate-900 hover:bg-slate-800 text-slate-300 border-slate-800'
-                        : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200'
-                  }`}
-                >
-                  🥤 {t('orderReadyBoard.announcement_preset_aguas')}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => updateAnnouncementText(t('orderReadyBoard.announcement_preset_welcome_text'))}
-                  className={`text-xs px-2.5 py-1 rounded-lg font-semibold transition border ${
-                    announcementText === t('orderReadyBoard.announcement_preset_welcome_text')
-                      ? 'bg-amber-500 text-white border-amber-600 shadow-sm'
-                      : isDark
-                        ? 'bg-slate-900 hover:bg-slate-800 text-slate-300 border-slate-800'
-                        : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200'
-                  }`}
-                >
-                  🌮 {t('orderReadyBoard.announcement_preset_welcome')}
-                </button>
+              <div className="flex flex-wrap items-center justify-between gap-2 mb-1.5">
+                <span className={`text-[10px] font-bold uppercase tracking-wider ${
+                  isDark ? 'text-slate-400' : 'text-slate-500'
+                }`}>
+                  {t('orderReadyBoard.announcement_presets_title')}
+                </span>
+
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {presetSavedFlash && (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-500/15 border border-emerald-500/40 text-emerald-500 text-[11px] font-bold">
+                      <CheckCircle2 className="w-3 h-3" />
+                      <span>{t('orderReadyBoard.announcement_preset_saved')}</span>
+                    </span>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const next = !isEditingPreset
+                      setIsEditingPreset(next)
+                      if (next) {
+                        setEditingPresetLabel(getPresetLabel(selectedPresetKey))
+                      }
+                    }}
+                    className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold transition border cursor-pointer ${
+                      isEditingPreset
+                        ? 'bg-amber-500 text-white border-amber-600 shadow-sm'
+                        : isDark
+                          ? 'bg-slate-900 hover:bg-slate-800 text-slate-300 border-slate-700'
+                          : 'bg-white hover:bg-slate-100 text-slate-700 border-slate-300'
+                    }`}
+                  >
+                    <Pencil className="w-3 h-3" />
+                    <span>{t('orderReadyBoard.announcement_edit_preset_btn')}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleSaveCurrentPreset}
+                    disabled={isSavingPreset || !announcementText.trim()}
+                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold transition border bg-emerald-600 hover:bg-emerald-500 text-white border-emerald-500 shadow-sm disabled:opacity-50 cursor-pointer"
+                  >
+                    <Save className="w-3 h-3" />
+                    <span>
+                      {isSavingPreset
+                        ? t('orderReadyBoard.announcement_preset_saving')
+                        : `${t('orderReadyBoard.announcement_save_preset_btn')} (${getPresetLabel(selectedPresetKey)})`}
+                    </span>
+                  </button>
+
+                  {hasCustomPresetOverride(selectedPresetKey) && (
+                    <button
+                      type="button"
+                      onClick={handleResetCurrentPreset}
+                      className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-semibold transition border cursor-pointer ${
+                        isDark
+                          ? 'bg-slate-900 hover:bg-slate-800 text-slate-400 border-slate-800'
+                          : 'bg-slate-100 hover:bg-slate-200 text-slate-600 border-slate-200'
+                      }`}
+                    >
+                      <RotateCcw className="w-3 h-3" />
+                      <span>{t('orderReadyBoard.announcement_reset_preset_btn')}</span>
+                    </button>
+                  )}
+                </div>
               </div>
+
+              <div className="flex flex-wrap gap-1.5">
+                {(['ticket', 'salsas', 'aguas', 'welcome', 'custom'] as PresetKey[]).map((key) => {
+                  const meta = getDefaultPresetMeta(key)
+                  const label = getPresetLabel(key)
+                  const isSelected = selectedPresetKey === key
+                  const isCustomized = hasCustomPresetOverride(key)
+                  return (
+                    <button
+                      key={key}
+                      type="button"
+                      onClick={() => handleSelectPreset(key)}
+                      className={`text-xs px-2.5 py-1 rounded-lg font-semibold transition border flex items-center gap-1.5 cursor-pointer ${
+                        isSelected
+                          ? 'bg-amber-500 text-white border-amber-600 shadow-sm'
+                          : isDark
+                            ? 'bg-slate-900 hover:bg-slate-800 text-slate-300 border-slate-800'
+                            : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200'
+                      }`}
+                    >
+                      <span>{meta.icon}</span>
+                      <span>{label}</span>
+                      {isCustomized && (
+                        <span
+                          className={`w-1.5 h-1.5 rounded-full ${
+                            isSelected ? 'bg-white' : 'bg-emerald-500'
+                          }`}
+                          title="Personalizada"
+                        />
+                      )}
+                    </button>
+                  )
+                })}
+              </div>
+
+              {isEditingPreset && (
+                <div className={`mt-2 p-2.5 rounded-xl border flex flex-col sm:flex-row sm:items-center gap-2 ${
+                  isDark ? 'bg-slate-900/80 border-amber-500/40' : 'bg-amber-50/70 border-amber-300'
+                }`}>
+                  <span className={`text-[11px] font-bold whitespace-nowrap ${
+                    isDark ? 'text-amber-300' : 'text-amber-900'
+                  }`}>
+                    {t('orderReadyBoard.announcement_preset_title_label')}
+                  </span>
+                  <input
+                    type="text"
+                    maxLength={40}
+                    value={editingPresetLabel}
+                    onChange={(e) => setEditingPresetLabel(e.target.value)}
+                    className={`flex-1 rounded-lg px-2.5 py-1 text-xs font-semibold border focus:outline-none focus:ring-2 focus:ring-amber-500/50 ${
+                      isDark
+                        ? 'bg-slate-950 border-slate-700 text-slate-100'
+                        : 'bg-white border-slate-300 text-slate-900'
+                    }`}
+                  />
+                </div>
+              )}
             </div>
 
             {/* Caja de Texto del Anuncio + Botón de Reproducción Inmediata */}
@@ -3265,20 +3511,22 @@ function OrderReadyBoardContent() {
                 />
                 <div className="flex items-center justify-between mt-1 px-1">
                   <span className={`text-[10px] ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>
-                    {announcementText.length}/500 {t('orderReadyBoard.announcement_chars_limit')}
+                    {announcementText.length}/500 {t('orderReadyBoard.announcement_chars_limit')} • {t('orderReadyBoard.announcement_active_preset_label')} <strong>{getPresetLabel(selectedPresetKey)}</strong>
                   </span>
-                  {announcementText.length > 0 && (
-                    <button
-                      type="button"
-                      onClick={() => updateAnnouncementText('')}
-                      className={`text-[10px] flex items-center gap-1 font-semibold hover:underline ${
-                        isDark ? 'text-slate-400 hover:text-slate-200' : 'text-slate-500 hover:text-slate-700'
-                      }`}
-                    >
-                      <Trash2 className="w-3 h-3" />
-                      <span>{t('orderReadyBoard.announcement_clear_btn')}</span>
-                    </button>
-                  )}
+                  <div className="flex items-center gap-3">
+                    {announcementText.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => updateAnnouncementText('')}
+                        className={`text-[10px] flex items-center gap-1 font-semibold hover:underline cursor-pointer ${
+                          isDark ? 'text-slate-400 hover:text-slate-200' : 'text-slate-500 hover:text-slate-700'
+                        }`}
+                      >
+                        <Trash2 className="w-3 h-3" />
+                        <span>{t('orderReadyBoard.announcement_clear_btn')}</span>
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
 

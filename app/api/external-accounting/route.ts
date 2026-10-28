@@ -29,8 +29,10 @@ import {
   pushTransactionToQbo,
   pushAccountToQbo,
   pushContactToQbo,
+  pushListItemToQbo,
   queuePendingQboDelete,
   syncCompanyWithQbo,
+  syncAllCompaniesWithQbo,
 } from '@/lib/external-accounting-qbo-sync'
 
 export const dynamic = 'force-dynamic'
@@ -129,7 +131,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: `Empresa no encontrada para realmId: ${activeRealmId}` }, { status: 404 })
     }
 
-    // 3. Fetch active company accounts, contacts, recurring templates, reconciliations, audit log, bank rules, budgets, and 100% of company transactions
+    // 3. Fetch active company accounts, contacts, recurring templates, reconciliations, audit log, bank rules, budgets, 9 relational Lists tables, and 100% of company transactions
     const [
       accountsRes,
       contactsRes,
@@ -138,6 +140,15 @@ export async function GET(req: NextRequest) {
       auditLogRes,
       bankRulesRes,
       budgetsRes,
+      itemsRes,
+      categoriesRes,
+      locationsRes,
+      classesRes,
+      paymentMethodsRes,
+      termsRes,
+      customFieldsRes,
+      attachmentsRes,
+      costGroupsRes,
       allCompanyTxns
     ] = await Promise.all([
       supabase
@@ -180,6 +191,52 @@ export async function GET(req: NextRequest) {
         .eq('company_realm_id', activeRealmId)
         .order('fiscal_year', { ascending: false })
         .order('account_name', { ascending: true }),
+      supabase
+        .from('external_accounting_items')
+        .select('*')
+        .eq('company_realm_id', activeRealmId)
+        .order('name', { ascending: true }),
+      supabase
+        .from('external_accounting_categories')
+        .select('*')
+        .eq('company_realm_id', activeRealmId)
+        .order('name', { ascending: true }),
+      supabase
+        .from('external_accounting_locations')
+        .select('*')
+        .eq('company_realm_id', activeRealmId)
+        .order('fully_qualified_name', { ascending: true }),
+      supabase
+        .from('external_accounting_classes')
+        .select('*')
+        .eq('company_realm_id', activeRealmId)
+        .order('fully_qualified_name', { ascending: true }),
+      supabase
+        .from('external_accounting_payment_methods')
+        .select('*')
+        .eq('company_realm_id', activeRealmId)
+        .order('name', { ascending: true }),
+      supabase
+        .from('external_accounting_terms')
+        .select('*')
+        .eq('company_realm_id', activeRealmId)
+        .order('due_days', { ascending: true })
+        .order('name', { ascending: true }),
+      supabase
+        .from('external_accounting_custom_fields')
+        .select('*')
+        .eq('company_realm_id', activeRealmId)
+        .order('name', { ascending: true }),
+      supabase
+        .from('external_accounting_attachments')
+        .select('*')
+        .eq('company_realm_id', activeRealmId)
+        .order('created_at', { ascending: false }),
+      supabase
+        .from('external_accounting_cost_groups')
+        .select('*')
+        .eq('company_realm_id', activeRealmId)
+        .order('name', { ascending: true }),
       fetchAllCompanyTransactions(supabase, activeRealmId, false)
     ])
 
@@ -366,6 +423,105 @@ export async function GET(req: NextRequest) {
 
     const compMeta = validCompany?.metadata || {}
 
+    const mappedItems = (itemsRes.data || []).map((row: any) => ({
+      ...row,
+      Id: row.qb_item_id,
+      Name: row.name,
+      FullyQualifiedName: row.fully_qualified_name || row.name,
+      Sku: row.sku,
+      Type: row.item_type || 'Service',
+      Description: row.description,
+      UnitPrice: Number(row.unit_price ?? 0),
+      PurchaseDesc: row.purchase_desc,
+      PurchaseCost: Number(row.purchase_cost ?? 0),
+      IncomeAccountRef: row.income_account_qb_id ? { value: row.income_account_qb_id, name: row.income_account_name } : null,
+      ExpenseAccountRef: row.expense_account_qb_id ? { value: row.expense_account_qb_id, name: row.expense_account_name } : null,
+      AssetAccountRef: row.asset_account_qb_id ? { value: row.asset_account_qb_id, name: row.asset_account_name } : null,
+      ParentRef: row.category_qb_id ? { value: row.category_qb_id, name: row.category_name } : null,
+      Taxable: Boolean(row.taxable),
+      Active: row.is_active !== false,
+    }))
+
+    const mappedCategories = (categoriesRes.data || []).map((row: any) => ({
+      ...row,
+      Id: row.qb_category_id,
+      Name: row.name,
+      FullyQualifiedName: row.fully_qualified_name || row.name,
+      Type: 'Category',
+      ParentRef: row.parent_qb_id ? { value: row.parent_qb_id, name: row.parent_name } : null,
+      SubItem: Boolean(row.is_sub_category),
+      Active: row.is_active !== false,
+    }))
+
+    const mappedDepartments = (locationsRes.data || []).map((row: any) => ({
+      ...row,
+      Id: row.qb_location_id,
+      Name: row.name,
+      FullyQualifiedName: row.fully_qualified_name || row.name,
+      ParentRef: row.parent_qb_id ? { value: row.parent_qb_id, name: row.parent_name } : null,
+      SubDepartment: Boolean(row.is_sub_location),
+      Active: row.is_active !== false,
+    }))
+
+    const mappedClasses = (classesRes.data || []).map((row: any) => ({
+      ...row,
+      Id: row.qb_class_id,
+      Name: row.name,
+      FullyQualifiedName: row.fully_qualified_name || row.name,
+      ClassCode: row.class_code,
+      ParentRef: row.parent_qb_id ? { value: row.parent_qb_id, name: row.parent_name } : null,
+      SubClass: Boolean(row.is_sub_class),
+      Active: row.is_active !== false,
+    }))
+
+    const mappedPaymentMethods = (paymentMethodsRes.data || []).map((row: any) => ({
+      ...row,
+      Id: row.qb_payment_method_id,
+      Name: row.name,
+      Type: row.method_type || 'NON_CREDIT_CARD',
+      Active: row.is_active !== false,
+    }))
+
+    const mappedTerms = (termsRes.data || []).map((row: any) => ({
+      ...row,
+      Id: row.qb_term_id,
+      Name: row.name,
+      Type: row.term_type || 'STANDARD',
+      DueDays: Number(row.due_days ?? 0),
+      DiscountPercent: Number(row.discount_percent ?? 0),
+      DiscountDays: Number(row.discount_days ?? 0),
+      DayOfMonthDue: row.day_of_month_due,
+      Active: row.is_active !== false,
+    }))
+
+    const mappedCustomFields = (customFieldsRes.data || []).map((row: any) => ({
+      ...row,
+      Id: row.qb_field_id,
+      Name: row.name,
+      Type: row.data_type || 'StringType',
+      Active: row.is_active !== false,
+    }))
+
+    const mappedAttachments = (attachmentsRes.data || []).map((row: any) => ({
+      ...row,
+      Id: row.qb_attachable_id,
+      Name: row.file_name,
+      FileName: row.file_name,
+      ContentType: row.content_type,
+      Size: Number(row.size_bytes ?? 0),
+      Note: row.note,
+      Active: true,
+    }))
+
+    const mappedCostGroups = (costGroupsRes.data || []).map((row: any) => ({
+      ...row,
+      Id: row.qb_cost_group_id,
+      Name: row.name,
+      Code: row.code,
+      Description: row.description,
+      Active: row.is_active !== false,
+    }))
+
     return NextResponse.json({
       activeRealmId,
       companies: enrichedCompanies,
@@ -379,11 +535,15 @@ export async function GET(req: NextRequest) {
       budgets: budgetsRes.data || [],
       actualsByAccountAndYear,
       lists: {
-        items: Array.isArray(compMeta.items) ? compMeta.items : [],
-        departments: Array.isArray(compMeta.departments) ? compMeta.departments : [],
-        paymentMethods: Array.isArray(compMeta.paymentMethods) ? compMeta.paymentMethods : [],
-        terms: Array.isArray(compMeta.terms) ? compMeta.terms : [],
-        classes: Array.isArray(compMeta.classes) ? compMeta.classes : [],
+        items: mappedItems.length > 0 ? mappedItems : (Array.isArray(compMeta.items) ? compMeta.items : []),
+        categories: mappedCategories,
+        departments: mappedDepartments.length > 0 ? mappedDepartments : (Array.isArray(compMeta.departments) ? compMeta.departments : []),
+        paymentMethods: mappedPaymentMethods.length > 0 ? mappedPaymentMethods : (Array.isArray(compMeta.paymentMethods) ? compMeta.paymentMethods : []),
+        terms: mappedTerms.length > 0 ? mappedTerms : (Array.isArray(compMeta.terms) ? compMeta.terms : []),
+        classes: mappedClasses.length > 0 ? mappedClasses : (Array.isArray(compMeta.classes) ? compMeta.classes : []),
+        customFields: mappedCustomFields,
+        attachments: mappedAttachments,
+        costGroups: mappedCostGroups,
         preferences: compMeta.preferences || {},
         companyInfo: compMeta.companyInfo || {},
         closingDate: compMeta.closing_date || null,
@@ -493,6 +653,9 @@ export async function POST(req: NextRequest) {
         due_date,
         doc_number,
         payment_type,
+        payment_method_qb_id,
+        term_qb_id,
+        term_name,
         account_qb_id,
         account_name,
         to_account_qb_id,
@@ -500,7 +663,11 @@ export async function POST(req: NextRequest) {
         entity_qb_id,
         entity_name,
         entity_type,
+        department_qb_id,
         department_name,
+        class_qb_id,
+        class_name,
+        custom_fields,
         memo,
         print_status,
         line_items,
@@ -556,8 +723,13 @@ export async function POST(req: NextRequest) {
         entity_name: l.entity_name || entity_name || null,
         payment_method: l.payment_method || payment_type || null,
         check_num: l.check_num || doc_number || null,
-        item_id: l.item_id || null,
+        item_qb_id: l.item_qb_id || l.item_id || null,
+        item_id: l.item_id || l.item_qb_id || null,
         item_name: l.item_name || null,
+        class_qb_id: l.class_qb_id || class_qb_id || null,
+        class_name: l.class_name || class_name || null,
+        department_qb_id: l.department_qb_id || department_qb_id || null,
+        department_name: l.department_name || department_name || null,
         qty: l.qty != null && l.qty !== '' ? Number(l.qty) : null,
         rate: l.rate != null && l.rate !== '' ? Number(l.rate) : null,
       })) : []
@@ -689,7 +861,14 @@ export async function POST(req: NextRequest) {
         entity_qb_id: resolvedEntityQbId,
         entity_name: trimmedEntityName || null,
         entity_type: entity_type || ((direction === 'IN' || txn_type === 'Invoice' || txn_type === 'CreditMemo' || txn_type === 'Estimate' || txn_type === 'RefundReceipt') ? 'Customer' : 'Vendor'),
+        department_qb_id: department_qb_id || null,
         department_name: department_name || null,
+        class_qb_id: class_qb_id || null,
+        class_name: class_name || null,
+        term_qb_id: term_qb_id || null,
+        term_name: term_name || null,
+        payment_method_qb_id: payment_method_qb_id || null,
+        custom_fields: custom_fields || {},
         total_amount: computedTotal,
         open_balance: (txn_type === 'Invoice' || txn_type === 'Bill') ? computedTotal : 0,
         memo: memo || null,
@@ -1598,6 +1777,22 @@ export async function POST(req: NextRequest) {
         summary: `Sincronizó con QuickBooks Online: Push (${syncRes.pushedTransactions} txns, ${syncRes.pushedAccounts} cuentas, ${syncRes.pushedContacts} contactos) · Pull (${syncRes.pulledTransactions} txns, ${syncRes.pulledAccounts} cuentas, ${syncRes.pulledContacts} contactos)`
       })
       return NextResponse.json({ success: true, syncResult: syncRes })
+    }
+
+    if (action === 'sync_all_with_qbo') {
+      const syncAllRes = await syncAllCompaniesWithQbo(supabase)
+      if (!syncAllRes.ok) {
+        return NextResponse.json({ error: 'Ninguna empresa pudo sincronizarse con QuickBooks Online', syncResult: syncAllRes }, { status: 400 })
+      }
+      await logExternalAccountingAudit(supabase, {
+        realmId,
+        user: auth.user,
+        actionType: 'QBO_TWO_WAY_SYNC_ALL',
+        entityType: 'Company',
+        entityId: 'ALL_8_COMPANIES',
+        summary: `Sincronización Masiva (${syncAllRes.companiesSynced}/${syncAllRes.companiesTotal} empresas): Push (${syncAllRes.pushedTransactions} txns, ${syncAllRes.pushedAccounts} cuentas, ${syncAllRes.pushedContacts} contactos) · Pull (${syncAllRes.pulledTransactions} txns, ${syncAllRes.pulledAccounts} cuentas, ${syncAllRes.pulledContacts} contactos)`
+      })
+      return NextResponse.json({ success: true, syncResult: syncAllRes })
     }
 
     if (action === 'toggle_qbo_mirror_mode') {
@@ -2598,44 +2793,224 @@ export async function POST(req: NextRequest) {
     }
 
     // -------------------------------------------------------------------------
-    // 17. LISTS MANAGER: PRODUCTS & SERVICES, DEPARTMENTS, PAYMENT METHODS, TERMS, CLASSES (Gear Menu ⚙️ -> Lists)
+    // 17. LISTS MANAGER: ALL 9 QBO LISTS RELATIONAL TABLES (Gear Menu ⚙️ -> Lists / Tab 12)
     // -------------------------------------------------------------------------
     if (action === 'save_list_item') {
       const { listKey, item } = body
-      const allowedKeys = ['items', 'departments', 'paymentMethods', 'terms', 'classes']
-      if (!allowedKeys.includes(listKey) || !item || !item.Name) {
+      const allowedKeys = [
+        'items',
+        'categories',
+        'departments',
+        'classes',
+        'paymentMethods',
+        'terms',
+        'customFields',
+        'attachments',
+        'costGroups',
+      ]
+      if (!allowedKeys.includes(listKey) || !item || !(item.Name || item.name || item.file_name)) {
         return NextResponse.json({ error: 'Lista e información del elemento son obligatorias.' }, { status: 400 })
       }
-      const currentList: any[] = Array.isArray(companyRecord.metadata?.[listKey])
-        ? [...companyRecord.metadata[listKey]]
-        : []
 
-      const itemId = item.Id ? String(item.Id) : `LOCAL-${Date.now()}`
-      const normalizedItem = {
+      const rawName = String(item.Name || item.name || item.file_name || '').trim()
+      let itemId = item.Id || item.qb_item_id || item.qb_category_id || item.qb_location_id || item.qb_class_id || item.qb_payment_method_id || item.qb_term_id || item.field_key || item.qb_attachable_id || item.qb_cost_group_id
+        ? String(item.Id || item.qb_item_id || item.qb_category_id || item.qb_location_id || item.qb_class_id || item.qb_payment_method_id || item.qb_term_id || item.field_key || item.qb_attachable_id || item.qb_cost_group_id)
+        : `LOCAL-${Date.now()}`
+
+      const normalizedItem: Record<string, any> = {
         ...item,
         Id: itemId,
-        Name: String(item.Name).trim(),
+        Name: rawName,
         Active: item.Active !== false,
       }
 
+      // Sync to QuickBooks Online V3 if connected & supported
+      const qboPush = await pushListItemToQbo(supabase, realmId, listKey, normalizedItem, 'UPSERT')
+      if (qboPush.synced && qboPush.qbId) {
+        itemId = qboPush.qbId
+        normalizedItem.Id = itemId
+      }
+
+      const nowIso = new Date().toISOString()
+
+      // Upsert into the corresponding relational table
+      if (listKey === 'items') {
+        const incAccId = normalizedItem.income_account_qb_id || normalizedItem.IncomeAccountRef?.value || null
+        const expAccId = normalizedItem.expense_account_qb_id || normalizedItem.ExpenseAccountRef?.value || null
+        const assAccId = normalizedItem.asset_account_qb_id || normalizedItem.AssetAccountRef?.value || null
+        const incAccName = incAccId ? (acctByQbId.get(String(incAccId))?.name || normalizedItem.income_account_name || normalizedItem.IncomeAccountRef?.name || null) : null
+        const expAccName = expAccId ? (acctByQbId.get(String(expAccId))?.name || normalizedItem.expense_account_name || normalizedItem.ExpenseAccountRef?.name || null) : null
+        const assAccName = assAccId ? (acctByQbId.get(String(assAccId))?.name || normalizedItem.asset_account_name || normalizedItem.AssetAccountRef?.name || null) : null
+        const catId = normalizedItem.category_qb_id || normalizedItem.ParentRef?.value || null
+        const catName = normalizedItem.category_name || normalizedItem.ParentRef?.name || null
+
+        const { error: dbErr } = await supabase.from('external_accounting_items').upsert({
+          company_realm_id: realmId,
+          qb_item_id: itemId,
+          name: rawName,
+          fully_qualified_name: catName ? `${catName}:${rawName}` : (normalizedItem.FullyQualifiedName || rawName),
+          sku: normalizedItem.Sku || normalizedItem.sku || null,
+          item_type: normalizedItem.Type || normalizedItem.item_type || 'Service',
+          category_qb_id: catId ? String(catId) : null,
+          category_name: catName,
+          is_sub_item: Boolean(catId),
+          description: normalizedItem.Description || normalizedItem.description || null,
+          unit_price: Number(normalizedItem.UnitPrice ?? normalizedItem.unit_price ?? 0),
+          purchase_desc: normalizedItem.PurchaseDesc || normalizedItem.purchase_desc || null,
+          purchase_cost: Number(normalizedItem.PurchaseCost ?? normalizedItem.purchase_cost ?? 0),
+          income_account_qb_id: incAccId ? String(incAccId) : null,
+          income_account_name: incAccName,
+          expense_account_qb_id: expAccId ? String(expAccId) : null,
+          expense_account_name: expAccName,
+          asset_account_qb_id: assAccId ? String(assAccId) : null,
+          asset_account_name: assAccName,
+          track_qty_on_hand: Boolean(normalizedItem.TrackQtyOnHand ?? normalizedItem.track_qty_on_hand),
+          qty_on_hand: Number(normalizedItem.QtyOnHand ?? normalizedItem.qty_on_hand ?? 0),
+          taxable: Boolean(normalizedItem.Taxable ?? normalizedItem.taxable),
+          is_active: normalizedItem.Active !== false,
+          raw_data: qboPush.qboObject || normalizedItem,
+          updated_at: nowIso,
+        }, { onConflict: 'company_realm_id,qb_item_id' })
+        if (dbErr) throw dbErr
+      } else if (listKey === 'categories') {
+        const parentId = normalizedItem.parent_qb_id || normalizedItem.ParentRef?.value || null
+        const parentName = normalizedItem.parent_name || normalizedItem.ParentRef?.name || null
+        const { error: dbErr } = await supabase.from('external_accounting_categories').upsert({
+          company_realm_id: realmId,
+          qb_category_id: itemId,
+          name: rawName,
+          fully_qualified_name: parentName ? `${parentName}:${rawName}` : rawName,
+          parent_qb_id: parentId ? String(parentId) : null,
+          parent_name: parentName,
+          is_sub_category: Boolean(parentId),
+          is_active: normalizedItem.Active !== false,
+          raw_data: qboPush.qboObject || normalizedItem,
+          updated_at: nowIso,
+        }, { onConflict: 'company_realm_id,qb_category_id' })
+        if (dbErr) throw dbErr
+      } else if (listKey === 'departments') {
+        const parentId = normalizedItem.parent_qb_id || normalizedItem.ParentRef?.value || null
+        const parentName = normalizedItem.parent_name || normalizedItem.ParentRef?.name || null
+        const { error: dbErr } = await supabase.from('external_accounting_locations').upsert({
+          company_realm_id: realmId,
+          qb_location_id: itemId,
+          name: rawName,
+          fully_qualified_name: parentName ? `${parentName}:${rawName}` : (normalizedItem.FullyQualifiedName || rawName),
+          parent_qb_id: parentId ? String(parentId) : null,
+          parent_name: parentName,
+          is_sub_location: Boolean(parentId || normalizedItem.SubDepartment),
+          address: normalizedItem.address || null,
+          is_active: normalizedItem.Active !== false,
+          raw_data: qboPush.qboObject || normalizedItem,
+          updated_at: nowIso,
+        }, { onConflict: 'company_realm_id,qb_location_id' })
+        if (dbErr) throw dbErr
+      } else if (listKey === 'classes') {
+        const parentId = normalizedItem.parent_qb_id || normalizedItem.ParentRef?.value || null
+        const parentName = normalizedItem.parent_name || normalizedItem.ParentRef?.name || null
+        const { error: dbErr } = await supabase.from('external_accounting_classes').upsert({
+          company_realm_id: realmId,
+          qb_class_id: itemId,
+          name: rawName,
+          fully_qualified_name: parentName ? `${parentName}:${rawName}` : (normalizedItem.FullyQualifiedName || rawName),
+          class_code: normalizedItem.class_code || normalizedItem.ClassCode || null,
+          parent_qb_id: parentId ? String(parentId) : null,
+          parent_name: parentName,
+          is_sub_class: Boolean(parentId || normalizedItem.SubClass),
+          is_active: normalizedItem.Active !== false,
+          raw_data: qboPush.qboObject || normalizedItem,
+          updated_at: nowIso,
+        }, { onConflict: 'company_realm_id,qb_class_id' })
+        if (dbErr) throw dbErr
+      } else if (listKey === 'paymentMethods') {
+        const { error: dbErr } = await supabase.from('external_accounting_payment_methods').upsert({
+          company_realm_id: realmId,
+          qb_payment_method_id: itemId,
+          name: rawName,
+          method_type: normalizedItem.Type || normalizedItem.method_type || 'NON_CREDIT_CARD',
+          is_active: normalizedItem.Active !== false,
+          raw_data: qboPush.qboObject || normalizedItem,
+          updated_at: nowIso,
+        }, { onConflict: 'company_realm_id,qb_payment_method_id' })
+        if (dbErr) throw dbErr
+      } else if (listKey === 'terms') {
+        const { error: dbErr } = await supabase.from('external_accounting_terms').upsert({
+          company_realm_id: realmId,
+          qb_term_id: itemId,
+          name: rawName,
+          term_type: normalizedItem.Type || normalizedItem.term_type || 'STANDARD',
+          due_days: Number(normalizedItem.DueDays ?? normalizedItem.due_days ?? 30),
+          discount_percent: Number(normalizedItem.DiscountPercent ?? normalizedItem.discount_percent ?? 0),
+          discount_days: Number(normalizedItem.DiscountDays ?? normalizedItem.discount_days ?? 0),
+          is_active: normalizedItem.Active !== false,
+          raw_data: qboPush.qboObject || normalizedItem,
+          updated_at: nowIso,
+        }, { onConflict: 'company_realm_id,qb_term_id' })
+        if (dbErr) throw dbErr
+      } else if (listKey === 'customFields') {
+        const fieldKey = normalizedItem.field_key || itemId
+        const { error: dbErr } = await supabase.from('external_accounting_custom_fields').upsert({
+          company_realm_id: realmId,
+          field_key: String(fieldKey),
+          name: rawName,
+          data_type: normalizedItem.data_type || normalizedItem.Type || 'StringType',
+          applies_to: Array.isArray(normalizedItem.applies_to) ? normalizedItem.applies_to : ['Invoice', 'SalesReceipt', 'Bill', 'PurchaseOrder', 'Check', 'Expense'],
+          is_required: Boolean(normalizedItem.is_required),
+          show_on_print: normalizedItem.show_on_print !== false,
+          is_active: normalizedItem.Active !== false,
+          raw_data: normalizedItem,
+          updated_at: nowIso,
+        }, { onConflict: 'company_realm_id,field_key' })
+        if (dbErr) throw dbErr
+      } else if (listKey === 'attachments') {
+        const { error: dbErr } = await supabase.from('external_accounting_attachments').upsert({
+          company_realm_id: realmId,
+          qb_attachable_id: itemId,
+          file_name: rawName,
+          content_type: normalizedItem.content_type || normalizedItem.ContentType || 'application/pdf',
+          file_size: Number(normalizedItem.file_size || 0),
+          file_url: normalizedItem.file_url || normalizedItem.FileAccessUri || null,
+          linked_entity_type: normalizedItem.linked_entity_type || null,
+          linked_entity_id: normalizedItem.linked_entity_id || null,
+          note: normalizedItem.note || normalizedItem.Note || normalizedItem.Description || null,
+          raw_data: normalizedItem,
+          updated_at: nowIso,
+        }, { onConflict: 'company_realm_id,qb_attachable_id' })
+        if (dbErr) throw dbErr
+      } else if (listKey === 'costGroups') {
+        const { error: dbErr } = await supabase.from('external_accounting_cost_groups').upsert({
+          company_realm_id: realmId,
+          qb_cost_group_id: itemId,
+          name: rawName,
+          description: normalizedItem.description || normalizedItem.Description || null,
+          cost_type: normalizedItem.cost_type || normalizedItem.Type || 'Direct Cost',
+          default_account_qb_id: normalizedItem.default_account_qb_id || null,
+          default_account_name: normalizedItem.default_account_name || null,
+          is_active: normalizedItem.Active !== false,
+          raw_data: normalizedItem,
+          updated_at: nowIso,
+        }, { onConflict: 'company_realm_id,qb_cost_group_id' })
+        if (dbErr) throw dbErr
+      }
+
+      // Also keep companyRecord.metadata[listKey] synchronized
+      const currentList: any[] = Array.isArray(companyRecord.metadata?.[listKey])
+        ? [...companyRecord.metadata[listKey]]
+        : []
       const existingIdx = currentList.findIndex(x => String(x.Id) === itemId)
       if (existingIdx >= 0) {
         currentList[existingIdx] = normalizedItem
       } else {
         currentList.push(normalizedItem)
       }
-
       const nextMeta = {
         ...(companyRecord.metadata || {}),
         [listKey]: currentList,
       }
-
-      const { error } = await supabase
+      await supabase
         .from('external_accounting_companies')
-        .update({ metadata: nextMeta, updated_at: new Date().toISOString() })
+        .update({ metadata: nextMeta, updated_at: nowIso })
         .eq('realm_id', realmId)
-
-      if (error) throw error
 
       await logExternalAccountingAudit(supabase, {
         realmId,
@@ -2643,64 +3018,84 @@ export async function POST(req: NextRequest) {
         actionType: 'SAVE_LIST_ITEM',
         entityType: listKey,
         entityId: itemId,
-        summary: `Guardó elemento "${normalizedItem.Name}" en catálogo ${listKey}`
+        summary: `Guardó elemento "${rawName}" en tabla relacional ${listKey}${qboPush.synced ? ` [QBO #${itemId}]` : ''}`
       })
 
-      return NextResponse.json({ success: true, list: currentList })
+      return NextResponse.json({ success: true, itemId, qboPush })
     }
 
     if (action === 'delete_list_item') {
       const { listKey, itemId } = body
-      const allowedKeys = ['items', 'departments', 'paymentMethods', 'terms', 'classes']
+      const allowedKeys = [
+        'items',
+        'categories',
+        'departments',
+        'classes',
+        'paymentMethods',
+        'terms',
+        'customFields',
+        'attachments',
+        'costGroups',
+      ]
       if (!allowedKeys.includes(listKey) || !itemId) {
         return NextResponse.json({ error: 'listKey and itemId are required' }, { status: 400 })
       }
+      const targetId = String(itemId)
       const existingArr: any[] = Array.isArray(companyRecord.metadata?.[listKey])
         ? companyRecord.metadata[listKey]
         : []
-      const removedItem = existingArr.find((x: any) => String(x.Id ?? x.id) === String(itemId))
-      const currentList: any[] = existingArr.filter((x: any) => String(x.Id ?? x.id) !== String(itemId))
+      const removedItem = existingArr.find((x: any) => String(x.Id ?? x.id) === targetId)
 
+      // Delete from the relational table in Supabase
+      const tableMap: Record<string, { table: string; idCol: string }> = {
+        items: { table: 'external_accounting_items', idCol: 'qb_item_id' },
+        categories: { table: 'external_accounting_categories', idCol: 'qb_category_id' },
+        departments: { table: 'external_accounting_locations', idCol: 'qb_location_id' },
+        classes: { table: 'external_accounting_classes', idCol: 'qb_class_id' },
+        paymentMethods: { table: 'external_accounting_payment_methods', idCol: 'qb_payment_method_id' },
+        terms: { table: 'external_accounting_terms', idCol: 'qb_term_id' },
+        customFields: { table: 'external_accounting_custom_fields', idCol: 'field_key' },
+        attachments: { table: 'external_accounting_attachments', idCol: 'qb_attachable_id' },
+        costGroups: { table: 'external_accounting_cost_groups', idCol: 'qb_cost_group_id' },
+      }
+      const tbl = tableMap[listKey]
+      if (tbl) {
+        const { error: delErr } = await supabase
+          .from(tbl.table)
+          .delete()
+          .eq('company_realm_id', realmId)
+          .eq(tbl.idCol, targetId)
+        if (delErr) throw delErr
+      }
+
+      const currentList: any[] = existingArr.filter((x: any) => String(x.Id ?? x.id) !== targetId)
       const nextMeta = {
         ...(companyRecord.metadata || {}),
         [listKey]: currentList,
       }
-
-      const { error } = await supabase
+      await supabase
         .from('external_accounting_companies')
         .update({ metadata: nextMeta, updated_at: new Date().toISOString() })
         .eq('realm_id', realmId)
 
-      if (error) throw error
-
-      const entityMap: Record<string, { entityType: string; endpoint: string }> = {
-        items: { entityType: 'Item', endpoint: 'item' },
-        departments: { entityType: 'Department', endpoint: 'department' },
-        paymentMethods: { entityType: 'PaymentMethod', endpoint: 'paymentmethod' },
-        terms: { entityType: 'Term', endpoint: 'term' },
-        classes: { entityType: 'Class', endpoint: 'class' },
-      }
-      if (entityMap[listKey] && !String(itemId).startsWith('LOCAL-')) {
-        await queuePendingQboDelete(supabase, realmId, {
-          kind: 'LIST_ITEM',
-          entityType: entityMap[listKey].entityType,
-          endpoint: entityMap[listKey].endpoint,
-          qbId: String(itemId),
-          operation: 'DEACTIVATE',
-          label: removedItem?.Name || removedItem?.name || String(itemId),
-        })
-      }
+      const qboDel = await pushListItemToQbo(
+        supabase,
+        realmId,
+        listKey,
+        { Id: targetId, Name: removedItem?.Name || removedItem?.name || targetId },
+        'DEACTIVATE'
+      )
 
       await logExternalAccountingAudit(supabase, {
         realmId,
         user: auth.user,
         actionType: 'DELETE_LIST_ITEM',
         entityType: listKey,
-        entityId: String(itemId),
-        summary: `Eliminó elemento "${removedItem?.Name || removedItem?.name || itemId}" de catálogo ${listKey} y encoló baja para QuickBooks Online`
+        entityId: targetId,
+        summary: `Eliminó elemento "${removedItem?.Name || removedItem?.name || targetId}" de tabla relacional ${listKey} y sincronizó baja con QuickBooks Online`
       })
 
-      return NextResponse.json({ success: true, list: currentList })
+      return NextResponse.json({ success: true, list: currentList, qboDel })
     }
 
     return NextResponse.json({ error: `Unknown action: ${action}` }, { status: 400 })

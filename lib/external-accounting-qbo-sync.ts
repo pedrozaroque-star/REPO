@@ -561,6 +561,162 @@ export async function pushContactToQbo(
 }
 
 /**
+ * Sincroniza (Crea, Actualiza o Desactiva) un elemento del catálogo de `Lists` (`Item`, `Category`, `Department`, `Class`, `PaymentMethod`, `Term`)
+ * hacia Intuit QuickBooks Online V3.
+ */
+export async function pushListItemToQbo(
+  supabase: SupabaseClient,
+  realmId: string,
+  listKey: string,
+  itemPayload: Record<string, any>,
+  operation: 'UPSERT' | 'DEACTIVATE' = 'UPSERT'
+): Promise<{ synced: boolean; qbId?: string; status?: string; error?: string; qboObject?: any }> {
+  const entityMap: Record<string, { entityType: string; endpoint: string }> = {
+    items: { entityType: 'Item', endpoint: 'item' },
+    categories: { entityType: 'Item', endpoint: 'item' },
+    departments: { entityType: 'Department', endpoint: 'department' },
+    paymentMethods: { entityType: 'PaymentMethod', endpoint: 'paymentmethod' },
+    terms: { entityType: 'Term', endpoint: 'term' },
+    classes: { entityType: 'Class', endpoint: 'class' },
+  }
+  const cfg = entityMap[listKey]
+  if (!cfg) {
+    return { synced: false, status: 'LOCAL_ONLY_LIST' }
+  }
+
+  const rawId = String(itemPayload.Id || itemPayload.qbId || '')
+  const isNewInQbo = isLocalId(rawId)
+  const auth = await getExternalCompanyQboAuth(supabase, realmId)
+
+  if (!auth.connected || !auth.syncEnabled) {
+    if (operation === 'DEACTIVATE' && !isNewInQbo) {
+      await queuePendingQboDelete(supabase, realmId, {
+        kind: 'LIST_ITEM',
+        entityType: cfg.entityType,
+        endpoint: cfg.endpoint,
+        qbId: rawId,
+        operation: 'DEACTIVATE',
+        label: itemPayload.Name || rawId,
+      })
+      return { synced: false, qbId: rawId, status: 'QUEUED_QBO_DELETE' }
+    }
+    return { synced: false, qbId: rawId, status: !auth.connected ? 'NOT_CONNECTED' : 'SYNC_DISABLED' }
+  }
+
+  if (operation === 'DEACTIVATE') {
+    if (isNewInQbo) return { synced: true, qbId: rawId, status: 'LOCAL_ONLY_DELETED' }
+    const existingRes = await qboV3Request(supabase, realmId, 'GET', `${cfg.endpoint}/${rawId}`)
+    const existingObj = existingRes.data?.[cfg.entityType] || {}
+    const syncToken = existingObj.SyncToken ?? '0'
+    const delPayload = {
+      ...existingObj,
+      Id: rawId,
+      SyncToken: String(syncToken),
+      Name: itemPayload.Name || existingObj.Name || 'Deactivated Item',
+      Active: false,
+      sparse: true,
+    }
+    const delRes = await qboV3Request(supabase, realmId, 'POST', cfg.endpoint, delPayload)
+    await queuePendingQboDelete(supabase, realmId, {
+      kind: 'LIST_ITEM',
+      entityType: cfg.entityType,
+      endpoint: cfg.endpoint,
+      qbId: rawId,
+      operation: 'DEACTIVATE',
+      label: itemPayload.Name || rawId,
+    })
+    return {
+      synced: delRes.ok,
+      qbId: rawId,
+      status: delRes.ok ? 'DEACTIVATED_IN_QBO' : 'QUEUED_QBO_DELETE',
+      error: delRes.error,
+    }
+  }
+
+  const qboBody: Record<string, any> = {
+    Name: String(itemPayload.Name || '').trim(),
+    Active: itemPayload.Active !== false,
+  }
+
+  if (listKey === 'categories') {
+    qboBody.Type = 'Category'
+    if (itemPayload.ParentRef?.value && !isLocalId(itemPayload.ParentRef.value)) {
+      qboBody.SubItem = true
+      qboBody.ParentRef = { value: String(itemPayload.ParentRef.value) }
+    }
+  } else if (listKey === 'items') {
+    qboBody.Type = itemPayload.Type || 'Service'
+    if (itemPayload.Sku) qboBody.Sku = String(itemPayload.Sku)
+    if (itemPayload.Description) qboBody.Description = String(itemPayload.Description)
+    if (itemPayload.UnitPrice != null) qboBody.UnitPrice = Number(itemPayload.UnitPrice || 0)
+    if (itemPayload.PurchaseDesc) qboBody.PurchaseDesc = String(itemPayload.PurchaseDesc)
+    if (itemPayload.PurchaseCost != null) qboBody.PurchaseCost = Number(itemPayload.PurchaseCost || 0)
+    if (itemPayload.IncomeAccountRef?.value && !isLocalId(itemPayload.IncomeAccountRef.value)) {
+      qboBody.IncomeAccountRef = {
+        value: String(itemPayload.IncomeAccountRef.value),
+        name: itemPayload.IncomeAccountRef.name || undefined,
+      }
+    }
+    if (itemPayload.ExpenseAccountRef?.value && !isLocalId(itemPayload.ExpenseAccountRef.value)) {
+      qboBody.ExpenseAccountRef = {
+        value: String(itemPayload.ExpenseAccountRef.value),
+        name: itemPayload.ExpenseAccountRef.name || undefined,
+      }
+    }
+    if (itemPayload.AssetAccountRef?.value && !isLocalId(itemPayload.AssetAccountRef.value)) {
+      qboBody.AssetAccountRef = {
+        value: String(itemPayload.AssetAccountRef.value),
+        name: itemPayload.AssetAccountRef.name || undefined,
+      }
+    }
+    if (itemPayload.ParentRef?.value && !isLocalId(itemPayload.ParentRef.value)) {
+      qboBody.SubItem = true
+      qboBody.ParentRef = { value: String(itemPayload.ParentRef.value) }
+    }
+  } else if (listKey === 'departments') {
+    if (itemPayload.ParentRef?.value && !isLocalId(itemPayload.ParentRef.value)) {
+      qboBody.SubDepartment = true
+      qboBody.ParentRef = { value: String(itemPayload.ParentRef.value) }
+    }
+  } else if (listKey === 'classes') {
+    if (itemPayload.ParentRef?.value && !isLocalId(itemPayload.ParentRef.value)) {
+      qboBody.SubClass = true
+      qboBody.ParentRef = { value: String(itemPayload.ParentRef.value) }
+    }
+  } else if (listKey === 'paymentMethods') {
+    qboBody.Type = itemPayload.Type === 'CREDIT_CARD' ? 'CREDIT_CARD' : 'NON_CREDIT_CARD'
+  } else if (listKey === 'terms') {
+    qboBody.DueDays = Number(itemPayload.DueDays ?? 30)
+    if (itemPayload.DiscountPercent != null && Number(itemPayload.DiscountPercent) > 0) {
+      qboBody.DiscountPercent = Number(itemPayload.DiscountPercent)
+      qboBody.DiscountDays = Number(itemPayload.DiscountDays ?? 0)
+    }
+  }
+
+  if (!isNewInQbo) {
+    const existingRes = await qboV3Request(supabase, realmId, 'GET', `${cfg.endpoint}/${rawId}`)
+    if (existingRes.ok && existingRes.data?.[cfg.entityType]) {
+      qboBody.Id = String(existingRes.data[cfg.entityType].Id)
+      qboBody.SyncToken = String(existingRes.data[cfg.entityType].SyncToken || '0')
+      qboBody.sparse = true
+    }
+  }
+
+  const saveRes = await qboV3Request(supabase, realmId, 'POST', cfg.endpoint, qboBody)
+  if (!saveRes.ok || !saveRes.data?.[cfg.entityType]) {
+    return { synced: false, qbId: rawId, error: saveRes.error }
+  }
+
+  const savedObj = saveRes.data[cfg.entityType]
+  return {
+    synced: true,
+    qbId: String(savedObj.Id),
+    status: 'SYNCED',
+    qboObject: savedObj,
+  }
+}
+
+/**
  * Construye el payload oficial de Intuit QuickBooks V3 para cualquier tipo de transacción.
  */
 export function buildQboTransactionPayload(txn: any): { entityName: string; endpoint: string; payload: Record<string, any> } {
@@ -1157,8 +1313,10 @@ function normalizeQboLines(lines: any[] = []): { items: any[]; categorySummary: 
       l.SalesItemLineDetail ||
       {}
     const accountRef = acctDetail.AccountRef || acctDetail.ItemAccountRef || null
-    const entityRef = acctDetail.Entity || acctDetail.CustomerRef || null
+    const entityRef = acctDetail.Entity?.EntityRef || acctDetail.Entity || acctDetail.CustomerRef || null
     const itemRef = acctDetail.ItemRef || null
+    const classRef = acctDetail.ClassRef || null
+    const deptRef = acctDetail.DepartmentRef || null
     const accountName = accountRef?.name || itemRef?.name || null
     if (accountName) categories.add(accountName)
 
@@ -1174,7 +1332,12 @@ function normalizeQboLines(lines: any[] = []): { items: any[]; categorySummary: 
       entity_qb_id: entityRef?.value ? String(entityRef.value) : null,
       entity_name: entityRef?.name || null,
       item_qb_id: itemRef?.value ? String(itemRef.value) : null,
+      item_id: itemRef?.value ? String(itemRef.value) : null,
       item_name: itemRef?.name || null,
+      class_qb_id: classRef?.value ? String(classRef.value) : null,
+      class_name: classRef?.name || null,
+      department_qb_id: deptRef?.value ? String(deptRef.value) : null,
+      department_name: deptRef?.name || null,
       payment_method: acctDetail.PaymentMethodRef?.name || null,
       check_num: acctDetail.CheckNum || null,
     })
@@ -1401,6 +1564,21 @@ export async function syncCompanyWithQbo(
   const pulledTxnRows: any[] = []
   const pullEntities = ['Purchase', 'Deposit', 'JournalEntry', 'Transfer', 'Bill', 'BillPayment', 'Invoice', 'Payment'] as const
 
+  const accNameById = new Map<string, string>()
+  let defaultArAcc: { id: string; name: string } | null = null
+  let defaultApAcc: { id: string; name: string } | null = null
+  for (const a of rawAccounts) {
+    const idStr = String(a.Id)
+    const nm = a.FullyQualifiedName || a.Name || 'Account'
+    accNameById.set(idStr, nm)
+    if (a.AccountType === 'Accounts Receivable' && !defaultArAcc) {
+      defaultArAcc = { id: idStr, name: nm }
+    }
+    if (a.AccountType === 'Accounts Payable' && !defaultApAcc) {
+      defaultApAcc = { id: idStr, name: nm }
+    }
+  }
+
   for (const ent of pullEntities) {
     const q = `SELECT * FROM ${ent} ORDERBY MetaData.LastUpdatedTime DESC MAXRESULTS 250`
     const tRes = await qboV3Request(supabase, realmId, 'GET', `query?query=${encodeURIComponent(q)}`)
@@ -1426,7 +1604,7 @@ export async function syncCompanyWithQbo(
           payment_type: pType,
           direction: 'OUT',
           account_qb_id: item.AccountRef?.value ? String(item.AccountRef.value) : null,
-          account_name: item.AccountRef?.name || null,
+          account_name: item.AccountRef?.name || (item.AccountRef?.value ? accNameById.get(String(item.AccountRef.value)) : null) || null,
           to_account_qb_id: lineItems[0]?.account_qb_id || null,
           to_account_name: lineItems[0]?.account_name || null,
           entity_qb_id: item.EntityRef?.value ? String(item.EntityRef.value) : null,
@@ -1455,7 +1633,7 @@ export async function syncCompanyWithQbo(
           payment_type: firstLine.payment_method || 'Deposit',
           direction: 'IN',
           account_qb_id: item.DepositToAccountRef?.value ? String(item.DepositToAccountRef.value) : null,
-          account_name: item.DepositToAccountRef?.name || null,
+          account_name: item.DepositToAccountRef?.name || (item.DepositToAccountRef?.value ? accNameById.get(String(item.DepositToAccountRef.value)) : null) || null,
           to_account_qb_id: firstLine.account_qb_id || null,
           to_account_name: firstLine.account_name || null,
           entity_qb_id: firstLine.entity_qb_id || null,
@@ -1482,9 +1660,9 @@ export async function syncCompanyWithQbo(
           payment_type: 'Transfer',
           direction: 'TRANSFER',
           account_qb_id: item.FromAccountRef?.value ? String(item.FromAccountRef.value) : null,
-          account_name: item.FromAccountRef?.name || null,
+          account_name: item.FromAccountRef?.name || (item.FromAccountRef?.value ? accNameById.get(String(item.FromAccountRef.value)) : null) || null,
           to_account_qb_id: item.ToAccountRef?.value ? String(item.ToAccountRef.value) : null,
-          to_account_name: item.ToAccountRef?.name || null,
+          to_account_name: item.ToAccountRef?.name || (item.ToAccountRef?.value ? accNameById.get(String(item.ToAccountRef.value)) : null) || null,
           total_amount: Number(item.Amount ?? 0),
           open_balance: 0,
           memo: item.PrivateNote || `Transfer from ${item.FromAccountRef?.name || ''} to ${item.ToAccountRef?.name || ''}`,
@@ -1521,6 +1699,170 @@ export async function syncCompanyWithQbo(
           cleared_status: 'Cleared',
           is_voided: false,
           line_items: lineItems,
+          raw_data: syncedRaw,
+          updated_at: new Date().toISOString(),
+        })
+      } else if (ent === 'Bill') {
+        const apId = item.APAccountRef?.value ? String(item.APAccountRef.value) : defaultApAcc?.id || null
+        const apName = item.APAccountRef?.name || (apId ? accNameById.get(apId) : null) || defaultApAcc?.name || 'Accounts Payable (A/P)'
+        pulledTxnRows.push({
+          company_realm_id: realmId,
+          txn_type: 'Bill',
+          qb_entity_type: 'Bill',
+          qb_txn_id: String(item.Id),
+          txn_date: item.TxnDate,
+          due_date: item.DueDate || item.TxnDate || null,
+          doc_number: item.DocNumber || null,
+          payment_type: 'Bill',
+          direction: 'ACCRUAL',
+          account_qb_id: apId,
+          account_name: apName,
+          to_account_qb_id: lineItems[0]?.account_qb_id || null,
+          to_account_name: lineItems[0]?.account_name || null,
+          entity_qb_id: item.VendorRef?.value ? String(item.VendorRef.value) : null,
+          entity_name: item.VendorRef?.name || null,
+          entity_type: 'Vendor',
+          total_amount: Number(item.TotalAmt ?? 0),
+          open_balance: Number(item.Balance ?? 0),
+          memo: item.PrivateNote || lineItems.map((l: any) => l.description).filter(Boolean).join('; ') || null,
+          category_summary: categorySummary || 'Accounts Payable (A/P)',
+          print_status: 'NotSet',
+          cleared_status: 'Cleared',
+          is_voided: false,
+          line_items: lineItems,
+          raw_data: syncedRaw,
+          updated_at: new Date().toISOString(),
+        })
+      } else if (ent === 'BillPayment') {
+        const payType = item.PayType || 'Check'
+        const bankRef = item.CheckPayment?.BankAccountRef || item.CreditCardPayment?.CCAccountRef
+        const bankId = bankRef?.value ? String(bankRef.value) : null
+        const bankName = bankRef?.name || (bankId ? accNameById.get(bankId) : null) || null
+        const apId = item.APAccountRef?.value ? String(item.APAccountRef.value) : defaultApAcc?.id || null
+        const apName = item.APAccountRef?.name || (apId ? accNameById.get(apId) : null) || defaultApAcc?.name || 'Accounts Payable (A/P)'
+        const bpLines = (Array.isArray(item.Line) ? item.Line : []).map((l: any, idx: number) => ({
+          id: String(l.Id || idx + 1),
+          amount: Number(l.Amount ?? 0),
+          line_num: idx + 1,
+          description: item.PrivateNote || `BillPayment (${item.TxnDate})`,
+          detail_type: 'BillPaymentLineDetail',
+          entity_name: item.VendorRef?.name || null,
+          entity_qb_id: item.VendorRef?.value ? String(item.VendorRef.value) : null,
+          account_qb_id: apId,
+          account_name: apName,
+          linked_txn_id: l.LinkedTxn?.[0]?.TxnId ? String(l.LinkedTxn[0].TxnId) : null,
+          linked_txn_type: l.LinkedTxn?.[0]?.TxnType || 'Bill',
+        }))
+        pulledTxnRows.push({
+          company_realm_id: realmId,
+          txn_type: 'BillPayment',
+          qb_entity_type: 'BillPayment',
+          qb_txn_id: String(item.Id),
+          txn_date: item.TxnDate,
+          doc_number: item.DocNumber || null,
+          payment_type: payType,
+          direction: 'OUT',
+          account_qb_id: bankId,
+          account_name: bankName,
+          to_account_qb_id: apId,
+          to_account_name: apName,
+          entity_qb_id: item.VendorRef?.value ? String(item.VendorRef.value) : null,
+          entity_name: item.VendorRef?.name || null,
+          entity_type: 'Vendor',
+          total_amount: Number(item.TotalAmt ?? 0),
+          open_balance: 0,
+          memo: item.PrivateNote || null,
+          category_summary: apName,
+          print_status: item.CheckPayment?.PrintStatus || 'NotSet',
+          cleared_status: 'Cleared',
+          is_voided: false,
+          line_items: bpLines,
+          raw_data: syncedRaw,
+          updated_at: new Date().toISOString(),
+        })
+      } else if (ent === 'Invoice') {
+        const arId = item.ARAccountRef?.value ? String(item.ARAccountRef.value) : defaultArAcc?.id || null
+        const arName = item.ARAccountRef?.name || (arId ? accNameById.get(arId) : null) || defaultArAcc?.name || 'Accounts Receivable (A/R)'
+        pulledTxnRows.push({
+          company_realm_id: realmId,
+          txn_type: 'Invoice',
+          qb_entity_type: 'Invoice',
+          qb_txn_id: String(item.Id),
+          txn_date: item.TxnDate,
+          due_date: item.DueDate || item.TxnDate || null,
+          doc_number: item.DocNumber || null,
+          payment_type: item.SalesTermRef?.name || 'Invoice',
+          direction: 'ACCRUAL',
+          account_qb_id: arId,
+          account_name: arName,
+          to_account_qb_id: lineItems[0]?.account_qb_id || null,
+          to_account_name: lineItems[0]?.account_name || lineItems[0]?.item_name || null,
+          entity_qb_id: item.CustomerRef?.value ? String(item.CustomerRef.value) : null,
+          entity_name: item.CustomerRef?.name || null,
+          entity_type: 'Customer',
+          total_amount: Number(item.TotalAmt ?? 0),
+          open_balance: Number(item.Balance ?? 0),
+          memo: item.PrivateNote || item.CustomerMemo?.value || lineItems.map((l: any) => l.description).filter(Boolean).join('; ') || null,
+          category_summary: categorySummary || lineItems[0]?.item_name || 'Sales',
+          print_status: item.PrintStatus || 'NotSet',
+          cleared_status: 'Cleared',
+          is_voided: false,
+          line_items: lineItems,
+          raw_data: syncedRaw,
+          updated_at: new Date().toISOString(),
+        })
+      } else if (ent === 'Payment') {
+        const depId = item.DepositToAccountRef?.value ? String(item.DepositToAccountRef.value) : null
+        const depName = item.DepositToAccountRef?.name || (depId ? accNameById.get(depId) : null) || null
+        const arId = item.ARAccountRef?.value ? String(item.ARAccountRef.value) : defaultArAcc?.id || null
+        const arName = item.ARAccountRef?.name || (arId ? accNameById.get(arId) : null) || defaultArAcc?.name || 'Accounts Receivable (A/R)'
+        const pLines = (Array.isArray(item.Line) ? item.Line : []).map((l: any, idx: number) => ({
+          id: String(l.Id || idx + 1),
+          amount: Number(l.Amount ?? 0),
+          line_num: idx + 1,
+          description: item.PrivateNote || `Payment (${item.TxnDate})`,
+          detail_type: 'PaymentLineDetail',
+          entity_name: item.CustomerRef?.name || null,
+          entity_qb_id: item.CustomerRef?.value ? String(item.CustomerRef.value) : null,
+          account_qb_id: arId,
+          account_name: arName,
+          linked_txn_id: l.LinkedTxn?.[0]?.TxnId ? String(l.LinkedTxn[0].TxnId) : null,
+          linked_txn_type: l.LinkedTxn?.[0]?.TxnType || 'Invoice',
+        }))
+        pulledTxnRows.push({
+          company_realm_id: realmId,
+          txn_type: 'Payment',
+          qb_entity_type: 'Payment',
+          qb_txn_id: String(item.Id),
+          txn_date: item.TxnDate,
+          doc_number: item.PaymentRefNum || item.DocNumber || null,
+          payment_type: 'Payment',
+          direction: 'ACCRUAL',
+          account_qb_id: depId,
+          account_name: depName,
+          to_account_qb_id: arId,
+          to_account_name: arName,
+          entity_qb_id: item.CustomerRef?.value ? String(item.CustomerRef.value) : null,
+          entity_name: item.CustomerRef?.name || null,
+          entity_type: 'Customer',
+          total_amount: Number(item.TotalAmt ?? 0),
+          open_balance: Number(item.UnappliedAmt ?? 0),
+          memo: item.PrivateNote || null,
+          category_summary: arName,
+          print_status: 'NotSet',
+          cleared_status: 'Cleared',
+          is_voided: false,
+          line_items: pLines.length > 0 ? pLines : [{
+            id: '1',
+            amount: Number(item.TotalAmt ?? 0),
+            line_num: 1,
+            description: item.PrivateNote || `Payment (${item.TxnDate})`,
+            detail_type: 'PaymentLineDetail',
+            entity_name: item.CustomerRef?.name || null,
+            entity_qb_id: item.CustomerRef?.value ? String(item.CustomerRef.value) : null,
+            account_qb_id: arId,
+            account_name: arName,
+          }],
           raw_data: syncedRaw,
           updated_at: new Date().toISOString(),
         })
@@ -1569,3 +1911,70 @@ export async function syncCompanyWithQbo(
     pulledTransactions,
   }
 }
+
+/**
+ * Sincroniza de un solo golpe (One-Click Batch Sync) TODAS las 8 empresas de Raquel Velazquez conectadas a QuickBooks Online.
+ */
+export async function syncAllCompaniesWithQbo(
+  supabase: SupabaseClient
+): Promise<{
+  ok: boolean
+  companiesSynced: number
+  companiesTotal: number
+  pushedTransactions: number
+  pushedAccounts: number
+  pushedContacts: number
+  pulledAccounts: number
+  pulledContacts: number
+  pulledTransactions: number
+  results: Array<{ realmId: string; companyName: string; ok: boolean; error?: string }>
+}> {
+  const { data: allComps } = await supabase
+    .from('external_accounting_companies')
+    .select('realm_id, company_name, metadata')
+    .order('company_name', { ascending: true })
+
+  const comps = allComps || []
+  let companiesSynced = 0
+  let pushedTransactions = 0
+  let pushedAccounts = 0
+  let pushedContacts = 0
+  let pulledAccounts = 0
+  let pulledContacts = 0
+  let pulledTransactions = 0
+  const results: Array<{ realmId: string; companyName: string; ok: boolean; error?: string }> = []
+
+  for (const c of comps) {
+    if (c.metadata?.qbo_sync_enabled === false) continue
+    const res = await syncCompanyWithQbo(supabase, c.realm_id)
+    results.push({
+      realmId: c.realm_id,
+      companyName: c.company_name,
+      ok: res.ok,
+      error: res.error,
+    })
+    if (res.ok) {
+      companiesSynced++
+      pushedTransactions += res.pushedTransactions
+      pushedAccounts += res.pushedAccounts
+      pushedContacts += res.pushedContacts
+      pulledAccounts += res.pulledAccounts
+      pulledContacts += res.pulledContacts
+      pulledTransactions += res.pulledTransactions
+    }
+  }
+
+  return {
+    ok: companiesSynced > 0,
+    companiesSynced,
+    companiesTotal: comps.length,
+    pushedTransactions,
+    pushedAccounts,
+    pushedContacts,
+    pulledAccounts,
+    pulledContacts,
+    pulledTransactions,
+    results,
+  }
+}
+

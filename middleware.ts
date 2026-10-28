@@ -32,7 +32,8 @@ const PUBLIC_ROUTES = [
   '/t/',
   '/order-ready-board',
   '/tablet',
-  '/admin/blindaje-delivery/empaque'
+  '/admin/blindaje-delivery/empaque',
+  '/training/portal'
 ]
 
 // Rutas protegidas que SÍ requieren autenticación

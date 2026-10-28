@@ -23,7 +23,7 @@ import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 import { getOrderReadyAccess } from '@/lib/order-ready-access'
 import { getServerUser } from '@/lib/auth-server'
-import { isValidVoice, VoiceId } from '@/lib/order-ready-tts'
+import { isValidVoice, VoiceId, getAnnouncementSpeech } from '@/lib/order-ready-tts'
 
 export const dynamic = 'force-dynamic'
 
@@ -32,15 +32,25 @@ export async function GET(request: Request) {
     const access = await getOrderReadyAccess(request)
     const isAdmin = !!access?.all
 
-    const { data, error } = await supabaseAdmin
+    const { data: rows, error } = await supabaseAdmin
       .from('order_ready_settings')
       .select('*')
-      .eq('id', 'global')
-      .maybeSingle()
+      .in('id', ['global', 'announcement_presets_global'])
 
     if (error) {
       console.error('[order-ready/settings] Error fetching settings:', error)
       return NextResponse.json({ error: error.message }, { status: 500 })
+    }
+
+    const data = rows?.find((r: any) => r.id === 'global') || null
+    const presetsRow = rows?.find((r: any) => r.id === 'announcement_presets_global') || null
+    let presets: Record<string, any> | null = null
+    if (presetsRow?.updated_by) {
+      try {
+        presets = JSON.parse(presetsRow.updated_by)
+      } catch {
+        presets = null
+      }
     }
 
     const defaultSettings = {
@@ -55,6 +65,7 @@ export async function GET(request: Request) {
     return NextResponse.json({
       success: true,
       settings: data || defaultSettings,
+      presets,
       isAdmin
     })
   } catch (err: any) {
@@ -71,7 +82,48 @@ export async function PUT(request: Request) {
       return NextResponse.json({ error: 'No autenticado' }, { status: 401 })
     }
 
-    // 2. REGLA ESTRICTA: Solo admin puede cambiar la voz
+    const user = await getServerUser(request)
+    const body = await request.json()
+
+    // Si es guardado de plantillas de Anuncios al Comedor (permitido para gerentes, supervisores y admins con acceso al tablero)
+    if (body?.presets && typeof body.presets === 'object') {
+      const serialized = JSON.stringify(body.presets)
+      const { error: presetErr } = await supabaseAdmin
+        .from('order_ready_settings')
+        .upsert({
+          id: 'announcement_presets_global',
+          voice: 'Kore',
+          voice_language: 'bilingual',
+          voice_volume: 1.0,
+          voice_speed: 0.92,
+          enable_chime: true,
+          updated_at: new Date().toISOString(),
+          updated_by: serialized
+        })
+
+      if (presetErr) {
+        console.error('[order-ready/settings] Error saving presets:', presetErr)
+        return NextResponse.json({ error: presetErr.message }, { status: 500 })
+      }
+
+      // Si viene texto para pre-generar en caché con la voz oficial Kore, generarlo de inmediato
+      if (typeof body.pregenerateText === 'string' && body.pregenerateText.trim().length > 0) {
+        const preLang = body.pregenerateLang === 'en' ? 'en' : 'es'
+        try {
+          await getAnnouncementSpeech(body.pregenerateText.trim(), preLang, 'Kore')
+        } catch (ttsErr: any) {
+          console.warn('[order-ready/settings] Advertencia pre-generando audio Kore de plantilla:', ttsErr?.message)
+        }
+      }
+
+      return NextResponse.json({
+        success: true,
+        presets: body.presets,
+        message: 'Plantilla de anuncio al comedor guardada y sincronizada con voz Kore'
+      })
+    }
+
+    // 2. REGLA ESTRICTA: Solo admin puede cambiar la voz global
     if (!access.all) {
       return NextResponse.json(
         { error: 'Acceso denegado: solo los usuarios administradores pueden cambiar la voz del anunciador' },
@@ -79,8 +131,6 @@ export async function PUT(request: Request) {
       )
     }
 
-    const user = await getServerUser(request)
-    const body = await request.json()
     const { voice, voice_language, enable_chime, voice_volume } = body
 
     if (voice !== undefined && !isValidVoice(voice)) {
