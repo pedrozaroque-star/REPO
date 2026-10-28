@@ -34,6 +34,7 @@ import {
   syncCompanyWithQbo,
   syncAllCompaniesWithQbo,
 } from '@/lib/external-accounting-qbo-sync'
+import { markRawAsLocallyEdited, isCreditNormalAccount, toNaturalBalance, buildLedgerContext } from '@/lib/external-accounting-ledger'
 
 export const dynamic = 'force-dynamic'
 
@@ -251,6 +252,8 @@ export async function GET(req: NextRequest) {
       acctBalanceMap.set(a.qb_account_id, Number(a.current_balance || 0))
       acctByQbIdForGet.set(a.qb_account_id, a)
     }
+    // Full double-entry context (items + linked payments) so every running balance matches the QBO register
+    const ledgerCtxForGet = buildLedgerContext(accountsList, itemsRes.data || [], allCompanyTxns)
 
     // 4. Compute accurate chronological Running Balance per account across ALL company transactions
     //    and accumulate annual activity per account (`actualsByAccountAndYear`) for Budgeting vs Actuals
@@ -269,13 +272,14 @@ export async function GET(req: NextRequest) {
       )
       const targetAccId = touchesFilteredAccount ? accountId : t.account_qb_id
       const currentBal = (targetAccId && runningCursor.has(targetAccId)) ? runningCursor.get(targetAccId)! : null
+      // Present like the QBO register: liabilities / equity / income balances shown positive
       const rowWithBal = {
         ...t,
-        running_balance: currentBal !== null ? Number(currentBal.toFixed(2)) : null
+        running_balance: currentBal !== null ? toNaturalBalance(acctByQbIdForGet.get(targetAccId), currentBal) : null
       }
 
       if (!t.is_voided && t.txn_type !== 'Estimate' && t.txn_type !== 'PurchaseOrder') {
-        const revDeltas = computeTransactionAccountDeltas(acctByQbIdForGet, t, -1)
+        const revDeltas = computeTransactionAccountDeltas(acctByQbIdForGet, t, -1, ledgerCtxForGet)
         for (const [qId, revDelta] of revDeltas.entries()) {
           if (runningCursor.has(qId)) {
             runningCursor.set(qId, Number(((runningCursor.get(qId) || 0) + revDelta).toFixed(2)))
@@ -283,8 +287,9 @@ export async function GET(req: NextRequest) {
           const yr = (t.txn_date || '').slice(0, 4)
           if (yr) {
             if (!actualsByAccountAndYear[qId]) actualsByAccountAndYear[qId] = {}
-            // Forward delta is -revDelta
-            actualsByAccountAndYear[qId][yr] = Number(((actualsByAccountAndYear[qId][yr] || 0) - revDelta).toFixed(2))
+            // Forward delta is -revDelta; Budget vs Actual uses the natural sign (income & liabilities positive)
+            const naturalForward = isCreditNormalAccount(acctByQbIdForGet.get(qId)) ? revDelta : -revDelta
+            actualsByAccountAndYear[qId][yr] = Number(((actualsByAccountAndYear[qId][yr] || 0) + naturalForward).toFixed(2))
           }
         }
       }
@@ -522,10 +527,122 @@ export async function GET(req: NextRequest) {
       Active: row.is_active !== false,
     }))
 
+    // Build QBO Chart of Accounts hierarchy (Parent -> Sub-Account -> Sub-Sub-Account -> Sub-Sub-Sub-Account)
+    const QBO_ACCT_TYPE_ORDER: Record<string, number> = {
+      'Bank': 1,
+      'Accounts Receivable': 2,
+      'Other Current Asset': 3,
+      'Fixed Asset': 4,
+      'Other Asset': 5,
+      'Accounts Payable': 6,
+      'Credit Card': 7,
+      'Other Current Liability': 8,
+      'Long Term Liability': 9,
+      'Equity': 10,
+      'Income': 11,
+      'Cost of Goods Sold': 12,
+      'Expense': 13,
+      'Other Income': 14,
+      'Other Expense': 15,
+    }
+
+    const rawAccountsWithDisplay = accountsList.map((a: any) => ({
+      ...a,
+      display_balance: toNaturalBalance(a, Number(a.current_balance || 0)),
+    }))
+    const acctByQbIdMap = new Map<string, any>()
+    const acctByNameLowerMap = new Map<string, any>()
+    for (const a of rawAccountsWithDisplay) {
+      acctByQbIdMap.set(String(a.qb_account_id), a)
+      acctByNameLowerMap.set(String(a.fully_qualified_name || a.name || '').toLowerCase(), a)
+    }
+
+    // Resolve parent_qb_id for every account (from explicit parent_qb_id, raw_data.ParentRef, or fully_qualified_name prefix)
+    const resolvedParentMap = new Map<string, string | null>()
+    const childrenByParentId = new Map<string, any[]>()
+    for (const a of rawAccountsWithDisplay) {
+      const idStr = String(a.qb_account_id)
+      let pId = String(a.parent_qb_id || a.raw_data?.ParentRef?.value || '').trim()
+      if (!pId && a.fully_qualified_name && String(a.fully_qualified_name).includes(':')) {
+        const prefix = String(a.fully_qualified_name).split(':').slice(0, -1).join(':').toLowerCase()
+        const pAcc = acctByNameLowerMap.get(prefix)
+        if (pAcc && String(pAcc.qb_account_id) !== idStr) pId = String(pAcc.qb_account_id)
+      }
+      if (pId && pId !== idStr && acctByQbIdMap.has(pId)) {
+        resolvedParentMap.set(idStr, pId)
+        if (!childrenByParentId.has(pId)) childrenByParentId.set(pId, [])
+        childrenByParentId.get(pId)!.push(a)
+      } else {
+        resolvedParentMap.set(idStr, null)
+      }
+    }
+
+    const collectDescendants = (idStr: string, visited = new Set<string>()): any[] => {
+      if (visited.has(idStr)) return []
+      visited.add(idStr)
+      const direct = childrenByParentId.get(idStr) || []
+      const all: any[] = []
+      for (const ch of direct) {
+        all.push(ch)
+        all.push(...collectDescendants(String(ch.qb_account_id), visited))
+      }
+      return all
+    }
+
+    const computeBreadcrumb = (idStr: string): Array<{ qb_account_id: string; name: string }> => {
+      const path: Array<{ qb_account_id: string; name: string }> = []
+      const seen = new Set<string>()
+      let cur: string | null = idStr
+      while (cur && !seen.has(cur)) {
+        seen.add(cur)
+        const node = acctByQbIdMap.get(cur)
+        if (!node) break
+        path.unshift({ qb_account_id: String(node.qb_account_id), name: node.name })
+        cur = resolvedParentMap.get(cur) || null
+      }
+      return path
+    }
+
+    const enrichedAccounts = rawAccountsWithDisplay
+      .map((a: any) => {
+        const idStr = String(a.qb_account_id)
+        const breadcrumb = computeBreadcrumb(idStr)
+        const depth = Math.max(0, breadcrumb.length - 1, (String(a.fully_qualified_name || '').split(':').length - 1))
+        const directChildren = childrenByParentId.get(idStr) || []
+        const allDescendants = collectDescendants(idStr)
+        const rollupBalance = Number(
+          (
+            Number(a.display_balance || 0) +
+            allDescendants.reduce((s, d) => s + Number(d.display_balance || 0), 0)
+          ).toFixed(2)
+        )
+        return {
+          ...a,
+          parent_qb_id: resolvedParentMap.get(idStr) || a.parent_qb_id || null,
+          is_sub_account: Boolean(a.is_sub_account || depth > 0),
+          depth,
+          children_count: directChildren.length,
+          descendants_count: allDescendants.length,
+          rollup_balance: rollupBalance,
+          breadcrumb_path: breadcrumb,
+        }
+      })
+      .sort((a: any, b: any) => {
+        const rootA = a.breadcrumb_path?.[0] ? acctByQbIdMap.get(a.breadcrumb_path[0].qb_account_id) || a : a
+        const rootB = b.breadcrumb_path?.[0] ? acctByQbIdMap.get(b.breadcrumb_path[0].qb_account_id) || b : b
+        const ordA = QBO_ACCT_TYPE_ORDER[rootA.account_type] ?? 99
+        const ordB = QBO_ACCT_TYPE_ORDER[rootB.account_type] ?? 99
+        if (ordA !== ordB) return ordA - ordB
+        const fqnA = String(a.fully_qualified_name || a.breadcrumb_path?.map((p: any) => p.name).join(':') || a.name || '')
+        const fqnB = String(b.fully_qualified_name || b.breadcrumb_path?.map((p: any) => p.name).join(':') || b.name || '')
+        return fqnA.localeCompare(fqnB)
+      })
+
     return NextResponse.json({
       activeRealmId,
       companies: enrichedCompanies,
-      accounts: accountsList,
+      // `current_balance` keeps the QBO API sign (debit-positive); `display_balance` is how QBO shows it on screen; `rollup_balance` includes all sub-accounts
+      accounts: enrichedAccounts,
       contacts: contactsRes.data || [],
       recurring: recurringRes.data || [],
       reconciliations: reconciliationsRes.data || [],
@@ -883,6 +1000,8 @@ export async function POST(req: NextRequest) {
 
       if (id) {
         const oldReversalDeltas = computeTransactionAccountDeltas(acctByQbId, existingTxn, -1)
+        // The QBO snapshot no longer describes this row until the next successful push/sync
+        payload.raw_data = markRawAsLocallyEdited(existingTxn?.raw_data)
         const { data: savedTxn, error: updErr } = await supabase
           .from('external_accounting_transactions')
           .update(payload)
@@ -2302,6 +2421,7 @@ export async function POST(req: NextRequest) {
           entity_name: targetEntityName ? targetEntityName.trim() : row.entity_name,
           department_name: targetDepartmentName ? targetDepartmentName.trim() : row.department_name,
           line_items: newLines,
+          raw_data: markRawAsLocallyEdited(row.raw_data),
           updated_at: new Date().toISOString(),
         }
 
@@ -2623,6 +2743,7 @@ export async function POST(req: NextRequest) {
                 category_summary: targetAcc.name,
                 entity_name: rule.target_entity_name || txn.entity_name,
                 line_items: newLines,
+                raw_data: markRawAsLocallyEdited(txn.raw_data),
                 updated_at: new Date().toISOString(),
               })
               .eq('id', txn.id)

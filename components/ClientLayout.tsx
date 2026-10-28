@@ -147,7 +147,7 @@ export default function ClientLayout({
     const isPrintSheetPage = printSheetRoutes.some(r => pathname === r || pathname.startsWith(r + '/'))
 
     // Full-width routes (large tables, schedules, etc.)
-    const fullWidthRoutes = ['/horarios', '/admin/plantillas', '/order-ready-board', '/admin/blindaje-delivery/empaque', '/app', '/training']
+    const fullWidthRoutes = ['/horarios', '/admin/plantillas', '/order-ready-board', '/admin/blindaje-delivery/empaque', '/app', '/training', '/admin/contabilidad-externa']
 
     const isFullWidth = fullWidthRoutes.some(route => pathname.startsWith(route))
 

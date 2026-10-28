@@ -23,6 +23,12 @@
  * @notes
  * - Soporta auto-renovación transparente de tokens (`refresh_token`) vía `intuit-oauth`.
  * - Antes de hacer UPDATE o DELETE en QBO, consulta el `SyncToken` más reciente en vivo para evitar errores `Stale Object (5010)`.
+ * - 2026-10-27/28 (auditoría contra QBO en vivo): el Pull ahora normaliza también `Bill`, `BillPayment`, `Invoice` y `Payment`
+ *   (antes se descargaban pero se descartaban, por lo que faltaban cobros como el Payment #8122 de $8,445.16).
+ * - 2026-10-28: los Depósitos se normalizan con `buildDepositLineItems()`: líneas con `LinkedTxn` salen de *Undeposited Funds*
+ *   con cliente/factura/método de pago, y el `CashBack` se guarda como línea `CashBackLineDetail` (antes 132 depósitos quedaron
+ *   sin cuenta en sus líneas y 43 sin Cash Back; se repararon desde `raw_data`). Los pagos recuperan "Payment for Invoice #N (fecha)",
+ *   cada transacción guarda su Location (`DepartmentRef`) y los errores de `upsert` ya no se ignoran en silencio.
  */
 
 import { SupabaseClient } from '@supabase/supabase-js'
@@ -1340,6 +1346,8 @@ function normalizeQboLines(lines: any[] = []): { items: any[]; categorySummary: 
       department_name: deptRef?.name || null,
       payment_method: acctDetail.PaymentMethodRef?.name || null,
       check_num: acctDetail.CheckNum || null,
+      linked_txn_id: Array.isArray(l.LinkedTxn) && l.LinkedTxn[0]?.TxnId ? String(l.LinkedTxn[0].TxnId) : null,
+      linked_txn_type: Array.isArray(l.LinkedTxn) && l.LinkedTxn[0]?.TxnType ? String(l.LinkedTxn[0].TxnType) : null,
     })
   }
 
@@ -1347,6 +1355,88 @@ function normalizeQboLines(lines: any[] = []): { items: any[]; categorySummary: 
     items,
     categorySummary: Array.from(categories).join(', '),
   }
+}
+
+/** Reads a `LineEx` NameValue (e.g. `txnReferenceNumber`) from a QBO Payment/BillPayment line. */
+function readLineEx(line: any, name: string): string | null {
+  const arr = line?.LineEx?.any
+  if (!Array.isArray(arr)) return null
+  const hit = arr.find((x: any) => x?.value?.Name === name)
+  return hit?.value?.Value != null ? String(hit.value.Value) : null
+}
+
+/**
+ * Builds Deposit `line_items` exactly like the forensic historical import:
+ * - Lines with `LinkedTxn` (customer payments) come from Undeposited Funds and carry `linked_txn_id/type`,
+ *   the customer, check number, payment method and "Payment for Invoice #N (Customer)" description.
+ * - `CashBack` becomes a `CashBackLineDetail` line with negative amount (so `TotalAmt = Σ lines`).
+ */
+export function buildDepositLineItems(
+  item: any,
+  opts: {
+    accNameById: Map<string, string>
+    undepositedFunds: { id: string; name: string } | null
+    linkedInfo: Map<string, { entity_qb_id: string | null; entity_name: string | null; invoice_doc: string | null; payment_method: string | null; account_qb_id: string | null }>
+  }
+): any[] {
+  const { items: base } = normalizeQboLines(item?.Line)
+  const rawLines: any[] = (Array.isArray(item?.Line) ? item.Line : []).filter((l: any) => l.DetailType !== 'SubTotalLineDetail')
+  const out = base.map((l: any, idx: number) => {
+    const raw = rawLines[idx] || {}
+    const lt = Array.isArray(raw.LinkedTxn) ? raw.LinkedTxn[0] : null
+    if (!lt?.TxnId) {
+      if (l.account_qb_id && !l.account_name) l.account_name = opts.accNameById.get(l.account_qb_id) || null
+      return { ...l, id: l.id || String(idx + 1), line_num: l.line_num || idx + 1, detail_type: l.detail_type || 'DepositLineDetail' }
+    }
+    const info = opts.linkedInfo.get(`${lt.TxnType}:${lt.TxnId}`)
+    const srcAccId = info?.account_qb_id || opts.undepositedFunds?.id || null
+    const srcAccName = (srcAccId && opts.accNameById.get(srcAccId)) || opts.undepositedFunds?.name || 'Undeposited Funds'
+    const desc = l.description || (info?.invoice_doc
+      ? `Payment for Invoice #${info.invoice_doc}${info.entity_name ? ` (${info.entity_name})` : ''}`
+      : `${lt.TxnType} #${lt.TxnId}${info?.entity_name ? ` (${info.entity_name})` : ''}`)
+    return {
+      ...l,
+      id: l.id || String(idx + 1),
+      line_num: l.line_num || idx + 1,
+      detail_type: 'DepositLineDetail',
+      description: desc,
+      account_qb_id: srcAccId,
+      account_name: srcAccName,
+      entity_qb_id: l.entity_qb_id || info?.entity_qb_id || null,
+      entity_name: l.entity_name || info?.entity_name || null,
+      entity_type: 'Customer',
+      payment_method: l.payment_method || info?.payment_method || null,
+      linked_txn_id: String(lt.TxnId),
+      linked_txn_type: String(lt.TxnType),
+    }
+  })
+  if (item?.CashBack && Number(item.CashBack.Amount || 0)) {
+    const cbId = item.CashBack.AccountRef?.value ? String(item.CashBack.AccountRef.value) : null
+    out.push({
+      id: `CB-${item.Id}`,
+      line_num: out.length + 1,
+      description: item.CashBack.Memo || 'Cash back',
+      amount: -Math.abs(Number(item.CashBack.Amount)),
+      detail_type: 'CashBackLineDetail',
+      posting_type: null,
+      account_qb_id: cbId,
+      account_name: item.CashBack.AccountRef?.name || (cbId ? opts.accNameById.get(cbId) : null) || null,
+      entity_qb_id: null,
+      entity_name: null,
+      item_qb_id: null,
+      item_id: null,
+      item_name: null,
+      class_qb_id: null,
+      class_name: null,
+      department_qb_id: null,
+      department_name: null,
+      payment_method: null,
+      check_num: null,
+      linked_txn_id: null,
+      linked_txn_type: null,
+    })
+  }
+  return out
 }
 
 /**
@@ -1578,13 +1668,91 @@ export async function syncCompanyWithQbo(
       defaultApAcc = { id: idStr, name: nm }
     }
   }
+  const ufAcc = rawAccounts.find((a: any) => a.AccountSubType === 'UndepositedFunds')
+  const undepositedFunds = ufAcc ? { id: String(ufAcc.Id), name: ufAcc.FullyQualifiedName || ufAcc.Name || 'Undeposited Funds' } : null
 
+  // Phase A: download the latest page of every entity first (so deposits can resolve their linked payments)
+  const fetchedByEnt: Record<string, any[]> = {}
   for (const ent of pullEntities) {
     const q = `SELECT * FROM ${ent} ORDERBY MetaData.LastUpdatedTime DESC MAXRESULTS 250`
     const tRes = await qboV3Request(supabase, realmId, 'GET', `query?query=${encodeURIComponent(q)}`)
-    const list = (tRes.data?.QueryResponse?.[ent] || []).filter(
+    fetchedByEnt[ent] = (tRes.data?.QueryResponse?.[ent] || []).filter(
       (item: any) => !deletedTxnKeys.has(`${ent}:${item.Id}`)
     )
+  }
+
+  // Phase B: linked payment info for Deposit lines (customer, invoice #, payment method, source account)
+  const linkedInfo = new Map<string, { entity_qb_id: string | null; entity_name: string | null; invoice_doc: string | null; payment_method: string | null; account_qb_id: string | null }>()
+  for (const p of fetchedByEnt['Payment'] || []) {
+    linkedInfo.set(`Payment:${p.Id}`, {
+      entity_qb_id: p.CustomerRef?.value ? String(p.CustomerRef.value) : null,
+      entity_name: p.CustomerRef?.name || null,
+      invoice_doc: readLineEx((p.Line || [])[0], 'txnReferenceNumber'),
+      payment_method: p.PaymentMethodRef?.name || null,
+      account_qb_id: p.DepositToAccountRef?.value ? String(p.DepositToAccountRef.value) : (undepositedFunds?.id || null),
+    })
+  }
+  const missingLinked = new Map<string, Set<string>>()
+  for (const d of fetchedByEnt['Deposit'] || []) {
+    for (const l of d.Line || []) {
+      const lt = Array.isArray(l.LinkedTxn) ? l.LinkedTxn[0] : null
+      if (lt?.TxnId && !linkedInfo.has(`${lt.TxnType}:${lt.TxnId}`)) {
+        if (!missingLinked.has(lt.TxnType)) missingLinked.set(lt.TxnType, new Set())
+        missingLinked.get(lt.TxnType)!.add(String(lt.TxnId))
+      }
+    }
+  }
+  for (const [lType, ids] of missingLinked.entries()) {
+    const idList = Array.from(ids)
+    for (let i = 0; i < idList.length; i += 200) {
+      const { data: linkedRows } = await supabase
+        .from('external_accounting_transactions')
+        .select('qb_txn_id, entity_qb_id, entity_name, account_qb_id, payment_type, line_items, raw_data')
+        .eq('company_realm_id', realmId)
+        .eq('qb_entity_type', lType)
+        .in('qb_txn_id', idList.slice(i, i + 200))
+      for (const r of linkedRows || []) {
+        const firstLine = Array.isArray(r.line_items) ? r.line_items[0] : null
+        const docFromDesc = String(firstLine?.description || '').match(/Invoice #([^\s(]+)/)?.[1] || null
+        linkedInfo.set(`${lType}:${r.qb_txn_id}`, {
+          entity_qb_id: r.entity_qb_id || null,
+          entity_name: r.entity_name || null,
+          invoice_doc: readLineEx((r.raw_data?.Line || [])[0], 'txnReferenceNumber') || docFromDesc,
+          payment_method: r.raw_data?.PaymentMethodRef?.name || null,
+          account_qb_id: r.account_qb_id || undepositedFunds?.id || null,
+        })
+      }
+    }
+  }
+
+  // Phase C: Invoice / CreditMemo doc numbers & dates referenced by Payment lines ("Payment for Invoice #N (date)")
+  const invoiceInfo = new Map<string, { doc: string | null; date: string | null }>()
+  for (const inv of fetchedByEnt['Invoice'] || []) invoiceInfo.set(`Invoice:${inv.Id}`, { doc: inv.DocNumber || null, date: inv.TxnDate || null })
+  const missingInv = new Map<string, Set<string>>()
+  for (const p of fetchedByEnt['Payment'] || []) {
+    for (const l of p.Line || []) {
+      const lt = Array.isArray(l.LinkedTxn) ? l.LinkedTxn[0] : null
+      if (lt?.TxnId && !invoiceInfo.has(`${lt.TxnType}:${lt.TxnId}`)) {
+        if (!missingInv.has(lt.TxnType)) missingInv.set(lt.TxnType, new Set())
+        missingInv.get(lt.TxnType)!.add(String(lt.TxnId))
+      }
+    }
+  }
+  for (const [lType, ids] of missingInv.entries()) {
+    const idList = Array.from(ids)
+    for (let i = 0; i < idList.length; i += 200) {
+      const { data: invRows } = await supabase
+        .from('external_accounting_transactions')
+        .select('qb_txn_id, doc_number, txn_date')
+        .eq('company_realm_id', realmId)
+        .eq('qb_entity_type', lType)
+        .in('qb_txn_id', idList.slice(i, i + 200))
+      for (const r of invRows || []) invoiceInfo.set(`${lType}:${r.qb_txn_id}`, { doc: r.doc_number || null, date: r.txn_date || null })
+    }
+  }
+
+  for (const ent of pullEntities) {
+    const list = fetchedByEnt[ent] || []
 
     for (const item of list) {
       const { items: lineItems, categorySummary } = normalizeQboLines(item.Line)
@@ -1622,7 +1790,9 @@ export async function syncCompanyWithQbo(
           updated_at: new Date().toISOString(),
         })
       } else if (ent === 'Deposit') {
-        const firstLine = lineItems[0] || {}
+        const depLines = buildDepositLineItems(item, { accNameById, undepositedFunds, linkedInfo })
+        const firstLine = depLines[0] || {}
+        const depCategories = Array.from(new Set(depLines.filter((l: any) => l.detail_type !== 'CashBackLineDetail').map((l: any) => l.account_name).filter(Boolean)))
         pulledTxnRows.push({
           company_realm_id: realmId,
           txn_type: 'Deposit',
@@ -1641,12 +1811,12 @@ export async function syncCompanyWithQbo(
           entity_type: 'Customer',
           total_amount: Number(item.TotalAmt ?? 0),
           open_balance: 0,
-          memo: item.PrivateNote || lineItems.map((l: any) => l.description).filter(Boolean).join('; ') || null,
-          category_summary: categorySummary || 'Deposit',
+          memo: item.PrivateNote || depLines.map((l: any) => l.description).filter(Boolean).join('; ') || null,
+          category_summary: depCategories.join(', ') || categorySummary || 'Deposit',
           print_status: 'NotSet',
           cleared_status: 'Cleared',
           is_voided: false,
-          line_items: lineItems,
+          line_items: depLines,
           raw_data: syncedRaw,
           updated_at: new Date().toISOString(),
         })
@@ -1816,19 +1986,29 @@ export async function syncCompanyWithQbo(
         const depName = item.DepositToAccountRef?.name || (depId ? accNameById.get(depId) : null) || null
         const arId = item.ARAccountRef?.value ? String(item.ARAccountRef.value) : defaultArAcc?.id || null
         const arName = item.ARAccountRef?.name || (arId ? accNameById.get(arId) : null) || defaultArAcc?.name || 'Accounts Receivable (A/R)'
-        const pLines = (Array.isArray(item.Line) ? item.Line : []).map((l: any, idx: number) => ({
-          id: String(l.Id || idx + 1),
-          amount: Number(l.Amount ?? 0),
-          line_num: idx + 1,
-          description: item.PrivateNote || `Payment (${item.TxnDate})`,
-          detail_type: 'PaymentLineDetail',
-          entity_name: item.CustomerRef?.name || null,
-          entity_qb_id: item.CustomerRef?.value ? String(item.CustomerRef.value) : null,
-          account_qb_id: arId,
-          account_name: arName,
-          linked_txn_id: l.LinkedTxn?.[0]?.TxnId ? String(l.LinkedTxn[0].TxnId) : null,
-          linked_txn_type: l.LinkedTxn?.[0]?.TxnType || 'Invoice',
-        }))
+        const pLines = (Array.isArray(item.Line) ? item.Line : []).map((l: any, idx: number) => {
+          const ltId = l.LinkedTxn?.[0]?.TxnId ? String(l.LinkedTxn[0].TxnId) : null
+          const ltType = l.LinkedTxn?.[0]?.TxnType || 'Invoice'
+          const refNum = readLineEx(l, 'txnReferenceNumber')
+          const inv = ltId ? invoiceInfo.get(`${ltType}:${ltId}`) : null
+          const docNo = refNum || inv?.doc || null
+          return {
+            id: String(l.Id || idx + 1),
+            amount: Number(l.Amount ?? 0),
+            line_num: idx + 1,
+            description: docNo
+              ? `Payment for ${ltType} #${docNo}${inv?.date ? ` (${inv.date})` : ''}`
+              : (item.PrivateNote || `Payment (${item.TxnDate})`),
+            detail_type: 'PaymentLineDetail',
+            entity_name: item.CustomerRef?.name || null,
+            entity_qb_id: item.CustomerRef?.value ? String(item.CustomerRef.value) : null,
+            account_qb_id: arId,
+            account_name: arName,
+            linked_txn_id: ltId,
+            linked_txn_type: ltType,
+          }
+        })
+        const firstDoc = pLines.find((pl: any) => /#/.test(pl.description))?.description?.match(/#([^\s(]+)/)?.[1]
         pulledTxnRows.push({
           company_realm_id: realmId,
           txn_type: 'Payment',
@@ -1836,10 +2016,11 @@ export async function syncCompanyWithQbo(
           qb_txn_id: String(item.Id),
           txn_date: item.TxnDate,
           doc_number: item.PaymentRefNum || item.DocNumber || null,
-          payment_type: 'Payment',
-          direction: 'ACCRUAL',
-          account_qb_id: depId,
-          account_name: depName,
+          payment_type: item.PaymentMethodRef?.name || 'Payment',
+          payment_method_qb_id: item.PaymentMethodRef?.value ? String(item.PaymentMethodRef.value) : null,
+          direction: depId && depId !== undepositedFunds?.id ? 'IN' : 'ACCRUAL',
+          account_qb_id: depId || undepositedFunds?.id || null,
+          account_name: depName || (depId ? null : undepositedFunds?.name || null),
           to_account_qb_id: arId,
           to_account_name: arName,
           entity_qb_id: item.CustomerRef?.value ? String(item.CustomerRef.value) : null,
@@ -1848,7 +2029,7 @@ export async function syncCompanyWithQbo(
           total_amount: Number(item.TotalAmt ?? 0),
           open_balance: Number(item.UnappliedAmt ?? 0),
           memo: item.PrivateNote || null,
-          category_summary: arName,
+          category_summary: firstDoc ? `${arName} (Invoice #${firstDoc})` : arName,
           print_status: 'NotSet',
           cleared_status: 'Cleared',
           is_voided: false,
@@ -1867,17 +2048,33 @@ export async function syncCompanyWithQbo(
           updated_at: new Date().toISOString(),
         })
       }
+
+      // QBO Location (DepartmentRef) & Class (ClassRef) live on the transaction header
+      const lastRow = pulledTxnRows[pulledTxnRows.length - 1]
+      if (lastRow && lastRow.qb_txn_id === String(item.Id) && lastRow.qb_entity_type === ent) {
+        lastRow.department_qb_id = item.DepartmentRef?.value ? String(item.DepartmentRef.value) : null
+        lastRow.department_name = item.DepartmentRef?.name || null
+        if (item.ClassRef?.value) {
+          lastRow.class_qb_id = String(item.ClassRef.value)
+          lastRow.class_name = item.ClassRef.name || null
+        }
+      }
     }
   }
 
+  const upsertErrors: string[] = []
   if (pulledTxnRows.length > 0) {
     for (let i = 0; i < pulledTxnRows.length; i += 250) {
       const chunk = pulledTxnRows.slice(i, i + 250)
-      await supabase
+      const { error: upErr } = await supabase
         .from('external_accounting_transactions')
         .upsert(chunk, { onConflict: 'company_realm_id,qb_entity_type,qb_txn_id' })
+      if (upErr) upsertErrors.push(upErr.message)
     }
     pulledTransactions = pulledTxnRows.length
+  }
+  if (upsertErrors.length > 0) {
+    console.error(`[syncCompanyWithQbo] ${realmId} upsert errors:`, upsertErrors)
   }
 
   // Update last_synced_at in company metadata

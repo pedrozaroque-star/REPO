@@ -15,14 +15,39 @@
  *   8. `check_detail`: Reporte Detallado de Cheques Emitidos.
  *   9. `deposit_detail`: Reporte Detallado de Depósitos Bancarios.
  *   10. `qbo_archive`: Visor de Reportes Oficiales Históricos respaldados de Intuit QBO.
+ *   11. `account_quickreport`: Transaction Report / Drill-Down por cuenta, grupo, lista o contacto.
  *
  * @dataFlow
  * Client (/admin/contabilidad-externa) -> GET /api/external-accounting/reports -> Supabase
+ * Todas las cifras salen del Libro Mayor en partida doble (`lib/external-accounting-ledger.ts`).
+ *
+ * @notes
+ * - 2026-10-28 (auditoría en vivo contra QBO V3 de las 6 empresas conectadas): se reescribieron P&L, Balance Sheet,
+ *   Trial Balance, General Ledger, Bank Register, Expenses by Vendor / Income by Customer y el Transaction Report
+ *   sobre el motor de pólizas. Errores corregidos: Total Liabilities salía negativo; préstamos al corte desfasados
+ *   (los pagos posteriores se revertían con signo invertido); Retained Earnings en $0 y "Net Income" como cifra de
+ *   cuadre; depósitos a cuentas de Balance (préstamos, Cash on hand) contados como Ingreso; Trial Balance sin cuentas
+ *   de Resultados y con pasivos del lado deudor; Expenses by Vendor sumaba pagos de facturas y abonos a capital.
+ * - Convención de montos de salida: signo de presentación QBO (pasivos, capital e ingresos en positivo).
+ * - Paginación PostgREST siempre ordenada por `txn_date` + `id` (sin orden, las páginas pueden repetir o saltar filas).
  */
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { authorizeExternalAccounting, computeTransactionAccountDeltas } from '@/lib/external-accounting-auth'
+import { authorizeExternalAccounting } from '@/lib/external-accounting-auth'
+import {
+  buildLedgerContext,
+  buildTxnPostings,
+  isRawAuthoritative,
+  isBalanceSheetAccountType,
+  isProfitLossAccount,
+  isIncomeAccount,
+  isExpenseAccount,
+  toNaturalBalance,
+  fiscalYearStart,
+  dayBefore,
+  type Posting,
+} from '@/lib/external-accounting-ledger'
 
 export const dynamic = 'force-dynamic'
 
@@ -268,234 +293,431 @@ export async function GET(req: NextRequest) {
       })
     }
 
-    // Fetch transactions for live dynamic reports
-    const txns = await fetchAllTxns(supabase, realmId, startDate, endDate)
+    // -------------------------------------------------------------------------
+    // LIBRO MAYOR (GENERAL LEDGER) EN PARTIDA DOBLE — fuente única de todos los reportes
+    // Se carga el historial COMPLETO de la empresa una sola vez y cada transacción se convierte en
+    // sus pólizas (`postings`, débito positivo) con `lib/external-accounting-ledger.ts`, igual que QBO.
+    // -------------------------------------------------------------------------
+    const allTxns = await fetchAllTxns(supabase, realmId)
+    const ledgerCtx = buildLedgerContext(accounts, items, allTxns)
+    const fiscalStartMonth = company?.metadata?.fiscal_year_start_month || 'January'
+    const todayLA = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Los_Angeles' }).format(new Date())
+    const asOfDate = endDate || todayLA
+    const inRange = (d: string) => (!startDate || d >= startDate) && (!endDate || d <= endDate)
+    const txns = allTxns.filter(t => inRange(String(t.txn_date || '')))
     const activeTxns = txns.filter(t => !t.is_voided)
+    const r2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100
 
-    // Helper to enrich a transaction so all lines and header references have resolved `account_qb_id`
-    const enrichTxnForDeltas = (t: any) => {
-      const rawLines = Array.isArray(t.line_items) ? t.line_items : []
-      const enrichedLines = rawLines.map((l: any) => {
-        if (l?.account_qb_id && accountTypeMap.has(String(l.account_qb_id))) {
-          return { ...l, account_qb_id: String(l.account_qb_id) }
-        }
-        const { acc } = resolveLineAccount(t, l, 'ANY')
-        if (acc?.qb_account_id) {
-          return { ...l, account_qb_id: String(acc.qb_account_id), account_name: acc.fully_qualified_name || acc.name }
-        }
-        return l
-      })
-      let toAccId = t.to_account_qb_id ? String(t.to_account_qb_id) : undefined
-      if ((!toAccId || !accountTypeMap.has(toAccId)) && t.to_account_name) {
-        const matchedTo = accountNameMap.get(String(t.to_account_name).toLowerCase())
-        if (matchedTo?.qb_account_id) toAccId = String(matchedTo.qb_account_id)
+    const postingCache = new Map<string, Posting[]>()
+    const postingsOf = (t: any): Posting[] => {
+      const key = String(t.id)
+      let p = postingCache.get(key)
+      if (!p) {
+        p = buildTxnPostings(t, ledgerCtx)
+        postingCache.set(key, p)
       }
-      let primaryAccId = t.account_qb_id ? String(t.account_qb_id) : undefined
-      if ((!primaryAccId || !accountTypeMap.has(primaryAccId)) && t.account_name) {
-        const matchedPrimary = accountNameMap.get(String(t.account_name).toLowerCase())
-        if (matchedPrimary?.qb_account_id) primaryAccId = String(matchedPrimary.qb_account_id)
+      return p
+    }
+    const accName = (id: string | null | undefined) => {
+      const a = id ? ledgerCtx.accounts.get(String(id)) : null
+      return a ? (a.fully_qualified_name || a.name || String(id)) : (id ? String(id) : '—')
+    }
+    /** QBO "Split" column: the other side of the posting (single account name or "-Split-"). */
+    const splitLabel = (t: any, accountId: string) => {
+      const others = Array.from(new Set(postingsOf(t).filter(p => p.account_qb_id !== accountId).map(p => p.account_qb_id)))
+      if (others.length === 0) return '—'
+      if (others.length === 1) return accName(others[0])
+      return '-Split-'
+    }
+    const retainedEarningsIds = new Set(
+      accounts.filter((a: any) => a.account_sub_type === 'RetainedEarnings').map((a: any) => String(a.qb_account_id))
+    )
+
+    /** Balance Sheet balances (debit-positive) as of `date`, anchored on QBO CurrentBalance and rolled back. */
+    const balanceAsOf = (date: string | null): Map<string, number> => {
+      const m = new Map<string, number>()
+      for (const a of accounts) m.set(String(a.qb_account_id), Number(a.current_balance || 0))
+      if (!date) return m
+      for (const t of allTxns) {
+        if (t.is_voided || !(String(t.txn_date || '') > date)) continue
+        for (const p of postingsOf(t)) {
+          if (m.has(p.account_qb_id)) m.set(p.account_qb_id, r2((m.get(p.account_qb_id) || 0) - p.amount))
+        }
+      }
+      return m
+    }
+
+    /** Sum of postings (debit-positive) per account between two dates (inclusive; null = open). */
+    const activityBetween = (from: string | null, to: string | null): Map<string, number> => {
+      const m = new Map<string, number>()
+      for (const t of allTxns) {
+        const d = String(t.txn_date || '')
+        if (t.is_voided || (from && d < from) || (to && d > to)) continue
+        for (const p of postingsOf(t)) m.set(p.account_qb_id, r2((m.get(p.account_qb_id) || 0) + p.amount))
+      }
+      return m
+    }
+
+    /**
+     * QBO equity roll-forward as of `date`:
+     * - Net Income = fiscal-year-to-date P&L.
+     * - Retained Earnings = all P&L of prior fiscal years + entries posted directly to Retained Earnings.
+     * (Verified against the QBO Trial Balance / Balance Sheet API for several dates.)
+     */
+    const equityRollForward = (date: string) => {
+      const fys = fiscalYearStart(date, fiscalStartMonth)
+      let plBefore = 0
+      let plYtd = 0
+      let rePosted = 0
+      for (const t of allTxns) {
+        const d = String(t.txn_date || '')
+        if (t.is_voided || d > date) continue
+        for (const p of postingsOf(t)) {
+          const acc = ledgerCtx.accounts.get(p.account_qb_id)
+          if (isProfitLossAccount(acc)) {
+            if (d < fys) plBefore += p.amount
+            else plYtd += p.amount
+          }
+          if (retainedEarningsIds.has(p.account_qb_id)) rePosted += p.amount
+        }
       }
       return {
-        ...t,
-        account_qb_id: primaryAccId,
-        to_account_qb_id: toAccId,
-        line_items: enrichedLines,
+        fiscalYearStart: fys,
+        netIncome: r2(-plYtd),
+        retainedEarnings: r2(-(plBefore + rePosted)),
+        retainedEarningsDebitPositive: r2(plBefore + rePosted),
       }
     }
 
-    // Helper to compute exact historical Ending Balances as of `endDate` (by rolling back transactions > endDate)
-    const computeBalancesAsOfEndDate = async (): Promise<Map<string, number>> => {
-      const balMap = new Map<string, number>()
-      for (const a of accounts) {
-        balMap.set(String(a.qb_account_id), Number(a.current_balance || 0))
-      }
-      if (!endDate) return balMap
+    // Backwards-compatible helper used by the drill-down engine
+    const computeBalancesAsOfEndDate = async (): Promise<Map<string, number>> => balanceAsOf(endDate)
 
-      const afterRows: any[] = []
-      let from = 0
-      const step = 1000
-      while (true) {
-        const { data, error } = await supabase
-          .from('external_accounting_transactions')
-          .select('*')
-          .eq('company_realm_id', realmId)
-          .gt('txn_date', endDate)
-          .order('txn_date', { ascending: true })
-          .range(from, from + step - 1)
-        if (error) throw error
-        if (!data || data.length === 0) break
-        afterRows.push(...data)
-        if (data.length < step) break
-        from += step
-      }
+    /** Builds a QBO-style transaction row for a posting (amount already in presentation sign). */
+    const postingRow = (t: any, p: Posting, amount: number, accountId: string) => ({
+      id: t.id,
+      qb_txn_id: t.qb_txn_id,
+      txn_date: t.txn_date,
+      txn_type: t.txn_type,
+      doc_number: t.doc_number || '',
+      entity_name: p.entity_name || t.entity_name || '—',
+      department_name: p.department_name || t.department_name || '',
+      location_name: p.department_name || t.department_name || '',
+      class_name: p.class_name || t.class_name || '',
+      memo: p.memo || t.memo || '',
+      account_qb_id: t.account_qb_id || accountId,
+      account_name: accName(accountId),
+      to_account_qb_id: t.to_account_qb_id || null,
+      to_account_name: t.to_account_name || null,
+      category_summary: t.category_summary || splitLabel(t, accountId),
+      split_account: splitLabel(t, accountId),
+      item_name: p.item_name || '',
+      amount: r2(amount),
+      total_amount: r2(Number(t.total_amount ?? Math.abs(amount))),
+      line_items: Array.isArray(t.line_items) ? t.line_items : [],
+      payment_method: t.payment_type || '',
+      is_voided: Boolean(t.is_voided),
+      year: String(t.txn_date || '').slice(0, 4),
+      cleared_status: t.cleared_status || 'Cleared',
+    })
 
-      for (const t of afterRows) {
-        if (t.is_voided) continue
-        const d = computeTransactionAccountDeltas(accountTypeMap, enrichTxnForDeltas(t), -1)
-        for (const [id, val] of d.entries()) {
-          balMap.set(id, Number(((balMap.get(id) || 0) + val).toFixed(2)))
+    /**
+     * Unified Accrual / Cash P&L posting iterator used by P&L, Expenses by Vendor, and Income by Customer.
+     * Implements QBO Cash-Basis recognition, including prepayment recognition/reversal on
+     * Unapplied Cash Payment Income / Unapplied Cash Bill Payment Expense when payDate < srcDate.
+     */
+    const forEachPlPosting = (cb: (acc: any, p: Posting, effectiveTxn: any, sourceTxn?: any) => void) => {
+      if (basis === 'Cash') {
+        const byKey = new Map<string, any>()
+        for (const t of allTxns) byKey.set(`${t.qb_entity_type || t.txn_type}:${t.qb_txn_id}`, t)
+        const NON_CASH = new Set(['Invoice', 'CreditMemo', 'Bill', 'VendorCredit', 'Estimate', 'PurchaseOrder'])
+        const unappliedIncomeAcc = accounts.find((a: any) =>
+          a.account_sub_type === 'UnappliedCashPaymentIncome' ||
+          String(a.name || '').toLowerCase() === 'unapplied cash payment income'
+        )
+        const unappliedExpenseAcc = accounts.find((a: any) =>
+          a.account_sub_type === 'UnappliedCashBillPaymentExpense' ||
+          String(a.name || '').toLowerCase() === 'unapplied cash bill payment expense'
+        )
+        const linksOf = (t: any): Array<{ type: string; id: string; amount: number }> => {
+          const raw = t.raw_data
+          if (isRawAuthoritative(t) && Array.isArray(raw?.Line)) {
+            return raw.Line
+              .filter((l: any) => Array.isArray(l.LinkedTxn) && l.LinkedTxn[0]?.TxnId)
+              .map((l: any) => ({ type: String(l.LinkedTxn[0].TxnType), id: String(l.LinkedTxn[0].TxnId), amount: Number(l.Amount || 0) }))
+          }
+          return (Array.isArray(t.line_items) ? t.line_items : [])
+            .filter((l: any) => l.linked_txn_id)
+            .map((l: any) => ({ type: String(l.linked_txn_type || (t.txn_type === 'BillPayment' ? 'Bill' : 'Invoice')), id: String(l.linked_txn_id), amount: Number(l.amount || 0) }))
+        }
+        // 1. Direct cash transactions in active date range
+        for (const t of activeTxns) {
+          if (NON_CASH.has(t.txn_type) || t.txn_type === 'Payment' || t.txn_type === 'BillPayment' || t.direction === 'NON_POSTING') continue
+          for (const p of postingsOf(t)) {
+            const acc = ledgerCtx.accounts.get(p.account_qb_id)
+            if (isProfitLossAccount(acc)) cb(acc, p, t)
+          }
+        }
+        // 2. Payments & BillPayments across allTxns (handles both normal payDate >= srcDate and prepayments payDate < srcDate)
+        for (const t of allTxns) {
+          if (t.is_voided || t.direction === 'NON_POSTING') continue
+          if (t.txn_type !== 'Payment' && t.txn_type !== 'BillPayment') continue
+          const payDate = String(t.txn_date || '')
+          const isBillPay = t.txn_type === 'BillPayment'
+          const unappliedAcc = isBillPay ? unappliedExpenseAcc : unappliedIncomeAcc
+          for (const link of linksOf(t)) {
+            const src = byKey.get(`${link.type}:${link.id}`)
+            if (!src || src.is_voided) continue
+            const srcDate = String(src.txn_date || '')
+            const srcTotal = Number(src.total_amount || 0)
+            if (!srcTotal || !link.amount) continue
+            const ratio = link.amount / srcTotal
+            if (payDate >= srcDate) {
+              if (!inRange(payDate)) continue
+              for (const p of postingsOf(src)) {
+                const acc = ledgerCtx.accounts.get(p.account_qb_id)
+                if (!isProfitLossAccount(acc)) continue
+                cb(acc, { ...p, amount: p.amount * ratio }, t, src)
+              }
+            } else {
+              // Prepayment (payDate < srcDate): QBO books Unapplied Cash Payment Income on payDate,
+              // then reverses it and recognizes the invoice/bill P&L lines on srcDate.
+              if (inRange(payDate) && unappliedAcc) {
+                const entName = src.entity_name || t.entity_name || null
+                const entId = src.entity_id || t.entity_id || null
+                cb(unappliedAcc, {
+                  account_qb_id: String(unappliedAcc.qb_account_id),
+                  amount: isBillPay ? link.amount : -link.amount,
+                  line_index: 0,
+                  is_header: false,
+                  memo: String(t.memo || src.memo || ''),
+                  entity_type: isBillPay ? 'Vendor' : 'Customer',
+                  entity_qb_id: entId ? String(entId) : null,
+                  entity_name: entName ? String(entName) : null,
+                  customer_qb_id: !isBillPay && entId ? String(entId) : null,
+                  customer_name: !isBillPay && entName ? String(entName) : null,
+                  department_qb_id: t.department_id || src.department_id || null,
+                  department_name: t.department_name || src.department_name || null,
+                  class_qb_id: t.class_id || src.class_id || null,
+                  class_name: t.class_name || src.class_name || null,
+                  item_name: null,
+                }, t, src)
+              }
+              if (inRange(srcDate)) {
+                for (const p of postingsOf(src)) {
+                  const acc = ledgerCtx.accounts.get(p.account_qb_id)
+                  if (!isProfitLossAccount(acc)) continue
+                  cb(acc, { ...p, amount: p.amount * ratio }, src, t)
+                }
+                if (unappliedAcc) {
+                  const entName = src.entity_name || t.entity_name || null
+                  const entId = src.entity_id || t.entity_id || null
+                  cb(unappliedAcc, {
+                    account_qb_id: String(unappliedAcc.qb_account_id),
+                    amount: isBillPay ? -link.amount : link.amount,
+                    line_index: 0,
+                    is_header: false,
+                    memo: String(src.memo || t.memo || ''),
+                    entity_type: isBillPay ? 'Vendor' : 'Customer',
+                    entity_qb_id: entId ? String(entId) : null,
+                    entity_name: entName ? String(entName) : null,
+                    customer_qb_id: !isBillPay && entId ? String(entId) : null,
+                    customer_name: !isBillPay && entName ? String(entName) : null,
+                    department_qb_id: src.department_id || t.department_id || null,
+                    department_name: src.department_name || t.department_name || null,
+                    class_qb_id: src.class_id || t.class_id || null,
+                    class_name: src.class_name || t.class_name || null,
+                    item_name: null,
+                  }, src, t)
+                }
+              }
+            }
+          }
+        }
+      } else {
+        for (const t of activeTxns) {
+          for (const p of postingsOf(t)) {
+            const acc = ledgerCtx.accounts.get(p.account_qb_id)
+            if (isProfitLossAccount(acc)) cb(acc, p, t)
+          }
         }
       }
-      return balMap
     }
 
     // -------------------------------------------------------------------------
-    // 1. PROFIT & LOSS (ESTADO DE RESULTADOS) — CON DRILL-DOWN DE TRANSACCIONES POR RENGLÓN
+    // 1. PROFIT & LOSS (ESTADO DE RESULTADOS) — ESTRUCTURA QBO + DRILL-DOWN POR RENGLÓN
+    //    Income · Cost of Goods Sold · Gross Profit · Expenses · Net Operating Income ·
+    //    Other Income · Other Expenses · Net Other Income · Net Income
     // -------------------------------------------------------------------------
     if (reportType === 'pnl') {
-      const incomeByCategory: Record<string, {
+      type PnlSectionKey = 'income' | 'cogs' | 'expenses' | 'other_income' | 'other_expenses'
+      const sectionOf = (acc: any): PnlSectionKey => {
+        switch (acc?.account_type) {
+          case 'Income': return 'income'
+          case 'Other Income': return 'other_income'
+          case 'Cost of Goods Sold': return 'cogs'
+          case 'Other Expense': return 'other_expenses'
+          default: return isIncomeAccount(acc) ? 'income' : 'expenses'
+        }
+      }
+      const rowsByAcc = new Map<string, {
         category: string
-        account_qb_id: string | null
+        name: string
+        account_qb_id: string
+        parent_qb_id: string | null
         account_type: string
+        section: PnlSectionKey
         amount: number
         count: number
         byYear: Record<string, number>
         transactions: any[]
-      }> = {}
-      const expenseByCategory: Record<string, {
-        category: string
-        account_qb_id: string | null
-        account_type: string
-        amount: number
-        count: number
-        byYear: Record<string, number>
-        transactions: any[]
-      }> = {}
+      }>()
       const yearsSet = new Set<string>()
 
-      const pushPnlLine = (
-        bucket: typeof incomeByCategory,
-        catName: string,
-        acc: any | null,
-        amt: number,
-        yr: string,
-        t: any,
-        l: any
-      ) => {
-        if (!bucket[catName]) {
-          bucket[catName] = {
-            category: catName,
-            account_qb_id: acc?.qb_account_id ? String(acc.qb_account_id) : null,
-            account_type: acc?.account_type || '',
+      const addPl = (acc: any, naturalAmt: number, t: any, p: Posting, sourceTxn?: any) => {
+        if (!acc || Math.abs(naturalAmt) < 0.000001) return
+        const id = String(acc.qb_account_id)
+        const yr = String(t.txn_date || '').slice(0, 4) || 'Unknown'
+        yearsSet.add(yr)
+        let row = rowsByAcc.get(id)
+        if (!row) {
+          row = {
+            category: acc.fully_qualified_name || acc.name || id,
+            name: acc.name || acc.fully_qualified_name || id,
+            account_qb_id: id,
+            parent_qb_id: acc.parent_qb_id ? String(acc.parent_qb_id) : null,
+            account_type: acc.account_type || '',
+            section: sectionOf(acc),
             amount: 0,
             count: 0,
             byYear: {},
             transactions: [],
           }
+          rowsByAcc.set(id, row)
         }
-        const entry = bucket[catName]
-        entry.amount = Number((entry.amount + amt).toFixed(2))
-        entry.count++
-        entry.byYear[yr] = Number(((entry.byYear[yr] || 0) + amt).toFixed(2))
-        entry.transactions.push({
-          id: t.id,
-          qb_txn_id: t.qb_txn_id,
-          txn_date: t.txn_date,
-          txn_type: t.txn_type,
-          doc_number: t.doc_number || l?.check_num || '',
-          entity_name: l?.entity_name || t.entity_name || '—',
-          department_name: l?.department_name || t.department_name || '',
-          class_name: l?.class_name || t.class_name || '',
-          memo: l?.description || t.memo || '',
-          account_name: catName,
-          split_account: t.account_name || t.to_account_name || t.category_summary || '—',
-          item_name: l?.item_name || '',
-          amount: Number(amt.toFixed(2)),
-          year: yr,
-          cleared_status: t.cleared_status || 'Cleared',
-        })
+        row.amount = r2(row.amount + naturalAmt)
+        row.count++
+        row.byYear[yr] = r2((row.byYear[yr] || 0) + naturalAmt)
+        const txRow = postingRow(sourceTxn || t, p, naturalAmt, id)
+        if (sourceTxn) {
+          // Cash basis: recognized on the payment date, document comes from the invoice/bill
+          txRow.txn_date = t.txn_date
+          txRow.year = yr
+          txRow.memo = `${t.txn_type} ${t.doc_number || ''} → ${sourceTxn.txn_type} #${sourceTxn.doc_number || sourceTxn.qb_txn_id}`.trim()
+        }
+        row.transactions.push(txRow)
       }
+      const naturalOf = (acc: any, p: Posting) => (isIncomeAccount(acc) ? -p.amount : p.amount)
 
-      for (const t of activeTxns) {
-        const yr = (t.txn_date || '').slice(0, 4) || 'Unknown'
-        yearsSet.add(yr)
+      forEachPlPosting((acc, p, t, src) => {
+        addPl(acc, naturalOf(acc, p), t, p, src)
+      })
 
-        if (t.txn_type === 'Estimate' || t.txn_type === 'PurchaseOrder' || t.direction === 'NON_POSTING') continue
-
-        // Cash vs Accrual filtering
-        if (basis === 'Cash') {
-          if (t.txn_type === 'Invoice' || t.txn_type === 'Bill' || t.txn_type === 'CreditMemo' || t.txn_type === 'VendorCredit') continue
-        } else {
-          // In Accrual, avoid double counting Payment on A/R (Invoice already recorded revenue)
-          if (t.txn_type === 'Payment') continue
-        }
-
-        const lines = Array.isArray(t.line_items) && t.line_items.length > 0
-          ? t.line_items
-          : [{ account_name: t.category_summary || t.to_account_name || t.txn_type, amount: t.total_amount, posting_type: null }]
-
-        if (t.txn_type === 'Deposit' || t.txn_type === 'Invoice' || t.txn_type === 'SalesReceipt' || t.txn_type === 'RefundReceipt' || t.txn_type === 'CreditMemo' || (basis === 'Cash' && t.txn_type === 'Payment')) {
-          const sign = (t.txn_type === 'RefundReceipt' || t.txn_type === 'CreditMemo') ? -1 : 1
-          for (const l of lines) {
-            // In Accrual mode, skip Deposit lines that are simply depositing Linked Payments from Undeposited Funds
-            if (basis === 'Accrual' && t.txn_type === 'Deposit' && l?.linked_txn_id) continue
-            const { acc: matchedAcc, categoryName: cat } = resolveLineAccount(t, l, 'INCOME')
-            const lowerCat = cat.toLowerCase()
-            if (basis === 'Accrual' && (lowerCat.includes('accounts receivable') || lowerCat.includes('undeposited funds'))) continue
-            // If matchedAcc is an Expense/COGS account (e.g. an expense refund deposited), route as negative expense or skip BS only if strict
-            const amt = Number(l.amount ?? t.total_amount ?? 0) * sign
-            if (amt === 0) continue
-            pushPnlLine(incomeByCategory, cat, matchedAcc, amt, yr, t, l)
-          }
-        } else if (t.txn_type === 'Check' || t.txn_type === 'Expense' || t.txn_type === 'CreditCardExpense' || t.txn_type === 'VendorCredit' || t.txn_type === 'CreditCardCredit' || (basis === 'Accrual' && t.txn_type === 'Bill') || (basis === 'Cash' && t.txn_type === 'BillPayment')) {
-          const sign = (t.txn_type === 'VendorCredit' || t.txn_type === 'CreditCardCredit') ? -1 : 1
-          for (const l of lines) {
-            const { acc: matchedAcc, categoryName: cat } = resolveLineAccount(t, l, 'EXPENSE')
-            // Skip balance sheet principal/asset transfers unless classified as Expense/COGS
-            if (matchedAcc && ['Bank', 'Fixed Asset', 'Other Asset', 'Equity', 'Long Term Liability'].includes(matchedAcc.account_type)) {
-              continue
-            }
-            const amt = Number(l.amount ?? t.total_amount ?? 0) * sign
-            if (amt === 0) continue
-            pushPnlLine(expenseByCategory, cat, matchedAcc, amt, yr, t, l)
-          }
-        } else if (t.txn_type === 'JournalEntry') {
-          for (const l of lines) {
-            const { acc: matchedAcc, categoryName: cat } = resolveLineAccount(t, l, 'ANY')
-            if (!matchedAcc) continue
-            const amt = Number(l.amount ?? 0)
-            if (amt === 0) continue
-            if (matchedAcc.classification === 'Revenue' || matchedAcc.account_type === 'Income' || matchedAcc.account_type === 'Other Income') {
-              const signed = l.posting_type === 'Credit' ? amt : -amt
-              pushPnlLine(incomeByCategory, cat, matchedAcc, signed, yr, t, l)
-            } else if (matchedAcc.classification === 'Expense' || matchedAcc.account_type === 'Expense' || matchedAcc.account_type === 'Cost of Goods Sold' || matchedAcc.account_type === 'Other Expense') {
-              const signed = l.posting_type === 'Debit' ? amt : -amt
-              pushPnlLine(expenseByCategory, cat, matchedAcc, signed, yr, t, l)
-            }
-          }
-        }
-      }
-
-      // Compute chronological running balance inside each category's transaction list
-      const finalizeCategoryRows = (rowsObj: typeof incomeByCategory) =>
-        Object.values(rowsObj)
-          .map(r => {
-            let run = 0
-            const txnsWithRun = r.transactions.map(tx => {
-              run = Number((run + Number(tx.amount || 0)).toFixed(2))
-              return { ...tx, running_balance: run }
-            })
-            return { ...r, transactions: txnsWithRun }
-          })
-          .sort((a, b) => b.amount - a.amount)
-
-      const incomeRows = finalizeCategoryRows(incomeByCategory)
-      const expenseRows = finalizeCategoryRows(expenseByCategory)
-      const totalIncome = Number(incomeRows.reduce((s, r) => s + r.amount, 0).toFixed(2))
-      const totalExpenses = Number(expenseRows.reduce((s, r) => s + r.amount, 0).toFixed(2))
-      const netIncome = Number((totalIncome - totalExpenses).toFixed(2))
       const years = Array.from(yearsSet).sort()
-
-      const incomeByYear: Record<string, number> = {}
-      const expenseByYear: Record<string, number> = {}
-      const netIncomeByYear: Record<string, number> = {}
-      for (const y of years) {
-        const incY = Number(incomeRows.reduce((s, r) => s + Number(r.byYear?.[y] || 0), 0).toFixed(2))
-        const expY = Number(expenseRows.reduce((s, r) => s + Number(r.byYear?.[y] || 0), 0).toFixed(2))
-        incomeByYear[y] = incY
-        expenseByYear[y] = expY
-        netIncomeByYear[y] = Number((incY - expY).toFixed(2))
+      const finalize = (r: any) => {
+        let run = 0
+        const txnsWithRun = r.transactions
+          .sort((a: any, b: any) => String(a.txn_date).localeCompare(String(b.txn_date)))
+          .map((tx: any) => {
+            run = r2(run + Number(tx.amount || 0))
+            return { ...tx, running_balance: run }
+          })
+        for (const y of Object.keys(r.byYear)) r.byYear[y] = r2(r.byYear[y])
+        return { ...r, amount: r2(r.amount), transactions: txnsWithRun }
       }
+      const allRows = Array.from(rowsByAcc.values()).map(finalize)
+
+      /** QBO hierarchy: parent account row, indented sub-accounts and a "Total <parent>" row. */
+      const buildSection = (key: PnlSectionKey) => {
+        const rows = allRows.filter(r => r.section === key)
+        const rowIds = new Set(rows.map(r => r.account_qb_id))
+        const parentIds = new Set<string>()
+        for (const r of rows) {
+          let pid = r.parent_qb_id
+          while (pid) {
+            parentIds.add(pid)
+            pid = ledgerCtx.accounts.get(pid)?.parent_qb_id ? String(ledgerCtx.accounts.get(pid)!.parent_qb_id) : null
+          }
+        }
+        // Parent accounts without own amount still appear as headers (like QBO)
+        for (const pid of parentIds) {
+          if (rowIds.has(pid)) continue
+          const acc = ledgerCtx.accounts.get(pid)
+          if (!acc) continue
+          rows.push({
+            category: acc.fully_qualified_name || acc.name || pid,
+            name: acc.name || pid,
+            account_qb_id: pid,
+            parent_qb_id: acc.parent_qb_id ? String(acc.parent_qb_id) : null,
+            account_type: acc.account_type || '',
+            section: key,
+            amount: 0,
+            count: 0,
+            byYear: {},
+            transactions: [],
+          })
+        }
+        const children = new Map<string | null, any[]>()
+        for (const r of rows) {
+          const k = r.parent_qb_id && rows.some(x => x.account_qb_id === r.parent_qb_id) ? r.parent_qb_id : null
+          if (!children.has(k)) children.set(k, [])
+          children.get(k)!.push(r)
+        }
+        for (const list of children.values()) list.sort((a, b) => String(a.name).localeCompare(String(b.name)))
+        const display: any[] = []
+        const walk = (parentKey: string | null, depth: number): { amount: number; byYear: Record<string, number>; transactions: any[] } => {
+          const agg = { amount: 0, byYear: {} as Record<string, number>, transactions: [] as any[] }
+          for (const r of children.get(parentKey) || []) {
+            const kids = children.get(r.account_qb_id) || []
+            display.push({ kind: kids.length > 0 ? 'parent' : 'account', depth, ...r })
+            let subtotal = { amount: r.amount, byYear: { ...r.byYear }, transactions: [...r.transactions] }
+            if (kids.length > 0) {
+              const k = walk(r.account_qb_id, depth + 1)
+              subtotal = {
+                amount: r2(r.amount + k.amount),
+                byYear: Object.fromEntries(Array.from(new Set([...Object.keys(r.byYear), ...Object.keys(k.byYear)])).map(y => [y, r2((r.byYear[y] || 0) + (k.byYear[y] || 0))])),
+                transactions: [...r.transactions, ...k.transactions],
+              }
+              display.push({
+                kind: 'total',
+                depth,
+                category: `Total ${r.name}`,
+                name: `Total ${r.name}`,
+                account_qb_id: r.account_qb_id,
+                section: key,
+                amount: subtotal.amount,
+                byYear: subtotal.byYear,
+                transactions: subtotal.transactions,
+              })
+            }
+            agg.amount = r2(agg.amount + subtotal.amount)
+            for (const [y, v] of Object.entries(subtotal.byYear)) agg.byYear[y] = r2((agg.byYear[y] || 0) + Number(v))
+            agg.transactions.push(...subtotal.transactions)
+          }
+          return agg
+        }
+        const totals = walk(null, 0)
+        return { key, rows: display, total: totals.amount, byYear: totals.byYear, transactions: totals.transactions }
+      }
+
+      const sIncome = buildSection('income')
+      const sCogs = buildSection('cogs')
+      const sExpenses = buildSection('expenses')
+      const sOtherIncome = buildSection('other_income')
+      const sOtherExpenses = buildSection('other_expenses')
+      const byYearCombine = (fn: (y: string) => number) => Object.fromEntries(years.map(y => [y, r2(fn(y))]))
+      const yv = (s: { byYear: Record<string, number> }, y: string) => Number(s.byYear[y] || 0)
+
+      const totalIncome = sIncome.total
+      const totalCogs = sCogs.total
+      const grossProfit = r2(totalIncome - totalCogs)
+      const totalExpenses = sExpenses.total
+      const netOperatingIncome = r2(grossProfit - totalExpenses)
+      const totalOtherIncome = sOtherIncome.total
+      const totalOtherExpenses = sOtherExpenses.total
+      const netOtherIncome = r2(totalOtherIncome - totalOtherExpenses)
+      const netIncome = r2(netOperatingIncome + netOtherIncome)
+
+      const flatAccounts = (s: any) => s.rows.filter((r: any) => r.kind !== 'total' && (r.amount !== 0 || r.transactions.length > 0))
 
       return NextResponse.json({
         reportType,
@@ -506,95 +728,234 @@ export async function GET(req: NextRequest) {
         availableArchives,
         pnl: {
           years,
-          incomeRows,
-          expenseRows,
-          incomeByYear,
-          expenseByYear,
-          netIncomeByYear,
+          sections: [sIncome, sCogs, sExpenses, sOtherIncome, sOtherExpenses],
+          // Back-compat flat lists (all income-type rows / all expense-type rows)
+          incomeRows: [...flatAccounts(sIncome), ...flatAccounts(sOtherIncome)],
+          expenseRows: [...flatAccounts(sCogs), ...flatAccounts(sExpenses), ...flatAccounts(sOtherExpenses)],
           totalIncome,
+          totalCogs,
+          grossProfit,
           totalExpenses,
+          netOperatingIncome,
+          totalOtherIncome,
+          totalOtherExpenses,
+          netOtherIncome,
           netIncome,
+          incomeByYear: sIncome.byYear,
+          cogsByYear: sCogs.byYear,
+          grossProfitByYear: byYearCombine(y => yv(sIncome, y) - yv(sCogs, y)),
+          expenseByYear: sExpenses.byYear,
+          netOperatingIncomeByYear: byYearCombine(y => yv(sIncome, y) - yv(sCogs, y) - yv(sExpenses, y)),
+          otherIncomeByYear: sOtherIncome.byYear,
+          otherExpenseByYear: sOtherExpenses.byYear,
+          netOtherIncomeByYear: byYearCombine(y => yv(sOtherIncome, y) - yv(sOtherExpenses, y)),
+          netIncomeByYear: byYearCombine(y => yv(sIncome, y) - yv(sCogs, y) - yv(sExpenses, y) + yv(sOtherIncome, y) - yv(sOtherExpenses, y)),
         }
       })
     }
 
     // -------------------------------------------------------------------------
     // 2. BALANCE SHEET (BALANCE GENERAL — JERÁRQUICO QBO CON SALDOS HISTÓRICOS A `endDate`)
+    //    Montos en signo de presentación QBO: Activos, Pasivos y Capital en positivo.
     // -------------------------------------------------------------------------
     if (reportType === 'balance_sheet') {
-      const endingBalMap = await computeBalancesAsOfEndDate()
+      const endMap = balanceAsOf(asOfDate)
+      const begDate = startDate ? dayBefore(startDate) : null
+      const begMap = begDate ? balanceAsOf(begDate) : null
+      const eqEnd = equityRollForward(asOfDate)
+      const eqBeg = begDate ? equityRollForward(begDate) : null
 
-      // Compute period deltas in [startDate, endDate] so every Balance Sheet account also knows its Beginning Balance
-      const periodDeltaMap = new Map<string, number>()
-      for (const t of activeTxns) {
-        const d = computeTransactionAccountDeltas(accountTypeMap, enrichTxnForDeltas(t), 1)
-        for (const [id, val] of d.entries()) {
-          periodDeltaMap.set(id, Number(((periodDeltaMap.get(id) || 0) + val).toFixed(2)))
-        }
+      const everPosted = new Set<string>()
+      for (const t of allTxns) {
+        if (t.is_voided || String(t.txn_date || '') > asOfDate) continue
+        for (const p of postingsOf(t)) everPosted.add(p.account_qb_id)
       }
 
       const withHistoricalBalance = (a: any) => {
         const idStr = String(a.qb_account_id)
-        const endBal = Number((endingBalMap.get(idStr) ?? Number(a.current_balance || 0)).toFixed(2))
-        const pDelta = Number((periodDeltaMap.get(idStr) ?? 0).toFixed(2))
-        const begBal = Number((endBal - pDelta).toFixed(2))
+        const isRE = retainedEarningsIds.has(idStr)
+        const endNat = isRE ? eqEnd.retainedEarnings : toNaturalBalance(a, endMap.get(idStr) ?? 0)
+        const begNat = begDate
+          ? (isRE ? (eqBeg?.retainedEarnings ?? 0) : toNaturalBalance(a, begMap?.get(idStr) ?? 0))
+          : 0
         return {
           ...a,
-          current_balance: endBal,
-          balance_as_of: endBal,
-          beginning_balance: begBal,
-          period_change: pDelta,
+          current_balance: endNat,
+          balance_as_of: endNat,
+          beginning_balance: begNat,
+          period_change: r2(endNat - begNat),
+          balance_sign: 'natural',
         }
       }
 
-      const activeAccounts = accounts.filter(a => a.is_active).map(withHistoricalBalance)
+      const allBsWithBal = accounts
+        .filter((a: any) => isBalanceSheetAccountType(a))
+        .map(withHistoricalBalance)
+      const allBsById = new Map<string, any>()
+      const allBsByFqnLower = new Map<string, any>()
+      for (const a of allBsWithBal) {
+        allBsById.set(String(a.qb_account_id), a)
+        allBsByFqnLower.set(String(a.fully_qualified_name || a.name || '').toLowerCase(), a)
+      }
 
-      const assets = activeAccounts.filter(a => a.classification === 'Asset' || ['Bank', 'Accounts Receivable', 'Other Current Asset', 'Fixed Asset', 'Other Asset'].includes(a.account_type))
-      const liabilities = activeAccounts.filter(a => a.classification === 'Liability' || ['Accounts Payable', 'Credit Card', 'Other Current Liability', 'Long Term Liability'].includes(a.account_type))
-      const equity = activeAccounts.filter(a => a.classification === 'Equity' || a.account_type === 'Equity')
+      const bsAccounts = allBsWithBal.filter(
+        (a: any) => a.is_active || Math.abs(Number(a.current_balance || 0)) > 0.004 || everPosted.has(String(a.qb_account_id))
+      )
 
-      // QBO Sub-sections for Assets
-      const bankAccounts = assets.filter(a => a.account_type === 'Bank')
-      const accountsReceivable = assets.filter(a => a.account_type === 'Accounts Receivable')
-      const otherCurrentAssets = assets.filter(a => a.account_type === 'Other Current Asset')
-      const fixedAssets = assets.filter(a => a.account_type === 'Fixed Asset')
-      const otherAssets = assets.filter(a => a.account_type === 'Other Asset' || (!['Bank', 'Accounts Receivable', 'Other Current Asset', 'Fixed Asset'].includes(a.account_type)))
+      // Build QBO hierarchical parent -> sub-account -> sub-sub-account -> Total [Parent] tree for Balance Sheet sections
+      const buildBsTree = (sectionList: any[]) => {
+        const nodeMap = new Map<string, any>()
+        for (const a of sectionList) {
+          nodeMap.set(String(a.qb_account_id), a)
+        }
+        // Ensure any ancestor of an included sub-account is also present in nodeMap so the parent header appears
+        for (const a of sectionList) {
+          let cur: any = a
+          const visited = new Set<string>()
+          while (cur) {
+            const cId = String(cur.qb_account_id)
+            if (visited.has(cId)) break
+            visited.add(cId)
+            let pId = String(cur.parent_qb_id || cur.raw_data?.ParentRef?.value || '').trim()
+            if (!pId && cur.fully_qualified_name && String(cur.fully_qualified_name).includes(':')) {
+              const prefix = String(cur.fully_qualified_name).split(':').slice(0, -1).join(':').toLowerCase()
+              const pAcc = allBsByFqnLower.get(prefix)
+              if (pAcc && String(pAcc.qb_account_id) !== cId) pId = String(pAcc.qb_account_id)
+            }
+            if (pId && pId !== cId && allBsById.has(pId)) {
+              const parentAcc = allBsById.get(pId)!
+              if (parentAcc.account_type === a.account_type && !nodeMap.has(pId)) {
+                nodeMap.set(pId, parentAcc)
+              }
+              cur = parentAcc
+            } else {
+              break
+            }
+          }
+        }
 
-      const sumBal = (list: any[]) => Number(list.reduce((s, a) => s + Number(a.current_balance || 0), 0).toFixed(2))
+        const childrenByParent = new Map<string | null, any[]>()
+        for (const a of nodeMap.values()) {
+          const cId = String(a.qb_account_id)
+          let pId: string | null = String(a.parent_qb_id || a.raw_data?.ParentRef?.value || '').trim() || null
+          if (!pId && a.fully_qualified_name && String(a.fully_qualified_name).includes(':')) {
+            const prefix = String(a.fully_qualified_name).split(':').slice(0, -1).join(':').toLowerCase()
+            const pAcc = allBsByFqnLower.get(prefix)
+            if (pAcc && String(pAcc.qb_account_id) !== cId) pId = String(pAcc.qb_account_id)
+          }
+          const validParent = pId && pId !== cId && nodeMap.has(pId) ? pId : null
+          if (!childrenByParent.has(validParent)) childrenByParent.set(validParent, [])
+          childrenByParent.get(validParent)!.push(a)
+        }
+        for (const arr of childrenByParent.values()) {
+          arr.sort((x, y) => String(x.name || '').localeCompare(String(y.name || '')))
+        }
+
+        const displayRows: any[] = []
+        const walk = (parentId: string | null, depth: number, visited = new Set<string>()): number => {
+          let sum = 0
+          for (const node of childrenByParent.get(parentId) || []) {
+            const nId = String(node.qb_account_id)
+            if (visited.has(nId)) continue
+            visited.add(nId)
+            const kids = childrenByParent.get(nId) || []
+            const ownBal = r2(Number(node.current_balance || 0))
+            if (kids.length === 0) {
+              if (Math.abs(ownBal) > 0.004 || node.is_active) {
+                displayRows.push({
+                  ...node,
+                  kind: 'account',
+                  depth,
+                  display_balance: ownBal,
+                  rollup_balance: ownBal,
+                })
+              }
+              sum = r2(sum + ownBal)
+            } else {
+              const headerIdx = displayRows.length
+              displayRows.push({
+                ...node,
+                kind: 'parent',
+                depth,
+                display_balance: ownBal,
+                rollup_balance: ownBal,
+                children_count: kids.length,
+              })
+              const childSum = walk(nId, depth + 1, visited)
+              const subTotal = r2(ownBal + childSum)
+              displayRows[headerIdx].rollup_balance = subTotal
+              if (Math.abs(subTotal) > 0.004 || displayRows.length > headerIdx + 1) {
+                displayRows.push({
+                  id: `total-${nId}`,
+                  qb_account_id: nId,
+                  name: `Total ${node.name}`,
+                  fully_qualified_name: node.fully_qualified_name || node.name,
+                  account_type: node.account_type,
+                  kind: 'total',
+                  depth,
+                  current_balance: subTotal,
+                  display_balance: subTotal,
+                  rollup_balance: subTotal,
+                })
+              } else {
+                // Hide completely empty zero-balance parent with no visible children
+                displayRows.splice(headerIdx, 1)
+              }
+              sum = r2(sum + subTotal)
+            }
+          }
+          return sum
+        }
+        walk(null, 0)
+        return displayRows
+      }
+
+      const assets = bsAccounts.filter((a: any) => ['Bank', 'Accounts Receivable', 'Other Current Asset', 'Fixed Asset', 'Other Asset'].includes(a.account_type))
+      const liabilities = bsAccounts.filter((a: any) => ['Accounts Payable', 'Credit Card', 'Other Current Liability', 'Long Term Liability'].includes(a.account_type))
+      const equity = bsAccounts.filter((a: any) => a.account_type === 'Equity')
+
+      const bankAccounts = assets.filter((a: any) => a.account_type === 'Bank')
+      const accountsReceivable = assets.filter((a: any) => a.account_type === 'Accounts Receivable')
+      const otherCurrentAssets = assets.filter((a: any) => a.account_type === 'Other Current Asset')
+      const fixedAssets = assets.filter((a: any) => a.account_type === 'Fixed Asset')
+      const otherAssets = assets.filter((a: any) => a.account_type === 'Other Asset')
+
+      const sumBal = (list: any[]) => r2(list.reduce((s, a) => s + Number(a.current_balance || 0), 0))
 
       const totalBankAccounts = sumBal(bankAccounts)
       const totalAccountsReceivable = sumBal(accountsReceivable)
       const totalOtherCurrentAssets = sumBal(otherCurrentAssets)
-      const totalCurrentAssets = Number((totalBankAccounts + totalAccountsReceivable + totalOtherCurrentAssets).toFixed(2))
+      const totalCurrentAssets = r2(totalBankAccounts + totalAccountsReceivable + totalOtherCurrentAssets)
       const totalFixedAssets = sumBal(fixedAssets)
       const totalOtherAssets = sumBal(otherAssets)
-      const totalAssets = sumBal(assets)
+      const totalAssets = r2(totalCurrentAssets + totalFixedAssets + totalOtherAssets)
 
-      // QBO Sub-sections for Liabilities
-      const accountsPayable = liabilities.filter(a => a.account_type === 'Accounts Payable')
-      const creditCards = liabilities.filter(a => a.account_type === 'Credit Card')
-      const otherCurrentLiabilities = liabilities.filter(a => a.account_type === 'Other Current Liability')
-      const longTermLiabilities = liabilities.filter(a => a.account_type === 'Long Term Liability' || (!['Accounts Payable', 'Credit Card', 'Other Current Liability'].includes(a.account_type)))
+      const accountsPayable = liabilities.filter((a: any) => a.account_type === 'Accounts Payable')
+      const creditCards = liabilities.filter((a: any) => a.account_type === 'Credit Card')
+      const otherCurrentLiabilities = liabilities.filter((a: any) => a.account_type === 'Other Current Liability')
+      const longTermLiabilities = liabilities.filter((a: any) => a.account_type === 'Long Term Liability')
 
       const totalAccountsPayable = sumBal(accountsPayable)
       const totalCreditCards = sumBal(creditCards)
       const totalOtherCurrentLiabilities = sumBal(otherCurrentLiabilities)
-      const totalCurrentLiabilities = Number((totalAccountsPayable + totalCreditCards + totalOtherCurrentLiabilities).toFixed(2))
+      const totalCurrentLiabilities = r2(totalAccountsPayable + totalCreditCards + totalOtherCurrentLiabilities)
       const totalLongTermLiabilities = sumBal(longTermLiabilities)
-      const totalLiabilities = sumBal(liabilities)
+      const totalLiabilities = r2(totalCurrentLiabilities + totalLongTermLiabilities)
 
-      const statedEquity = sumBal(equity)
-      // In QBO, Net Income / Unclosed Retained Earnings bridges Total Assets - (Total Liabilities + Stated Equity)
-      const retainedNetIncome = Number((totalAssets - totalLiabilities - statedEquity).toFixed(2))
-      const totalEquity = Number((statedEquity + retainedNetIncome).toFixed(2))
+      const statedEquity = sumBal(equity) // includes Retained Earnings
+      const netIncome = eqEnd.netIncome
+      const totalEquity = r2(statedEquity + netIncome)
+      const totalLiabilitiesAndEquity = r2(totalLiabilities + totalEquity)
 
       return NextResponse.json({
         reportType,
         company,
         startDate,
-        endDate,
+        endDate: asOfDate,
         availableArchives,
         balanceSheet: {
+          asOfDate,
+          fiscalYearStart: eqEnd.fiscalYearStart,
           assets,
           liabilities,
           equity,
@@ -607,6 +968,16 @@ export async function GET(req: NextRequest) {
           creditCards,
           otherCurrentLiabilities,
           longTermLiabilities,
+          bankAccountsTree: buildBsTree(bankAccounts),
+          accountsReceivableTree: buildBsTree(accountsReceivable),
+          otherCurrentAssetsTree: buildBsTree(otherCurrentAssets),
+          fixedAssetsTree: buildBsTree(fixedAssets),
+          otherAssetsTree: buildBsTree(otherAssets),
+          accountsPayableTree: buildBsTree(accountsPayable),
+          creditCardsTree: buildBsTree(creditCards),
+          otherCurrentLiabilitiesTree: buildBsTree(otherCurrentLiabilities),
+          longTermLiabilitiesTree: buildBsTree(longTermLiabilities),
+          equityTree: buildBsTree(equity),
           totalBankAccounts,
           totalAccountsReceivable,
           totalOtherCurrentAssets,
@@ -621,63 +992,55 @@ export async function GET(req: NextRequest) {
           totalLongTermLiabilities,
           totalLiabilities,
           statedEquity,
-          retainedNetIncome,
+          retainedEarnings: eqEnd.retainedEarnings,
+          netIncome,
+          // Kept for UI compatibility: the "Net Income" line of the QBO Balance Sheet
+          retainedNetIncome: netIncome,
           totalEquity,
-          totalLiabilitiesAndEquity: Number((totalLiabilities + totalEquity).toFixed(2)),
+          totalLiabilitiesAndEquity,
+          balanceCheckDifference: r2(totalAssets - totalLiabilitiesAndEquity),
         }
       })
     }
 
     // -------------------------------------------------------------------------
-    // 3. BANK REGISTER & RUNNING BALANCE (AUXILIAR BANCARIO)
+    // 3. BANK / CREDIT CARD REGISTER (AUXILIAR) — saldo inicial + saldo corrido como el registro de QBO
     // -------------------------------------------------------------------------
     if (reportType === 'bank_register') {
-      const bankAccounts = accounts.filter(a => a.account_type === 'Bank' || a.account_type === 'Credit Card')
+      const bankAccounts = accounts
+        .filter((a: any) => a.account_type === 'Bank' || a.account_type === 'Credit Card')
+        .map((a: any) => ({ ...a, current_balance: toNaturalBalance(a, Number(a.current_balance || 0)), balance_sign: 'natural' }))
       const targetAcctId = accountId !== 'ALL' ? accountId : (bankAccounts[0]?.qb_account_id || '')
+      const targetAcc = ledgerCtx.accounts.get(String(targetAcctId))
+      const begDp = startDate ? (balanceAsOf(dayBefore(startDate)).get(String(targetAcctId)) ?? 0) : 0
+      let runningDp = begDp
 
-      const regTxns = activeTxns.filter(t => {
-        if (!targetAcctId) return t.direction === 'IN' || t.direction === 'OUT' || t.direction === 'TRANSFER'
-        return t.account_qb_id === targetAcctId || t.to_account_qb_id === targetAcctId
-      })
-
-      let runningBal = 0
-      const registerRows = regTxns.map(t => {
-        const amt = Number(t.total_amount || 0)
-        let inflow = 0
-        let outflow = 0
-        if (t.direction === 'IN') {
-          inflow = amt
-          runningBal = Number((runningBal + amt).toFixed(2))
-        } else if (t.direction === 'OUT') {
-          outflow = amt
-          runningBal = Number((runningBal - amt).toFixed(2))
-        } else if (t.direction === 'TRANSFER') {
-          if (t.to_account_qb_id === targetAcctId) {
-            inflow = amt
-            runningBal = Number((runningBal + amt).toFixed(2))
-          } else {
-            outflow = amt
-            runningBal = Number((runningBal - amt).toFixed(2))
-          }
-        }
-        return {
+      const registerRows: any[] = []
+      for (const t of activeTxns) {
+        const ps = postingsOf(t).filter(p => p.account_qb_id === String(targetAcctId))
+        if (ps.length === 0) continue
+        const dp = r2(ps.reduce((s, p) => s + p.amount, 0))
+        if (dp === 0) continue
+        runningDp = r2(runningDp + dp)
+        registerRows.push({
           id: t.id,
+          qb_txn_id: t.qb_txn_id,
           txn_date: t.txn_date,
           txn_type: t.txn_type,
           doc_number: t.doc_number,
-          entity_name: t.entity_name,
+          entity_name: t.entity_name || ps[0].entity_name,
           account_name: t.account_name,
-          category_summary: t.category_summary,
-          memo: t.memo,
-          inflow,
-          outflow,
-          running_balance: runningBal,
+          category_summary: splitLabel(t, String(targetAcctId)),
+          memo: t.memo || ps[0].memo,
+          inflow: dp > 0 ? dp : 0,
+          outflow: dp < 0 ? -dp : 0,
+          running_balance: toNaturalBalance(targetAcc, runningDp),
           cleared_status: t.cleared_status,
-        }
-      })
+        })
+      }
 
-      const totalIn = Number(registerRows.reduce((s, r) => s + r.inflow, 0).toFixed(2))
-      const totalOut = Number(registerRows.reduce((s, r) => s + r.outflow, 0).toFixed(2))
+      const totalIn = r2(registerRows.reduce((s, r) => s + r.inflow, 0))
+      const totalOut = r2(registerRows.reduce((s, r) => s + r.outflow, 0))
 
       return NextResponse.json({
         reportType,
@@ -686,267 +1049,264 @@ export async function GET(req: NextRequest) {
         bankRegister: {
           selectedAccountId: targetAcctId,
           bankAccounts,
-          rows: registerRows.reverse(), // Newest at top for UI convenience, with chronological running_balance preserved
+          beginningBalance: toNaturalBalance(targetAcc, begDp),
+          rows: registerRows.reverse(), // Newest at top, chronological running_balance preserved
           totalInflows: totalIn,
           totalOutflows: totalOut,
-          endingBalance: runningBal,
+          endingBalance: toNaturalBalance(targetAcc, runningDp),
         }
       })
     }
 
     // -------------------------------------------------------------------------
-    // 4. GENERAL LEDGER (LIBRO MAYOR DETALLADO)
+    // 4. GENERAL LEDGER (LIBRO MAYOR DETALLADO) — por cuenta: saldo inicial, cargos/abonos, saldo corrido
     // -------------------------------------------------------------------------
     if (reportType === 'general_ledger') {
-      const ledgerByAccount: Record<string, {
-        account_name: string
-        total_debit: number
-        total_credit: number
-        net_movement: number
-        entries: any[]
-      }> = {}
-
-      const addEntry = (acctName: string, entry: { date: string; type: string; doc: string; name: string; memo: string; debit: number; credit: number }) => {
-        const key = acctName || 'Uncategorized'
-        if (!ledgerByAccount[key]) {
-          ledgerByAccount[key] = { account_name: key, total_debit: 0, total_credit: 0, net_movement: 0, entries: [] }
-        }
-        const g = ledgerByAccount[key]
-        g.total_debit = Number((g.total_debit + entry.debit).toFixed(2))
-        g.total_credit = Number((g.total_credit + entry.credit).toFixed(2))
-        g.net_movement = Number((g.total_debit - g.total_credit).toFixed(2))
-        if (g.entries.length < 250) {
-          g.entries.push(entry)
-        }
-      }
-
+      const ENTRY_CAP = 3000
+      const glStart = startDate || null
+      const begBS = glStart ? balanceAsOf(dayBefore(glStart)) : null
+      const begPL = glStart ? activityBetween(fiscalYearStart(glStart, fiscalStartMonth), dayBefore(glStart)) : null
+      const byAcc = new Map<string, { entries: any[]; total_debit: number; total_credit: number }>()
       for (const t of activeTxns) {
-        if (t.txn_type === 'Estimate' || t.txn_type === 'PurchaseOrder' || t.direction === 'NON_POSTING') continue
-        const amt = Number(t.total_amount || 0)
-        const rawLines = Array.isArray(t.line_items) ? t.line_items : []
-        const lines = rawLines.length > 0
-          ? rawLines
-          : [{ account_name: t.to_account_name || t.category_summary || (t.direction === 'IN' ? 'Income' : 'Expense'), amount: amt }]
-
-        if (t.txn_type === 'Transfer' || t.txn_type === 'PayDownCreditCard') {
-          if (t.account_name) {
-            addEntry(t.account_name, {
-              date: t.txn_date,
-              type: t.txn_type,
-              doc: t.doc_number || '',
-              name: t.entity_name || '',
-              memo: t.memo || '',
-              debit: 0,
-              credit: amt,
-            })
+        for (const p of postingsOf(t)) {
+          if (!ledgerCtx.accounts.has(p.account_qb_id)) continue
+          let g = byAcc.get(p.account_qb_id)
+          if (!g) {
+            g = { entries: [], total_debit: 0, total_credit: 0 }
+            byAcc.set(p.account_qb_id, g)
           }
-          addEntry(t.to_account_name || t.category_summary || 'Transfer Target', {
+          const debit = p.amount > 0 ? r2(p.amount) : 0
+          const credit = p.amount < 0 ? r2(-p.amount) : 0
+          g.total_debit = r2(g.total_debit + debit)
+          g.total_credit = r2(g.total_credit + credit)
+          g.entries.push({
+            id: t.id,
+            qb_txn_id: t.qb_txn_id,
             date: t.txn_date,
+            txn_date: t.txn_date,
             type: t.txn_type,
+            txn_type: t.txn_type,
             doc: t.doc_number || '',
-            name: t.entity_name || '',
-            memo: t.memo || '',
-            debit: amt,
-            credit: 0,
+            doc_number: t.doc_number || '',
+            name: p.entity_name || t.entity_name || '',
+            entity_name: p.entity_name || t.entity_name || '',
+            memo: p.memo || t.memo || '',
+            split: splitLabel(t, p.account_qb_id),
+            split_account: splitLabel(t, p.account_qb_id),
+            account_qb_id: t.account_qb_id || p.account_qb_id,
+            account_name: t.account_name || accName(p.account_qb_id),
+            to_account_qb_id: t.to_account_qb_id || null,
+            to_account_name: t.to_account_name || null,
+            category_summary: t.category_summary || splitLabel(t, p.account_qb_id),
+            total_amount: r2(Number(t.total_amount ?? Math.abs(p.amount))),
+            line_items: Array.isArray(t.line_items) ? t.line_items : [],
+            is_voided: Boolean(t.is_voided),
+            debit,
+            credit,
+            dp: p.amount,
           })
-        } else if (t.direction === 'OUT' || t.txn_type === 'Bill') {
-          if (t.account_name) {
-            addEntry(t.account_name, {
-              date: t.txn_date,
-              type: t.txn_type,
-              doc: t.doc_number || '',
-              name: t.entity_name || '',
-              memo: t.memo || '',
-              debit: 0,
-              credit: amt,
-            })
-          }
-          for (const l of lines) {
-            addEntry(l.account_name || t.category_summary || 'Expense', {
-              date: t.txn_date,
-              type: t.txn_type,
-              doc: t.doc_number || '',
-              name: l.entity_name || t.entity_name || '',
-              memo: l.description || t.memo || '',
-              debit: Number(l.amount ?? amt),
-              credit: 0,
-            })
-          }
-        } else if (t.direction === 'IN' || t.txn_type === 'Invoice') {
-          if (t.account_name) {
-            addEntry(t.account_name, {
-              date: t.txn_date,
-              type: t.txn_type,
-              doc: t.doc_number || '',
-              name: t.entity_name || '',
-              memo: t.memo || '',
-              debit: amt,
-              credit: 0,
-            })
-          }
-          for (const l of lines) {
-            addEntry(l.account_name || t.category_summary || 'Income', {
-              date: t.txn_date,
-              type: t.txn_type,
-              doc: t.doc_number || '',
-              name: l.entity_name || t.entity_name || '',
-              memo: l.description || t.memo || '',
-              debit: 0,
-              credit: Number(l.amount ?? amt),
-            })
-          }
-        } else if (t.txn_type === 'JournalEntry') {
-          for (const l of rawLines) {
-            const lAmt = Number(l.amount ?? 0)
-            addEntry(l.account_name || 'Journal Account', {
-              date: t.txn_date,
-              type: 'JournalEntry',
-              doc: t.doc_number || '',
-              name: l.entity_name || t.entity_name || '',
-              memo: l.description || t.memo || '',
-              debit: l.posting_type === 'Debit' ? lAmt : 0,
-              credit: l.posting_type === 'Credit' ? lAmt : 0,
-            })
-          }
         }
       }
+      const ledgerRows: any[] = []
+      const accIds = new Set<string>([...byAcc.keys()])
+      if (begBS) {
+        for (const a of accounts) {
+          const id = String(a.qb_account_id)
+          const b = isBalanceSheetAccountType(a) ? (begBS.get(id) ?? 0) : (begPL?.get(id) ?? 0)
+          if (Math.abs(b) > 0.004) accIds.add(id)
+        }
+      }
+      for (const id of accIds) {
+        const acc = ledgerCtx.accounts.get(id)
+        if (!acc) continue
+        const g = byAcc.get(id) || { entries: [], total_debit: 0, total_credit: 0 }
+        const isBS = isBalanceSheetAccountType(acc)
+        const begDp = retainedEarningsIds.has(id)
+          ? (glStart ? equityRollForward(dayBefore(glStart)).retainedEarningsDebitPositive : 0)
+          : (isBS ? (begBS?.get(id) ?? 0) : (begPL?.get(id) ?? 0))
+        let run = begDp
+        const entries = g.entries.map(e => {
+          run = r2(run + e.dp)
+          const { dp, ...rest } = e
+          return { ...rest, balance: toNaturalBalance(acc, run) }
+        })
+        ledgerRows.push({
+          account_qb_id: id,
+          account_name: acc.fully_qualified_name || acc.name || id,
+          account_type: acc.account_type,
+          beginning_balance: toNaturalBalance(acc, begDp),
+          total_debit: g.total_debit,
+          total_credit: g.total_credit,
+          net_movement: r2(g.total_debit - g.total_credit),
+          ending_balance: toNaturalBalance(acc, run),
+          entry_count: entries.length,
+          truncated: entries.length > ENTRY_CAP,
+          entries: entries.length > ENTRY_CAP ? entries.slice(-ENTRY_CAP) : entries,
+        })
+      }
+      ledgerRows.sort((a, b) => a.account_name.localeCompare(b.account_name))
 
       return NextResponse.json({
         reportType,
         company,
         availableArchives,
-        generalLedger: Object.values(ledgerByAccount).sort((a, b) => a.account_name.localeCompare(b.account_name))
+        generalLedger: ledgerRows,
       })
     }
 
     // -------------------------------------------------------------------------
-    // 5. TRIAL BALANCE (BALANZA DE COMPROBACIÓN)
+    // 5. TRIAL BALANCE (BALANZA DE COMPROBACIÓN) — igual que QBO:
+    //    cuentas de Balance al corte, cuentas de Resultados del año fiscal a la fecha y Retained Earnings.
     // -------------------------------------------------------------------------
     if (reportType === 'trial_balance') {
-      const endingBalMap = await computeBalancesAsOfEndDate()
+      const endMap = balanceAsOf(asOfDate)
+      const eq = equityRollForward(asOfDate)
+      const ytd = activityBetween(eq.fiscalYearStart, asOfDate)
+      const everPosted = new Set<string>()
+      for (const t of allTxns) {
+        if (t.is_voided || String(t.txn_date || '') > asOfDate) continue
+        for (const p of postingsOf(t)) everPosted.add(p.account_qb_id)
+      }
       const tbRows = accounts
-        .filter(a => {
-          const b = endingBalMap.get(String(a.qb_account_id)) ?? Number(a.current_balance || 0)
-          return a.is_active && Math.abs(b) > 0.001
-        })
-        .map(a => {
-          const bal = Number((endingBalMap.get(String(a.qb_account_id)) ?? Number(a.current_balance || 0)).toFixed(2))
-          const isNormalDebit = ['Asset', 'Expense'].includes(a.classification || '') || ['Bank', 'Accounts Receivable', 'Other Current Asset', 'Fixed Asset', 'Other Asset', 'Expense', 'Cost of Goods Sold', 'Other Expense'].includes(a.account_type)
-          let debit = 0
-          let credit = 0
-          if (isNormalDebit) {
-            if (bal >= 0) debit = bal
-            else credit = Math.abs(bal)
-          } else {
-            if (bal >= 0) credit = bal
-            else debit = Math.abs(bal)
-          }
+        .map((a: any) => {
+          const id = String(a.qb_account_id)
+          let dp = 0
+          if (retainedEarningsIds.has(id)) dp = eq.retainedEarningsDebitPositive
+          else if (isBalanceSheetAccountType(a)) dp = endMap.get(id) ?? 0
+          else if (isProfitLossAccount(a)) dp = ytd.get(id) ?? 0
+          dp = r2(dp)
           return {
-            account_id: a.qb_account_id,
+            account_id: id,
+            account_qb_id: id,
             acct_num: a.acct_num,
             name: a.name,
             fully_qualified_name: a.fully_qualified_name || a.name,
             account_type: a.account_type,
-            debit: Number(debit.toFixed(2)),
-            credit: Number(credit.toFixed(2)),
+            debit: dp > 0 ? dp : 0,
+            credit: dp < 0 ? r2(-dp) : 0,
+            _keep: Math.abs(dp) > 0.004 || everPosted.has(id) || retainedEarningsIds.has(id) || a.account_sub_type === 'OpeningBalanceEquity',
           }
         })
+        .filter((r: any) => r._keep)
+        .map(({ _keep, ...r }: any) => r)
 
-      const totalDebit = Number(tbRows.reduce((s, r) => s + r.debit, 0).toFixed(2))
-      const totalCredit = Number(tbRows.reduce((s, r) => s + r.credit, 0).toFixed(2))
+      const totalDebit = r2(tbRows.reduce((s: number, r: any) => s + r.debit, 0))
+      const totalCredit = r2(tbRows.reduce((s: number, r: any) => s + r.credit, 0))
 
       return NextResponse.json({
         reportType,
         company,
         availableArchives,
         trialBalance: {
+          asOfDate,
+          fiscalYearStart: eq.fiscalYearStart,
           rows: tbRows,
           totalDebit,
           totalCredit,
+          difference: r2(totalDebit - totalCredit),
         }
       })
     }
 
     // -------------------------------------------------------------------------
-    // 6. VENDOR EXPENSES SUMMARY (RESUMEN POR PROVEEDOR / 1099) & CUSTOMER INCOME
+    // 6. EXPENSES BY VENDOR SUMMARY & INCOME BY CUSTOMER SUMMARY (QBO)
+    //    Suma de pólizas a cuentas de Gasto (o Ingreso) agrupadas por proveedor (o cliente).
     // -------------------------------------------------------------------------
     if (reportType === 'vendor_expenses' || reportType === 'customer_income') {
       const isVendor = reportType === 'vendor_expenses'
       const contactMap = new Map<string, any>()
       for (const c of contacts) {
         contactMap.set((c.display_name || '').toLowerCase(), c)
+        if (c.qb_contact_id) contactMap.set(`id:${c.contact_type}:${c.qb_contact_id}`, c)
       }
 
       const agg: Record<string, {
         name: string
         count: number
         total_amount: number
+        expenses_amount: number
+        net_amount: number
         last_date: string
         tax_identifier: string | null
         vendor_1099: boolean
         categories: Set<string>
+        txnIds: Set<string>
         transactions: any[]
       }> = {}
 
-      for (const t of activeTxns) {
-        if (t.txn_type === 'Estimate' || t.txn_type === 'PurchaseOrder' || t.direction === 'NON_POSTING') continue
-        if (isVendor && t.direction !== 'OUT' && t.txn_type !== 'Bill') continue
-        if (!isVendor && t.direction !== 'IN' && t.txn_type !== 'Invoice') continue
-        const name = (t.entity_name || 'Sin Beneficiario Especificado').trim()
-        const amt = Number(t.total_amount || 0)
-        if (amt === 0) continue
-
-        if (!agg[name]) {
-          const matchedContact = contactMap.get(name.toLowerCase())
-          agg[name] = {
-            name,
-            count: 0,
-            total_amount: 0,
-            last_date: t.txn_date,
-            tax_identifier: matchedContact?.tax_identifier || null,
-            vendor_1099: Boolean(matchedContact?.vendor_1099),
-            categories: new Set<string>(),
-            transactions: [],
+      forEachPlPosting((acc, p, t, src) => {
+          const incomeAcc = isIncomeAccount(acc)
+          const expenseAcc = isExpenseAccount(acc)
+          if (!incomeAcc && !expenseAcc) return
+          let name: string
+          if (isVendor) {
+            // QBO Expenses by Vendor: only Vendor-type payees; any other payee type is "Not Specified"
+            if (!expenseAcc) return
+            name = p.entity_type === 'Vendor' && p.entity_name ? String(p.entity_name).trim() : 'Not Specified'
+          } else {
+            // QBO Income by Customer: only postings tied to a Customer (payee or billable customer)
+            const cust = p.entity_type === 'Customer' ? p.entity_name : p.customer_name
+            if (!cust) return
+            name = String(cust).trim()
           }
-        }
-        agg[name].count++
-        agg[name].total_amount = Number((agg[name].total_amount + amt).toFixed(2))
-        if (t.txn_date > agg[name].last_date) agg[name].last_date = t.txn_date
-        if (t.category_summary) agg[name].categories.add(t.category_summary)
-        agg[name].transactions.push({
-          id: t.id,
-          qb_txn_id: t.qb_txn_id,
-          txn_date: t.txn_date,
-          txn_type: t.txn_type,
-          doc_number: t.doc_number || '',
-          entity_name: name,
-          department_name: t.department_name || '',
-          class_name: t.class_name || '',
-          memo: t.memo || '',
-          account_name: t.category_summary || t.to_account_name || '—',
-          split_account: t.account_name || '—',
-          amount: amt,
-          year: (t.txn_date || '').slice(0, 4),
-          cleared_status: t.cleared_status || 'Cleared',
-        })
-      }
+          // Vendor report: expenses positive. Customer report: Income column positive; Expenses column = −debits (QBO sign)
+          const amt = r2(isVendor ? p.amount : -p.amount)
+          if (amt === 0) return
+          if (!agg[name]) {
+            const matchedContact = contactMap.get(name.toLowerCase())
+            agg[name] = {
+              name,
+              count: 0,
+              total_amount: 0,
+              expenses_amount: 0,
+              net_amount: 0,
+              last_date: t.txn_date,
+              tax_identifier: matchedContact?.tax_identifier || null,
+              vendor_1099: Boolean(matchedContact?.vendor_1099),
+              categories: new Set<string>(),
+              txnIds: new Set<string>(),
+              transactions: [],
+            }
+          }
+          const g = agg[name]
+          if (!g.txnIds.has(String(t.id))) {
+            g.txnIds.add(String(t.id))
+            g.count++
+          }
+          if (isVendor || incomeAcc) g.total_amount = r2(g.total_amount + amt)
+          else g.expenses_amount = r2(g.expenses_amount + amt)
+          g.net_amount = r2(g.total_amount + (isVendor ? 0 : g.expenses_amount))
+          if (String(t.txn_date) > g.last_date) g.last_date = t.txn_date
+          g.categories.add(accName(p.account_qb_id))
+          const txRow = postingRow(src || t, p, amt, p.account_qb_id)
+          if (src) {
+            txRow.txn_date = t.txn_date
+            txRow.year = String(t.txn_date || '').slice(0, 4)
+          }
+          g.transactions.push(txRow)
+      })
 
       const rows = Object.values(agg)
         .map(r => {
           let run = 0
-          const txnsWithRun = r.transactions.map(tx => {
-            run = Number((run + Number(tx.amount || 0)).toFixed(2))
-            return { ...tx, running_balance: run }
-          })
+          const txnsWithRun = r.transactions
+            .sort((a: any, b: any) => String(a.txn_date).localeCompare(String(b.txn_date)))
+            .map(tx => {
+              run = r2(run + Number(tx.amount || 0))
+              return { ...tx, running_balance: run }
+            })
+          const { txnIds, ...rest } = r
           return {
-            ...r,
+            ...rest,
             categories: Array.from(r.categories).slice(0, 3).join(', '),
             transactions: txnsWithRun,
           }
         })
-        .sort((a, b) => b.total_amount - a.total_amount)
+        .filter(r => Math.abs(r.total_amount) > 0.004 || Math.abs(r.expenses_amount) > 0.004)
+        .sort((a, b) => a.name === 'Not Specified' ? 1 : b.name === 'Not Specified' ? -1 : a.name.localeCompare(b.name))
 
-      const grandTotal = Number(rows.reduce((s, r) => s + r.total_amount, 0).toFixed(2))
+      const grandTotal = r2(rows.reduce((s, r) => s + r.total_amount, 0))
+      const grandExpenses = r2(rows.reduce((s, r) => s + r.expenses_amount, 0))
 
       return NextResponse.json({
         reportType,
@@ -955,6 +1315,8 @@ export async function GET(req: NextRequest) {
         entitySummary: {
           rows,
           grandTotal,
+          grandExpenses,
+          grandNet: r2(grandTotal + grandExpenses),
         }
       })
     }
@@ -997,8 +1359,6 @@ export async function GET(req: NextRequest) {
       const filterType = (searchParams.get('filterType') || '').trim().toLowerCase()
       const filterValue = (searchParams.get('filterValue') || '').trim()
       const filterId = (searchParams.get('filterId') || '').trim()
-
-      const endingBalMap = await computeBalancesAsOfEndDate()
 
       // MODE 8A: RELATIONAL LISTS / CONTACTS DRILL-DOWN (`filterType` provided)
       if (filterType && (filterValue || filterId)) {
@@ -1048,39 +1408,27 @@ export async function GET(req: NextRequest) {
               matched = true
             }
           } else if (filterType === 'location' || filterType === 'department') {
+            // QBO Location (DepartmentRef) is a transaction-header field: match by Id, exact name or FullyQualifiedName leaf
             const hdrDeptId = String(t.department_qb_id || t.raw_data?.DepartmentRef?.value || '')
-            const hdrDeptName = String(t.department_name || t.raw_data?.DepartmentRef?.name || '').toLowerCase()
-            const strippedVal = valLower.replace(/^\d+\s*[-:]\s*/, '').trim()
-            const matchesLocText = (candidate: string) => {
-              if (!candidate || !valLower) return false
-              if (candidate === valLower || candidate.includes(valLower)) return true
-              if (strippedVal.length >= 4 && candidate.includes(strippedVal)) return true
-              return false
-            }
-            if ((filterId && hdrDeptId === filterId) || matchesLocText(hdrDeptName)) {
+            const hdrDeptName = String(t.department_name || t.raw_data?.DepartmentRef?.name || '').toLowerCase().trim()
+            const sameLocation = (candidate: string) =>
+              Boolean(candidate) && Boolean(valLower) &&
+              (candidate === valLower || candidate.split(':').pop()!.trim() === valLower || valLower.split(':').pop()!.trim() === candidate)
+            if ((filterId && hdrDeptId === filterId) || sameLocation(hdrDeptName)) {
               matched = true
-              if (t.direction === 'OUT') matchedAmt = -Math.abs(matchedAmt)
+              if (t.direction === 'OUT' || t.txn_type === 'Bill') matchedAmt = -Math.abs(matchedAmt)
             } else {
               let lineSum = 0
               for (const l of lines) {
                 const lDeptId = String(l.department_qb_id || '')
-                const lDeptName = String(l.department_name || '').toLowerCase()
-                const lAccName = String(l.account_name || '').toLowerCase()
-                if ((filterId && lDeptId === filterId) || matchesLocText(lDeptName) || matchesLocText(lAccName)) {
+                const lDeptName = String(l.department_name || '').toLowerCase().trim()
+                if ((filterId && lDeptId === filterId) || sameLocation(lDeptName)) {
                   matched = true
                   lineSum += Number(l.amount || 0)
                   matchedAcct = l.account_name || matchedAcct
                 }
               }
-              if (!matched) {
-                const hdrAccName = `${t.account_name || ''} ${t.to_account_name || ''}`.toLowerCase()
-                if (matchesLocText(hdrAccName)) {
-                  matched = true
-                  if (t.direction === 'OUT') matchedAmt = -Math.abs(matchedAmt)
-                }
-              } else if (lineSum !== 0) {
-                matchedAmt = lineSum
-              }
+              if (matched && lineSum !== 0) matchedAmt = lineSum
             }
           } else if (filterType === 'class') {
             const hdrClassId = String(t.class_qb_id || '')
@@ -1128,11 +1476,20 @@ export async function GET(req: NextRequest) {
               doc_number: t.doc_number || '',
               entity_name: t.entity_name || '—',
               department_name: t.department_name || '',
+              location_name: t.department_name || '',
               class_name: t.class_name || '',
               memo: matchedMemo,
+              account_qb_id: t.account_qb_id || null,
               account_name: matchedAcct,
+              to_account_qb_id: t.to_account_qb_id || null,
+              to_account_name: t.to_account_name || null,
+              category_summary: t.category_summary || matchedSplit,
               split_account: matchedSplit,
               amount: Number(matchedAmt.toFixed(2)),
+              total_amount: Number((t.total_amount ?? Math.abs(matchedAmt)).toFixed(2)),
+              line_items: Array.isArray(t.line_items) ? t.line_items : [],
+              payment_method: t.payment_type || '',
+              is_voided: Boolean(t.is_voided),
               running_balance: runningTotal,
               year: (t.txn_date || '').slice(0, 4),
               cleared_status: t.cleared_status || 'Cleared',
@@ -1229,6 +1586,24 @@ export async function GET(req: NextRequest) {
         if (u === 'GROUP:ALL_TRIAL_BALANCE') {
           return { groupTitle: 'Trial Balance — All Active Accounts', list: activeList }
         }
+        if (u === 'GROUP:NET_INCOME' || u === 'NET INCOME' || u === 'RETAINED NET INCOME' || u === 'UTILIDAD NETA' || u === 'UTILIDAD NETA RETENIDA') {
+          return { groupTitle: 'Net Income', list: accounts.filter(a => isProfitLossAccount(a)) }
+        }
+        if (u === 'GROUP:INCOME' || u === 'TOTAL INCOME') {
+          return { groupTitle: 'Total Income', list: accounts.filter(a => a.account_type === 'Income') }
+        }
+        if (u === 'GROUP:EXPENSES' || u === 'TOTAL EXPENSES') {
+          return { groupTitle: 'Total Expenses', list: accounts.filter(a => a.account_type === 'Expense') }
+        }
+        if (u === 'GROUP:COGS' || u === 'TOTAL COST OF GOODS SOLD') {
+          return { groupTitle: 'Total Cost of Goods Sold', list: accounts.filter(a => a.account_type === 'Cost of Goods Sold') }
+        }
+        if (u === 'GROUP:OTHER_INCOME' || u === 'TOTAL OTHER INCOME') {
+          return { groupTitle: 'Total Other Income', list: accounts.filter(a => a.account_type === 'Other Income') }
+        }
+        if (u === 'GROUP:OTHER_EXPENSES' || u === 'TOTAL OTHER EXPENSES') {
+          return { groupTitle: 'Total Other Expenses', list: accounts.filter(a => a.account_type === 'Other Expense') }
+        }
         return null
       }
 
@@ -1238,6 +1613,8 @@ export async function GET(req: NextRequest) {
       const groupByAccountId = accountId && accountId !== 'ALL' ? resolveGroupToken(accountId) : null
       const groupByName = !groupByAccountId && rawNameParam ? resolveGroupToken(rawNameParam) : null
       const resolvedGroup = groupByAccountId || groupByName
+      // Balance Sheet "Net Income" line = fiscal-year-to-date P&L as of the report date
+      const netIncomeMode = resolvedGroup?.groupTitle === 'Net Income'
 
       if (resolvedGroup) {
         targetAccounts = resolvedGroup.list
@@ -1264,13 +1641,24 @@ export async function GET(req: NextRequest) {
         if (baseAccount) {
           const baseId = String(baseAccount.qb_account_id)
           const baseFqLower = String(baseAccount.fully_qualified_name || baseAccount.name || '').toLowerCase()
-          // Include baseAccount AND any descendant sub-accounts (e.g. Prepaid Expenses -> Prepaid Tax-Federal, etc.)
-          const descendants = accounts.filter(
-            a =>
-              String(a.qb_account_id) !== baseId &&
-              (String(a.parent_qb_id || '') === baseId ||
-                String(a.fully_qualified_name || '').toLowerCase().startsWith(`${baseFqLower}:`))
-          )
+          // Recursively collect all multi-level descendant sub-accounts (Level 1 -> Level 2 -> Level 3 -> Level 4)
+          const visitedIds = new Set<string>([baseId])
+          const queue: string[] = [baseId]
+          const descendants: any[] = []
+          while (queue.length > 0) {
+            const curId = queue.shift()!
+            for (const a of accounts) {
+              const aId = String(a.qb_account_id)
+              if (visitedIds.has(aId)) continue
+              const pId = String(a.parent_qb_id || a.raw_data?.ParentRef?.value || '').trim()
+              const fqLower = String(a.fully_qualified_name || '').toLowerCase()
+              if (pId === curId || (curId === baseId && baseFqLower && fqLower.startsWith(`${baseFqLower}:`))) {
+                visitedIds.add(aId)
+                descendants.push(a)
+                queue.push(aId)
+              }
+            }
+          }
           targetAccounts = [baseAccount, ...descendants]
           reportTitle = rawNameParam || baseAccount.fully_qualified_name || baseAccount.name
         }
@@ -1290,113 +1678,83 @@ export async function GET(req: NextRequest) {
       let anyBalanceSheet = false
 
       if (targetAccounts.length > 0) {
-        // Pre-enrich activeTxns once for fast delta calculation across target accounts
-        const enrichedActiveTxns = activeTxns
-          .filter(t => t.txn_type !== 'Estimate' && t.txn_type !== 'PurchaseOrder' && t.direction !== 'NON_POSTING')
-          .map(t => ({ raw: t, enriched: enrichTxnForDeltas(t) }))
+        // Every amount comes from the double-entry postings; balances are shown with the QBO presentation sign
+        const endMap = balanceAsOf(endDate)
+        const rangeStart = netIncomeMode ? fiscalYearStart(asOfDate, fiscalStartMonth) : startDate
+        const rangeEnd = netIncomeMode ? asOfDate : endDate
+        const rangeTxns = netIncomeMode
+          ? allTxns.filter(t => !t.is_voided && String(t.txn_date || '') >= String(rangeStart) && String(t.txn_date || '') <= String(rangeEnd))
+          : activeTxns
+        const targetIds = new Set(targetAccounts.map(a => String(a.qb_account_id)))
+        const postingsByAcc = new Map<string, Array<{ t: any; p: Posting }>>()
+        for (const t of rangeTxns) {
+          if (t.txn_type === 'Estimate' || t.txn_type === 'PurchaseOrder' || t.direction === 'NON_POSTING') continue
+          for (const p of postingsOf(t)) {
+            if (!targetIds.has(p.account_qb_id)) continue
+            if (!postingsByAcc.has(p.account_qb_id)) postingsByAcc.set(p.account_qb_id, [])
+            postingsByAcc.get(p.account_qb_id)!.push({ t, p })
+          }
+        }
 
         for (const acc of targetAccounts) {
           const accIdStr = String(acc.qb_account_id)
-          const isBS = isBalanceSheetAccount(acc)
+          const isBS = isBalanceSheetAccountType(acc)
+          const isRE = retainedEarningsIds.has(accIdStr)
           if (isBS) anyBalanceSheet = true
-
-          const endBal = isBS ? Number((endingBalMap.get(accIdStr) ?? Number(acc.current_balance || 0)).toFixed(2)) : 0
           const accDisplayName = acc.fully_qualified_name || acc.name || ''
-          const groupTxnsRaw: any[] = []
-          let periodDeltaSum = 0
 
-          for (const { raw: t, enriched } of enrichedActiveTxns) {
-            const deltas = computeTransactionAccountDeltas(accountTypeMap, enriched, 1)
-            const deltaOnAcc = deltas.get(accIdStr) || 0
-            if (Math.abs(deltaOnAcc) < 0.0001) continue
-
-            periodDeltaSum = Number((periodDeltaSum + deltaOnAcc).toFixed(2))
-
-            const lines: any[] = Array.isArray(enriched.line_items) ? enriched.line_items : []
-            const isHeaderAccount = String(enriched.account_qb_id || '') === accIdStr
-
-            // Determine QBO "Item split account" and line description
-            let splitAccountLabel = '—'
-            let lineMemo = t.memo || ''
-            let lineEntity = t.entity_name || '—'
-            let lineDoc = t.doc_number || ''
-            let lineDept = t.department_name || ''
-            let lineClass = t.class_name || ''
-
-            if (isHeaderAccount) {
-              const distinctLineAccounts = Array.from(
-                new Set(
-                  lines
-                    .map((l: any) => String(l.account_name || '').trim())
-                    .filter(Boolean)
-                )
-              )
-              if (distinctLineAccounts.length > 1) {
-                splitAccountLabel = '-Split-'
-              } else if (distinctLineAccounts.length === 1) {
-                splitAccountLabel = distinctLineAccounts[0]
-              } else {
-                splitAccountLabel = t.to_account_name || t.category_summary || '—'
-              }
-              if (!lineMemo && lines[0]?.description) lineMemo = lines[0].description
-              if ((!lineEntity || lineEntity === '—') && lines[0]?.entity_name) lineEntity = lines[0].entity_name
-              if (!lineDoc && lines[0]?.check_num) lineDoc = lines[0].check_num
-            } else {
-              splitAccountLabel = t.account_name || t.to_account_name || t.category_summary || '—'
-              const matchingLine = lines.find((l: any) => String(l.account_qb_id || '') === accIdStr)
-              if (matchingLine) {
-                if (matchingLine.description) lineMemo = matchingLine.description
-                if (matchingLine.entity_name) lineEntity = matchingLine.entity_name
-                if (matchingLine.check_num && !lineDoc) lineDoc = matchingLine.check_num
-                if (matchingLine.department_name) lineDept = matchingLine.department_name
-                if (matchingLine.class_name) lineClass = matchingLine.class_name
-              }
-            }
-
-            groupTxnsRaw.push({
-              id: t.id,
-              qb_txn_id: t.qb_txn_id,
-              txn_date: t.txn_date,
-              txn_type: t.txn_type,
-              doc_number: lineDoc,
-              entity_name: lineEntity,
-              department_name: lineDept,
-              class_name: lineClass,
-              memo: lineMemo,
-              account_name: acc.name || accDisplayName,
-              split_account: splitAccountLabel,
-              amount: Number(deltaOnAcc.toFixed(2)),
-              year: (t.txn_date || '').slice(0, 4),
-              cleared_status: t.cleared_status || 'Cleared',
-            })
+          // Merge postings of the same transaction on this account (e.g. two lines to the same account)
+          const merged = new Map<string, { t: any; p: Posting; dp: number }>()
+          for (const { t, p } of postingsByAcc.get(accIdStr) || []) {
+            const k = String(t.id)
+            const prev = merged.get(k)
+            if (prev) prev.dp = r2(prev.dp + p.amount)
+            else merged.set(k, { t, p, dp: p.amount })
           }
+          const periodDp = r2(Array.from(merged.values()).reduce((s, x) => s + x.dp, 0))
 
-          const begBal = isBS ? Number((endBal - periodDeltaSum).toFixed(2)) : 0
+          let endDp = 0
+          if (isRE) {
+            for (const t of allTxns) {
+              if (t.is_voided || (rangeEnd && String(t.txn_date || '') > rangeEnd)) continue
+              for (const p of postingsOf(t)) if (p.account_qb_id === accIdStr) endDp = r2(endDp + p.amount)
+            }
+          } else if (isBS) {
+            endDp = endMap.get(accIdStr) ?? Number(acc.current_balance || 0)
+          } else {
+            endDp = periodDp
+          }
+          const begDp = isBS ? r2(endDp - periodDp) : 0
 
-          // Skip completely zero inactive/unused sub-accounts when displaying a huge multi-account group (unless it's a Bank account or single-account report)
+          const begBal = toNaturalBalance(acc, begDp)
+          const finalEndBal = toNaturalBalance(acc, endDp)
+          const periodNat = toNaturalBalance(acc, periodDp)
+
+          // Skip completely unused sub-accounts when displaying a large multi-account group (QBO hides empty rows)
           if (
             targetAccounts.length > 5 &&
             acc.account_type !== 'Bank' &&
-            groupTxnsRaw.length === 0 &&
+            merged.size === 0 &&
             Math.abs(begBal) < 0.001 &&
-            Math.abs(endBal) < 0.001
+            Math.abs(finalEndBal) < 0.001
           ) {
             continue
           }
 
           let run = begBal
-          const groupTxns = groupTxnsRaw.map(tx => {
-            run = Number((run + tx.amount).toFixed(2))
-            const rowWithRun = { ...tx, running_balance: run }
-            allFlatRows.push(rowWithRun)
-            return rowWithRun
-          })
+          const groupTxns = Array.from(merged.values())
+            .sort((a, b) => String(a.t.txn_date).localeCompare(String(b.t.txn_date)))
+            .map(({ t, p, dp }) => {
+              const amt = toNaturalBalance(acc, dp)
+              run = r2(run + amt)
+              const row = { ...postingRow(t, p, amt, accIdStr), account_name: acc.name || accDisplayName, running_balance: run }
+              allFlatRows.push(row)
+              return row
+            })
 
-          const finalEndBal = isBS ? endBal : periodDeltaSum
-
-          totalBeginningBalance = Number((totalBeginningBalance + begBal).toFixed(2))
-          totalNetChange = Number((totalNetChange + periodDeltaSum).toFixed(2))
-          totalEndingBalance = Number((totalEndingBalance + finalEndBal).toFixed(2))
+          totalBeginningBalance = r2(totalBeginningBalance + begBal)
+          totalNetChange = r2(totalNetChange + periodNat)
+          totalEndingBalance = r2(totalEndingBalance + finalEndBal)
 
           groups.push({
             account_id: accIdStr,
@@ -1407,9 +1765,16 @@ export async function GET(req: NextRequest) {
             is_balance_sheet: isBS,
             beginning_balance: begBal,
             transactions: groupTxns,
-            period_net_change: periodDeltaSum,
+            period_net_change: periodNat,
             ending_balance: finalEndBal,
           })
+        }
+        if (netIncomeMode) {
+          // Net Income = Income − Expenses (income rows natural +, expense rows natural +)
+          const ni = r2(groups.reduce((s, g) => s + (isIncomeAccount(ledgerCtx.accounts.get(g.account_qb_id)) ? g.period_net_change : -g.period_net_change), 0))
+          totalNetChange = ni
+          totalEndingBalance = ni
+          totalBeginningBalance = 0
         }
       } else if (targetNameParam) {
         // Fallback name matching if an unmapped category/archive label was clicked

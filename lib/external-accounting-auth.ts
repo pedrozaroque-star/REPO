@@ -22,11 +22,15 @@
  *
  * @notes
  * - Implementado para garantizar preparación 100% de producción sin dependencia de Intuit QuickBooks Online.
+ * - 2026-10-28: `computeTransactionAccountDeltas` usa el motor de pólizas `lib/external-accounting-ledger.ts`
+ *   con la convención de signo de QBO (`CurrentBalance` débito positivo). Antes invertía el movimiento de
+ *   pasivos / capital / tarjetas al crear, editar, anular o reclasificar transacciones.
  */
 
 import { NextRequest } from 'next/server'
 import { SupabaseClient } from '@supabase/supabase-js'
 import { getServerUser, ServerUser } from './auth-server'
+import { buildLedgerContext, buildTxnPostings, postingsToDeltaMap, type LedgerContext } from './external-accounting-ledger'
 
 export const ALLOWED_EXTERNAL_ACCOUNTING_EMAILS = new Set([
   'raquel@tacosgavilan.com',
@@ -204,8 +208,35 @@ export function isDebitNormalAccount(accountType: string, classification?: strin
  * Calcula de forma pura y determinista el mapa de ajustes (`qb_account_id -> delta`)
  * que una transacción produce sobre el catálogo de cuentas de `realmId`.
  * `multiplier = 1` aplica la transacción; `multiplier = -1` la revierte.
+ *
+ * Convención (igual a `Account.CurrentBalance` de la API V3 de QBO): débito positivo / crédito negativo.
+ * Los pasivos, capital e ingresos guardan saldos negativos; usar `toNaturalBalance()` para mostrarlos.
+ *
+ * @notes 2026-10-28: Reescrito sobre el motor de pólizas `lib/external-accounting-ledger.ts`.
+ * La versión anterior sumaba con signo "natural" sobre saldos que QBO entrega con signo deudor,
+ * lo que invertía el movimiento de pasivos/capital (préstamos, A/P, tarjetas) y desfasaba los saldos al corte.
  */
+const ledgerCtxCache = new WeakMap<Map<string, any>, LedgerContext>()
+
 export function computeTransactionAccountDeltas(
+  acctByQbId: Map<string, any>,
+  txn: any,
+  multiplier: 1 | -1,
+  ctx?: LedgerContext
+): Map<string, number> {
+  if (!txn || txn.is_voided) return new Map<string, number>()
+  let ledgerCtx = ctx || ledgerCtxCache.get(acctByQbId)
+  if (!ledgerCtx) {
+    ledgerCtx = buildLedgerContext(Array.from(acctByQbId.values()))
+    ledgerCtxCache.set(acctByQbId, ledgerCtx)
+  }
+  return postingsToDeltaMap(buildTxnPostings(txn, ledgerCtx), ledgerCtx, multiplier)
+}
+
+/**
+ * @deprecated Motor anterior (signo natural). Se conserva solo como referencia histórica; no usar.
+ */
+export function computeTransactionAccountDeltasLegacy(
   acctByQbId: Map<string, any>,
   txn: any,
   multiplier: 1 | -1
