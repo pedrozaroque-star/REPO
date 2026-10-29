@@ -160,8 +160,20 @@ function pcmToWav(pcm: Buffer, sampleRate = 24000, channels = 1, bitDepth = 16):
 }
 
 function ensureWav(data: Buffer, sampleRate = 24000, channels = 1, bitDepth = 16): Buffer {
-  if (data.length >= 4 && data.subarray(0, 4).toString('ascii') === 'RIFF') {
-    return data
+  if (data.length >= 44 && data.subarray(0, 4).toString('ascii') === 'RIFF') {
+    const inner =
+      data.length > 88 && data.subarray(44, 48).toString('ascii') === 'RIFF'
+        ? data.subarray(44)
+        : data
+    const dataSz = inner.readUInt32LE(40)
+    if (dataSz > 0 && 44 + dataSz <= inner.length) {
+      const cleanPcm = inner.subarray(44, 44 + dataSz)
+      const hdr = Buffer.from(inner.subarray(0, 44))
+      hdr.writeUInt32LE(36 + cleanPcm.length, 4)
+      hdr.writeUInt32LE(cleanPcm.length, 40)
+      return Buffer.concat([hdr, cleanPcm])
+    }
+    return inner
   }
   return pcmToWav(data, sampleRate, channels, bitDepth)
 }
@@ -310,7 +322,7 @@ export async function getOrderReadySpeechWithMeta(
   // 1. Intentar caché v4 en Storage
   const hit = await supabaseAdmin.storage.from(BUCKET).download(path)
   if (hit.data) {
-    return { wav: Buffer.from(await hit.data.arrayBuffer()), isFallback: false }
+    return { wav: ensureWav(Buffer.from(await hit.data.arrayBuffer())), isFallback: false }
   }
 
   const existing = inflight.get(path)
@@ -336,7 +348,7 @@ export async function getOrderReadySpeechWithMeta(
         if (koreHit.data) {
           usedFallback = true
           console.warn(`[order-ready-tts] Fallback a voz oficial ${DEFAULT_VOICE} para #${num} (${lang})`)
-          return Buffer.from(await koreHit.data.arrayBuffer())
+          return ensureWav(Buffer.from(await koreHit.data.arrayBuffer()))
         }
       }
       throw genErr
