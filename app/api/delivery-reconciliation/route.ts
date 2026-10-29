@@ -312,18 +312,39 @@ export async function GET(req: NextRequest) {
     })
 
     const payouts = (rawPayouts || [])
-      .filter((p: any) => {
-        // Mostrar cortes cuya fecha de pago o periodo se traslape con el rango consultado (±7 días)
-        const pDate = p.payout_date || p.period_end || ''
-        const pStart = p.period_start || pDate
-        if (!pDate) return true
-        return pDate >= startDate || pStart <= endDate
-      })
       .map((p: any) => ({
         ...p,
         store_name: storeNameMap.get(p.store_id)?.name || `Store #${p.store_id}`,
         store_code: storeNameMap.get(p.store_id)?.code || '',
       }))
+      .filter((p: any) => {
+        if (search && search.length >= 2) {
+          const crossMatch = Array.isArray(p.raw_payload?.cross_payout_refunds)
+            ? p.raw_payload.cross_payout_refunds.some(
+                (cr: any) =>
+                  String(cr?.orderCode || '').toLowerCase().includes(search) ||
+                  String(cr?.description || '').toLowerCase().includes(search)
+              )
+            : false
+          return (
+            String(p.payout_reference_id || '').toLowerCase().includes(search) ||
+            String(p.store_name || '').toLowerCase().includes(search) ||
+            String(p.platform || '').toLowerCase().includes(search) ||
+            String(p.period_start || '').toLowerCase().includes(search) ||
+            String(p.period_end || '').toLowerCase().includes(search) ||
+            String(p.payout_date || '').toLowerCase().includes(search) ||
+            crossMatch
+          )
+        }
+        // Mostrar cortes cuyo periodo [period_start, period_end] o fecha de depósito [payout_date] se traslape con [startDate, endDate]
+        const pEnd = p.period_end || p.payout_date || ''
+        const pStart = p.period_start || pEnd
+        const pPay = p.payout_date || pEnd
+        if (!pEnd && !pPay) return true
+        const periodOverlaps = pStart <= endDate && pEnd >= startDate
+        const payoutDateInWindow = pPay >= startDate && pPay <= endDate
+        return periodOverlaps || payoutDateInWindow
+      })
 
     // Calcular Resumen Ejecutivo (KPIs) separando Órdenes Liquidadas/Cruzadas vs Pendientes de Corte en Toast
     let toastNetTotal = 0

@@ -427,6 +427,10 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url)
     const storeIdParam = searchParams.get('store_id')
     const platformParam = searchParams.get('platform')
+    const statusParam = searchParams.get('status') || 'ALL'
+    const startDate = searchParams.get('start_date') || ''
+    const endDate = searchParams.get('end_date') || ''
+    const search = (searchParams.get('search') || '').trim().toLowerCase()
 
     const mappings = await getStorePlatformMappings()
     const storeNameMap = new Map<number, { name: string; code: string }>()
@@ -456,13 +460,44 @@ export async function GET(req: NextRequest) {
       ordersQuery = ordersQuery.eq('platform', platformParam)
     }
 
-    const [{ data: rawPayouts, error: payErr }, { data: rawOrders, error: ordErr }] = await Promise.all([
-      payoutsQuery.limit(300),
+    const [{ data: rawPayoutsAll, error: payErr }, { data: rawOrders, error: ordErr }] = await Promise.all([
+      payoutsQuery.limit(400),
       ordersQuery.limit(4000),
     ])
 
     if (payErr) throw new Error(payErr.message)
     if (ordErr) throw new Error(ordErr.message)
+
+    // Filtrar cortes por rango de fechas [startDate, endDate] (salvo cuando hay una búsqueda específica por folio/orden)
+    const rawPayouts = (rawPayoutsAll || []).filter((p: any) => {
+      if (search && search.length >= 2) return true
+      if (!startDate && !endDate) return true
+      const pEnd = p.period_end || p.payout_date || ''
+      const pStart = p.period_start || pEnd
+      const pPay = p.payout_date || pEnd
+      if (!pEnd && !pPay) return true
+      const effStart = startDate || '2020-01-01'
+      const effEnd = endDate || '2099-12-31'
+      const periodOverlaps = pStart <= effEnd && pEnd >= effStart
+      const payoutDateInWindow = pPay >= effStart && pPay <= effEnd
+      return periodOverlaps || payoutDateInWindow
+    })
+
+    // Calcular ventana de fechas dinámica para consultar en QuickBooks Online el 100% de las pólizas del rango seleccionado
+    let minQbDate = startDate || '2026-09-01'
+    let maxQbDate = endDate || new Date().toISOString().slice(0, 10)
+    for (const p of rawPayouts) {
+      const ps = p.period_start || p.payout_date || ''
+      const pe = p.payout_date || p.period_end || ''
+      if (ps && ps < minQbDate) minQbDate = ps
+      if (pe && pe > maxQbDate) maxQbDate = pe
+    }
+    const minQbDateBuffered = new Date(new Date(`${minQbDate}T12:00:00Z`).getTime() - 7 * 86400000)
+      .toISOString()
+      .slice(0, 10)
+    const maxQbDateBuffered = new Date(new Date(`${maxQbDate}T12:00:00Z`).getTime() + 14 * 86400000)
+      .toISOString()
+      .slice(0, 10)
 
     // Consultar Journal Entries existentes en QuickBooks Online para cruzar cuáles cortes ya están publicados
     let qbJournalEntries: any[] = []
@@ -472,20 +507,29 @@ export async function GET(req: NextRequest) {
 
     try {
       const { token, realmId } = await getValidQuickBooksToken()
-      const q = encodeURIComponent(
-        `select * from JournalEntry where TxnDate >= '2026-09-01' orderby TxnDate desc maxresults 400`
-      )
-      const qbRes = await fetch(
-        `https://quickbooks.api.intuit.com/v3/company/${realmId}/query?query=${q}&minorversion=75`,
-        { headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' } }
-      )
-      if (qbRes.status === 401) {
-        isAuthError = true
-        qbErrorMsg = 'La sesión de QuickBooks Online ha expirado. Por favor reconecta la cuenta.'
-      } else if (qbRes.ok) {
-        const qbJson = await qbRes.json()
-        qbJournalEntries = qbJson?.QueryResponse?.JournalEntry || []
+      for (const startPos of [1, 1001]) {
+        const q = encodeURIComponent(
+          `select * from JournalEntry where TxnDate >= '${minQbDateBuffered}' and TxnDate <= '${maxQbDateBuffered}' orderby TxnDate desc startposition ${startPos} maxresults 1000`
+        )
+        const qbRes = await fetch(
+          `https://quickbooks.api.intuit.com/v3/company/${realmId}/query?query=${q}&minorversion=75`,
+          { headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' } }
+        )
+        if (qbRes.status === 401) {
+          isAuthError = true
+          qbErrorMsg = 'La sesión de QuickBooks Online ha expirado. Por favor reconecta la cuenta.'
+          break
+        } else if (qbRes.ok) {
+          const qbJson = await qbRes.json()
+          const pageEntries: any[] = qbJson?.QueryResponse?.JournalEntry || []
+          qbJournalEntries.push(...pageEntries)
+          if (pageEntries.length < 1000) break
+        } else {
+          break
+        }
+      }
 
+      if (qbJournalEntries.length > 0) {
         // Calcular el siguiente DocNumber secuencial tipo 202610XX
         let maxNum = 20261000
         for (const je of qbJournalEntries) {
@@ -519,7 +563,7 @@ export async function GET(req: NextRequest) {
       ordersByStore.set(sId, arr)
     }
 
-    const enrichedRecords = (rawPayouts || []).map((p: any) => {
+    let enrichedRecords = (rawPayouts || []).map((p: any) => {
       const storeMeta = storeNameMap.get(p.store_id) || { name: `Store #${p.store_id}`, code: '' }
       const storeRefs = getQBStoreRefs(storeMeta.name)
       const plat = (p.platform as DeliveryPlatformCode) || 'UBER_EATS'
@@ -609,6 +653,55 @@ export async function GET(req: NextRequest) {
         journalPreview: preview,
       }
     })
+
+    if (search) {
+      enrichedRecords = enrichedRecords.filter((r) => {
+        const audit = r.journalPreview?.auditBreakdown || {}
+        const hasOrderMatch =
+          (audit.deductedOrders || []).some(
+            (o: any) =>
+              String(o.platform_order_id || '').toLowerCase().includes(search) ||
+              String(o.toast_display_number || '').toLowerCase().includes(search) ||
+              String(o.toast_tab_name || '').toLowerCase().includes(search)
+          ) ||
+          (audit.crossPayoutRefunds || []).some(
+            (cr: any) =>
+              String(cr.orderCode || '').toLowerCase().includes(search) ||
+              String(cr.description || '').toLowerCase().includes(search)
+          )
+        return (
+          String(r.payout_reference_id || '').toLowerCase().includes(search) ||
+          String(r.store_name || '').toLowerCase().includes(search) ||
+          String(r.platform || '').toLowerCase().includes(search) ||
+          String(r.period_start || '').toLowerCase().includes(search) ||
+          String(r.period_end || '').toLowerCase().includes(search) ||
+          String(r.payout_date || '').toLowerCase().includes(search) ||
+          String(r.qbJournalEntry?.docNumber || '').toLowerCase().includes(search) ||
+          String(r.qbJournalEntry?.id || '').toLowerCase().includes(search) ||
+          hasOrderMatch
+        )
+      })
+    }
+
+    if (statusParam && statusParam !== 'ALL') {
+      enrichedRecords = enrichedRecords.filter((r) => {
+        const audit = r.journalPreview?.auditBreakdown || {}
+        if (statusParam === 'QB_CREATED') return r.hasJournalEntry
+        if (statusParam === 'QB_PENDING') return !r.hasJournalEntry
+        if (statusParam === 'MATCHED') return Math.abs(r.net_refunds_adjustments || 0) < 0.01
+        if (statusParam === 'REFUNDED_OR_DISPUTED') {
+          return (
+            Math.abs(r.net_refunds_adjustments || 0) >= 0.01 ||
+            (audit.deductedOrders?.length || 0) > 0 ||
+            (audit.crossPayoutRefunds?.length || 0) > 0
+          )
+        }
+        if (statusParam === 'TAX_MISMATCH' || statusParam === 'MISSING_IN_PLATFORM') {
+          return (audit.totalAtRiskTax || 0) > 0.01 || (audit.unpaidToastOrdersCount || 0) > 0
+        }
+        return true
+      })
+    }
 
     const createdCount = enrichedRecords.filter((r) => r.hasJournalEntry).length
     const pendingCount = enrichedRecords.length - createdCount

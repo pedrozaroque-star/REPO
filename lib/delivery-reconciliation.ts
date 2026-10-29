@@ -2068,21 +2068,21 @@ export async function parsePlatformReportPayload(
 }
 
 const UBER_STORE_TO_ORG_UUID_MAP: Record<string, string> = {
-  'b839f644-08fd-4bea-9d3e-d6ba52a26628': '02c60936-1cbc-42b2-a4f0-875dcb0db133', // Lynwood
-  '2d974982-cc50-44a6-8059-477a0bec5153': 'a40c185a-ef74-4f6d-ad2f-1642c399c392', // LA Broadway
-  '4486d476-bd92-5abd-a729-7e0fb0477559': '25c8205d-9090-439b-ad04-caff7a5dfcfb', // Slauson
-  'f4dc4c71-2c3d-4d69-9a45-9044521dbb00': 'c74ac07a-04fe-4988-b937-37e73c326fb2', // West Covina
-  'd29610d5-4fc8-445b-bbcf-6823d97e8100': '7fa00d0f-c6f2-45ad-98ec-1e6054f0110e', // Santa Ana
-  '73a1dd8c-a455-4f33-9646-339b73211acf': '3d34fbfe-3882-4471-8151-d90705db4073', // La Puente
-  '9e643fbc-eb02-4592-b30c-4f6516bafad7': 'dc470a66-0189-4c6e-9abb-14ec92e39ea8', // Azusa
-  '8113a027-6e40-4faf-b056-8f9567678586': '5e8d7202-cd81-4d38-9782-398344c41805', // LA Central
-  '016a534e-3244-43cf-8b8f-6d5c93e5a1e2': 'ad3aeddc-ba10-4655-97ec-b0bde1a5379c', // South Gate
-  '94c1a255-6d39-4965-a35e-529c2dc14a0e': '568945c4-4441-4a30-ad76-c9059f67bf63', // Downey
-  '7e8da3ee-28a0-4f64-8279-013b982a542c': 'f3744f89-89a7-4007-b303-461fa49dad21', // Huntington Park
-  '4b69329d-b878-4544-b77a-51099846d0f2': 'd4cd7259-f362-4cd2-a155-a8ed64c66019', // Bell
-  '05444339-469b-4ee3-8924-5e7a144764cc': '608a5581-826c-438f-a090-9d57e255c80f', // Rialto
-  '16d68a8a-789d-4ce1-a3e9-524e0a2ff947': 'bc7441a7-69ca-4d5c-a15c-2420cffc6dae', // Norwalk
-  'a0ac666a-d9ce-4c51-9237-bba8afa44a57': 'd492fdae-6e8a-45f6-8c51-e68e0b47c954', // Hollywood
+  'b839f644-08fd-4bea-9d3e-d6ba52a26628': '02c60936-1cbc-42b2-a4f0-875dcb0db133', // South Gate (5800 Firestone Blvd)
+  '2d974982-cc50-44a6-8059-477a0bec5153': 'a40c185a-ef74-4f6d-ad2f-1642c399c392', // LA Broadway (4380 S Broadway)
+  '4486d476-bd92-5abd-a729-7e0fb0477559': '25c8205d-9090-439b-ad04-caff7a5dfcfb', // Slauson (5833 S Broadway)
+  'f4dc4c71-2c3d-4d69-9a45-9044521dbb00': 'c74ac07a-04fe-4988-b937-37e73c326fb2', // West Covina (101 S Azusa Ave)
+  'd29610d5-4fc8-445b-bbcf-6823d97e8100': '7fa00d0f-c6f2-45ad-98ec-1e6054f0110e', // Santa Ana (1258 17th St)
+  '73a1dd8c-a455-4f33-9646-339b73211acf': '3d34fbfe-3882-4471-8151-d90705db4073', // La Puente (13009 Valley Blvd)
+  '9e643fbc-eb02-4592-b30c-4f6516bafad7': 'dc470a66-0189-4c6e-9abb-14ec92e39ea8', // Azusa (887 S Azusa Ave)
+  '8113a027-6e40-4faf-b056-8f9567678586': '5e8d7202-cd81-4d38-9782-398344c41805', // LA Central (1900 S Central Ave)
+  '016a534e-3244-43cf-8b8f-6d5c93e5a1e2': 'ad3aeddc-ba10-4655-97ec-b0bde1a5379c', // Bell (4406 E Florence Ave)
+  '94c1a255-6d39-4965-a35e-529c2dc14a0e': '568945c4-4441-4a30-ad76-c9059f67bf63', // Downey (7947 Florence Ave)
+  '7e8da3ee-28a0-4f64-8279-013b982a542c': 'f3744f89-89a7-4007-b303-461fa49dad21', // Huntington Park (2425 E Florence Ave)
+  '4b69329d-b878-4544-b77a-51099846d0f2': 'd4cd7259-f362-4cd2-a155-a8ed64c66019', // Lynwood (3220 E Imperial Hwy)
+  '05444339-469b-4ee3-8924-5e7a144764cc': '608a5581-826c-438f-a090-9d57e255c80f', // Rialto (115 E Base Line Rd)
+  '16d68a8a-789d-4ce1-a3e9-524e0a2ff947': 'bc7441a7-69ca-4d5c-a15c-2420cffc6dae', // Norwalk (10968 Rosecrans Ave)
+  'a0ac666a-d9ce-4c51-9237-bba8afa44a57': 'd492fdae-6e8a-45f6-8c51-e68e0b47c954', // Hollywood (7070 W Sunset Blvd)
 }
 
 /**
@@ -2192,6 +2192,7 @@ async function fetchChromeLiveDoorDashAndUberForStores(
                 'Runtime.evaluate',
                 {
                   expression: `(async () => {
+                    document.cookie = 'selectedRestaurant=' + ${JSON.stringify(locUuid)} + '; path=/';
                     const postApi = async (ep, body) => {
                       const r = await fetch('/manager/api/' + ep + '?localeCode=en', {
                         method: 'POST',

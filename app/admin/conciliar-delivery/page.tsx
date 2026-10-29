@@ -208,6 +208,7 @@ export default function ConciliarDeliveryPage() {
   const [qbAuthError, setQbAuthError] = useState<boolean>(false)
   const [qbReauthUrl, setQbReauthUrl] = useState<string>('/api/integrations/quickbooks/auth')
   const [qbNextDocNumber, setQbNextDocNumber] = useState<string>('20261053')
+  const [qbQuickFilter, setQbQuickFilter] = useState<'ALL' | 'PENDING' | 'CREATED'>('ALL')
   const [selectedQbPayoutIds, setSelectedQbPayoutIds] = useState<Set<string>>(new Set())
   const [publishingQb, setPublishingQb] = useState<boolean>(false)
   const [selectedQbRecord, setSelectedQbRecord] = useState<any | null>(null)
@@ -269,7 +270,11 @@ export default function ConciliarDeliveryPage() {
       const qs = new URLSearchParams({
         store_id: selectedStore,
         platform: selectedPlatform,
+        status: selectedStatus,
+        start_date: startDate,
+        end_date: endDate,
       })
+      if (searchQuery.trim()) qs.set('search', searchQuery.trim())
       const res = await fetch(`/api/delivery-reconciliation/quickbooks-journal?${qs.toString()}`)
       const data = await res.json()
       if (data.success) {
@@ -284,7 +289,7 @@ export default function ConciliarDeliveryPage() {
     } finally {
       setQbLoading(false)
     }
-  }, [selectedStore, selectedPlatform])
+  }, [selectedStore, selectedPlatform, selectedStatus, startDate, endDate, searchQuery])
 
   useEffect(() => {
     fetchQbJournalRecords()
@@ -392,7 +397,7 @@ export default function ConciliarDeliveryPage() {
           ghPayouts: data.payoutsSynced || 0,
         }),
       })
-      await fetchData()
+      await Promise.all([fetchData(), fetchQbJournalRecords()])
     } catch (err: any) {
       setBannerMessage({ type: 'error', text: err.message })
     } finally {
@@ -445,7 +450,7 @@ export default function ConciliarDeliveryPage() {
       setShowImportModal(false)
       setImportText('')
       setImportFileName('')
-      await fetchData()
+      await Promise.all([fetchData(), fetchQbJournalRecords()])
     } catch (err: any) {
       setBannerMessage({ type: 'error', text: err.message })
     } finally {
@@ -613,6 +618,12 @@ export default function ConciliarDeliveryPage() {
     if (quickFilter === 'PENDING_TOAST') return pendingToastOrders
     return orders
   }, [orders, quickFilter, settledOrders, disputedOrders, matchedOrdersList, pendingToastOrders])
+
+  const displayedQbRecords = useMemo(() => {
+    if (qbQuickFilter === 'PENDING') return qbRecords.filter((r) => !r.hasJournalEntry)
+    if (qbQuickFilter === 'CREATED') return qbRecords.filter((r) => r.hasJournalEntry)
+    return qbRecords
+  }, [qbRecords, qbQuickFilter])
 
   const renderPlatformBadge = (platform: DeliveryPlatform) => {
     if (platform === 'DOORDASH') {
@@ -1111,6 +1122,44 @@ export default function ConciliarDeliveryPage() {
               }`}
             >
               📋 {t('deliveryReconciliation.quick_filter_all')} ({orders.length})
+            </button>
+          </div>
+        )}
+
+        {/* BOTONES DE FILTRO RÁPIDO (EN TAB DE PÓLIZAS QUICKBOOKS) */}
+        {activeTab === 'qb_journals' && (
+          <div className="flex flex-wrap items-center gap-1.5">
+            <button
+              onClick={() => setQbQuickFilter('ALL')}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition border ${
+                qbQuickFilter === 'ALL'
+                  ? 'bg-slate-800 text-white border-slate-800 dark:bg-slate-200 dark:text-slate-900'
+                  : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700'
+              }`}
+            >
+              📋 {t('deliveryReconciliation.quick_filter_all')} ({qbRecords.length})
+            </button>
+
+            <button
+              onClick={() => setQbQuickFilter('PENDING')}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition border ${
+                qbQuickFilter === 'PENDING'
+                  ? 'bg-amber-600 text-white border-amber-600'
+                  : 'bg-white dark:bg-slate-900 text-amber-600 dark:text-amber-400 border-amber-500/30'
+              }`}
+            >
+              ⏳ {t('deliveryReconciliation.qb_status_pending')} ({qbSummary?.pendingCount || 0})
+            </button>
+
+            <button
+              onClick={() => setQbQuickFilter('CREATED')}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition border ${
+                qbQuickFilter === 'CREATED'
+                  ? 'bg-emerald-600 text-white border-emerald-600'
+                  : 'bg-white dark:bg-slate-900 text-emerald-600 dark:text-emerald-400 border-emerald-500/30'
+              }`}
+            >
+              ✅ {t('deliveryReconciliation.qb_status_created')} ({qbSummary?.createdCount || 0})
             </button>
           </div>
         )}
@@ -1660,9 +1709,16 @@ export default function ConciliarDeliveryPage() {
             </div>
           </div>
 
-          {/* 4 TARJETAS KPI DE PÓLIZAS QUICKBOOKS E IMPUESTOS */}
+          {/* 4 TARJETAS KPI DE PÓLIZAS QUICKBOOKS E IMPUESTOS (CLICABLES COMO FILTRO) */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm">
+            <div
+              onClick={() => setQbQuickFilter('ALL')}
+              className={`cursor-pointer bg-white dark:bg-slate-900 border rounded-2xl p-4 shadow-sm transition ${
+                qbQuickFilter === 'ALL'
+                  ? 'border-indigo-500 ring-2 ring-indigo-500/20'
+                  : 'border-slate-200 dark:border-slate-800 hover:border-indigo-400'
+              }`}
+            >
               <div className="text-[11px] font-bold uppercase text-slate-400">
                 {t('deliveryReconciliation.qb_kpi_total_cuts')}
               </div>
@@ -1672,7 +1728,14 @@ export default function ConciliarDeliveryPage() {
               </div>
             </div>
 
-            <div className="bg-white dark:bg-slate-900 border border-amber-500/30 rounded-2xl p-4 shadow-sm">
+            <div
+              onClick={() => setQbQuickFilter(qbQuickFilter === 'PENDING' ? 'ALL' : 'PENDING')}
+              className={`cursor-pointer bg-white dark:bg-slate-900 border rounded-2xl p-4 shadow-sm transition ${
+                qbQuickFilter === 'PENDING'
+                  ? 'border-amber-500 ring-2 ring-amber-500/25'
+                  : 'border-amber-500/30 hover:border-amber-500'
+              }`}
+            >
               <div className="text-[11px] font-bold uppercase text-amber-600 dark:text-amber-400">
                 {t('deliveryReconciliation.qb_kpi_pending_je')}
               </div>
@@ -1684,7 +1747,14 @@ export default function ConciliarDeliveryPage() {
               </div>
             </div>
 
-            <div className="bg-white dark:bg-slate-900 border border-emerald-500/30 rounded-2xl p-4 shadow-sm">
+            <div
+              onClick={() => setQbQuickFilter(qbQuickFilter === 'CREATED' ? 'ALL' : 'CREATED')}
+              className={`cursor-pointer bg-white dark:bg-slate-900 border rounded-2xl p-4 shadow-sm transition ${
+                qbQuickFilter === 'CREATED'
+                  ? 'border-emerald-500 ring-2 ring-emerald-500/25'
+                  : 'border-emerald-500/30 hover:border-emerald-500'
+              }`}
+            >
               <div className="text-[11px] font-bold uppercase text-emerald-600 dark:text-emerald-400">
                 {t('deliveryReconciliation.qb_kpi_created_je')}
               </div>
@@ -1702,7 +1772,7 @@ export default function ConciliarDeliveryPage() {
               </div>
               <div className="text-2xl font-extrabold font-mono text-rose-600 dark:text-rose-400 mt-1">
                 {fmtMoney(
-                  qbRecords.reduce(
+                  displayedQbRecords.reduce(
                     (acc, r) => acc + Number(r.journalPreview?.auditBreakdown?.totalAtRiskTax || 0),
                     0
                   )
@@ -1718,7 +1788,7 @@ export default function ConciliarDeliveryPage() {
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm overflow-hidden">
             {qbLoading ? (
               <div className="p-12 text-center text-slate-500">{t('deliveryReconciliation.syncing_btn')}</div>
-            ) : qbRecords.length === 0 ? (
+            ) : displayedQbRecords.length === 0 ? (
               <div className="p-12 text-center text-slate-500">{t('deliveryReconciliation.empty_payouts')}</div>
             ) : (
               <div className="overflow-x-auto">
@@ -1729,15 +1799,15 @@ export default function ConciliarDeliveryPage() {
                         <input
                           type="checkbox"
                           checked={
-                            qbRecords.filter((r) => !r.hasJournalEntry).length > 0 &&
-                            qbRecords
+                            displayedQbRecords.filter((r) => !r.hasJournalEntry).length > 0 &&
+                            displayedQbRecords
                               .filter((r) => !r.hasJournalEntry)
                               .every((r) => selectedQbPayoutIds.has(r.id))
                           }
                           onChange={(e) => {
                             if (e.target.checked) {
                               const next = new Set<string>()
-                              qbRecords
+                              displayedQbRecords
                                 .filter((r) => !r.hasJournalEntry)
                                 .forEach((r) => next.add(r.id))
                               setSelectedQbPayoutIds(next)
@@ -1761,7 +1831,7 @@ export default function ConciliarDeliveryPage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
-                    {qbRecords.map((r) => {
+                    {displayedQbRecords.map((r) => {
                       const prev = r.journalPreview || {}
                       const audit = prev.auditBreakdown || {}
                       const line1 = prev.lines?.[0]
