@@ -602,6 +602,17 @@ function InicioHubContent() {
                     badgeLabel: 'NEW',
                 },
                 {
+                    id: 'conciliar_delivery',
+                    title: t('items.conciliar_delivery'),
+                    description: t('home_hub.desc.conciliar_delivery'),
+                    path: '/admin/conciliar-delivery',
+                    icon: <ShieldCheck size={20} />,
+                    iconColorClass: 'bg-indigo-500/10 text-indigo-600 dark:bg-indigo-500/20 dark:text-indigo-400 border-indigo-500/20',
+                    roles: ['admin', 'supervisor'],
+                    badgeType: 'new',
+                    badgeLabel: 'NEW',
+                },
+                {
                     id: 'external_accounting',
                     title: t('items.external_accounting'),
                     description: t('home_hub.desc.external_accounting'),

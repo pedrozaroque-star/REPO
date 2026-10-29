@@ -45,6 +45,7 @@
  * - Tacos Gavilan App (/app, v2.1.0): Pantalla de Inicio nativa con localizador GPS opcional en primer plano (procesado exclusivamente en RAM del dispositivo vía Haversine en millas, sin enviar coordenadas al servidor) que ordena las 15 sucursales (IDs 1, 3..16) de la más cercana a la más lejana, teléfonos clicables con marcado directo (tel:+1...) y domicilios / botón Ir clicables con navegación giro a giro nativa en Apple Maps (iOS) y Google Maps (Android/Web); modalidades exclusivas Pickup y Delivery en Toast Online Ordering (order.online) dentro de WebView nativo endurecido (evaluateWebViewNavigationRequest, onOpenWindow, purga real de cookies/sesión, sin Curbside).
  * - Gavilan POS Cashier Register (/gavilan-pos -> Caja POS, /api/gavilan-pos/register-catalog, /api/gavilan-pos/manager-approval): Diseñado sobre 13.48M unidades reales de pmix_daily_cache (349 días × 15 tiendas), con orden fijo y codificación por color de proteínas por memoria muscular (Asada rojo, Pastor naranja, Pollo ámbar, Cabeza vino, Lengua morado, Carnitas cobre, Buche turquesa, Chorizo carmesí, Vegetariano/Queso esmeralda, Bebidas Large 32oz azul rey / Medium 22oz azul cielo), Estación de Bebidas Drive-Thru & Mostrador (groupBeveragesByFlavor + findCounterpartBeverageSize: 3 secciones operativas Aguas Frescas -> Sodas -> Calientes/Botella, tarjetas pareadas por sabor con botones MED 22oz y LARGE 32oz lado a lado, barra de filtro por tamaño y cambio de tamaño en 1 toque ⇄ L 32oz / M 22oz en el ticket), Riel de Categorías en 2 Columnas Cero-Scroll (224px), Matriz Rápida Proteína × Familia, Franja de Complementos y Bebidas Frecuentes de 1 Toque, 414 modificadores activos en gavilan_pos_register_modifiers organizados en 5 Cubetas Semánticas Conversacionales (NO rojo coral, EXTRA verde esmeralda, PREP azul pizarra, HALF morado, NOTE índigo), validación de grupos obligatorios, encabezados interactivos de Plato/Bolsa (+ Agregando aquí) y botón × para quitar modificadores individuales en 1 toque, buscador instantáneo + teclado numérico de cantidad personalizada (×#), autorización con PIN de gerente (scrypt + salt en gavilan_pos_manager_pins y bitácora gavilan_pos_discount_approvals) para Empleado (50%), Policía (50%/100%) y Void Order, Franja de Cobro Rápido en 1 Toque (Fast Cash con denominaciones inteligentes smartCashDenominations, banner de Cambio a Entregar, Tarjeta y EBT 0% Tax), y Motor Universal de Pago Dividido y Multi-Tender en 4 Modos (BY_AMOUNT por monto libre/multi-método, BY_EQUAL partes iguales ÷2..÷6 con ajuste del centavo impar, BY_PLATE por Plato/Bolsa, y BY_ITEM por artículos individuales P1..P4) con exención parcial de impuestos EBT conforme a CDTFA Reg. 1603 / R&TC §6373 (0% tax en tramos EBT_FOOD, Sales Tax solo sobre el remanente no-EBT) y conteo multi-swipe de tarjetas (cardSwipeCount).
  * - Order Ready Board y Preparador KDS (/order-ready-board, /inventory/preparador, lib/order-ready-sync.ts): items_summary usa la propiedad canónica quantity (aceptando qty heredado), consolida platillos con mismos modificadores ordenados sin alterar nombres visuales, descarta quantity <= 0, separa lecturas de BD (syncToast=false en eventos Realtime con debounce de 500ms y reconexiones) del polling explícito a Toast (syncToast=true) protegido por lease distribuido PostgreSQL (order_ready_sync_leases) y canales Realtime aislados por tienda (order-ready-realtime:{storeCode}).
+ * - Conciliar Delivery y Pólizas QuickBooks (/admin/conciliar-delivery, /api/delivery-reconciliation, /api/delivery-reconciliation/quickbooks-journal): concilia Toast POS vs Uber Eats, DoorDash y Grubhub orden por orden y por corte semanal, rastrea reembolsos en cortes posteriores (ej. #650DD) y automatiza la creación de Settlement Journal Entries de 4 líneas en QuickBooks Online (100XX Banco, 50039/50036/50037 Fees, 12050/12053/12054 Receivables, 40060/40062/40063 Refunds/Error Charges) con opción de separar Sales Tax en Cuenta 24001 para reembolsos de DoorDash/Grubhub.
  * @dataFlow
  * - Gemini Tool Calls -> executeTool() -> Database Select/Upsert / Local Forecasting Engine / AI Breaks Engine -> Formatted Markdown String Response.
  * @notes Combines multi-year lookups and weather APIs dynamically to generate instant predictive insights inside the support chat. La recuperación histórica de tickets Toast 2026 se archiva localmente y comprimida por defecto, sin PII; los snapshots no representan por sí solos consumo real ni autorizan pedidos automáticos.
@@ -604,6 +605,19 @@ export const TOOL_DECLARATIONS = [
         position_code: { type: 'STRING', description: 'Filtro opcional de estación (ej. BURRITOS, CARNES, TACOS, TORTAS/QUESADILLAS).' }
       }
     }
+  },
+  {
+    name: 'query_delivery_reconciliation',
+    description: 'Consultar la conciliación financiera orden por orden, cortes bancarios (payouts), impuestos (Sales Tax entregado por DoorDash/Grubhub vs retenido por Uber Eats) y disputas/reembolsos entre Toast POS y DoorDash, Uber Eats y Grubhub (/admin/conciliar-delivery).',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        store_id: { type: 'NUMBER', description: 'ID numérico opcional de sucursal (1-16).' },
+        platform: { type: 'STRING', description: 'DOORDASH, UBER_EATS, GRUBHUB o ALL.' },
+        status: { type: 'STRING', description: 'MATCHED, AMOUNT_MISMATCH, TAX_MISMATCH, REFUNDED_OR_DISPUTED, MISSING_IN_PLATFORM, MISSING_IN_TOAST o ALL.' },
+        limit: { type: 'NUMBER', description: 'Máximo 50 registros; por defecto 20.' }
+      }
+    }
   }
 ]
 
@@ -675,6 +689,7 @@ export async function executeTool(name: string, rawArgs: any): Promise<string> {
       case 'query_quickbooks_bills': return await queryQuickbooksBillsTool(args)
       case 'query_mobile_orders': return await queryMobileOrdersTool(args)
       case 'query_delivery_handoffs': return await queryDeliveryHandoffs(args)
+      case 'query_delivery_reconciliation': return await queryDeliveryReconciliationTool(args)
       case 'query_training_academy': return await queryTrainingAcademyTool(args)
       default: return `Tool "${name}" not found.`
     }
@@ -705,6 +720,27 @@ async function queryDeliveryHandoffs(args: any): Promise<string> {
     `- Tienda ${row.store_id} | #${row.toast_display_number} | ${row.platform} | ${row.status} | bolsas ${row.confirmed_bag_count || 1} | verificación ${row.courier_verification_method || 'pendiente'} | recogida en vivo ${row.live_pickup_confirmed ? 'sí' : 'no'}`
   )
   return `Entrega Blindada: ${rows.length} registro(s). ${Object.entries(counts).map(([status, count]) => `${status}: ${count}`).join(' | ') || 'Sin actividad'}\n${detail.join('\n')}`
+}
+
+async function queryDeliveryReconciliationTool(args: any): Promise<string> {
+  const limit = Math.min(50, Math.max(1, Number(args?.limit) || 20))
+  let query = supabaseAdmin
+    .from('delivery_platform_orders')
+    .select('store_id, platform, business_date, platform_order_id, toast_display_number, toast_net_sales, toast_tax, toast_expected_gross, platform_subtotal, platform_tax_paid_to_merchant, platform_gross_receivable, commission_fee, delivery_fee, processing_fee, error_charge, net_payout, gross_diff, reconciliation_status, dispute_status')
+    .order('business_date', { ascending: false })
+    .limit(limit)
+
+  if (Number(args?.store_id) > 0) query = query.eq('store_id', Number(args.store_id))
+  if (args?.platform && args.platform !== 'ALL') query = query.eq('platform', String(args.platform))
+  if (args?.status && args.status !== 'ALL') query = query.eq('reconciliation_status', String(args.status))
+
+  const { data, error } = await query
+  if (error) throw error
+  const rows = data || []
+  const lines = rows.map((r: any) =>
+    `- ${r.business_date} | Tienda #${r.store_id} | ${r.platform} | Orden #${r.platform_order_id} (Toast #${r.toast_display_number || '-'}) | Toast Esperado: $${Number(r.toast_expected_gross || 0).toFixed(2)} | Plat Bruto: $${Number(r.platform_gross_receivable || 0).toFixed(2)} | Neto Pagado: $${Number(r.net_payout || 0).toFixed(2)} | Diff: $${Number(r.gross_diff || 0).toFixed(2)} | ${r.reconciliation_status}`
+  )
+  return `Conciliación Delivery (/admin/conciliar-delivery): ${rows.length} órdenes consultadas.\n${lines.join('\n')}`
 }
 
 // ── Store map helper (shared) ──

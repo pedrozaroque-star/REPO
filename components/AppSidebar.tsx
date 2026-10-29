@@ -572,6 +572,17 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
                         : 'Sincronización y creación automática de Bills desde Invoices de Bodega en QuickBooks'
                 },
                 {
+                    name: t('items.conciliar_delivery') || 'Conciliar Delivery Plataformas',
+                    plainName: 'Conciliar Delivery Plataformas',
+                    path: '/admin/conciliar-delivery',
+                    icon: <ShieldCheck size={20} />,
+                    roles: ['admin', 'supervisor'],
+                    badgeText: 'new',
+                    tooltip: language === 'en'
+                        ? 'Order-by-order reconciliation, bank payouts, Sales Tax rules, and disputes between Toast POS and DoorDash, Uber Eats & Grubhub'
+                        : 'Conciliación orden por orden, cortes bancarios, Sales Tax y disputas entre Toast POS y DoorDash, Uber Eats y Grubhub'
+                },
+                {
                     name: t('items.external_accounting') || 'Contabilidad Externa',
                     plainName: 'Contabilidad Externa',
                     path: '/admin/contabilidad-externa',
