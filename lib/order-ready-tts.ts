@@ -134,9 +134,9 @@ export function isForbiddenRaulVoice(voiceName: string | null | undefined, voice
 function buildPrompt(n: string, lang: TtsLang): string {
   const spoken = String(parseInt(n, 10))
   if (lang === 'en') {
-    return `Order ${spoken}, is ready!`
+    return `Order ${spoken} is ready.`
   } else {
-    return `Orden ${spoken}, ¡ya está!`
+    return `Orden ${spoken}, ya está.`
   }
 }
 
@@ -161,19 +161,10 @@ function pcmToWav(pcm: Buffer, sampleRate = 24000, channels = 1, bitDepth = 16):
 
 function ensureWav(data: Buffer, sampleRate = 24000, channels = 1, bitDepth = 16): Buffer {
   if (data.length >= 44 && data.subarray(0, 4).toString('ascii') === 'RIFF') {
-    const inner =
-      data.length > 88 && data.subarray(44, 48).toString('ascii') === 'RIFF'
-        ? data.subarray(44)
-        : data
-    const dataSz = inner.readUInt32LE(40)
-    if (dataSz > 0 && 44 + dataSz <= inner.length) {
-      const cleanPcm = inner.subarray(44, 44 + dataSz)
-      const hdr = Buffer.from(inner.subarray(0, 44))
-      hdr.writeUInt32LE(36 + cleanPcm.length, 4)
-      hdr.writeUInt32LE(cleanPcm.length, 40)
-      return Buffer.concat([hdr, cleanPcm])
+    if (data.length > 88 && data.subarray(44, 48).toString('ascii') === 'RIFF') {
+      return data.subarray(44)
     }
-    return inner
+    return data
   }
   return pcmToWav(data, sampleRate, channels, bitDepth)
 }
@@ -225,8 +216,8 @@ async function generateTextWithGemini(
           const promptText = model.includes('3.8')
             ? textToSpeak
             : lang === 'es'
-            ? `Say in a warm, cheerful Mexican Spanish voice: "${textToSpeak}"`
-            : `Say in a warm, cheerful voice: "${textToSpeak}"`
+            ? `Say in a warm, smiling, pleasant female voice with a natural Mexican Spanish accent at a calm, friendly counter-announcement volume (friendly and upbeat, but never shouting or yelling): "${textToSpeak}"`
+            : `Say in a warm, smiling, pleasant female voice with a natural American English accent at a calm, friendly counter-announcement volume (friendly and upbeat, but never shouting or yelling): "${textToSpeak}"`
 
           const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
             method: 'POST',
@@ -249,7 +240,6 @@ async function generateTextWithGemini(
               generationConfig: {
                 responseModalities: ['AUDIO'],
                 speechConfig: {
-                  languageCode,
                   voiceConfig: {
                     prebuiltVoiceConfig: {
                       voiceName: voice
@@ -305,8 +295,8 @@ async function generateWithGemini(n: string, lang: TtsLang, voice: VoiceId): Pro
   const textToSpeak = buildPrompt(n, lang)
   const stylePrompt =
     lang === 'es'
-      ? 'cheerful, energetic, warm and enthusiastic Mexican restaurant counter announcement, speaking with a warm natural Mexican Spanish accent and saying the company slogan "¡ya está!" with joyful energy'
-      : 'cheerful, upbeat, warm and friendly counter announcement'
+      ? 'warm, smiling, pleasant and friendly Mexican restaurant counter announcement, speaking with a natural Mexican Spanish accent at a calm, moderate volume, never shouting'
+      : 'warm, smiling, pleasant and friendly counter announcement at a calm, moderate volume, never shouting'
   return generateTextWithGemini(textToSpeak, lang, voice, stylePrompt)
 }
 
@@ -398,8 +388,8 @@ export async function getAnnouncementSpeech(
     try {
       const stylePrompt =
         lang === 'es'
-          ? 'cheerful, energetic, warm and enthusiastic Mexican restaurant counter announcement, speaking with a warm natural Mexican Spanish accent'
-          : 'cheerful, upbeat, warm and friendly counter announcement'
+          ? 'warm, smiling, pleasant and friendly Mexican restaurant counter announcement, speaking with a natural Mexican Spanish accent at a calm, moderate volume, never shouting'
+          : 'warm, smiling, pleasant and friendly counter announcement at a calm, moderate volume, never shouting'
       const wav = await generateTextWithGemini(clean, lang, selectedVoice, stylePrompt)
       try {
         await ensureBucket()

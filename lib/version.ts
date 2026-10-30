@@ -20,20 +20,38 @@ export interface VersionMilestone {
 }
 
 export const SYSTEM_VERSION = {
-    version: 'v2.22.0',
-    versionNumber: '2.22.0',
+    version: 'v2.23.0',
+    versionNumber: '2.23.0',
     releaseMonthEs: 'Octubre 2026',
     releaseMonthEn: 'October 2026',
     stage: 'Producción',
     stageEn: 'Production',
     year: '2026',
-    labelEs: 'Octubre 2026 • SM TEG v2.22.0',
-    labelEn: 'October 2026 • SM TEG v2.22.0',
+    labelEs: 'Octubre 2026 • SM TEG v2.23.0',
+    labelEn: 'October 2026 • SM TEG v2.23.0',
     brand: 'SM TEG',
-    lastUpdated: '2026-10-27'
+    lastUpdated: '2026-10-30'
 } as const;
 
 export const VERSION_HISTORY: readonly VersionMilestone[] = [
+    {
+        version: 'v2.23.0',
+        date: '30-Oct-2026',
+        titleEs: 'Nuevo Módulo Conciliar Delivery Plataformas (45/45 Cortes + #650DD + Pólizas QB + Cron), Contabilidad Externa Paridad 1:1 QBO + Subcuentas L1-L4 + Barra Lateral tg, TRAINING por Puesto + Asada Base, Preparador Solo Órdenes y Order Ready Kore v=8',
+        titleEn: 'New Delivery Platforms Reconciliation Module (45/45 Payouts + #650DD + QB Journals + Cron), External Accounting 1:1 QBO Parity + L1-L4 Sub-Accounts + tg Left Rail, Role-Based TRAINING + Asada Base, Preparador Orders-Only & Order Ready Kore v=8',
+        highlightsEs: [
+            'Nuevo Módulo Conciliar Delivery Plataformas (/admin/conciliar-delivery, /api/delivery-reconciliation, /api/delivery-reconciliation/quickbooks-journal, /api/cron/sync-delivery-reconciliation y lib/delivery-reconciliation.ts): ingeniería inversa y sincronización en vivo de las 15 sucursales en DoorDash, Uber Eats (con cambio automático de cookie selectedRestaurant y orgUUID por tienda) y Grubhub (ciclo Martes–Lunes); conciliación 45/45 de cortes semanales ($215,432.02) y pólizas JournalEntry en QuickBooks Online; rastreo automático entre periodos para disputas descontadas en una semana y reembolsadas en otra (caso real Norwalk orden #650DD por $240.99); Cron Job automático en vercel.json; y activación de DoorDash Reporting API (Build access granted) y Drive v2 Sandbox',
+            'Contabilidad Externa (/admin/contabilidad-externa, lib/external-accounting-ledger.ts y app/api/external-accounting/reports/route.ts): paridad 1:1 en Libro Mayor (Accrual & Cash Basis) corrigiendo signos de pasivo/capital y Unapplied Cash Payment Income con 0 discrepancias contra Intuit QBO; jerarquía multinivel de 4 niveles de subcuentas (L1–L4); modales de ancho completo (96vw); 49 claves bilingües adicionales en lib/i18n.tsx; y reproducción 1:1 de la barra lateral izquierda dinámica de QBO (Firm View vs Client View) con emblema corporativo tg (Tacos Gavilan)',
+            'Módulo TRAINING (/training y /training/portal) y Tableta Preparador (/inventory/preparador): certificación automática para personal con >= 2 semanas de antigüedad, modelo de certificación por Puesto Operativo completo, consolidación de videos por Categoría Maestra usando Carne Asada como base, muteo del audio original del video para escuchar solo al tutor IA Orus, autenticación RONOS (/api/training/ronos-auth), envío por correo (/api/training/send-email) y OfficialCertificateView.tsx; más botón superior "Solo Órdenes" y divisor lateral retráctil en la tableta del Preparador',
+            'Order Ready Board (/order-ready-board, lib/order-ready-tts.ts y lib/order-ready-filter.ts) & Cancelación WP Engine (tacosgavilan.com): eliminación de encabezados C2PA/doble WAV, auditoría STT ciega en inglés, calibración de entonación amable y calmada en voz Kore 3.8 (regenerando #1–#488 y #604 en ES/EN con cache-buster &v=8), exclusión automática de órdenes de Gift Cards; más cancelación definitiva de WP Engine, blindaje anti-spam contra agencias (TriFide Labs) en api/contact.js y 220.5 horas consolidadas en Octubre 2026 (Desarrollador del Sistema & IT en La Bodega)'
+        ],
+        highlightsEn: [
+            'New Delivery Platforms Reconciliation Module (/admin/conciliar-delivery, /api/delivery-reconciliation, /api/delivery-reconciliation/quickbooks-journal, /api/cron/sync-delivery-reconciliation & lib/delivery-reconciliation.ts): reverse-engineered and live-synced all 15 branches across DoorDash, Uber Eats (with automatic selectedRestaurant cookie switching and per-store orgUUID), and Grubhub (Tuesday–Monday payout cycle); 45/45 weekly payout ($215,432.02) and QuickBooks Online JournalEntry matching; automated cross-payout dispute recovery tracking (verified on Norwalk order #650DD for $240.99); automated Cron Job in vercel.json; and DoorDash Reporting API (Build access granted) + Drive v2 Sandbox activation',
+            'External Accounting (/admin/contabilidad-externa, lib/external-accounting-ledger.ts & app/api/external-accounting/reports/route.ts): 1:1 General Ledger parity (Accrual & Cash Basis) fixing liability/equity sign conventions and Unapplied Cash Payment Income with 0 discrepancies against Intuit QBO; 4-level sub-account hierarchy (L1–L4); 96vw full-width modals; 49 new bilingual i18n keys; and 1:1 dynamic QBO left navigation sidebar (Firm View vs Client View) featuring the tg (Tacos Gavilan) brand emblem',
+            'TRAINING Module (/training & /training/portal) & Preparador Kitchen Tablet (/inventory/preparador): automated certification for active staff with >= 2 weeks tenure, full Job Role certification model, Master Category video consolidation using Carne Asada as the universal base, raw video audio muting so only the Orus AI tutor plays, RONOS auth (/api/training/ronos-auth), email dispatch (/api/training/send-email), and OfficialCertificateView.tsx; plus "Orders Only" fullscreen toggle and retractable divider handle on the Preparador tablet',
+            'Order Ready Board (/order-ready-board, lib/order-ready-tts.ts & lib/order-ready-filter.ts) & WP Engine Cancellation (tacosgavilan.com): stripped C2PA/double-WAV headers, blind STT English voice audit, calm counter-tone calibration on Kore 3.8 (regenerating #1–#488 and #604 in ES/EN with &v=8 cache-busting), automatic Gift Card-only order exclusion; plus definitive WP Engine cancellation, TriFide Labs anti-spam hardening in api/contact.js, and 220.5 hours consolidated for October 2026 (System Developer & IT at La Bodega)'
+        ]
+    },
     {
         version: 'v2.22.0',
         date: '27-Oct-2026',

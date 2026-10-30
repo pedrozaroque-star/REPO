@@ -189,7 +189,8 @@ export default function ConciliarDeliveryPage() {
   const [selectedStatus, setSelectedStatus] = useState<string>('ALL')
   const [quickFilter, setQuickFilter] = useState<'SETTLED' | 'DISPUTES' | 'MATCHED' | 'PENDING_TOAST' | 'ALL'>('SETTLED')
   const [searchQuery, setSearchQuery] = useState<string>('')
-  const [activeTab, setActiveTab] = useState<'orders' | 'payouts' | 'disputes' | 'mappings' | 'qb_journals'>('orders')
+  const [activeTab, setActiveTab] = useState<'qb_journals' | 'disputes' | 'orders' | 'mappings' | 'payouts'>('qb_journals')
+  const [cutsSubView, setCutsSubView] = useState<'qb' | 'bank'>('qb')
 
   const [loading, setLoading] = useState<boolean>(true)
   const [syncing, setSyncing] = useState<boolean>(false)
@@ -723,9 +724,9 @@ export default function ConciliarDeliveryPage() {
         </div>
       </div>
 
-      {/* BARRA COMPACTA DE FILTROS + ESTADO DE SINCRONIZACIÓN */}
-      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-3.5 shadow-sm space-y-3">
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-2.5">
+      {/* BARRA COMPACTA DE FILTROS + PRESETS DE CORTE + ESTADO DE SINCRONIZACIÓN */}
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm space-y-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
           <div>
             <label className="block text-[11px] font-bold text-slate-500 dark:text-slate-400 mb-1">
               {t('deliveryReconciliation.store_filter')}
@@ -733,7 +734,7 @@ export default function ConciliarDeliveryPage() {
             <select
               value={selectedStore}
               onChange={(e) => setSelectedStore(e.target.value)}
-              className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-2.5 py-1.5 text-xs md:text-sm font-semibold"
+              className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 text-xs md:text-sm font-bold"
             >
               <option value="ALL">{t('deliveryReconciliation.all_stores')}</option>
               {[...mappings]
@@ -753,31 +754,12 @@ export default function ConciliarDeliveryPage() {
             <select
               value={selectedPlatform}
               onChange={(e) => setSelectedPlatform(e.target.value)}
-              className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-2.5 py-1.5 text-xs md:text-sm font-semibold"
+              className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 text-xs md:text-sm font-bold"
             >
               <option value="ALL">{t('deliveryReconciliation.all_platforms')}</option>
-              <option value="DOORDASH">DoorDash</option>
-              <option value="UBER_EATS">Uber Eats</option>
-              <option value="GRUBHUB">Grubhub</option>
-            </select>
-          </div>
-
-          <div>
-            <label className="block text-[11px] font-bold text-slate-500 dark:text-slate-400 mb-1">
-              {t('deliveryReconciliation.status_filter')}
-            </label>
-            <select
-              value={selectedStatus}
-              onChange={(e) => setSelectedStatus(e.target.value)}
-              className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-2.5 py-1.5 text-xs md:text-sm font-semibold"
-            >
-              <option value="ALL">{t('deliveryReconciliation.all_statuses')}</option>
-              <option value="MATCHED">{t('deliveryReconciliation.status_MATCHED')}</option>
-              <option value="AMOUNT_MISMATCH">{t('deliveryReconciliation.status_AMOUNT_MISMATCH')}</option>
-              <option value="TAX_MISMATCH">{t('deliveryReconciliation.status_TAX_MISMATCH')}</option>
-              <option value="REFUNDED_OR_DISPUTED">{t('deliveryReconciliation.status_REFUNDED_OR_DISPUTED')}</option>
-              <option value="MISSING_IN_PLATFORM">{t('deliveryReconciliation.status_MISSING_IN_PLATFORM')}</option>
-              <option value="MISSING_IN_TOAST">{t('deliveryReconciliation.status_MISSING_IN_TOAST')}</option>
+              <option value="DOORDASH">DoorDash (Lun → Dom)</option>
+              <option value="UBER_EATS">Uber Eats (Lun → Dom)</option>
+              <option value="GRUBHUB">Grubhub (Mar → Lun)</option>
             </select>
           </div>
 
@@ -789,7 +771,7 @@ export default function ConciliarDeliveryPage() {
               type="date"
               value={startDate}
               onChange={(e) => setStartDate(e.target.value)}
-              className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-2.5 py-1.5 text-xs md:text-sm font-semibold"
+              className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 text-xs md:text-sm font-semibold"
             />
           </div>
 
@@ -801,7 +783,7 @@ export default function ConciliarDeliveryPage() {
               type="date"
               value={endDate}
               onChange={(e) => setEndDate(e.target.value)}
-              className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-2.5 py-1.5 text-xs md:text-sm font-semibold"
+              className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 text-xs md:text-sm font-semibold"
             />
           </div>
 
@@ -810,66 +792,117 @@ export default function ConciliarDeliveryPage() {
               {t('common.search')}
             </label>
             <div className="relative">
-              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2" />
+              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
               <input
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder={t('deliveryReconciliation.search_placeholder')}
-                className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 pl-8 pr-2.5 py-1.5 text-xs md:text-sm"
+                className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 pl-9 pr-7 py-2 text-xs md:text-sm"
               />
+              {searchQuery && (
+                <button
+                  onClick={() => setSearchQuery('')}
+                  className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
             </div>
           </div>
         </div>
 
-        {/* CINTA COMPACTA DE ÚLTIMA SINCRONIZACIÓN */}
-        {syncStatus && (
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 pt-2 border-t border-slate-100 dark:border-slate-800 text-[11px]">
-            <div className="flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-800/50 border border-slate-200/70 dark:border-slate-800">
-              <span className="font-bold flex items-center gap-1.5">
-                <span className="w-2 h-2 rounded-full bg-emerald-500" />
-                Toast POS:
-              </span>
-              <span className="font-mono text-slate-600 dark:text-slate-300">
-                {fmtLaTimestamp(syncStatus.TOAST?.lastSyncedAt || syncStatus.TOAST?.globalLastSyncedAt)} (
-                {syncStatus.TOAST?.ordersCount || syncStatus.TOAST?.globalOrdersCount || 0} órd.)
-              </span>
-            </div>
-
-            <div className="flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-red-500/5 border border-red-500/20">
-              <span className="font-bold text-red-600 dark:text-red-400 flex items-center gap-1.5">
-                <span className="w-2 h-2 rounded-full bg-emerald-500" />
-                DoorDash:
-              </span>
-              <span className="font-mono text-slate-600 dark:text-slate-300">
-                {fmtLaTimestamp(syncStatus.DOORDASH?.lastSyncedAt || syncStatus.DOORDASH?.globalLastSyncedAt)} (
-                {syncStatus.DOORDASH?.ordersCount ?? syncStatus.DOORDASH?.globalOrdersCount ?? 0} órd.)
-              </span>
-            </div>
-
-            <div className="flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-emerald-500/5 border border-emerald-500/20">
-              <span className="font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-1.5">
-                <span className="w-2 h-2 rounded-full bg-emerald-500" />
-                Uber Eats:
-              </span>
-              <span className="font-mono text-slate-600 dark:text-slate-300">
-                {fmtLaTimestamp(syncStatus.UBER_EATS?.lastSyncedAt || syncStatus.UBER_EATS?.globalLastSyncedAt)} (
-                {syncStatus.UBER_EATS?.ordersCount || syncStatus.UBER_EATS?.globalOrdersCount || 0} órd.)
-              </span>
-            </div>
-
-            <div className="flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-orange-500/5 border border-orange-500/20">
-              <span className="font-bold text-orange-600 dark:text-orange-400 flex items-center gap-1.5">
-                <span className="w-2 h-2 rounded-full bg-emerald-500" />
-                Grubhub:
-              </span>
-              <span className="font-mono text-slate-600 dark:text-slate-300">
-                {fmtLaTimestamp(syncStatus.GRUBHUB?.lastSyncedAt || syncStatus.GRUBHUB?.globalLastSyncedAt)} (
-                {syncStatus.GRUBHUB?.ordersCount ?? syncStatus.GRUBHUB?.globalOrdersCount ?? 0} órd.)
-              </span>
-            </div>
+        {/* ATAJOS DE PERIODO + CINTA COMPACTA DE SINCRONIZACIÓN */}
+        <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-2.5 pt-2.5 border-t border-slate-100 dark:border-slate-800">
+          <div className="flex flex-wrap items-center gap-1.5 text-xs">
+            <span className="text-[11px] font-bold text-slate-400 uppercase mr-1">Periodos rápidos:</span>
+            <button
+              onClick={() => {
+                setStartDate('2026-10-24')
+                setEndDate('2026-10-29')
+              }}
+              className={`px-2.5 py-1 rounded-lg font-bold transition border ${
+                startDate === '2026-10-24' && endDate === '2026-10-29'
+                  ? 'bg-indigo-600 text-white border-indigo-600'
+                  : 'bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-100'
+              }`}
+            >
+              📅 {t('deliveryReconciliation.preset_last_7d')}
+            </button>
+            <button
+              onClick={() => {
+                setStartDate('2026-10-19')
+                setEndDate('2026-10-26')
+              }}
+              className={`px-2.5 py-1 rounded-lg font-bold transition border ${
+                startDate === '2026-10-19' && endDate === '2026-10-26'
+                  ? 'bg-indigo-600 text-white border-indigo-600'
+                  : 'bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-100'
+              }`}
+            >
+              🧾 {t('deliveryReconciliation.preset_oct_19_25')}
+            </button>
+            <button
+              onClick={() => {
+                setStartDate('2026-10-12')
+                setEndDate('2026-10-19')
+              }}
+              className={`px-2.5 py-1 rounded-lg font-bold transition border ${
+                startDate === '2026-10-12' && endDate === '2026-10-19'
+                  ? 'bg-emerald-600 text-white border-emerald-600'
+                  : 'bg-emerald-500/5 text-emerald-700 dark:text-emerald-300 border-emerald-500/25 hover:bg-emerald-500/15'
+              }`}
+            >
+              🔄 {t('deliveryReconciliation.preset_oct_12_18')}
+            </button>
+            <button
+              onClick={() => {
+                setStartDate('2026-09-28')
+                setEndDate('2026-10-29')
+              }}
+              className={`px-2.5 py-1 rounded-lg font-bold transition border ${
+                startDate === '2026-09-28' && endDate === '2026-10-29'
+                  ? 'bg-indigo-600 text-white border-indigo-600'
+                  : 'bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-100'
+              }`}
+            >
+              📊 {t('deliveryReconciliation.preset_all_oct')}
+            </button>
           </div>
-        )}
+
+          {syncStatus && (
+            <div className="flex flex-wrap items-center gap-2 text-[11px]">
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
+                <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                <span className="font-bold">Toast POS:</span>
+                <span className="font-mono text-slate-500">
+                  {syncStatus.TOAST?.ordersCount || syncStatus.TOAST?.globalOrdersCount || 0} órd.
+                </span>
+              </span>
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-red-500/5 border border-red-500/20">
+                <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                <span className="font-bold text-red-600 dark:text-red-400">DoorDash:</span>
+                <span className="font-mono text-slate-500">
+                  {syncStatus.DOORDASH?.ordersCount ?? syncStatus.DOORDASH?.globalOrdersCount ?? 0} órd.
+                </span>
+              </span>
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-500/5 border border-emerald-500/20">
+                <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                <span className="font-bold text-emerald-600 dark:text-emerald-400">Uber Eats:</span>
+                <span className="font-mono text-slate-500">
+                  {syncStatus.UBER_EATS?.ordersCount || syncStatus.UBER_EATS?.globalOrdersCount || 0} órd.
+                </span>
+              </span>
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-orange-500/5 border border-orange-500/20">
+                <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                <span className="font-bold text-orange-600 dark:text-orange-400">Grubhub:</span>
+                <span className="font-mono text-slate-500">
+                  {syncStatus.GRUBHUB?.ordersCount ?? syncStatus.GRUBHUB?.globalOrdersCount ?? 0} órd.
+                </span>
+              </span>
+            </div>
+          )}
+        </div>
       </div>
 
       {bannerMessage && (
@@ -887,37 +920,48 @@ export default function ConciliarDeliveryPage() {
         </div>
       )}
 
-      {/* 3 TARJETAS COMPARATIVAS POR PLATAFORMA (DOORDASH | UBER EATS | GRUBHUB) */}
+      {/* 3 TARJETAS EJECUTIVAS POR PLATAFORMA (DOORDASH | UBER EATS | GRUBHUB) */}
       {summary?.byPlatform && (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-3.5">
           {(['DOORDASH', 'UBER_EATS', 'GRUBHUB'] as DeliveryPlatform[]).map((plat) => {
             const pData = summary.byPlatform[plat] || {}
             const isSelected = selectedPlatform === plat
             const isUber = plat === 'UBER_EATS'
+            const isGrubhub = plat === 'GRUBHUB'
             const borderClass =
               plat === 'DOORDASH'
-                ? 'border-red-500/30 bg-red-500/[0.03]'
+                ? 'border-red-500/30 bg-white dark:bg-slate-900'
                 : plat === 'UBER_EATS'
-                ? 'border-emerald-500/30 bg-emerald-500/[0.03]'
-                : 'border-orange-500/30 bg-orange-500/[0.03]'
+                ? 'border-emerald-500/30 bg-white dark:bg-slate-900'
+                : 'border-orange-500/30 bg-white dark:bg-slate-900'
+
+            const topAccent =
+              plat === 'DOORDASH'
+                ? 'bg-red-500/10 border-red-500/20'
+                : plat === 'UBER_EATS'
+                ? 'bg-emerald-500/10 border-emerald-500/20'
+                : 'bg-orange-500/10 border-orange-500/20'
 
             return (
               <div
                 key={plat}
                 onClick={() => setSelectedPlatform(isSelected ? 'ALL' : plat)}
-                className={`cursor-pointer rounded-2xl border p-3.5 transition shadow-sm ${borderClass} ${
+                className={`cursor-pointer rounded-2xl border p-4 transition shadow-sm ${borderClass} ${
                   isSelected ? 'ring-2 ring-indigo-500' : 'hover:border-slate-400'
                 }`}
               >
-                <div className="flex items-center justify-between mb-2">
-                  <div className="flex items-center gap-2">
+                {/* Fila Superior: Plataforma + Ciclo de Corte + Estado de Órdenes */}
+                <div className="flex items-center justify-between gap-2 mb-3">
+                  <div className="flex flex-wrap items-center gap-1.5">
                     {renderPlatformBadge(plat)}
-                    <span className="text-xs font-bold text-slate-500">
-                      {pData.settledOrdersCount || 0} conciliadas
+                    <span className={`px-2 py-0.5 rounded-md text-[10px] font-extrabold border ${topAccent}`}>
+                      {isGrubhub
+                        ? t('deliveryReconciliation.cycle_tue_mon')
+                        : t('deliveryReconciliation.cycle_mon_sun')}
                     </span>
                   </div>
-                  <div className="flex items-center gap-1.5 text-[11px] font-bold">
-                    <span className="px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">
+                  <div className="flex items-center gap-1 text-[11px] font-bold">
+                    <span className="px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-700 dark:text-emerald-300">
                       ✓ {pData.matchedCount || 0} OK
                     </span>
                     {(pData.disputedCount || 0) > 0 && (
@@ -928,68 +972,68 @@ export default function ConciliarDeliveryPage() {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-2 bg-white/80 dark:bg-slate-900/80 rounded-xl p-2.5 border border-slate-200/70 dark:border-slate-800 text-xs">
+                {/* Caja Comparativa Principal: Esperado en Toast POS vs Reconocido en Plataforma */}
+                <div className="grid grid-cols-2 gap-3 bg-slate-50 dark:bg-slate-800/60 rounded-xl p-3 border border-slate-200/80 dark:border-slate-800">
                   <div>
-                    <div className="text-[10px] text-slate-400 uppercase font-bold">
+                    <div className="text-[10px] text-slate-500 dark:text-slate-400 uppercase font-bold">
                       {t('deliveryReconciliation.plat_card_toast_expected')}
                     </div>
-                    <div className="text-base font-extrabold font-mono text-slate-900 dark:text-white">
+                    <div className="text-lg font-extrabold font-mono text-slate-900 dark:text-white mt-0.5">
                       {fmtMoney(pData.settledToastExpected || 0)}
                     </div>
+                    <div className="text-[10px] text-slate-400">
+                      {pData.settledOrdersCount || 0} órdenes conciliadas
+                    </div>
                   </div>
-                  <div className="text-right">
-                    <div className="text-[10px] text-slate-400 uppercase font-bold">
+                  <div className="text-right border-l border-slate-200 dark:border-slate-700 pl-3">
+                    <div className="text-[10px] text-slate-500 dark:text-slate-400 uppercase font-bold">
                       {t('deliveryReconciliation.plat_card_plat_recognized')}
                     </div>
-                    <div className="text-base font-extrabold font-mono text-indigo-600 dark:text-indigo-400">
-                      {fmtMoney(pData.platformGross || 0)}
+                    <div className="text-lg font-extrabold font-mono text-indigo-600 dark:text-indigo-400 mt-0.5">
+                      {fmtMoney(pData.settledPlatformGross || pData.platformGross || 0)}
+                    </div>
+                    <div className="text-[10px] font-semibold text-slate-500">
+                      {isUber ? 'Uber retiene Sales Tax (12050)' : 'Incluye Tax a TEG (24001)'}
                     </div>
                   </div>
                 </div>
 
-                <div className="mt-2 space-y-1 text-xs">
-                  <div className="flex justify-between">
-                    <span className="text-slate-500">
-                      {isUber
-                        ? t('deliveryReconciliation.plat_card_tax_withheld')
-                        : t('deliveryReconciliation.plat_card_tax_passed')}
-                    </span>
-                    <span className="font-mono font-bold">
-                      {isUber
-                        ? `${fmtMoney(pData.platformTaxWithheld || 0)} ($0 a TEG)`
-                        : fmtMoney(pData.platformTaxToMerchant || 0)}
-                    </span>
-                  </div>
-
-                  <div className="flex justify-between">
-                    <span className="text-slate-500">
-                      {t('deliveryReconciliation.plat_card_fees_errors')}
-                    </span>
-                    <span className="font-mono font-semibold text-amber-600 dark:text-amber-400">
-                      {fmtMoney(pData.totalFees || 0)} /{' '}
-                      <span className="text-rose-600 dark:text-rose-400">
-                        {fmtMoney(pData.errorCharges || 0)}
-                      </span>
-                    </span>
-                  </div>
-
-                  <div className="flex justify-between pt-1 border-t border-slate-200/60 dark:border-slate-800 font-bold">
-                    <span className="text-emerald-700 dark:text-emerald-400">
-                      {t('deliveryReconciliation.plat_card_net_payout')}
-                    </span>
-                    <span className="font-mono text-emerald-600 dark:text-emerald-400">
-                      {fmtMoney(pData.netPayout || 0)} ({pData.payoutsCount || 0} cortes)
-                    </span>
-                  </div>
-
-                  {(pData.pendingToastCount || 0) > 0 && (
-                    <div className="flex justify-between text-[11px] text-slate-400 pt-0.5">
-                      <span>⏳ {t('deliveryReconciliation.plat_card_pending_toast')}</span>
-                      <span className="font-mono">
-                        {pData.pendingToastCount} órd. ({fmtMoney(pData.pendingToastGross || 0)})
-                      </span>
+                {/* Resumen de 3 bloques inferiores: Tax | Comisiones/Disputas | Depósito Neto */}
+                <div className="grid grid-cols-3 gap-2 mt-3 pt-2.5 border-t border-slate-100 dark:border-slate-800 text-xs">
+                  <div>
+                    <div className="text-[10px] text-slate-400 font-bold uppercase">
+                      {isUber ? 'Tax Uber (12050)' : 'Tax a TEG (24001)'}
                     </div>
-                  )}
+                    <div className="font-mono font-bold text-slate-700 dark:text-slate-200 mt-0.5">
+                      {isUber
+                        ? fmtMoney(pData.platformTaxWithheld || 0)
+                        : fmtMoney(pData.platformTaxToMerchant || 0)}
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="text-[10px] text-slate-400 font-bold uppercase">Comisiones / Error</div>
+                    <div className="font-mono font-bold text-amber-600 dark:text-amber-400 mt-0.5">
+                      {fmtMoney(pData.totalFees || 0)}{' '}
+                      {Math.abs(pData.errorCharges || 0) > 0.01 && (
+                        <span className="text-rose-600 dark:text-rose-400 block text-[11px]">
+                          Desc: {fmtMoney(pData.errorCharges || 0)}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="text-right">
+                    <div className="text-[10px] text-emerald-700 dark:text-emerald-400 font-extrabold uppercase">
+                      Depósito / Cortes
+                    </div>
+                    <div className="font-mono font-extrabold text-emerald-600 dark:text-emerald-400 mt-0.5">
+                      {fmtMoney(pData.payoutsNetTotal || pData.netPayout || 0)}
+                    </div>
+                    <div className="text-[10px] text-slate-400 font-semibold">
+                      {pData.payoutsCount || 0} corte(s) en periodo
+                    </div>
+                  </div>
                 </div>
               </div>
             )
@@ -997,177 +1041,160 @@ export default function ConciliarDeliveryPage() {
         </div>
       )}
 
-      {/* TABS NAVIGATION + PÍLDORAS DE FILTRO RÁPIDO */}
-      <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-2 border-b border-slate-200 dark:border-slate-800 pb-2">
-        <div className="flex flex-wrap gap-1.5">
-          <button
-            onClick={() => setActiveTab('orders')}
-            className={`inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs md:text-sm font-bold transition ${
-              activeTab === 'orders'
-                ? 'bg-indigo-600 text-white shadow-sm'
-                : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800'
-            }`}
-          >
-            <Receipt className="w-4 h-4" />
-            {t('deliveryReconciliation.tab_orders')} ({displayedOrders.length})
-          </button>
-
-          <button
-            onClick={() => setActiveTab('payouts')}
-            className={`inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs md:text-sm font-bold transition ${
-              activeTab === 'payouts'
-                ? 'bg-indigo-600 text-white shadow-sm'
-                : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800'
-            }`}
-          >
-            <Landmark className="w-4 h-4" />
-            {t('deliveryReconciliation.tab_payouts')} ({payouts.length})
-          </button>
-
-          <button
-            onClick={() => setActiveTab('disputes')}
-            className={`inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs md:text-sm font-bold transition ${
-              activeTab === 'disputes'
-                ? 'bg-rose-600 text-white shadow-sm'
-                : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800'
-            }`}
-          >
-            <AlertTriangle className="w-4 h-4" />
-            {t('deliveryReconciliation.tab_disputes')} ({disputedOrders.length})
-          </button>
-
-          <button
-            onClick={() => setActiveTab('mappings')}
-            className={`inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs md:text-sm font-bold transition ${
-              activeTab === 'mappings'
-                ? 'bg-indigo-600 text-white shadow-sm'
-                : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800'
-            }`}
-          >
-            <Store className="w-4 h-4" />
-            {t('deliveryReconciliation.tab_mappings')} ({mappings.length})
-          </button>
-
+      {/* NAVEGACIÓN PRINCIPAL EN 1 SOLA FILA (4 PASOS CLAROS) */}
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-1.5 shadow-sm">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-1.5">
           <button
             onClick={() => setActiveTab('qb_journals')}
-            className={`inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs md:text-sm font-bold transition ${
-              activeTab === 'qb_journals'
+            className={`flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs md:text-sm font-extrabold transition ${
+              activeTab === 'qb_journals' || activeTab === 'payouts'
                 ? 'bg-emerald-600 text-white shadow-sm'
-                : 'bg-white dark:bg-slate-900 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-slate-800 border border-emerald-500/30'
+                : 'text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800'
             }`}
           >
-            <FileSpreadsheet className="w-4 h-4" />
-            {t('deliveryReconciliation.tab_qb_journals')} ({qbRecords.length})
+            <FileSpreadsheet className="w-4 h-4 shrink-0" />
+            <span className="truncate">{t('deliveryReconciliation.step_1_tab')}</span>
+            <span
+              className={`px-2 py-0.5 rounded-full text-xs font-extrabold ${
+                activeTab === 'qb_journals' || activeTab === 'payouts'
+                  ? 'bg-white/20 text-white'
+                  : 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
+              }`}
+            >
+              {qbRecords.length}
+            </span>
             {(qbSummary?.pendingCount || 0) > 0 && (
-              <span className="ml-1 px-1.5 py-0.5 rounded-full text-[10px] font-extrabold bg-amber-500 text-white">
+              <span className="px-1.5 py-0.5 rounded-full text-[10px] font-extrabold bg-amber-500 text-white">
                 {qbSummary.pendingCount} pend.
               </span>
             )}
           </button>
+
+          <button
+            onClick={() => setActiveTab('disputes')}
+            className={`flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs md:text-sm font-extrabold transition ${
+              activeTab === 'disputes'
+                ? 'bg-rose-600 text-white shadow-sm'
+                : 'text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800'
+            }`}
+          >
+            <AlertTriangle className="w-4 h-4 shrink-0" />
+            <span className="truncate">{t('deliveryReconciliation.step_2_tab')}</span>
+            <span
+              className={`px-2 py-0.5 rounded-full text-xs font-extrabold ${
+                activeTab === 'disputes'
+                  ? 'bg-white/20 text-white'
+                  : 'bg-rose-500/15 text-rose-600 dark:text-rose-400'
+              }`}
+            >
+              {disputedOrders.length}
+            </span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('orders')}
+            className={`flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs md:text-sm font-extrabold transition ${
+              activeTab === 'orders'
+                ? 'bg-indigo-600 text-white shadow-sm'
+                : 'text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800'
+            }`}
+          >
+            <Receipt className="w-4 h-4 shrink-0" />
+            <span className="truncate">{t('deliveryReconciliation.step_3_tab')}</span>
+            <span
+              className={`px-2 py-0.5 rounded-full text-xs font-extrabold ${
+                activeTab === 'orders'
+                  ? 'bg-white/20 text-white'
+                  : 'bg-indigo-500/15 text-indigo-600 dark:text-indigo-400'
+              }`}
+            >
+              {displayedOrders.length}
+            </span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('mappings')}
+            className={`flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs md:text-sm font-extrabold transition ${
+              activeTab === 'mappings'
+                ? 'bg-slate-800 text-white dark:bg-slate-200 dark:text-slate-900 shadow-sm'
+                : 'text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800'
+            }`}
+          >
+            <Store className="w-4 h-4 shrink-0" />
+            <span className="truncate">{t('deliveryReconciliation.step_4_tab')}</span>
+            <span className="px-2 py-0.5 rounded-full text-xs font-extrabold bg-slate-500/15">
+              {mappings.length}
+            </span>
+          </button>
         </div>
-
-        {/* BOTONES DE DIAGNÓSTICO RÁPIDO (SOLO EN TAB DE ÓRDENES) */}
-        {activeTab === 'orders' && (
-          <div className="flex flex-wrap items-center gap-1.5">
-            <button
-              onClick={() => setQuickFilter('SETTLED')}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition border ${
-                quickFilter === 'SETTLED'
-                  ? 'bg-indigo-600 text-white border-indigo-600'
-                  : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700'
-              }`}
-            >
-              🔍 {t('deliveryReconciliation.quick_filter_settled')} ({settledOrders.length})
-            </button>
-
-            <button
-              onClick={() => setQuickFilter('DISPUTES')}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition border ${
-                quickFilter === 'DISPUTES'
-                  ? 'bg-rose-600 text-white border-rose-600'
-                  : 'bg-white dark:bg-slate-900 text-rose-600 dark:text-rose-400 border-rose-500/30'
-              }`}
-            >
-              🚨 {t('deliveryReconciliation.quick_filter_disputes')} ({disputedOrders.length})
-            </button>
-
-            <button
-              onClick={() => setQuickFilter('MATCHED')}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition border ${
-                quickFilter === 'MATCHED'
-                  ? 'bg-emerald-600 text-white border-emerald-600'
-                  : 'bg-white dark:bg-slate-900 text-emerald-600 dark:text-emerald-400 border-emerald-500/30'
-              }`}
-            >
-              ✅ {t('deliveryReconciliation.quick_filter_matched')} ({matchedOrdersList.length})
-            </button>
-
-            <button
-              onClick={() => setQuickFilter('PENDING_TOAST')}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition border ${
-                quickFilter === 'PENDING_TOAST'
-                  ? 'bg-amber-600 text-white border-amber-600'
-                  : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700'
-              }`}
-            >
-              ⏳ {t('deliveryReconciliation.quick_filter_pending_toast')} ({pendingToastOrders.length})
-            </button>
-
-            <button
-              onClick={() => setQuickFilter('ALL')}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition border ${
-                quickFilter === 'ALL'
-                  ? 'bg-slate-800 text-white border-slate-800 dark:bg-slate-200 dark:text-slate-900'
-                  : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700'
-              }`}
-            >
-              📋 {t('deliveryReconciliation.quick_filter_all')} ({orders.length})
-            </button>
-          </div>
-        )}
-
-        {/* BOTONES DE FILTRO RÁPIDO (EN TAB DE PÓLIZAS QUICKBOOKS) */}
-        {activeTab === 'qb_journals' && (
-          <div className="flex flex-wrap items-center gap-1.5">
-            <button
-              onClick={() => setQbQuickFilter('ALL')}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition border ${
-                qbQuickFilter === 'ALL'
-                  ? 'bg-slate-800 text-white border-slate-800 dark:bg-slate-200 dark:text-slate-900'
-                  : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700'
-              }`}
-            >
-              📋 {t('deliveryReconciliation.quick_filter_all')} ({qbRecords.length})
-            </button>
-
-            <button
-              onClick={() => setQbQuickFilter('PENDING')}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition border ${
-                qbQuickFilter === 'PENDING'
-                  ? 'bg-amber-600 text-white border-amber-600'
-                  : 'bg-white dark:bg-slate-900 text-amber-600 dark:text-amber-400 border-amber-500/30'
-              }`}
-            >
-              ⏳ {t('deliveryReconciliation.qb_status_pending')} ({qbSummary?.pendingCount || 0})
-            </button>
-
-            <button
-              onClick={() => setQbQuickFilter('CREATED')}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition border ${
-                qbQuickFilter === 'CREATED'
-                  ? 'bg-emerald-600 text-white border-emerald-600'
-                  : 'bg-white dark:bg-slate-900 text-emerald-600 dark:text-emerald-400 border-emerald-500/30'
-              }`}
-            >
-              ✅ {t('deliveryReconciliation.qb_status_created')} ({qbSummary?.createdCount || 0})
-            </button>
-          </div>
-        )}
       </div>
 
-      {/* TAB 1: ORDEN POR ORDEN */}
+      {/* TAB 3: AUDITORÍA ORDEN POR ORDEN (CON FILTRO RÁPIDO INTEGRADO Y 10 COLUMNAS APILADAS LIMPIAS) */}
       {activeTab === 'orders' && (
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm overflow-hidden">
+          {/* Sub-barra integrada de filtro de órdenes */}
+          <div className="p-3.5 bg-slate-50/70 dark:bg-slate-800/40 border-b border-slate-200 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2">
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="text-xs font-extrabold text-slate-500 mr-1">
+                {t('deliveryReconciliation.filter_inside_orders_label')}
+              </span>
+              <button
+                onClick={() => setQuickFilter('SETTLED')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition border ${
+                  quickFilter === 'SETTLED'
+                    ? 'bg-indigo-600 text-white border-indigo-600'
+                    : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700'
+                }`}
+              >
+                🔍 {t('deliveryReconciliation.quick_filter_settled')} ({settledOrders.length})
+              </button>
+
+              <button
+                onClick={() => setQuickFilter('MATCHED')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition border ${
+                  quickFilter === 'MATCHED'
+                    ? 'bg-emerald-600 text-white border-emerald-600'
+                    : 'bg-white dark:bg-slate-900 text-emerald-600 dark:text-emerald-400 border-emerald-500/30'
+                }`}
+              >
+                ✅ {t('deliveryReconciliation.quick_filter_matched')} ({matchedOrdersList.length})
+              </button>
+
+              <button
+                onClick={() => setQuickFilter('DISPUTES')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition border ${
+                  quickFilter === 'DISPUTES'
+                    ? 'bg-rose-600 text-white border-rose-600'
+                    : 'bg-white dark:bg-slate-900 text-rose-600 dark:text-rose-400 border-rose-500/30'
+                }`}
+              >
+                🚨 {t('deliveryReconciliation.quick_filter_disputes')} ({disputedOrders.length})
+              </button>
+
+              <button
+                onClick={() => setQuickFilter('PENDING_TOAST')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition border ${
+                  quickFilter === 'PENDING_TOAST'
+                    ? 'bg-amber-600 text-white border-amber-600'
+                    : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700'
+                }`}
+              >
+                ⏳ {t('deliveryReconciliation.quick_filter_pending_toast')} ({pendingToastOrders.length})
+              </button>
+
+              <button
+                onClick={() => setQuickFilter('ALL')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition border ${
+                  quickFilter === 'ALL'
+                    ? 'bg-slate-800 text-white border-slate-800 dark:bg-slate-200 dark:text-slate-900'
+                    : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700'
+                }`}
+              >
+                📋 {t('deliveryReconciliation.quick_filter_all')} ({orders.length})
+              </button>
+            </div>
+          </div>
+
           {loading ? (
             <div className="p-12 text-center text-slate-500">{t('deliveryReconciliation.syncing_btn')}</div>
           ) : displayedOrders.length === 0 ? (
@@ -1177,27 +1204,21 @@ export default function ConciliarDeliveryPage() {
               <table className="w-full text-left border-collapse text-xs md:text-sm">
                 <thead>
                   <tr className="bg-slate-100 dark:bg-slate-800/70 text-slate-600 dark:text-slate-300 border-b border-slate-200 dark:border-slate-800 font-bold">
-                    <th className="p-3">{t('deliveryReconciliation.col_date')}</th>
-                    <th className="p-3">{t('deliveryReconciliation.col_store')}</th>
+                    <th className="p-3">{t('deliveryReconciliation.col_date_store')}</th>
                     <th className="p-3">{t('deliveryReconciliation.col_platform')}</th>
                     <th className="p-3">{t('deliveryReconciliation.col_order_id')}</th>
-                    <th className="p-3 text-right">{t('deliveryReconciliation.col_toast_net')}</th>
-                    <th className="p-3 text-right">{t('deliveryReconciliation.col_toast_tax')}</th>
-                    <th className="p-3 text-right bg-slate-200/50 dark:bg-slate-800">
-                      {t('deliveryReconciliation.col_toast_expected')}
+                    <th className="p-3 text-right bg-slate-200/40 dark:bg-slate-800/60">
+                      {t('deliveryReconciliation.col_toast_stack')}
                     </th>
-                    <th className="p-3 text-right">{t('deliveryReconciliation.col_plat_subtotal')}</th>
-                    <th className="p-3 text-right">{t('deliveryReconciliation.col_plat_tax_merchant')}</th>
                     <th className="p-3 text-right bg-indigo-500/10">
-                      {t('deliveryReconciliation.col_plat_gross')}
+                      {t('deliveryReconciliation.col_plat_stack')}
                     </th>
-                    <th className="p-3 text-right">{t('deliveryReconciliation.col_commission')}</th>
-                    <th className="p-3 text-right">{t('deliveryReconciliation.col_fees')}</th>
+                    <th className="p-3 text-right">{t('deliveryReconciliation.col_variance')}</th>
+                    <th className="p-3 text-right">{t('deliveryReconciliation.col_fees_stack')}</th>
                     <th className="p-3 text-right">{t('deliveryReconciliation.col_error_adj')}</th>
                     <th className="p-3 text-right font-extrabold text-emerald-700 dark:text-emerald-400">
                       {t('deliveryReconciliation.col_net_payout')}
                     </th>
-                    <th className="p-3 text-right">{t('deliveryReconciliation.col_variance')}</th>
                     <th className="p-3">{t('deliveryReconciliation.col_status')}</th>
                     <th className="p-3 text-center">{t('deliveryReconciliation.col_actions')}</th>
                   </tr>
@@ -1206,6 +1227,7 @@ export default function ConciliarDeliveryPage() {
                   {displayedOrders.map((ord) => {
                     const commDel = Number(ord.commission_fee || 0) + Number(ord.delivery_fee || 0)
                     const procMkt = Number(ord.processing_fee || 0) + Number(ord.marketing_fee || 0)
+                    const totalOrderFees = commDel + procMkt
                     const errAdj = Number(ord.error_charge || 0) + Number(ord.adjustment_amount || 0)
                     const varAmt = Number(ord.gross_diff || 0)
 
@@ -1214,10 +1236,12 @@ export default function ConciliarDeliveryPage() {
                         key={ord.id}
                         className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition"
                       >
-                        <td className="p-3 whitespace-nowrap font-medium">{ord.business_date}</td>
-                        <td className="p-3 whitespace-nowrap font-semibold">{ord.store_name}</td>
                         <td className="p-3 whitespace-nowrap">
-                          <div className="flex flex-col gap-1">
+                          <div className="font-bold text-slate-900 dark:text-white">{ord.business_date}</div>
+                          <div className="text-xs font-semibold text-slate-500">{ord.store_name}</div>
+                        </td>
+                        <td className="p-3 whitespace-nowrap">
+                          <div className="flex flex-col gap-1 items-start">
                             {renderPlatformBadge(ord.platform)}
                             <span className="text-[11px] text-slate-400">
                               {ord.fulfillment_type === 'PICKUP'
@@ -1241,28 +1265,42 @@ export default function ConciliarDeliveryPage() {
                             </div>
                           )}
                         </td>
-                        <td className="p-3 text-right font-mono">{fmtMoney(ord.toast_net_sales)}</td>
+                        <td className="p-3 text-right font-mono bg-slate-100/50 dark:bg-slate-800/30">
+                          <div className="font-extrabold text-slate-900 dark:text-white">
+                            {fmtMoney(ord.toast_expected_gross)}
+                          </div>
+                          <div className="text-[11px] text-slate-500">
+                            Sub: {fmtMoney(ord.toast_net_sales)} • Tax: {fmtMoney(ord.toast_tax)}
+                            {ord.platform === 'UBER_EATS' && ord.toast_tax > 0 ? ' (Uber)' : ''}
+                          </div>
+                        </td>
+                        <td className="p-3 text-right font-mono bg-indigo-500/5">
+                          <div className="font-extrabold text-indigo-700 dark:text-indigo-300">
+                            {fmtMoney(ord.platform_gross_receivable)}
+                          </div>
+                          <div className="text-[11px] text-slate-500">
+                            Sub: {fmtMoney(ord.platform_subtotal)} • Tax:{' '}
+                            {fmtMoney(ord.platform_tax_paid_to_merchant)}
+                          </div>
+                        </td>
+                        <td
+                          className={`p-3 text-right font-mono font-extrabold ${
+                            Math.abs(varAmt) <= 0.05
+                              ? 'text-emerald-600 dark:text-emerald-400'
+                              : 'text-rose-600 dark:text-rose-400'
+                          }`}
+                        >
+                          {fmtMoney(varAmt)}
+                        </td>
                         <td className="p-3 text-right font-mono">
-                          <div>{fmtMoney(ord.toast_tax)}</div>
-                          {ord.platform === 'UBER_EATS' && ord.toast_tax > 0 && (
-                            <span className="text-[10px] text-emerald-600 dark:text-emerald-400 block">
-                              (Uber Remits)
-                            </span>
+                          <div className="font-bold text-amber-600 dark:text-amber-400">
+                            {fmtMoney(totalOrderFees)}
+                          </div>
+                          {Math.abs(procMkt) > 0.01 && (
+                            <div className="text-[10px] text-slate-400">
+                              Com: {fmtMoney(commDel)} • Fees: {fmtMoney(procMkt)}
+                            </div>
                           )}
-                        </td>
-                        <td className="p-3 text-right font-mono font-bold bg-slate-100/60 dark:bg-slate-800/40">
-                          {fmtMoney(ord.toast_expected_gross)}
-                        </td>
-                        <td className="p-3 text-right font-mono">{fmtMoney(ord.platform_subtotal)}</td>
-                        <td className="p-3 text-right font-mono">{fmtMoney(ord.platform_tax_paid_to_merchant)}</td>
-                        <td className="p-3 text-right font-mono font-bold bg-indigo-500/5 text-indigo-700 dark:text-indigo-300">
-                          {fmtMoney(ord.platform_gross_receivable)}
-                        </td>
-                        <td className="p-3 text-right font-mono text-amber-600 dark:text-amber-400">
-                          {fmtMoney(commDel)}
-                        </td>
-                        <td className="p-3 text-right font-mono text-amber-600 dark:text-amber-400">
-                          {fmtMoney(procMkt)}
                         </td>
                         <td
                           className={`p-3 text-right font-mono font-semibold ${
@@ -1284,15 +1322,6 @@ export default function ConciliarDeliveryPage() {
                         </td>
                         <td className="p-3 text-right font-mono font-extrabold text-emerald-600 dark:text-emerald-400">
                           {fmtMoney(ord.net_payout)}
-                        </td>
-                        <td
-                          className={`p-3 text-right font-mono font-bold ${
-                            Math.abs(varAmt) <= 0.05
-                              ? 'text-emerald-600 dark:text-emerald-400'
-                              : 'text-rose-600 dark:text-rose-400'
-                          }`}
-                        >
-                          {fmtMoney(varAmt)}
                         </td>
                         <td className="p-3 whitespace-nowrap">
                           <div className="flex flex-col gap-1 items-start">
@@ -1329,6 +1358,31 @@ export default function ConciliarDeliveryPage() {
       {/* TAB 2: CORTES Y DEPÓSITOS BANCARIOS */}
       {activeTab === 'payouts' && (
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm overflow-hidden">
+          <div className="p-3.5 bg-slate-50/70 dark:bg-slate-800/40 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between gap-2">
+            <span className="text-xs font-extrabold text-slate-600 dark:text-slate-300">
+              {t('deliveryReconciliation.tab_payouts')} ({payouts.length})
+            </span>
+            <div className="inline-flex rounded-xl p-1 bg-slate-200/70 dark:bg-slate-800 border border-slate-300/60 dark:border-slate-700 text-xs font-bold">
+              <button
+                onClick={() => {
+                  setCutsSubView('qb')
+                  setActiveTab('qb_journals')
+                }}
+                className="px-3 py-1 rounded-lg text-slate-600 dark:text-slate-400 hover:text-slate-900 transition"
+              >
+                🧾 {t('deliveryReconciliation.view_mode_qb')}
+              </button>
+              <button
+                onClick={() => {
+                  setCutsSubView('bank')
+                  setActiveTab('payouts')
+                }}
+                className="px-3 py-1 rounded-lg bg-white dark:bg-slate-900 text-indigo-700 dark:text-indigo-300 shadow-sm transition"
+              >
+                🏦 {t('deliveryReconciliation.view_mode_bank')}
+              </button>
+            </div>
+          </div>
           {payouts.length === 0 ? (
             <div className="p-12 text-center text-slate-500">{t('deliveryReconciliation.empty_payouts')}</div>
           ) : (
@@ -1786,6 +1840,74 @@ export default function ConciliarDeliveryPage() {
 
           {/* TABLA DE PÓLIZAS DE LIQUIDACIÓN SEMANAL (4 LÍNEAS QUICKBOOKS) */}
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm overflow-hidden">
+            {/* Sub-barra de filtros de estado QB y selector de vista */}
+            <div className="p-3.5 bg-slate-50/70 dark:bg-slate-800/40 border-b border-slate-200 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="text-xs font-extrabold text-slate-500 mr-1">
+                  {t('deliveryReconciliation.filter_inside_qb_label')}
+                </span>
+                <button
+                  onClick={() => setQbQuickFilter('ALL')}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition border ${
+                    qbQuickFilter === 'ALL'
+                      ? 'bg-slate-800 text-white border-slate-800 dark:bg-slate-200 dark:text-slate-900'
+                      : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700'
+                  }`}
+                >
+                  📋 {t('deliveryReconciliation.quick_filter_all')} ({qbRecords.length})
+                </button>
+                <button
+                  onClick={() => setQbQuickFilter('PENDING')}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition border ${
+                    qbQuickFilter === 'PENDING'
+                      ? 'bg-amber-600 text-white border-amber-600'
+                      : 'bg-white dark:bg-slate-900 text-amber-600 dark:text-amber-400 border-amber-500/30'
+                  }`}
+                >
+                  ⏳ {t('deliveryReconciliation.qb_status_pending')} ({qbSummary?.pendingCount || 0})
+                </button>
+                <button
+                  onClick={() => setQbQuickFilter('CREATED')}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition border ${
+                    qbQuickFilter === 'CREATED'
+                      ? 'bg-emerald-600 text-white border-emerald-600'
+                      : 'bg-white dark:bg-slate-900 text-emerald-600 dark:text-emerald-400 border-emerald-500/30'
+                  }`}
+                >
+                  ✅ {t('deliveryReconciliation.qb_status_created')} ({qbSummary?.createdCount || 0})
+                </button>
+              </div>
+
+              <div className="inline-flex rounded-xl p-1 bg-slate-200/70 dark:bg-slate-800 border border-slate-300/60 dark:border-slate-700 text-xs font-bold">
+                <button
+                  onClick={() => {
+                    setCutsSubView('qb')
+                    setActiveTab('qb_journals')
+                  }}
+                  className={`px-3 py-1 rounded-lg transition ${
+                    cutsSubView === 'qb'
+                      ? 'bg-white dark:bg-slate-900 text-emerald-700 dark:text-emerald-300 shadow-sm'
+                      : 'text-slate-600 dark:text-slate-400'
+                  }`}
+                >
+                  🧾 {t('deliveryReconciliation.view_mode_qb')}
+                </button>
+                <button
+                  onClick={() => {
+                    setCutsSubView('bank')
+                    setActiveTab('payouts')
+                  }}
+                  className={`px-3 py-1 rounded-lg transition ${
+                    cutsSubView === 'bank'
+                      ? 'bg-white dark:bg-slate-900 text-indigo-700 dark:text-indigo-300 shadow-sm'
+                      : 'text-slate-600 dark:text-slate-400'
+                  }`}
+                >
+                  🏦 {t('deliveryReconciliation.view_mode_bank')}
+                </button>
+              </div>
+            </div>
+
             {qbLoading ? (
               <div className="p-12 text-center text-slate-500">{t('deliveryReconciliation.syncing_btn')}</div>
             ) : displayedQbRecords.length === 0 ? (
@@ -1860,8 +1982,15 @@ export default function ConciliarDeliveryPage() {
                             <div className="font-bold text-slate-900 dark:text-white">
                               {r.period_start} → {r.period_end}
                             </div>
-                            <div className="text-[11px] font-mono text-indigo-600 dark:text-indigo-400">
-                              Ref: #{r.payout_reference_id}
+                            <div className="flex items-center gap-1.5 mt-0.5">
+                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-500">
+                                {r.platform === 'GRUBHUB'
+                                  ? t('deliveryReconciliation.cycle_tue_mon')
+                                  : t('deliveryReconciliation.cycle_mon_sun')}
+                              </span>
+                              <span className="text-[11px] font-mono text-indigo-600 dark:text-indigo-400">
+                                Ref: #{r.payout_reference_id}
+                              </span>
                             </div>
                           </td>
                           <td className="p-3 font-bold whitespace-nowrap">{r.store_name}</td>

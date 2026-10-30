@@ -85,7 +85,8 @@ export function extractOrderItemsSummary(order: any): string | null {
     for (const sel of chk.selections || []) {
       if (!sel || sel.voided || sel.deleted) continue
       const name = String(sel.displayName || sel.name || '').trim()
-      if (!name || isNonFoodMarkerItem(name)) continue
+      const isGiftCardSel = String(sel.selectionType || '').toUpperCase() === 'GIFT_CARD'
+      if (!name || isNonFoodMarkerItem(name) || isGiftCardSel) continue
 
       const rawQty = sel.quantity !== undefined && sel.quantity !== null ? sel.quantity : sel.qty
       const parsedQty = rawQty === undefined || rawQty === null || rawQty === '' ? 1 : Number(rawQty)
@@ -230,8 +231,9 @@ export function evaluateToastOrder(order: any): ToastOrderEvaluation {
     for (const sel of check.selections || []) {
       if (!sel || sel.voided || sel.deleted) continue
       const name = String(sel.displayName || sel.name || '').trim()
-      // Separadores de tacos del POS ("--- Taco Separator ---", "********") y marcadores no son platillos reales
-      if (!name || isNonFoodMarkerItem(name)) continue
+      const isGiftCardSel = String(sel.selectionType || '').toUpperCase() === 'GIFT_CARD'
+      // Separadores de tacos del POS ("--- Taco Separator ---", "********"), Gift Cards y marcadores no son platillos reales
+      if (!name || isNonFoodMarkerItem(name) || isGiftCardSel) continue
       activeItems++
 
       const isDrinkDessert = isDrinkOrDessertItem(name)

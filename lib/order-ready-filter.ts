@@ -98,7 +98,8 @@ export const DRINK_DESSERT_PATTERNS: RegExp[] = [
 ]
 
 /**
- * Marcadores no-comida (descuentos, separadores POS) que no constituyen platillos a preparar en cocina.
+ * Marcadores no-comida (descuentos, separadores POS, tarjetas de regalo / Gift Cards)
+ * que se cobran en caja, no se envían al KDS de cocina y no constituyen platillos a preparar.
  */
 export const NON_FOOD_MARKER_PATTERNS: RegExp[] = [
   /\bseparator\b/i,
@@ -107,7 +108,10 @@ export const NON_FOOD_MARKER_PATTERNS: RegExp[] = [
   /\bempleado\b/i,
   /\bpolicia\b/i,
   /\bdiscount\b/i,
-  /\bdescuento\b/i
+  /\bdescuento\b/i,
+  /\bgift\s*cards?\b/i,
+  /\be-?gift\b/i,
+  /\btarjeta\s+de\s+regalo\b/i
 ]
 
 /**
@@ -150,9 +154,9 @@ export function isDrinkOrDessertOnlyOrder(itemsSummary: string | null | any[]): 
 
   if (!Array.isArray(items) || items.length === 0) return false
 
-  // Filtrar ítems consumibles reales (descartando separadores y tags de descuento)
+  // Filtrar ítems consumibles reales (descartando separadores, tags de descuento y tarjetas de regalo / Gift Cards)
   const realItems = items.filter(it => !isNonFoodMarkerItem(it?.name || ''))
-  if (realItems.length === 0) return false
+  if (realItems.length === 0) return true
 
   // La orden es SOLO bebidas/postres si el 100% de los ítems reales son bebidas o postres
   return realItems.every(it => isDrinkOrDessertItem(it?.name || ''))

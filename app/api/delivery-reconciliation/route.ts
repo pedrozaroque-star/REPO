@@ -109,14 +109,20 @@ export async function GET(req: NextRequest) {
     if (ordErr) throw new Error(`Error querying delivery_platform_orders: ${ordErr.message}`)
     if (payErr) throw new Error(`Error querying delivery_platform_payouts: ${payErr.message}`)
 
-    // Unir órdenes del rango con órdenes en disputa que tengan reembolso en otro corte posterior (ej. #650DD)
+    // Unir órdenes del rango con órdenes en disputa cuyo reembolso ocurrió dentro del rango seleccionado o búsqueda activa (ej. #650DD)
     const rawOrdersMap = new Map<string, any>()
     for (const r of rawOrdersRange || []) {
       rawOrdersMap.set(String(r.id), r)
     }
     for (const d of disputedOrdersAll || []) {
-      if (d?.raw_payload?.reimbursement_payout_ref && !rawOrdersMap.has(String(d.id))) {
-        rawOrdersMap.set(String(d.id), d)
+      const reimbRef = d?.raw_payload?.reimbursement_payout_ref
+      if (reimbRef && !rawOrdersMap.has(String(d.id))) {
+        const reimbDate = String(d?.raw_payload?.reimbursement_deposit_date || '')
+        const isSearchMatch = Boolean(search && search.length >= 2)
+        const isReimbInWindow = Boolean(reimbDate && reimbDate >= startDate && reimbDate <= endDate)
+        if (isSearchMatch || isReimbInWindow) {
+          rawOrdersMap.set(String(d.id), d)
+        }
       }
     }
     const rawOrders = Array.from(rawOrdersMap.values())

@@ -146,6 +146,12 @@ export default function ClientLayout({
 
     const isPrintSheetPage = printSheetRoutes.some(r => pathname === r || pathname.startsWith(r + '/'))
 
+    // Dedicated full-viewport workspace routes (REQUIRE login via ProtectedRoute, render their own 1:1 left rail & top bar)
+    const dedicatedWorkspaceRoutes = [
+        '/admin/contabilidad-externa',
+    ]
+    const isDedicatedWorkspace = dedicatedWorkspaceRoutes.some(r => pathname === r || pathname.startsWith(r + '/'))
+
     // Full-width routes (large tables, schedules, etc.)
     const fullWidthRoutes = ['/horarios', '/admin/plantillas', '/order-ready-board', '/admin/blindaje-delivery/empaque', '/app', '/training', '/admin/contabilidad-externa']
 
@@ -158,6 +164,14 @@ export default function ClientLayout({
             ) : isPrintSheetPage ? (
                 <ProtectedRoute>
                     {children}
+                </ProtectedRoute>
+            ) : isDedicatedWorkspace ? (
+                <ProtectedRoute>
+                    <div className="min-h-screen bg-[#f4f5f8] dark:bg-slate-950 relative">
+                        {children}
+                        <SupportChatWidget />
+                        <SupervisorAutoTracker />
+                    </div>
                 </ProtectedRoute>
             ) : (
                 <ProtectedRoute>

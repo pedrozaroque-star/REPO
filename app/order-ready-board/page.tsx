@@ -1273,7 +1273,7 @@ function OrderReadyBoardContent() {
       for (const candidateVoice of voicesToTry) {
         for (let attempt = 0; attempt < 2; attempt++) {
           try {
-            const res = await fetch(`/api/order-ready/tts?n=${num}&lang=${lang}&voice=${candidateVoice}&v=5`, {
+            const res = await fetch(`/api/order-ready/tts?n=${num}&lang=${lang}&voice=${candidateVoice}&v=8`, {
               signal: AbortSignal.timeout(9000)
             })
             if (!res.ok) throw new Error('tts ' + res.status)

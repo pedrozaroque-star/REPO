@@ -97,6 +97,27 @@ async function runSimulation() {
       expectedOnlyDrinkOrDessert: false
     },
     {
+      name: 'Solo Gift Card (Downey #66 / #67) -> EXCLUIDA de preparación',
+      items: [{ quantity: 1, name: 'Gift Card', modifiers: [] }],
+      expectedOnlyDrinkOrDessert: true
+    },
+    {
+      name: 'Gift Card + Bebida (Gift Card + Horchata) -> EXCLUIDA de preparación',
+      items: [
+        { quantity: 1, name: 'Gift Card', modifiers: [] },
+        { quantity: 1, name: 'Medium Horchata', modifiers: [] }
+      ],
+      expectedOnlyDrinkOrDessert: true
+    },
+    {
+      name: 'Gift Card + Comida (Gift Card + 3 Tacos Asada) -> DEBE APARECER EN COCINA',
+      items: [
+        { quantity: 1, name: 'Gift Card', modifiers: [] },
+        { quantity: 3, name: 'Taco Asada', modifiers: [] }
+      ],
+      expectedOnlyDrinkOrDessert: false
+    },
+    {
       name: 'Orden sin items_summary (null) -> No ocultar por seguridad',
       items: null,
       expectedOnlyDrinkOrDessert: false

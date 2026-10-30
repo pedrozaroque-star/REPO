@@ -123,6 +123,10 @@
         {
             "path": "/api/cron/sync-viele-bills",
             "schedule": "0 0 * * *"
+        },
+        {
+            "path": "/api/cron/sync-delivery-reconciliation",
+            "schedule": "15 15 * * *"
         }
     ]
 }

@@ -37,7 +37,8 @@ import {
     Building2, DollarSign, ArrowUpRight, ArrowDownRight, Plus, Printer, Download,
     Search, RefreshCw, CheckCircle2, XCircle, FileText, Repeat, Landmark, Users,
     BarChart3, Edit3, Trash2, Ban, ArrowLeftRight, BookOpen, ShieldAlert, ChevronRight, Calendar,
-    Settings, Scale, ListChecks, Layers, History, Sparkles, Calculator, Lock, Package, CheckSquare
+    Settings, Scale, ListChecks, Layers, History, Sparkles, Calculator, Lock, Package, CheckSquare,
+    Home, Bookmark, Briefcase, Grid, SlidersHorizontal, Eye, EyeOff, ArrowLeft, ChevronDown, AlertTriangle
 } from 'lucide-react'
 
 const ALLOWED_EMAILS = [
@@ -383,6 +384,8 @@ function numberToEnglishWords(amount: number): string {
 
 type ActiveTab =
     | 'overview'
+    | 'clients'
+    | 'books_review'
     | 'transactions'
     | 'checks_deposits'
     | 'reconcile'
@@ -396,6 +399,19 @@ type ActiveTab =
     | 'accounts'
     | 'contacts'
     | 'reports'
+
+type QboRailFlyout =
+    | 'my_menu'
+    | 'create'
+    | 'bookmarks'
+    | 'clients'
+    | 'work'
+    | 'reports'
+    | 'all_apps'
+    | 'accounting'
+    | 'expenses'
+    | 'sales'
+    | null
 
 type ModalMode =
     | 'Check'
@@ -465,10 +481,57 @@ function ExternalAccountingContent() {
     const [saving, setSaving] = useState<boolean>(false)
     const [toastMsg, setToastMsg] = useState<{ type: 'ok' | 'err'; text: string } | null>(null)
 
-    // Top QBO Mega-Menus (+ Create & Gear Icon ⚙️)
+    // Top QBO Mega-Menus (+ Create & Gear Icon ⚙️) & 1:1 QBO Left Navigation Rail
     const [createMenuOpen, setCreateMenuOpen] = useState<boolean>(false)
     const [gearMenuOpen, setGearMenuOpen] = useState<boolean>(false)
     const [showCompanyGrid, setShowCompanyGrid] = useState<boolean>(true)
+    const [railFlyout, setRailFlyout] = useState<QboRailFlyout>(null)
+    const [railThemeMode, setRailThemeMode] = useState<'auto' | 'dark' | 'light'>('auto')
+    const [pinnedRailApps, setPinnedRailApps] = useState<Array<'accounting' | 'expenses' | 'sales' | 'reports' | 'reconcile' | 'checkbook'>>(['accounting', 'expenses', 'sales'])
+    const [savedBookmarks, setSavedBookmarks] = useState<Array<{ id: string; labelKey: string; tab: ActiveTab; subAction?: string }>>([
+        { id: 'standard_reports', labelKey: 'external_accounting.qbo_shortcut_standard_reports', tab: 'reports' },
+        { id: 'vendors', labelKey: 'external_accounting.qbo_shortcut_vendors', tab: 'contacts', subAction: 'Vendor' },
+        { id: 'bank_transactions', labelKey: 'external_accounting.qbo_shortcut_bank_txns', tab: 'transactions' },
+        { id: 'reconcile', labelKey: 'external_accounting.qbo_shortcut_reconcile', tab: 'reconcile' },
+        { id: 'chart_of_accounts', labelKey: 'external_accounting.qbo_shortcut_coa', tab: 'accounts' },
+    ])
+    const [companySwitcherOpen, setCompanySwitcherOpen] = useState<boolean>(false)
+    const [companySwitcherFilter, setCompanySwitcherFilter] = useState<string>('')
+    const [globalSearchOpen, setGlobalSearchOpen] = useState<boolean>(false)
+    const [globalSearchTerm, setGlobalSearchTerm] = useState<string>('')
+    const [privacyMask, setPrivacyMask] = useState<boolean>(false)
+    const [customizeRailModalOpen, setCustomizeRailModalOpen] = useState<boolean>(false)
+    const [clientsHubSearch, setClientsHubSearch] = useState<string>('')
+
+    useEffect(() => {
+        try {
+            const savedTheme = localStorage.getItem('teg_qbo_rail_theme') as 'auto' | 'dark' | 'light' | null
+            if (savedTheme === 'auto' || savedTheme === 'dark' || savedTheme === 'light') {
+                setRailThemeMode(savedTheme)
+            }
+            const savedPinned = localStorage.getItem('teg_qbo_pinned_apps')
+            if (savedPinned) {
+                const parsed = JSON.parse(savedPinned)
+                if (Array.isArray(parsed) && parsed.length > 0) setPinnedRailApps(parsed)
+            }
+            const savedBms = localStorage.getItem('teg_qbo_bookmarks')
+            if (savedBms) {
+                const parsed = JSON.parse(savedBms)
+                if (Array.isArray(parsed) && parsed.length > 0) setSavedBookmarks(parsed)
+            }
+        } catch {}
+    }, [])
+
+    const isFirmRailTheme = useMemo(() => {
+        if (railThemeMode === 'dark') return true
+        if (railThemeMode === 'light') return false
+        return activeRealmId === '123145825185692' || activeTab === 'clients'
+    }, [railThemeMode, activeRealmId, activeTab])
+
+    const formatDisplayCurrency = useCallback((val: number | string | null | undefined): string => {
+        if (privacyMask) return '$••••••'
+        return formatCurrency(val)
+    }, [privacyMask])
 
     // Data state
     const [companies, setCompanies] = useState<any[]>([])
@@ -4455,10 +4518,10 @@ function ExternalAccountingContent() {
     }
 
     return (
-        <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 p-4 md:p-6 space-y-5">
+        <div className="min-h-screen pl-[74px] bg-[#f4f5f8] dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex flex-col">
             {/* Notification Toast */}
             {toastMsg && (
-                <div className={`fixed top-5 right-5 z-50 flex items-center gap-2.5 px-4 py-3 rounded-xl shadow-lg border text-sm font-bold ${
+                <div className={`fixed top-5 right-5 z-[120] flex items-center gap-2.5 px-4 py-3 rounded-xl shadow-lg border text-sm font-bold ${
                     toastMsg.type === 'ok'
                         ? 'bg-emerald-600 text-white border-emerald-400'
                         : 'bg-red-600 text-white border-red-400'
@@ -4469,43 +4532,916 @@ function ExternalAccountingContent() {
             )}
 
             {/* ====================================================================
-                BARRA SUPERIOR UNIFICADA Y MINIMALISTA (CERO RUIDO VISUAL)
+                1:1 QUICKBOOKS ONLINE LEFT VERTICAL NAVIGATION RAIL (74px)
+                - Firm Mode (`ias` Dark Teal #003b32) when on Raquel Accounting / Clients Hub
+                - Client Mode (`qb` Light #f4f5f8) when inside any of the 7 Client LLCs
                ==================================================================== */}
-            <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs">
-                {/* Fila Superior: Selector de Empresa + Acciones Maestras (+ Crear y ⚙️) */}
-                <div className="px-6 pt-5 pb-4 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
-                    <div className="flex flex-wrap items-center gap-3">
-                        <div className="w-10 h-10 rounded-xl bg-slate-900 dark:bg-slate-800 text-white flex items-center justify-center shrink-0">
-                            <Landmark size={18} />
-                        </div>
-                        <div>
-                            <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
-                                {t('external_accounting.title')} · {companies.length} {t('external_accounting.companies_count_label')}
-                            </div>
-                            <div className="flex items-center gap-2 mt-0.5">
-                                <select
-                                    value={activeRealmId}
-                                    onChange={(e) => {
-                                        setActiveRealmId(e.target.value)
-                                        setFilterAccountId('ALL')
-                                        setPage(1)
-                                        setCheckbookPage(1)
-                                    }}
-                                    className="text-xl md:text-2xl font-black tracking-tight text-slate-900 dark:text-white bg-transparent pr-2 focus:outline-none cursor-pointer"
-                                >
-                                    {companies.map(c => (
-                                        <option key={c.realm_id} value={c.realm_id} className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white text-base font-bold">
-                                            {c.company_name}
-                                        </option>
-                                    ))}
-                                </select>
-                            </div>
-                        </div>
+            <aside
+                onMouseLeave={() => setRailFlyout(null)}
+                className={`fixed top-0 left-0 bottom-0 w-[74px] z-[80] flex flex-col items-center justify-between py-2.5 select-none transition-colors duration-200 ${
+                    isFirmRailTheme
+                        ? 'bg-[#003b32] text-white border-r border-[#002923]'
+                        : 'bg-[#f4f5f8] dark:bg-slate-900 text-slate-700 dark:text-slate-200 border-r border-slate-200 dark:border-slate-800'
+                }`}
+            >
+                <div className="w-full flex flex-col items-center gap-1 overflow-y-auto no-scrollbar">
+                    {/* Top Brand Logo: `ias` (Firm Mode) or green `qb` circle (Client Mode) */}
+                    <button
+                        type="button"
+                        onClick={() => {
+                            setActiveTab('overview')
+                            setRailFlyout(null)
+                        }}
+                        title={isFirmRailTheme ? 'Tacos Gavilan — Despacho Contable (Raquel Accounting)' : `Tacos Gavilan — Libros Contables (${activeCompany?.company_name || ''})`}
+                        className="mb-1.5 flex items-center justify-center w-12 h-10 rounded-xl cursor-pointer transition-transform hover:scale-105"
+                    >
+                        <span className="w-8 h-8 rounded-full bg-[#2ca01c] text-white font-black text-sm flex items-center justify-center shadow-xs tracking-tight">
+                            tg
+                        </span>
+                    </button>
+
+                    {/* 1. MY MENU (Accountant Toolbox & Bookkeeping Shortcuts) */}
+                    <button
+                        type="button"
+                        onMouseEnter={() => setRailFlyout('my_menu')}
+                        onClick={() => setRailFlyout(prev => prev === 'my_menu' ? null : 'my_menu')}
+                        className={`w-[62px] py-1.5 rounded-xl flex flex-col items-center gap-1 text-[10px] font-medium transition-colors cursor-pointer ${
+                            railFlyout === 'my_menu'
+                                ? isFirmRailTheme ? 'bg-white/15 text-white font-bold' : 'bg-slate-900 text-white font-bold'
+                                : isFirmRailTheme ? 'text-white/85 hover:bg-white/10' : 'text-slate-700 dark:text-slate-300 hover:bg-slate-200/70 dark:hover:bg-slate-800'
+                        }`}
+                    >
+                        {isFirmRailTheme ? <Grid size={18} /> : <Briefcase size={18} />}
+                        <span className="leading-tight text-center truncate w-full px-0.5">{t('external_accounting.qbo_rail_my_menu')}</span>
+                    </button>
+
+                    {/* 2. + CREATE (4-Column Transaction & Record Creator) */}
+                    <button
+                        type="button"
+                        onClick={() => {
+                            setCreateMenuOpen(v => !v)
+                            setGearMenuOpen(false)
+                            setRailFlyout(null)
+                        }}
+                        className={`w-[62px] py-1.5 rounded-xl flex flex-col items-center gap-1 text-[10px] font-medium transition-colors cursor-pointer ${
+                            createMenuOpen
+                                ? 'bg-[#2ca01c] text-white font-bold shadow-xs'
+                                : isFirmRailTheme ? 'text-white/90 hover:bg-white/10' : 'text-slate-700 dark:text-slate-300 hover:bg-slate-200/70 dark:hover:bg-slate-800'
+                        }`}
+                    >
+                        <span className={`w-6 h-6 rounded-full flex items-center justify-center border ${
+                            createMenuOpen
+                                ? 'border-white bg-white/20 text-white'
+                                : isFirmRailTheme ? 'border-white/70 text-white' : 'border-slate-700 dark:border-slate-300 text-slate-800 dark:text-white'
+                        }`}>
+                            <Plus size={14} strokeWidth={2.5} />
+                        </span>
+                        <span className="leading-tight text-center truncate w-full px-0.5">{t('external_accounting.qbo_rail_create')}</span>
+                    </button>
+
+                    {/* 3. BOOKMARKS (Saved Quick-Links) */}
+                    <button
+                        type="button"
+                        onMouseEnter={() => setRailFlyout('bookmarks')}
+                        onClick={() => setRailFlyout(prev => prev === 'bookmarks' ? null : 'bookmarks')}
+                        className={`w-[62px] py-1.5 rounded-xl flex flex-col items-center gap-1 text-[10px] font-medium transition-colors cursor-pointer ${
+                            railFlyout === 'bookmarks'
+                                ? isFirmRailTheme ? 'bg-white/15 text-white font-bold' : 'bg-slate-900 text-white font-bold'
+                                : isFirmRailTheme ? 'text-white/85 hover:bg-white/10' : 'text-slate-700 dark:text-slate-300 hover:bg-slate-200/70 dark:hover:bg-slate-800'
+                        }`}
+                    >
+                        <Bookmark size={18} />
+                        <span className="leading-tight text-center truncate w-full px-0.5">{t('external_accounting.qbo_rail_bookmarks')}</span>
+                    </button>
+
+                    {/* 4. HOME (Executive Overview) */}
+                    <button
+                        type="button"
+                        onMouseEnter={() => setRailFlyout(null)}
+                        onClick={() => {
+                            setActiveTab('overview')
+                            setRailFlyout(null)
+                        }}
+                        className={`w-[62px] py-1.5 rounded-xl flex flex-col items-center gap-1 text-[10px] font-medium transition-colors cursor-pointer ${
+                            activeTab === 'overview' && !railFlyout
+                                ? isFirmRailTheme ? 'bg-[#002620] text-white font-bold ring-1 ring-emerald-400/40' : 'bg-[#002b24] text-white font-bold shadow-xs'
+                                : isFirmRailTheme ? 'text-white/85 hover:bg-white/10' : 'text-slate-700 dark:text-slate-300 hover:bg-slate-200/70 dark:hover:bg-slate-800'
+                        }`}
+                    >
+                        <Home size={18} />
+                        <span className="leading-tight text-center truncate w-full px-0.5">{t('external_accounting.qbo_rail_home')}</span>
+                    </button>
+
+                    {/* 5. CLIENTS (All 8 Legal Entities Directory & Quick Switcher) */}
+                    <button
+                        type="button"
+                        onMouseEnter={() => setRailFlyout('clients')}
+                        onClick={() => {
+                            setActiveTab('clients')
+                            setRailFlyout(null)
+                        }}
+                        className={`w-[62px] py-1.5 rounded-xl flex flex-col items-center gap-1 text-[10px] font-medium transition-colors cursor-pointer ${
+                            activeTab === 'clients' || railFlyout === 'clients'
+                                ? isFirmRailTheme ? 'bg-[#002620] text-white font-bold ring-1 ring-emerald-400/40' : 'bg-[#002b24] text-white font-bold shadow-xs'
+                                : isFirmRailTheme ? 'text-white/85 hover:bg-white/10' : 'text-slate-700 dark:text-slate-300 hover:bg-slate-200/70 dark:hover:bg-slate-800'
+                        }`}
+                    >
+                        <Users size={18} />
+                        <span className="leading-tight text-center truncate w-full px-0.5">{t('external_accounting.qbo_rail_clients')}</span>
+                    </button>
+
+                    {/* 6. WORK / BOOKS REVIEW (In Firm Mode on rail; in Client Mode under Accounting & My Menu) */}
+                    {isFirmRailTheme && (
+                        <button
+                            type="button"
+                            onMouseEnter={() => setRailFlyout('work')}
+                            onClick={() => {
+                                setActiveTab('books_review')
+                                setRailFlyout(null)
+                            }}
+                            className={`w-[62px] py-1.5 rounded-xl flex flex-col items-center gap-1 text-[10px] font-medium transition-colors cursor-pointer ${
+                                activeTab === 'books_review' || railFlyout === 'work'
+                                    ? 'bg-[#002620] text-white font-bold ring-1 ring-emerald-400/40'
+                                    : 'text-white/85 hover:bg-white/10'
+                            }`}
+                        >
+                            <Briefcase size={18} />
+                            <span className="leading-tight text-center truncate w-full px-0.5">{t('external_accounting.qbo_rail_work')}</span>
+                        </button>
+                    )}
+
+                    {/* 7. REPORTS (Direct Rail Icon + Flyout for Standard Reports, P&L, Balance Sheet, Archive) */}
+                    <button
+                        type="button"
+                        onMouseEnter={() => setRailFlyout('reports')}
+                        onClick={() => {
+                            setActiveTab('reports')
+                            setRailFlyout(null)
+                        }}
+                        className={`w-[62px] py-1.5 rounded-xl flex flex-col items-center gap-1 text-[10px] font-medium transition-colors cursor-pointer ${
+                            activeTab === 'reports' || railFlyout === 'reports'
+                                ? isFirmRailTheme ? 'bg-[#002620] text-white font-bold ring-1 ring-emerald-400/40' : 'bg-[#002b24] text-white font-bold shadow-xs'
+                                : isFirmRailTheme ? 'text-white/85 hover:bg-white/10' : 'text-slate-700 dark:text-slate-300 hover:bg-slate-200/70 dark:hover:bg-slate-800'
+                        }`}
+                    >
+                        <BarChart3 size={18} />
+                        <span className="leading-tight text-center truncate w-full px-0.5">{t('external_accounting.qbo_rail_reports')}</span>
+                    </button>
+
+                    {/* 8. FIRM BOOKS / ALL APPS (9-Dots App Launcher) */}
+                    <button
+                        type="button"
+                        onMouseEnter={() => setRailFlyout('all_apps')}
+                        onClick={() => setRailFlyout(prev => prev === 'all_apps' ? null : 'all_apps')}
+                        className={`w-[62px] py-1.5 rounded-xl flex flex-col items-center gap-1 text-[10px] font-medium transition-colors cursor-pointer ${
+                            railFlyout === 'all_apps'
+                                ? isFirmRailTheme ? 'bg-white/15 text-white font-bold' : 'bg-slate-900 text-white font-bold'
+                                : isFirmRailTheme ? 'text-white/85 hover:bg-white/10' : 'text-slate-700 dark:text-slate-300 hover:bg-slate-200/70 dark:hover:bg-slate-800'
+                        }`}
+                    >
+                        <Layers size={18} />
+                        <span className="leading-tight text-center truncate w-full px-0.5">
+                            {isFirmRailTheme ? t('external_accounting.qbo_rail_firm_books') : t('external_accounting.qbo_rail_all_apps')}
+                        </span>
+                    </button>
+
+                    {/* DIVIDER: PINNED APPS */}
+                    <div className="w-10 my-1 border-t border-current opacity-20" />
+                    <div className={`text-[9px] font-black uppercase tracking-wider mb-0.5 ${isFirmRailTheme ? 'text-white/60' : 'text-slate-400'}`}>
+                        {t('external_accounting.qbo_rail_pinned')}
                     </div>
 
-                    {/* Controles Maestros a la Derecha: Filtro de Periodo Compacto + "+ Crear" + "⚙️" */}
-                    <div className="flex flex-wrap items-center gap-2">
-                        {/* Selector compacto de periodo */}
+                    {/* PINNED 1: ACCOUNTING (Ledger, Chart of Accounts, Reconcile, Rules, Books Review) */}
+                    {pinnedRailApps.includes('accounting') && (
+                        <button
+                            type="button"
+                            onMouseEnter={() => setRailFlyout('accounting')}
+                            onClick={() => {
+                                setActiveTab('accounts')
+                                setRailFlyout(null)
+                            }}
+                            className={`w-[62px] py-1.5 rounded-xl flex flex-col items-center gap-1 text-[10px] font-medium transition-colors cursor-pointer ${
+                                ['accounts', 'reconcile', 'rules', 'reclassify'].includes(activeTab) || railFlyout === 'accounting'
+                                    ? isFirmRailTheme ? 'bg-[#002620] text-white font-bold ring-1 ring-emerald-400/40' : 'bg-[#002b24] text-white font-bold shadow-xs'
+                                    : isFirmRailTheme ? 'text-white/85 hover:bg-white/10' : 'text-slate-700 dark:text-slate-300 hover:bg-slate-200/70 dark:hover:bg-slate-800'
+                            }`}
+                        >
+                            <Scale size={18} />
+                            <span className="leading-tight text-center truncate w-full px-0.5">{t('external_accounting.qbo_rail_accounting')}</span>
+                        </button>
+                    )}
+
+                    {/* PINNED 2: EXPENSES (Checkbook, Checks, Bills, Vendors, 1099s) */}
+                    {pinnedRailApps.includes('expenses') && (
+                        <button
+                            type="button"
+                            onMouseEnter={() => setRailFlyout('expenses')}
+                            onClick={() => {
+                                setActiveTab('checks_deposits')
+                                setRailFlyout(null)
+                            }}
+                            className={`w-[62px] py-1.5 rounded-xl flex flex-col items-center gap-1 text-[10px] font-medium transition-colors cursor-pointer ${
+                                activeTab === 'checks_deposits' || railFlyout === 'expenses'
+                                    ? isFirmRailTheme ? 'bg-[#002620] text-white font-bold ring-1 ring-emerald-400/40' : 'bg-[#002b24] text-white font-bold shadow-xs'
+                                    : isFirmRailTheme ? 'text-white/85 hover:bg-white/10' : 'text-slate-700 dark:text-slate-300 hover:bg-slate-200/70 dark:hover:bg-slate-800'
+                            }`}
+                        >
+                            <DollarSign size={18} />
+                            <span className="leading-tight text-center truncate w-full px-0.5">{t('external_accounting.qbo_rail_expenses')}</span>
+                        </button>
+                    )}
+
+                    {/* PINNED 3: SALES (Deposits, Invoices, Customers, Products & Services) */}
+                    {pinnedRailApps.includes('sales') && (
+                        <button
+                            type="button"
+                            onMouseEnter={() => setRailFlyout('sales')}
+                            onClick={() => {
+                                setFilterDirection('IN')
+                                setActiveTab('transactions')
+                                setRailFlyout(null)
+                            }}
+                            className={`w-[62px] py-1.5 rounded-xl flex flex-col items-center gap-1 text-[10px] font-medium transition-colors cursor-pointer ${
+                                railFlyout === 'sales'
+                                    ? isFirmRailTheme ? 'bg-[#002620] text-white font-bold ring-1 ring-emerald-400/40' : 'bg-[#002b24] text-white font-bold shadow-xs'
+                                    : isFirmRailTheme ? 'text-white/85 hover:bg-white/10' : 'text-slate-700 dark:text-slate-300 hover:bg-slate-200/70 dark:hover:bg-slate-800'
+                            }`}
+                        >
+                            <Landmark size={18} />
+                            <span className="leading-tight text-center truncate w-full px-0.5">{t('external_accounting.qbo_rail_sales')}</span>
+                        </button>
+                    )}
+                </div>
+
+                {/* Bottom of Rail: Customize Menu Button */}
+                <div className="w-full flex flex-col items-center pt-1 border-t border-current/15">
+                    <button
+                        type="button"
+                        onClick={() => {
+                            setRailFlyout(null)
+                            setCustomizeRailModalOpen(true)
+                        }}
+                        className={`w-[62px] py-1.5 rounded-xl flex flex-col items-center gap-1 text-[10px] font-medium transition-colors cursor-pointer ${
+                            isFirmRailTheme ? 'text-white/80 hover:bg-white/10' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-200/70 dark:hover:bg-slate-800'
+                        }`}
+                    >
+                        <SlidersHorizontal size={16} />
+                        <span className="leading-tight text-center truncate w-full px-0.5">{t('external_accounting.qbo_rail_customize')}</span>
+                    </button>
+                </div>
+
+                {/* ====================================================================
+                    QBO LEFT RAIL FLYOUT DRAWER (Appears flush at left-[74px] on hover/click)
+                   ==================================================================== */}
+                {railFlyout && (
+                    <div
+                        onMouseEnter={() => setRailFlyout(railFlyout)}
+                        onMouseLeave={() => setRailFlyout(null)}
+                        className="fixed top-0 left-[74px] bottom-0 w-[310px] bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 border-r border-slate-200 dark:border-slate-800 shadow-2xl z-[85] p-5 overflow-y-auto space-y-5 animate-in fade-in duration-150"
+                    >
+                        {/* FLYOUT 1: MY MENU (Bookkeeping Shortcuts + Accountant Tools) */}
+                        {railFlyout === 'my_menu' && (
+                            <>
+                                <div>
+                                    <div className="text-[11px] font-black uppercase tracking-wider text-slate-400 pb-2 mb-2 border-b border-slate-100 dark:border-slate-800">
+                                        {t('external_accounting.qbo_flyout_bookkeeping_shortcuts')}
+                                    </div>
+                                    <div className="space-y-1 text-xs">
+                                        {[
+                                            { label: t('external_accounting.qbo_shortcut_standard_reports'), action: () => { setReportType('pnl'); setActiveTab('reports') } },
+                                            { label: t('external_accounting.qbo_shortcut_bank_txns'), action: () => { setFilterDirection('ALL'); setFilterType('ALL'); setActiveTab('transactions') } },
+                                            { label: t('external_accounting.qbo_shortcut_reconcile'), action: () => { if (!reconcileAccountId && bankAndCardAccounts[0]) handleAutoSelectReconcileAccount(bankAndCardAccounts[0].qb_account_id); setActiveTab('reconcile') } },
+                                            { label: t('external_accounting.qbo_shortcut_coa'), action: () => setActiveTab('accounts') },
+                                            { label: t('external_accounting.qbo_shortcut_vendors'), action: () => { setContactFilterType('Vendor'); setActiveTab('contacts') } },
+                                            { label: t('external_accounting.qbo_shortcut_customers'), action: () => { setContactFilterType('Customer'); setActiveTab('contacts') } },
+                                            { label: t('external_accounting.qbo_shortcut_write_check'), action: () => openTransactionModal('Check') },
+                                            { label: t('external_accounting.qbo_shortcut_bank_deposit'), action: () => openTransactionModal('Deposit') },
+                                            { label: t('external_accounting.qbo_shortcut_transfer'), action: () => openTransactionModal('Transfer') },
+                                            { label: t('external_accounting.qbo_shortcut_journal_entry'), action: () => openTransactionModal('JournalEntry') },
+                                        ].map((item, idx) => (
+                                            <button
+                                                key={idx}
+                                                type="button"
+                                                onClick={() => {
+                                                    setRailFlyout(null)
+                                                    item.action()
+                                                }}
+                                                className="w-full text-left px-3 py-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 font-semibold text-slate-700 dark:text-slate-200 flex items-center justify-between cursor-pointer transition-colors"
+                                            >
+                                                <span>{item.label}</span>
+                                                <ChevronRight size={13} className="text-slate-400" />
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <div className="text-[11px] font-black uppercase tracking-wider text-slate-400 pb-2 mb-2 border-b border-slate-100 dark:border-slate-800">
+                                        {t('external_accounting.qbo_flyout_accountant_tools')}
+                                    </div>
+                                    <div className="space-y-1 text-xs">
+                                        {[
+                                            { label: t('external_accounting.qbo_tool_books_review'), action: () => setActiveTab('books_review') },
+                                            { label: t('external_accounting.qbo_tool_reclassify'), action: () => setActiveTab('reclassify') },
+                                            { label: t('external_accounting.qbo_tool_voided_deleted'), action: () => { setAuditSearch('VOID'); setActiveTab('audit_log') } },
+                                            { label: t('external_accounting.qbo_tool_close_books'), action: () => setActiveTab('company_settings') },
+                                            { label: t('external_accounting.qbo_tool_recurring'), action: () => setActiveTab('recurring') },
+                                            { label: t('external_accounting.qbo_tool_rules'), action: () => setActiveTab('rules') },
+                                            { label: t('external_accounting.qbo_tool_lists'), action: () => setActiveTab('lists') },
+                                        ].map((item, idx) => (
+                                            <button
+                                                key={idx}
+                                                type="button"
+                                                onClick={() => {
+                                                    setRailFlyout(null)
+                                                    item.action()
+                                                }}
+                                                className="w-full text-left px-3 py-2 rounded-lg hover:bg-emerald-50 dark:hover:bg-emerald-950/30 font-semibold text-slate-700 dark:text-slate-200 flex items-center justify-between cursor-pointer transition-colors"
+                                            >
+                                                <span>{item.label}</span>
+                                                <ChevronRight size={13} className="text-slate-400" />
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+                            </>
+                        )}
+
+                        {/* FLYOUT 2: BOOKMARKS */}
+                        {railFlyout === 'bookmarks' && (
+                            <div className="space-y-3 text-xs">
+                                <div className="text-[11px] font-black uppercase tracking-wider text-slate-400 pb-2 border-b border-slate-100 dark:border-slate-800">
+                                    {t('external_accounting.qbo_bookmarks_title')}
+                                </div>
+                                <div className="space-y-1">
+                                    {savedBookmarks.map(bm => (
+                                        <button
+                                            key={bm.id}
+                                            type="button"
+                                            onClick={() => {
+                                                setRailFlyout(null)
+                                                if (bm.subAction === 'Vendor') setContactFilterType('Vendor')
+                                                if (bm.tab === 'reconcile' && !reconcileAccountId && bankAndCardAccounts[0]) {
+                                                    handleAutoSelectReconcileAccount(bankAndCardAccounts[0].qb_account_id)
+                                                }
+                                                setActiveTab(bm.tab)
+                                            }}
+                                            className="w-full text-left px-3 py-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 font-semibold text-slate-700 dark:text-slate-200 flex items-center justify-between cursor-pointer"
+                                        >
+                                            <span className="inline-flex items-center gap-2">
+                                                <Bookmark size={13} className="text-emerald-600" />
+                                                <span>{t(bm.labelKey)}</span>
+                                            </span>
+                                            <ChevronRight size={13} className="text-slate-400" />
+                                        </button>
+                                    ))}
+                                </div>
+                                <div className="pt-2 border-t border-slate-100 dark:border-slate-800">
+                                    {(() => {
+                                        const isBookmarked = savedBookmarks.some(b => b.tab === activeTab)
+                                        return (
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    const next = isBookmarked
+                                                        ? savedBookmarks.filter(b => b.tab !== activeTab)
+                                                        : [...savedBookmarks, { id: `bm_${activeTab}`, labelKey: `external_accounting.tab_${activeTab === 'checks_deposits' ? 'checkbook_clean' : activeTab === 'overview' ? 'overview_clean' : activeTab}`, tab: activeTab }]
+                                                    setSavedBookmarks(next)
+                                                    try { localStorage.setItem('teg_qbo_bookmarks', JSON.stringify(next)) } catch {}
+                                                }}
+                                                className="w-full px-3 py-2 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 font-bold text-emerald-700 dark:text-emerald-400 text-left cursor-pointer"
+                                            >
+                                                {isBookmarked ? t('external_accounting.qbo_bookmark_remove_current') : t('external_accounting.qbo_bookmark_add_current')}
+                                            </button>
+                                        )
+                                    })()}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* FLYOUT 3: CLIENTS (Quick Switcher & Client List) */}
+                        {railFlyout === 'clients' && (
+                            <div className="space-y-3 text-xs">
+                                <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-slate-800">
+                                    <span className="text-[11px] font-black uppercase tracking-wider text-slate-400">
+                                        {t('external_accounting.qbo_rail_clients')} ({companies.length})
+                                    </span>
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setActiveTab('clients')
+                                            setRailFlyout(null)
+                                        }}
+                                        className="text-[11px] font-bold text-emerald-600 hover:underline cursor-pointer"
+                                    >
+                                        {t('external_accounting.view_all_txns_link')} →
+                                    </button>
+                                </div>
+                                <div className="space-y-1">
+                                    {companies.map(c => {
+                                        const isSel = c.realm_id === activeRealmId
+                                        return (
+                                            <button
+                                                key={c.realm_id}
+                                                type="button"
+                                                onClick={() => {
+                                                    setActiveRealmId(c.realm_id)
+                                                    setFilterAccountId('ALL')
+                                                    setPage(1)
+                                                    setCheckbookPage(1)
+                                                    setRailFlyout(null)
+                                                }}
+                                                className={`w-full text-left px-3 py-2 rounded-lg flex items-center justify-between gap-2 cursor-pointer transition-colors ${
+                                                    isSel
+                                                        ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 font-black'
+                                                        : 'hover:bg-slate-100 dark:hover:bg-slate-800 font-semibold text-slate-700 dark:text-slate-200'
+                                                }`}
+                                            >
+                                                <span className="truncate">{c.company_name}</span>
+                                                <span className="font-mono text-[11px] shrink-0">{formatDisplayCurrency(c.total_cash_balance ?? 0)}</span>
+                                            </button>
+                                        )
+                                    })}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* FLYOUT 4: WORK / BOOKS REVIEW */}
+                        {railFlyout === 'work' && (
+                            <div className="space-y-3 text-xs">
+                                <div className="text-[11px] font-black uppercase tracking-wider text-slate-400 pb-2 border-b border-slate-100 dark:border-slate-800">
+                                    {t('external_accounting.qbo_rail_work')}
+                                </div>
+                                <div className="space-y-1">
+                                    {[
+                                        { label: t('external_accounting.qbo_tool_books_review'), action: () => setActiveTab('books_review') },
+                                        { label: t('external_accounting.qbo_shortcut_reconcile'), action: () => { if (!reconcileAccountId && bankAndCardAccounts[0]) handleAutoSelectReconcileAccount(bankAndCardAccounts[0].qb_account_id); setActiveTab('reconcile') } },
+                                        { label: t('external_accounting.qbo_tool_reclassify'), action: () => setActiveTab('reclassify') },
+                                        { label: t('external_accounting.qbo_tool_close_books'), action: () => setActiveTab('company_settings') },
+                                        { label: t('external_accounting.create_contractor_1099'), action: () => { setContactFilterType('1099'); setActiveTab('contacts') } },
+                                    ].map((it, i) => (
+                                        <button
+                                            key={i}
+                                            type="button"
+                                            onClick={() => {
+                                                setRailFlyout(null)
+                                                it.action()
+                                            }}
+                                            className="w-full text-left px-3 py-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 font-semibold text-slate-700 dark:text-slate-200 flex items-center justify-between cursor-pointer"
+                                        >
+                                            <span>{it.label}</span>
+                                            <ChevronRight size={13} className="text-slate-400" />
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* FLYOUT 5: REPORTS */}
+                        {railFlyout === 'reports' && (
+                            <div className="space-y-3 text-xs">
+                                <div className="text-[11px] font-black uppercase tracking-wider text-slate-400 pb-2 border-b border-slate-100 dark:border-slate-800">
+                                    {t('external_accounting.qbo_rail_reports')}
+                                </div>
+                                <div className="space-y-1">
+                                    {[
+                                        { id: 'pnl', label: t('external_accounting.report_pnl') },
+                                        { id: 'balance_sheet', label: t('external_accounting.report_balance_sheet') },
+                                        { id: 'trial_balance', label: t('external_accounting.report_trial_balance') },
+                                        { id: 'general_ledger', label: t('external_accounting.report_general_ledger') },
+                                        { id: 'bank_register', label: t('external_accounting.report_bank_register') },
+                                        { id: 'vendor_expenses', label: t('external_accounting.report_vendor_expenses') },
+                                        { id: 'customer_income', label: t('external_accounting.report_customer_income') },
+                                        { id: 'check_detail', label: t('external_accounting.report_check_detail') },
+                                        { id: 'deposit_detail', label: t('external_accounting.report_deposit_detail') },
+                                        { id: 'qbo_archive', label: t('external_accounting.report_qbo_archive') },
+                                    ].map(rep => (
+                                        <button
+                                            key={rep.id}
+                                            type="button"
+                                            onClick={() => {
+                                                setReportType(rep.id)
+                                                setActiveTab('reports')
+                                                setRailFlyout(null)
+                                            }}
+                                            className="w-full text-left px-3 py-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 font-semibold text-slate-700 dark:text-slate-200 flex items-center justify-between cursor-pointer"
+                                        >
+                                            <span>{rep.label}</span>
+                                            <ChevronRight size={13} className="text-slate-400" />
+                                        </button>
+                                    ))}
+                                    <div className="pt-2 mt-2 border-t border-slate-100 dark:border-slate-800 space-y-1">
+                                        <button
+                                            type="button"
+                                            onClick={() => { setActiveTab('budgeting'); setRailFlyout(null) }}
+                                            className="w-full text-left px-3 py-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 font-semibold text-slate-700 dark:text-slate-200 flex items-center justify-between cursor-pointer"
+                                        >
+                                            <span>{t('external_accounting.gear_budgeting')}</span>
+                                            <ChevronRight size={13} className="text-slate-400" />
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => { setActiveTab('audit_log'); setRailFlyout(null) }}
+                                            className="w-full text-left px-3 py-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 font-semibold text-slate-700 dark:text-slate-200 flex items-center justify-between cursor-pointer"
+                                        >
+                                            <span>{t('external_accounting.gear_audit_log')}</span>
+                                            <ChevronRight size={13} className="text-slate-400" />
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* FLYOUT 6: ALL APPS / FIRM BOOKS */}
+                        {railFlyout === 'all_apps' && (
+                            <div className="space-y-3 text-xs">
+                                <div className="text-[11px] font-black uppercase tracking-wider text-slate-400 pb-2 border-b border-slate-100 dark:border-slate-800">
+                                    {isFirmRailTheme ? t('external_accounting.qbo_rail_firm_books') : t('external_accounting.qbo_rail_all_apps')}
+                                </div>
+                                <div className="space-y-1">
+                                    {[
+                                        { label: t('external_accounting.qbo_rail_accounting'), action: () => setActiveTab('accounts') },
+                                        { label: t('external_accounting.tab_transactions_clean'), action: () => { setFilterDirection('ALL'); setActiveTab('transactions') } },
+                                        { label: t('external_accounting.tab_checkbook_clean'), action: () => setActiveTab('checks_deposits') },
+                                        { label: t('external_accounting.tab_reports_clean'), action: () => setActiveTab('reports') },
+                                        { label: t('external_accounting.tab_reconcile_clean'), action: () => { if (!reconcileAccountId && bankAndCardAccounts[0]) handleAutoSelectReconcileAccount(bankAndCardAccounts[0].qb_account_id); setActiveTab('reconcile') } },
+                                        { label: t('external_accounting.qbo_tool_books_review'), action: () => setActiveTab('books_review') },
+                                        { label: t('external_accounting.qbo_shortcut_vendors'), action: () => { setContactFilterType('Vendor'); setActiveTab('contacts') } },
+                                        { label: t('external_accounting.qbo_shortcut_customers'), action: () => { setContactFilterType('Customer'); setActiveTab('contacts') } },
+                                        { label: t('external_accounting.qbo_tool_lists'), action: () => setActiveTab('lists') },
+                                        { label: t('external_accounting.qbo_tool_recurring'), action: () => setActiveTab('recurring') },
+                                        { label: t('external_accounting.qbo_tool_rules'), action: () => setActiveTab('rules') },
+                                        { label: t('external_accounting.gear_budgeting'), action: () => setActiveTab('budgeting') },
+                                        { label: t('external_accounting.gear_audit_log'), action: () => setActiveTab('audit_log') },
+                                        { label: t('external_accounting.gear_company_settings'), action: () => setActiveTab('company_settings') },
+                                    ].map((it, idx) => (
+                                        <button
+                                            key={idx}
+                                            type="button"
+                                            onClick={() => {
+                                                setRailFlyout(null)
+                                                it.action()
+                                            }}
+                                            className="w-full text-left px-3 py-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 font-semibold text-slate-700 dark:text-slate-200 flex items-center justify-between cursor-pointer"
+                                        >
+                                            <span>{it.label}</span>
+                                            <ChevronRight size={13} className="text-slate-400" />
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* FLYOUT 7: ACCOUNTING */}
+                        {railFlyout === 'accounting' && (
+                            <div className="space-y-3 text-xs">
+                                <div className="text-[11px] font-black uppercase tracking-wider text-slate-400 pb-2 border-b border-slate-100 dark:border-slate-800">
+                                    {t('external_accounting.qbo_rail_accounting')}
+                                </div>
+                                <div className="space-y-1">
+                                    {[
+                                        { label: t('external_accounting.tab_overview_clean'), action: () => setActiveTab('overview') },
+                                        { label: t('external_accounting.qbo_tool_books_review'), action: () => setActiveTab('books_review') },
+                                        { label: t('external_accounting.qbo_shortcut_bank_txns'), action: () => { setFilterDirection('ALL'); setFilterType('ALL'); setActiveTab('transactions') } },
+                                        { label: t('external_accounting.tab_checkbook_clean'), action: () => setActiveTab('checks_deposits') },
+                                        { label: t('external_accounting.qbo_shortcut_reconcile'), action: () => { if (!reconcileAccountId && bankAndCardAccounts[0]) handleAutoSelectReconcileAccount(bankAndCardAccounts[0].qb_account_id); setActiveTab('reconcile') } },
+                                        { label: t('external_accounting.qbo_tool_rules'), action: () => setActiveTab('rules') },
+                                        { label: t('external_accounting.qbo_shortcut_coa'), action: () => setActiveTab('accounts') },
+                                        { label: t('external_accounting.qbo_tool_recurring'), action: () => setActiveTab('recurring') },
+                                        { label: t('external_accounting.qbo_tool_reclassify'), action: () => setActiveTab('reclassify') },
+                                        { label: t('external_accounting.qbo_shortcut_journal_entry'), action: () => openTransactionModal('JournalEntry') },
+                                    ].map((it, idx) => (
+                                        <button
+                                            key={idx}
+                                            type="button"
+                                            onClick={() => {
+                                                setRailFlyout(null)
+                                                it.action()
+                                            }}
+                                            className="w-full text-left px-3 py-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 font-semibold text-slate-700 dark:text-slate-200 flex items-center justify-between cursor-pointer"
+                                        >
+                                            <span>{it.label}</span>
+                                            <ChevronRight size={13} className="text-slate-400" />
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* FLYOUT 8: EXPENSES */}
+                        {railFlyout === 'expenses' && (
+                            <div className="space-y-3 text-xs">
+                                <div className="text-[11px] font-black uppercase tracking-wider text-slate-400 pb-2 border-b border-slate-100 dark:border-slate-800">
+                                    {t('external_accounting.qbo_rail_expenses')}
+                                </div>
+                                <div className="space-y-1">
+                                    {[
+                                        { label: t('external_accounting.tab_checkbook_clean'), action: () => setActiveTab('checks_deposits') },
+                                        { label: t('external_accounting.qbo_shortcut_write_check'), action: () => openTransactionModal('Check') },
+                                        { label: t('external_accounting.create_print_checks'), action: () => openPrintChecksModal() },
+                                        { label: t('external_accounting.btn_new_expense'), action: () => openTransactionModal('Expense') },
+                                        { label: t('external_accounting.btn_new_bill'), action: () => openTransactionModal('Bill') },
+                                        { label: t('external_accounting.btn_new_bill_payment'), action: () => openTransactionModal('BillPayment') },
+                                        { label: t('external_accounting.qbo_shortcut_vendors'), action: () => { setContactFilterType('Vendor'); setActiveTab('contacts') } },
+                                        { label: t('external_accounting.create_contractor_1099'), action: () => { setContactFilterType('1099'); setActiveTab('contacts') } },
+                                    ].map((it, idx) => (
+                                        <button
+                                            key={idx}
+                                            type="button"
+                                            onClick={() => {
+                                                setRailFlyout(null)
+                                                it.action()
+                                            }}
+                                            className="w-full text-left px-3 py-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 font-semibold text-slate-700 dark:text-slate-200 flex items-center justify-between cursor-pointer"
+                                        >
+                                            <span>{it.label}</span>
+                                            <ChevronRight size={13} className="text-slate-400" />
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* FLYOUT 9: SALES */}
+                        {railFlyout === 'sales' && (
+                            <div className="space-y-3 text-xs">
+                                <div className="text-[11px] font-black uppercase tracking-wider text-slate-400 pb-2 border-b border-slate-100 dark:border-slate-800">
+                                    {t('external_accounting.qbo_rail_sales')}
+                                </div>
+                                <div className="space-y-1">
+                                    {[
+                                        { label: t('external_accounting.qbo_shortcut_bank_deposit'), action: () => openTransactionModal('Deposit') },
+                                        { label: t('external_accounting.btn_new_invoice'), action: () => openTransactionModal('Invoice') },
+                                        { label: t('external_accounting.btn_new_payment'), action: () => openTransactionModal('Payment') },
+                                        { label: t('external_accounting.create_sales_receipt'), action: () => openTransactionModal('SalesReceipt') },
+                                        { label: t('external_accounting.qbo_shortcut_customers'), action: () => { setContactFilterType('Customer'); setActiveTab('contacts') } },
+                                        { label: t('external_accounting.gear_products_services'), action: () => { setActiveListKey('items'); setActiveTab('lists') } },
+                                    ].map((it, idx) => (
+                                        <button
+                                            key={idx}
+                                            type="button"
+                                            onClick={() => {
+                                                setRailFlyout(null)
+                                                it.action()
+                                            }}
+                                            className="w-full text-left px-3 py-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 font-semibold text-slate-700 dark:text-slate-200 flex items-center justify-between cursor-pointer"
+                                        >
+                                            <span>{it.label}</span>
+                                            <ChevronRight size={13} className="text-slate-400" />
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                )}
+            </aside>
+
+            {/* ====================================================================
+                1:1 QUICKBOOKS ONLINE TOP HEADER BAR (Sticky h-14)
+                - Top-Left: Company Switcher Dropdown (`Raquel Accounting v` + `ALL CLIENTS`)
+                - Center: Global QBO Search & Navigate Bar (`Navigate. Find transactions...`)
+                - Top-Right: Period Selector, Privacy Switch, QBO Sync, Gear ⚙️, User Avatar, `← Portal TEG`
+               ==================================================================== */}
+            <header className="sticky top-0 z-[65] bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 shadow-2xs">
+                <div className="h-14 px-4 md:px-6 flex items-center justify-between gap-3">
+                    {/* Left: QBO Company Switcher Dropdown */}
+                    <div className="relative flex items-center gap-2">
+                        <button
+                            type="button"
+                            onClick={() => {
+                                setCompanySwitcherOpen(v => !v)
+                                setGlobalSearchOpen(false)
+                            }}
+                            className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-900 dark:text-white font-bold text-sm transition-colors cursor-pointer"
+                        >
+                            <span className="truncate max-w-[220px] sm:max-w-[280px]">
+                                {activeCompany?.company_name || 'Raquel Accounting'}
+                            </span>
+                            <ChevronDown size={15} className="text-slate-500 shrink-0" />
+                        </button>
+
+                        {/* QBO Company Switcher Popover (`ACCOUNTING FIRM` + `ALL CLIENTS`) */}
+                        {companySwitcherOpen && (
+                            <div className="absolute top-12 left-0 w-[360px] rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-2xl z-[95] p-3 space-y-2.5 text-xs">
+                                <div className="relative">
+                                    <Search size={14} className="absolute left-3 top-2.5 text-slate-400" />
+                                    <input
+                                        type="text"
+                                        value={companySwitcherFilter}
+                                        onChange={(e) => setCompanySwitcherFilter(e.target.value)}
+                                        placeholder={t('external_accounting.qbo_switcher_filter_placeholder')}
+                                        className="w-full pl-8 pr-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 focus:outline-none"
+                                    />
+                                </div>
+                                <div className="max-h-80 overflow-y-auto space-y-2 divide-y divide-slate-100 dark:divide-slate-800">
+                                    {/* Firm Section (`Raquel Accounting`) */}
+                                    <div className="pb-2">
+                                        <div className="px-2 py-1 text-[10px] font-black uppercase tracking-wider text-slate-400">
+                                            {t('external_accounting.qbo_switcher_firm_section')}
+                                        </div>
+                                        {companies
+                                            .filter(c => c.realm_id === '123145825185692' && (!companySwitcherFilter || c.company_name.toLowerCase().includes(companySwitcherFilter.toLowerCase())))
+                                            .map(c => (
+                                                <button
+                                                    key={c.realm_id}
+                                                    type="button"
+                                                    onClick={() => {
+                                                        setActiveRealmId(c.realm_id)
+                                                        setFilterAccountId('ALL')
+                                                        setPage(1)
+                                                        setCheckbookPage(1)
+                                                        setCompanySwitcherOpen(false)
+                                                    }}
+                                                    className={`w-full px-3 py-2 rounded-lg flex items-center justify-between text-left cursor-pointer ${
+                                                        activeRealmId === c.realm_id
+                                                            ? 'bg-[#003b32] text-white font-bold'
+                                                            : 'hover:bg-slate-100 dark:hover:bg-slate-800 font-semibold'
+                                                    }`}
+                                                >
+                                                    <span className="inline-flex items-center gap-2">
+                                                        <span className="w-2 h-2 rounded-full bg-emerald-400" />
+                                                        <span>{c.company_name}</span>
+                                                    </span>
+                                                    <span className="font-mono text-[11px]">{formatDisplayCurrency(c.total_cash_balance ?? 0)}</span>
+                                                </button>
+                                            ))}
+                                    </div>
+                                    {/* All Clients Section (7 Client LLCs) */}
+                                    <div className="pt-2">
+                                        <div className="px-2 py-1 text-[10px] font-black uppercase tracking-wider text-slate-400">
+                                            {t('external_accounting.qbo_switcher_clients_section')}
+                                        </div>
+                                        <div className="space-y-0.5">
+                                            {companies
+                                                .filter(c => c.realm_id !== '123145825185692' && (!companySwitcherFilter || c.company_name.toLowerCase().includes(companySwitcherFilter.toLowerCase())))
+                                                .map(c => (
+                                                    <button
+                                                        key={c.realm_id}
+                                                        type="button"
+                                                        onClick={() => {
+                                                            setActiveRealmId(c.realm_id)
+                                                            setFilterAccountId('ALL')
+                                                            setPage(1)
+                                                            setCheckbookPage(1)
+                                                            setCompanySwitcherOpen(false)
+                                                        }}
+                                                        className={`w-full px-3 py-2 rounded-lg flex items-center justify-between text-left cursor-pointer ${
+                                                            activeRealmId === c.realm_id
+                                                                ? 'bg-emerald-600 text-white font-bold'
+                                                                : 'hover:bg-slate-100 dark:hover:bg-slate-800 font-semibold text-slate-700 dark:text-slate-200'
+                                                        }`}
+                                                    >
+                                                        <span className="truncate">{c.company_name}</span>
+                                                        <span className="font-mono text-[11px] shrink-0">{formatDisplayCurrency(c.total_cash_balance ?? 0)}</span>
+                                                    </button>
+                                                ))}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Center: Global QBO Search & Navigate Bar (`Navigate. Find transactions, contacts, help, reports, and more.`) */}
+                    <div className="relative flex-1 max-w-xl hidden md:block">
+                        <div className="relative">
+                            <Search size={15} className="absolute left-3.5 top-2.5 text-slate-400" />
+                            <input
+                                type="text"
+                                value={globalSearchTerm}
+                                onFocus={() => {
+                                    setGlobalSearchOpen(true)
+                                    setCompanySwitcherOpen(false)
+                                }}
+                                onChange={(e) => {
+                                    setGlobalSearchTerm(e.target.value)
+                                    setGlobalSearchOpen(true)
+                                }}
+                                placeholder={t('external_accounting.qbo_top_search_placeholder')}
+                                className="w-full pl-9 pr-8 py-1.5 rounded-lg bg-[#f4f5f8] dark:bg-slate-800 border border-transparent focus:border-emerald-500 focus:bg-white dark:focus:bg-slate-900 text-xs text-slate-800 dark:text-slate-100 focus:outline-none transition-all"
+                            />
+                            {globalSearchTerm && (
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setGlobalSearchTerm('')
+                                        setGlobalSearchOpen(false)
+                                    }}
+                                    className="absolute right-2.5 top-2 text-xs text-slate-400 hover:text-slate-700 cursor-pointer"
+                                >
+                                    ✕
+                                </button>
+                            )}
+                        </div>
+
+                        {/* Global Search Instant Results Popover */}
+                        {globalSearchOpen && (
+                            <div
+                                onMouseLeave={() => setGlobalSearchOpen(false)}
+                                className="absolute top-11 left-0 right-0 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-2xl z-[95] p-4 max-h-[70vh] overflow-y-auto space-y-4 text-xs"
+                            >
+                                {/* Quick Navigation Shortcuts */}
+                                <div>
+                                    <div className="text-[10px] font-black uppercase tracking-wider text-slate-400 mb-1.5">
+                                        {t('external_accounting.qbo_flyout_bookkeeping_shortcuts')}
+                                    </div>
+                                    <div className="flex flex-wrap gap-1.5">
+                                        {[
+                                            { label: t('external_accounting.report_pnl'), run: () => { setReportType('pnl'); setActiveTab('reports') } },
+                                            { label: t('external_accounting.report_balance_sheet'), run: () => { setReportType('balance_sheet'); setActiveTab('reports') } },
+                                            { label: t('external_accounting.qbo_shortcut_reconcile'), run: () => { if (!reconcileAccountId && bankAndCardAccounts[0]) handleAutoSelectReconcileAccount(bankAndCardAccounts[0].qb_account_id); setActiveTab('reconcile') } },
+                                            { label: t('external_accounting.qbo_shortcut_coa'), run: () => setActiveTab('accounts') },
+                                            { label: t('external_accounting.qbo_tool_books_review'), run: () => setActiveTab('books_review') },
+                                            { label: t('external_accounting.qbo_shortcut_write_check'), run: () => openTransactionModal('Check') },
+                                            { label: t('external_accounting.qbo_shortcut_bank_deposit'), run: () => openTransactionModal('Deposit') },
+                                        ].map((s, idx) => (
+                                            <button
+                                                key={idx}
+                                                type="button"
+                                                onClick={() => {
+                                                    setGlobalSearchOpen(false)
+                                                    s.run()
+                                                }}
+                                                className="px-2.5 py-1 rounded-full bg-slate-100 dark:bg-slate-800 hover:bg-emerald-600 hover:text-white font-semibold transition-colors cursor-pointer"
+                                            >
+                                                {s.label}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+
+                                {/* Matching Accounts */}
+                                {(() => {
+                                    const q = globalSearchTerm.trim().toLowerCase()
+                                    const matchedAccs = (q ? accounts.filter(a => `${a.name} ${a.acct_num || ''} ${a.account_type || ''}`.toLowerCase().includes(q)) : accounts).slice(0, 5)
+                                    if (matchedAccs.length === 0) return null
+                                    return (
+                                        <div>
+                                            <div className="text-[10px] font-black uppercase tracking-wider text-slate-400 mb-1">
+                                                {t('external_accounting.qbo_shortcut_coa')}
+                                            </div>
+                                            <div className="divide-y divide-slate-100 dark:divide-slate-800">
+                                                {matchedAccs.map(acc => (
+                                                    <button
+                                                        key={acc.id}
+                                                        type="button"
+                                                        onClick={() => {
+                                                            setGlobalSearchOpen(false)
+                                                            openAccountQuickReport(acc)
+                                                        }}
+                                                        className="w-full py-1.5 px-2 hover:bg-slate-50 dark:hover:bg-slate-800 rounded flex items-center justify-between text-left cursor-pointer"
+                                                    >
+                                                        <span className="font-semibold">{acc.fully_qualified_name || acc.name} <span className="text-slate-400 font-normal">({acc.account_type})</span></span>
+                                                        <span className="font-mono font-bold">{formatCurrency(acc.display_balance ?? acc.current_balance)}</span>
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )
+                                })()}
+
+                                {/* Matching Transactions */}
+                                {(() => {
+                                    const q = globalSearchTerm.trim().toLowerCase()
+                                    const matchedTxns = (q
+                                        ? transactions.filter(tx => `${tx.doc_number || ''} ${tx.entity_name || ''} ${tx.memo || ''} ${tx.category_summary || ''} ${tx.total_amount || ''}`.toLowerCase().includes(q))
+                                        : transactions
+                                    ).slice(0, 6)
+                                    if (matchedTxns.length === 0) return null
+                                    return (
+                                        <div>
+                                            <div className="text-[10px] font-black uppercase tracking-wider text-slate-400 mb-1">
+                                                {t('external_accounting.recent_activity_title')}
+                                            </div>
+                                            <div className="divide-y divide-slate-100 dark:divide-slate-800">
+                                                {matchedTxns.map(tx => (
+                                                    <button
+                                                        key={tx.id}
+                                                        type="button"
+                                                        onClick={() => {
+                                                            setGlobalSearchOpen(false)
+                                                            openRecordPreview('transaction', tx)
+                                                        }}
+                                                        className="w-full py-1.5 px-2 hover:bg-slate-50 dark:hover:bg-slate-800 rounded flex items-center justify-between text-left cursor-pointer"
+                                                    >
+                                                        <span className="truncate">
+                                                            <strong>{tx.txn_type} {tx.doc_number ? `#${tx.doc_number}` : ''}</strong> · {tx.entity_name || tx.category_summary} <span className="text-slate-400">({tx.txn_date})</span>
+                                                        </span>
+                                                        <span className="font-mono font-bold shrink-0">{formatCurrency(tx.total_amount)}</span>
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )
+                                })()}
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Right: Period Filter, Privacy Toggle, Refresh, Gear ⚙️, Avatar & `← Portal TEG` */}
+                    <div className="flex items-center gap-2">
+                        {/* Period Selector */}
                         <div className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-xs">
                             <Calendar size={13} className="text-slate-400" />
                             <select
@@ -4528,7 +5464,7 @@ function ExternalAccountingContent() {
                         </div>
 
                         {filterPeriod === 'CUSTOM' && (
-                            <div className="inline-flex items-center gap-1 text-xs">
+                            <div className="hidden xl:inline-flex items-center gap-1 text-xs">
                                 <input
                                     type="date"
                                     value={startDate}
@@ -4537,7 +5473,7 @@ function ExternalAccountingContent() {
                                         setPage(1)
                                         setCheckbookPage(1)
                                     }}
-                                    className="px-2 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 font-mono"
+                                    className="px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 font-mono"
                                 />
                                 <span className="text-slate-400">–</span>
                                 <input
@@ -4548,41 +5484,37 @@ function ExternalAccountingContent() {
                                         setPage(1)
                                         setCheckbookPage(1)
                                     }}
-                                    className="px-2 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 font-mono"
+                                    className="px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 font-mono"
                                 />
                             </div>
                         )}
 
+                        {/* QBO Privacy Switch */}
                         <button
                             type="button"
-                            onClick={() => openTransactionModal('Check')}
-                            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 text-slate-700 dark:text-slate-200 font-semibold text-xs transition-colors cursor-pointer"
+                            onClick={() => setPrivacyMask(v => !v)}
+                            title={t('external_accounting.qbo_privacy_label')}
+                            className={`hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-semibold transition-colors cursor-pointer ${
+                                privacyMask
+                                    ? 'border-emerald-600 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300'
+                                    : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300'
+                            }`}
                         >
-                            <span>{t('external_accounting.btn_quick_check')}</span>
+                            {privacyMask ? <EyeOff size={14} /> : <Eye size={14} />}
+                            <span className="hidden lg:inline">{t('external_accounting.qbo_privacy_label')}</span>
                         </button>
 
+                        {/* Refresh */}
                         <button
                             type="button"
-                            onClick={() => openTransactionModal('Deposit')}
-                            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 text-slate-700 dark:text-slate-200 font-semibold text-xs transition-colors cursor-pointer"
+                            onClick={fetchWorkspaceData}
+                            title={t('external_accounting.refresh')}
+                            className="p-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 text-slate-600 dark:text-slate-300 transition-colors cursor-pointer"
                         >
-                            <span>{t('external_accounting.btn_quick_deposit')}</span>
+                            <RefreshCw size={15} className={loading ? 'animate-spin text-emerald-600' : ''} />
                         </button>
 
-                        {/* Botón Principal QBO "+ Crear" */}
-                        <button
-                            type="button"
-                            onClick={() => {
-                                setCreateMenuOpen(v => !v)
-                                setGearMenuOpen(false)
-                            }}
-                            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-xs transition-all cursor-pointer"
-                        >
-                            <Plus size={15} />
-                            <span>{t('external_accounting.create_menu_btn').replace(/^\+\s*/, '')}</span>
-                        </button>
-
-                        {/* Engrane "⚙️" */}
+                        {/* Gear Icon "⚙️" */}
                         <button
                             type="button"
                             onClick={() => {
@@ -4590,32 +5522,40 @@ function ExternalAccountingContent() {
                                 setCreateMenuOpen(false)
                             }}
                             title={t('external_accounting.gear_menu_btn')}
-                            className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border text-xs font-semibold transition-all cursor-pointer ${
+                            className={`p-2 rounded-lg border transition-colors cursor-pointer ${
                                 gearMenuOpen
                                     ? 'border-slate-900 bg-slate-900 text-white dark:border-white dark:bg-white dark:text-slate-900'
                                     : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 text-slate-700 dark:text-slate-200'
                             }`}
                         >
-                            <Settings size={15} />
-                            <span className="hidden sm:inline"> {t('external_accounting.btn_settings_short')}</span>
+                            <Settings size={16} />
                         </button>
 
-                        <button
-                            type="button"
-                            onClick={fetchWorkspaceData}
-                            title={t('external_accounting.refresh')}
-                            className="p-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 text-slate-500 transition-colors cursor-pointer"
+                        {/* User Avatar Circle (`R`) */}
+                        <div
+                            title={`${user?.name || 'Raquel'} (${user?.email || ''})`}
+                            className="w-7 h-7 rounded-full bg-[#0077c5] text-white font-black text-xs flex items-center justify-center shrink-0"
                         >
-                            <RefreshCw size={15} className={loading ? 'animate-spin text-emerald-600' : ''} />
-                        </button>
+                            {(user?.name || 'R').charAt(0).toUpperCase()}
+                        </div>
+
+                        {/* Return to TEG Portal Button */}
+                        <Link
+                            href="/inicio"
+                            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 text-slate-700 dark:text-slate-200 font-bold text-xs transition-colors"
+                        >
+                            <span>{t('external_accounting.qbo_back_to_teg')}</span>
+                        </Link>
                     </div>
                 </div>
 
-                {/* Pestañas Horizontales Limpias (Estilo Editorial Subrayado — Sin Cajas Pesadas) */}
-                <div className="px-6 border-t border-slate-100 dark:border-slate-800/80 flex flex-wrap items-center justify-between gap-2">
+                {/* Secondary QBO Sub-Navigation Strip + QBO Sync Status & Export (.XLS / .CSV / Print PDF) */}
+                <div className="px-4 md:px-6 border-t border-slate-100 dark:border-slate-800/80 bg-white dark:bg-slate-900 flex flex-wrap items-center justify-between gap-2">
                     <div className="flex flex-wrap items-center gap-1 -mb-px">
                         {([
                             { id: 'overview' as ActiveTab, label: t('external_accounting.tab_overview_clean') },
+                            { id: 'clients' as ActiveTab, label: `${t('external_accounting.qbo_rail_clients')} (${companies.length})` },
+                            { id: 'books_review' as ActiveTab, label: t('external_accounting.qbo_tool_books_review') },
                             { id: 'transactions' as ActiveTab, label: `${t('external_accounting.tab_transactions_clean')} (${(summary.totalRecords || 0).toLocaleString()})` },
                             { id: 'checks_deposits' as ActiveTab, label: t('external_accounting.tab_checkbook_clean') },
                             { id: 'reports' as ActiveTab, label: t('external_accounting.tab_reports_clean') },
@@ -4634,9 +5574,9 @@ function ExternalAccountingContent() {
                                         }
                                         setActiveTab(tab.id)
                                     }}
-                                    className={`px-3.5 py-3 text-xs font-bold border-b-2 transition-colors cursor-pointer whitespace-nowrap ${
+                                    className={`px-3 py-2.5 text-xs font-bold border-b-2 transition-colors cursor-pointer whitespace-nowrap ${
                                         isAct
-                                            ? 'border-emerald-600 text-emerald-700 dark:text-emerald-400'
+                                            ? 'border-[#2ca01c] text-[#108000] dark:text-emerald-400'
                                             : 'border-transparent text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white'
                                     }`}
                                 >
@@ -4645,16 +5585,15 @@ function ExternalAccountingContent() {
                             )
                         })}
 
-                        {/* Si una herramienta avanzada del engrane está activa, mostrar su pestaña activa */}
                         {['recurring', 'lists', 'reclassify', 'rules', 'budgeting', 'audit_log', 'company_settings'].includes(activeTab) && (
-                            <span className="px-3.5 py-3 text-xs font-bold border-b-2 border-emerald-600 text-emerald-700 dark:text-emerald-400">
+                            <span className="px-3 py-2.5 text-xs font-bold border-b-2 border-[#2ca01c] text-[#108000] dark:text-emerald-400">
                                 ⚙️ {activeTab === 'recurring' ? t('external_accounting.tab_recurring') : activeTab === 'lists' ? t('external_accounting.tab_lists') : activeTab === 'reclassify' ? t('external_accounting.tab_reclassify') : activeTab === 'rules' ? t('external_accounting.tab_rules') : activeTab === 'budgeting' ? t('external_accounting.tab_budgeting') : activeTab === 'audit_log' ? t('external_accounting.tab_audit_log') : t('external_accounting.tab_company_settings')}
                             </span>
                         )}
                     </div>
 
-                    {/* Acciones discretas de Sincronización QBO + Exportar / Imprimir a la derecha de las pestañas */}
-                    <div className="flex flex-wrap items-center gap-3 py-2 text-xs">
+                    {/* Right of Sub-Nav: QBO Sync Status + .XLS / .CSV / Print PDF */}
+                    <div className="flex flex-wrap items-center gap-3 py-1.5 text-xs">
                         {activeCompany?.qbo_sync_enabled === false ? (
                             <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-[11px] font-medium">
                                 <span className="w-1.5 h-1.5 rounded-full bg-slate-400" />
@@ -5141,13 +6080,97 @@ function ExternalAccountingContent() {
                         </div>
                     </div>
                 )}
-            </div>
+            </header>
 
+            <div className="flex-1 p-4 md:p-6 space-y-5">
             {/* ====================================================================
-                TAB 1: RESUMEN Y BANCOS (DISEÑO EDITORIAL LIMPIO EN 2 COLUMNAS)
+                TAB 1: QBO EXECUTIVE HOMEPAGE (`Home`) + BUSINESS AT A GLANCE
                ==================================================================== */}
             {activeTab === 'overview' && (
                 <div className="space-y-6">
+                    {/* QBO Homepage Greeting + Quick App Pills + Create Actions Strip */}
+                    <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 shadow-xs space-y-4">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                            <div>
+                                <h1 className="text-xl md:text-2xl font-black tracking-tight text-slate-900 dark:text-white">
+                                    {t('external_accounting.qbo_greeting_afternoon')}, {(user?.name || 'Raquel').split(' ')[0]}!
+                                </h1>
+                                <p className="text-xs text-slate-500 mt-0.5">
+                                    {activeCompany?.legal_name || activeCompany?.company_name} · {companyLists.accountingMethod || 'Accrual'} Basis
+                                    {companyLists.closingDate ? ` · 🔒 Closed through ${companyLists.closingDate}` : ''}
+                                </p>
+                            </div>
+                            <div className="flex items-center gap-3 text-xs">
+                                <button
+                                    type="button"
+                                    onClick={() => setCustomizeRailModalOpen(true)}
+                                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 font-semibold text-slate-700 dark:text-slate-200 cursor-pointer"
+                                >
+                                    <SlidersHorizontal size={13} />
+                                    <span>{t('external_accounting.qbo_rail_customize')}</span>
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setPrivacyMask(v => !v)}
+                                    className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 font-semibold text-slate-700 dark:text-slate-200 cursor-pointer"
+                                >
+                                    <span>{t('external_accounting.qbo_privacy_label')}</span>
+                                    <span className={`w-8 h-4 rounded-full p-0.5 transition-colors flex items-center ${privacyMask ? 'bg-[#2ca01c] justify-end' : 'bg-slate-300 dark:bg-slate-700 justify-start'}`}>
+                                        <span className="w-3 h-3 rounded-full bg-white shadow-xs" />
+                                    </span>
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* QBO Quick App Pills */}
+                        <div className="flex flex-wrap items-center gap-2 pt-1">
+                            {[
+                                { label: t('external_accounting.qbo_rail_accounting'), color: 'bg-[#003b32] text-white', run: () => setActiveTab('accounts') },
+                                { label: t('external_accounting.qbo_rail_expenses'), color: 'bg-emerald-700 text-white', run: () => setActiveTab('checks_deposits') },
+                                { label: t('external_accounting.qbo_rail_sales'), color: 'bg-teal-700 text-white', run: () => { setFilterDirection('IN'); setActiveTab('transactions') } },
+                                { label: t('external_accounting.qbo_rail_reports'), color: 'bg-blue-700 text-white', run: () => setActiveTab('reports') },
+                                { label: t('external_accounting.qbo_shortcut_reconcile'), color: 'bg-indigo-700 text-white', run: () => { if (!reconcileAccountId && bankAndCardAccounts[0]) handleAutoSelectReconcileAccount(bankAndCardAccounts[0].qb_account_id); setActiveTab('reconcile') } },
+                                { label: t('external_accounting.qbo_tool_books_review'), color: 'bg-amber-600 text-white', run: () => setActiveTab('books_review') },
+                                { label: `${t('external_accounting.qbo_rail_clients')} (${companies.length})`, color: 'bg-slate-800 text-white', run: () => setActiveTab('clients') },
+                            ].map((pill, i) => (
+                                <button
+                                    key={i}
+                                    type="button"
+                                    onClick={pill.run}
+                                    className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:border-emerald-500 hover:shadow-xs text-xs font-bold text-slate-800 dark:text-slate-100 transition-all cursor-pointer"
+                                >
+                                    <span className={`w-4 h-4 rounded-full text-[9px] flex items-center justify-center font-black ${pill.color}`}>✓</span>
+                                    <span>{pill.label}</span>
+                                </button>
+                            ))}
+                        </div>
+
+                        {/* QBO `Create actions` Pills */}
+                        <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-100 dark:border-slate-800 text-xs">
+                            <span className="font-bold text-slate-500 mr-1">{t('external_accounting.qbo_create_actions_label')}:</span>
+                            {[
+                                { label: t('external_accounting.qbo_shortcut_write_check'), run: () => openTransactionModal('Check') },
+                                { label: t('external_accounting.qbo_shortcut_bank_deposit'), run: () => openTransactionModal('Deposit') },
+                                { label: t('external_accounting.btn_new_expense'), run: () => openTransactionModal('Expense') },
+                                { label: t('external_accounting.btn_new_invoice'), run: () => openTransactionModal('Invoice') },
+                                { label: t('external_accounting.btn_new_bill'), run: () => openTransactionModal('Bill') },
+                                { label: t('external_accounting.qbo_shortcut_transfer'), run: () => openTransactionModal('Transfer') },
+                                { label: t('external_accounting.qbo_shortcut_journal_entry'), run: () => openTransactionModal('JournalEntry') },
+                                { label: t('external_accounting.create_print_checks'), run: () => openPrintChecksModal() },
+                                { label: t('external_accounting.create_batch_transactions'), run: () => openBatchModal() },
+                            ].map((act, idx) => (
+                                <button
+                                    key={idx}
+                                    type="button"
+                                    onClick={act.run}
+                                    className="px-3 py-1 rounded-full border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 font-semibold text-slate-700 dark:text-slate-200 transition-colors cursor-pointer"
+                                >
+                                    {act.label}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+
                     {/* Tira Financiera Unificada (1 sola tarjeta dividida en 4 métricas limpias — Clic en cualquiera abre el Reporte Detallado PDF/XLS) */}
                     <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 divide-y sm:divide-y-0 sm:divide-x divide-slate-200 dark:divide-slate-800">
                         <div
@@ -5160,7 +6183,7 @@ function ExternalAccountingContent() {
                                 <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 opacity-80 group-hover:underline">📊 {t('external_accounting.drilldown_view_txns_badge')}</span>
                             </div>
                             <div className="text-2xl font-black font-mono text-slate-900 dark:text-white mt-1 group-hover:text-emerald-600 dark:group-hover:text-emerald-400 group-hover:underline">
-                                {formatCurrency(summary.totalBankBalance)}
+                                {formatDisplayCurrency(summary.totalBankBalance)}
                             </div>
                             <div className="text-[11px] text-slate-400 mt-1">
                                 {bankAndCardAccounts.length} {t('external_accounting.banks_accounts_count_sub')}
@@ -5187,7 +6210,7 @@ function ExternalAccountingContent() {
                                 <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 opacity-80 group-hover:underline">📊 {t('external_accounting.drilldown_view_txns_badge')}</span>
                             </div>
                             <div className="text-2xl font-black font-mono text-emerald-600 dark:text-emerald-400 mt-1 group-hover:underline">
-                                +{formatCurrency(summary.totalInflows)}
+                                +{formatDisplayCurrency(summary.totalInflows)}
                             </div>
                             <div className="text-[11px] text-slate-400 mt-1">
                                 {summary.depositsCount || 0} {t('external_accounting.registered_deposits_sub')}
@@ -5216,7 +6239,7 @@ function ExternalAccountingContent() {
                                 <span className="text-[10px] font-bold text-blue-600 dark:text-blue-400 opacity-80 group-hover:underline">📊 {t('external_accounting.drilldown_view_txns_badge')}</span>
                             </div>
                             <div className="text-2xl font-black font-mono text-slate-900 dark:text-white mt-1 group-hover:underline">
-                                -{formatCurrency(summary.totalOutflows)}
+                                -{formatDisplayCurrency(summary.totalOutflows)}
                             </div>
                             <div className="text-[11px] text-slate-400 mt-1">
                                 {summary.checksCount || 0} {t('external_accounting.checks_and_charges_sub')} ({summary.expensesCount || 0})
@@ -5232,7 +6255,7 @@ function ExternalAccountingContent() {
                                 <span className="text-[10px] font-bold text-blue-600 dark:text-blue-400 opacity-80 group-hover:underline">📊 {t('external_accounting.drilldown_view_txns_badge')}</span>
                             </div>
                             <div className="text-2xl font-black font-mono text-slate-900 dark:text-white mt-1 group-hover:underline">
-                                {formatCurrency(summary.netCashFlow)}
+                                {formatDisplayCurrency(summary.netCashFlow)}
                             </div>
                             <div className="text-[11px] text-slate-400 mt-1">
                                 {(summary.totalRecords || 0).toLocaleString()} {t('external_accounting.total_movements_sub')}
@@ -5289,7 +6312,7 @@ function ExternalAccountingContent() {
                                                 <div className="flex items-center gap-4">
                                                     <div className="text-right">
                                                         <div className="text-base font-black font-mono text-slate-900 dark:text-white group-hover:text-emerald-600 dark:group-hover:text-emerald-400 group-hover:underline">
-                                                            {formatCurrency(accBal)}
+                                                            {formatDisplayCurrency(accBal)}
                                                         </div>
                                                         <div className="text-[10px] text-slate-400">{t('external_accounting.book_balance_short')}</div>
                                                     </div>
@@ -5351,7 +6374,7 @@ function ExternalAccountingContent() {
                                             {t('external_accounting.bs_total_bank_accounts')} ({bankAndCardAccounts.length})
                                         </span>
                                         <span className="text-base font-black font-mono text-emerald-700 dark:text-emerald-300 underline decoration-dotted">
-                                            {formatCurrency(summary.totalBankBalance)}
+                                            {formatDisplayCurrency(summary.totalBankBalance)}
                                         </span>
                                     </div>
                                 </div>
@@ -5393,7 +6416,7 @@ function ExternalAccountingContent() {
                                                     <div className={`font-bold font-mono ${
                                                         isIn ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-900 dark:text-white'
                                                     }`}>
-                                                        {isIn ? '+' : '-'}{formatCurrency(txn.total_amount)}
+                                                        {isIn ? '+' : '-'}{formatDisplayCurrency(txn.total_amount)}
                                                     </div>
                                                     <div className="inline-flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
                                                         <button
@@ -5440,7 +6463,13 @@ function ExternalAccountingContent() {
                                     <h2 className="text-sm font-bold text-slate-900 dark:text-white">
                                         {t('external_accounting.available_companies_title')} ({companies.length})
                                     </h2>
-                                    <span className="text-[11px] text-slate-400">{t('external_accounting.click_to_switch_hint')}</span>
+                                    <button
+                                        type="button"
+                                        onClick={() => setActiveTab('clients')}
+                                        className="text-[11px] font-bold text-emerald-600 hover:underline cursor-pointer"
+                                    >
+                                        {t('external_accounting.qbo_rail_clients')} →
+                                    </button>
                                 </div>
                                 <div className="divide-y divide-slate-100 dark:divide-slate-800 text-xs">
                                     {companies.map(c => {
@@ -5475,7 +6504,7 @@ function ExternalAccountingContent() {
                                                 </div>
                                                 <div className="text-right shrink-0">
                                                     <div className="font-mono font-bold text-slate-900 dark:text-white">
-                                                        {formatCurrency(bal)}
+                                                        {formatDisplayCurrency(bal)}
                                                     </div>
                                                 </div>
                                             </button>
@@ -5518,6 +6547,347 @@ function ExternalAccountingContent() {
                             </div>
                         </div>
                     </div>
+                </div>
+            )}
+
+            {/* ====================================================================
+                NEW QBO TAB: CLIENTS DIRECTORY (`Clients` on Left Rail — All 8 Legal Entities)
+               ==================================================================== */}
+            {activeTab === 'clients' && (
+                <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 shadow-xs space-y-5">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200 dark:border-slate-800 pb-4">
+                        <div>
+                            <h2 className="text-lg font-black text-slate-900 dark:text-white">
+                                {t('external_accounting.qbo_clients_hub_title')}
+                            </h2>
+                            <p className="text-xs text-slate-500 mt-0.5">
+                                {t('external_accounting.qbo_clients_hub_subtitle')}
+                            </p>
+                        </div>
+                        <div className="relative w-full sm:w-72">
+                            <Search size={14} className="absolute left-3 top-2.5 text-slate-400" />
+                            <input
+                                type="text"
+                                value={clientsHubSearch}
+                                onChange={(e) => setClientsHubSearch(e.target.value)}
+                                placeholder={t('external_accounting.qbo_switcher_filter_placeholder')}
+                                className="w-full pl-8 pr-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-xs focus:outline-none"
+                            />
+                        </div>
+                    </div>
+
+                    <div className="overflow-x-auto">
+                        <table className="w-full text-xs text-left border-collapse">
+                            <thead>
+                                <tr className="border-b border-slate-200 dark:border-slate-800 text-[11px] font-black uppercase tracking-wider text-slate-400">
+                                    <th className="py-3 px-4">{t('external_accounting.qbo_clients_col_company')}</th>
+                                    <th className="py-3 px-4">{t('external_accounting.qbo_clients_col_realm')}</th>
+                                    <th className="py-3 px-4">{t('external_accounting.qbo_clients_col_qbo_status')}</th>
+                                    <th className="py-3 px-4 text-right">{t('external_accounting.kpi_bank_balance')}</th>
+                                    <th className="py-3 px-4 text-center">{t('external_accounting.records_label')}</th>
+                                    <th className="py-3 px-4 text-right">{t('external_accounting.qbo_clients_col_actions')}</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                                {companies
+                                    .filter(c => !clientsHubSearch.trim() || `${c.company_name} ${c.legal_name || ''} ${c.realm_id}`.toLowerCase().includes(clientsHubSearch.trim().toLowerCase()))
+                                    .map(c => {
+                                        const isActive = c.realm_id === activeRealmId
+                                        const isFirm = c.realm_id === '123145825185692'
+                                        const bal = Number(c.total_cash_balance ?? c.overview?.totalBankBalance ?? 0)
+                                        return (
+                                            <tr
+                                                key={c.realm_id}
+                                                className={isActive ? 'bg-emerald-50/60 dark:bg-emerald-950/20' : 'hover:bg-slate-50 dark:hover:bg-slate-800/40'}
+                                            >
+                                                <td className="py-3.5 px-4">
+                                                    <div className="flex items-center gap-2.5">
+                                                        <span className={`w-7 h-7 rounded-lg font-black text-xs flex items-center justify-center shrink-0 ${
+                                                            isFirm ? 'bg-[#003b32] text-white' : 'bg-[#2ca01c] text-white'
+                                                        }`}>
+                                                            tg
+                                                        </span>
+                                                        <div>
+                                                            <div className="font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
+                                                                <span>{c.company_name}</span>
+                                                                {isActive && (
+                                                                    <span className="px-1.5 py-0.5 rounded bg-emerald-600 text-white text-[9px] font-black uppercase">
+                                                                        ACTIVE
+                                                                    </span>
+                                                                )}
+                                                            </div>
+                                                            <div className="text-[11px] text-slate-400">
+                                                                {c.legal_name || c.company_name}
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </td>
+                                                <td className="py-3.5 px-4 font-mono text-slate-600 dark:text-slate-300">
+                                                    <div>#{c.realm_id}</div>
+                                                    {c.metadata?.tax_id && <div className="text-[10px] text-slate-400">EIN: {c.metadata.tax_id}</div>}
+                                                </td>
+                                                <td className="py-3.5 px-4">
+                                                    {c.qbo_connected ? (
+                                                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 font-bold text-[11px]">
+                                                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                                                            <span>QBO V3 Live</span>
+                                                        </span>
+                                                    ) : (
+                                                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-semibold text-[11px]">
+                                                            <span className="w-1.5 h-1.5 rounded-full bg-slate-400" />
+                                                            <span>Local Ledger</span>
+                                                        </span>
+                                                    )}
+                                                </td>
+                                                <td className="py-3.5 px-4 text-right font-mono font-black text-sm text-slate-900 dark:text-white">
+                                                    {formatDisplayCurrency(bal)}
+                                                </td>
+                                                <td className="py-3.5 px-4 text-center font-mono text-slate-600 dark:text-slate-300">
+                                                    {(c.total_txns_count ?? 0).toLocaleString()} txns · {c.active_banks_count ?? 0} banks
+                                                </td>
+                                                <td className="py-3.5 px-4 text-right">
+                                                    <div className="inline-flex flex-wrap items-center justify-end gap-1.5">
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => {
+                                                                setActiveRealmId(c.realm_id)
+                                                                setFilterAccountId('ALL')
+                                                                setActiveTab('overview')
+                                                            }}
+                                                            className="px-2.5 py-1.5 rounded-lg bg-[#003b32] hover:bg-[#002923] text-white font-bold cursor-pointer"
+                                                        >
+                                                            {t('external_accounting.qbo_clients_btn_open_books')}
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => {
+                                                                setActiveRealmId(c.realm_id)
+                                                                setFilterAccountId('ALL')
+                                                                setActiveTab('transactions')
+                                                            }}
+                                                            className="px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 font-semibold cursor-pointer"
+                                                        >
+                                                            {t('external_accounting.tab_transactions_clean')}
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => {
+                                                                setActiveRealmId(c.realm_id)
+                                                                setReportType('pnl')
+                                                                setActiveTab('reports')
+                                                            }}
+                                                            className="px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 font-semibold cursor-pointer"
+                                                        >
+                                                            P&L
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => {
+                                                                setActiveRealmId(c.realm_id)
+                                                                setReportType('balance_sheet')
+                                                                setActiveTab('reports')
+                                                            }}
+                                                            className="px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 font-semibold cursor-pointer"
+                                                        >
+                                                            Balance
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => {
+                                                                setActiveRealmId(c.realm_id)
+                                                                setActiveTab('accounts')
+                                                            }}
+                                                            className="px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 font-semibold cursor-pointer"
+                                                        >
+                                                            COA
+                                                        </button>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        )
+                                    })}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            )}
+
+            {/* ====================================================================
+                NEW QBO TAB: BOOKS REVIEW & CPA CLOSE AUDIT (`Work` / `Books review`)
+               ==================================================================== */}
+            {activeTab === 'books_review' && (
+                <div className="space-y-6">
+                    <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                        <div>
+                            <h2 className="text-lg font-black text-slate-900 dark:text-white">
+                                {t('external_accounting.qbo_books_review_title')} — {activeCompany?.company_name}
+                            </h2>
+                            <p className="text-xs text-slate-500 mt-0.5">
+                                {t('external_accounting.qbo_books_review_subtitle')}
+                            </p>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2 text-xs">
+                            <button
+                                type="button"
+                                onClick={() => setActiveTab('reclassify')}
+                                className="px-3.5 py-2 rounded-xl bg-slate-900 dark:bg-white text-white dark:text-slate-900 font-bold cursor-pointer"
+                            >
+                                {t('external_accounting.qbo_tool_reclassify')}
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setActiveTab('reconcile')}
+                                className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold cursor-pointer"
+                            >
+                                {t('external_accounting.qbo_shortcut_reconcile')}
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setActiveTab('company_settings')}
+                                className="px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 font-bold cursor-pointer"
+                            >
+                                🔒 {t('external_accounting.qbo_tool_close_books')}
+                            </button>
+                        </div>
+                    </div>
+
+                    {(() => {
+                        const uncategorizedTxns = transactions.filter(tx => {
+                            if (tx.is_voided) return false
+                            const cat = `${tx.category_summary || ''} ${tx.to_account_name || ''}`.toLowerCase()
+                            return !cat.trim() || cat.includes('uncategorized') || cat.includes('ask my accountant') || cat.includes('sin categorizar')
+                        })
+                        const missingPayeeOrDocTxns = transactions.filter(tx => {
+                            if (tx.is_voided) return false
+                            return !tx.entity_name?.trim() || (tx.txn_type === 'Check' && !tx.doc_number?.trim())
+                        })
+                        const voidedTxns = transactions.filter(tx => Boolean(tx.is_voided))
+
+                        return (
+                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                                {/* 1. Uncategorized / Ask My Accountant */}
+                                <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 overflow-hidden shadow-xs">
+                                    <div className="px-5 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+                                        <span className="font-bold text-sm">{t('external_accounting.qbo_br_uncategorized_title')} ({uncategorizedTxns.length})</span>
+                                        <button
+                                            type="button"
+                                            onClick={() => setActiveTab('reclassify')}
+                                            className="text-xs font-bold text-emerald-600 hover:underline cursor-pointer"
+                                        >
+                                            {t('external_accounting.qbo_tool_reclassify')} →
+                                        </button>
+                                    </div>
+                                    <div className="divide-y divide-slate-100 dark:divide-slate-800 text-xs max-h-80 overflow-y-auto">
+                                        {uncategorizedTxns.length === 0 ? (
+                                            <div className="p-6 text-center text-emerald-600 font-semibold">{t('external_accounting.qbo_br_all_clean')}</div>
+                                        ) : uncategorizedTxns.slice(0, 20).map(tx => (
+                                            <div key={tx.id} className="px-5 py-3 flex items-center justify-between gap-2 hover:bg-slate-50 dark:hover:bg-slate-800/40">
+                                                <div>
+                                                    <div className="font-bold">{tx.txn_date} · {tx.txn_type} {tx.doc_number ? `#${tx.doc_number}` : ''} — {tx.entity_name || 'No Payee'}</div>
+                                                    <div className="text-[11px] text-amber-600">{tx.category_summary || 'Uncategorized'} · {tx.account_name}</div>
+                                                </div>
+                                                <div className="flex items-center gap-2">
+                                                    <span className="font-mono font-bold">{formatCurrency(tx.total_amount)}</span>
+                                                    <button type="button" onClick={() => handleEditRecord('transaction', tx)} className="px-2 py-1 rounded bg-blue-600 text-white font-bold cursor-pointer">
+                                                        {t('external_accounting.action_edit')}
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+
+                                {/* 2. Transactions Missing Payee or Check # */}
+                                <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 overflow-hidden shadow-xs">
+                                    <div className="px-5 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+                                        <span className="font-bold text-sm">{t('external_accounting.qbo_br_missing_payee_title')} ({missingPayeeOrDocTxns.length})</span>
+                                    </div>
+                                    <div className="divide-y divide-slate-100 dark:divide-slate-800 text-xs max-h-80 overflow-y-auto">
+                                        {missingPayeeOrDocTxns.length === 0 ? (
+                                            <div className="p-6 text-center text-emerald-600 font-semibold">{t('external_accounting.qbo_br_all_clean')}</div>
+                                        ) : missingPayeeOrDocTxns.slice(0, 20).map(tx => (
+                                            <div key={tx.id} className="px-5 py-3 flex items-center justify-between gap-2 hover:bg-slate-50 dark:hover:bg-slate-800/40">
+                                                <div>
+                                                    <div className="font-bold">{tx.txn_date} · {tx.txn_type} {tx.doc_number ? `#${tx.doc_number}` : '(No Doc #)'}</div>
+                                                    <div className="text-[11px] text-slate-400">{tx.entity_name || '(Missing Payee)'} · {tx.category_summary}</div>
+                                                </div>
+                                                <div className="flex items-center gap-2">
+                                                    <span className="font-mono font-bold">{formatCurrency(tx.total_amount)}</span>
+                                                    <button type="button" onClick={() => handleEditRecord('transaction', tx)} className="px-2 py-1 rounded bg-blue-600 text-white font-bold cursor-pointer">
+                                                        {t('external_accounting.action_edit')}
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+
+                                {/* 3. Bank & Credit Card Reconciliation Status */}
+                                <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 overflow-hidden shadow-xs">
+                                    <div className="px-5 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+                                        <span className="font-bold text-sm">{t('external_accounting.qbo_br_unreconciled_title')} ({bankAndCardAccounts.length})</span>
+                                    </div>
+                                    <div className="divide-y divide-slate-100 dark:divide-slate-800 text-xs">
+                                        {bankAndCardAccounts.map(acc => {
+                                            const lastRec = reconciliations.find(r => r.account_qb_id === acc.qb_account_id && r.status === 'Completed')
+                                            return (
+                                                <div key={acc.id} className="px-5 py-3 flex items-center justify-between gap-2">
+                                                    <div>
+                                                        <div className="font-bold">{acc.name}</div>
+                                                        <div className="text-[11px] text-slate-400">
+                                                            {lastRec ? `Last reconciled: ${lastRec.statement_ending_date} (${formatCurrency(lastRec.ending_balance)})` : 'Not yet reconciled in this period'}
+                                                        </div>
+                                                    </div>
+                                                    <div className="flex items-center gap-2">
+                                                        <span className="font-mono font-bold">{formatCurrency(acc.current_balance)}</span>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => {
+                                                                handleAutoSelectReconcileAccount(acc.qb_account_id)
+                                                                setActiveTab('reconcile')
+                                                            }}
+                                                            className="px-2.5 py-1 rounded-lg bg-emerald-600 text-white font-bold cursor-pointer"
+                                                        >
+                                                            {t('external_accounting.qbo_shortcut_reconcile')}
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            )
+                                        })}
+                                    </div>
+                                </div>
+
+                                {/* 4. Voided Checks & Transactions */}
+                                <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 overflow-hidden shadow-xs">
+                                    <div className="px-5 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+                                        <span className="font-bold text-sm">{t('external_accounting.qbo_br_voided_title')} ({voidedTxns.length})</span>
+                                        <button
+                                            type="button"
+                                            onClick={() => { setAuditSearch('VOID'); setActiveTab('audit_log') }}
+                                            className="text-xs font-bold text-emerald-600 hover:underline cursor-pointer"
+                                        >
+                                            {t('external_accounting.gear_audit_log')} →
+                                        </button>
+                                    </div>
+                                    <div className="divide-y divide-slate-100 dark:divide-slate-800 text-xs max-h-80 overflow-y-auto">
+                                        {voidedTxns.length === 0 ? (
+                                            <div className="p-6 text-center text-emerald-600 font-semibold">{t('external_accounting.qbo_br_all_clean')}</div>
+                                        ) : voidedTxns.map(tx => (
+                                            <div key={tx.id} className="px-5 py-3 flex items-center justify-between gap-2">
+                                                <div>
+                                                    <div className="font-bold line-through text-slate-400">{tx.txn_date} · {tx.txn_type} #{tx.doc_number || '—'} — {tx.entity_name}</div>
+                                                    <div className="text-[11px] text-red-500">VOIDED · {tx.account_name}</div>
+                                                </div>
+                                                <button type="button" onClick={() => openRecordPreview('transaction', tx)} className="px-2 py-1 rounded border border-slate-200 dark:border-slate-700 font-semibold cursor-pointer">
+                                                    View
+                                                </button>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            </div>
+                        )
+                    })()}
                 </div>
             )}
 
@@ -9005,10 +10375,122 @@ function ExternalAccountingContent() {
                     </form>
                 </div>
             )}
+            </div>
 
             {/* ALL ACCOUNTING MODALS PORTALED TO DOCUMENT.BODY FOR FULL-VIEWPORT WIDTH & ZERO SIDEBAR/HEADER OVERLAP */}
             {typeof document !== 'undefined' && createPortal(
                 <>
+            {/* MODAL: CUSTOMIZE YOUR APP MENUS (QBO LEFT NAVIGATION RAIL CUSTOMIZER) */}
+            {customizeRailModalOpen && (
+                <div className="fixed inset-0 z-[120] bg-black/60 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 overflow-y-auto">
+                    <div className="w-[95vw] max-w-xl rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 shadow-2xl space-y-5">
+                        <div className="flex items-start justify-between gap-3 border-b border-slate-200 dark:border-slate-800 pb-4">
+                            <div>
+                                <h3 className="text-base font-black text-slate-900 dark:text-white flex items-center gap-2">
+                                    <SlidersHorizontal size={18} className="text-[#00845a]" />
+                                    <span>{t('external_accounting.qbo_customize_title')}</span>
+                                </h3>
+                                <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                                    {t('external_accounting.qbo_customize_subtitle')}
+                                </p>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setCustomizeRailModalOpen(false)}
+                                className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 font-bold cursor-pointer"
+                            >
+                                ✕
+                            </button>
+                        </div>
+
+                        <div className="space-y-2">
+                            <p className="text-[11px] font-black uppercase tracking-wider text-slate-500">
+                                {t('external_accounting.qbo_rail_pinned')}
+                            </p>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                {([
+                                    { key: 'accounting' as const, label: t('external_accounting.qbo_rail_accounting'), desc: 'Transactions, Rules, Reconcile, COA' },
+                                    { key: 'expenses' as const, label: t('external_accounting.qbo_rail_expenses'), desc: 'Bills, Vendors, Checkbook, 1099s' },
+                                    { key: 'sales' as const, label: t('external_accounting.qbo_rail_sales'), desc: 'Invoices, Customers, Deposits, Recurring' },
+                                    { key: 'reports' as const, label: t('external_accounting.qbo_rail_reports'), desc: 'P&L, Balance Sheet, Cash Flow, General Ledger' },
+                                    { key: 'reconcile' as const, label: t('external_accounting.qbo_shortcut_reconcile'), desc: 'Bank Reconciliation & Statement Audit' },
+                                    { key: 'checkbook' as const, label: t('external_accounting.tab_checkbook'), desc: 'Magnetic MICR Check Printing & Register' }
+                                ]).map(app => {
+                                    const isPinned = pinnedRailApps.includes(app.key)
+                                    return (
+                                        <label
+                                            key={app.key}
+                                            className={`flex items-start gap-2.5 p-3 rounded-xl border cursor-pointer transition-colors ${
+                                                isPinned
+                                                    ? 'border-[#00845a] bg-[#00845a]/5 dark:bg-emerald-500/10'
+                                                    : 'border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/50'
+                                            }`}
+                                        >
+                                            <input
+                                                type="checkbox"
+                                                checked={isPinned}
+                                                onChange={() => {
+                                                    setPinnedRailApps(prev =>
+                                                        prev.includes(app.key)
+                                                            ? prev.filter(k => k !== app.key)
+                                                            : [...prev, app.key]
+                                                    )
+                                                }}
+                                                className="mt-0.5 accent-[#00845a]"
+                                            />
+                                            <div>
+                                                <div className="text-xs font-black text-slate-800 dark:text-slate-100">{app.label}</div>
+                                                <div className="text-[11px] text-slate-500 dark:text-slate-400">{app.desc}</div>
+                                            </div>
+                                        </label>
+                                    )
+                                })}
+                            </div>
+                        </div>
+
+                        <div className="space-y-2 border-t border-slate-200 dark:border-slate-800 pt-4">
+                            <p className="text-[11px] font-black uppercase tracking-wider text-slate-500">
+                                {t('external_accounting.qbo_customize_theme_label')}
+                            </p>
+                            <div className="grid grid-cols-1 gap-2">
+                                {([
+                                    { key: 'auto' as const, label: t('external_accounting.qbo_customize_theme_auto') },
+                                    { key: 'dark' as const, label: t('external_accounting.qbo_customize_theme_dark') },
+                                    { key: 'light' as const, label: t('external_accounting.qbo_customize_theme_light') }
+                                ]).map(opt => (
+                                    <label
+                                        key={opt.key}
+                                        className={`flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl border text-xs font-bold cursor-pointer ${
+                                            railThemeMode === opt.key
+                                                ? 'border-[#00845a] bg-[#00845a]/10 text-[#00845a] dark:text-emerald-300'
+                                                : 'border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300'
+                                        }`}
+                                    >
+                                        <input
+                                            type="radio"
+                                            name="qbo_rail_theme"
+                                            checked={railThemeMode === opt.key}
+                                            onChange={() => setRailThemeMode(opt.key)}
+                                            className="accent-[#00845a]"
+                                        />
+                                        <span>{opt.label}</span>
+                                    </label>
+                                ))}
+                            </div>
+                        </div>
+
+                        <div className="flex justify-end pt-2">
+                            <button
+                                type="button"
+                                onClick={() => setCustomizeRailModalOpen(false)}
+                                className="px-5 py-2 rounded-full bg-[#00845a] hover:bg-[#006e4a] text-white text-xs font-black cursor-pointer"
+                            >
+                                {t('external_accounting.close_btn')}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
             {/* MODAL: CREATE BANK RULE */}
             {ruleModalOpen && (
                 <div className="fixed inset-0 z-[110] bg-black/60 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 overflow-y-auto">
