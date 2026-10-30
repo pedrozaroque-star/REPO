@@ -146,12 +146,14 @@ function isB2BSolicitationSpam({ email, message }) {
     const emailLower = String(email || '').toLowerCase().trim();
     const domainPart = emailLower.split('@')[1] || '';
 
-    // 1. Known cold-outreach burner & agency domains
+    // 1. Known cold-outreach burner, agency & wholesale vendor spam domains
     const BLOCKED_OUTREACH_DOMAINS = new Set([
         'signalsetbase.com',
         'thetrifidelabs.com',
         'trifidelabs.com',
-        'integribridge.com'
+        'integribridge.com',
+        'itsbrandfactory.com',
+        'brandfactory.com'
     ]);
     if (BLOCKED_OUTREACH_DOMAINS.has(domainPart)) {
         return true;
@@ -171,13 +173,17 @@ function isB2BSolicitationSpam({ email, message }) {
         // Bulk form-blaster opt-out footers (never written by a real restaurant guest)
         /\breply\s+stop\s+to\s+(opt\s*out|unsubscribe)\b/i,
         /\b(unsubscribe\s+from\s+future|opt\s*out\s+of\s+future|no\s+longer\s+wish\s+to\s+receive)\b/i,
+        // Universal B2B agency/vendor pitch ("We help restaurants...", "We help businesses...")
+        /\bwe\s+help\s+(businesses|restaurants|companies|brands|local\s+businesses|clients|owners|operators)\b/i,
+        // Wholesale / Disposables / Packaging / Uniforms / Factory Supply pitches (e.g. Brand Factory)
+        /\b(straight\s+from\s+the\s+factory|less\s+than\s+(they|you)\s+pay\s+now|send\s+us\s+the\s+specs|get\s+you\s+a\s+quote\s+today|curious\s+about\s+saving\s+money\s+on)\b/i,
+        /\b(all\s+sorts\s+of\s+restaurant\s+supplies|disposables\s+like\s+to-go\s+containers|tableware,\s+glassware,\s+napkins)\b/i,
         // Website design / redesign / agency pitches (e.g. TriFide Labs, SignalSetBase)
         /\b(rebuilt|redesigned|revamped|remade)\s+your\s+(homepage|website|site|landing\s+page|web\s+page)\b/i,
         /\b(website|web)\s+design\s+(samples|ideas|services|agency|packages|proposal)\b/i,
         /\bimprovements\s+to\s+your\s+(business\s+)?website\b/i,
         /\bmobile[- ]friendly\s+websites?\b/i,
         /\bdesign\s+ideas\s+and\s+possibilities\s+for\s+your\s+website\b/i,
-        /\bwe\s+help\s+(businesses|restaurants|companies|brands)\s+(create|build|grow|scale|get\s+more|increase)\b/i,
         /\b(live,?\s+working\s+version|not\s+a\s+mockup)\b/i,
         /\bfocused\s+on\s+clarity,\s+trust,\s+and\s+decision\s+flow\b/i,
         /\b(free\s+website\s+audit|audit\s+of\s+your\s+website)\b/i,
@@ -202,6 +208,7 @@ function isB2BSolicitationSpam({ email, message }) {
 
     // 3. Multi-signal cold-outreach scoring (requires 2+ distinct B2B pitch signals in the same message)
     const COLD_OUTREACH_SIGNALS = [
+        /\b(hi|hello|hey|dear)\s+tacos\s+(el\s+)?gavilan\s+team\b/i,
         /\bi\s+see\s+you\s+serve\s+authentic\s+mexican\s+food\b/i,
         /\busing\s+your\s+existing\s+positioning\b/i,
         /\bif\s+not,?\s+you\s+can\s+feel\s+free\s+to\s+ignore\s+this\b/i,
@@ -209,9 +216,12 @@ function isB2BSolicitationSpam({ email, message }) {
         /\bwould\s+you\s+be\s+open\s+to\s+seeing\b/i,
         /\bwould\s+you\s+be\s+interested\s+in\s+seeing\s+some\s+samples\b/i,
         /\bi'd\s+be\s+happy\s+to\s+share\s+a\s+few\s+relevant\s+examples\b/i,
-        /\btailored\s+to\s+their\s+needs\b/i,
+        /\btailored\s+to\s+(their|your)\s+needs\b/i,
         /\bare\s+you\s+interested\s+in\s+selling\b/i,
         /\blet's\s+set\s+up\s+a\s+call\b/i,
+        /\bget\s+you\s+a\s+quote\b/i,
+        /\bsaving\s+money\s+on\b/i,
+        /\brestaurant\s+supplies\b/i,
         /\b(calendly\.com\/|loom\.com\/share\/)\b/i,
         /\b(quick\s+10[- ]minute\s+call|book\s+a\s+quick\s+call|15[- ]minute\s+discovery\s+call)\b/i,
         /\b(web\s+design\s+agency|digital\s+marketing\s+services|social\s+media\s+management\s+agency)\b/i
@@ -225,11 +235,31 @@ function isB2BSolicitationSpam({ email, message }) {
         }
     }
 
-    // 4. Email-signature repetition + B2B keyword (cold-emailers paste their full email signature inside the message box)
+    // 4. Non-Consumer Corporate Email Domain + Any B2B Pitch Signal
+    const CONSUMER_EMAIL_DOMAINS = new Set([
+        'gmail.com', 'googlemail.com', 'yahoo.com', 'ymail.com', 'rocketmail.com',
+        'icloud.com', 'me.com', 'mac.com', 'hotmail.com', 'outlook.com', 'live.com',
+        'msn.com', 'aol.com', 'att.net', 'sbcglobal.net', 'verizon.net', 'comcast.net',
+        'charter.net', 'spectrum.net', 'cox.net', 'earthlink.net', 'protonmail.com',
+        'proton.me', 'zoho.com', 'mail.com', 'gmx.com', 'tacosgavilan.com'
+    ]);
+    const isCustomCorporateDomain = Boolean(domainPart && !CONSUMER_EMAIL_DOMAINS.has(domainPart) && !domainPart.endsWith('.edu') && !domainPart.endsWith('.gov'));
+
+    if (
+        isCustomCorporateDomain &&
+        (
+            signalMatches >= 1 ||
+            /\b(we\s+offer|we\s+provide|we\s+supply|we\s+manufacture|we\s+specialize|we\s+can\s+do|our\s+agency|our\s+platform|our\s+services|wholesale|disposables|to-go\s+containers|design\s+samples|website\s+design|seo|backlinks|lead\s+generation|merchant\s+cash|processing\s+fees|set\s+up\s+a\s+call|schedule\s+a\s+call|get\s+you\s+a\s+quote|send\s+us\s+the\s+specs)\b/i.test(msgNorm)
+        )
+    ) {
+        return true;
+    }
+
+    // 5. Email-signature repetition + B2B keyword (cold-emailers paste their full email signature inside the message box)
     if (
         emailLower &&
         msgNorm.includes(emailLower) &&
-        /\b(website|design|samples|agency|marketing|seo|ai\s+tools|set\s+up\s+a\s+call|opt\s*out)\b/i.test(msgNorm)
+        /\b(website|design|samples|agency|marketing|seo|ai\s+tools|set\s+up\s+a\s+call|opt\s*out|quote|supplies)\b/i.test(msgNorm)
     ) {
         return true;
     }
