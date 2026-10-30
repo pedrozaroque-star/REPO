@@ -1049,8 +1049,8 @@ export function parseDoorDashNativeApiObject(
         store_id: storeId,
         platform: 'DOORDASH',
         payout_reference_id: payoutRef,
-        period_start: addDaysToDateStr(payoutDate, -9),
-        period_end: addDaysToDateStr(payoutDate, -3),
+        period_start: addDaysToDateStr(payoutDate, -10),
+        period_end: addDaysToDateStr(payoutDate, -4),
         payout_date: payoutDate,
         orders_count: 0,
         subtotal_sales: approxSubtotal,
@@ -1351,8 +1351,9 @@ export function parseUberEatsNativeApiObject(
             else if (cat === 'TaxOnSubtotal') taxCollected = round2(Math.abs(amt))
             else if (cat === 'Tips') tipsAmount = round2(Math.abs(amt))
             else if (cat === 'MarketplaceFacilitatorTax') taxRemittedByPlatform = round2(Math.abs(amt))
-            else if (cat === 'Chargebacks') errorCharges = amt > 0 ? -amt : amt
-            else if (cat === 'ChargebacksExclTax' && errorCharges === 0) errorCharges = amt > 0 ? -amt : amt
+            else if (cat === 'Chargebacks' || cat === 'NetCustomerRefunds' || cat === 'ChargebacksInclTax') {
+              errorCharges = amt > 0 ? -amt : amt
+            } else if (cat === 'ChargebacksExclTax' && errorCharges === 0) errorCharges = amt > 0 ? -amt : amt
             else if (cat === 'OtherPayments') adjustmentsAmount = round2(adjustmentsAmount + amt)
             else if (cat === 'MISC_ITEM' && amt > 0 && desc) {
               const mOrder = desc.match(/#([A-Z0-9]{4,8})\b/i)
@@ -2161,7 +2162,7 @@ async function fetchChromeLiveDoorDashAndUberForStores(
           ws.close()
         } catch {}
         resolve()
-      }, 45000)
+      }, 90000)
 
       const send = (method: string, params: any = {}, sessionId?: string): Promise<any> =>
         new Promise((res, rej) => {
@@ -2191,11 +2192,14 @@ async function fetchChromeLiveDoorDashAndUberForStores(
         let createdDdTargetId: string | null = null
         try {
           const { targetInfos } = await send('Target.getTargets')
-          let uberTab = (targetInfos || []).find((t: any) =>
-            String(t.url || '').includes('merchants.ubereats.com')
+          let uberTab = (targetInfos || []).find(
+            (t: any) => t.type === 'page' && String(t.url || '').includes('merchants.ubereats.com')
           )
-          let ddTab = (targetInfos || []).find((t: any) =>
-            String(t.url || '').includes('merchant-portal.doordash.com')
+          let ddTab = (targetInfos || []).find(
+            (t: any) =>
+              t.type === 'page' &&
+              (String(t.url || '').includes('www.doordash.com/merchant') ||
+                String(t.url || '').includes('merchant-portal.doordash.com'))
           )
 
           // Si el usuario cerró las pestañas de Uber Eats o DoorDash, abrir un target temporal silencioso en background y cerrarlo al terminar
@@ -2213,13 +2217,13 @@ async function fetchChromeLiveDoorDashAndUberForStores(
 
           if (!ddTab) {
             const created = await send('Target.createTarget', {
-              url: 'https://merchant-portal.doordash.com/financials/payouts',
+              url: 'https://www.doordash.com/merchant/financials/payouts?business_id=137616',
               background: true,
             }).catch(() => null)
             if (created?.targetId) {
               createdDdTargetId = created.targetId
               ddTab = { targetId: created.targetId }
-              await new Promise((r) => setTimeout(r, 3000))
+              await new Promise((r) => setTimeout(r, 3500))
             }
           }
 
@@ -2470,28 +2474,76 @@ async function fetchChromeLiveDoorDashAndUberForStores(
               flatten: true,
             })
 
-            for (const m of targetMappings.slice(0, 3)) {
-              if (!m.doordash_store_id) continue
+            // 1. Obtener en un solo lote paginado los `payout_summaries` de TODAS las sucursales de DoorDash
+            const ddSummariesEval = await send(
+              'Runtime.evaluate',
+              {
+                expression: `(async () => {
+                  const summariesList = [];
+                  for (let offset = 0; offset < 200; offset += 50) {
+                    const sumRes = await fetch('https://merchant-portal.doordash.com/merchant-analytics-service/api/v2/payout_summaries', {
+                      method: 'POST',
+                      credentials: 'include',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({
+                        storeIds: [],
+                        businessIds: [137616],
+                        organizations: [],
+                        dateRange: {
+                          startDate: '2026-09-01T07:00:00.000Z',
+                          endDate: ${JSON.stringify(`${endDate}T23:59:59.999Z`)}
+                        },
+                        filtersList: [{ channelsList: [3] }],
+                        storeFilterGranularity: null,
+                        page: { offset, limit: 50 }
+                      })
+                    });
+                    const sumJson = await sumRes.json().catch(() => ({}));
+                    const batch = sumJson?.summariesList || [];
+                    summariesList.push(...batch);
+                    if (batch.length < 50) break;
+                  }
+                  return { summariesList };
+                })()`,
+                awaitPromise: true,
+                returnByValue: true,
+              },
+              ddSession
+            ).catch(() => null)
+
+            const allDdSummaries: any[] = ddSummariesEval?.result?.value?.summariesList || []
+            if (allDdSummaries.length > 0) {
+              const parsedAllSums = parseDoorDashNativeApiObject(
+                { summariesList: allDdSummaries },
+                allMappings,
+                byDoorDashStoreId
+              )
+              payouts.push(...parsedAllSums.payouts)
+            }
+
+            // 2. Obtener `payout_transactions` para las sucursales objetivo de esta corrida
+            for (const m of targetMappings) {
+              if (!m.doordash_store_id || !storesForOrders.has(m.store_id)) continue
               const ddStoreId = String(m.doordash_store_id).trim()
+              const storeSummaries = allDdSummaries.filter((s: any) => String(s?.storeId || '').trim() === ddStoreId)
+              const latestPayoutId = storeSummaries[0]?.payoutId || storeSummaries[0]?.payout?.id
+              if (!latestPayoutId) continue
+
               const evalRes = await send(
                 'Runtime.evaluate',
                 {
                   expression: `(async () => {
-                    const sumRes = await fetch('/merchant-analytics-service/api/v2/payout_summaries?businessIds=137616&storeIds=${ddStoreId}&startDate=2026-09-14&endDate=2026-10-30');
-                    const sumJson = await sumRes.json().catch(() => ({}));
-                    const summariesList = sumJson?.summariesList || [];
-                    const latestPayoutId = summariesList[0]?.payoutId || summariesList[0]?.payout?.id;
-                    let transactions = [];
-                    if (latestPayoutId) {
-                      for (let offset = 0; offset < 300; offset += 100) {
-                        const txRes = await fetch('/merchant-analytics-service/api/v1/payout_transactions?businessId=137616&entityType=business&limit=100&offset=' + offset + '&payoutId=' + latestPayoutId + '&storeId=${ddStoreId}');
-                        const txJson = await txRes.json().catch(() => ({}));
-                        const batch = txJson?.transactions || [];
-                        for (const r of batch) transactions.push(r);
-                        if (batch.length < 100) break;
-                      }
+                    const transactions = [];
+                    for (let offset = 0; offset < 300; offset += 100) {
+                      const txRes = await fetch('https://merchant-portal.doordash.com/merchant-analytics-service/api/v1/payout_transactions?businessId=137616&entityType=business&limit=100&offset=' + offset + '&payoutId=' + ${JSON.stringify(String(latestPayoutId))} + '&storeId=${ddStoreId}', {
+                        credentials: 'include'
+                      });
+                      const txJson = await txRes.json().catch(() => ({}));
+                      const batch = txJson?.transactions || [];
+                      for (const r of batch) transactions.push(r);
+                      if (batch.length < 100) break;
                     }
-                    return { summariesList, transactions, storeId: '${ddStoreId}', payoutId: latestPayoutId ? String(latestPayoutId) : null };
+                    return { summariesList: [], transactions, storeId: '${ddStoreId}', payoutId: ${JSON.stringify(String(latestPayoutId))} };
                   })()`,
                   awaitPromise: true,
                   returnByValue: true,
@@ -2503,7 +2555,6 @@ async function fetchChromeLiveDoorDashAndUberForStores(
               if (val) {
                 const parsed = parseDoorDashNativeApiObject(val, allMappings, byDoorDashStoreId, m.store_id)
                 orders.push(...parsed.orders)
-                payouts.push(...parsed.payouts)
               }
             }
           }
