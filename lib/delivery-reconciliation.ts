@@ -2239,7 +2239,10 @@ async function fetchChromeLiveDoorDashAndUberForStores(
               uberSession
             ).catch(() => null)
             if (Array.isArray(ckRes?.cookies) && ckRes.cookies.length > 0) {
-              const cookieHeader = ckRes.cookies.map((c: any) => `${c.name}=${c.value}`).join('; ')
+              const cookieHeader = ckRes.cookies
+                .filter((c: any) => c.name !== 'selectedRestaurant')
+                .map((c: any) => `${c.name}=${c.value}`)
+                .join('; ')
               const maxExp = Math.max(...ckRes.cookies.map((c: any) => c.expires || 0))
               const expiresAt =
                 maxExp > 0
@@ -2275,15 +2278,15 @@ async function fetchChromeLiveDoorDashAndUberForStores(
             for (const m of targetMappings) {
               if (!m.ubereats_store_uuid) continue
               const locUuid = String(m.ubereats_store_uuid).trim()
-              const orgUuid =
-                m.ubereats_org_uuid || UBER_STORE_TO_ORG_UUID_MAP[locUuid.toLowerCase()] || locUuid
+              const orgUuid = m.ubereats_org_uuid || UBER_STORE_TO_ORG_UUID_MAP[locUuid.toLowerCase()] || null
 
               // 1. Extraer cortes semanales (`listPayoutsHistory`) + árbol contable (`getEarningsBreakdown`)
               // para detectar reembolsos en otros cortes (ej. "Goodwill OE Refund #650DD 20260928")
-              const payoutsEval = await send(
-                'Runtime.evaluate',
-                {
-                  expression: `(async () => {
+              const payoutsEval = orgUuid
+                ? await send(
+                    'Runtime.evaluate',
+                    {
+                      expression: `(async () => {
                     document.cookie = 'selectedRestaurant=' + ${JSON.stringify(locUuid)} + '; path=/';
                     const postApi = async (ep, body) => {
                       const r = await fetch('/manager/api/' + ep + '?localeCode=en', {
@@ -2339,11 +2342,12 @@ async function fetchChromeLiveDoorDashAndUberForStores(
                     }));
                     return { enrichedPeriods, refundDates };
                   })()`,
-                  awaitPromise: true,
-                  returnByValue: true,
-                },
-                uberSession
-              ).catch(() => null)
+                      awaitPromise: true,
+                      returnByValue: true,
+                    },
+                    uberSession
+                  ).catch(() => null)
+                : null
 
               const payVal = payoutsEval?.result?.value
               const enrichedPeriods = Array.isArray(payVal?.enrichedPeriods) ? payVal.enrichedPeriods : []
@@ -2539,8 +2543,13 @@ async function fetchChromeLiveDoorDashAndUberForStores(
         .eq('service_name', 'ubereats_merchant')
         .maybeSingle()
 
-      const uberCookie = uberInt?.access_token
-      if (uberCookie) {
+      const rawUberCookie = uberInt?.access_token
+      if (rawUberCookie) {
+        const cleanUberCookie = rawUberCookie
+          .split(';')
+          .map((s: string) => s.trim())
+          .filter((s: string) => s && !s.startsWith('selectedRestaurant='))
+          .join('; ')
         const storesForOrders = new Set(targetMappings.slice(0, 3).map((m) => m.store_id))
         const toIsoDate = (str: any) => {
           const d = new Date(str)
@@ -2551,8 +2560,7 @@ async function fetchChromeLiveDoorDashAndUberForStores(
         for (const m of targetMappings) {
           if (!m.ubereats_store_uuid) continue
           const locUuid = String(m.ubereats_store_uuid).trim()
-          const orgUuid =
-            m.ubereats_org_uuid || UBER_STORE_TO_ORG_UUID_MAP[locUuid.toLowerCase()] || locUuid
+          const orgUuid = m.ubereats_org_uuid || UBER_STORE_TO_ORG_UUID_MAP[locUuid.toLowerCase()] || null
 
           const postUberNodeApi = async (ep: string, body: Record<string, any>) => {
             const res = await fetch(`https://merchants.ubereats.com/manager/api/${ep}?localeCode=en`, {
@@ -2562,7 +2570,7 @@ async function fetchChromeLiveDoorDashAndUberForStores(
                 'x-csrf-token': 'x',
                 'User-Agent':
                   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-                Cookie: `${uberCookie}; selectedRestaurant=${locUuid}`,
+                Cookie: `${cleanUberCookie}; selectedRestaurant=${locUuid}`,
               },
               body: JSON.stringify(body),
             })
@@ -2570,14 +2578,16 @@ async function fetchChromeLiveDoorDashAndUberForStores(
             return await res.json().catch(() => ({}))
           }
 
-          const payRes: any = await postUberNodeApi('listPayoutsHistory', {
-            orgUUIDs: [orgUuid],
-            isOngoingSettlementRequired: false,
-            locale: 'en',
-            startDate: '2026-09-14',
-            endDate,
-            pagination: { pageSize: 12, offset: 0 },
-          })
+          const payRes: any = orgUuid
+            ? await postUberNodeApi('listPayoutsHistory', {
+                orgUUIDs: [orgUuid],
+                isOngoingSettlementRequired: false,
+                locale: 'en',
+                startDate: '2026-09-14',
+                endDate,
+                pagination: { pageSize: 12, offset: 0 },
+              })
+            : {}
 
           const payPeriods: any[] = Array.isArray(payRes?.data?.payPeriods) ? payRes.data.payPeriods : []
           const discoveredRefundDates: string[] = []
@@ -2776,13 +2786,30 @@ export async function reconcileAndPersistDeliveryData(params: {
 
   // 1. Si hay órdenes o cortes importados o extraídos en vivo de DoorDash/Uber, persistirlos primero
   if (allImportedPayouts.length > 0) {
+    // Deduplicar globalmente por (platform, payout_reference_id) para que un mismo corte nunca se asigne a dos tiendas
+    const uniquePayoutsMap = new Map<string, Record<string, any>>()
+    for (const p of allImportedPayouts) {
+      if (!p.payout_reference_id) continue
+      uniquePayoutsMap.set(`${p.platform}:${p.payout_reference_id}`, p)
+    }
+    const dedupedPayouts = Array.from(uniquePayoutsMap.values())
+
+    for (const p of dedupedPayouts) {
+      await supabaseAdmin
+        .from('delivery_platform_payouts')
+        .delete()
+        .eq('platform', p.platform)
+        .eq('payout_reference_id', p.payout_reference_id)
+        .neq('store_id', p.store_id)
+    }
+
     const { error: impPayErr } = await supabaseAdmin
       .from('delivery_platform_payouts')
-      .upsert(allImportedPayouts, { onConflict: 'store_id,platform,payout_reference_id' })
+      .upsert(dedupedPayouts, { onConflict: 'store_id,platform,payout_reference_id' })
     if (impPayErr) {
       throw new Error(`Error upserting imported payouts: ${impPayErr.message}`)
     }
-    payoutsSynced += allImportedPayouts.length
+    payoutsSynced += dedupedPayouts.length
   }
 
   for (const mapping of targetMappings) {
