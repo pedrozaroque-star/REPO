@@ -131,12 +131,42 @@ export function isForbiddenRaulVoice(voiceName: string | null | undefined, voice
   )
 }
 
+const ES_UNITS = ['', 'uno', 'dos', 'tres', 'cuatro', 'cinco', 'seis', 'siete', 'ocho', 'nueve']
+const ES_TEENS = ['diez', 'once', 'doce', 'trece', 'catorce', 'quince', 'dieciséis', 'diecisiete', 'dieciocho', 'diecinueve']
+const ES_TWENTIES = ['veinte', 'veintiuno', 'veintidós', 'veintitrés', 'veinticuatro', 'veinticinco', 'veintiséis', 'veintisiete', 'veintiocho', 'veintinueve']
+const ES_TENS = ['', '', 'veinte', 'treinta', 'cuarenta', 'cincuenta', 'sesenta', 'setenta', 'ochenta', 'noventa']
+const ES_HUNDREDS = ['', 'ciento', 'doscientos', 'trescientos', 'cuatrocientos', 'quinientos', 'seiscientos', 'setecientos', 'ochocientos', 'novecientos']
+
+export function numberToSpanishWords(n: number): string {
+  if (!Number.isFinite(n) || n <= 0 || n > 9999) return String(n)
+  if (n >= 1000) {
+    const thousands = Math.floor(n / 1000)
+    const rem = n % 1000
+    const prefix = thousands === 1 ? 'mil' : `${ES_UNITS[thousands]} mil`
+    return rem === 0 ? prefix : `${prefix} ${numberToSpanishWords(rem)}`
+  }
+  if (n === 100) return 'cien'
+  if (n > 100) {
+    const h = Math.floor(n / 100)
+    const rem = n % 100
+    return rem === 0 ? ES_HUNDREDS[h] : `${ES_HUNDREDS[h]} ${numberToSpanishWords(rem)}`
+  }
+  if (n < 10) return ES_UNITS[n]
+  if (n < 20) return ES_TEENS[n - 10]
+  if (n < 30) return ES_TWENTIES[n - 20]
+  const t = Math.floor(n / 10)
+  const u = n % 10
+  return u === 0 ? ES_TENS[t] : `${ES_TENS[t]} y ${ES_UNITS[u]}`
+}
+
 function buildPrompt(n: string, lang: TtsLang): string {
-  const spoken = String(parseInt(n, 10))
+  const num = parseInt(n, 10)
+  const spoken = String(num)
   if (lang === 'en') {
     return `Order ${spoken} is ready.`
   } else {
-    return `Orden ${spoken}, ya está.`
+    const esWords = num >= 1 && num <= 9999 ? numberToSpanishWords(num) : spoken
+    return `Orden ${esWords}, ya está.`
   }
 }
 
