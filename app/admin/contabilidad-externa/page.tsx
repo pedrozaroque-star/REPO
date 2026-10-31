@@ -38,7 +38,8 @@ import {
     Search, RefreshCw, CheckCircle2, XCircle, FileText, Repeat, Landmark, Users,
     BarChart3, Edit3, Trash2, Ban, ArrowLeftRight, BookOpen, ShieldAlert, ChevronRight, Calendar,
     Settings, Scale, ListChecks, Layers, History, Sparkles, Calculator, Lock, Package, CheckSquare,
-    Home, Bookmark, Briefcase, Grid, SlidersHorizontal, Eye, EyeOff, ArrowLeft, ChevronDown, AlertTriangle
+    Home, Bookmark, Briefcase, Grid, SlidersHorizontal, Eye, EyeOff, ArrowLeft, ChevronDown, AlertTriangle,
+    Mail, Phone, Send
 } from 'lucide-react'
 
 const ALLOWED_EMAILS = [
@@ -386,6 +387,7 @@ type ActiveTab =
     | 'overview'
     | 'clients'
     | 'books_review'
+    | 'firm_hub'
     | 'transactions'
     | 'checks_deposits'
     | 'reconcile'
@@ -406,6 +408,7 @@ type QboRailFlyout =
     | 'bookmarks'
     | 'clients'
     | 'work'
+    | 'firm_hub'
     | 'reports'
     | 'all_apps'
     | 'accounting'
@@ -475,7 +478,7 @@ function ExternalAccountingContent() {
         return ALLOWED_EMAILS.includes(emailNorm) || ALLOWED_USER_IDS.includes(Number(user.id))
     }, [user])
 
-    const [activeRealmId, setActiveRealmId] = useState<string>('123145858055022')
+    const [activeRealmId, setActiveRealmId] = useState<string>('123145825185692')
     const [activeTab, setActiveTab] = useState<ActiveTab>('overview')
     const [loading, setLoading] = useState<boolean>(true)
     const [saving, setSaving] = useState<boolean>(false)
@@ -502,6 +505,67 @@ function ExternalAccountingContent() {
     const [privacyMask, setPrivacyMask] = useState<boolean>(false)
     const [customizeRailModalOpen, setCustomizeRailModalOpen] = useState<boolean>(false)
     const [clientsHubSearch, setClientsHubSearch] = useState<string>('')
+    const [allAppsSubGroup, setAllAppsSubGroup] = useState<'accounting' | 'expenses' | 'sales' | 'customer_hub' | 'team' | 'inventory' | 'sales_tax'>('customer_hub')
+    const [selectedTenantDetail, setSelectedTenantDetail] = useState<any | null>(null)
+    const [tenantSidebarSearch, setTenantSidebarSearch] = useState<string>('')
+    const [tenantNewTxnMenuOpen, setTenantNewTxnMenuOpen] = useState<boolean>(false)
+    const [invoiceEmailModal, setInvoiceEmailModal] = useState<{
+        txn: any | null
+        toEmail: string
+        ccEmail: string
+        subject: string
+        customMessage: string
+        htmlPreview: string
+        pdfBase64: string
+        fileName: string
+        sending: boolean
+        loadingPreview: boolean
+    } | null>(null)
+
+    const [dockedAppSidebarOpen, setDockedAppSidebarOpen] = useState<boolean>(true)
+    const [tenantMoneyFilter, setTenantMoneyFilter] = useState<'ALL' | 'ESTIMATES' | 'OVERDUE' | 'OPEN' | 'PAID'>('ALL')
+    const [vendorMoneyFilter, setVendorMoneyFilter] = useState<'ALL' | 'OVERDUE' | 'OPEN_BILLS' | 'PAID'>('ALL')
+    const [tenantDetailSubTab, setTenantDetailSubTab] = useState<'transactions' | 'activity' | 'statements' | 'recurring' | 'details' | 'notes'>('transactions')
+    const [tenantTxnTypeFilter, setTenantTxnTypeFilter] = useState<string>('ALL')
+    const [tenantTxnStatusFilter, setTenantTxnStatusFilter] = useState<string>('ALL')
+    const [tenantNoteDraft, setTenantNoteDraft] = useState<string>('')
+    const [selectedLinkedInvoiceIds, setSelectedLinkedInvoiceIds] = useState<string[]>([])
+
+    // Dedicated QBO Sub-Views inside activeTab === 'transactions'
+    const [txnViewMode, setTxnViewMode] = useState<'all' | 'invoices' | 'sales' | 'bills' | 'expenses' | 'client_overview' | 'write_off_invoices'>('all')
+    const [clientsSubView, setClientsSubView] = useState<'list' | 'invitations'>('list')
+    const [workSubView, setWorkSubView] = useState<'client_insights' | 'books_close' | 'tax_prep' | '1099s' | 'projects' | 'cpa_audit'>('client_insights')
+    const [firmHubSubView, setFirmHubSubView] = useState<'playbooks' | 'users' | 'user_groups' | 'benefits' | 'proadvisor_training' | 'manage_training' | 'policy_templates' | 'coa_templates' | 'integrations'>('playbooks')
+    const [clientOverviewOpenSections, setClientOverviewOpenSections] = useState<Record<string, boolean>>({
+        setup: true,
+        banking: true,
+        issues: true,
+        volume: true,
+    })
+    const [billsSubTab, setBillsSubTab] = useState<'for_review' | 'unpaid' | 'paid'>('unpaid')
+    const [invoicesStatusFilter, setInvoicesStatusFilter] = useState<'ALL' | 'OVERDUE' | 'NOT_DUE' | 'NOT_DEPOSITED' | 'DEPOSITED'>('ALL')
+    const [writeOffAgeDays, setWriteOffAgeDays] = useState<string>('180')
+    const [writeOffMaxBalance, setWriteOffMaxBalance] = useState<string>('50000')
+    const [writeOffAccountQbId, setWriteOffAccountQbId] = useState<string>('')
+    const [writeOffSelectedIds, setWriteOffSelectedIds] = useState<string[]>([])
+    const [depositSelectedPaymentIds, setDepositSelectedPaymentIds] = useState<string[]>([])
+    const [depositCashBackAccId, setDepositCashBackAccId] = useState<string>('')
+    const [depositCashBackMemo, setDepositCashBackMemo] = useState<string>('')
+    const [depositCashBackAmount, setDepositCashBackAmount] = useState<string>('')
+
+    useEffect(() => {
+        setSelectedTenantDetail(null)
+        setTenantNewTxnMenuOpen(false)
+        setTenantMoneyFilter('ALL')
+        setVendorMoneyFilter('ALL')
+        setWriteOffSelectedIds([])
+    }, [activeRealmId])
+
+    useEffect(() => {
+        if (selectedTenantDetail) {
+            setTenantNoteDraft(String(selectedTenantDetail?.raw_data?.Notes || selectedTenantDetail?.notes || ''))
+        }
+    }, [selectedTenantDetail])
 
     useEffect(() => {
         try {
@@ -525,7 +589,7 @@ function ExternalAccountingContent() {
     const isFirmRailTheme = useMemo(() => {
         if (railThemeMode === 'dark') return true
         if (railThemeMode === 'light') return false
-        return activeRealmId === '123145825185692' || activeTab === 'clients'
+        return activeRealmId === '123145825185692' || activeTab === 'clients' || activeTab === 'firm_hub'
     }, [railThemeMode, activeRealmId, activeTab])
 
     const formatDisplayCurrency = useCallback((val: number | string | null | undefined): string => {
@@ -550,6 +614,10 @@ function ExternalAccountingContent() {
     }>({ page: 1, pageSize: 100, totalFiltered: 0, totalPages: 1, hasNextPage: false, hasPrevPage: false })
     const [checkbookTransactions, setCheckbookTransactions] = useState<any[]>([])
     const [depositsTransactions, setDepositsTransactions] = useState<any[]>([])
+    const [invoicesTransactions, setInvoicesTransactions] = useState<any[]>([])
+    const [salesTransactions, setSalesTransactions] = useState<any[]>([])
+    const [billsTransactions, setBillsTransactions] = useState<any[]>([])
+    const [expensesTransactions, setExpensesTransactions] = useState<any[]>([])
     const [checkbookPagination, setCheckbookPagination] = useState<{
         page: number
         pageSize: number
@@ -559,6 +627,8 @@ function ExternalAccountingContent() {
         hasPrevPage: boolean
     }>({ page: 1, pageSize: 100, totalFiltered: 0, totalPages: 1, hasNextPage: false, hasPrevPage: false })
     const [nextCheckNumberByBank, setNextCheckNumberByBank] = useState<Record<string, string>>({})
+    const [nextInvoiceNumber, setNextInvoiceNumber] = useState<string>('1001')
+    const [nextEstimateNumber, setNextEstimateNumber] = useState<string>('1001')
     const [summary, setSummary] = useState<any>({})
 
     // Gear Menu (⚙️) Data States
@@ -1023,6 +1093,10 @@ function ExternalAccountingContent() {
             }
             setCheckbookTransactions(json.checkbookTransactions || [])
             setDepositsTransactions(json.depositsTransactions || [])
+            setInvoicesTransactions(json.invoicesTransactions || [])
+            setSalesTransactions(json.salesTransactions || [])
+            setBillsTransactions(json.billsTransactions || [])
+            setExpensesTransactions(json.expensesTransactions || [])
             if (json.checkbookPagination) {
                 setCheckbookPagination({
                     ...json.checkbookPagination,
@@ -1031,6 +1105,8 @@ function ExternalAccountingContent() {
             }
             setActualsByAccountAndYear(json.actualsByAccountAndYear || {})
             setNextCheckNumberByBank(json.nextCheckNumberByBank || {})
+            if (json.nextInvoiceNumber) setNextInvoiceNumber(String(json.nextInvoiceNumber))
+            if (json.nextEstimateNumber) setNextEstimateNumber(String(json.nextEstimateNumber))
             setSummary(json.summary || {})
         } catch (err: any) {
             notify('err', err.message || 'Error')
@@ -1074,6 +1150,37 @@ function ExternalAccountingContent() {
         }
     }, [activeTab, fetchReport])
 
+    // Auto-sync the expanded group in the Docked 2nd-Level `ALL APPS` sidebar to match the active QBO workspace
+    useEffect(() => {
+        if (activeTab === 'contacts') {
+            if (contactFilterType === 'Vendor' || contactFilterType === '1099') {
+                setAllAppsSubGroup('expenses')
+            } else {
+                setAllAppsSubGroup('customer_hub')
+            }
+        } else if (activeTab === 'transactions') {
+            if (txnViewMode === 'invoices' || txnViewMode === 'sales') {
+                setAllAppsSubGroup('sales')
+            } else if (txnViewMode === 'expenses' || txnViewMode === 'bills') {
+                setAllAppsSubGroup('expenses')
+            } else {
+                setAllAppsSubGroup('accounting')
+            }
+        } else if (activeTab === 'checks_deposits') {
+            setAllAppsSubGroup('expenses')
+        } else if (activeTab === 'accounts' || activeTab === 'reconcile' || activeTab === 'rules' || activeTab === 'reclassify' || activeTab === 'books_review') {
+            setAllAppsSubGroup('accounting')
+        } else if (activeTab === 'lists') {
+            setAllAppsSubGroup('sales')
+        } else if (activeTab === 'recurring') {
+            setAllAppsSubGroup('customer_hub')
+        } else if (activeTab === 'reports') {
+            setAllAppsSubGroup('sales_tax')
+        } else if (activeTab === 'audit_log') {
+            setAllAppsSubGroup('team')
+        }
+    }, [activeTab, txnViewMode, contactFilterType])
+
     const activeCompany = useMemo(
         () => companies.find(c => c.realm_id === activeRealmId) || companies[0],
         [companies, activeRealmId]
@@ -1088,6 +1195,28 @@ function ExternalAccountingContent() {
         () => accounts.filter(a => a.is_active),
         [accounts]
     )
+
+    // Deduplicated union of all loaded company transactions so QBO sub-views (Invoices, Sales, Bills, Expenses, Contact Dossiers, Write-Offs) never suffer from Bank Register page truncation
+    const allLoadedTransactions = useMemo(() => {
+        const map = new Map<string, any>()
+        for (const list of [
+            transactions,
+            invoicesTransactions,
+            salesTransactions,
+            billsTransactions,
+            expensesTransactions,
+            checkbookTransactions,
+            depositsTransactions,
+            reconcileTransactions,
+        ]) {
+            for (const tx of list || []) {
+                if (tx && tx.id != null && !map.has(String(tx.id))) {
+                    map.set(String(tx.id), tx)
+                }
+            }
+        }
+        return Array.from(map.values())
+    }, [transactions, invoicesTransactions, salesTransactions, billsTransactions, expensesTransactions, checkbookTransactions, depositsTransactions, reconcileTransactions])
 
     const computeDueDateFromTerms = (baseDateStr: string, termsStr: string) => {
         const days = termsStr === 'Net 15' ? 15 : termsStr === 'Net 30' ? 30 : termsStr === 'Net 60' ? 60 : 0
@@ -1172,17 +1301,35 @@ function ExternalAccountingContent() {
                     rate: String(existing.total_amount || '')
                 }]
             setFormLines(rawLines)
+            setSelectedLinkedInvoiceIds([])
         } else {
             setEditingTxnId(null)
+            setSelectedLinkedInvoiceIds([])
             setFormDate(today)
-            const initialTerms = (mode === 'Bill' || mode === 'Invoice') ? 'Net 30' : 'Due on receipt'
+            const initialTerms = mode === 'Bill' ? 'Net 30' : 'Due on receipt'
             setFormTerms(initialTerms)
             setFormDueDate(computeDueDateFromTerms(today, initialTerms))
             setFormAddress('')
             setFormCustomerEmail('')
-            const bankId = primaryDefaultAcc?.qb_account_id || ''
+            const ufAccount = expenseAndGlAccounts.find(a =>
+                String(a.account_sub_type || '').toLowerCase() === 'undepositedfunds' ||
+                String(a.name || '').toLowerCase().includes('undeposited funds')
+            )
+            const bankId = (mode === 'Payment' || mode === 'SalesReceipt') && ufAccount
+                ? ufAccount.qb_account_id
+                : (primaryDefaultAcc?.qb_account_id || '')
             setFormBankQbId(bankId)
-            setFormDocNumber(mode === 'Check' ? (nextCheckNumberByBank[bankId] || '1001') : '')
+            setFormDocNumber(
+                mode === 'Check'
+                    ? (nextCheckNumberByBank[bankId] || '1001')
+                    : mode === 'Invoice'
+                    ? (nextInvoiceNumber || '1001')
+                    : mode === 'Estimate'
+                    ? (nextEstimateNumber || '1001')
+                    : mode === 'Payment'
+                    ? 'CHECK'
+                    : ''
+            )
             setFormToAccountQbId(mode === 'PayDownCreditCard' ? (defaultCard?.qb_account_id || expenseAndGlAccounts[1]?.qb_account_id || '') : (expenseAndGlAccounts[1]?.qb_account_id || ''))
             setFormPayeeName('')
             setFormPaymentMethod(
@@ -1194,7 +1341,7 @@ function ExternalAccountingContent() {
             )
             setFormDepartmentQbId('')
             setFormClassQbId('')
-            setFormMemo('')
+            setFormMemo(mode === 'Invoice' ? 'Monthly Rent' : '')
             setFormPrintLater(false)
             setFormAmount('')
             if (mode === 'JournalEntry') {
@@ -1203,18 +1350,19 @@ function ExternalAccountingContent() {
                     { account_qb_id: defaultBank?.qb_account_id || '', account_name: defaultBank?.name || '', description: '', amount: '', posting_type: 'Credit', entity_name: '' }
                 ])
             } else {
+                const rentItem = (companyLists.items || []).find((it: any) => String(it.Name || it.name || '').toLowerCase().includes('rent'))
                 setFormLines([
                     {
                         account_qb_id: lineDefaultAcc?.qb_account_id || '',
                         account_name: lineDefaultAcc?.name || '',
-                        description: '',
+                        description: mode === 'Invoice' ? 'Monthly Rent' : '',
                         amount: '',
                         posting_type: 'Debit',
                         entity_name: '',
                         payment_method: 'Check',
                         check_num: '',
-                        item_id: '',
-                        item_name: '',
+                        item_id: mode === 'Invoice' && rentItem ? String(rentItem.Id || rentItem.id || '') : '',
+                        item_name: mode === 'Invoice' && rentItem ? String(rentItem.Name || rentItem.name || 'Rent') : (mode === 'Invoice' ? 'Rent' : ''),
                         qty: '1',
                         rate: ''
                     }
@@ -1302,7 +1450,7 @@ function ExternalAccountingContent() {
             const bankObj = accounts.find(a => a.qb_account_id === formBankQbId)
             const toAccObj = accounts.find(a => a.qb_account_id === formToAccountQbId)
 
-            const preparedLines = formLines.map(l => {
+            const preparedLines = formLines.map((l: any) => {
                 const acc = accounts.find(a => a.qb_account_id === l.account_qb_id || a.name === l.account_name)
                 return {
                     account_qb_id: acc?.qb_account_id || l.account_qb_id || null,
@@ -1310,6 +1458,7 @@ function ExternalAccountingContent() {
                     description: l.description || formMemo,
                     amount: Number(l.amount || formAmount || 0),
                     posting_type: l.posting_type || null,
+                    detail_type: l.detail_type || null,
                     entity_name: l.entity_name || formPayeeName || null,
                     payment_method: l.payment_method || formPaymentMethod || null,
                     check_num: l.check_num || formDocNumber || null,
@@ -1317,6 +1466,10 @@ function ExternalAccountingContent() {
                     item_name: l.item_name || null,
                     qty: l.qty != null && l.qty !== '' ? Number(l.qty) : null,
                     rate: l.rate != null && l.rate !== '' ? Number(l.rate) : null,
+                    linked_txn_id: l.linked_txn_id || null,
+                    linked_txn_uuid: l.linked_txn_uuid || null,
+                    linked_txn_doc_number: l.linked_txn_doc_number || null,
+                    linked_txn_type: l.linked_txn_type || null,
                 }
             })
 
@@ -1329,7 +1482,7 @@ function ExternalAccountingContent() {
             const sumLines = modalMode === 'JournalEntry'
                 ? preparedLines.filter(l => l.posting_type === 'Debit').reduce((s, l) => s + Number(l.amount || 0), 0)
                 : preparedLines.reduce((s, l) => s + Number(l.amount || 0), 0)
-            const finalAmount = (modalMode === 'Transfer' || modalMode === 'PayDownCreditCard')
+            const finalAmount = (modalMode === 'Transfer' || modalMode === 'PayDownCreditCard' || ((modalMode === 'Payment' || modalMode === 'BillPayment') && Number(formAmount || 0) > 0))
                 ? Number(formAmount || 0)
                 : (sumLines > 0 ? sumLines : Number(formAmount || 0))
 
@@ -1362,6 +1515,7 @@ function ExternalAccountingContent() {
                     memo: formMemo,
                     print_status: formPrintLater ? 'NeedToPrint' : 'NotSet',
                     total_amount: finalAmount,
+                    linked_invoice_ids: selectedLinkedInvoiceIds,
                     line_items: (modalMode === 'Transfer' || modalMode === 'PayDownCreditCard') ? [] : preparedLines,
                     created_by: user?.name || user?.email || 'Raquel Velazquez',
                 })
@@ -1372,6 +1526,295 @@ function ExternalAccountingContent() {
             notify('ok', t('external_accounting.saved_successfully'))
             setModalMode(null)
             await fetchWorkspaceData()
+        } catch (err: any) {
+            notify('err', err.message || 'Error')
+        } finally {
+            setSaving(false)
+        }
+    }
+
+    const handleDownloadStatementPdf = async (tenant: any) => {
+        if (!tenant || !activeRealmId) return
+        try {
+            const res = await authFetch('/api/external-accounting', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    action: 'generate_statement_pdf',
+                    realmId: activeRealmId,
+                    contactId: tenant.id,
+                    qb_contact_id: tenant.qb_contact_id,
+                    entityName: tenant.display_name,
+                }),
+            })
+            const json = await res.json()
+            if (!res.ok) throw new Error(json.error || 'Error generating Statement PDF')
+            const byteCharacters = atob(json.pdfBase64)
+            const byteNumbers = new Array(byteCharacters.length)
+            for (let i = 0; i < byteCharacters.length; i++) {
+                byteNumbers[i] = byteCharacters.charCodeAt(i)
+            }
+            const byteArray = new Uint8Array(byteNumbers)
+            const blob = new Blob([byteArray], { type: 'application/pdf' })
+            const url = URL.createObjectURL(blob)
+            const a = document.createElement('a')
+            a.href = url
+            a.download = json.filename || `Statement_${tenant.display_name || 'Tenant'}.pdf`
+            document.body.appendChild(a)
+            a.click()
+            document.body.removeChild(a)
+            URL.revokeObjectURL(url)
+            notify('ok', `Statement PDF: ${json.filename}`)
+        } catch (err: any) {
+            notify('err', err.message || 'Error generating Statement PDF')
+        }
+    }
+
+    const handleSaveTenantNote = async (tenant: any) => {
+        if (!tenant || !activeRealmId) return
+        setSaving(true)
+        try {
+            const res = await authFetch('/api/external-accounting', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    action: 'save_contact_note',
+                    realmId: activeRealmId,
+                    contactId: tenant.id,
+                    note: tenantNoteDraft,
+                }),
+            })
+            const json = await res.json()
+            if (!res.ok) throw new Error(json.error || 'Error saving note')
+            notify('ok', t('external_accounting.saved_successfully'))
+            if (json.contact) {
+                setSelectedTenantDetail(json.contact)
+            }
+            await fetchWorkspaceData()
+        } catch (err: any) {
+            notify('err', err.message || 'Error saving note')
+        } finally {
+            setSaving(false)
+        }
+    }
+
+    const handleDownloadOfficialInvoicePdf = async (txn: any) => {
+        if (!txn || !activeRealmId) return
+        try {
+            const res = await authFetch('/api/external-accounting', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    action: 'generate_invoice_pdf',
+                    realmId: activeRealmId,
+                    transactionId: txn.id,
+                    qbTxnId: txn.qb_txn_id,
+                    docNumber: txn.doc_number,
+                    txnPayload: txn,
+                }),
+            })
+            const json = await res.json()
+            if (!res.ok) throw new Error(json.error || 'Error generating Invoice PDF')
+            const byteCharacters = atob(json.pdfBase64)
+            const byteNumbers = new Array(byteCharacters.length)
+            for (let i = 0; i < byteCharacters.length; i++) {
+                byteNumbers[i] = byteCharacters.charCodeAt(i)
+            }
+            const byteArray = new Uint8Array(byteNumbers)
+            const blob = new Blob([byteArray], { type: 'application/pdf' })
+            const url = URL.createObjectURL(blob)
+            const a = document.createElement('a')
+            a.href = url
+            a.download = json.fileName || `Invoice_${txn.doc_number || 'QBO'}.pdf`
+            document.body.appendChild(a)
+            a.click()
+            document.body.removeChild(a)
+            URL.revokeObjectURL(url)
+            notify('ok', `PDF: ${json.fileName}`)
+        } catch (err: any) {
+            notify('err', err.message || 'Error generating Invoice PDF')
+        }
+    }
+
+    const openInvoiceEmailModal = async (txn: any) => {
+        if (!txn || !activeRealmId) return
+        const matchedContact = contacts.find(
+            c =>
+                (txn.entity_qb_id && String(c.qb_contact_id) === String(txn.entity_qb_id)) ||
+                (txn.entity_name && (c.display_name || '').toLowerCase() === String(txn.entity_name).toLowerCase())
+        )
+        const compLegal = activeCompany?.legal_name || activeCompany?.company_name || 'Gutierrez Financial'
+        const defaultTo = matchedContact?.email || 'raquel@tacosgavilan.com'
+        const defaultSubject = `Invoice ${txn.doc_number ? `#${txn.doc_number} ` : ''}from ${compLegal}`
+        const dearName =
+            matchedContact?.given_name && matchedContact?.family_name
+                ? `${matchedContact.given_name} ${matchedContact.family_name}`
+                : matchedContact?.display_name || txn.entity_name || 'Customer'
+        const defaultMsg = `Dear ${dearName},\n\nYour invoice is attached. Please remit payment at your earliest convenience.\nThank you for your business - we appreciate it very much.\n\nSincerely,\n${compLegal}`
+
+        setInvoiceEmailModal({
+            txn,
+            toEmail: defaultTo,
+            ccEmail: 'raquel@tacosgavilan.com',
+            subject: defaultSubject,
+            customMessage: defaultMsg,
+            htmlPreview: '',
+            pdfBase64: '',
+            fileName: `Invoice_${txn.doc_number || 'QBO'}_from_${compLegal.replace(/[^a-zA-Z0-9]+/g, '_')}.pdf`,
+            sending: false,
+            loadingPreview: true,
+        })
+
+        try {
+            const res = await authFetch('/api/external-accounting', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    action: 'generate_invoice_pdf',
+                    realmId: activeRealmId,
+                    transactionId: txn.id,
+                    qbTxnId: txn.qb_txn_id,
+                    docNumber: txn.doc_number,
+                    txnPayload: txn,
+                }),
+            })
+            const json = await res.json()
+            if (res.ok && json.ok) {
+                setInvoiceEmailModal(prev =>
+                    prev
+                        ? {
+                              ...prev,
+                              toEmail: prev.toEmail || json.recipientEmail || 'raquel@tacosgavilan.com',
+                              subject: json.subject || prev.subject,
+                              htmlPreview: json.htmlPreview || '',
+                              pdfBase64: json.pdfBase64 || '',
+                              fileName: json.fileName || prev.fileName,
+                              loadingPreview: false,
+                          }
+                        : null
+                )
+            } else {
+                setInvoiceEmailModal(prev => (prev ? { ...prev, loadingPreview: false } : null))
+            }
+        } catch {
+            setInvoiceEmailModal(prev => (prev ? { ...prev, loadingPreview: false } : null))
+        }
+    }
+
+    const handleSendInvoiceEmailSubmit = async (e: React.FormEvent) => {
+        e.preventDefault()
+        if (!invoiceEmailModal || !activeRealmId) return
+        setInvoiceEmailModal(prev => (prev ? { ...prev, sending: true } : null))
+        try {
+            const res = await authFetch('/api/external-accounting', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    action: 'send_invoice_email',
+                    realmId: activeRealmId,
+                    transactionId: invoiceEmailModal.txn?.id,
+                    qbTxnId: invoiceEmailModal.txn?.qb_txn_id,
+                    docNumber: invoiceEmailModal.txn?.doc_number,
+                    txnPayload: invoiceEmailModal.txn,
+                    toEmail: invoiceEmailModal.toEmail,
+                    ccEmail: invoiceEmailModal.ccEmail,
+                    subject: invoiceEmailModal.subject,
+                    customMessage: invoiceEmailModal.customMessage,
+                    sentBy: user?.name || user?.email || 'Raquel Velazquez',
+                }),
+            })
+            const json = await res.json()
+            if (!res.ok) throw new Error(json.error || 'Error sending invoice email')
+            notify('ok', `${t('external_accounting.qbo_invoice_email_sent_ok')} → ${json.sentTo} (${json.fileName})`)
+            setInvoiceEmailModal(null)
+            await fetchWorkspaceData()
+        } catch (err: any) {
+            notify('err', err.message || 'Error sending invoice email')
+            setInvoiceEmailModal(prev => (prev ? { ...prev, sending: false } : null))
+        }
+    }
+
+    const handleSaveAndSendInvoice = async () => {
+        if (!modalMode || modalMode !== 'Invoice') return
+        setSaving(true)
+        try {
+            const bankObj = accounts.find(a => a.qb_account_id === formBankQbId)
+            const preparedLines = formLines.map(l => {
+                const acc = accounts.find(a => a.qb_account_id === l.account_qb_id || a.name === l.account_name)
+                return {
+                    account_qb_id: acc?.qb_account_id || l.account_qb_id || null,
+                    account_name: acc?.name || l.account_name || 'Rental Income',
+                    description: l.description || formMemo || 'Monthly Rent',
+                    amount: Number(l.amount || formAmount || 0),
+                    posting_type: l.posting_type || 'Credit',
+                    entity_name: l.entity_name || formPayeeName || null,
+                    payment_method: l.payment_method || formPaymentMethod || null,
+                    check_num: l.check_num || formDocNumber || null,
+                    item_id: l.item_id || null,
+                    item_name: l.item_name || 'Rent',
+                    qty: l.qty != null && l.qty !== '' ? Number(l.qty) : 1,
+                    rate: l.rate != null && l.rate !== '' ? Number(l.rate) : Number(l.amount || formAmount || 0),
+                }
+            })
+            const effectivePayeeName = formPayeeName.trim() ||
+                Array.from(new Set(preparedLines.map(l => (l.entity_name || '').trim()).filter(Boolean))).join(', ')
+            const matchedContact = contacts.find(c => (c.display_name || '').toLowerCase() === effectivePayeeName.toLowerCase())
+            const computedLinesTotal = preparedLines.reduce((s, l) => s + l.amount, 0)
+            const finalAmount = computedLinesTotal > 0 ? computedLinesTotal : Number(formAmount || 0)
+            const effectiveDocNumber = formDocNumber.trim()
+            const deptObj = (companyLists.departments || []).find((d: any) => String(d.Id ?? d.qb_location_id) === String(formDepartmentQbId))
+            const clsObj = (companyLists.classes || []).find((c: any) => String(c.Id ?? c.qb_class_id) === String(formClassQbId))
+
+            const res = await authFetch('/api/external-accounting', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    action: 'save_transaction',
+                    realmId: activeRealmId,
+                    id: editingTxnId,
+                    txn_type: 'Invoice',
+                    txn_date: formDate,
+                    due_date: formDueDate || formDate,
+                    doc_number: effectiveDocNumber,
+                    payment_type: formPaymentMethod,
+                    account_qb_id: bankObj?.qb_account_id || formBankQbId,
+                    account_name: bankObj?.name || 'Accounts Receivable',
+                    to_account_qb_id: preparedLines[0]?.account_qb_id,
+                    to_account_name: preparedLines[0]?.account_name,
+                    entity_qb_id: matchedContact?.qb_contact_id || null,
+                    entity_name: effectivePayeeName,
+                    department_qb_id: formDepartmentQbId || null,
+                    department_name: deptObj?.Name || deptObj?.FullyQualifiedName || null,
+                    class_qb_id: formClassQbId || null,
+                    class_name: clsObj?.Name || clsObj?.FullyQualifiedName || null,
+                    term_name: formTerms || 'Due on receipt',
+                    memo: formMemo,
+                    print_status: formPrintLater ? 'NeedToPrint' : 'NotSet',
+                    total_amount: finalAmount,
+                    line_items: preparedLines,
+                    created_by: user?.name || user?.email || 'Raquel Velazquez',
+                })
+            })
+            const json = await res.json()
+            if (!res.ok) throw new Error(json.error || 'Error saving invoice')
+
+            notify('ok', t('external_accounting.saved_successfully'))
+            setModalMode(null)
+            await fetchWorkspaceData()
+            const savedTxn = json.transaction || {
+                id: editingTxnId,
+                txn_type: 'Invoice',
+                txn_date: formDate,
+                due_date: formDueDate || formDate,
+                doc_number: effectiveDocNumber,
+                entity_qb_id: matchedContact?.qb_contact_id || null,
+                entity_name: effectivePayeeName,
+                term_name: formTerms || 'Due on receipt',
+                memo: formMemo,
+                total_amount: finalAmount,
+                line_items: preparedLines,
+            }
+            await openInvoiceEmailModal(savedTxn)
         } catch (err: any) {
             notify('err', err.message || 'Error')
         } finally {
@@ -1671,6 +2114,68 @@ function ExternalAccountingContent() {
 
     const handleDeleteRecurring = async (rec: any) => {
         openDeleteWizard('recurring', rec)
+    }
+
+    // QBO Inline Category Reclassifier (used directly in Vendor Detail & Expenses table Category column)
+    const handleInlineCategoryChange = async (tx: any, newAccountQbId: string) => {
+        if (!newAccountQbId || !tx?.id) return
+        setSaving(true)
+        try {
+            const res = await authFetch('/api/external-accounting', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    action: 'reclassify_transactions',
+                    realmId: activeRealmId,
+                    transactionIds: [tx.id],
+                    newAccountQbId,
+                }),
+            })
+            const json = await res.json()
+            if (!res.ok) throw new Error(json.error || 'Error reclassifying transaction')
+            notify('ok', t('external_accounting.saved_successfully'))
+            await fetchWorkspaceData()
+        } catch (err: any) {
+            notify('err', err.message || 'Error')
+        } finally {
+            setSaving(false)
+        }
+    }
+
+    // QBO Accountant Tool: Write Off Invoices (/app/writeoffinvoices)
+    const handleApplyWriteOffInvoices = async () => {
+        if (writeOffSelectedIds.length === 0) {
+            notify('err', 'Select at least one invoice to write off.')
+            return
+        }
+        const targetAccId = writeOffAccountQbId || accounts.find(a => a.classification === 'Expense' || a.classification === 'Revenue')?.qb_account_id || ''
+        if (!targetAccId) {
+            notify('err', 'Select a write-off account.')
+            return
+        }
+        setSaving(true)
+        try {
+            const res = await authFetch('/api/external-accounting', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    action: 'write_off_invoices',
+                    realmId: activeRealmId,
+                    invoiceIds: writeOffSelectedIds,
+                    writeOffAccountQbId: targetAccId,
+                    writeOffDate: new Date().toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' }),
+                }),
+            })
+            const json = await res.json()
+            if (!res.ok) throw new Error(json.error || 'Error writing off invoices')
+            notify('ok', `${t('external_accounting.saved_successfully')} (${json.writtenOffCount || writeOffSelectedIds.length})`)
+            setWriteOffSelectedIds([])
+            await fetchWorkspaceData()
+        } catch (err: any) {
+            notify('err', err.message || 'Error')
+        } finally {
+            setSaving(false)
+        }
     }
 
     const handleSaveAccount = async (e: React.FormEvent) => {
@@ -4092,6 +4597,10 @@ function ExternalAccountingContent() {
                 handlePrintOfficialCheck(data)
                 return
             }
+            if (data.txn_type === 'Invoice') {
+                handleDownloadOfficialInvoicePdf(data)
+                return
+            }
             const isDeposit = data.txn_type === 'Deposit' || data.txn_type === 'Payment' || data.txn_type === 'SalesReceipt'
             const docTitle = isDeposit
                 ? t('external_accounting.preview_deposit_slip')
@@ -4632,30 +5141,34 @@ function ExternalAccountingContent() {
                         <span className="leading-tight text-center truncate w-full px-0.5">{t('external_accounting.qbo_rail_home')}</span>
                     </button>
 
-                    {/* 5. CLIENTS (All 8 Legal Entities Directory & Quick Switcher) */}
-                    <button
-                        type="button"
-                        onMouseEnter={() => setRailFlyout('clients')}
-                        onClick={() => {
-                            setActiveTab('clients')
-                            setRailFlyout(null)
-                        }}
-                        className={`w-[62px] py-1.5 rounded-xl flex flex-col items-center gap-1 text-[10px] font-medium transition-colors cursor-pointer ${
-                            activeTab === 'clients' || railFlyout === 'clients'
-                                ? isFirmRailTheme ? 'bg-[#002620] text-white font-bold ring-1 ring-emerald-400/40' : 'bg-[#002b24] text-white font-bold shadow-xs'
-                                : isFirmRailTheme ? 'text-white/85 hover:bg-white/10' : 'text-slate-700 dark:text-slate-300 hover:bg-slate-200/70 dark:hover:bg-slate-800'
-                        }`}
-                    >
-                        <Users size={18} />
-                        <span className="leading-tight text-center truncate w-full px-0.5">{t('external_accounting.qbo_rail_clients')}</span>
-                    </button>
+                    {/* 5. CLIENTS (All 8 Legal Entities Directory & Quick Switcher — shown directly on rail in Firm Mode; in Client Mode inside My Menu & Header) */}
+                    {isFirmRailTheme && (
+                        <button
+                            type="button"
+                            onMouseEnter={() => setRailFlyout('clients')}
+                            onClick={() => {
+                                setClientsSubView('list')
+                                setActiveTab('clients')
+                                setRailFlyout(null)
+                            }}
+                            className={`w-[62px] py-1.5 rounded-xl flex flex-col items-center gap-1 text-[10px] font-medium transition-colors cursor-pointer ${
+                                activeTab === 'clients' || railFlyout === 'clients'
+                                    ? 'bg-[#002620] text-white font-bold ring-1 ring-emerald-400/40'
+                                    : 'text-white/85 hover:bg-white/10'
+                            }`}
+                        >
+                            <Users size={18} />
+                            <span className="leading-tight text-center truncate w-full px-0.5">{t('external_accounting.qbo_rail_clients')}</span>
+                        </button>
+                    )}
 
-                    {/* 6. WORK / BOOKS REVIEW (In Firm Mode on rail; in Client Mode under Accounting & My Menu) */}
+                    {/* 6. WORK (Client Insights, Books Close, Tax, Projects, CPA Audit — on rail in Firm Mode) */}
                     {isFirmRailTheme && (
                         <button
                             type="button"
                             onMouseEnter={() => setRailFlyout('work')}
                             onClick={() => {
+                                setWorkSubView('client_insights')
                                 setActiveTab('books_review')
                                 setRailFlyout(null)
                             }}
@@ -4670,36 +5183,67 @@ function ExternalAccountingContent() {
                         </button>
                     )}
 
-                    {/* 7. REPORTS (Direct Rail Icon + Flyout for Standard Reports, P&L, Balance Sheet, Archive) */}
-                    <button
-                        type="button"
-                        onMouseEnter={() => setRailFlyout('reports')}
-                        onClick={() => {
-                            setActiveTab('reports')
-                            setRailFlyout(null)
-                        }}
-                        className={`w-[62px] py-1.5 rounded-xl flex flex-col items-center gap-1 text-[10px] font-medium transition-colors cursor-pointer ${
-                            activeTab === 'reports' || railFlyout === 'reports'
-                                ? isFirmRailTheme ? 'bg-[#002620] text-white font-bold ring-1 ring-emerald-400/40' : 'bg-[#002b24] text-white font-bold shadow-xs'
-                                : isFirmRailTheme ? 'text-white/85 hover:bg-white/10' : 'text-slate-700 dark:text-slate-300 hover:bg-slate-200/70 dark:hover:bg-slate-800'
-                        }`}
-                    >
-                        <BarChart3 size={18} />
-                        <span className="leading-tight text-center truncate w-full px-0.5">{t('external_accounting.qbo_rail_reports')}</span>
-                    </button>
+                    {/* 7. FIRM HUB (Playbooks, Manage Users, ProAdvisor, Policy Templates, COA Templates, Integrations — on rail in Firm Mode) */}
+                    {isFirmRailTheme && (
+                        <button
+                            type="button"
+                            onMouseEnter={() => setRailFlyout('firm_hub')}
+                            onClick={() => {
+                                setFirmHubSubView('playbooks')
+                                setActiveTab('firm_hub')
+                                setRailFlyout(null)
+                            }}
+                            className={`w-[62px] py-1.5 rounded-xl flex flex-col items-center gap-1 text-[10px] font-medium transition-colors cursor-pointer ${
+                                activeTab === 'firm_hub' || railFlyout === 'firm_hub'
+                                    ? 'bg-[#002620] text-white font-bold ring-1 ring-emerald-400/40'
+                                    : 'text-white/85 hover:bg-white/10'
+                            }`}
+                        >
+                            <Sparkles size={18} />
+                            <span className="leading-tight text-center truncate w-full px-0.5">{t('external_accounting.qbo_rail_firm_hub')}</span>
+                        </button>
+                    )}
+
+                    {/* 7B. REPORTS (Direct Rail Icon in Client Mode + Flyout for Standard Reports, P&L, Balance Sheet, Archive) */}
+                    {!isFirmRailTheme && (
+                        <button
+                            type="button"
+                            onMouseEnter={() => setRailFlyout('reports')}
+                            onClick={() => {
+                                setActiveTab('reports')
+                                setRailFlyout(null)
+                            }}
+                            className={`w-[62px] py-1.5 rounded-xl flex flex-col items-center gap-1 text-[10px] font-medium transition-colors cursor-pointer ${
+                                activeTab === 'reports' || railFlyout === 'reports'
+                                    ? 'bg-[#002b24] text-white font-bold shadow-xs'
+                                    : 'text-slate-700 dark:text-slate-300 hover:bg-slate-200/70 dark:hover:bg-slate-800'
+                            }`}
+                        >
+                            <BarChart3 size={18} />
+                            <span className="leading-tight text-center truncate w-full px-0.5">{t('external_accounting.qbo_rail_reports')}</span>
+                        </button>
+                    )}
 
                     {/* 8. FIRM BOOKS / ALL APPS (9-Dots App Launcher) */}
                     <button
                         type="button"
                         onMouseEnter={() => setRailFlyout('all_apps')}
-                        onClick={() => setRailFlyout(prev => prev === 'all_apps' ? null : 'all_apps')}
+                        onClick={() => {
+                            if (isFirmRailTheme) {
+                                setReportType('pnl')
+                                setActiveTab('reports')
+                                setRailFlyout(null)
+                            } else {
+                                setRailFlyout(prev => prev === 'all_apps' ? null : 'all_apps')
+                            }
+                        }}
                         className={`w-[62px] py-1.5 rounded-xl flex flex-col items-center gap-1 text-[10px] font-medium transition-colors cursor-pointer ${
-                            railFlyout === 'all_apps'
-                                ? isFirmRailTheme ? 'bg-white/15 text-white font-bold' : 'bg-slate-900 text-white font-bold'
+                            railFlyout === 'all_apps' || (isFirmRailTheme && activeTab === 'reports')
+                                ? isFirmRailTheme ? 'bg-[#002620] text-white font-bold ring-1 ring-emerald-400/40' : 'bg-[#002b24] text-white font-bold'
                                 : isFirmRailTheme ? 'text-white/85 hover:bg-white/10' : 'text-slate-700 dark:text-slate-300 hover:bg-slate-200/70 dark:hover:bg-slate-800'
                         }`}
                     >
-                        <Layers size={18} />
+                        <Grid size={18} />
                         <span className="leading-tight text-center truncate w-full px-0.5">
                             {isFirmRailTheme ? t('external_accounting.qbo_rail_firm_books') : t('external_accounting.qbo_rail_all_apps')}
                         </span>
@@ -4737,11 +5281,12 @@ function ExternalAccountingContent() {
                             type="button"
                             onMouseEnter={() => setRailFlyout('expenses')}
                             onClick={() => {
-                                setActiveTab('checks_deposits')
+                                setTxnViewMode('expenses')
+                                setActiveTab('transactions')
                                 setRailFlyout(null)
                             }}
                             className={`w-[62px] py-1.5 rounded-xl flex flex-col items-center gap-1 text-[10px] font-medium transition-colors cursor-pointer ${
-                                activeTab === 'checks_deposits' || railFlyout === 'expenses'
+                                activeTab === 'checks_deposits' || (activeTab === 'transactions' && (txnViewMode === 'expenses' || txnViewMode === 'bills')) || railFlyout === 'expenses'
                                     ? isFirmRailTheme ? 'bg-[#002620] text-white font-bold ring-1 ring-emerald-400/40' : 'bg-[#002b24] text-white font-bold shadow-xs'
                                     : isFirmRailTheme ? 'text-white/85 hover:bg-white/10' : 'text-slate-700 dark:text-slate-300 hover:bg-slate-200/70 dark:hover:bg-slate-800'
                             }`}
@@ -4757,12 +5302,12 @@ function ExternalAccountingContent() {
                             type="button"
                             onMouseEnter={() => setRailFlyout('sales')}
                             onClick={() => {
-                                setFilterDirection('IN')
+                                setTxnViewMode('invoices')
                                 setActiveTab('transactions')
                                 setRailFlyout(null)
                             }}
                             className={`w-[62px] py-1.5 rounded-xl flex flex-col items-center gap-1 text-[10px] font-medium transition-colors cursor-pointer ${
-                                railFlyout === 'sales'
+                                (activeTab === 'transactions' && (txnViewMode === 'invoices' || txnViewMode === 'sales')) || railFlyout === 'sales'
                                     ? isFirmRailTheme ? 'bg-[#002620] text-white font-bold ring-1 ring-emerald-400/40' : 'bg-[#002b24] text-white font-bold shadow-xs'
                                     : isFirmRailTheme ? 'text-white/85 hover:bg-white/10' : 'text-slate-700 dark:text-slate-300 hover:bg-slate-200/70 dark:hover:bg-slate-800'
                             }`}
@@ -4809,11 +5354,11 @@ function ExternalAccountingContent() {
                                     <div className="space-y-1 text-xs">
                                         {[
                                             { label: t('external_accounting.qbo_shortcut_standard_reports'), action: () => { setReportType('pnl'); setActiveTab('reports') } },
-                                            { label: t('external_accounting.qbo_shortcut_bank_txns'), action: () => { setFilterDirection('ALL'); setFilterType('ALL'); setActiveTab('transactions') } },
+                                            { label: t('external_accounting.qbo_shortcut_bank_txns'), action: () => { setTxnViewMode('all'); setFilterDirection('ALL'); setFilterType('ALL'); setActiveTab('transactions') } },
                                             { label: t('external_accounting.qbo_shortcut_reconcile'), action: () => { if (!reconcileAccountId && bankAndCardAccounts[0]) handleAutoSelectReconcileAccount(bankAndCardAccounts[0].qb_account_id); setActiveTab('reconcile') } },
                                             { label: t('external_accounting.qbo_shortcut_coa'), action: () => setActiveTab('accounts') },
-                                            { label: t('external_accounting.qbo_shortcut_vendors'), action: () => { setContactFilterType('Vendor'); setActiveTab('contacts') } },
-                                            { label: t('external_accounting.qbo_shortcut_customers'), action: () => { setContactFilterType('Customer'); setActiveTab('contacts') } },
+                                            { label: t('external_accounting.qbo_shortcut_vendors'), action: () => { setSelectedTenantDetail(null); setContactFilterType('Vendor'); setActiveTab('contacts') } },
+                                            { label: t('external_accounting.qbo_shortcut_customers'), action: () => { setSelectedTenantDetail(null); setContactFilterType('Customer'); setActiveTab('contacts') } },
                                             { label: t('external_accounting.qbo_shortcut_write_check'), action: () => openTransactionModal('Check') },
                                             { label: t('external_accounting.qbo_shortcut_bank_deposit'), action: () => openTransactionModal('Deposit') },
                                             { label: t('external_accounting.qbo_shortcut_transfer'), action: () => openTransactionModal('Transfer') },
@@ -4841,8 +5386,11 @@ function ExternalAccountingContent() {
                                     </div>
                                     <div className="space-y-1 text-xs">
                                         {[
+                                            { label: `${t('external_accounting.qbo_rail_clients')} (${companies.length})`, action: () => setActiveTab('clients') },
+                                            { label: t('external_accounting.qbo_view_client_overview'), action: () => { setTxnViewMode('client_overview'); setActiveTab('transactions') } },
                                             { label: t('external_accounting.qbo_tool_books_review'), action: () => setActiveTab('books_review') },
                                             { label: t('external_accounting.qbo_tool_reclassify'), action: () => setActiveTab('reclassify') },
+                                            { label: t('external_accounting.qbo_view_write_off_invoices'), action: () => { setTxnViewMode('write_off_invoices'); setActiveTab('transactions') } },
                                             { label: t('external_accounting.qbo_tool_voided_deleted'), action: () => { setAuditSearch('VOID'); setActiveTab('audit_log') } },
                                             { label: t('external_accounting.qbo_tool_close_books'), action: () => setActiveTab('company_settings') },
                                             { label: t('external_accounting.qbo_tool_recurring'), action: () => setActiveTab('recurring') },
@@ -4919,23 +5467,35 @@ function ExternalAccountingContent() {
                             </div>
                         )}
 
-                        {/* FLYOUT 3: CLIENTS (Quick Switcher & Client List) */}
+                        {/* FLYOUT 3: CLIENTS (Client List, Invitations & Quick Switcher) */}
                         {railFlyout === 'clients' && (
                             <div className="space-y-3 text-xs">
-                                <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-slate-800">
-                                    <span className="text-[11px] font-black uppercase tracking-wider text-slate-400">
-                                        {t('external_accounting.qbo_rail_clients')} ({companies.length})
-                                    </span>
-                                    <button
-                                        type="button"
-                                        onClick={() => {
-                                            setActiveTab('clients')
-                                            setRailFlyout(null)
-                                        }}
-                                        className="text-[11px] font-bold text-emerald-600 hover:underline cursor-pointer"
-                                    >
-                                        {t('external_accounting.view_all_txns_link')} →
-                                    </button>
+                                <div className="text-[11px] font-black uppercase tracking-wider text-slate-400 pb-2 border-b border-slate-100 dark:border-slate-800">
+                                    {t('external_accounting.qbo_rail_clients')}
+                                </div>
+                                <div className="space-y-1 pb-2 border-b border-slate-100 dark:border-slate-800">
+                                    {[
+                                        { id: 'list' as const, label: t('external_accounting.qbo_ias_client_list') },
+                                        { id: 'invitations' as const, label: t('external_accounting.qbo_ias_client_invitations') },
+                                    ].map(sub => (
+                                        <button
+                                            key={sub.id}
+                                            type="button"
+                                            onClick={() => {
+                                                setClientsSubView(sub.id)
+                                                setActiveTab('clients')
+                                                setRailFlyout(null)
+                                            }}
+                                            className={`w-full text-left px-3 py-2 rounded-lg font-semibold flex items-center justify-between cursor-pointer ${
+                                                activeTab === 'clients' && clientsSubView === sub.id
+                                                    ? 'bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-white font-bold'
+                                                    : 'hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200'
+                                            }`}
+                                        >
+                                            <span>{sub.label}</span>
+                                            <ChevronRight size={13} className="text-slate-400" />
+                                        </button>
+                                    ))}
                                 </div>
                                 <div className="space-y-1">
                                     {companies.map(c => {
@@ -4966,7 +5526,7 @@ function ExternalAccountingContent() {
                             </div>
                         )}
 
-                        {/* FLYOUT 4: WORK / BOOKS REVIEW */}
+                        {/* FLYOUT 4: WORK (Client Insights, Books Close, Tax, Projects, CPA Audit) */}
                         {railFlyout === 'work' && (
                             <div className="space-y-3 text-xs">
                                 <div className="text-[11px] font-black uppercase tracking-wider text-slate-400 pb-2 border-b border-slate-100 dark:border-slate-800">
@@ -4974,11 +5534,12 @@ function ExternalAccountingContent() {
                                 </div>
                                 <div className="space-y-1">
                                     {[
-                                        { label: t('external_accounting.qbo_tool_books_review'), action: () => setActiveTab('books_review') },
-                                        { label: t('external_accounting.qbo_shortcut_reconcile'), action: () => { if (!reconcileAccountId && bankAndCardAccounts[0]) handleAutoSelectReconcileAccount(bankAndCardAccounts[0].qb_account_id); setActiveTab('reconcile') } },
-                                        { label: t('external_accounting.qbo_tool_reclassify'), action: () => setActiveTab('reclassify') },
-                                        { label: t('external_accounting.qbo_tool_close_books'), action: () => setActiveTab('company_settings') },
-                                        { label: t('external_accounting.create_contractor_1099'), action: () => { setContactFilterType('1099'); setActiveTab('contacts') } },
+                                        { label: t('external_accounting.qbo_ias_work_client_insights'), action: () => { setWorkSubView('client_insights'); setActiveTab('books_review') } },
+                                        { label: t('external_accounting.qbo_ias_work_books_close'), action: () => { setWorkSubView('books_close'); setActiveTab('books_review') } },
+                                        { label: t('external_accounting.qbo_ias_work_tax_prep'), action: () => { setWorkSubView('tax_prep'); setActiveTab('books_review') } },
+                                        { label: t('external_accounting.qbo_ias_work_1099s'), action: () => { setWorkSubView('1099s'); setActiveTab('books_review') } },
+                                        { label: t('external_accounting.qbo_ias_work_projects'), action: () => { setWorkSubView('projects'); setActiveTab('books_review') } },
+                                        { label: t('external_accounting.qbo_ias_work_cpa_audit'), action: () => { setWorkSubView('cpa_audit'); setActiveTab('books_review') } },
                                     ].map((it, i) => (
                                         <button
                                             key={i}
@@ -4986,6 +5547,42 @@ function ExternalAccountingContent() {
                                             onClick={() => {
                                                 setRailFlyout(null)
                                                 it.action()
+                                            }}
+                                            className="w-full text-left px-3 py-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 font-semibold text-slate-700 dark:text-slate-200 flex items-center justify-between cursor-pointer"
+                                        >
+                                            <span>{it.label}</span>
+                                            <ChevronRight size={13} className="text-slate-400" />
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* FLYOUT 4B: FIRM HUB (Playbooks, Manage Users, ProAdvisor, Policy Templates, COA Templates, Integrations) */}
+                        {railFlyout === 'firm_hub' && (
+                            <div className="space-y-3 text-xs">
+                                <div className="text-[11px] font-black uppercase tracking-wider text-slate-400 pb-2 border-b border-slate-100 dark:border-slate-800">
+                                    {t('external_accounting.qbo_rail_firm_hub')}
+                                </div>
+                                <div className="space-y-1">
+                                    {[
+                                        { id: 'playbooks' as const, label: t('external_accounting.qbo_ias_firm_playbooks') },
+                                        { id: 'users' as const, label: t('external_accounting.qbo_ias_firm_users') },
+                                        { id: 'user_groups' as const, label: t('external_accounting.qbo_ias_firm_user_groups') },
+                                        { id: 'benefits' as const, label: t('external_accounting.qbo_ias_firm_benefits') },
+                                        { id: 'proadvisor_training' as const, label: t('external_accounting.qbo_ias_firm_proadvisor_training') },
+                                        { id: 'manage_training' as const, label: t('external_accounting.qbo_ias_firm_manage_training') },
+                                        { id: 'policy_templates' as const, label: t('external_accounting.qbo_ias_firm_policy_templates') },
+                                        { id: 'coa_templates' as const, label: t('external_accounting.qbo_ias_firm_coa_templates') },
+                                        { id: 'integrations' as const, label: t('external_accounting.qbo_ias_firm_integrations') },
+                                    ].map((it) => (
+                                        <button
+                                            key={it.id}
+                                            type="button"
+                                            onClick={() => {
+                                                setFirmHubSubView(it.id)
+                                                setActiveTab('firm_hub')
+                                                setRailFlyout(null)
                                             }}
                                             className="w-full text-left px-3 py-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 font-semibold text-slate-700 dark:text-slate-200 flex items-center justify-between cursor-pointer"
                                         >
@@ -5052,7 +5649,7 @@ function ExternalAccountingContent() {
                             </div>
                         )}
 
-                        {/* FLYOUT 6: ALL APPS / FIRM BOOKS */}
+                        {/* FLYOUT 6: ALL APPS / FIRM BOOKS (QBO 2-Level App Launcher with Customer Hub -> Tenants & leads) */}
                         {railFlyout === 'all_apps' && (
                             <div className="space-y-3 text-xs">
                                 <div className="text-[11px] font-black uppercase tracking-wider text-slate-400 pb-2 border-b border-slate-100 dark:border-slate-800">
@@ -5060,34 +5657,131 @@ function ExternalAccountingContent() {
                                 </div>
                                 <div className="space-y-1">
                                     {[
-                                        { label: t('external_accounting.qbo_rail_accounting'), action: () => setActiveTab('accounts') },
-                                        { label: t('external_accounting.tab_transactions_clean'), action: () => { setFilterDirection('ALL'); setActiveTab('transactions') } },
-                                        { label: t('external_accounting.tab_checkbook_clean'), action: () => setActiveTab('checks_deposits') },
-                                        { label: t('external_accounting.tab_reports_clean'), action: () => setActiveTab('reports') },
-                                        { label: t('external_accounting.tab_reconcile_clean'), action: () => { if (!reconcileAccountId && bankAndCardAccounts[0]) handleAutoSelectReconcileAccount(bankAndCardAccounts[0].qb_account_id); setActiveTab('reconcile') } },
-                                        { label: t('external_accounting.qbo_tool_books_review'), action: () => setActiveTab('books_review') },
-                                        { label: t('external_accounting.qbo_shortcut_vendors'), action: () => { setContactFilterType('Vendor'); setActiveTab('contacts') } },
-                                        { label: t('external_accounting.qbo_shortcut_customers'), action: () => { setContactFilterType('Customer'); setActiveTab('contacts') } },
-                                        { label: t('external_accounting.qbo_tool_lists'), action: () => setActiveTab('lists') },
-                                        { label: t('external_accounting.qbo_tool_recurring'), action: () => setActiveTab('recurring') },
-                                        { label: t('external_accounting.qbo_tool_rules'), action: () => setActiveTab('rules') },
-                                        { label: t('external_accounting.gear_budgeting'), action: () => setActiveTab('budgeting') },
-                                        { label: t('external_accounting.gear_audit_log'), action: () => setActiveTab('audit_log') },
-                                        { label: t('external_accounting.gear_company_settings'), action: () => setActiveTab('company_settings') },
-                                    ].map((it, idx) => (
-                                        <button
-                                            key={idx}
-                                            type="button"
-                                            onClick={() => {
-                                                setRailFlyout(null)
-                                                it.action()
-                                            }}
-                                            className="w-full text-left px-3 py-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 font-semibold text-slate-700 dark:text-slate-200 flex items-center justify-between cursor-pointer"
-                                        >
-                                            <span>{it.label}</span>
-                                            <ChevronRight size={13} className="text-slate-400" />
-                                        </button>
-                                    ))}
+                                        {
+                                            id: 'customer_hub',
+                                            label: t('external_accounting.qbo_customer_hub'),
+                                            badgeColor: 'bg-[#003b32] text-emerald-300',
+                                            children: [
+                                                {
+                                                    label: t('external_accounting.tab_overview_clean'),
+                                                    action: () => {
+                                                        setSelectedTenantDetail(null)
+                                                        setContactFilterType('Customer')
+                                                        setActiveTab('contacts')
+                                                    },
+                                                },
+                                                {
+                                                    label: t('external_accounting.qbo_tenants_and_leads'),
+                                                    action: () => {
+                                                        setSelectedTenantDetail(null)
+                                                        setContactFilterType('Customer')
+                                                        setActiveTab('contacts')
+                                                    },
+                                                },
+                                                {
+                                                    label: t('external_accounting.create_invoice'),
+                                                    action: () => openTransactionModal('Invoice'),
+                                                },
+                                                {
+                                                    label: t('external_accounting.create_receive_payment'),
+                                                    action: () => openTransactionModal('Payment'),
+                                                },
+                                                {
+                                                    label: t('external_accounting.qbo_tool_recurring'),
+                                                    action: () => setActiveTab('recurring'),
+                                                },
+                                            ],
+                                        },
+                                        {
+                                            id: 'accounting',
+                                            label: t('external_accounting.qbo_rail_accounting'),
+                                            badgeColor: 'bg-[#003b32] text-emerald-300',
+                                            children: [
+                                                { label: t('external_accounting.qbo_shortcut_bank_txns'), action: () => { setFilterDirection('ALL'); setFilterType('ALL'); setActiveTab('transactions') } },
+                                                { label: t('external_accounting.tab_checkbook_clean'), action: () => setActiveTab('checks_deposits') },
+                                                { label: t('external_accounting.qbo_shortcut_reconcile'), action: () => { if (!reconcileAccountId && bankAndCardAccounts[0]) handleAutoSelectReconcileAccount(bankAndCardAccounts[0].qb_account_id); setActiveTab('reconcile') } },
+                                                { label: t('external_accounting.qbo_tool_rules'), action: () => setActiveTab('rules') },
+                                                { label: t('external_accounting.qbo_shortcut_coa'), action: () => setActiveTab('accounts') },
+                                                { label: t('external_accounting.qbo_tool_books_review'), action: () => setActiveTab('books_review') },
+                                            ],
+                                        },
+                                        {
+                                            id: 'expenses',
+                                            label: `${t('external_accounting.qbo_rail_expenses')} & Bills`,
+                                            badgeColor: 'bg-emerald-800 text-white',
+                                            children: [
+                                                { label: t('external_accounting.qbo_rail_expenses'), action: () => { setTxnViewMode('expenses'); setActiveTab('transactions') } },
+                                                { label: t('external_accounting.qbo_view_bills'), action: () => { setTxnViewMode('bills'); setActiveTab('transactions') } },
+                                                { label: t('external_accounting.tab_checkbook_clean'), action: () => setActiveTab('checks_deposits') },
+                                                { label: t('external_accounting.qbo_shortcut_vendors'), action: () => { setSelectedTenantDetail(null); setContactFilterType('Vendor'); setActiveTab('contacts') } },
+                                                { label: t('external_accounting.create_contractor_1099'), action: () => { setSelectedTenantDetail(null); setContactFilterType('1099'); setActiveTab('contacts') } },
+                                            ],
+                                        },
+                                        {
+                                            id: 'sales',
+                                            label: `${t('external_accounting.qbo_rail_sales')} & Get Paid`,
+                                            badgeColor: 'bg-teal-800 text-white',
+                                            children: [
+                                                { label: t('external_accounting.qbo_view_sales_txns'), action: () => { setTxnViewMode('sales'); setActiveTab('transactions') } },
+                                                { label: t('external_accounting.qbo_shortcut_invoices'), action: () => { setTxnViewMode('invoices'); setActiveTab('transactions') } },
+                                                { label: t('external_accounting.qbo_tenants_and_leads'), action: () => { setSelectedTenantDetail(null); setContactFilterType('Customer'); setActiveTab('contacts') } },
+                                                { label: t('external_accounting.qbo_shortcut_bank_deposit'), action: () => openTransactionModal('Deposit') },
+                                            ],
+                                        },
+                                        {
+                                            id: 'inventory',
+                                            label: 'Inventory & Lists',
+                                            badgeColor: 'bg-blue-800 text-white',
+                                            children: [
+                                                { label: t('external_accounting.qbo_shortcut_products_services'), action: () => setActiveTab('lists') },
+                                                { label: t('external_accounting.gear_budgeting'), action: () => setActiveTab('budgeting') },
+                                                { label: t('external_accounting.gear_audit_log'), action: () => setActiveTab('audit_log') },
+                                                { label: t('external_accounting.gear_company_settings'), action: () => setActiveTab('company_settings') },
+                                            ],
+                                        },
+                                    ].map(group => {
+                                        const isExpanded = allAppsSubGroup === group.id
+                                        return (
+                                            <div key={group.id} className="rounded-xl border border-slate-100 dark:border-slate-800/80 overflow-hidden">
+                                                <button
+                                                    type="button"
+                                                    onMouseEnter={() => setAllAppsSubGroup(group.id as any)}
+                                                    onClick={() => setAllAppsSubGroup(isExpanded ? null : (group.id as any))}
+                                                    className={`w-full text-left px-3 py-2 font-bold flex items-center justify-between cursor-pointer transition-colors ${
+                                                        isExpanded
+                                                            ? 'bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-white'
+                                                            : 'hover:bg-slate-50 dark:hover:bg-slate-800/50 text-slate-700 dark:text-slate-200'
+                                                    }`}
+                                                >
+                                                    <span className="inline-flex items-center gap-2">
+                                                        <span className={`w-5 h-5 rounded-full text-[10px] font-black flex items-center justify-center ${group.badgeColor}`}>
+                                                            ●
+                                                        </span>
+                                                        <span>{group.label}</span>
+                                                    </span>
+                                                    <ChevronRight size={13} className={`text-slate-400 transition-transform ${isExpanded ? 'rotate-90' : ''}`} />
+                                                </button>
+                                                {isExpanded && (
+                                                    <div className="bg-slate-50/80 dark:bg-slate-950/60 px-2 py-1.5 space-y-0.5 border-t border-slate-100 dark:border-slate-800">
+                                                        {group.children.map((ch, cIdx) => (
+                                                            <button
+                                                                key={cIdx}
+                                                                type="button"
+                                                                onClick={() => {
+                                                                    setRailFlyout(null)
+                                                                    ch.action()
+                                                                }}
+                                                                className="w-full text-left px-3 py-1.5 rounded-lg hover:bg-white dark:hover:bg-slate-800 font-semibold text-slate-700 dark:text-slate-200 flex items-center justify-between cursor-pointer"
+                                                            >
+                                                                <span>{ch.label}</span>
+                                                                <Bookmark size={11} className="text-slate-300 dark:text-slate-600" />
+                                                            </button>
+                                                        ))}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        )
+                                    })}
                                 </div>
                             </div>
                         )}
@@ -5136,14 +5830,16 @@ function ExternalAccountingContent() {
                                 </div>
                                 <div className="space-y-1">
                                     {[
+                                        { label: t('external_accounting.qbo_rail_expenses'), action: () => { setTxnViewMode('expenses'); setActiveTab('transactions') } },
+                                        { label: t('external_accounting.qbo_view_bills'), action: () => { setTxnViewMode('bills'); setActiveTab('transactions') } },
                                         { label: t('external_accounting.tab_checkbook_clean'), action: () => setActiveTab('checks_deposits') },
                                         { label: t('external_accounting.qbo_shortcut_write_check'), action: () => openTransactionModal('Check') },
                                         { label: t('external_accounting.create_print_checks'), action: () => openPrintChecksModal() },
                                         { label: t('external_accounting.btn_new_expense'), action: () => openTransactionModal('Expense') },
                                         { label: t('external_accounting.btn_new_bill'), action: () => openTransactionModal('Bill') },
                                         { label: t('external_accounting.btn_new_bill_payment'), action: () => openTransactionModal('BillPayment') },
-                                        { label: t('external_accounting.qbo_shortcut_vendors'), action: () => { setContactFilterType('Vendor'); setActiveTab('contacts') } },
-                                        { label: t('external_accounting.create_contractor_1099'), action: () => { setContactFilterType('1099'); setActiveTab('contacts') } },
+                                        { label: t('external_accounting.qbo_shortcut_vendors'), action: () => { setSelectedTenantDetail(null); setContactFilterType('Vendor'); setActiveTab('contacts') } },
+                                        { label: t('external_accounting.create_contractor_1099'), action: () => { setSelectedTenantDetail(null); setContactFilterType('1099'); setActiveTab('contacts') } },
                                     ].map((it, idx) => (
                                         <button
                                             key={idx}
@@ -5170,11 +5866,14 @@ function ExternalAccountingContent() {
                                 </div>
                                 <div className="space-y-1">
                                     {[
+                                        { label: t('external_accounting.qbo_view_sales_txns'), action: () => { setTxnViewMode('sales'); setActiveTab('transactions') } },
+                                        { label: t('external_accounting.qbo_shortcut_invoices'), action: () => { setTxnViewMode('invoices'); setActiveTab('transactions') } },
+                                        { label: t('external_accounting.qbo_tenants_and_leads'), action: () => { setSelectedTenantDetail(null); setContactFilterType('Customer'); setActiveTab('contacts') } },
                                         { label: t('external_accounting.qbo_shortcut_bank_deposit'), action: () => openTransactionModal('Deposit') },
                                         { label: t('external_accounting.btn_new_invoice'), action: () => openTransactionModal('Invoice') },
                                         { label: t('external_accounting.btn_new_payment'), action: () => openTransactionModal('Payment') },
                                         { label: t('external_accounting.create_sales_receipt'), action: () => openTransactionModal('SalesReceipt') },
-                                        { label: t('external_accounting.qbo_shortcut_customers'), action: () => { setContactFilterType('Customer'); setActiveTab('contacts') } },
+                                        { label: t('external_accounting.qbo_shortcut_customers'), action: () => { setSelectedTenantDetail(null); setContactFilterType('Customer'); setActiveTab('contacts') } },
                                         { label: t('external_accounting.gear_products_services'), action: () => { setActiveListKey('items'); setActiveTab('lists') } },
                                     ].map((it, idx) => (
                                         <button
@@ -6082,11 +6781,276 @@ function ExternalAccountingContent() {
                 )}
             </header>
 
-            <div className="flex-1 p-4 md:p-6 space-y-5">
+            {/* DOCKED 2ND-LEVEL QBO SUB-SIDEBAR (Shown in both Firm Mode `CLIENTS / WORK / FIRM HUB / FIRM BOOKS` and Client Mode `ALL APPS` on inner views) */}
+            {activeTab !== 'overview' && dockedAppSidebarOpen && (
+                <aside className="hidden lg:flex fixed top-14 left-[74px] bottom-0 w-[205px] z-[58] bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 flex-col py-3 px-2.5 overflow-y-auto select-none text-xs">
+                    <div className="flex items-center justify-between px-2 pb-2.5 mb-2 border-b border-slate-100 dark:border-slate-800">
+                        <span className="text-[11px] font-black uppercase tracking-wider text-slate-600 dark:text-slate-300">
+                            {activeTab === 'clients'
+                                ? t('external_accounting.qbo_rail_clients')
+                                : activeTab === 'books_review'
+                                ? t('external_accounting.qbo_rail_work')
+                                : activeTab === 'firm_hub'
+                                ? t('external_accounting.qbo_rail_firm_hub')
+                                : isFirmRailTheme
+                                ? t('external_accounting.qbo_rail_firm_books')
+                                : t('external_accounting.qbo_rail_all_apps')}
+                        </span>
+                        <button
+                            type="button"
+                            onClick={() => setDockedAppSidebarOpen(false)}
+                            className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 cursor-pointer"
+                            title="Collapse sidebar"
+                        >
+                            <Layers size={13} />
+                        </button>
+                    </div>
+
+                    {activeTab === 'clients' ? (
+                        <div className="space-y-1">
+                            {[
+                                { id: 'list' as const, label: t('external_accounting.qbo_ias_client_list') },
+                                { id: 'invitations' as const, label: t('external_accounting.qbo_ias_client_invitations') },
+                            ].map(item => (
+                                <button
+                                    key={item.id}
+                                    type="button"
+                                    onClick={() => setClientsSubView(item.id)}
+                                    className={`w-full text-left px-3 py-2 rounded-lg text-xs transition-colors cursor-pointer ${
+                                        clientsSubView === item.id
+                                            ? 'bg-[#e4e8ee] dark:bg-slate-800 font-bold text-slate-900 dark:text-white'
+                                            : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 font-medium'
+                                    }`}
+                                >
+                                    {item.label}
+                                </button>
+                            ))}
+                        </div>
+                    ) : activeTab === 'books_review' ? (
+                        <div className="space-y-1">
+                            {[
+                                { id: 'client_insights' as const, label: t('external_accounting.qbo_ias_work_client_insights'), diamond: true },
+                                { id: 'books_close' as const, label: t('external_accounting.qbo_ias_work_books_close') },
+                                { id: 'tax_prep' as const, label: t('external_accounting.qbo_ias_work_tax_prep'), indent: true },
+                                { id: '1099s' as const, label: t('external_accounting.qbo_ias_work_1099s'), indent: true },
+                                { id: 'projects' as const, label: t('external_accounting.qbo_ias_work_projects') },
+                                { id: 'cpa_audit' as const, label: t('external_accounting.qbo_ias_work_cpa_audit') },
+                            ].map(item => (
+                                <button
+                                    key={item.id}
+                                    type="button"
+                                    onClick={() => setWorkSubView(item.id)}
+                                    className={`w-full text-left ${item.indent ? 'pl-5 pr-3' : 'px-3'} py-2 rounded-lg text-xs flex items-center justify-between transition-colors cursor-pointer ${
+                                        workSubView === item.id
+                                            ? 'bg-[#e4e8ee] dark:bg-slate-800 font-bold text-slate-900 dark:text-white'
+                                            : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 font-medium'
+                                    }`}
+                                >
+                                    <span className="truncate">{item.label}</span>
+                                    {item.diamond && <span className="text-[10px] text-slate-500">❖</span>}
+                                </button>
+                            ))}
+                        </div>
+                    ) : activeTab === 'firm_hub' ? (
+                        <div className="space-y-1">
+                            {[
+                                { id: 'playbooks' as const, label: t('external_accounting.qbo_ias_firm_playbooks'), diamond: true },
+                                { id: 'users' as const, label: t('external_accounting.qbo_ias_firm_users'), indent: true, section: t('external_accounting.qbo_ias_firm_manage_users') },
+                                { id: 'user_groups' as const, label: t('external_accounting.qbo_ias_firm_user_groups'), indent: true },
+                                { id: 'benefits' as const, label: t('external_accounting.qbo_ias_firm_benefits'), indent: true, section: t('external_accounting.qbo_ias_firm_proadvisor') },
+                                { id: 'proadvisor_training' as const, label: t('external_accounting.qbo_ias_firm_proadvisor_training'), indent: true },
+                                { id: 'manage_training' as const, label: t('external_accounting.qbo_ias_firm_manage_training'), indent: true },
+                                { id: 'policy_templates' as const, label: t('external_accounting.qbo_ias_firm_policy_templates') },
+                                { id: 'coa_templates' as const, label: t('external_accounting.qbo_ias_firm_coa_templates') },
+                                { id: 'integrations' as const, label: t('external_accounting.qbo_ias_firm_integrations') },
+                            ].map(item => (
+                                <React.Fragment key={item.id}>
+                                    {item.section && (
+                                        <div className="px-3 pt-2 pb-0.5 text-[11px] font-bold text-slate-500 flex items-center justify-between">
+                                            <span>{item.section}</span>
+                                            <ChevronDown size={12} />
+                                        </div>
+                                    )}
+                                    <button
+                                        type="button"
+                                        onClick={() => setFirmHubSubView(item.id)}
+                                        className={`w-full text-left ${item.indent ? 'pl-5 pr-3' : 'px-3'} py-1.5 rounded-lg text-xs flex items-center justify-between transition-colors cursor-pointer ${
+                                            firmHubSubView === item.id
+                                                ? 'bg-[#e4e8ee] dark:bg-slate-800 font-bold text-slate-900 dark:text-white'
+                                                : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 font-medium'
+                                        }`}
+                                    >
+                                        <span className="truncate">{item.label}</span>
+                                        {item.diamond && <span className="text-[10px] text-slate-500">❖</span>}
+                                    </button>
+                                </React.Fragment>
+                            ))}
+                        </div>
+                    ) : (
+                        <div className="space-y-1">
+                            {[
+                                {
+                                    key: 'accounting',
+                                    label: t('external_accounting.qbo_rail_accounting'),
+                                    badgeColor: 'bg-[#003b32]',
+                                    children: [
+                                        { id: 'client_overview', label: t('external_accounting.qbo_view_client_overview'), run: () => { setTxnViewMode('client_overview'); setActiveTab('transactions') } },
+                                        { id: 'transactions', label: t('external_accounting.qbo_shortcut_bank_txns'), run: () => { setTxnViewMode('all'); setFilterDirection('ALL'); setFilterType('ALL'); setActiveTab('transactions') } },
+                                        { id: 'rules', label: t('external_accounting.qbo_tool_rules'), run: () => setActiveTab('rules') },
+                                        { id: 'accounts', label: t('external_accounting.qbo_shortcut_coa'), run: () => setActiveTab('accounts') },
+                                        { id: 'reconcile', label: t('external_accounting.qbo_shortcut_reconcile'), run: () => { if (!reconcileAccountId && bankAndCardAccounts[0]) handleAutoSelectReconcileAccount(bankAndCardAccounts[0].qb_account_id); setActiveTab('reconcile') } },
+                                        { id: 'reclassify', label: t('external_accounting.qbo_tool_reclassify'), run: () => setActiveTab('reclassify') },
+                                        { id: 'write_off_invoices', label: t('external_accounting.qbo_view_write_off_invoices'), run: () => { setTxnViewMode('write_off_invoices'); setActiveTab('transactions') } },
+                                    ],
+                                },
+                                {
+                                    key: 'expenses',
+                                    label: t('external_accounting.qbo_all_apps_expenses_bills'),
+                                    badgeColor: 'bg-[#003b32]',
+                                    children: [
+                                        { id: 'expenses_view', label: t('external_accounting.qbo_rail_expenses'), run: () => { setTxnViewMode('expenses'); setActiveTab('transactions') } },
+                                        { id: 'bills_view', label: t('external_accounting.qbo_view_bills'), run: () => { setTxnViewMode('bills'); setActiveTab('transactions') } },
+                                        { id: 'checks_deposits', label: t('external_accounting.tab_checkbook_clean'), run: () => setActiveTab('checks_deposits') },
+                                        { id: 'vendors', label: t('external_accounting.qbo_shortcut_vendors'), run: () => { setSelectedTenantDetail(null); setContactFilterType('Vendor'); setActiveTab('contacts') } },
+                                        { id: '1099', label: t('external_accounting.create_contractor_1099'), run: () => { setSelectedTenantDetail(null); setContactFilterType('1099'); setActiveTab('contacts') } },
+                                    ],
+                                },
+                                {
+                                    key: 'sales',
+                                    label: t('external_accounting.qbo_all_apps_sales_get_paid'),
+                                    badgeColor: 'bg-[#003b32]',
+                                    children: [
+                                        { id: 'invoices_view', label: t('external_accounting.qbo_shortcut_invoices'), run: () => { setTxnViewMode('invoices'); setActiveTab('transactions') } },
+                                        { id: 'sales_view', label: t('external_accounting.qbo_view_sales_txns'), run: () => { setTxnViewMode('sales'); setActiveTab('transactions') } },
+                                        { id: 'payments', label: t('external_accounting.btn_new_payment'), run: () => openTransactionModal('Payment') },
+                                        { id: 'deposits', label: t('external_accounting.qbo_shortcut_bank_deposit'), run: () => openTransactionModal('Deposit') },
+                                        { id: 'items', label: t('external_accounting.gear_products_services'), run: () => { setActiveListKey('items'); setActiveTab('lists') } },
+                                    ],
+                                },
+                                {
+                                    key: 'customer_hub',
+                                    label: t('external_accounting.qbo_customer_hub'),
+                                    badgeColor: 'bg-[#003b32]',
+                                    children: [
+                                        { id: 'overview', label: t('external_accounting.tab_overview_clean'), run: () => setActiveTab('overview') },
+                                        { id: 'contacts', label: t('external_accounting.qbo_tenants_and_leads'), run: () => { setSelectedTenantDetail(null); setContactFilterType('Customer'); setActiveTab('contacts') } },
+                                        { id: 'estimates', label: t('external_accounting.create_estimate'), run: () => openTransactionModal('Estimate') },
+                                        { id: 'recurring', label: t('external_accounting.qbo_tool_recurring'), run: () => setActiveTab('recurring') },
+                                    ],
+                                },
+                                {
+                                    key: 'team',
+                                    label: t('external_accounting.qbo_all_apps_team'),
+                                    badgeColor: 'bg-[#003b32]',
+                                    children: [
+                                        { id: 'employees', label: t('external_accounting.qbo_all_apps_team'), run: () => { setSelectedTenantDetail(null); setContactFilterType('ALL'); setActiveTab('contacts') } },
+                                        { id: 'audit_log', label: t('external_accounting.gear_audit_log'), run: () => setActiveTab('audit_log') },
+                                    ],
+                                },
+                                {
+                                    key: 'inventory',
+                                    label: t('external_accounting.qbo_all_apps_inventory'),
+                                    badgeColor: 'bg-[#003b32]',
+                                    children: [
+                                        { id: 'lists', label: t('external_accounting.gear_products_services'), run: () => { setActiveListKey('items'); setActiveTab('lists') } },
+                                        { id: 'po', label: t('external_accounting.create_purchase_order'), run: () => openTransactionModal('PurchaseOrder') },
+                                    ],
+                                },
+                                {
+                                    key: 'sales_tax',
+                                    label: t('external_accounting.qbo_all_apps_sales_tax'),
+                                    badgeColor: 'bg-[#003b32]',
+                                    children: [
+                                        { id: 'reports', label: t('external_accounting.qbo_rail_reports'), run: () => setActiveTab('reports') },
+                                        { id: 'annual_archive', label: t('external_accounting.tab_archive'), run: () => { setReportType('annual_archive'); setActiveTab('reports') } },
+                                    ],
+                                },
+                            ].map(cat => {
+                                const isOpen = allAppsSubGroup === cat.key
+                                return (
+                                    <div key={cat.key} className="space-y-0.5">
+                                        <button
+                                            type="button"
+                                            onClick={() => setAllAppsSubGroup(cat.key as any)}
+                                            className={`w-full text-left px-2 py-1.5 rounded-lg flex items-center justify-between font-semibold transition-colors cursor-pointer ${
+                                                isOpen
+                                                    ? 'text-slate-900 dark:text-white font-bold'
+                                                    : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+                                            }`}
+                                        >
+                                            <span className="flex items-center gap-2 truncate">
+                                                <span className={`w-4 h-4 rounded-full ${cat.badgeColor} text-emerald-300 text-[9px] font-black flex items-center justify-center shrink-0`}>✓</span>
+                                                <span className="truncate">{cat.label}</span>
+                                            </span>
+                                            <ChevronDown size={13} className={`text-slate-400 transition-transform shrink-0 ${isOpen ? 'rotate-180' : ''}`} />
+                                        </button>
+                                        {isOpen && (
+                                            <div className="pl-4 space-y-0.5 py-0.5">
+                                                {cat.children.map((ch, idx) => {
+                                                    const isCurrentChild =
+                                                        (ch.id === 'contacts' && activeTab === 'contacts' && contactFilterType === 'Customer') ||
+                                                        (ch.id === 'vendors' && activeTab === 'contacts' && contactFilterType === 'Vendor') ||
+                                                        (ch.id === '1099' && activeTab === 'contacts' && contactFilterType === '1099') ||
+                                                        (ch.id === 'client_overview' && activeTab === 'transactions' && txnViewMode === 'client_overview') ||
+                                                        (ch.id === 'write_off_invoices' && activeTab === 'transactions' && txnViewMode === 'write_off_invoices') ||
+                                                        (ch.id === 'transactions' && activeTab === 'transactions' && txnViewMode === 'all') ||
+                                                        (ch.id === 'invoices_view' && activeTab === 'transactions' && txnViewMode === 'invoices') ||
+                                                        (ch.id === 'sales_view' && activeTab === 'transactions' && txnViewMode === 'sales') ||
+                                                        (ch.id === 'expenses_view' && activeTab === 'transactions' && txnViewMode === 'expenses') ||
+                                                        (ch.id === 'bills_view' && activeTab === 'transactions' && txnViewMode === 'bills') ||
+                                                        (!['contacts', 'vendors', '1099', 'client_overview', 'write_off_invoices', 'transactions', 'invoices_view', 'sales_view', 'expenses_view', 'bills_view'].includes(ch.id) && activeTab === ch.id)
+                                                    return (
+                                                        <button
+                                                            key={idx}
+                                                            type="button"
+                                                            onClick={ch.run}
+                                                            className={`w-full text-left px-3 py-1.5 rounded-md text-[11px] flex items-center justify-between cursor-pointer transition-colors ${
+                                                                isCurrentChild
+                                                                    ? 'bg-[#e4e8ee] dark:bg-slate-800 font-bold text-slate-900 dark:text-white'
+                                                                    : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/60 hover:text-slate-900 dark:hover:text-white font-medium'
+                                                            }`}
+                                                        >
+                                                            <span className="truncate">{ch.label}</span>
+                                                        </button>
+                                                    )
+                                                })}
+                                            </div>
+                                        )}
+                                    </div>
+                                )
+                            })}
+                        </div>
+                    )}
+                </aside>
+            )}
+            {activeTab !== 'overview' && !dockedAppSidebarOpen && (
+                <button
+                    type="button"
+                    onClick={() => setDockedAppSidebarOpen(true)}
+                    className="hidden lg:inline-flex fixed top-16 left-[82px] z-[58] items-center gap-1 px-2.5 py-1 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-xs text-[11px] font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-50 cursor-pointer"
+                    title="Expand Sidebar"
+                >
+                    <Layers size={12} />
+                    <span>{isFirmRailTheme ? t('external_accounting.qbo_rail_firm_books') : t('external_accounting.qbo_rail_all_apps')}</span>
+                </button>
+            )}
+
+            <div className={`flex-1 p-4 md:p-6 space-y-5 transition-all ${activeTab !== 'overview' && dockedAppSidebarOpen ? 'lg:pl-[225px]' : ''}`}>
             {/* ====================================================================
                 TAB 1: QBO EXECUTIVE HOMEPAGE (`Home`) + BUSINESS AT A GLANCE
                ==================================================================== */}
-            {activeTab === 'overview' && (
+            {activeTab === 'overview' && (() => {
+                const openCustomerContacts = contacts.filter(c => c.contact_type === 'Customer' && Number(c.balance || 0) > 0.004)
+                const openInvoicesTotal = openCustomerContacts.reduce((s, c) => s + Number(c.balance || 0), 0)
+                const paidTxns = allLoadedTransactions.filter(tx => (tx.txn_type === 'Payment' || tx.txn_type === 'SalesReceipt') && !tx.is_voided)
+                const paidTotal = paidTxns.reduce((s, tx) => s + Number(tx.total_amount || 0), 0)
+                const depositedTxns = allLoadedTransactions.filter(tx => tx.txn_type === 'Deposit' && !tx.is_voided)
+                const depositedTotal = depositedTxns.reduce((s, tx) => s + Number(tx.total_amount || 0), 0)
+                const incomeBarPct = Math.min(100, Math.max(8, summary.totalInflows >= summary.totalOutflows ? 100 : Math.round((summary.totalInflows / Math.max(1, summary.totalOutflows)) * 100)))
+                const expenseBarPct = Math.min(100, Math.max(8, summary.totalOutflows >= summary.totalInflows ? 100 : Math.round((summary.totalOutflows / Math.max(1, summary.totalInflows)) * 100)))
+                const topExpenseCats = (summary.topCategories || []).filter((c: any) => c.outflows > 0).slice(0, 4)
+
+                return (
                 <div className="space-y-6">
                     {/* QBO Homepage Greeting + Quick App Pills + Create Actions Strip */}
                     <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 shadow-xs space-y-4">
@@ -6122,53 +7086,602 @@ function ExternalAccountingContent() {
                             </div>
                         </div>
 
-                        {/* QBO Quick App Pills */}
-                        <div className="flex flex-wrap items-center gap-2 pt-1">
-                            {[
-                                { label: t('external_accounting.qbo_rail_accounting'), color: 'bg-[#003b32] text-white', run: () => setActiveTab('accounts') },
-                                { label: t('external_accounting.qbo_rail_expenses'), color: 'bg-emerald-700 text-white', run: () => setActiveTab('checks_deposits') },
-                                { label: t('external_accounting.qbo_rail_sales'), color: 'bg-teal-700 text-white', run: () => { setFilterDirection('IN'); setActiveTab('transactions') } },
-                                { label: t('external_accounting.qbo_rail_reports'), color: 'bg-blue-700 text-white', run: () => setActiveTab('reports') },
-                                { label: t('external_accounting.qbo_shortcut_reconcile'), color: 'bg-indigo-700 text-white', run: () => { if (!reconcileAccountId && bankAndCardAccounts[0]) handleAutoSelectReconcileAccount(bankAndCardAccounts[0].qb_account_id); setActiveTab('reconcile') } },
-                                { label: t('external_accounting.qbo_tool_books_review'), color: 'bg-amber-600 text-white', run: () => setActiveTab('books_review') },
-                                { label: `${t('external_accounting.qbo_rail_clients')} (${companies.length})`, color: 'bg-slate-800 text-white', run: () => setActiveTab('clients') },
-                            ].map((pill, i) => (
-                                <button
-                                    key={i}
-                                    type="button"
-                                    onClick={pill.run}
-                                    className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:border-emerald-500 hover:shadow-xs text-xs font-bold text-slate-800 dark:text-slate-100 transition-all cursor-pointer"
-                                >
-                                    <span className={`w-4 h-4 rounded-full text-[9px] flex items-center justify-center font-black ${pill.color}`}>✓</span>
-                                    <span>{pill.label}</span>
-                                </button>
-                            ))}
+                        {/* Firm View (`Raquel Accounting`) vs Client View (`Gutierrez Financial`, etc.) Top Pills */}
+                        {isFirmRailTheme ? (
+                            <div className="space-y-4 pt-1">
+                                <div className="flex flex-wrap items-center gap-2">
+                                    <button
+                                        type="button"
+                                        onClick={() => setActiveTab('clients')}
+                                        className="px-4 py-1.5 rounded-full border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 hover:border-emerald-500 text-xs font-bold text-slate-800 dark:text-slate-100 transition-all cursor-pointer"
+                                    >
+                                        Add client
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setActiveTab('books_review')}
+                                        className="px-4 py-1.5 rounded-full border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 hover:border-emerald-500 text-xs font-bold text-slate-800 dark:text-slate-100 transition-all cursor-pointer"
+                                    >
+                                        ProAdvisor
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setActiveTab('company_settings')}
+                                        className="px-4 py-1.5 rounded-full border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 hover:border-emerald-500 text-xs font-bold text-slate-800 dark:text-slate-100 transition-all cursor-pointer"
+                                    >
+                                        Subscriptions and billing
+                                    </button>
+                                </div>
+                                <div className="space-y-2 pt-1">
+                                    <div className="inline-flex items-center gap-2">
+                                        <span className="text-xs font-black text-slate-800 dark:text-slate-100">My widgets</span>
+                                        <span className="px-1.5 py-0.5 rounded bg-[#008489] text-white text-[10px] font-black uppercase">BETA</span>
+                                    </div>
+                                    <div>
+                                        <button
+                                            type="button"
+                                            onClick={() => setCustomizeRailModalOpen(true)}
+                                            className="w-56 h-32 rounded-xl border-2 border-dashed border-slate-300 dark:border-slate-700 bg-slate-50/70 dark:bg-slate-950/50 hover:border-emerald-500 flex flex-col items-center justify-center gap-2 text-xs font-bold text-slate-600 dark:text-slate-300 transition-colors cursor-pointer"
+                                        >
+                                            <Plus size={20} className="text-slate-500" />
+                                            <span>Create new widget</span>
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        ) : (
+                            <>
+                                {/* QBO Quick App Pills */}
+                                <div className="flex flex-wrap items-center gap-2 pt-1">
+                                    {[
+                                        { label: t('external_accounting.qbo_rail_accounting'), color: 'bg-[#003b32] text-white', run: () => setActiveTab('accounts') },
+                                        { label: t('external_accounting.qbo_rail_expenses'), color: 'bg-emerald-700 text-white', run: () => { setTxnViewMode('expenses'); setActiveTab('transactions') } },
+                                        { label: t('external_accounting.qbo_rail_sales'), color: 'bg-teal-700 text-white', run: () => { setTxnViewMode('invoices'); setActiveTab('transactions') } },
+                                        { label: t('external_accounting.qbo_customer_hub'), color: 'bg-[#003b32] text-emerald-300', run: () => { setSelectedTenantDetail(null); setContactFilterType('Customer'); setActiveTab('contacts') } },
+                                        { label: t('external_accounting.qbo_rail_reports'), color: 'bg-blue-700 text-white', run: () => setActiveTab('reports') },
+                                        { label: t('external_accounting.qbo_shortcut_reconcile'), color: 'bg-indigo-700 text-white', run: () => { if (!reconcileAccountId && bankAndCardAccounts[0]) handleAutoSelectReconcileAccount(bankAndCardAccounts[0].qb_account_id); setActiveTab('reconcile') } },
+                                        { label: t('external_accounting.qbo_tool_books_review'), color: 'bg-amber-600 text-white', run: () => setActiveTab('books_review') },
+                                        { label: `${t('external_accounting.qbo_rail_clients')} (${companies.length})`, color: 'bg-slate-800 text-white', run: () => setActiveTab('clients') },
+                                    ].map((pill, i) => (
+                                        <button
+                                            key={i}
+                                            type="button"
+                                            onClick={pill.run}
+                                            className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:border-emerald-500 hover:shadow-xs text-xs font-bold text-slate-800 dark:text-slate-100 transition-all cursor-pointer"
+                                        >
+                                            <span className={`w-4 h-4 rounded-full text-[9px] flex items-center justify-center font-black ${pill.color}`}>✓</span>
+                                            <span>{pill.label}</span>
+                                        </button>
+                                    ))}
+                                </div>
+
+                                {/* QBO `Create actions` Pills */}
+                                <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-100 dark:border-slate-800 text-xs">
+                                    <span className="font-bold text-slate-500 mr-1">{t('external_accounting.qbo_create_actions_label')}:</span>
+                                    {[
+                                        { label: t('external_accounting.btn_new_invoice'), run: () => openTransactionModal('Invoice') },
+                                        { label: t('external_accounting.create_receive_payment'), run: () => openTransactionModal('Payment') },
+                                        { label: t('external_accounting.qbo_shortcut_write_check'), run: () => openTransactionModal('Check') },
+                                        { label: t('external_accounting.qbo_shortcut_bank_deposit'), run: () => openTransactionModal('Deposit') },
+                                        { label: t('external_accounting.btn_new_expense'), run: () => openTransactionModal('Expense') },
+                                        { label: t('external_accounting.btn_new_bill'), run: () => openTransactionModal('Bill') },
+                                        { label: t('external_accounting.qbo_shortcut_transfer'), run: () => openTransactionModal('Transfer') },
+                                        { label: t('external_accounting.qbo_shortcut_journal_entry'), run: () => openTransactionModal('JournalEntry') },
+                                        { label: t('external_accounting.create_print_checks'), run: () => openPrintChecksModal() },
+                                    ].map((act, idx) => (
+                                        <button
+                                            key={idx}
+                                            type="button"
+                                            onClick={act.run}
+                                            className="px-3 py-1 rounded-full border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 font-semibold text-slate-700 dark:text-slate-200 transition-colors cursor-pointer"
+                                        >
+                                            {act.label}
+                                        </button>
+                                    ))}
+                                </div>
+                            </>
+                        )}
+                    </div>
+
+                    {/* ====================================================================
+                        QBO `Business at a glance` 6 OFFICIAL WIDGETS (Raquel Screenshot 1)
+                       ==================================================================== */}
+                    <div className="space-y-4">
+                        <div className="text-sm font-black text-slate-800 dark:text-slate-100">
+                            {isFirmRailTheme ? t('external_accounting.qbo_firm_at_a_glance') : t('external_accounting.qbo_business_at_a_glance')}
                         </div>
 
-                        {/* QBO `Create actions` Pills */}
-                        <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-100 dark:border-slate-800 text-xs">
-                            <span className="font-bold text-slate-500 mr-1">{t('external_accounting.qbo_create_actions_label')}:</span>
-                            {[
-                                { label: t('external_accounting.qbo_shortcut_write_check'), run: () => openTransactionModal('Check') },
-                                { label: t('external_accounting.qbo_shortcut_bank_deposit'), run: () => openTransactionModal('Deposit') },
-                                { label: t('external_accounting.btn_new_expense'), run: () => openTransactionModal('Expense') },
-                                { label: t('external_accounting.btn_new_invoice'), run: () => openTransactionModal('Invoice') },
-                                { label: t('external_accounting.btn_new_bill'), run: () => openTransactionModal('Bill') },
-                                { label: t('external_accounting.qbo_shortcut_transfer'), run: () => openTransactionModal('Transfer') },
-                                { label: t('external_accounting.qbo_shortcut_journal_entry'), run: () => openTransactionModal('JournalEntry') },
-                                { label: t('external_accounting.create_print_checks'), run: () => openPrintChecksModal() },
-                                { label: t('external_accounting.create_batch_transactions'), run: () => openBatchModal() },
-                            ].map((act, idx) => (
-                                <button
-                                    key={idx}
-                                    type="button"
-                                    onClick={act.run}
-                                    className="px-3 py-1 rounded-full border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 font-semibold text-slate-700 dark:text-slate-200 transition-colors cursor-pointer"
-                                >
-                                    {act.label}
-                                </button>
-                            ))}
+                        {/* ROW 1: NEEDS ATTENTION (Left 4 cols) + SALES & GET PAID FUNNEL (Right 8 cols) */}
+                        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+                            {/* WIDGET 1: NEEDS ATTENTION */}
+                            <div className="lg:col-span-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 shadow-xs flex flex-col justify-between space-y-4">
+                                <div className="space-y-3">
+                                    <div className="text-[11px] font-black uppercase tracking-wider text-slate-500">
+                                        {t('external_accounting.qbo_widget_needs_attention')}
+                                    </div>
+                                    <div className="space-y-3 text-xs">
+                                        <div className="flex items-start justify-between gap-2 pb-2.5 border-b border-slate-100 dark:border-slate-800">
+                                            <div className="flex items-start gap-2">
+                                                <span className="w-5 h-5 rounded-full bg-sky-50 dark:bg-sky-950 text-[#0077c5] font-black flex items-center justify-center shrink-0">✦</span>
+                                                <div>
+                                                    <div className="font-bold text-[#0077c5] hover:underline cursor-pointer" onClick={() => { setSelectedTenantDetail(null); setContactFilterType('Customer'); setActiveTab('contacts') }}>
+                                                        {formatDisplayCurrency(openInvoicesTotal)} in open/overdue invoices is ready to send
+                                                    </div>
+                                                    <div className="text-[11px] text-slate-400 mt-0.5">
+                                                        Payments AI · {openCustomerContacts.length} {t('external_accounting.qbo_tenants_and_leads')}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <button
+                                                type="button"
+                                                onClick={() => { setSelectedTenantDetail(null); setContactFilterType('Customer'); setActiveTab('contacts') }}
+                                                className="text-[#0077c5] font-bold hover:underline shrink-0 cursor-pointer"
+                                            >
+                                                Review all
+                                            </button>
+                                        </div>
+                                        <div className="flex items-start justify-between gap-2">
+                                            <div className="flex items-start gap-2">
+                                                <span className="w-5 h-5 rounded-full bg-sky-50 dark:bg-sky-950 text-[#0077c5] font-black flex items-center justify-center shrink-0">✦</span>
+                                                <div>
+                                                    <div className="font-bold text-[#0077c5] hover:underline cursor-pointer" onClick={() => setActiveTab('reconcile')}>
+                                                        {bankAndCardAccounts.length} bank accounts ready for reconciliation
+                                                    </div>
+                                                    <div className="text-[11px] text-slate-400 mt-0.5">
+                                                        Accounting AI · {activeCompany?.company_name}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <button
+                                                type="button"
+                                                onClick={() => { if (!reconcileAccountId && bankAndCardAccounts[0]) handleAutoSelectReconcileAccount(bankAndCardAccounts[0].qb_account_id); setActiveTab('reconcile') }}
+                                                className="text-[#0077c5] font-bold hover:underline shrink-0 cursor-pointer"
+                                            >
+                                                {t('external_accounting.qbo_shortcut_reconcile')}
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div className="flex items-center justify-between pt-2 border-t border-slate-100 dark:border-slate-800 text-xs">
+                                    <button
+                                        type="button"
+                                        onClick={() => setActiveTab('books_review')}
+                                        className="font-bold text-[#0077c5] hover:underline cursor-pointer"
+                                    >
+                                        View all
+                                    </button>
+                                    <span className="text-[11px] text-slate-400">{transactions.length} txns</span>
+                                </div>
+                            </div>
+
+                            {/* WIDGET 2: SALES & GET PAID FUNNEL */}
+                            <div className="lg:col-span-8 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 shadow-xs space-y-4">
+                                <div className="flex items-center justify-between">
+                                    <div className="text-[11px] font-black uppercase tracking-wider text-slate-500">
+                                        {t('external_accounting.qbo_widget_sales_funnel')}
+                                    </div>
+                                    <span className="text-xs text-slate-500 font-medium">Last 30 days ▾</span>
+                                </div>
+                                <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 items-stretch">
+                                    <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/60 p-3.5 flex flex-col justify-between">
+                                        <div>
+                                            <div className="text-xs font-bold text-slate-900 dark:text-white">Create a new payment request</div>
+                                            <div className="text-[11px] text-slate-500 mt-1">Start getting paid faster</div>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={() => openTransactionModal('Invoice')}
+                                            className="mt-3 px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 hover:bg-slate-100 text-xs font-bold text-slate-800 dark:text-slate-100 cursor-pointer"
+                                        >
+                                            + {t('external_accounting.btn_new_invoice')}
+                                        </button>
+                                    </div>
+                                    <div
+                                        onClick={() => { setSelectedTenantDetail(null); setContactFilterType('Customer'); setActiveTab('contacts') }}
+                                        className="rounded-xl border border-slate-200 dark:border-slate-800 border-t-4 border-t-[#2ca01c] p-3.5 hover:bg-slate-50 dark:hover:bg-slate-800/40 cursor-pointer transition-colors"
+                                    >
+                                        <div className="text-xs text-slate-500 font-semibold">{t('external_accounting.qbo_widget_not_paid')}</div>
+                                        <div className="text-xl font-black font-mono text-slate-900 dark:text-white mt-1">
+                                            {formatDisplayCurrency(openInvoicesTotal)}
+                                        </div>
+                                        <div className="mt-2 inline-flex items-center gap-1 px-2 py-0.5 rounded bg-amber-100 dark:bg-amber-950/70 text-amber-800 dark:text-amber-300 text-[10px] font-bold">
+                                            <span>!</span>
+                                            <span>{openCustomerContacts.length} open / overdue</span>
+                                        </div>
+                                    </div>
+                                    <div
+                                        onClick={() => { setFilterDirection('IN'); setFilterType('Payment'); setActiveTab('transactions') }}
+                                        className="rounded-xl border border-slate-200 dark:border-slate-800 border-t-4 border-t-[#2ca01c] p-3.5 hover:bg-slate-50 dark:hover:bg-slate-800/40 cursor-pointer transition-colors"
+                                    >
+                                        <div className="text-xs text-slate-500 font-semibold">{t('external_accounting.qbo_widget_paid')}</div>
+                                        <div className="text-xl font-black font-mono text-slate-900 dark:text-white mt-1">
+                                            {formatDisplayCurrency(paidTotal)}
+                                        </div>
+                                        <div className="mt-2 inline-flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-100 dark:bg-emerald-950/70 text-emerald-800 dark:text-emerald-300 text-[10px] font-bold">
+                                            <span>✓</span>
+                                            <span>{paidTxns.length} paid</span>
+                                        </div>
+                                    </div>
+                                    <div
+                                        onClick={() => { setFilterDirection('IN'); setFilterType('Deposit'); setActiveTab('transactions') }}
+                                        className="rounded-xl border border-slate-200 dark:border-slate-800 border-t-4 border-t-[#2ca01c] p-3.5 hover:bg-slate-50 dark:hover:bg-slate-800/40 cursor-pointer transition-colors"
+                                    >
+                                        <div className="text-xs text-slate-500 font-semibold">{t('external_accounting.qbo_widget_deposited')}</div>
+                                        <div className="text-xl font-black font-mono text-slate-900 dark:text-white mt-1">
+                                            {formatDisplayCurrency(depositedTotal)}
+                                        </div>
+                                        <div className="mt-2 inline-flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-100 dark:bg-emerald-950/70 text-emerald-800 dark:text-emerald-300 text-[10px] font-bold">
+                                            <span>✓</span>
+                                            <span>{depositedTxns.length} deposited</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
+
+                        {/* ROW 2: 4 OFFICIAL QBO FINANCIAL CARDS (BANK ACCOUNTS, PROFIT & LOSS, EXPENSES, SALES) */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                            {/* CARD 1: BANK ACCOUNTS */}
+                            <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 shadow-xs space-y-3">
+                                <div className="flex items-center justify-between">
+                                    <span className="text-[11px] font-black uppercase tracking-wider text-slate-500">{t('external_accounting.qbo_widget_bank_accounts')}</span>
+                                    <span className="text-[11px] text-slate-400">As of today</span>
+                                </div>
+                                <div className="space-y-2.5 divide-y divide-slate-100 dark:divide-slate-800 max-h-48 overflow-y-auto pr-1">
+                                    {bankAndCardAccounts.slice(0, 4).map(acc => {
+                                        const bal = Number(acc.display_balance ?? acc.current_balance ?? 0)
+                                        return (
+                                            <div
+                                                key={acc.qb_account_id}
+                                                onClick={() => openAccountQuickReport(acc)}
+                                                className="pt-2 first:pt-0 flex items-start justify-between gap-2 text-xs hover:bg-slate-50 dark:hover:bg-slate-800/50 p-1 rounded cursor-pointer"
+                                            >
+                                                <div className="flex items-center gap-2 min-w-0">
+                                                    <span className="w-7 h-7 rounded-full bg-[#0077c5] text-white flex items-center justify-center shrink-0">
+                                                        <Landmark size={13} />
+                                                    </span>
+                                                    <div className="min-w-0">
+                                                        <div className="font-bold text-slate-900 dark:text-white truncate">{acc.name}</div>
+                                                        <div className="text-[11px] text-slate-500">In QuickBooks</div>
+                                                    </div>
+                                                </div>
+                                                <div className="text-right font-mono font-bold text-slate-900 dark:text-white shrink-0">
+                                                    {formatDisplayCurrency(bal)}
+                                                </div>
+                                            </div>
+                                        )
+                                    })}
+                                </div>
+                            </div>
+
+                            {/* CARD 2: PROFIT & LOSS */}
+                            <div
+                                onClick={() => { setReportType('pnl'); setActiveTab('reports') }}
+                                className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 shadow-xs space-y-3 cursor-pointer hover:border-emerald-500/60 transition-colors"
+                            >
+                                <div className="flex items-center justify-between">
+                                    <span className="text-[11px] font-black uppercase tracking-wider text-slate-500">{t('external_accounting.qbo_widget_pnl')}</span>
+                                    <span className="text-[11px] text-slate-400">Active Period ▾</span>
+                                </div>
+                                <div>
+                                    <div className="text-xs text-slate-500">Net profit</div>
+                                    <div className={`text-2xl font-black font-mono mt-0.5 ${summary.netCashFlow >= 0 ? 'text-slate-900 dark:text-white' : 'text-red-600 dark:text-red-400'}`}>
+                                        {formatDisplayCurrency(summary.netCashFlow)}
+                                    </div>
+                                </div>
+                                <div className="space-y-2 pt-1 text-xs">
+                                    <div>
+                                        <div className="flex items-center justify-between font-bold text-slate-800 dark:text-slate-200">
+                                            <span>{formatDisplayCurrency(summary.totalInflows)}</span>
+                                            <span className="text-[11px] text-slate-500 font-normal">Income</span>
+                                        </div>
+                                        <div className="w-full h-3 bg-slate-100 dark:bg-slate-800 rounded-sm overflow-hidden mt-1">
+                                            <div className="h-full bg-[#2ca01c]" style={{ width: `${incomeBarPct}%` }} />
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <div className="flex items-center justify-between font-bold text-slate-800 dark:text-slate-200">
+                                            <span>{formatDisplayCurrency(summary.totalOutflows)}</span>
+                                            <span className="text-[11px] text-slate-500 font-normal">Expenses</span>
+                                        </div>
+                                        <div className="w-full h-3 bg-slate-100 dark:bg-slate-800 rounded-sm overflow-hidden mt-1">
+                                            <div className="h-full bg-[#00675b]" style={{ width: `${expenseBarPct}%` }} />
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* CARD 3: EXPENSES */}
+                            <div
+                                onClick={() => { setFilterDirection('OUT'); setActiveTab('transactions') }}
+                                className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 shadow-xs space-y-3 cursor-pointer hover:border-emerald-500/60 transition-colors"
+                            >
+                                <div className="flex items-center justify-between">
+                                    <span className="text-[11px] font-black uppercase tracking-wider text-slate-500">{t('external_accounting.qbo_widget_expenses')}</span>
+                                    <span className="text-[11px] text-slate-400">Active Period ▾</span>
+                                </div>
+                                <div>
+                                    <div className="text-xs text-slate-500">Total spending</div>
+                                    <div className="text-2xl font-black font-mono text-slate-900 dark:text-white mt-0.5">
+                                        {formatDisplayCurrency(summary.totalOutflows)}
+                                    </div>
+                                </div>
+                                <div className="space-y-1.5 pt-1 text-[11px]">
+                                    {topExpenseCats.map((cat: any, idx: number) => {
+                                        const dotColors = ['bg-[#0077c5]', 'bg-[#00a6a0]', 'bg-[#6b46c1]', 'bg-[#ff8000]']
+                                        return (
+                                            <div key={idx} className="flex items-center justify-between gap-2">
+                                                <span className="flex items-center gap-1.5 truncate text-slate-600 dark:text-slate-300">
+                                                    <span className={`w-2 h-2 rounded-full shrink-0 ${dotColors[idx % dotColors.length]}`} />
+                                                    <span className="truncate">{cat.category}</span>
+                                                </span>
+                                                <span className="font-mono font-bold text-slate-800 dark:text-slate-200 shrink-0">
+                                                    {formatDisplayCurrency(cat.outflows)}
+                                                </span>
+                                            </div>
+                                        )
+                                    })}
+                                </div>
+                            </div>
+
+                            {/* CARD 4: SALES */}
+                            <div
+                                onClick={() => { setFilterDirection('IN'); setActiveTab('transactions') }}
+                                className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 shadow-xs space-y-3 cursor-pointer hover:border-emerald-500/60 transition-colors"
+                            >
+                                <div className="flex items-center justify-between">
+                                    <span className="text-[11px] font-black uppercase tracking-wider text-slate-500">{t('external_accounting.qbo_widget_sales')}</span>
+                                    <span className="text-[11px] text-slate-400">This year to date ▾</span>
+                                </div>
+                                <div>
+                                    <div className="text-xs text-slate-500">Total Amount</div>
+                                    <div className="text-2xl font-black font-mono text-slate-900 dark:text-white mt-0.5">
+                                        {formatDisplayCurrency(summary.totalInflows)}
+                                    </div>
+                                </div>
+                                <div className="pt-2 flex items-end gap-1.5 h-20">
+                                    {[65, 78, 72, 85, 80, 92, 88, 95, 100, 74].map((h, idx) => (
+                                        <div key={idx} className="flex-1 flex flex-col items-center gap-1">
+                                            <div className="w-full rounded-t bg-[#2ca01c]/85" style={{ height: `${Math.round(h * 0.55)}px` }} />
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* ROW 3 & 4: INTUIT ACCOUNTANT SUITE (`ias`) FIRM AT A GLANCE WIDGETS (Shown in Firm Mode `Raquel Accounting`) */}
+                        {isFirmRailTheme && (
+                            <>
+                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-12 gap-4">
+                                    {/* REFERRALS (3 cols) */}
+                                    <div className="lg:col-span-3 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 shadow-xs flex flex-col justify-between space-y-4">
+                                        <div className="space-y-2">
+                                            <div className="text-[11px] font-black uppercase tracking-wider text-slate-500">
+                                                {t('external_accounting.qbo_ias_widget_referrals')}
+                                            </div>
+                                            <div className="text-sm font-bold text-slate-900 dark:text-white leading-snug">
+                                                Generate referrals using the post-invoice survey
+                                            </div>
+                                            <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs">
+                                                <div className="font-bold text-slate-800 dark:text-slate-200">You&apos;ve received a new referral</div>
+                                                <div className="text-[11px] text-slate-400 mt-0.5">Raquel Accounting · Survey active</div>
+                                            </div>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={() => setActiveTab('company_settings')}
+                                            className="w-full py-1.5 px-3 rounded-lg border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-200 cursor-pointer"
+                                        >
+                                            Manage survey settings
+                                        </button>
+                                    </div>
+
+                                    {/* DEPOSIT TRACKER (3 cols) */}
+                                    <div className="lg:col-span-3 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 shadow-xs flex flex-col justify-between space-y-4">
+                                        <div className="space-y-2">
+                                            <div className="text-[11px] font-black uppercase tracking-wider text-slate-500">
+                                                {t('external_accounting.qbo_ias_widget_deposit_tracker')}
+                                            </div>
+                                            <div className="text-sm font-bold text-slate-900 dark:text-white">Get paid online</div>
+                                            <p className="text-xs text-slate-500 leading-relaxed">
+                                                Let customers pay by card, ACH, Apple Pay®, Venmo, or PayPal.
+                                            </p>
+                                            <div className="pt-2">
+                                                <div className="w-full h-6 rounded bg-slate-100 dark:bg-slate-800 overflow-hidden">
+                                                    <div className="h-full bg-[#2ca01c]/80" style={{ width: depositedTotal > 0 ? '60%' : '8%' }} />
+                                                </div>
+                                                <div className="flex items-center justify-between text-xs font-mono text-slate-500 mt-1">
+                                                    <span>$0</span>
+                                                    <span className="font-bold text-slate-800 dark:text-slate-200">{formatDisplayCurrency(depositedTotal)}</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={() => openTransactionModal('Deposit')}
+                                            className="w-full py-1.5 px-3 rounded-lg border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-200 cursor-pointer"
+                                        >
+                                            Get details and see rates
+                                        </button>
+                                    </div>
+
+                                    {/* WORK REQUESTS (2 cols) */}
+                                    <div className="lg:col-span-2 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 shadow-xs flex flex-col justify-between space-y-4">
+                                        <div className="space-y-2">
+                                            <div className="text-[11px] font-black uppercase tracking-wider text-slate-500">
+                                                {t('external_accounting.qbo_ias_widget_work_requests')}
+                                            </div>
+                                            <div className="text-sm font-bold text-slate-900 dark:text-white leading-snug">
+                                                Drive repeat business using the post-invoice survey
+                                            </div>
+                                            <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-[11px] text-slate-600 dark:text-slate-300">
+                                                Client wants to work with you again
+                                            </div>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={() => { setWorkSubView('projects'); setActiveTab('books_review') }}
+                                            className="w-full py-1.5 px-3 rounded-lg border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-200 cursor-pointer"
+                                        >
+                                            Manage survey settings
+                                        </button>
+                                    </div>
+
+                                    {/* PROADVISOR GOLD (4 cols) */}
+                                    <div className="lg:col-span-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 shadow-xs flex flex-col justify-between space-y-3">
+                                        <div className="text-[11px] font-black uppercase tracking-wider text-slate-500">
+                                            {t('external_accounting.qbo_ias_widget_proadvisor')}
+                                        </div>
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 items-center text-xs">
+                                            <div className="space-y-2 sm:border-r border-slate-100 dark:border-slate-800 sm:pr-3">
+                                                <div className="text-slate-500">Raquel Accounting&apos;s certification</div>
+                                                <div className="text-lg font-black text-slate-900 dark:text-white">0% certified</div>
+                                                <div className="flex items-center justify-between text-[11px]">
+                                                    <span className="font-bold">QuickBooks Online Level 1</span>
+                                                    <span className="text-slate-500">0/3 certified</span>
+                                                </div>
+                                                <div className="flex items-center justify-between text-[11px]">
+                                                    <span className="font-bold">QuickBooks Online Level 2</span>
+                                                    <span className="text-slate-500">0/3 certified</span>
+                                                </div>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => { setFirmHubSubView('manage_training'); setActiveTab('firm_hub') }}
+                                                    className="text-[#0077c5] font-bold hover:underline cursor-pointer pt-1"
+                                                >
+                                                    View in manage training
+                                                </button>
+                                            </div>
+                                            <div className="space-y-2">
+                                                <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-amber-50 dark:bg-amber-950/50 border border-amber-300 dark:border-amber-700">
+                                                    <span className="w-6 h-6 rounded-full bg-amber-500 text-white font-black text-[10px] flex items-center justify-center">★★</span>
+                                                    <div>
+                                                        <div className="text-[10px] font-black uppercase text-amber-900 dark:text-amber-300">ProAdvisor GOLD</div>
+                                                        <div className="text-[10px] text-amber-700 dark:text-amber-400">625 points</div>
+                                                    </div>
+                                                </div>
+                                                <p className="text-[11px] text-slate-600 dark:text-slate-300 leading-snug">
+                                                    Your firm currently has <strong>625 points</strong> and is only 1775 points away from ProAdvisor Platinum!
+                                                </p>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => { setFirmHubSubView('benefits'); setActiveTab('firm_hub') }}
+                                                    className="px-2.5 py-1 rounded border border-amber-600 text-amber-800 dark:text-amber-300 text-[11px] font-bold hover:bg-amber-50 cursor-pointer"
+                                                >
+                                                    ProAdvisor benefits
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 text-xs">
+                                    {/* BOOKS CLOSE STATUS */}
+                                    <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 shadow-xs flex flex-col justify-between space-y-3">
+                                        <div>
+                                            <div className="text-[11px] font-black uppercase tracking-wider text-slate-500">
+                                                {t('external_accounting.qbo_ias_widget_books_close_status')}
+                                            </div>
+                                            <div className="text-sm font-bold text-slate-900 dark:text-white mt-2">
+                                                Start onboarding your first close client
+                                            </div>
+                                            <p className="text-[11px] text-slate-500 mt-1">
+                                                Track monthly close tasks, preparer/reviewer sign-offs, and period locks across all 7 client LLCs.
+                                            </p>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={() => { setWorkSubView('books_close'); setActiveTab('books_review') }}
+                                            className="w-full py-1.5 px-3 rounded-lg border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 font-bold text-slate-800 dark:text-slate-100 cursor-pointer"
+                                        >
+                                            Go to Books Close
+                                        </button>
+                                    </div>
+
+                                    {/* CLIENTS WITH DISCONNECTED BANK ACCOUNTS */}
+                                    <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 shadow-xs space-y-2.5">
+                                        <div className="flex items-center justify-between">
+                                            <span className="text-[11px] font-black uppercase tracking-wider text-slate-500">
+                                                {t('external_accounting.qbo_ias_widget_disconnected_banks')}
+                                            </span>
+                                            <span className="px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 font-black text-xs">4</span>
+                                        </div>
+                                        <div className="divide-y divide-slate-100 dark:divide-slate-800">
+                                            {[
+                                                { name: 'TEG Holdings Inc', realm: '9130357696871496', count: '1 disconnected account' },
+                                                { name: 'Gutierrez Financial', realm: '554651555', count: '2 disconnected accounts' },
+                                                { name: 'Govegu LLC', realm: '9130357603135416', count: '1 disconnected account' },
+                                                { name: '7947 Downey Plaza LLC', realm: '123145858055022', count: '1 disconnected account' },
+                                            ].map(item => (
+                                                <div key={item.realm} className="py-1.5 flex items-center justify-between gap-2">
+                                                    <div>
+                                                        <div className="font-bold text-slate-900 dark:text-white">{item.name}</div>
+                                                        <div className="text-[10px] text-slate-400">{item.count}</div>
+                                                    </div>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => {
+                                                            setActiveRealmId(item.realm)
+                                                            setActiveTab('accounts')
+                                                        }}
+                                                        className="text-[#0077c5] font-bold hover:underline cursor-pointer shrink-0"
+                                                    >
+                                                        View accounts
+                                                    </button>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+
+                                    {/* CLIENT WITH APP ISSUES */}
+                                    <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 shadow-xs flex flex-col justify-between space-y-3">
+                                        <div>
+                                            <div className="text-[11px] font-black uppercase tracking-wider text-slate-500">
+                                                {t('external_accounting.qbo_ias_widget_app_issues')}
+                                            </div>
+                                            <div className="text-2xl font-black font-mono text-slate-900 dark:text-white mt-2">0</div>
+                                            <p className="text-[11px] text-slate-500 mt-1">
+                                                All 7 client QuickBooks Online V3 &amp; TEG Enterprise app connections are healthy as of today.
+                                            </p>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={() => { setFirmHubSubView('integrations'); setActiveTab('firm_hub') }}
+                                            className="text-[#0077c5] font-bold hover:underline text-left cursor-pointer"
+                                        >
+                                            View all client apps →
+                                        </button>
+                                    </div>
+
+                                    {/* UPGRADES AVAILABLE & PRODUCT UPDATES */}
+                                    <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 shadow-xs flex flex-col justify-between space-y-3">
+                                        <div>
+                                            <div className="flex items-center justify-between">
+                                                <span className="text-[11px] font-black uppercase tracking-wider text-slate-500">
+                                                    {t('external_accounting.qbo_ias_widget_upgrades')}
+                                                </span>
+                                                <span className="px-1.5 py-0.5 rounded bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 text-[10px] font-bold">
+                                                    Recommended
+                                                </span>
+                                            </div>
+                                            <div className="text-sm font-bold text-slate-900 dark:text-white mt-2">
+                                                Canasty Financial, LLC is ready for Advanced
+                                            </div>
+                                            <p className="text-[11px] text-slate-500 mt-1 leading-relaxed">
+                                                Send data back and forth between QuickBooks Online and Excel/CSV reports with 1-click sync.
+                                            </p>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={() => { setActiveRealmId('193514841181564'); setActiveTab('reports') }}
+                                            className="text-[#0077c5] font-bold hover:underline text-left cursor-pointer"
+                                        >
+                                            Open Canasty Financial Reports →
+                                        </button>
+                                    </div>
+                                </div>
+                            </>
+                        )}
                     </div>
 
                     {/* Tira Financiera Unificada (1 sola tarjeta dividida en 4 métricas limpias — Clic en cualquiera abre el Reporte Detallado PDF/XLS) */}
@@ -6548,210 +8061,580 @@ function ExternalAccountingContent() {
                         </div>
                     </div>
                 </div>
-            )}
+                )
+            })()}
 
             {/* ====================================================================
-                NEW QBO TAB: CLIENTS DIRECTORY (`Clients` on Left Rail — All 8 Legal Entities)
+                NEW QBO TAB: CLIENTS DIRECTORY (`Clients` on Left Rail — Client list + Client invitations)
                ==================================================================== */}
             {activeTab === 'clients' && (
                 <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 shadow-xs space-y-5">
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200 dark:border-slate-800 pb-4">
-                        <div>
-                            <h2 className="text-lg font-black text-slate-900 dark:text-white">
-                                {t('external_accounting.qbo_clients_hub_title')}
+                    {/* Sub-view switcher (`Client list` | `Client invitations`) */}
+                    <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-200 dark:border-slate-800 pb-4">
+                        <div className="space-y-1">
+                            <div className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                                {t('external_accounting.qbo_rail_clients')} / {clientsSubView === 'invitations' ? t('external_accounting.qbo_ias_client_invitations') : t('external_accounting.qbo_ias_client_list')}
+                            </div>
+                            <h2 className="text-xl font-black text-slate-900 dark:text-white">
+                                {clientsSubView === 'invitations' ? t('external_accounting.qbo_ias_client_invitations') : t('external_accounting.qbo_ias_client_list')}
                             </h2>
-                            <p className="text-xs text-slate-500 mt-0.5">
-                                {t('external_accounting.qbo_clients_hub_subtitle')}
-                            </p>
                         </div>
-                        <div className="relative w-full sm:w-72">
-                            <Search size={14} className="absolute left-3 top-2.5 text-slate-400" />
-                            <input
-                                type="text"
-                                value={clientsHubSearch}
-                                onChange={(e) => setClientsHubSearch(e.target.value)}
-                                placeholder={t('external_accounting.qbo_switcher_filter_placeholder')}
-                                className="w-full pl-8 pr-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-xs focus:outline-none"
-                            />
+                        <div className="flex flex-wrap items-center gap-2 text-xs">
+                            <div className="inline-flex rounded-xl bg-slate-100 dark:bg-slate-800 p-1">
+                                <button
+                                    type="button"
+                                    onClick={() => setClientsSubView('list')}
+                                    className={`px-3 py-1.5 rounded-lg font-bold cursor-pointer ${
+                                        clientsSubView === 'list' ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-xs' : 'text-slate-500'
+                                    }`}
+                                >
+                                    {t('external_accounting.qbo_ias_client_list')}
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setClientsSubView('invitations')}
+                                    className={`px-3 py-1.5 rounded-lg font-bold cursor-pointer ${
+                                        clientsSubView === 'invitations' ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-xs' : 'text-slate-500'
+                                    }`}
+                                >
+                                    {t('external_accounting.qbo_ias_client_invitations')}
+                                </button>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setActiveListKey('customFields')
+                                    setActiveTab('lists')
+                                }}
+                                className="px-3.5 py-2 rounded-lg border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 font-bold text-slate-700 dark:text-slate-200 cursor-pointer"
+                            >
+                                {t('external_accounting.qbo_ias_manage_custom_fields')}
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setEditingContact(null)
+                                    setConFormType('Customer')
+                                    setContactModalOpen(true)
+                                }}
+                                className="px-4 py-2 rounded-lg bg-[#2ca01c] hover:bg-[#248817] text-white font-bold cursor-pointer"
+                            >
+                                {t('external_accounting.qbo_firm_pill_add_client')}
+                            </button>
                         </div>
                     </div>
 
-                    <div className="overflow-x-auto">
-                        <table className="w-full text-xs text-left border-collapse">
-                            <thead>
-                                <tr className="border-b border-slate-200 dark:border-slate-800 text-[11px] font-black uppercase tracking-wider text-slate-400">
-                                    <th className="py-3 px-4">{t('external_accounting.qbo_clients_col_company')}</th>
-                                    <th className="py-3 px-4">{t('external_accounting.qbo_clients_col_realm')}</th>
-                                    <th className="py-3 px-4">{t('external_accounting.qbo_clients_col_qbo_status')}</th>
-                                    <th className="py-3 px-4 text-right">{t('external_accounting.kpi_bank_balance')}</th>
-                                    <th className="py-3 px-4 text-center">{t('external_accounting.records_label')}</th>
-                                    <th className="py-3 px-4 text-right">{t('external_accounting.qbo_clients_col_actions')}</th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                                {companies
-                                    .filter(c => !clientsHubSearch.trim() || `${c.company_name} ${c.legal_name || ''} ${c.realm_id}`.toLowerCase().includes(clientsHubSearch.trim().toLowerCase()))
-                                    .map(c => {
-                                        const isActive = c.realm_id === activeRealmId
-                                        const isFirm = c.realm_id === '123145825185692'
-                                        const bal = Number(c.total_cash_balance ?? c.overview?.totalBankBalance ?? 0)
-                                        return (
-                                            <tr
-                                                key={c.realm_id}
-                                                className={isActive ? 'bg-emerald-50/60 dark:bg-emerald-950/20' : 'hover:bg-slate-50 dark:hover:bg-slate-800/40'}
-                                            >
-                                                <td className="py-3.5 px-4">
-                                                    <div className="flex items-center gap-2.5">
-                                                        <span className={`w-7 h-7 rounded-lg font-black text-xs flex items-center justify-center shrink-0 ${
-                                                            isFirm ? 'bg-[#003b32] text-white' : 'bg-[#2ca01c] text-white'
-                                                        }`}>
-                                                            tg
-                                                        </span>
-                                                        <div>
-                                                            <div className="font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
-                                                                <span>{c.company_name}</span>
-                                                                {isActive && (
-                                                                    <span className="px-1.5 py-0.5 rounded bg-emerald-600 text-white text-[9px] font-black uppercase">
-                                                                        ACTIVE
-                                                                    </span>
-                                                                )}
-                                                            </div>
-                                                            <div className="text-[11px] text-slate-400">
-                                                                {c.legal_name || c.company_name}
-                                                            </div>
-                                                        </div>
-                                                    </div>
+                    {clientsSubView === 'invitations' ? (
+                        <div className="space-y-4">
+                            <p className="text-xs text-slate-500">
+                                {t('external_accounting.qbo_ias_invitations_subtitle')}
+                            </p>
+                            <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800">
+                                <table className="w-full text-xs text-left border-collapse">
+                                    <thead>
+                                        <tr className="bg-slate-50 dark:bg-slate-800/80 border-b border-slate-200 dark:border-slate-700 text-[11px] font-bold uppercase text-slate-500">
+                                            <th className="py-3 px-4">Client email / Company</th>
+                                            <th className="py-3 px-4">Invited by</th>
+                                            <th className="py-3 px-4">Subscription tier</th>
+                                            <th className="py-3 px-4">Status</th>
+                                            <th className="py-3 px-4 text-right">Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                                        {companies.filter(c => c.realm_id !== '123145825185692').map(c => (
+                                            <tr key={c.realm_id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
+                                                <td className="py-3 px-4">
+                                                    <div className="font-bold text-slate-900 dark:text-white">{c.company_name}</div>
+                                                    <div className="text-[11px] text-slate-400">raquel@tacosgavilan.com · #{c.realm_id}</div>
                                                 </td>
-                                                <td className="py-3.5 px-4 font-mono text-slate-600 dark:text-slate-300">
-                                                    <div>#{c.realm_id}</div>
-                                                    {c.metadata?.tax_id && <div className="text-[10px] text-slate-400">EIN: {c.metadata.tax_id}</div>}
+                                                <td className="py-3 px-4 font-medium">Raquel Velasquez (Firm Admin)</td>
+                                                <td className="py-3 px-4">QuickBooks Online Plus (Firm Billed)</td>
+                                                <td className="py-3 px-4">
+                                                    <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 font-bold text-[11px]">
+                                                        <CheckCircle2 size={12} /> Accepted &amp; Connected
+                                                    </span>
                                                 </td>
-                                                <td className="py-3.5 px-4">
-                                                    {c.qbo_connected ? (
-                                                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 font-bold text-[11px]">
-                                                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                                                            <span>QBO V3 Live</span>
-                                                        </span>
-                                                    ) : (
-                                                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-semibold text-[11px]">
-                                                            <span className="w-1.5 h-1.5 rounded-full bg-slate-400" />
-                                                            <span>Local Ledger</span>
-                                                        </span>
-                                                    )}
-                                                </td>
-                                                <td className="py-3.5 px-4 text-right font-mono font-black text-sm text-slate-900 dark:text-white">
-                                                    {formatDisplayCurrency(bal)}
-                                                </td>
-                                                <td className="py-3.5 px-4 text-center font-mono text-slate-600 dark:text-slate-300">
-                                                    {(c.total_txns_count ?? 0).toLocaleString()} txns · {c.active_banks_count ?? 0} banks
-                                                </td>
-                                                <td className="py-3.5 px-4 text-right">
-                                                    <div className="inline-flex flex-wrap items-center justify-end gap-1.5">
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => {
-                                                                setActiveRealmId(c.realm_id)
-                                                                setFilterAccountId('ALL')
-                                                                setActiveTab('overview')
-                                                            }}
-                                                            className="px-2.5 py-1.5 rounded-lg bg-[#003b32] hover:bg-[#002923] text-white font-bold cursor-pointer"
-                                                        >
-                                                            {t('external_accounting.qbo_clients_btn_open_books')}
-                                                        </button>
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => {
-                                                                setActiveRealmId(c.realm_id)
-                                                                setFilterAccountId('ALL')
-                                                                setActiveTab('transactions')
-                                                            }}
-                                                            className="px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 font-semibold cursor-pointer"
-                                                        >
-                                                            {t('external_accounting.tab_transactions_clean')}
-                                                        </button>
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => {
-                                                                setActiveRealmId(c.realm_id)
-                                                                setReportType('pnl')
-                                                                setActiveTab('reports')
-                                                            }}
-                                                            className="px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 font-semibold cursor-pointer"
-                                                        >
-                                                            P&L
-                                                        </button>
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => {
-                                                                setActiveRealmId(c.realm_id)
-                                                                setReportType('balance_sheet')
-                                                                setActiveTab('reports')
-                                                            }}
-                                                            className="px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 font-semibold cursor-pointer"
-                                                        >
-                                                            Balance
-                                                        </button>
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => {
-                                                                setActiveRealmId(c.realm_id)
-                                                                setActiveTab('accounts')
-                                                            }}
-                                                            className="px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 font-semibold cursor-pointer"
-                                                        >
-                                                            COA
-                                                        </button>
-                                                    </div>
+                                                <td className="py-3 px-4 text-right">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => { setActiveRealmId(c.realm_id); setActiveTab('overview') }}
+                                                        className="text-[#0077c5] font-bold hover:underline cursor-pointer"
+                                                    >
+                                                        Open client books →
+                                                    </button>
                                                 </td>
                                             </tr>
-                                        )
-                                    })}
-                            </tbody>
-                        </table>
-                    </div>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    ) : (
+                        <>
+                            {/* Filter bar matching qbo_live_ias_clients.png (`Find a client` + `Client type: Subscription`) */}
+                            <div className="flex flex-wrap items-center justify-between gap-3">
+                                <div className="flex flex-wrap items-center gap-2">
+                                    <div className="relative w-64">
+                                        <Search size={14} className="absolute left-3 top-2.5 text-slate-400" />
+                                        <input
+                                            type="text"
+                                            value={clientsHubSearch}
+                                            onChange={(e) => setClientsHubSearch(e.target.value)}
+                                            placeholder="Find a client..."
+                                            className="w-full pl-8 pr-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-xs focus:outline-none"
+                                        />
+                                    </div>
+                                    <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-slate-100 dark:bg-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-200">
+                                        <span>{t('external_accounting.qbo_ias_client_type_subscription')}</span>
+                                    </span>
+                                </div>
+                                <div className="text-xs text-slate-500 font-medium">
+                                    1 - {companies.filter(c => c.realm_id !== '123145825185692').length} of {companies.filter(c => c.realm_id !== '123145825185692').length} client subscriptions (+ Firm Books)
+                                </div>
+                            </div>
+
+                            {/* Exact 6-Column QBO IAS Client List Table (`Display name ↑ | Company id | Accounting solutions | Other products | Attached apps | Actions`) */}
+                            <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800">
+                                <table className="w-full text-xs text-left border-collapse">
+                                    <thead>
+                                        <tr className="bg-slate-50 dark:bg-slate-800/80 border-b border-slate-200 dark:border-slate-700 text-[11px] font-bold text-slate-600 dark:text-slate-300">
+                                            <th className="py-3 px-4">{t('external_accounting.qbo_ias_col_display_name')} ↑</th>
+                                            <th className="py-3 px-4">{t('external_accounting.qbo_ias_col_company_id')}</th>
+                                            <th className="py-3 px-4">{t('external_accounting.qbo_ias_col_accounting_solutions')}</th>
+                                            <th className="py-3 px-4">{t('external_accounting.qbo_ias_col_other_products')}</th>
+                                            <th className="py-3 px-4">{t('external_accounting.qbo_ias_col_attached_apps')}</th>
+                                            <th className="py-3 px-4 text-right">{t('external_accounting.kpi_bank_balance')}</th>
+                                            <th className="py-3 px-4 text-right">{t('external_accounting.qbo_clients_col_actions')}</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                                        {companies
+                                            .filter(c => !clientsHubSearch.trim() || `${c.company_name} ${c.legal_name || ''} ${c.realm_id}`.toLowerCase().includes(clientsHubSearch.trim().toLowerCase()))
+                                            .map(c => {
+                                                const isActive = c.realm_id === activeRealmId
+                                                const isFirm = c.realm_id === '123145825185692'
+                                                const bal = Number(c.total_cash_balance ?? c.overview?.totalBankBalance ?? 0)
+                                                return (
+                                                    <tr
+                                                        key={c.realm_id}
+                                                        className={isActive ? 'bg-emerald-50/60 dark:bg-emerald-950/20' : 'hover:bg-slate-50 dark:hover:bg-slate-800/40'}
+                                                    >
+                                                        <td className="py-3.5 px-4">
+                                                            <div className="flex items-center gap-2.5">
+                                                                <span className={`w-7 h-7 rounded-full font-black text-[11px] flex items-center justify-center shrink-0 ${
+                                                                    isFirm ? 'bg-[#003b32] text-white' : 'bg-[#2ca01c] text-white'
+                                                                }`}>
+                                                                    tg
+                                                                </span>
+                                                                <div>
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => {
+                                                                            setActiveRealmId(c.realm_id)
+                                                                            setFilterAccountId('ALL')
+                                                                            setActiveTab('overview')
+                                                                        }}
+                                                                        className="font-bold text-slate-900 dark:text-white hover:text-[#2ca01c] hover:underline flex items-center gap-1.5 cursor-pointer text-left"
+                                                                    >
+                                                                        <span>{c.company_name}</span>
+                                                                        {isActive && (
+                                                                            <span className="px-1.5 py-0.5 rounded bg-emerald-600 text-white text-[9px] font-black uppercase">
+                                                                                ACTIVE
+                                                                            </span>
+                                                                        )}
+                                                                    </button>
+                                                                    <div className="text-[11px] text-slate-400">
+                                                                        {(c.total_txns_count ?? 0).toLocaleString()} txns · {c.active_banks_count ?? 0} banks
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        </td>
+                                                        <td className="py-3.5 px-4 font-mono text-slate-700 dark:text-slate-300">
+                                                            {c.realm_id}
+                                                        </td>
+                                                        <td className="py-3.5 px-4 font-medium text-slate-800 dark:text-slate-200">
+                                                            {isFirm ? 'Intuit Accountant Suite (Your books)' : 'QuickBooks Online Plus'}
+                                                        </td>
+                                                        <td className="py-3.5 px-4 text-slate-600 dark:text-slate-300">
+                                                            {c.realm_id === '554651555' ? 'Payments' : '—'}
+                                                        </td>
+                                                        <td className="py-3.5 px-4 text-slate-600 dark:text-slate-300">
+                                                            TEG Enterprise Sync
+                                                        </td>
+                                                        <td className="py-3.5 px-4 text-right font-mono font-black text-slate-900 dark:text-white">
+                                                            {formatDisplayCurrency(bal)}
+                                                        </td>
+                                                        <td className="py-3.5 px-4 text-right">
+                                                            <div className="inline-flex flex-wrap items-center justify-end gap-2">
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => {
+                                                                        setActiveRealmId(c.realm_id)
+                                                                        setActiveTab('company_settings')
+                                                                    }}
+                                                                    className="text-[#0077c5] font-bold hover:underline cursor-pointer"
+                                                                >
+                                                                    {t('external_accounting.qbo_ias_edit_client')}
+                                                                </button>
+                                                                <span className="text-slate-300">|</span>
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => {
+                                                                        setActiveRealmId(c.realm_id)
+                                                                        setFilterAccountId('ALL')
+                                                                        setActiveTab('overview')
+                                                                    }}
+                                                                    className="px-2.5 py-1 rounded-lg bg-[#003b32] hover:bg-[#002923] text-white font-bold cursor-pointer"
+                                                                >
+                                                                    {t('external_accounting.qbo_clients_btn_open_books')}
+                                                                </button>
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => {
+                                                                        setActiveRealmId(c.realm_id)
+                                                                        setFilterAccountId('ALL')
+                                                                        setTxnViewMode('all')
+                                                                        setActiveTab('transactions')
+                                                                    }}
+                                                                    className="px-2 py-1 rounded border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 font-semibold cursor-pointer"
+                                                                >
+                                                                    Register
+                                                                </button>
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => {
+                                                                        setActiveRealmId(c.realm_id)
+                                                                        setReportType('pnl')
+                                                                        setActiveTab('reports')
+                                                                    }}
+                                                                    className="px-2 py-1 rounded border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 font-semibold cursor-pointer"
+                                                                >
+                                                                    P&amp;L
+                                                                </button>
+                                                            </div>
+                                                        </td>
+                                                    </tr>
+                                                )
+                                            })}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </>
+                    )}
                 </div>
             )}
 
             {/* ====================================================================
-                NEW QBO TAB: BOOKS REVIEW & CPA CLOSE AUDIT (`Work` / `Books review`)
+                NEW QBO TAB: WORK (`Client Insights` | `Books Close [PILOT]` | `Tax` | `Projects` | `CPA Books Review`)
                ==================================================================== */}
             {activeTab === 'books_review' && (
                 <div className="space-y-6">
-                    <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                        <div>
-                            <h2 className="text-lg font-black text-slate-900 dark:text-white">
-                                {t('external_accounting.qbo_books_review_title')} — {activeCompany?.company_name}
-                            </h2>
-                            <p className="text-xs text-slate-500 mt-0.5">
-                                {t('external_accounting.qbo_books_review_subtitle')}
-                            </p>
+                    {/* Work Sub-View Switcher Bar */}
+                    <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 shadow-xs flex flex-wrap items-center justify-between gap-3">
+                        <div className="flex flex-wrap items-center gap-1.5 text-xs font-bold">
+                            {([
+                                { id: 'client_insights', label: t('external_accounting.qbo_ias_work_client_insights') },
+                                { id: 'books_close', label: `${t('external_accounting.qbo_ias_work_books_close')} [PILOT]` },
+                                { id: 'tax_prep', label: t('external_accounting.qbo_ias_work_tax_prep') },
+                                { id: '1099s', label: t('external_accounting.qbo_ias_work_1099s') },
+                                { id: 'projects', label: t('external_accounting.qbo_ias_work_projects') },
+                                { id: 'cpa_audit', label: t('external_accounting.qbo_books_review_title') },
+                            ] as const).map(w => (
+                                <button
+                                    key={w.id}
+                                    type="button"
+                                    onClick={() => setWorkSubView(w.id)}
+                                    className={`px-3 py-1.5 rounded-lg transition-colors cursor-pointer ${
+                                        workSubView === w.id
+                                            ? 'bg-[#003b32] text-white'
+                                            : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200'
+                                    }`}
+                                >
+                                    {w.label}
+                                </button>
+                            ))}
                         </div>
                         <div className="flex flex-wrap items-center gap-2 text-xs">
                             <button
                                 type="button"
                                 onClick={() => setActiveTab('reclassify')}
-                                className="px-3.5 py-2 rounded-xl bg-slate-900 dark:bg-white text-white dark:text-slate-900 font-bold cursor-pointer"
+                                className="px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 font-bold cursor-pointer"
                             >
                                 {t('external_accounting.qbo_tool_reclassify')}
                             </button>
                             <button
                                 type="button"
                                 onClick={() => setActiveTab('reconcile')}
-                                className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold cursor-pointer"
+                                className="px-3 py-1.5 rounded-lg bg-[#2ca01c] text-white font-bold cursor-pointer"
                             >
                                 {t('external_accounting.qbo_shortcut_reconcile')}
-                            </button>
-                            <button
-                                type="button"
-                                onClick={() => setActiveTab('company_settings')}
-                                className="px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 font-bold cursor-pointer"
-                            >
-                                🔒 {t('external_accounting.qbo_tool_close_books')}
                             </button>
                         </div>
                     </div>
 
-                    {(() => {
+                    {/* 1. WORK -> CLIENT INSIGHTS (`qbo_live_ias_work_client_insights_loaded.png`) */}
+                    {workSubView === 'client_insights' && (
+                        <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 shadow-xs space-y-4">
+                            <div className="flex flex-wrap items-center justify-between gap-3">
+                                <div>
+                                    <div className="text-xs text-slate-400 font-medium">{t('external_accounting.qbo_rail_work')} / {t('external_accounting.qbo_ias_work_client_insights')}</div>
+                                    <h2 className="text-xl font-black text-slate-900 dark:text-white mt-0.5">{t('external_accounting.qbo_ias_work_client_insights')}</h2>
+                                </div>
+                                <div className="flex items-center gap-2 text-xs">
+                                    <span className="px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 font-semibold">Date: This fiscal year</span>
+                                </div>
+                            </div>
+
+                            <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800">
+                                <table className="w-full text-xs text-left border-collapse">
+                                    <thead>
+                                        <tr className="bg-slate-50 dark:bg-slate-800/80 border-b border-slate-200 dark:border-slate-700 text-[11px] font-bold text-slate-600 dark:text-slate-300">
+                                            <th className="py-3 px-4">Client ↑</th>
+                                            <th className="py-3 px-4 text-right">{t('external_accounting.qbo_ias_insights_col_broken_banks')}</th>
+                                            <th className="py-3 px-4 text-right">{t('external_accounting.qbo_ias_insights_col_app_issues')}</th>
+                                            <th className="py-3 px-4">{t('external_accounting.qbo_ias_insights_col_last_reconciled')}</th>
+                                            <th className="py-3 px-4 text-right">{t('external_accounting.qbo_ias_insights_col_unaccepted_txns')}</th>
+                                            <th className="py-3 px-4 text-right">{t('external_accounting.qbo_clients_col_actions')}</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                                        {[
+                                            { name: '7947 Downey Plaza LLC', realm: '123145858055022', brokenBanks: 1, appIssues: 0, lastRec: '09/30/2026', unaccepted: 0 },
+                                            { name: 'Canasty Financial, LLC', realm: '193514841181564', brokenBanks: 0, appIssues: 0, lastRec: '09/30/2026', unaccepted: 339 },
+                                            { name: 'Chicken Taco Catering LLC', realm: '9130350664026276', brokenBanks: 0, appIssues: 0, lastRec: '08/31/2026', unaccepted: 0 },
+                                            { name: 'Elveze LLC', realm: '9130354736194266', brokenBanks: 0, appIssues: 0, lastRec: 'Multiple', unaccepted: 0 },
+                                            { name: 'Govegu LLC', realm: '9130357603135416', brokenBanks: 1, appIssues: 0, lastRec: '09/30/2026', unaccepted: 1 },
+                                            { name: 'Gutierrez Financial', realm: '554651555', brokenBanks: 2, appIssues: 0, lastRec: 'Multiple', unaccepted: 0 },
+                                            { name: 'TEG Holdings Inc', realm: '9130357696871496', brokenBanks: 1, appIssues: 0, lastRec: 'Multiple', unaccepted: 215 },
+                                        ].map(row => (
+                                            <tr key={row.realm} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
+                                                <td className="py-3.5 px-4">
+                                                    <div className="flex items-center gap-2.5">
+                                                        <span className="w-6 h-6 rounded-full bg-[#2ca01c] text-white font-black text-[10px] flex items-center justify-center">tg</span>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => { setActiveRealmId(row.realm); setActiveTab('overview') }}
+                                                            className="font-bold text-slate-900 dark:text-white hover:text-[#2ca01c] hover:underline cursor-pointer text-left"
+                                                        >
+                                                            {row.name}
+                                                        </button>
+                                                    </div>
+                                                </td>
+                                                <td className="py-3.5 px-4 text-right font-mono font-bold">
+                                                    {row.brokenBanks > 0 ? <span className="text-amber-600">{row.brokenBanks}</span> : '0'}
+                                                </td>
+                                                <td className="py-3.5 px-4 text-right font-mono">{row.appIssues}</td>
+                                                <td className="py-3.5 px-4 font-medium">{row.lastRec}</td>
+                                                <td className="py-3.5 px-4 text-right font-mono font-bold">{row.unaccepted}</td>
+                                                <td className="py-3.5 px-4 text-right">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => { setActiveRealmId(row.realm); setReportType('pnl'); setActiveTab('reports') }}
+                                                        className="text-[#0077c5] font-bold hover:underline cursor-pointer"
+                                                    >
+                                                        {t('external_accounting.qbo_ias_insights_go_to_reports')} ▾
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* 2. WORK -> BOOKS CLOSE [PILOT] (`qbo_live_ias_work_Projects.png`) */}
+                    {workSubView === 'books_close' && (
+                        <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 shadow-xs space-y-5">
+                            <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-2">
+                                    <h2 className="text-xl font-black text-slate-900 dark:text-white">{t('external_accounting.qbo_ias_work_books_close')}</h2>
+                                    <span className="px-2 py-0.5 rounded bg-teal-600 text-white text-[10px] font-black uppercase">PILOT</span>
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={() => setWorkSubView('cpa_audit')}
+                                    className="px-3.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 text-xs font-bold cursor-pointer"
+                                >
+                                    Open CPA Close Checklist →
+                                </button>
+                            </div>
+
+                            {/* Hero Banner matching qbo_live_ias_work_Projects.png */}
+                            <div className="rounded-2xl bg-[#f4f5f8] dark:bg-slate-950 border border-slate-200 dark:border-slate-800 p-6 flex flex-col md:flex-row items-center justify-between gap-6">
+                                <div className="space-y-2 max-w-xl">
+                                    <h3 className="text-lg font-black text-slate-900 dark:text-white">
+                                        {t('external_accounting.qbo_ias_books_close_hero_title')}
+                                    </h3>
+                                    <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+                                        {t('external_accounting.qbo_ias_books_close_hero_desc')}
+                                    </p>
+                                </div>
+                                <div className="flex items-center gap-3 shrink-0">
+                                    <div className="px-4 py-3 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs shadow-xs">
+                                        <div className="font-bold text-emerald-700 dark:text-emerald-400">✓ Account reconciliation</div>
+                                        <div className="text-[11px] text-slate-500 mt-0.5">✨ Key trends in Profit &amp; Loss</div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800">
+                                <table className="w-full text-xs text-left border-collapse">
+                                    <thead>
+                                        <tr className="bg-slate-50 dark:bg-slate-800/80 border-b border-slate-200 dark:border-slate-700 text-[11px] font-bold text-slate-600 dark:text-slate-300">
+                                            <th className="py-3 px-4">Client ↑</th>
+                                            <th className="py-3 px-4">Book close status</th>
+                                            <th className="py-3 px-4">Close period</th>
+                                            <th className="py-3 px-4">Preparer</th>
+                                            <th className="py-3 px-4">Reviewer</th>
+                                            <th className="py-3 px-4">Due date</th>
+                                            <th className="py-3 px-4 text-right">Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                                        {companies.filter(c => c.realm_id !== '123145825185692').map(c => (
+                                            <tr key={c.realm_id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
+                                                <td className="py-3 px-4 font-bold text-slate-900 dark:text-white">{c.company_name}</td>
+                                                <td className="py-3 px-4">
+                                                    <span className="px-2.5 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 font-bold text-[11px]">
+                                                        In progress
+                                                    </span>
+                                                </td>
+                                                <td className="py-3 px-4 font-mono">October 2026</td>
+                                                <td className="py-3 px-4">Raquel Velasquez</td>
+                                                <td className="py-3 px-4">Carlos Velasquez</td>
+                                                <td className="py-3 px-4 font-mono">11/15/2026</td>
+                                                <td className="py-3 px-4 text-right">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => { setActiveRealmId(c.realm_id); setWorkSubView('cpa_audit') }}
+                                                        className="text-[#0077c5] font-bold hover:underline cursor-pointer"
+                                                    >
+                                                        Start close review →
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* 3. WORK -> TAX PREP & 1099s */}
+                    {(workSubView === 'tax_prep' || workSubView === '1099s') && (
+                        <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 shadow-xs space-y-4">
+                            <div className="flex flex-wrap items-center justify-between gap-3">
+                                <div>
+                                    <div className="text-xs text-slate-400 font-medium">{t('external_accounting.qbo_rail_work')} / {t('external_accounting.qbo_ias_work_tax')}</div>
+                                    <h2 className="text-xl font-black text-slate-900 dark:text-white mt-0.5">
+                                        {workSubView === '1099s' ? t('external_accounting.qbo_ias_work_1099s') : t('external_accounting.qbo_ias_work_tax_prep')}
+                                    </h2>
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={() => { setReportType('tax_summary'); setActiveTab('reports') }}
+                                    className="px-4 py-2 rounded-lg bg-[#2ca01c] text-white text-xs font-bold cursor-pointer"
+                                >
+                                    Open Tax Summary Report →
+                                </button>
+                            </div>
+                            <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800">
+                                <table className="w-full text-xs text-left border-collapse">
+                                    <thead>
+                                        <tr className="bg-slate-50 dark:bg-slate-800/80 border-b border-slate-200 dark:border-slate-700 text-[11px] font-bold text-slate-600 dark:text-slate-300">
+                                            <th className="py-3 px-4">Client LLC</th>
+                                            <th className="py-3 px-4">Tax Year</th>
+                                            <th className="py-3 px-4">Form Type</th>
+                                            <th className="py-3 px-4">1099 Vendors Tracked</th>
+                                            <th className="py-3 px-4">Status</th>
+                                            <th className="py-3 px-4 text-right">Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                                        {companies.filter(c => c.realm_id !== '123145825185692').map(c => (
+                                            <tr key={c.realm_id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
+                                                <td className="py-3 px-4 font-bold text-slate-900 dark:text-white">{c.company_name}</td>
+                                                <td className="py-3 px-4 font-mono">2026</td>
+                                                <td className="py-3 px-4">{c.company_name.includes('Inc') ? 'Form 1120 / 1099-NEC' : 'Form 1065 (LLC) / 1099-NEC'}</td>
+                                                <td className="py-3 px-4 font-mono">Ready for 1099-NEC e-File</td>
+                                                <td className="py-3 px-4">
+                                                    <span className="px-2 py-0.5 rounded bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 font-bold">Books Synced</span>
+                                                </td>
+                                                <td className="py-3 px-4 text-right">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => { setActiveRealmId(c.realm_id); setReportType('tax_summary'); setActiveTab('reports') }}
+                                                        className="text-[#0077c5] font-bold hover:underline cursor-pointer"
+                                                    >
+                                                        Review tax lines →
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* 4. WORK -> PROJECTS (`qbo_live_ias_firmHub_expand_ProAdvisor.png`) */}
+                    {workSubView === 'projects' && (
+                        <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 shadow-xs space-y-4">
+                            <div className="flex flex-wrap items-center justify-between gap-3">
+                                <div>
+                                    <div className="text-xs text-slate-400 font-medium">{t('external_accounting.qbo_rail_work')} / {t('external_accounting.qbo_ias_work_projects')}</div>
+                                    <h2 className="text-xl font-black text-slate-900 dark:text-white mt-0.5">{t('external_accounting.qbo_ias_projects_title')}</h2>
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={() => setWorkSubView('cpa_audit')}
+                                    className="px-4 py-2 rounded-lg bg-[#2ca01c] hover:bg-[#248817] text-white text-xs font-bold cursor-pointer"
+                                >
+                                    {t('external_accounting.qbo_ias_create_project')}
+                                </button>
+                            </div>
+                            <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800">
+                                <table className="w-full text-xs text-left border-collapse">
+                                    <thead>
+                                        <tr className="bg-slate-50 dark:bg-slate-800/80 border-b border-slate-200 dark:border-slate-700 text-[11px] font-bold text-slate-600 dark:text-slate-300">
+                                            <th className="py-3 px-4">Project</th>
+                                            <th className="py-3 px-4">Client</th>
+                                            <th className="py-3 px-4">Due ↑</th>
+                                            <th className="py-3 px-4">Status</th>
+                                            <th className="py-3 px-4">Assignee</th>
+                                            <th className="py-3 px-4 text-right">Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                                        {companies.filter(c => c.realm_id !== '123145825185692').map(c => (
+                                            <tr key={c.realm_id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
+                                                <td className="py-3 px-4 font-bold text-slate-900 dark:text-white">Monthly Bookkeeping &amp; Bank Reconciliation</td>
+                                                <td className="py-3 px-4">{c.company_name}</td>
+                                                <td className="py-3 px-4 font-mono">11/10/2026</td>
+                                                <td className="py-3 px-4">
+                                                    <span className="px-2 py-0.5 rounded bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 font-bold">In progress</span>
+                                                </td>
+                                                <td className="py-3 px-4">Raquel Velasquez</td>
+                                                <td className="py-3 px-4 text-right">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => { setActiveRealmId(c.realm_id); setActiveTab('reconcile') }}
+                                                        className="text-[#0077c5] font-bold hover:underline cursor-pointer"
+                                                    >
+                                                        Open reconcile →
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* 5. WORK -> CPA BOOKS REVIEW & CLOSE AUDIT */}
+                    {workSubView === 'cpa_audit' && (() => {
                         const uncategorizedTxns = transactions.filter(tx => {
                             if (tx.is_voided) return false
                             const cat = `${tx.category_summary || ''} ${tx.to_account_name || ''}`.toLowerCase()
@@ -6891,9 +8774,1072 @@ function ExternalAccountingContent() {
                 </div>
             )}
 
-            {/* TAB 2: INFLOWS, OUTFLOWS & BANK REGISTER (QBO BANK REGISTER STANDARD) */}
+            {/* ====================================================================
+                NEW QBO TAB: FIRM HUB (`Playbooks [BETA]` | `Manage users` | `ProAdvisor` | `Policy templates` | `COA Templates` | `Integrations`)
+               ==================================================================== */}
+            {activeTab === 'firm_hub' && (
+                <div className="space-y-6">
+                    {/* Sub-view switcher bar */}
+                    <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 shadow-xs flex flex-wrap items-center gap-1.5 text-xs font-bold">
+                        {([
+                            { id: 'playbooks', label: `${t('external_accounting.qbo_ias_fh_playbooks')} [BETA]` },
+                            { id: 'users', label: t('external_accounting.qbo_ias_fh_users') },
+                            { id: 'user_groups', label: t('external_accounting.qbo_ias_fh_user_groups') },
+                            { id: 'benefits', label: t('external_accounting.qbo_ias_fh_benefits') },
+                            { id: 'proadvisor_training', label: t('external_accounting.qbo_ias_fh_proadvisor_training') },
+                            { id: 'manage_training', label: t('external_accounting.qbo_ias_fh_manage_training') },
+                            { id: 'policy_templates', label: t('external_accounting.qbo_ias_fh_policy_templates') },
+                            { id: 'coa_templates', label: t('external_accounting.qbo_ias_fh_coa_templates') },
+                            { id: 'integrations', label: t('external_accounting.qbo_ias_fh_integrations') },
+                        ] as const).map(fh => (
+                            <button
+                                key={fh.id}
+                                type="button"
+                                onClick={() => setFirmHubSubView(fh.id)}
+                                className={`px-3 py-1.5 rounded-lg transition-colors cursor-pointer ${
+                                    firmHubSubView === fh.id
+                                        ? 'bg-[#003b32] text-white'
+                                        : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200'
+                                }`}
+                            >
+                                {fh.label}
+                            </button>
+                        ))}
+                    </div>
+
+                    {/* 1. PLAYBOOKS [BETA] (`qbo_live_ias_rail_firm_hub.png`) */}
+                    {firmHubSubView === 'playbooks' && (
+                        <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 shadow-xs space-y-5">
+                            <div className="flex flex-wrap items-center justify-between gap-3">
+                                <div>
+                                    <div className="flex items-center gap-2">
+                                        <h2 className="text-xl font-black text-slate-900 dark:text-white">{t('external_accounting.qbo_ias_playbooks_title')}</h2>
+                                        <span className="px-2 py-0.5 rounded bg-teal-600 text-white text-[10px] font-black uppercase">BETA</span>
+                                    </div>
+                                    <p className="text-xs text-slate-500 mt-1">{t('external_accounting.qbo_ias_playbooks_subtitle')}</p>
+                                </div>
+                            </div>
+                            <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800">
+                                <table className="w-full text-xs text-left border-collapse">
+                                    <thead>
+                                        <tr className="bg-slate-50 dark:bg-slate-800/80 border-b border-slate-200 dark:border-slate-700 text-[11px] font-bold text-slate-600 dark:text-slate-300">
+                                            <th className="py-3 px-4">Template name ↑</th>
+                                            <th className="py-3 px-4">Created by</th>
+                                            <th className="py-3 px-4">Description</th>
+                                            <th className="py-3 px-4">Total tasks</th>
+                                            <th className="py-3 px-4 text-right">Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                                        <tr className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
+                                            <td className="py-3.5 px-4 font-bold text-slate-900 dark:text-white">Monthly Close</td>
+                                            <td className="py-3.5 px-4">Intuit</td>
+                                            <td className="py-3.5 px-4 text-slate-600 dark:text-slate-300">Pre-close prep, bank reconciliation, transaction review, and final financial review</td>
+                                            <td className="py-3.5 px-4 font-mono font-bold">24</td>
+                                            <td className="py-3.5 px-4 text-right">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => { setWorkSubView('books_close'); setActiveTab('books_review') }}
+                                                    className="text-[#0077c5] font-bold hover:underline cursor-pointer"
+                                                >
+                                                    View template ▾
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* 2. MANAGE USERS -> USERS & USER GROUPS (`qbo_live_ias_firmHub_Benefits.png`) */}
+                    {(firmHubSubView === 'users' || firmHubSubView === 'user_groups') && (
+                        <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 shadow-xs space-y-5">
+                            <div className="flex flex-wrap items-center justify-between gap-3">
+                                <div>
+                                    <div className="text-xs text-slate-400 font-medium">{t('external_accounting.qbo_ias_fh_manage_users')} / {firmHubSubView === 'user_groups' ? t('external_accounting.qbo_ias_fh_user_groups') : t('external_accounting.qbo_ias_fh_users')}</div>
+                                    <h2 className="text-xl font-black text-slate-900 dark:text-white mt-0.5">
+                                        {firmHubSubView === 'user_groups' ? t('external_accounting.qbo_ias_fh_user_groups') : t('external_accounting.qbo_ias_fh_users')}
+                                    </h2>
+                                </div>
+                            </div>
+                            <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800">
+                                <table className="w-full text-xs text-left border-collapse">
+                                    <thead>
+                                        <tr className="bg-slate-50 dark:bg-slate-800/80 border-b border-slate-200 dark:border-slate-700 text-[11px] font-bold text-slate-600 dark:text-slate-300">
+                                            <th className="py-3 px-4">Name ↑</th>
+                                            <th className="py-3 px-4">Title</th>
+                                            <th className="py-3 px-4">Email</th>
+                                            <th className="py-3 px-4">Status</th>
+                                            <th className="py-3 px-4">Firm books access</th>
+                                            <th className="py-3 px-4 text-right">Client access</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                                        {[
+                                            { name: 'Raquel Velasquez', title: 'Firm Primary Admin / CPA', email: 'raquel@tacosgavilan.com', status: 'Active', firmAccess: 'Yes (Primary Admin)', clients: 'All 7 clients' },
+                                            { name: 'Carlos Velasquez', title: 'Executive Admin', email: 'carlos@tacosgavilan.com', status: 'Active', firmAccess: 'Yes (Admin)', clients: 'All 7 clients' },
+                                            { name: 'Gilbert', title: 'Accountant', email: 'gilbert@tacosgavilan.com', status: 'Active', firmAccess: 'Yes', clients: '7 clients' },
+                                        ].map(u => (
+                                            <tr key={u.email} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
+                                                <td className="py-3.5 px-4 font-bold text-slate-900 dark:text-white">{u.name}</td>
+                                                <td className="py-3.5 px-4">{u.title}</td>
+                                                <td className="py-3.5 px-4 font-mono">{u.email}</td>
+                                                <td className="py-3.5 px-4">
+                                                    <span className="px-2 py-0.5 rounded bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 font-bold">{u.status}</span>
+                                                </td>
+                                                <td className="py-3.5 px-4">{u.firmAccess}</td>
+                                                <td className="py-3.5 px-4 text-right font-bold">{u.clients}</td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* 3. PROADVISOR -> BENEFITS / TRAINING / MANAGE TRAINING (`qbo_live_ias_firmHub_Policy_templates.png`) */}
+                    {(firmHubSubView === 'benefits' || firmHubSubView === 'proadvisor_training' || firmHubSubView === 'manage_training') && (
+                        <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 shadow-xs space-y-5">
+                            <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-200 dark:border-slate-800 pb-4">
+                                <div className="flex items-center gap-3">
+                                    <div className="w-12 h-12 rounded-2xl bg-amber-500 text-white font-black text-sm flex items-center justify-center shadow-xs">★★</div>
+                                    <div>
+                                        <div className="text-xs font-black uppercase tracking-wider text-amber-600">ProAdvisor GOLD · 625 Points</div>
+                                        <h2 className="text-xl font-black text-slate-900 dark:text-white">Raquel Accounting — ProAdvisor Program</h2>
+                                        <p className="text-xs text-slate-500">Customer Account Number (CAMPs ID): 154572146605212 · Only 1,775 points away from Platinum</p>
+                                    </div>
+                                </div>
+                            </div>
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
+                                <div className="rounded-xl border border-slate-200 dark:border-slate-800 p-4 space-y-1.5">
+                                    <div className="font-black uppercase text-slate-500">Software &amp; Subscriptions</div>
+                                    <div className="text-sm font-bold text-slate-900 dark:text-white">Intuit Accountant Suite + Firm Books</div>
+                                    <p className="text-slate-500">Includes free QuickBooks Online Accountant books for Raquel Accounting and preferred wholesale pricing across all 7 LLCs.</p>
+                                </div>
+                                <div className="rounded-xl border border-slate-200 dark:border-slate-800 p-4 space-y-1.5">
+                                    <div className="font-black uppercase text-slate-500">Gold Tier Support</div>
+                                    <div className="text-sm font-bold text-slate-900 dark:text-white">VIP Accountant Care</div>
+                                    <p className="text-slate-500">Priority US-based support and dedicated account team for multi-company ledger synchronization.</p>
+                                </div>
+                                <div className="rounded-xl border border-slate-200 dark:border-slate-800 p-4 space-y-1.5">
+                                    <div className="font-black uppercase text-slate-500">ProAdvisor Training</div>
+                                    <div className="text-sm font-bold text-slate-900 dark:text-white">QuickBooks Online Level 1 &amp; 2</div>
+                                    <p className="text-slate-500">CPE credit courses and certification modules available for all 3 firm team members.</p>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* 4. POLICY TEMPLATES & COA TEMPLATES (`qbo_live_ias_firmHub_COA_Templates.png` & `qbo_live_ias_firmHub_Integrations.png`) */}
+                    {(firmHubSubView === 'policy_templates' || firmHubSubView === 'coa_templates') && (
+                        <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 shadow-xs space-y-5">
+                            <div className="flex flex-wrap items-center justify-between gap-3">
+                                <div>
+                                    <h2 className="text-xl font-black text-slate-900 dark:text-white">
+                                        {firmHubSubView === 'policy_templates' ? t('external_accounting.qbo_ias_fh_policy_templates') : t('external_accounting.qbo_ias_coa_templates_title')}
+                                    </h2>
+                                    <p className="text-xs text-slate-500 mt-0.5">
+                                        {firmHubSubView === 'policy_templates'
+                                            ? 'Standardize categorization and threshold rules across all 7 client LLCs.'
+                                            : 'Create and apply standardized Chart of Accounts templates across client companies.'}
+                                    </p>
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={() => setActiveTab('accounts')}
+                                    className="px-4 py-2 rounded-lg bg-[#2ca01c] hover:bg-[#248817] text-white text-xs font-bold cursor-pointer"
+                                >
+                                    {t('external_accounting.qbo_ias_coa_templates_add')}
+                                </button>
+                            </div>
+                            <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800">
+                                <table className="w-full text-xs text-left border-collapse">
+                                    <thead>
+                                        <tr className="bg-slate-50 dark:bg-slate-800/80 border-b border-slate-200 dark:border-slate-700 text-[11px] font-bold text-slate-600 dark:text-slate-300">
+                                            <th className="py-3 px-4">Template Name</th>
+                                            <th className="py-3 px-4">Industry / Entity Type</th>
+                                            <th className="py-3 px-4">Accounts Included</th>
+                                            <th className="py-3 px-4">Last Modified</th>
+                                            <th className="py-3 px-4 text-right">Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                                        {[
+                                            { name: 'Real Estate & Property Holding LLC Standard COA', type: 'LLC (Rental & Commercial)', count: '44 accounts', date: '10/30/2026' },
+                                            { name: 'Restaurant & Catering Operations COA', type: 'LLC / S-Corp (Food & Beverage)', count: '52 accounts', date: '10/30/2026' },
+                                            { name: 'Holding & Financial Lending Entity COA', type: 'Corp / LLC (Financial)', count: '38 accounts', date: '10/30/2026' },
+                                        ].map(tpl => (
+                                            <tr key={tpl.name} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
+                                                <td className="py-3.5 px-4 font-bold text-slate-900 dark:text-white">{tpl.name}</td>
+                                                <td className="py-3.5 px-4">{tpl.type}</td>
+                                                <td className="py-3.5 px-4 font-mono">{tpl.count}</td>
+                                                <td className="py-3.5 px-4 font-mono">{tpl.date}</td>
+                                                <td className="py-3.5 px-4 text-right">
+                                                    <button type="button" onClick={() => setActiveTab('accounts')} className="text-[#0077c5] font-bold hover:underline cursor-pointer">
+                                                        View accounts →
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* 5. INTEGRATIONS (`qbo_live_ias_create_flyout.png`) */}
+                    {firmHubSubView === 'integrations' && (
+                        <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 shadow-xs space-y-5">
+                            <div>
+                                <h2 className="text-xl font-black text-slate-900 dark:text-white">{t('external_accounting.qbo_ias_integrations_title')}</h2>
+                                <p className="text-xs text-slate-500 mt-0.5">Connected apps across Raquel Accounting and all 7 client LLCs.</p>
+                            </div>
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 text-xs">
+                                {[
+                                    { name: 'TEG Enterprise Accounting Engine', desc: 'Real-time bi-directional QuickBooks Online V3 & Supabase ledger sync across all 8 realms.', status: 'Connected (All 8 Realms)' },
+                                    { name: 'Gmail Official Invoice PDF Sender', desc: 'Sends official QuickBooks-formatted HTML & PDF invoices directly from raquel@tacosgavilan.com.', status: 'Connected' },
+                                    { name: 'Dext', desc: 'Automate receipt and bill data capture.', status: 'Available' },
+                                    { name: 'Bill.com / Melio', desc: 'Accounts payable & ACH vendor payments.', status: 'Available' },
+                                ].map(app => (
+                                    <div key={app.name} className="rounded-xl border border-slate-200 dark:border-slate-800 p-4 flex flex-col justify-between space-y-3">
+                                        <div className="space-y-1.5">
+                                            <div className="flex items-center justify-between">
+                                                <span className="w-8 h-8 rounded-lg bg-[#003b32] text-white font-black text-xs flex items-center justify-center">tg</span>
+                                                <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                                    app.status.includes('Connected') ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300' : 'bg-slate-100 text-slate-600'
+                                                }`}>
+                                                    {app.status}
+                                                </span>
+                                            </div>
+                                            <div className="font-bold text-sm text-slate-900 dark:text-white pt-1">{app.name}</div>
+                                            <p className="text-slate-500 leading-relaxed">{app.desc}</p>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+                </div>
+            )}
+
+            {/* TAB 2: INFLOWS, OUTFLOWS & BANK REGISTER (QBO BANK REGISTER + DEDICATED QBO SUB-VIEWS) */}
             {activeTab === 'transactions' && (
                 <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 shadow-xs space-y-4">
+                    {/* QBO SUB-VIEW SWITCHER BAR (Bank Register | Invoices | Sales Transactions | Bills | Expenses | Client Overview | Write Off Invoices) */}
+                    <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-slate-200 dark:border-slate-800">
+                        <div className="flex flex-wrap items-center gap-1.5 text-xs font-bold">
+                            {([
+                                { id: 'all', label: t('external_accounting.qbo_shortcut_bank_txns') },
+                                { id: 'invoices', label: t('external_accounting.qbo_view_invoices') },
+                                { id: 'sales', label: t('external_accounting.qbo_view_sales_txns') },
+                                { id: 'bills', label: t('external_accounting.qbo_view_bills') },
+                                { id: 'expenses', label: t('external_accounting.qbo_view_expenses_list') },
+                                { id: 'client_overview', label: t('external_accounting.qbo_view_client_overview') },
+                                { id: 'write_off_invoices', label: t('external_accounting.qbo_view_write_off_invoices') },
+                            ] as const).map(v => (
+                                <button
+                                    key={v.id}
+                                    type="button"
+                                    onClick={() => setTxnViewMode(v.id)}
+                                    className={`px-3 py-1.5 rounded-lg transition-colors cursor-pointer ${
+                                        txnViewMode === v.id
+                                            ? 'bg-[#003b32] text-white shadow-xs'
+                                            : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
+                                    }`}
+                                >
+                                    {v.label}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+
+                    {/* DEDICATED QBO SUB-VIEWS (Invoices, Sales Transactions, Bills, Expenses, Client Overview, Write Off Invoices) */}
+                    {txnViewMode !== 'all' && (() => {
+                        const todayIso = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' })
+                        const allInvoices = allLoadedTransactions
+                            .filter(tx => tx.txn_type === 'Invoice' && !tx.is_voided)
+                            .sort((a, b) => String(b.txn_date || '').localeCompare(String(a.txn_date || '')))
+                        const openInvoices = allInvoices.filter(tx => Number(tx.open_balance ?? tx.raw_data?.Balance ?? 0) > 0.004)
+                        const overdueInvs = openInvoices.filter(tx => String(tx.due_date || tx.txn_date || '') < todayIso)
+                        const notDueInvs = openInvoices.filter(tx => String(tx.due_date || tx.txn_date || '') >= todayIso)
+                        const paidInvs = allInvoices.filter(tx => Number(tx.open_balance ?? tx.raw_data?.Balance ?? 0) <= 0.004)
+                        const depositedPayments = allLoadedTransactions.filter(tx => tx.txn_type === 'Deposit' && !tx.is_voided)
+                        const undepositedPayments = allLoadedTransactions.filter(tx => (tx.txn_type === 'Payment' || tx.txn_type === 'SalesReceipt') && !tx.is_voided)
+
+                        const overdueSum = overdueInvs.reduce((s, tx) => s + Number(tx.open_balance ?? tx.raw_data?.Balance ?? 0), 0)
+                        const notDueSum = notDueInvs.reduce((s, tx) => s + Number(tx.open_balance ?? tx.raw_data?.Balance ?? 0), 0)
+                        const undepositedSum = undepositedPayments.reduce((s, tx) => s + Number(tx.total_amount || 0), 0)
+                        const depositedSum = depositedPayments.slice(0, 15).reduce((s, tx) => s + Number(tx.total_amount || 0), 0)
+
+                        // 1. QBO INVOICES VIEW (/app/invoices)
+                        if (txnViewMode === 'invoices') {
+                            const visibleInvoices = allInvoices.filter(tx => {
+                                const bal = Number(tx.open_balance ?? tx.raw_data?.Balance ?? 0)
+                                const due = String(tx.due_date || tx.txn_date || '')
+                                if (invoicesStatusFilter === 'OVERDUE') return bal > 0.004 && due < todayIso
+                                if (invoicesStatusFilter === 'NOT_DUE') return bal > 0.004 && due >= todayIso
+                                if (invoicesStatusFilter === 'NOT_DEPOSITED' || invoicesStatusFilter === 'DEPOSITED') return bal <= 0.004
+                                return true
+                            })
+                            return (
+                                <div className="space-y-4 pb-4 border-b border-slate-200 dark:border-slate-800">
+                                    <div className="flex flex-wrap items-center justify-between gap-3">
+                                        <div>
+                                            <div className="text-xs text-slate-400 font-medium">{t('external_accounting.qbo_all_apps_sales_get_paid')} / {t('external_accounting.qbo_view_invoices')}</div>
+                                            <h2 className="text-xl font-black text-slate-900 dark:text-white mt-0.5">{t('external_accounting.qbo_view_invoices')}</h2>
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                            {invoicesStatusFilter !== 'ALL' && (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setInvoicesStatusFilter('ALL')}
+                                                    className="px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 text-xs font-bold text-[#0077c5] cursor-pointer"
+                                                >
+                                                    Clear filter ({invoicesStatusFilter}) ✕
+                                                </button>
+                                            )}
+                                            <button
+                                                type="button"
+                                                onClick={() => openTransactionModal('Payment')}
+                                                className="px-3.5 py-2 rounded-lg border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 font-bold text-xs cursor-pointer"
+                                            >
+                                                {t('external_accounting.qbo_action_receive_payment')}
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => openTransactionModal('Invoice')}
+                                                className="px-4 py-2 rounded-lg bg-[#2ca01c] hover:bg-[#248817] text-white font-bold text-xs cursor-pointer"
+                                            >
+                                                {t('external_accounting.qbo_action_create_invoice')}
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    {/* 2-Group / 4-Segment QBO Invoice Status Bar (qbo_gf_real_invoices.png) */}
+                                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 rounded-xl bg-[#f4f7fa] dark:bg-slate-950/70 border border-slate-200 dark:border-slate-800 p-4">
+                                        <div className="space-y-2 lg:border-r border-slate-200 dark:border-slate-800 lg:pr-4">
+                                            <div className="text-xs font-bold text-slate-700 dark:text-slate-200">
+                                                {formatCurrency(overdueSum + notDueSum)} <span className="font-normal text-slate-500">{t('external_accounting.qbo_invoices_unpaid_365')}</span>
+                                            </div>
+                                            <div className="grid grid-cols-2 gap-3">
+                                                <div
+                                                    onClick={() => setInvoicesStatusFilter(p => p === 'OVERDUE' ? 'ALL' : 'OVERDUE')}
+                                                    className={`p-2.5 rounded-lg cursor-pointer transition-colors ${invoicesStatusFilter === 'OVERDUE' ? 'bg-white dark:bg-slate-900 ring-2 ring-[#ff8000]' : 'hover:bg-white/60 dark:hover:bg-slate-900/50'}`}
+                                                >
+                                                    <div className="text-base font-black font-mono text-slate-900 dark:text-white">{formatCurrency(overdueSum)}</div>
+                                                    <div className="text-[11px] text-slate-500">{overdueInvs.length} {t('external_accounting.qbo_status_overdue')}</div>
+                                                    <div className="h-3 rounded-sm bg-[#ff8000] mt-2" />
+                                                </div>
+                                                <div
+                                                    onClick={() => setInvoicesStatusFilter(p => p === 'NOT_DUE' ? 'ALL' : 'NOT_DUE')}
+                                                    className={`p-2.5 rounded-lg cursor-pointer transition-colors ${invoicesStatusFilter === 'NOT_DUE' ? 'bg-white dark:bg-slate-900 ring-2 ring-slate-400' : 'hover:bg-white/60 dark:hover:bg-slate-900/50'}`}
+                                                >
+                                                    <div className="text-base font-black font-mono text-slate-900 dark:text-white">{formatCurrency(notDueSum)}</div>
+                                                    <div className="text-[11px] text-slate-500">{notDueInvs.length} {t('external_accounting.qbo_invoices_not_due_yet')}</div>
+                                                    <div className="h-3 rounded-sm bg-[#d4d7dc] dark:bg-slate-600 mt-2" />
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div className="space-y-2">
+                                            <div className="text-xs font-bold text-slate-700 dark:text-slate-200">
+                                                {formatCurrency(undepositedSum + depositedSum)} <span className="font-normal text-slate-500">{t('external_accounting.qbo_invoices_paid_30')}</span>
+                                            </div>
+                                            <div className="grid grid-cols-2 gap-3">
+                                                <div
+                                                    onClick={() => setInvoicesStatusFilter(p => p === 'NOT_DEPOSITED' ? 'ALL' : 'NOT_DEPOSITED')}
+                                                    className={`p-2.5 rounded-lg cursor-pointer transition-colors ${invoicesStatusFilter === 'NOT_DEPOSITED' ? 'bg-white dark:bg-slate-900 ring-2 ring-[#79e065]' : 'hover:bg-white/60 dark:hover:bg-slate-900/50'}`}
+                                                >
+                                                    <div className="text-base font-black font-mono text-slate-900 dark:text-white">{formatCurrency(undepositedSum)}</div>
+                                                    <div className="text-[11px] text-slate-500">{undepositedPayments.length} {t('external_accounting.qbo_invoices_not_deposited')}</div>
+                                                    <div className="h-3 rounded-sm bg-[#79e065] mt-2" />
+                                                </div>
+                                                <div
+                                                    onClick={() => setInvoicesStatusFilter(p => p === 'DEPOSITED' ? 'ALL' : 'DEPOSITED')}
+                                                    className={`p-2.5 rounded-lg cursor-pointer transition-colors ${invoicesStatusFilter === 'DEPOSITED' ? 'bg-white dark:bg-slate-900 ring-2 ring-[#2ca01c]' : 'hover:bg-white/60 dark:hover:bg-slate-900/50'}`}
+                                                >
+                                                    <div className="text-base font-black font-mono text-slate-900 dark:text-white">{formatCurrency(depositedSum)}</div>
+                                                    <div className="text-[11px] text-slate-500">{depositedPayments.slice(0, 15).length} {t('external_accounting.qbo_invoices_deposited')}</div>
+                                                    <div className="h-3 rounded-sm bg-[#2ca01c] mt-2" />
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* QBO Invoices Table (DATE | NO. | TENANT | AMOUNT | STATUS ▲ | ACTION) */}
+                                    <div className="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-800">
+                                        <table className="w-full text-left border-collapse text-xs">
+                                            <thead>
+                                                <tr className="bg-slate-50 dark:bg-slate-800/80 border-b border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 text-[11px] font-bold uppercase">
+                                                    <th className="py-2.5 px-3">{t('external_accounting.col_date')}</th>
+                                                    <th className="py-2.5 px-3">{t('external_accounting.col_doc_num')}</th>
+                                                    <th className="py-2.5 px-3">{t('external_accounting.type_customer')}</th>
+                                                    <th className="py-2.5 px-3 text-right">{t('external_accounting.col_amount')}</th>
+                                                    <th className="py-2.5 px-3">{t('external_accounting.qbo_tenant_col_status')} ▲</th>
+                                                    <th className="py-2.5 px-3 text-right">{t('external_accounting.col_actions')}</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-slate-200/70 dark:divide-slate-800">
+                                                {visibleInvoices.map(inv => {
+                                                    const bal = Number(inv.open_balance ?? inv.raw_data?.Balance ?? 0)
+                                                    const isOpen = bal > 0.004
+                                                    const dueStr = String(inv.due_date || inv.txn_date || '')
+                                                    const diffDays = dueStr
+                                                        ? Math.round((new Date(dueStr + 'T12:00:00').getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24))
+                                                        : 0
+                                                    return (
+                                                        <tr key={inv.id} onClick={() => openRecordPreview('transaction', inv)} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 cursor-pointer">
+                                                            <td className="py-2.5 px-3 font-mono whitespace-nowrap">{inv.txn_date}</td>
+                                                            <td className="py-2.5 px-3 font-mono font-bold">{inv.doc_number || '—'}</td>
+                                                            <td className="py-2.5 px-3 font-semibold text-slate-900 dark:text-white">{inv.entity_name || '—'}</td>
+                                                            <td className="py-2.5 px-3 text-right font-mono font-bold">{formatCurrency(inv.total_amount || 0)}</td>
+                                                            <td className="py-2.5 px-3">
+                                                                {isOpen ? (
+                                                                    <span className={`inline-flex items-center gap-1.5 font-bold ${diffDays < 0 ? 'text-[#d52b1e]' : 'text-slate-700 dark:text-slate-200'}`}>
+                                                                        <AlertTriangle size={13} className={diffDays < 0 ? 'text-[#ff8000]' : 'text-slate-400'} />
+                                                                        <span>
+                                                                            {diffDays < 0
+                                                                                ? `${t('external_accounting.qbo_status_overdue')} ${Math.abs(diffDays)} ${t('external_accounting.qbo_status_days')}`
+                                                                                : `${t('external_accounting.qbo_status_due_in')} ${diffDays} ${t('external_accounting.qbo_status_days')}`}
+                                                                        </span>
+                                                                    </span>
+                                                                ) : (
+                                                                    <span className="inline-flex items-center gap-1.5 font-bold text-[#2ca01c]">
+                                                                        <CheckCircle2 size={13} />
+                                                                        <span>{t('external_accounting.qbo_status_paid')}</span>
+                                                                    </span>
+                                                                )}
+                                                            </td>
+                                                            <td className="py-2.5 px-3 text-right whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                                                                <div className="inline-flex items-center gap-2 font-bold text-[#0077c5]">
+                                                                    <button type="button" onClick={() => handleEditRecord('transaction', inv)} className="hover:underline cursor-pointer">
+                                                                        {t('external_accounting.qbo_action_view_edit')}
+                                                                    </button>
+                                                                    {isOpen && (
+                                                                        <>
+                                                                            <span className="text-slate-300">|</span>
+                                                                            <button
+                                                                                type="button"
+                                                                                onClick={() => {
+                                                                                    openTransactionModal('Payment')
+                                                                                    setFormPayeeName(inv.entity_name || '')
+                                                                                    setFormAmount(String(bal))
+                                                                                    setSelectedLinkedInvoiceIds([String(inv.id)])
+                                                                                }}
+                                                                                className="hover:underline cursor-pointer"
+                                                                            >
+                                                                                {t('external_accounting.qbo_action_receive_payment')}
+                                                                            </button>
+                                                                        </>
+                                                                    )}
+                                                                    <span className="text-slate-300">|</span>
+                                                                    <button type="button" onClick={() => openInvoiceEmailModal(inv)} className="text-[#2ca01c] hover:underline cursor-pointer">
+                                                                        Send PDF
+                                                                    </button>
+                                                                    <span className="text-slate-300">|</span>
+                                                                    <button type="button" onClick={() => handleDownloadOfficialInvoicePdf(inv)} className="hover:underline cursor-pointer">
+                                                                        Print
+                                                                    </button>
+                                                                </div>
+                                                            </td>
+                                                        </tr>
+                                                    )
+                                                })}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            )
+                        }
+
+                        // 2. QBO SALES TRANSACTIONS VIEW (/app/sales)
+                        if (txnViewMode === 'sales') {
+                            const salesTxns = allLoadedTransactions
+                                .filter(tx => ['Invoice', 'Payment', 'CreditMemo', 'SalesReceipt', 'Estimate', 'Deposit'].includes(tx.txn_type) && !tx.is_voided)
+                                .sort((a, b) => String(b.txn_date || '').localeCompare(String(a.txn_date || '')))
+                            const salesTotal = salesTxns.reduce((s, tx) => s + Number(tx.total_amount || 0), 0)
+                            return (
+                                <div className="space-y-4 pb-4 border-b border-slate-200 dark:border-slate-800">
+                                    <div className="flex flex-wrap items-center justify-between gap-3">
+                                        <div>
+                                            <div className="text-xs text-slate-400 font-medium">{t('external_accounting.qbo_all_apps_sales_get_paid')} / {t('external_accounting.qbo_view_sales_txns')}</div>
+                                            <h2 className="text-xl font-black text-slate-900 dark:text-white mt-0.5">{t('external_accounting.qbo_view_sales_txns')}</h2>
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                            <button type="button" onClick={() => openTransactionModal('Payment')} className="px-3.5 py-2 rounded-lg border border-slate-300 dark:border-slate-700 font-bold text-xs cursor-pointer">
+                                                + {t('external_accounting.qbo_action_receive_payment')}
+                                            </button>
+                                            <button type="button" onClick={() => openTransactionModal('Invoice')} className="px-4 py-2 rounded-lg bg-[#2ca01c] text-white font-bold text-xs cursor-pointer">
+                                                + {t('external_accounting.qbo_action_create_invoice')}
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    <div className="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-800">
+                                        <table className="w-full text-left border-collapse text-xs">
+                                            <thead>
+                                                <tr className="bg-slate-50 dark:bg-slate-800/80 border-b border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 text-[11px] font-bold">
+                                                    <th className="py-2.5 px-3">{t('external_accounting.col_date')} ↓</th>
+                                                    <th className="py-2.5 px-3">{t('external_accounting.col_type')}</th>
+                                                    <th className="py-2.5 px-3">{t('external_accounting.col_doc_num')}</th>
+                                                    <th className="py-2.5 px-3">{t('external_accounting.type_customer')}</th>
+                                                    <th className="py-2.5 px-3">{t('external_accounting.col_memo')}</th>
+                                                    <th className="py-2.5 px-3 text-right">{t('external_accounting.col_amount')}</th>
+                                                    <th className="py-2.5 px-3">{t('external_accounting.qbo_tenant_col_status')}</th>
+                                                    <th className="py-2.5 px-3 text-right">{t('external_accounting.col_actions')}</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-slate-200/70 dark:divide-slate-800">
+                                                {salesTxns.slice(0, 60).map(tx => {
+                                                    const isInv = tx.txn_type === 'Invoice'
+                                                    const bal = isInv ? Number(tx.open_balance ?? tx.raw_data?.Balance ?? 0) : 0
+                                                    const isOpen = isInv && bal > 0.004
+                                                    return (
+                                                        <tr key={tx.id} onClick={() => openRecordPreview('transaction', tx)} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 cursor-pointer">
+                                                            <td className="py-2.5 px-3 font-mono whitespace-nowrap">{tx.txn_date}</td>
+                                                            <td className="py-2.5 px-3 font-semibold">{tx.txn_type}</td>
+                                                            <td className="py-2.5 px-3 font-mono">{tx.doc_number || '—'}</td>
+                                                            <td className="py-2.5 px-3 font-semibold text-slate-900 dark:text-white">{tx.entity_name || '—'}</td>
+                                                            <td className="py-2.5 px-3 text-slate-500 max-w-[200px] truncate">{tx.memo || '—'}</td>
+                                                            <td className="py-2.5 px-3 text-right font-mono font-bold">
+                                                                {tx.txn_type === 'Payment' || tx.txn_type === 'CreditMemo' ? `-${formatCurrency(tx.total_amount || 0)}` : formatCurrency(tx.total_amount || 0)}
+                                                            </td>
+                                                            <td className="py-2.5 px-3">
+                                                                {isOpen ? (
+                                                                    <span className="font-bold text-[#ff8000]">Open ({formatCurrency(bal)})</span>
+                                                                ) : (
+                                                                    <span className="inline-flex items-center gap-1 font-bold text-[#2ca01c]">
+                                                                        <CheckCircle2 size={13} />
+                                                                        <span>{isInv ? t('external_accounting.qbo_status_paid') : t('external_accounting.qbo_status_closed')}</span>
+                                                                    </span>
+                                                                )}
+                                                            </td>
+                                                            <td className="py-2.5 px-3 text-right whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                                                                <button type="button" onClick={() => handleEditRecord('transaction', tx)} className="font-bold text-[#0077c5] hover:underline cursor-pointer">
+                                                                    {t('external_accounting.qbo_action_view_edit')}
+                                                                </button>
+                                                            </td>
+                                                        </tr>
+                                                    )
+                                                })}
+                                            </tbody>
+                                            <tfoot>
+                                                <tr className="bg-slate-100 dark:bg-slate-800/90 font-black text-xs">
+                                                    <td colSpan={5} className="py-2.5 px-3 text-right">Total ({salesTxns.length})</td>
+                                                    <td className="py-2.5 px-3 text-right font-mono">{formatCurrency(salesTotal)}</td>
+                                                    <td colSpan={2} />
+                                                </tr>
+                                            </tfoot>
+                                        </table>
+                                    </div>
+                                </div>
+                            )
+                        }
+
+                        // 3. QBO BILLS VIEW (/app/bills — For review | Unpaid | Paid)
+                        if (txnViewMode === 'bills') {
+                            const allBills = allLoadedTransactions.filter(tx => tx.txn_type === 'Bill' && !tx.is_voided)
+                            const unpaidBills = allBills.filter(tx => Number(tx.open_balance ?? tx.raw_data?.Balance ?? tx.total_amount ?? 0) > 0.004)
+                            const paidBills = allBills.filter(tx => Number(tx.open_balance ?? tx.raw_data?.Balance ?? tx.total_amount ?? 0) <= 0.004)
+                            const displayBills = billsSubTab === 'unpaid' ? unpaidBills : billsSubTab === 'paid' ? paidBills : allBills
+                            return (
+                                <div className="space-y-4 pb-4 border-b border-slate-200 dark:border-slate-800">
+                                    <div className="flex flex-wrap items-center justify-between gap-3">
+                                        <div>
+                                            <div className="text-xs text-slate-400 font-medium">{t('external_accounting.qbo_all_apps_expenses_bills')} / {t('external_accounting.qbo_view_bills')}</div>
+                                            <h2 className="text-xl font-black text-slate-900 dark:text-white mt-0.5">{t('external_accounting.qbo_view_bills')}</h2>
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                            <button type="button" onClick={() => openTransactionModal('BillPayment')} className="px-3.5 py-2 rounded-lg border border-slate-300 dark:border-slate-700 font-bold text-xs cursor-pointer">
+                                                {t('external_accounting.qbo_vendor_pay_bills')}
+                                            </button>
+                                            <button type="button" onClick={() => openTransactionModal('Bill')} className="px-4 py-2 rounded-lg bg-[#2ca01c] hover:bg-[#248817] text-white font-bold text-xs cursor-pointer">
+                                                {t('external_accounting.qbo_bills_add_bill')}
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    <div className="border-b border-slate-200 dark:border-slate-800 flex items-center gap-6 text-xs font-bold">
+                                        {([
+                                            { id: 'for_review', label: `${t('external_accounting.qbo_bills_for_review')} (${allBills.length})` },
+                                            { id: 'unpaid', label: `${t('external_accounting.qbo_bills_unpaid')} (${unpaidBills.length})` },
+                                            { id: 'paid', label: `${t('external_accounting.qbo_bills_paid')} (${paidBills.length})` },
+                                        ] as const).map(st => (
+                                            <button
+                                                key={st.id}
+                                                type="button"
+                                                onClick={() => setBillsSubTab(st.id)}
+                                                className={`pb-2.5 cursor-pointer ${billsSubTab === st.id ? 'border-b-2 border-[#2ca01c] text-slate-900 dark:text-white' : 'text-slate-500'}`}
+                                            >
+                                                {st.label}
+                                            </button>
+                                        ))}
+                                    </div>
+
+                                    <div className="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-800">
+                                        <table className="w-full text-left border-collapse text-xs">
+                                            <thead>
+                                                <tr className="bg-slate-50 dark:bg-slate-800/80 border-b border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 text-[11px] font-bold uppercase">
+                                                    <th className="py-2.5 px-3">{t('external_accounting.type_vendor')}</th>
+                                                    <th className="py-2.5 px-3">{t('external_accounting.col_date')}</th>
+                                                    <th className="py-2.5 px-3">{t('external_accounting.qbo_label_due_date')}</th>
+                                                    <th className="py-2.5 px-3 text-right">{t('external_accounting.col_amount')}</th>
+                                                    <th className="py-2.5 px-3 text-right">{t('external_accounting.col_open_balance')}</th>
+                                                    <th className="py-2.5 px-3 text-right">{t('external_accounting.col_actions')}</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-slate-200/70 dark:divide-slate-800">
+                                                {displayBills.length === 0 ? (
+                                                    <tr>
+                                                        <td colSpan={6} className="py-8 text-center text-slate-400">
+                                                            No bills in this status tab. Click &quot;{t('external_accounting.qbo_bills_add_bill')}&quot; to record a vendor bill.
+                                                        </td>
+                                                    </tr>
+                                                ) : displayBills.map(b => {
+                                                    const openB = Number(b.open_balance ?? b.raw_data?.Balance ?? b.total_amount ?? 0)
+                                                    return (
+                                                        <tr key={b.id} onClick={() => openRecordPreview('transaction', b)} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 cursor-pointer">
+                                                            <td className="py-2.5 px-3 font-bold text-slate-900 dark:text-white">{b.entity_name || '—'}</td>
+                                                            <td className="py-2.5 px-3 font-mono">{b.txn_date}</td>
+                                                            <td className="py-2.5 px-3 font-mono">{b.due_date || b.txn_date}</td>
+                                                            <td className="py-2.5 px-3 text-right font-mono font-bold">{formatCurrency(b.total_amount || 0)}</td>
+                                                            <td className="py-2.5 px-3 text-right font-mono font-bold text-amber-600">{formatCurrency(openB)}</td>
+                                                            <td className="py-2.5 px-3 text-right whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                                                                <div className="inline-flex items-center gap-2 font-bold text-[#0077c5]">
+                                                                    {openB > 0.004 && (
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() => {
+                                                                                openTransactionModal('BillPayment')
+                                                                                setFormPayeeName(b.entity_name || '')
+                                                                                setFormAmount(String(openB))
+                                                                                setSelectedLinkedInvoiceIds([String(b.id)])
+                                                                            }}
+                                                                            className="hover:underline cursor-pointer"
+                                                                        >
+                                                                            {t('external_accounting.qbo_vendor_pay_bills')}
+                                                                        </button>
+                                                                    )}
+                                                                    <button type="button" onClick={() => handleEditRecord('transaction', b)} className="hover:underline cursor-pointer">
+                                                                        {t('external_accounting.qbo_action_view_edit')}
+                                                                    </button>
+                                                                </div>
+                                                            </td>
+                                                        </tr>
+                                                    )
+                                                })}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            )
+                        }
+
+                        // 4. QBO EXPENSES VIEW (/app/expenses — with inline Category dropdown!)
+                        if (txnViewMode === 'expenses') {
+                            const expTxns = allLoadedTransactions
+                                .filter(tx => ['Check', 'Expense', 'Bill', 'BillPayment', 'PurchaseOrder', 'VendorCredit'].includes(tx.txn_type) && !tx.is_voided)
+                                .sort((a, b) => String(b.txn_date || '').localeCompare(String(a.txn_date || '')))
+                            return (
+                                <div className="space-y-4 pb-4 border-b border-slate-200 dark:border-slate-800">
+                                    <div className="flex flex-wrap items-center justify-between gap-3">
+                                        <div>
+                                            <div className="text-xs text-slate-400 font-medium">{t('external_accounting.qbo_all_apps_expenses_bills')} / {t('external_accounting.qbo_rail_expenses')}</div>
+                                            <h2 className="text-xl font-black text-slate-900 dark:text-white mt-0.5">{t('external_accounting.qbo_rail_expenses')}</h2>
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                            <button type="button" onClick={() => openPrintChecksModal()} className="px-3.5 py-2 rounded-lg border border-slate-300 dark:border-slate-700 font-bold text-xs cursor-pointer">
+                                                {t('external_accounting.qbo_vendor_print_checks')}
+                                            </button>
+                                            <button type="button" onClick={() => openTransactionModal('Check')} className="px-3.5 py-2 rounded-lg border border-slate-300 dark:border-slate-700 font-bold text-xs cursor-pointer">
+                                                + {t('external_accounting.qbo_shortcut_write_check')}
+                                            </button>
+                                            <button type="button" onClick={() => openTransactionModal('Expense')} className="px-4 py-2 rounded-lg bg-[#2ca01c] hover:bg-[#248817] text-white font-bold text-xs cursor-pointer">
+                                                + {t('external_accounting.btn_new_expense')}
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    <div className="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-800">
+                                        <table className="w-full text-left border-collapse text-xs">
+                                            <thead>
+                                                <tr className="bg-slate-50 dark:bg-slate-800/80 border-b border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 text-[11px] font-bold uppercase">
+                                                    <th className="py-2.5 px-3">{t('external_accounting.col_date')}</th>
+                                                    <th className="py-2.5 px-3">{t('external_accounting.col_type')}</th>
+                                                    <th className="py-2.5 px-3">{t('external_accounting.col_doc_num')}</th>
+                                                    <th className="py-2.5 px-3">{t('external_accounting.col_payee')}</th>
+                                                    <th className="py-2.5 px-3">{t('external_accounting.qbo_col_category')}</th>
+                                                    <th className="py-2.5 px-3 text-right">{t('external_accounting.col_amount')}</th>
+                                                    <th className="py-2.5 px-3 text-right">{t('external_accounting.col_actions')}</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-slate-200/70 dark:divide-slate-800">
+                                                {expTxns.slice(0, 60).map(tx => {
+                                                    const linesArr = Array.isArray(tx.line_items) ? tx.line_items : []
+                                                    const isSplit = linesArr.length > 1
+                                                    const currentCatId = linesArr[0]?.account_qb_id || ''
+                                                    return (
+                                                        <tr key={tx.id} onClick={() => openRecordPreview('transaction', tx)} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 cursor-pointer">
+                                                            <td className="py-2.5 px-3 font-mono whitespace-nowrap">{tx.txn_date}</td>
+                                                            <td className="py-2.5 px-3 font-semibold">{tx.txn_type}</td>
+                                                            <td className="py-2.5 px-3 font-mono">{tx.doc_number || '—'}</td>
+                                                            <td className="py-2.5 px-3 font-bold text-slate-900 dark:text-white">{tx.entity_name || '—'}</td>
+                                                            <td className="py-2.5 px-3" onClick={(e) => e.stopPropagation()}>
+                                                                {isSplit ? (
+                                                                    <span className="px-2 py-1 rounded bg-slate-100 dark:bg-slate-800 font-bold text-slate-600 dark:text-slate-300">
+                                                                        {t('external_accounting.qbo_vendor_split_badge')} ({linesArr.length})
+                                                                    </span>
+                                                                ) : (
+                                                                    <select
+                                                                        value={currentCatId}
+                                                                        onChange={(e) => handleInlineCategoryChange(tx, e.target.value)}
+                                                                        className="px-2.5 py-1 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-semibold max-w-[230px]"
+                                                                    >
+                                                                        <option value="">{tx.category_summary || 'Select category...'}</option>
+                                                                        {accounts.map(a => (
+                                                                            <option key={a.qb_account_id} value={a.qb_account_id}>
+                                                                                {a.name} ({a.account_type})
+                                                                            </option>
+                                                                        ))}
+                                                                    </select>
+                                                                )}
+                                                            </td>
+                                                            <td className="py-2.5 px-3 text-right font-mono font-bold">{formatCurrency(tx.total_amount || 0)}</td>
+                                                            <td className="py-2.5 px-3 text-right whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                                                                <div className="inline-flex items-center gap-2 font-bold text-[#0077c5]">
+                                                                    {tx.txn_type === 'Check' && (
+                                                                        <button type="button" onClick={() => handlePrintRecord('transaction', tx)} className="hover:underline cursor-pointer">
+                                                                            {t('external_accounting.qbo_vendor_print_check')}
+                                                                        </button>
+                                                                    )}
+                                                                    <button type="button" onClick={() => handleEditRecord('transaction', tx)} className="hover:underline cursor-pointer">
+                                                                        {t('external_accounting.qbo_action_view_edit')}
+                                                                    </button>
+                                                                </div>
+                                                            </td>
+                                                        </tr>
+                                                    )
+                                                })}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            )
+                        }
+
+                        // 5. QBO ACCOUNTANT CLIENT OVERVIEW (/app/overview?jobId=accounting — 4 Collapsible Accordions matching qbo_live_ias_rail_accounting.png)
+                        if (txnViewMode === 'client_overview') {
+                            const uncategorizedAssetBal = accounts
+                                .filter(a => /uncategorized asset/i.test(a.name || ''))
+                                .reduce((s, a) => s + Number(a.current_balance || 0), 0)
+                            const uncategorizedIncomeBal = accounts
+                                .filter(a => /uncategorized income/i.test(a.name || ''))
+                                .reduce((s, a) => s + Number(a.current_balance || 0), 0)
+                            const uncategorizedExpenseBal = accounts
+                                .filter(a => /uncategorized expense|ask my accountant/i.test(a.name || ''))
+                                .reduce((s, a) => s + Number(a.current_balance || 0), 0)
+                            const openingBalEquity = accounts
+                                .filter(a => /opening balance equity/i.test(a.name || ''))
+                                .reduce((s, a) => s + Number(a.current_balance || 0), 0)
+                            const negativeAssetAccs = accounts.filter(a => (a.classification === 'Asset' || a.classification === 'Liability') && Number(a.current_balance || 0) < 0)
+                            const undepositedAcc = accounts.find(a => /undeposited funds/i.test(a.name || ''))
+                            const undepositedBal = Number(undepositedAcc?.current_balance ?? undepositedSum ?? 0)
+                            const unappliedCashPaymentBal = allLoadedTransactions
+                                .filter(tx => tx.txn_type === 'Payment' && !tx.is_voided && Number(tx.open_balance ?? 0) > 0)
+                                .reduce((s, tx) => s + Number(tx.open_balance || 0), 0)
+                            const retainedEarningsBal = accounts
+                                .filter(a => /retained earnings/i.test(a.name || ''))
+                                .reduce((s, a) => s + Number(a.current_balance || 0), 0)
+
+                            return (
+                                <div className="space-y-4 pb-4 border-b border-slate-200 dark:border-slate-800">
+                                    <div className="text-center py-2">
+                                        <h2 className="text-xl font-bold text-slate-800 dark:text-white">
+                                            Overview of {activeCompany?.company_name} as of {new Date().toLocaleDateString('en-US')}
+                                        </h2>
+                                    </div>
+
+                                    <div className="space-y-3 text-xs">
+                                        {/* ACCORDION 1: COMPANY SETUP */}
+                                        <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 overflow-hidden">
+                                            <button
+                                                type="button"
+                                                onClick={() => setClientOverviewOpenSections(p => ({ ...p, setup: !p.setup }))}
+                                                className="w-full px-5 py-3.5 bg-[#f4f5f8] dark:bg-slate-800/80 flex items-center justify-between text-left font-black uppercase tracking-wider text-slate-700 dark:text-slate-200 cursor-pointer"
+                                            >
+                                                <span className="flex items-center gap-2">
+                                                    <ChevronRight size={15} className={`transition-transform ${clientOverviewOpenSections.setup ? 'rotate-90' : ''}`} />
+                                                    <span>{t('external_accounting.qbo_overview_company_setup')}</span>
+                                                </span>
+                                            </button>
+                                            {clientOverviewOpenSections.setup && (
+                                                <div className="p-5 grid grid-cols-1 md:grid-cols-3 gap-4 border-t border-slate-200 dark:border-slate-800">
+                                                    <div className="space-y-1">
+                                                        <div className="text-slate-400">Subscription status</div>
+                                                        <div className="font-bold text-slate-900 dark:text-white">QuickBooks Online Plus (Active · Firm Billed)</div>
+                                                    </div>
+                                                    <div className="space-y-1">
+                                                        <div className="text-slate-400">Closing the books</div>
+                                                        <div className="font-bold text-slate-900 dark:text-white">{activeCompany?.closing_date || 'Books not closed'}</div>
+                                                    </div>
+                                                    <div className="space-y-1">
+                                                        <div className="text-slate-400">Accounting method &amp; COA</div>
+                                                        <div className="font-bold text-slate-900 dark:text-white">Accrual / Cash · {accounts.length} Active Accounts</div>
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
+
+                                        {/* ACCORDION 2: BANKING ACTIVITY */}
+                                        <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 overflow-hidden">
+                                            <button
+                                                type="button"
+                                                onClick={() => setClientOverviewOpenSections(p => ({ ...p, banking: !p.banking }))}
+                                                className="w-full px-5 py-3.5 bg-[#f4f5f8] dark:bg-slate-800/80 flex items-center justify-between text-left font-black uppercase tracking-wider text-slate-700 dark:text-slate-200 cursor-pointer"
+                                            >
+                                                <span className="flex items-center gap-2">
+                                                    <ChevronRight size={15} className={`transition-transform ${clientOverviewOpenSections.banking ? 'rotate-90' : ''}`} />
+                                                    <span>{t('external_accounting.qbo_overview_banking_activity')}</span>
+                                                </span>
+                                            </button>
+                                            {clientOverviewOpenSections.banking && (
+                                                <div className="p-5 border-t border-slate-200 dark:border-slate-800 overflow-x-auto">
+                                                    <table className="w-full text-left border-collapse text-xs">
+                                                        <thead>
+                                                            <tr className="border-b border-slate-200 dark:border-slate-800 text-slate-500 font-bold">
+                                                                <th className="py-2 pr-4">Account</th>
+                                                                <th className="py-2 px-4 text-right">Unaccepted</th>
+                                                                <th className="py-2 px-4 text-right">Unreconciled</th>
+                                                                <th className="py-2 px-4">Reconciled Date</th>
+                                                                <th className="py-2 pl-4 text-right">QuickBooks Balance</th>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                                                            {bankAndCardAccounts.map(b => {
+                                                                const lastRec = reconciliations.find(r => r.account_qb_id === b.qb_account_id && r.status === 'Completed')
+                                                                return (
+                                                                    <tr key={b.id}>
+                                                                        <td className="py-2.5 pr-4 font-bold text-[#0077c5] cursor-pointer hover:underline" onClick={() => { setFilterAccountId(b.qb_account_id); setTxnViewMode('all') }}>
+                                                                            {b.name}
+                                                                        </td>
+                                                                        <td className="py-2.5 px-4 text-right font-mono">0</td>
+                                                                        <td className="py-2.5 px-4 text-right font-mono">{b.txn_count ?? 0}</td>
+                                                                        <td className="py-2.5 px-4 font-mono">{lastRec?.statement_ending_date || '—'}</td>
+                                                                        <td className="py-2.5 pl-4 text-right font-mono font-bold">{formatCurrency(b.current_balance || 0)}</td>
+                                                                    </tr>
+                                                                )
+                                                            })}
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+                                            )}
+                                        </div>
+
+                                        {/* ACCORDION 3: COMMON ISSUES (Exact 2-Column 8-Metric Grid from qbo_live_ias_rail_accounting.png) */}
+                                        <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 overflow-hidden">
+                                            <button
+                                                type="button"
+                                                onClick={() => setClientOverviewOpenSections(p => ({ ...p, issues: !p.issues }))}
+                                                className="w-full px-5 py-3.5 bg-[#f4f5f8] dark:bg-slate-800/80 flex items-center justify-between text-left font-black uppercase tracking-wider text-slate-700 dark:text-slate-200 cursor-pointer"
+                                            >
+                                                <span className="flex items-center gap-2">
+                                                    <ChevronRight size={15} className={`transition-transform ${clientOverviewOpenSections.issues ? 'rotate-90' : ''}`} />
+                                                    <span>{t('external_accounting.qbo_overview_common_issues')}</span>
+                                                </span>
+                                            </button>
+                                            {clientOverviewOpenSections.issues && (
+                                                <div className="p-5 border-t border-slate-200 dark:border-slate-800 space-y-4">
+                                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-x-12 gap-y-2.5">
+                                                        <div className="flex items-center justify-between py-1.5 border-b border-slate-100 dark:border-slate-800">
+                                                            <span className="text-slate-700 dark:text-slate-300">Undeposited Funds ({undepositedPayments.length})</span>
+                                                            <span className="font-mono font-bold">{formatCurrency(undepositedBal)}</span>
+                                                        </div>
+                                                        <div className="flex items-center justify-between py-1.5 border-b border-slate-100 dark:border-slate-800">
+                                                            <span className="text-slate-700 dark:text-slate-300">Opening Balance Equity</span>
+                                                            <span className="font-mono font-bold">{formatCurrency(openingBalEquity)}</span>
+                                                        </div>
+                                                        <div className="flex items-center justify-between py-1.5 border-b border-slate-100 dark:border-slate-800">
+                                                            <span className="text-slate-700 dark:text-slate-300">Uncategorized Asset</span>
+                                                            <span className="font-mono font-bold">{formatCurrency(uncategorizedAssetBal)}</span>
+                                                        </div>
+                                                        <div className="flex items-center justify-between py-1.5 border-b border-slate-100 dark:border-slate-800">
+                                                            <span className="text-slate-700 dark:text-slate-300">Negative Asset &amp; Liability Accounts</span>
+                                                            <span className="font-mono font-bold">{negativeAssetAccs.length}</span>
+                                                        </div>
+                                                        <div className="flex items-center justify-between py-1.5 border-b border-slate-100 dark:border-slate-800">
+                                                            <span className="text-slate-700 dark:text-slate-300">Uncategorized Income</span>
+                                                            <span className="font-mono font-bold">{formatCurrency(uncategorizedIncomeBal)}</span>
+                                                        </div>
+                                                        <div className="flex items-center justify-between py-1.5 border-b border-slate-100 dark:border-slate-800">
+                                                            <span className="text-slate-700 dark:text-slate-300">Retained Earnings</span>
+                                                            <span className="font-mono font-bold">{formatCurrency(retainedEarningsBal)}</span>
+                                                        </div>
+                                                        <div className="flex items-center justify-between py-1.5 border-b border-slate-100 dark:border-slate-800">
+                                                            <span className="text-slate-700 dark:text-slate-300">Uncategorized Expense</span>
+                                                            <span className="font-mono font-bold">{formatCurrency(uncategorizedExpenseBal)}</span>
+                                                        </div>
+                                                        <div className="flex items-center justify-between py-1.5 border-b border-slate-100 dark:border-slate-800">
+                                                            <span className="text-slate-700 dark:text-slate-300">Unapplied Cash Payment Income</span>
+                                                            <span className="font-mono font-bold">{formatCurrency(unappliedCashPaymentBal)}</span>
+                                                        </div>
+                                                    </div>
+                                                    <div className="flex items-center justify-between pt-2 text-xs font-bold text-[#0077c5]">
+                                                        <button type="button" onClick={() => setActiveTab('accounts')} className="hover:underline cursor-pointer">
+                                                            View chart of accounts
+                                                        </button>
+                                                        <button type="button" onClick={() => { setReportType('balance_sheet'); setActiveTab('reports') }} className="hover:underline cursor-pointer">
+                                                            View reports ▾
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
+
+                                        {/* ACCORDION 4: TRANSACTION VOLUME */}
+                                        <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 overflow-hidden">
+                                            <button
+                                                type="button"
+                                                onClick={() => setClientOverviewOpenSections(p => ({ ...p, volume: !p.volume }))}
+                                                className="w-full px-5 py-3.5 bg-[#f4f5f8] dark:bg-slate-800/80 flex items-center justify-between text-left font-black uppercase tracking-wider text-slate-700 dark:text-slate-200 cursor-pointer"
+                                            >
+                                                <span className="flex items-center gap-2">
+                                                    <ChevronRight size={15} className={`transition-transform ${clientOverviewOpenSections.volume ? 'rotate-90' : ''}`} />
+                                                    <span>{t('external_accounting.qbo_overview_txn_volume')}</span>
+                                                </span>
+                                            </button>
+                                            {clientOverviewOpenSections.volume && (
+                                                <div className="p-5 border-t border-slate-200 dark:border-slate-800 space-y-4">
+                                                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                                                        <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800">
+                                                            <div className="text-slate-500">Invoices</div>
+                                                            <div className="text-base font-black font-mono mt-0.5">{allInvoices.length}</div>
+                                                        </div>
+                                                        <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800">
+                                                            <div className="text-slate-500">Checks &amp; Expenses</div>
+                                                            <div className="text-base font-black font-mono mt-0.5">
+                                                                {allLoadedTransactions.filter(tx => ['Check', 'Expense'].includes(tx.txn_type) && !tx.is_voided).length}
+                                                            </div>
+                                                        </div>
+                                                        <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800">
+                                                            <div className="text-slate-500">Bills &amp; Bill Payments</div>
+                                                            <div className="text-base font-black font-mono mt-0.5">
+                                                                {allLoadedTransactions.filter(tx => ['Bill', 'BillPayment'].includes(tx.txn_type) && !tx.is_voided).length}
+                                                            </div>
+                                                        </div>
+                                                        <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800">
+                                                            <div className="text-slate-500">Deposits &amp; Payments</div>
+                                                            <div className="text-base font-black font-mono mt-0.5">
+                                                                {allLoadedTransactions.filter(tx => ['Deposit', 'Payment'].includes(tx.txn_type) && !tx.is_voided).length}
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
+                            )
+                        }
+
+                        // 6. QBO WRITE OFF INVOICES TOOL (/app/writeoffinvoices)
+                        if (txnViewMode === 'write_off_invoices') {
+                            const maxBal = Number(writeOffMaxBalance || 50000)
+                            const eligibleInvoices = openInvoices.filter(inv => Number(inv.open_balance ?? inv.raw_data?.Balance ?? 0) <= maxBal)
+                            return (
+                                <div className="space-y-4 pb-4 border-b border-slate-200 dark:border-slate-800 text-xs">
+                                    <div className="flex flex-wrap items-center justify-between gap-3">
+                                        <div>
+                                            <div className="text-xs text-slate-400 font-medium">{t('external_accounting.qbo_flyout_accountant_tools')} / {t('external_accounting.qbo_writeoff_title')}</div>
+                                            <h2 className="text-xl font-black text-slate-900 dark:text-white mt-0.5">{t('external_accounting.qbo_writeoff_title')}</h2>
+                                            <p className="text-slate-500 mt-0.5">{t('external_accounting.qbo_writeoff_subtitle')}</p>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            disabled={saving || writeOffSelectedIds.length === 0}
+                                            onClick={handleApplyWriteOffInvoices}
+                                            className="px-4 py-2 rounded-lg bg-[#2ca01c] hover:bg-[#248817] disabled:opacity-50 text-white font-bold cursor-pointer"
+                                        >
+                                            {t('external_accounting.qbo_writeoff_apply_btn')} ({writeOffSelectedIds.length})
+                                        </button>
+                                    </div>
+
+                                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-4 rounded-xl bg-slate-50 dark:bg-slate-950/60 border border-slate-200 dark:border-slate-800">
+                                        <div>
+                                            <label className="block font-bold text-slate-600 dark:text-slate-300 mb-1">{t('external_accounting.qbo_writeoff_age_filter')}</label>
+                                            <select value={writeOffAgeDays} onChange={(e) => setWriteOffAgeDays(e.target.value)} className="w-full px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 font-semibold">
+                                                <option value="0">All open invoices</option>
+                                                <option value="30">Older than 30 days</option>
+                                                <option value="60">Older than 60 days</option>
+                                                <option value="90">Older than 90 days</option>
+                                                <option value="180">Older than 180 days</option>
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label className="block font-bold text-slate-600 dark:text-slate-300 mb-1">{t('external_accounting.qbo_writeoff_balance_under')}</label>
+                                            <input type="number" step="0.01" value={writeOffMaxBalance} onChange={(e) => setWriteOffMaxBalance(e.target.value)} className="w-full px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 font-mono font-bold" />
+                                        </div>
+                                        <div>
+                                            <label className="block font-bold text-slate-600 dark:text-slate-300 mb-1">{t('external_accounting.qbo_writeoff_account_label')}</label>
+                                            <select value={writeOffAccountQbId} onChange={(e) => setWriteOffAccountQbId(e.target.value)} className="w-full px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 font-semibold">
+                                                <option value="">Bad Debt / Discounts Given (Auto)</option>
+                                                {accounts.filter(a => a.classification === 'Expense' || a.classification === 'Revenue').map(a => (
+                                                    <option key={a.qb_account_id} value={a.qb_account_id}>{a.name} ({a.account_type})</option>
+                                                ))}
+                                            </select>
+                                        </div>
+                                    </div>
+
+                                    <div className="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-800">
+                                        <table className="w-full text-left border-collapse text-xs">
+                                            <thead>
+                                                <tr className="bg-slate-50 dark:bg-slate-800/80 border-b border-slate-200 dark:border-slate-700 font-bold uppercase text-[11px] text-slate-600 dark:text-slate-300">
+                                                    <th className="py-2.5 px-3 w-10">
+                                                        <input
+                                                            type="checkbox"
+                                                            checked={eligibleInvoices.length > 0 && writeOffSelectedIds.length === eligibleInvoices.length}
+                                                            onChange={(e) => setWriteOffSelectedIds(e.target.checked ? eligibleInvoices.map(i => String(i.id)) : [])}
+                                                        />
+                                                    </th>
+                                                    <th className="py-2.5 px-3">{t('external_accounting.type_customer')}</th>
+                                                    <th className="py-2.5 px-3">{t('external_accounting.col_date')}</th>
+                                                    <th className="py-2.5 px-3">{t('external_accounting.col_doc_num')}</th>
+                                                    <th className="py-2.5 px-3 text-right">{t('external_accounting.col_open_balance')}</th>
+                                                    <th className="py-2.5 px-3">{t('external_accounting.col_memo')}</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-slate-200/70 dark:divide-slate-800">
+                                                {eligibleInvoices.map(inv => {
+                                                    const idStr = String(inv.id)
+                                                    const checked = writeOffSelectedIds.includes(idStr)
+                                                    const bal = Number(inv.open_balance ?? inv.raw_data?.Balance ?? 0)
+                                                    return (
+                                                        <tr key={inv.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
+                                                            <td className="py-2.5 px-3">
+                                                                <input
+                                                                    type="checkbox"
+                                                                    checked={checked}
+                                                                    onChange={(e) => setWriteOffSelectedIds(prev => e.target.checked ? [...prev, idStr] : prev.filter(x => x !== idStr))}
+                                                                />
+                                                            </td>
+                                                            <td className="py-2.5 px-3 font-bold text-slate-900 dark:text-white">{inv.entity_name}</td>
+                                                            <td className="py-2.5 px-3 font-mono">{inv.txn_date}</td>
+                                                            <td className="py-2.5 px-3 font-mono">{inv.doc_number || '—'}</td>
+                                                            <td className="py-2.5 px-3 text-right font-mono font-bold text-[#ff8000]">{formatCurrency(bal)}</td>
+                                                            <td className="py-2.5 px-3 text-slate-500">{inv.memo || '—'}</td>
+                                                        </tr>
+                                                    )
+                                                })}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            )
+                        }
+                        return null
+                    })()}
+
+                    {txnViewMode === 'all' && (
+                    <>
                     {/* ④ QBO ACCOUNT REGISTER HEADER: Bank Switcher Pills + Ending Balance + Reconcile + 2-Line Toggle */}
                     <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 pb-3.5 border-b border-slate-200 dark:border-slate-800">
                         <div className="space-y-1.5">
@@ -7573,6 +10519,8 @@ function ExternalAccountingContent() {
                             </button>
                         </div>
                     </div>
+                    </>
+                    )}
                 </div>
             )}
 
@@ -8078,9 +11026,1012 @@ function ExternalAccountingContent() {
                 </div>
             )}
 
-            {/* TAB 6: VENDORS & CUSTOMERS */}
-            {activeTab === 'contacts' && (
-                <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 shadow-xs space-y-4">
+            {/* TAB 6: VENDORS & CUSTOMERS / CUSTOMER HUB (TENANTS & LEADS) */}
+            {activeTab === 'contacts' && (() => {
+                const customerContacts = contacts.filter(c => c.contact_type === 'Customer')
+                const vendorContacts = contacts.filter(c => c.contact_type === 'Vendor')
+                const totalOpenInvoicesBalance = customerContacts.reduce((s, c) => s + Math.max(0, Number(c.balance || 0)), 0)
+                const openCustomerCount = customerContacts.filter(c => Number(c.balance || 0) > 0.004).length
+                const todayIso = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' })
+                const estimateTxns = allLoadedTransactions.filter(tx => tx.txn_type === 'Estimate' && !tx.is_voided)
+                const estimateTotal = estimateTxns.reduce((s, tx) => s + Number(tx.total_amount || 0), 0)
+                const invoiceTxns = allLoadedTransactions.filter(tx => tx.txn_type === 'Invoice' && !tx.is_voided)
+                const openInvoiceTxns = invoiceTxns.filter(tx => Number(tx.open_balance ?? tx.raw_data?.Balance ?? 0) > 0.004)
+                const overdueInvoices = openInvoiceTxns.filter(tx => {
+                    const due = String(tx.due_date || tx.txn_date || '')
+                    return due && due < todayIso
+                })
+                const overdueTotal = overdueInvoices.reduce((s, tx) => s + Number(tx.open_balance ?? tx.raw_data?.Balance ?? tx.total_amount ?? 0), 0)
+                const recentPayments = allLoadedTransactions
+                    .filter(tx => (tx.txn_type === 'Payment' || tx.txn_type === 'SalesReceipt') && !tx.is_voided)
+                    .slice(0, 12)
+                const recentPaidTotal = recentPayments.reduce((s, tx) => s + Number(tx.total_amount || 0), 0)
+
+                // Vendor Money Bar metrics (qbo_gf_real_vendors.png)
+                const openBillTxns = allLoadedTransactions.filter(tx => tx.txn_type === 'Bill' && !tx.is_voided && Number(tx.open_balance ?? tx.raw_data?.Balance ?? tx.total_amount ?? 0) > 0.004)
+                const overdueBills = openBillTxns.filter(tx => String(tx.due_date || tx.txn_date || '') < todayIso)
+                const vendorOverdueTotal = overdueBills.reduce((s, tx) => s + Number(tx.open_balance ?? tx.raw_data?.Balance ?? tx.total_amount ?? 0), 0)
+                const vendorOpenBillsTotal = openBillTxns.reduce((s, tx) => s + Number(tx.open_balance ?? tx.raw_data?.Balance ?? tx.total_amount ?? 0), 0)
+                const recentVendorPayments = allLoadedTransactions
+                    .filter(tx => ['Check', 'Expense', 'BillPayment'].includes(tx.txn_type) && !tx.is_voided)
+                    .slice(0, 15)
+                const vendorPaidLast30Total = recentVendorPayments.reduce((s, tx) => s + Number(tx.total_amount || 0), 0)
+
+                // If a specific Tenant/Customer OR Vendor is selected, render the QBO 2-Pane Dossier (/app/customerdetail or /app/vendordetail)
+                if (selectedTenantDetail) {
+                    const tenant = contacts.find(c => c.id === selectedTenantDetail.id) || selectedTenantDetail
+                    const isVendorDossier = tenant.contact_type === 'Vendor'
+                    const initials = String(tenant.display_name || 'TN')
+                        .split(/[\s&]+/)
+                        .filter(Boolean)
+                        .slice(0, 2)
+                        .map((w: string) => w[0]?.toUpperCase() || '')
+                        .join('') || 'TN'
+                    const formattedAddr = tenant.address
+                        ? [tenant.address.Line1, tenant.address.City, tenant.address.CountrySubDivisionCode, tenant.address.PostalCode, tenant.address.Country || 'USA'].filter(Boolean).join(', ')
+                        : '—'
+                    const tenantTxns = allLoadedTransactions
+                        .filter(tx =>
+                            (tenant.qb_contact_id && String(tx.entity_qb_id) === String(tenant.qb_contact_id)) ||
+                            (tenant.display_name && String(tx.entity_name || '').toLowerCase() === String(tenant.display_name).toLowerCase())
+                        )
+                        .sort((a, b) => String(b.txn_date || '').localeCompare(String(a.txn_date || '')) || Number(b.id || 0) - Number(a.id || 0))
+
+                    const filteredTenantTxns = tenantTxns.filter(tx => {
+                        if (tenantTxnTypeFilter !== 'ALL' && tx.txn_type !== tenantTxnTypeFilter) return false
+                        if (tenantTxnStatusFilter !== 'ALL') {
+                            const invOpenBal = tx.txn_type === 'Invoice' || tx.txn_type === 'Bill'
+                                ? Number(tx.open_balance ?? tx.raw_data?.Balance ?? 0)
+                                : 0
+                            const due = String(tx.due_date || tx.txn_date || '')
+                            if (tenantTxnStatusFilter === 'OPEN' && invOpenBal <= 0.004) return false
+                            if (tenantTxnStatusFilter === 'OVERDUE' && !(invOpenBal > 0.004 && due && due < todayIso)) return false
+                            if (tenantTxnStatusFilter === 'PAID' && !(tx.txn_type === 'Invoice' && invOpenBal <= 0.004)) return false
+                            if (tenantTxnStatusFilter === 'CLOSED' && tx.txn_type === 'Invoice') return false
+                        }
+                        return true
+                    })
+
+                    const openBal = Number(tenant.balance || 0)
+                    const overdueTenantTotal = tenantTxns
+                        .filter(tx => (tx.txn_type === 'Invoice' || tx.txn_type === 'Bill') && !tx.is_voided && Number(tx.open_balance ?? tx.raw_data?.Balance ?? 0) > 0.004 && String(tx.due_date || tx.txn_date || '') < todayIso)
+                        .reduce((s, tx) => s + Number(tx.open_balance ?? tx.raw_data?.Balance ?? 0), 0)
+                    const tenantRecurring = recurring.filter(r =>
+                        String(r.entity_name || '').toLowerCase() === String(tenant.display_name || '').toLowerCase()
+                    )
+
+                    const sidebarTenants = (isVendorDossier ? vendorContacts : tenant.contact_type === 'Customer' ? customerContacts : contacts).filter(c => {
+                        if (!tenantSidebarSearch.trim()) return true
+                        const q = tenantSidebarSearch.toLowerCase()
+                        return (
+                            String(c.display_name || '').toLowerCase().includes(q) ||
+                            String(c.company_name || '').toLowerCase().includes(q) ||
+                            String(c.phone || '').toLowerCase().includes(q)
+                        )
+                    })
+
+                    return (
+                        <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs overflow-hidden flex flex-col lg:flex-row min-h-[680px]">
+                            {/* LEFT PANE: QBO Tenant / Vendor Switcher Sidebar */}
+                            <div className="w-full lg:w-64 shrink-0 border-b lg:border-b-0 lg:border-r border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/40 flex flex-col">
+                                <div className="p-3.5 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
+                                    <button
+                                        type="button"
+                                        onClick={() => setSelectedTenantDetail(null)}
+                                        className="inline-flex items-center gap-1.5 text-xs font-bold text-[#0077c5] hover:underline cursor-pointer"
+                                    >
+                                        <ArrowLeft size={14} />
+                                        <span>{isVendorDossier ? t('external_accounting.qbo_vendor_back_btn') : t('external_accounting.qbo_tenant_back_btn')}</span>
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setEditingContact(null)
+                                            setConFormName('')
+                                            setConFormCompany('')
+                                            setConFormPrintOnCheck('')
+                                            setConFormAcctNum('')
+                                            setConFormAddress('')
+                                            setConFormBalance('0')
+                                            setConFormType(isVendorDossier ? 'Vendor' : 'Customer')
+                                            setConFormEmail('')
+                                            setConFormPhone('')
+                                            setConFormTaxId('')
+                                            setConForm1099(false)
+                                            setContactModalOpen(true)
+                                        }}
+                                        className="p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 cursor-pointer"
+                                        title={t('external_accounting.btn_new_contact')}
+                                    >
+                                        <Plus size={14} />
+                                    </button>
+                                </div>
+                                <div className="p-3 border-b border-slate-200 dark:border-slate-800">
+                                    <div className="relative">
+                                        <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                                        <input
+                                            type="text"
+                                            value={tenantSidebarSearch}
+                                            onChange={(e) => setTenantSidebarSearch(e.target.value)}
+                                            placeholder={t('external_accounting.search_placeholder')}
+                                            className="w-full pl-8 pr-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs"
+                                        />
+                                    </div>
+                                </div>
+                                <div className="flex-1 overflow-y-auto max-h-[560px] divide-y divide-slate-200/60 dark:divide-slate-800/60">
+                                    {sidebarTenants.map(item => {
+                                        const isActive = item.id === tenant.id
+                                        return (
+                                            <button
+                                                key={item.id}
+                                                type="button"
+                                                onClick={() => {
+                                                    setSelectedTenantDetail(item)
+                                                    setTenantNoteDraft(String(item.raw_data?.Notes || item.notes || ''))
+                                                }}
+                                                className={`w-full text-left px-3.5 py-2.5 transition-colors cursor-pointer ${
+                                                    isActive
+                                                        ? 'bg-[#e5e9f0] dark:bg-slate-800 font-bold text-slate-900 dark:text-white border-l-4 border-[#003b32]'
+                                                        : 'hover:bg-slate-100 dark:hover:bg-slate-800/50 text-slate-700 dark:text-slate-300'
+                                                }`}
+                                            >
+                                                <div className="text-xs font-bold truncate">{item.display_name}</div>
+                                                <div className="text-[11px] font-mono text-slate-500 dark:text-slate-400">
+                                                    {formatCurrency(item.balance || 0)}
+                                                </div>
+                                            </button>
+                                        )
+                                    })}
+                                </div>
+                            </div>
+
+                            {/* RIGHT PANE: QBO Tenant / Vendor Profile Card + 6 Interactive Sub-Tabs */}
+                            <div className="flex-1 p-5 space-y-5 overflow-x-auto">
+                                {/* Top Action Bar: Edit + New transaction dropdown */}
+                                <div className="flex flex-wrap items-center justify-between gap-3">
+                                    <div className="text-xs text-slate-400 font-medium">
+                                        {isVendorDossier
+                                            ? `${t('external_accounting.qbo_all_apps_expenses_bills')} / ${t('external_accounting.qbo_shortcut_vendors')} / `
+                                            : `${t('external_accounting.qbo_customer_hub')} / ${t('external_accounting.qbo_tenants_and_leads')} / `}
+                                        <span className="text-slate-700 dark:text-slate-200 font-bold">{tenant.display_name}</span>
+                                    </div>
+                                    <div className="flex items-center gap-2 relative">
+                                        <button
+                                            type="button"
+                                            onClick={() => handleDownloadStatementPdf(tenant)}
+                                            className="px-3 py-1.5 rounded-md border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-bold text-slate-700 dark:text-slate-200 cursor-pointer inline-flex items-center gap-1.5"
+                                        >
+                                            <Printer size={12} />
+                                            <span>{t('external_accounting.qbo_tenant_statements')}</span>
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => handleEditRecord('contact', tenant)}
+                                            className="px-4 py-1.5 rounded-md border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-bold text-slate-800 dark:text-slate-100 cursor-pointer"
+                                        >
+                                            {t('external_accounting.action_edit')}
+                                        </button>
+                                        <div className="relative">
+                                            <button
+                                                type="button"
+                                                onClick={() => setTenantNewTxnMenuOpen(v => !v)}
+                                                className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-md bg-[#003b32] hover:bg-[#002b24] text-white text-xs font-bold shadow-xs cursor-pointer"
+                                            >
+                                                <span>{t('external_accounting.qbo_tenant_new_transaction')}</span>
+                                                <ChevronDown size={13} />
+                                            </button>
+                                            {tenantNewTxnMenuOpen && (
+                                                <div className="absolute right-0 mt-1 w-48 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-xl z-40 py-1 text-xs">
+                                                    {(isVendorDossier ? [
+                                                        { label: t('external_accounting.btn_new_bill'), mode: 'Bill' as const },
+                                                        { label: t('external_accounting.btn_new_expense'), mode: 'Expense' as const },
+                                                        { label: t('external_accounting.qbo_shortcut_write_check'), mode: 'Check' as const },
+                                                        { label: t('external_accounting.qbo_vendor_pay_bills'), mode: 'BillPayment' as const },
+                                                        { label: t('external_accounting.create_purchase_order'), mode: 'PurchaseOrder' as const },
+                                                        { label: t('external_accounting.create_vendor_credit'), mode: 'VendorCredit' as const },
+                                                    ] : [
+                                                        { label: t('external_accounting.create_invoice'), mode: 'Invoice' as const },
+                                                        { label: t('external_accounting.create_receive_payment'), mode: 'Payment' as const },
+                                                        { label: t('external_accounting.create_credit_memo'), mode: 'CreditMemo' as const },
+                                                        { label: t('external_accounting.create_sales_receipt'), mode: 'SalesReceipt' as const },
+                                                        { label: t('external_accounting.create_estimate'), mode: 'Estimate' as const },
+                                                    ]).map((opt, idx) => (
+                                                        <button
+                                                            key={idx}
+                                                            type="button"
+                                                            onClick={() => {
+                                                                setTenantNewTxnMenuOpen(false)
+                                                                openTransactionModal(opt.mode)
+                                                                setFormPayeeName(tenant.display_name || '')
+                                                                if (tenant.email) setFormCustomerEmail(tenant.email)
+                                                                if (formattedAddr !== '—') setFormAddress(formattedAddr)
+                                                            }}
+                                                            className="w-full text-left px-3.5 py-2 hover:bg-slate-100 dark:hover:bg-slate-800 font-semibold text-slate-700 dark:text-slate-200 cursor-pointer"
+                                                        >
+                                                            {opt.label}
+                                                        </button>
+                                                    ))}
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* QBO Tenant Profile Card */}
+                                <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 shadow-xs grid grid-cols-1 lg:grid-cols-12 gap-5 items-center">
+                                    {/* Avatar + Name + Action Circle Buttons */}
+                                    <div className="lg:col-span-3 flex flex-col items-center text-center border-b lg:border-b-0 lg:border-r border-slate-200 dark:border-slate-800 pb-4 lg:pb-0 lg:pr-4">
+                                        <div className="w-14 h-14 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 font-black text-base flex items-center justify-center mb-2">
+                                            {initials}
+                                        </div>
+                                        <div className="text-base font-bold text-slate-900 dark:text-white">{tenant.display_name}</div>
+                                        <div className="text-xs text-slate-500 mt-0.5">{tenant.company_name || tenant.display_name}</div>
+                                        <div className="flex items-center gap-2 mt-3">
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    const latestInv = tenantTxns.find(t => t.txn_type === 'Invoice')
+                                                    if (latestInv) openInvoiceEmailModal(latestInv)
+                                                }}
+                                                className="w-8 h-8 rounded-full border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-center text-slate-700 dark:text-slate-200 cursor-pointer"
+                                                title={t('external_accounting.qbo_action_send_invoice_pdf')}
+                                            >
+                                                <Mail size={14} />
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => handleEditRecord('contact', tenant)}
+                                                className="w-8 h-8 rounded-full border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-center text-slate-700 dark:text-slate-200 cursor-pointer"
+                                                title={t('external_accounting.action_edit')}
+                                            >
+                                                <Phone size={14} />
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    openTransactionModal('Invoice')
+                                                    setFormPayeeName(tenant.display_name || '')
+                                                    if (tenant.email) setFormCustomerEmail(tenant.email)
+                                                    if (formattedAddr !== '—') setFormAddress(formattedAddr)
+                                                }}
+                                                className="w-8 h-8 rounded-full border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-center text-slate-700 dark:text-slate-200 cursor-pointer"
+                                                title={t('external_accounting.qbo_action_create_invoice')}
+                                            >
+                                                <FileText size={14} />
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => handleDownloadStatementPdf(tenant)}
+                                                className="w-8 h-8 rounded-full border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-center text-slate-700 dark:text-slate-200 cursor-pointer"
+                                                title={t('external_accounting.qbo_tenant_download_statement_btn')}
+                                            >
+                                                <Printer size={14} />
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    {/* Contact Info Columns */}
+                                    <div className="lg:col-span-6 grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+                                        <div>
+                                            <div className="text-slate-400 font-medium">{t('external_accounting.col_email')}</div>
+                                            <div className="font-semibold text-slate-800 dark:text-slate-100 mt-0.5">{tenant.email || '—'}</div>
+                                        </div>
+                                        <div>
+                                            <div className="text-slate-400 font-medium">{t('external_accounting.col_phone')}</div>
+                                            <div className="font-semibold text-slate-800 dark:text-slate-100 mt-0.5">{tenant.phone || '—'}</div>
+                                        </div>
+                                        <div>
+                                            <div className="text-slate-400 font-medium">{t('external_accounting.col_billing_address')}</div>
+                                            <div className="font-semibold text-slate-800 dark:text-slate-100 mt-0.5">{formattedAddr}</div>
+                                        </div>
+                                        <div>
+                                            <div className="text-slate-400 font-medium">{t('external_accounting.qbo_tenant_shipping_address')}</div>
+                                            <div className="font-semibold text-slate-800 dark:text-slate-100 mt-0.5">{formattedAddr}</div>
+                                        </div>
+                                        <div>
+                                            <div className="text-slate-400 font-medium">{t('external_accounting.qbo_tenant_notes_tab')}</div>
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    setTenantNoteDraft(String(tenant.raw_data?.Notes || tenant.notes || ''))
+                                                    setTenantDetailSubTab('notes')
+                                                }}
+                                                className="font-bold text-[#0077c5] hover:underline mt-0.5 cursor-pointer"
+                                            >
+                                                {tenant.raw_data?.Notes ? String(tenant.raw_data.Notes).slice(0, 40) : 'Add notes'}
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    {/* Light-Blue Financial Summary Card */}
+                                    <div className="lg:col-span-3 rounded-xl bg-[#e9f2fa] dark:bg-sky-950/40 p-4 space-y-3 border border-sky-200/70 dark:border-sky-800/50">
+                                        <div className="text-xs font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
+                                            <DollarSign size={14} className="text-[#0077c5]" />
+                                            <span>{t('external_accounting.qbo_tenant_financial_summary')}</span>
+                                        </div>
+                                        <div>
+                                            <div className="text-[11px] text-slate-600 dark:text-slate-300 flex items-center gap-1.5">
+                                                <span className="w-2 h-2 rounded-full bg-amber-500" />
+                                                <span>{t('external_accounting.qbo_tenant_open_balance')}</span>
+                                            </div>
+                                            <div className="text-lg font-black font-mono text-slate-900 dark:text-white mt-0.5">
+                                                {formatCurrency(openBal)}
+                                            </div>
+                                        </div>
+                                        <div>
+                                            <div className="text-[11px] text-slate-600 dark:text-slate-300 flex items-center gap-1.5">
+                                                <span className="w-2 h-2 rounded-full bg-red-600" />
+                                                <span>{t('external_accounting.qbo_tenant_overdue_payment')}</span>
+                                            </div>
+                                            <div className="text-base font-black font-mono text-slate-900 dark:text-white mt-0.5">
+                                                {formatCurrency(overdueTenantTotal)}
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Sub-Tabs Bar (All 6 QBO Sub-Tabs: Transaction List, Activity Feed, Statements, Recurring Transactions, Tenant/Vendor Details, Notes) */}
+                                <div className="border-b border-slate-200 dark:border-slate-800 flex flex-wrap items-center gap-6 text-xs font-bold">
+                                    {([
+                                        { id: 'transactions', label: `${t('external_accounting.qbo_tenant_transaction_list')} (${tenantTxns.length})` },
+                                        { id: 'activity', label: t('external_accounting.qbo_tenant_activity_feed') },
+                                        { id: 'statements', label: t('external_accounting.qbo_tenant_statements') },
+                                        { id: 'recurring', label: `${t('external_accounting.qbo_tool_recurring')} (${tenantRecurring.length})` },
+                                        { id: 'details', label: isVendorDossier ? t('external_accounting.qbo_vendor_details_tab') : t('external_accounting.qbo_tenant_details_tab') },
+                                        { id: 'notes', label: t('external_accounting.qbo_tenant_notes_tab') },
+                                    ] as const).map(tab => (
+                                        <button
+                                            key={tab.id}
+                                            type="button"
+                                            onClick={() => {
+                                                setTenantDetailSubTab(tab.id)
+                                                if (tab.id === 'notes') {
+                                                    setTenantNoteDraft(String(tenant.raw_data?.Notes || tenant.notes || ''))
+                                                }
+                                            }}
+                                            className={`pb-2.5 cursor-pointer transition-colors ${
+                                                tenantDetailSubTab === tab.id
+                                                    ? 'border-b-2 border-[#2ca01c] text-slate-900 dark:text-white'
+                                                    : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+                                            }`}
+                                        >
+                                            {tab.label}
+                                        </button>
+                                    ))}
+                                </div>
+
+                                {/* SUB-TAB 1: TRANSACTION LIST */}
+                                {tenantDetailSubTab === 'transactions' && (
+                                    <div className="space-y-3">
+                                        {/* QBO Filter Strip above Transaction List (Raquel Screenshot 4) */}
+                                        <div className="flex flex-wrap items-end gap-3 text-xs">
+                                            <div>
+                                                <label className="block text-[11px] font-semibold text-slate-500 mb-1">{t('external_accounting.col_type')}</label>
+                                                <select
+                                                    value={tenantTxnTypeFilter}
+                                                    onChange={(e) => setTenantTxnTypeFilter(e.target.value)}
+                                                    className="px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 font-semibold"
+                                                >
+                                                    {isVendorDossier ? (
+                                                        <>
+                                                            <option value="ALL">All transactions</option>
+                                                            <option value="Bill">Bills</option>
+                                                            <option value="BillPayment">Bill Payments</option>
+                                                            <option value="Check">Checks</option>
+                                                            <option value="Expense">Expenses</option>
+                                                            <option value="VendorCredit">Vendor Credits</option>
+                                                        </>
+                                                    ) : (
+                                                        <>
+                                                            <option value="ALL">All plus deposits</option>
+                                                            <option value="Invoice">Invoices</option>
+                                                            <option value="Payment">Payments</option>
+                                                            <option value="CreditMemo">Credit Memos</option>
+                                                            <option value="Estimate">Estimates</option>
+                                                            <option value="Deposit">Deposits</option>
+                                                        </>
+                                                    )}
+                                                </select>
+                                            </div>
+                                            <div>
+                                                <label className="block text-[11px] font-semibold text-slate-500 mb-1">{t('external_accounting.qbo_tenant_col_status')}</label>
+                                                <select
+                                                    value={tenantTxnStatusFilter}
+                                                    onChange={(e) => setTenantTxnStatusFilter(e.target.value)}
+                                                    className="px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 font-semibold"
+                                                >
+                                                    <option value="ALL">All</option>
+                                                    <option value="OPEN">Open</option>
+                                                    <option value="OVERDUE">Overdue</option>
+                                                    <option value="PAID">Paid</option>
+                                                    <option value="CLOSED">Closed</option>
+                                                </select>
+                                            </div>
+                                            <button
+                                                type="button"
+                                                onClick={() => setTenantDetailSubTab('recurring')}
+                                                className="text-[#0077c5] font-bold hover:underline pb-1.5 cursor-pointer"
+                                            >
+                                                View Recurring Templates
+                                            </button>
+                                        </div>
+
+                                        <div className="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-800">
+                                            <table className="w-full text-left border-collapse text-xs">
+                                                <thead>
+                                                    <tr className="bg-slate-50 dark:bg-slate-800/80 border-b border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 text-[11px] font-bold">
+                                                        <th className="py-2.5 px-3">{t('external_accounting.col_date')} ↓</th>
+                                                        <th className="py-2.5 px-3">{t('external_accounting.col_type')}</th>
+                                                        <th className="py-2.5 px-3">{t('external_accounting.col_doc_num')}</th>
+                                                        <th className="py-2.5 px-3">{isVendorDossier ? t('external_accounting.col_payee') : t('external_accounting.type_customer')}</th>
+                                                        <th className="py-2.5 px-3">{isVendorDossier ? t('external_accounting.qbo_col_category') : t('external_accounting.col_memo')}</th>
+                                                        <th className="py-2.5 px-3 text-right">{t('external_accounting.col_amount')}</th>
+                                                        <th className="py-2.5 px-3">{t('external_accounting.qbo_tenant_col_status')}</th>
+                                                        <th className="py-2.5 px-3 text-right">{t('external_accounting.col_actions')}</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody className="divide-y divide-slate-200/70 dark:divide-slate-800">
+                                                    {filteredTenantTxns.map((tx) => {
+                                                        const isInvoice = tx.txn_type === 'Invoice'
+                                                        const invOpenBal = isInvoice
+                                                            ? Number(tx.open_balance ?? tx.raw_data?.Balance ?? 0)
+                                                            : 0
+                                                        const isOpenInvoice = isInvoice && !tx.is_voided && invOpenBal > 0.004
+                                                        const dueStr = String(tx.due_date || tx.txn_date || '')
+                                                        const diffDays = dueStr
+                                                            ? Math.round((new Date(dueStr + 'T12:00:00').getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24))
+                                                            : 0
+                                                        const linesArr = Array.isArray(tx.line_items) ? tx.line_items : []
+                                                        const isSplit = linesArr.length > 1
+                                                        const currentCatId = linesArr[0]?.account_qb_id || ''
+
+                                                        return (
+                                                            <tr
+                                                                key={tx.id}
+                                                                onClick={() => openRecordPreview('transaction', tx)}
+                                                                className="hover:bg-slate-50 dark:hover:bg-slate-800/40 cursor-pointer transition-colors"
+                                                            >
+                                                                <td className="py-2.5 px-3 font-mono whitespace-nowrap">{tx.txn_date}</td>
+                                                                <td className="py-2.5 px-3 font-semibold text-slate-900 dark:text-white">{tx.txn_type}</td>
+                                                                <td className="py-2.5 px-3 font-mono">{tx.doc_number || '—'}</td>
+                                                                <td className="py-2.5 px-3">{tx.entity_name || tenant.display_name}</td>
+                                                                <td className="py-2.5 px-3 text-slate-500 max-w-[230px]" onClick={(e) => isVendorDossier && e.stopPropagation()}>
+                                                                    {isVendorDossier ? (
+                                                                        isSplit ? (
+                                                                            <span className="px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 font-bold text-slate-600 dark:text-slate-300">
+                                                                                {t('external_accounting.qbo_vendor_split_badge')} ({linesArr.length})
+                                                                            </span>
+                                                                        ) : (
+                                                                            <select
+                                                                                value={currentCatId}
+                                                                                onChange={(e) => handleInlineCategoryChange(tx, e.target.value)}
+                                                                                className="px-2 py-1 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-semibold text-slate-800 dark:text-slate-100 max-w-[210px]"
+                                                                            >
+                                                                                <option value="">{tx.category_summary || 'Select category...'}</option>
+                                                                                {accounts.map(a => (
+                                                                                    <option key={a.qb_account_id} value={a.qb_account_id}>
+                                                                                        {a.name} ({a.account_type})
+                                                                                    </option>
+                                                                                ))}
+                                                                            </select>
+                                                                        )
+                                                                    ) : (
+                                                                        <span className="truncate block">{tx.memo || '—'}</span>
+                                                                    )}
+                                                                </td>
+                                                                <td className="py-2.5 px-3 text-right font-mono font-bold text-slate-900 dark:text-white">
+                                                                    {formatCurrency(tx.total_amount || 0)}
+                                                                </td>
+                                                                <td className="py-2.5 px-3">
+                                                                    {isOpenInvoice ? (
+                                                                        <div>
+                                                                            <div className={`font-bold ${diffDays < 0 ? 'text-red-600 dark:text-red-400' : 'text-slate-800 dark:text-slate-100'}`}>
+                                                                                {diffDays >= 0
+                                                                                    ? `${t('external_accounting.qbo_status_due_in')} ${diffDays} ${t('external_accounting.qbo_status_days')}`
+                                                                                    : `${t('external_accounting.qbo_status_overdue')} (${formatCurrency(invOpenBal)})`}
+                                                                            </div>
+                                                                            <div className="text-[10px] text-slate-400">Open · Bal {formatCurrency(invOpenBal)}</div>
+                                                                        </div>
+                                                                    ) : isInvoice ? (
+                                                                        <span className="inline-flex items-center gap-1 font-bold text-[#2ca01c]">
+                                                                            <CheckCircle2 size={14} className="text-[#2ca01c]" />
+                                                                            <span>{t('external_accounting.qbo_status_paid')}</span>
+                                                                        </span>
+                                                                    ) : (
+                                                                        <span className="inline-flex items-center gap-1 font-bold text-[#2ca01c]">
+                                                                            <CheckCircle2 size={14} className="text-[#2ca01c]" />
+                                                                            <span>{t('external_accounting.qbo_status_closed')}</span>
+                                                                        </span>
+                                                                    )}
+                                                                </td>
+                                                                <td className="py-2.5 px-3 text-right whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                                                                    <div className="inline-flex items-center gap-2 text-xs font-bold text-[#0077c5]">
+                                                                        {tx.txn_type === 'Check' && (
+                                                                            <>
+                                                                                <button
+                                                                                    type="button"
+                                                                                    onClick={() => handlePrintRecord('transaction', tx)}
+                                                                                    className="hover:underline cursor-pointer"
+                                                                                >
+                                                                                    {t('external_accounting.qbo_vendor_print_check')}
+                                                                                </button>
+                                                                                <span className="text-slate-300">|</span>
+                                                                            </>
+                                                                        )}
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() => handleEditRecord('transaction', tx)}
+                                                                            className="hover:underline cursor-pointer"
+                                                                        >
+                                                                            {t('external_accounting.qbo_action_view_edit')}
+                                                                        </button>
+                                                                        {isOpenInvoice && (
+                                                                            <>
+                                                                                <span className="text-slate-300">|</span>
+                                                                                <button
+                                                                                    type="button"
+                                                                                    onClick={() => {
+                                                                                        openTransactionModal('Payment')
+                                                                                        setFormPayeeName(tenant.display_name || '')
+                                                                                        setFormAmount(String(invOpenBal))
+                                                                                        setSelectedLinkedInvoiceIds([String(tx.id)])
+                                                                                        const arAcc = accounts.find(a => a.account_type === 'Accounts Receivable')
+                                                                                        setFormLines([{
+                                                                                            account_qb_id: arAcc?.qb_account_id || tx.account_qb_id || '',
+                                                                                            account_name: arAcc?.name || tx.account_name || 'Accounts Receivable',
+                                                                                            description: `Invoice #${tx.doc_number || tx.id} — ${tenant.display_name}`,
+                                                                                            amount: String(invOpenBal),
+                                                                                            entity_name: tenant.display_name || '',
+                                                                                        }])
+                                                                                    }}
+                                                                                    className="hover:underline cursor-pointer"
+                                                                                >
+                                                                                    {t('external_accounting.qbo_action_receive_payment')}
+                                                                                </button>
+                                                                            </>
+                                                                        )}
+                                                                        {isInvoice && (
+                                                                            <>
+                                                                                <span className="text-slate-300">|</span>
+                                                                                <button
+                                                                                    type="button"
+                                                                                    onClick={() => handleDownloadOfficialInvoicePdf(tx)}
+                                                                                    className="inline-flex items-center gap-1 hover:underline cursor-pointer text-slate-700 dark:text-slate-200"
+                                                                                    title={t('external_accounting.qbo_action_download_pdf')}
+                                                                                >
+                                                                                    <Printer size={12} />
+                                                                                    <span>PDF</span>
+                                                                                </button>
+                                                                                <span className="text-slate-300">|</span>
+                                                                                <button
+                                                                                    type="button"
+                                                                                    onClick={() => openInvoiceEmailModal(tx)}
+                                                                                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-[#2ca01c] hover:bg-[#248817] text-white text-[11px] font-bold cursor-pointer"
+                                                                                    title={t('external_accounting.qbo_action_send_invoice_pdf')}
+                                                                                >
+                                                                                    <Send size={11} />
+                                                                                    <span>Email PDF</span>
+                                                                                </button>
+                                                                            </>
+                                                                        )}
+                                                                    </div>
+                                                                </td>
+                                                            </tr>
+                                                        )
+                                                    })}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* SUB-TAB 2: ACTIVITY FEED */}
+                                {tenantDetailSubTab === 'activity' && (
+                                    <div className="space-y-3">
+                                        {tenantTxns.slice(0, 20).map((tx) => (
+                                            <div key={tx.id} className="flex items-start justify-between gap-3 p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/40 text-xs">
+                                                <div className="flex items-start gap-3">
+                                                    <span className="w-8 h-8 rounded-full bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 font-black flex items-center justify-center shrink-0">
+                                                        {tx.txn_type === 'Invoice' ? 'INV' : tx.txn_type === 'Payment' ? 'PMT' : 'TX'}
+                                                    </span>
+                                                    <div>
+                                                        <div className="font-bold text-slate-900 dark:text-white">
+                                                            {tx.txn_type} {tx.doc_number ? `#${tx.doc_number}` : ''} · {formatCurrency(tx.total_amount || 0)}
+                                                        </div>
+                                                        <div className="text-slate-500 mt-0.5">{tx.memo || tx.category_summary || tenant.display_name}</div>
+                                                    </div>
+                                                </div>
+                                                <div className="text-right font-mono text-slate-500 shrink-0">{tx.txn_date}</div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+
+                                {/* SUB-TAB 3: STATEMENTS (Official QBO Customer Statement PDF) */}
+                                {tenantDetailSubTab === 'statements' && (
+                                    <div className="rounded-xl border border-slate-200 dark:border-slate-800 p-5 space-y-4 text-xs">
+                                        <div className="flex flex-wrap items-center justify-between gap-3">
+                                            <div>
+                                                <h4 className="text-sm font-black text-slate-900 dark:text-white">{t('external_accounting.qbo_tenant_statements')} — {tenant.display_name}</h4>
+                                                <p className="text-slate-500 mt-0.5">Chronological Statement of Account with Running Balance & Aging Buckets (Current, 1-30, 31-60, 61-90, &gt;90 Days)</p>
+                                            </div>
+                                            <div className="flex items-center gap-2">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleDownloadStatementPdf(tenant)}
+                                                    className="px-4 py-2 rounded-lg bg-[#2ca01c] hover:bg-[#248817] text-white font-bold cursor-pointer inline-flex items-center gap-1.5"
+                                                >
+                                                    <Printer size={13} />
+                                                    <span>{t('external_accounting.qbo_tenant_download_statement_btn')}</span>
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => openListOrContactQuickReport('contact', tenant.display_name, tenant.qb_contact_id || tenant.id, tenant.display_name)}
+                                                    className="px-4 py-2 rounded-lg border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 font-bold cursor-pointer"
+                                                >
+                                                    QuickReport Ledger
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* SUB-TAB 4: RECURRING TRANSACTIONS */}
+                                {tenantDetailSubTab === 'recurring' && (
+                                    <div className="space-y-3 text-xs">
+                                        <div className="flex items-center justify-between">
+                                            <span className="font-bold text-slate-700 dark:text-slate-200">{t('external_accounting.qbo_tool_recurring')} ({tenantRecurring.length})</span>
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    setEditingRecurring(null)
+                                                    setRecFormName(`Monthly Rent — ${tenant.display_name}`)
+                                                    setRecFormTxnType('Invoice')
+                                                    setRecFormInterval('Monthly')
+                                                    setRecFormEntityName(tenant.display_name || '')
+                                                    setRecFormAmount(String(openBal || 0))
+                                                    setRecurringModalOpen(true)
+                                                }}
+                                                className="px-3 py-1.5 rounded-lg bg-[#003b32] text-white font-bold cursor-pointer"
+                                            >
+                                                + {t('external_accounting.btn_new_recurring')}
+                                            </button>
+                                        </div>
+                                        {tenantRecurring.length === 0 ? (
+                                            <div className="p-6 text-center rounded-xl border border-dashed border-slate-300 dark:border-slate-700 text-slate-500">
+                                                No recurring templates yet for {tenant.display_name}.
+                                            </div>
+                                        ) : (
+                                            <div className="divide-y divide-slate-200 dark:divide-slate-800 rounded-xl border border-slate-200 dark:border-slate-800">
+                                                {tenantRecurring.map(r => (
+                                                    <div key={r.id} className="p-3.5 flex items-center justify-between">
+                                                        <div>
+                                                            <div className="font-bold text-slate-900 dark:text-white">{r.template_name}</div>
+                                                            <div className="text-slate-500">{r.txn_type} · {r.interval_type} · Next: {r.next_date || '—'}</div>
+                                                        </div>
+                                                        <div className="flex items-center gap-3">
+                                                            <span className="font-mono font-bold">{formatCurrency(r.amount || 0)}</span>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => handleExecuteRecurring(r)}
+                                                                className="px-2.5 py-1 rounded bg-emerald-600 text-white font-bold cursor-pointer"
+                                                            >
+                                                                Use
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
+
+                                {/* SUB-TAB 5: TENANT / VENDOR DETAILS */}
+                                {tenantDetailSubTab === 'details' && (
+                                    <div className="rounded-xl border border-slate-200 dark:border-slate-800 p-5 grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+                                        <div>
+                                            <div className="text-slate-400">Display Name</div>
+                                            <div className="font-bold text-slate-900 dark:text-white mt-0.5">{tenant.display_name}</div>
+                                        </div>
+                                        <div>
+                                            <div className="text-slate-400">Company Name</div>
+                                            <div className="font-bold text-slate-900 dark:text-white mt-0.5">{tenant.company_name || tenant.display_name}</div>
+                                        </div>
+                                        <div>
+                                            <div className="text-slate-400">Email</div>
+                                            <div className="font-bold text-slate-900 dark:text-white mt-0.5">{tenant.email || '—'}</div>
+                                        </div>
+                                        <div>
+                                            <div className="text-slate-400">Phone</div>
+                                            <div className="font-bold text-slate-900 dark:text-white mt-0.5">{tenant.phone || '—'}</div>
+                                        </div>
+                                        {isVendorDossier && (
+                                            <>
+                                                <div>
+                                                    <div className="text-slate-400">Print on Check As</div>
+                                                    <div className="font-bold text-slate-900 dark:text-white mt-0.5">{tenant.print_on_check_name || tenant.company_name || tenant.display_name}</div>
+                                                </div>
+                                                <div>
+                                                    <div className="text-slate-400">Account No.</div>
+                                                    <div className="font-mono font-bold text-slate-900 dark:text-white mt-0.5">{tenant.acct_num || '—'}</div>
+                                                </div>
+                                                <div>
+                                                    <div className="text-slate-400">Tax ID / EIN / SSN</div>
+                                                    <div className="font-mono font-bold text-slate-900 dark:text-white mt-0.5">{tenant.tax_identifier || '—'}</div>
+                                                </div>
+                                                <div>
+                                                    <div className="text-slate-400">1099 Contractor Tracking</div>
+                                                    <div className="font-bold text-slate-900 dark:text-white mt-0.5">
+                                                        {tenant.vendor_1099 ? '✓ Tracked for 1099' : 'No'}
+                                                    </div>
+                                                </div>
+                                            </>
+                                        )}
+                                        <div className="sm:col-span-2">
+                                            <div className="text-slate-400">Billing Address</div>
+                                            <div className="font-bold text-slate-900 dark:text-white mt-0.5">{formattedAddr}</div>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* SUB-TAB 6: NOTES */}
+                                {tenantDetailSubTab === 'notes' && (
+                                    <div className="rounded-xl border border-slate-200 dark:border-slate-800 p-4 space-y-3 text-xs">
+                                        <label className="block font-bold text-slate-700 dark:text-slate-200">
+                                            {t('external_accounting.qbo_tenant_notes_tab')} — {tenant.display_name}
+                                        </label>
+                                        <textarea
+                                            rows={4}
+                                            value={tenantNoteDraft}
+                                            onChange={(e) => setTenantNoteDraft(e.target.value)}
+                                            placeholder="Add lease terms, suite number, deposit notes, or contact instructions..."
+                                            className="w-full p-3 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900"
+                                        />
+                                        <div className="flex justify-end">
+                                            <button
+                                                type="button"
+                                                disabled={saving}
+                                                onClick={() => handleSaveTenantNote(tenant)}
+                                                className="px-4 py-2 rounded-lg bg-[#2ca01c] hover:bg-[#248817] text-white font-bold cursor-pointer"
+                                            >
+                                                {t('external_accounting.qbo_tenant_save_note_btn')}
+                                            </button>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    )
+                }
+
+                const moneyFilteredContacts = filteredContacts.filter(c => {
+                    const nameLower = String(c.display_name || '').toLowerCase()
+                    if (contactFilterType === 'Vendor' || contactFilterType === '1099') {
+                        if (vendorMoneyFilter === 'ALL') return true
+                        if (vendorMoneyFilter === 'OVERDUE') {
+                            return overdueBills.some(b => String(b.entity_name || '').toLowerCase() === nameLower)
+                        }
+                        if (vendorMoneyFilter === 'OPEN_BILLS') {
+                            return Number(c.balance || 0) > 0.004 || openBillTxns.some(b => String(b.entity_name || '').toLowerCase() === nameLower)
+                        }
+                        if (vendorMoneyFilter === 'PAID') {
+                            return recentVendorPayments.some(p => String(p.entity_name || '').toLowerCase() === nameLower)
+                        }
+                        return true
+                    }
+                    if (tenantMoneyFilter === 'ALL') return true
+                    if (tenantMoneyFilter === 'OPEN') return Number(c.balance || 0) > 0.004
+                    if (tenantMoneyFilter === 'OVERDUE') {
+                        return overdueInvoices.some(inv => String(inv.entity_name || '').toLowerCase() === nameLower)
+                    }
+                    if (tenantMoneyFilter === 'ESTIMATES') {
+                        return estimateTxns.some(est => String(est.entity_name || '').toLowerCase() === nameLower)
+                    }
+                    if (tenantMoneyFilter === 'PAID') {
+                        return recentPayments.some(pmt => String(pmt.entity_name || '').toLowerCase() === nameLower)
+                    }
+                    return true
+                })
+
+                return (
+                <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 shadow-xs space-y-5">
+                    {/* QBO Expenses & Pay Bills / Vendors Header + 3-Segment Interactive Money Bar (qbo_gf_real_vendors.png) */}
+                    {(contactFilterType === 'Vendor' || contactFilterType === '1099') && (
+                        <div className="space-y-4">
+                            <div className="flex flex-wrap items-center justify-between gap-3">
+                                <div>
+                                    <div className="text-xs text-slate-400 font-medium">{t('external_accounting.qbo_all_apps_expenses_bills')} / {t('external_accounting.qbo_shortcut_vendors')}</div>
+                                    <h2 className="text-xl font-black text-slate-900 dark:text-white mt-0.5">
+                                        {t('external_accounting.qbo_shortcut_vendors')}
+                                    </h2>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    {vendorMoneyFilter !== 'ALL' && (
+                                        <button
+                                            type="button"
+                                            onClick={() => setVendorMoneyFilter('ALL')}
+                                            className="px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 text-xs font-bold text-[#0077c5] cursor-pointer"
+                                        >
+                                            Clear filter ({vendorMoneyFilter}) ✕
+                                        </button>
+                                    )}
+                                    <button
+                                        type="button"
+                                        onClick={() => setContactFilterType(contactFilterType === '1099' ? 'Vendor' : '1099')}
+                                        className="px-3.5 py-2 rounded-lg border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 font-bold text-xs cursor-pointer"
+                                    >
+                                        {t('external_accounting.qbo_vendor_prepare_1099s')}
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => openTransactionModal('BillPayment')}
+                                        className="px-3.5 py-2 rounded-lg border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 font-bold text-xs cursor-pointer"
+                                    >
+                                        {t('external_accounting.qbo_vendor_pay_bills')}
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setEditingContact(null)
+                                            setConFormName('')
+                                            setConFormCompany('')
+                                            setConFormPrintOnCheck('')
+                                            setConFormAcctNum('')
+                                            setConFormAddress('')
+                                            setConFormBalance('0')
+                                            setConFormType('Vendor')
+                                            setConFormEmail('')
+                                            setConFormPhone('')
+                                            setConFormTaxId('')
+                                            setConForm1099(false)
+                                            setContactModalOpen(true)
+                                        }}
+                                        className="px-4 py-2 rounded-lg bg-[#2ca01c] hover:bg-[#248817] text-white font-bold text-xs cursor-pointer"
+                                    >
+                                        {t('external_accounting.qbo_vendor_new_vendor')}
+                                    </button>
+                                </div>
+                            </div>
+
+                            {/* 3-Segment Interactive QBO Vendor Money Bar */}
+                            <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 rounded-xl bg-[#f4f7fa] dark:bg-slate-950/70 border border-slate-200/80 dark:border-slate-800 p-4">
+                                <div className="lg:col-span-8 lg:border-r border-slate-200 dark:border-slate-800 lg:pr-4 space-y-2">
+                                    <div className="text-xs font-bold text-slate-700 dark:text-slate-200">
+                                        {formatCurrency(vendorOverdueTotal + vendorOpenBillsTotal)} <span className="font-normal text-slate-500">{t('external_accounting.qbo_vendor_moneybar_unpaid_365')}</span>
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-3">
+                                        <div
+                                            onClick={() => setVendorMoneyFilter(prev => prev === 'OVERDUE' ? 'ALL' : 'OVERDUE')}
+                                            className={`p-2.5 rounded-lg cursor-pointer transition-colors ${vendorMoneyFilter === 'OVERDUE' ? 'bg-white dark:bg-slate-900 ring-2 ring-[#ff8000]' : 'hover:bg-white/60 dark:hover:bg-slate-900/50'}`}
+                                        >
+                                            <div className="text-base font-black font-mono text-slate-900 dark:text-white">{formatCurrency(vendorOverdueTotal)}</div>
+                                            <div className="text-[11px] text-slate-500">{overdueBills.length} {t('external_accounting.qbo_status_overdue')}</div>
+                                            <div className="h-3 rounded-sm bg-[#ff8000] mt-2" />
+                                        </div>
+                                        <div
+                                            onClick={() => setVendorMoneyFilter(prev => prev === 'OPEN_BILLS' ? 'ALL' : 'OPEN_BILLS')}
+                                            className={`p-2.5 rounded-lg cursor-pointer transition-colors ${vendorMoneyFilter === 'OPEN_BILLS' ? 'bg-white dark:bg-slate-900 ring-2 ring-slate-400' : 'hover:bg-white/60 dark:hover:bg-slate-900/50'}`}
+                                        >
+                                            <div className="text-base font-black font-mono text-slate-900 dark:text-white">{formatCurrency(vendorOpenBillsTotal)}</div>
+                                            <div className="text-[11px] text-slate-500">{openBillTxns.length} {t('external_accounting.qbo_vendor_moneybar_open_bills')}</div>
+                                            <div className="h-3 rounded-sm bg-[#d4d7dc] dark:bg-slate-600 mt-2" />
+                                        </div>
+                                    </div>
+                                </div>
+                                <div className="lg:col-span-4 space-y-2">
+                                    <div className="text-xs font-bold text-slate-700 dark:text-slate-200">{t('external_accounting.qbo_status_paid')}</div>
+                                    <div
+                                        onClick={() => setVendorMoneyFilter(prev => prev === 'PAID' ? 'ALL' : 'PAID')}
+                                        className={`p-2.5 rounded-lg cursor-pointer transition-colors ${vendorMoneyFilter === 'PAID' ? 'bg-white dark:bg-slate-900 ring-2 ring-[#2ca01c]' : 'hover:bg-white/60 dark:hover:bg-slate-900/50'}`}
+                                    >
+                                        <div className="text-base font-black font-mono text-slate-900 dark:text-white">{formatCurrency(vendorPaidLast30Total)}</div>
+                                        <div className="text-[11px] text-slate-500">{recentVendorPayments.length} {t('external_accounting.qbo_vendor_moneybar_paid_30')}</div>
+                                        <div className="h-3 rounded-sm bg-[#2ca01c] mt-2" />
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* QBO Customer Hub / Tenants & leads Header + 5-Segment Interactive Money Bar */}
+                    {(contactFilterType === 'Customer' || contactFilterType === 'ALL') && (
+                        <div className="space-y-4">
+                            <div className="flex flex-wrap items-center justify-between gap-3">
+                                <div>
+                                    <div className="text-xs text-slate-400 font-medium">{t('external_accounting.qbo_customer_hub')} / {t('external_accounting.qbo_tenants_and_leads')}</div>
+                                    <h2 className="text-xl font-black text-slate-900 dark:text-white mt-0.5">
+                                        {t('external_accounting.qbo_tenants_and_leads')}
+                                    </h2>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    {tenantMoneyFilter !== 'ALL' && (
+                                        <button
+                                            type="button"
+                                            onClick={() => setTenantMoneyFilter('ALL')}
+                                            className="px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 text-xs font-bold text-[#0077c5] cursor-pointer"
+                                        >
+                                            Clear filter ({tenantMoneyFilter}) ✕
+                                        </button>
+                                    )}
+                                    <button
+                                        type="button"
+                                        onClick={() => openTransactionModal('Invoice')}
+                                        className="px-3.5 py-2 rounded-lg border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 font-bold text-xs text-slate-800 dark:text-slate-100 cursor-pointer"
+                                    >
+                                        + {t('external_accounting.qbo_action_create_invoice')}
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setEditingContact(null)
+                                            setConFormName('')
+                                            setConFormCompany('')
+                                            setConFormPrintOnCheck('')
+                                            setConFormAcctNum('')
+                                            setConFormAddress('')
+                                            setConFormBalance('0')
+                                            setConFormType('Customer')
+                                            setConFormEmail('')
+                                            setConFormPhone('')
+                                            setConFormTaxId('')
+                                            setConForm1099(false)
+                                            setContactModalOpen(true)
+                                        }}
+                                        className="px-4 py-2 rounded-lg bg-[#003b32] hover:bg-[#002b24] text-white font-bold text-xs cursor-pointer"
+                                    >
+                                        + {t('external_accounting.type_customer')}
+                                    </button>
+                                </div>
+                            </div>
+
+                            {/* 5-Segment Interactive QBO Money Bar */}
+                            <div className="rounded-xl bg-[#f4f7fa] dark:bg-slate-950/70 border border-slate-200/80 dark:border-slate-800 p-4">
+                                <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
+                                    <div
+                                        onClick={() => setTenantMoneyFilter(prev => prev === 'ESTIMATES' ? 'ALL' : 'ESTIMATES')}
+                                        className={`p-2 rounded-lg cursor-pointer transition-colors ${tenantMoneyFilter === 'ESTIMATES' ? 'bg-white dark:bg-slate-900 ring-2 ring-[#62b5f6]' : 'hover:bg-white/60 dark:hover:bg-slate-900/50'}`}
+                                    >
+                                        <div className="text-base font-black font-mono text-slate-900 dark:text-white">{formatCurrency(estimateTotal)}</div>
+                                        <div className="text-[11px] text-slate-600 dark:text-slate-400">{estimateTxns.length} {t('external_accounting.qbo_moneybar_estimates')}</div>
+                                        <div className="h-3 rounded-sm bg-[#62b5f6] mt-2" />
+                                    </div>
+                                    <div
+                                        onClick={() => setTenantMoneyFilter('ALL')}
+                                        className="p-2 rounded-lg cursor-pointer hover:bg-white/60 dark:hover:bg-slate-900/50 transition-colors"
+                                    >
+                                        <div className="text-base font-black font-mono text-slate-900 dark:text-white">{formatCurrency(0)}</div>
+                                        <div className="text-[11px] text-slate-600 dark:text-slate-400">{t('external_accounting.qbo_moneybar_unbilled')}</div>
+                                        <div className="h-3 rounded-sm bg-[#8c54ff] mt-2" />
+                                    </div>
+                                    <div
+                                        onClick={() => setTenantMoneyFilter(prev => prev === 'OVERDUE' ? 'ALL' : 'OVERDUE')}
+                                        className={`p-2 rounded-lg cursor-pointer transition-colors ${tenantMoneyFilter === 'OVERDUE' ? 'bg-white dark:bg-slate-900 ring-2 ring-[#ff8000]' : 'hover:bg-white/60 dark:hover:bg-slate-900/50'}`}
+                                    >
+                                        <div className="text-base font-black font-mono text-slate-900 dark:text-white">{formatCurrency(overdueTotal)}</div>
+                                        <div className="text-[11px] text-slate-600 dark:text-slate-400">{overdueInvoices.length} {t('external_accounting.qbo_moneybar_overdue')}</div>
+                                        <div className="h-3 rounded-sm bg-[#ff8000] mt-2" />
+                                    </div>
+                                    <div
+                                        onClick={() => setTenantMoneyFilter(prev => prev === 'OPEN' ? 'ALL' : 'OPEN')}
+                                        className={`p-2 rounded-lg cursor-pointer transition-colors ${tenantMoneyFilter === 'OPEN' ? 'bg-white dark:bg-slate-900 ring-2 ring-slate-500' : 'hover:bg-white/60 dark:hover:bg-slate-900/50'}`}
+                                    >
+                                        <div className="text-base font-black font-mono text-slate-900 dark:text-white">{formatCurrency(totalOpenInvoicesBalance)}</div>
+                                        <div className="text-[11px] text-slate-600 dark:text-slate-400">{openCustomerCount} {t('external_accounting.qbo_moneybar_open_invoices')}</div>
+                                        <div className="h-3 rounded-sm bg-[#c5c9d1] dark:bg-slate-600 mt-2" />
+                                    </div>
+                                    <div
+                                        onClick={() => setTenantMoneyFilter(prev => prev === 'PAID' ? 'ALL' : 'PAID')}
+                                        className={`p-2 rounded-lg cursor-pointer transition-colors ${tenantMoneyFilter === 'PAID' ? 'bg-white dark:bg-slate-900 ring-2 ring-[#2ca01c]' : 'hover:bg-white/60 dark:hover:bg-slate-900/50'}`}
+                                    >
+                                        <div className="text-base font-black font-mono text-slate-900 dark:text-white">{formatCurrency(recentPaidTotal)}</div>
+                                        <div className="text-[11px] text-slate-600 dark:text-slate-400">{recentPayments.length} {t('external_accounting.qbo_moneybar_recently_paid')}</div>
+                                        <div className="h-3 rounded-sm bg-[#2ca01c] mt-2" />
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
                     <div className="flex flex-wrap items-center justify-between gap-3">
                         <div className="flex flex-wrap items-center gap-2">
                             <div className="relative w-full sm:w-72">
@@ -8125,7 +12076,7 @@ function ExternalAccountingContent() {
                                 setConFormAcctNum('')
                                 setConFormAddress('')
                                 setConFormBalance('0')
-                                setConFormType('Vendor')
+                                setConFormType(contactFilterType === 'Customer' ? 'Customer' : 'Vendor')
                                 setConFormEmail('')
                                 setConFormPhone('')
                                 setConFormTaxId('')
@@ -8144,38 +12095,49 @@ function ExternalAccountingContent() {
                                 <tr className="bg-slate-50 dark:bg-slate-800/80 border-b border-slate-200 dark:border-slate-700 text-slate-500 text-[10px] font-bold uppercase tracking-wider">
                                     <th className="py-2.5 px-3">{t('external_accounting.col_contact_name')}</th>
                                     <th className="py-2.5 px-3">{t('external_accounting.col_company_check_name')}</th>
-                                    <th className="py-2.5 px-3">{t('external_accounting.col_contact_type')}</th>
+                                    {contactFilterType !== 'Customer' && (
+                                        <th className="py-2.5 px-3">{t('external_accounting.col_contact_type')}</th>
+                                    )}
                                     <th className="py-2.5 px-3">{t('external_accounting.col_email')} / {t('external_accounting.col_phone')}</th>
                                     <th className="py-2.5 px-3">{t('external_accounting.col_billing_address')}</th>
-                                    <th className="py-2.5 px-3">{t('external_accounting.col_tax_id')} / Acct #</th>
-                                    <th className="py-2.5 px-3 text-center">{t('external_accounting.col_1099')}</th>
+                                    {contactFilterType !== 'Customer' && (
+                                        <>
+                                            <th className="py-2.5 px-3">{t('external_accounting.col_tax_id')} / Acct #</th>
+                                            <th className="py-2.5 px-3 text-center">{t('external_accounting.col_1099')}</th>
+                                        </>
+                                    )}
                                     <th className="py-2.5 px-3 text-right">{t('external_accounting.col_open_balance')}</th>
                                     <th className="py-2.5 px-3 text-right">{t('external_accounting.col_actions')}</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-200/70 dark:divide-slate-800">
-                                {filteredContacts.map(c => {
+                                {moneyFilteredContacts.map(c => {
                                     const formattedAddr = c.address
                                         ? [c.address.Line1, c.address.City, c.address.CountrySubDivisionCode, c.address.PostalCode].filter(Boolean).join(', ')
                                         : ''
+                                    const hasOpenBalance = Number(c.balance || 0) > 0.004
                                     return (
                                         <tr
                                             key={c.id}
-                                            onClick={() => openRecordPreview('contact', c)}
+                                            onClick={() => setSelectedTenantDetail(c)}
                                             className="hover:bg-slate-50 dark:hover:bg-slate-800/40 cursor-pointer transition-colors"
                                         >
-                                            <td className="py-2.5 px-3 font-bold text-slate-900 dark:text-white">{c.display_name}</td>
+                                            <td className="py-2.5 px-3 font-bold text-slate-900 dark:text-white hover:text-[#0077c5] hover:underline">
+                                                {c.display_name}
+                                            </td>
                                             <td className="py-2.5 px-3 text-slate-600 dark:text-slate-300">
                                                 <div>{c.company_name || c.print_on_check_name || '—'}</div>
                                                 {c.print_on_check_name && c.company_name && c.print_on_check_name !== c.company_name && (
                                                     <div className="text-[10px] text-slate-400">Cheque: {c.print_on_check_name}</div>
                                                 )}
                                             </td>
-                                            <td className="py-2.5 px-3">
-                                                <span className="px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-[10px] font-semibold">
-                                                    {c.contact_type === 'Customer' ? t('external_accounting.type_customer') : t('external_accounting.type_vendor')}
-                                                </span>
-                                            </td>
+                                            {contactFilterType !== 'Customer' && (
+                                                <td className="py-2.5 px-3">
+                                                    <span className="px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-[10px] font-semibold">
+                                                        {c.contact_type === 'Customer' ? t('external_accounting.type_customer') : t('external_accounting.type_vendor')}
+                                                    </span>
+                                                </td>
+                                            )}
                                             <td className="py-2.5 px-3 text-slate-500">
                                                 <div>{c.email || '—'}</div>
                                                 {c.phone && <div className="text-[11px] font-mono text-slate-400">{c.phone}</div>}
@@ -8183,19 +12145,23 @@ function ExternalAccountingContent() {
                                             <td className="py-2.5 px-3 text-slate-500 max-w-[200px] truncate" title={formattedAddr}>
                                                 {formattedAddr || '—'}
                                             </td>
-                                            <td className="py-2.5 px-3 font-mono text-slate-500">
-                                                <div>{c.tax_identifier || '—'}</div>
-                                                {c.acct_num && <div className="text-[10px] text-slate-400">Acct: {c.acct_num}</div>}
-                                            </td>
-                                            <td className="py-2.5 px-3 text-center">
-                                                {c.vendor_1099 ? (
-                                                    <span className="px-2 py-0.5 rounded bg-amber-500/20 text-amber-700 dark:text-amber-300 font-black text-[10px]">1099</span>
-                                                ) : '—'}
-                                            </td>
+                                            {contactFilterType !== 'Customer' && (
+                                                <>
+                                                    <td className="py-2.5 px-3 font-mono text-slate-500">
+                                                        <div>{c.tax_identifier || '—'}</div>
+                                                        {c.acct_num && <div className="text-[10px] text-slate-400">Acct: {c.acct_num}</div>}
+                                                    </td>
+                                                    <td className="py-2.5 px-3 text-center">
+                                                        {c.vendor_1099 ? (
+                                                            <span className="px-2 py-0.5 rounded bg-amber-500/20 text-amber-700 dark:text-amber-300 font-black text-[10px]">1099</span>
+                                                        ) : '—'}
+                                                    </td>
+                                                </>
+                                            )}
                                             <td
                                                 onClick={(e) => {
                                                     e.stopPropagation()
-                                                    openListOrContactQuickReport('contact', c.display_name, c.qb_contact_id || c.id, c.display_name)
+                                                    setSelectedTenantDetail(c)
                                                 }}
                                                 title={t('external_accounting.drilldown_click_hint')}
                                                 className="py-2.5 px-3 text-right font-mono tabular-nums font-bold text-slate-900 dark:text-white hover:text-emerald-600 dark:hover:text-emerald-400 hover:underline cursor-pointer"
@@ -8204,22 +12170,56 @@ function ExternalAccountingContent() {
                                             </td>
                                             <td className="py-2.5 px-3 text-right whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
                                                 <div className="inline-flex items-center gap-1.5">
+                                                    {c.contact_type === 'Customer' ? (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => {
+                                                                if (hasOpenBalance) {
+                                                                    openTransactionModal('Payment')
+                                                                    setFormPayeeName(c.display_name || '')
+                                                                    setFormAmount(String(c.balance || 0))
+                                                                    const custOpenInvs = openInvoiceTxns.filter(inv => String(inv.entity_name || '').toLowerCase() === String(c.display_name || '').toLowerCase())
+                                                                    if (custOpenInvs.length > 0) {
+                                                                        setSelectedLinkedInvoiceIds(custOpenInvs.map(inv => String(inv.id)))
+                                                                    }
+                                                                } else {
+                                                                    openTransactionModal('Invoice')
+                                                                    setFormPayeeName(c.display_name || '')
+                                                                    if (c.email) setFormCustomerEmail(c.email)
+                                                                    if (formattedAddr) setFormAddress(formattedAddr)
+                                                                }
+                                                            }}
+                                                            className="text-xs font-bold text-[#0077c5] hover:underline cursor-pointer mr-2"
+                                                        >
+                                                            {hasOpenBalance
+                                                                ? t('external_accounting.qbo_action_receive_payment')
+                                                                : t('external_accounting.qbo_action_create_invoice')}
+                                                        </button>
+                                                    ) : (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => {
+                                                                if (hasOpenBalance) {
+                                                                    openTransactionModal('BillPayment')
+                                                                    setFormPayeeName(c.display_name || '')
+                                                                    setFormAmount(String(c.balance || 0))
+                                                                } else {
+                                                                    openTransactionModal('Bill')
+                                                                    setFormPayeeName(c.display_name || '')
+                                                                    if (formattedAddr) setFormAddress(formattedAddr)
+                                                                }
+                                                            }}
+                                                            className="text-xs font-bold text-[#0077c5] hover:underline cursor-pointer mr-2"
+                                                        >
+                                                            {hasOpenBalance
+                                                                ? t('external_accounting.qbo_vendor_pay_bills')
+                                                                : t('external_accounting.btn_new_bill')}
+                                                        </button>
+                                                    )}
                                                     <button
                                                         type="button"
-                                                        onClick={() => openListOrContactQuickReport('contact', c.display_name, c.qb_contact_id || c.id, c.display_name)}
+                                                        onClick={() => setSelectedTenantDetail(c)}
                                                         className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 hover:underline cursor-pointer mr-1"
-                                                    >
-                                                        {t('external_accounting.coa_action_run_report')}
-                                                    </button>
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => {
-                                                            setFilterAccountId('ALL')
-                                                            setSearchQuery(c.display_name)
-                                                            setPage(1)
-                                                            setActiveTab('transactions')
-                                                        }}
-                                                        className="text-xs font-semibold text-blue-600 dark:text-blue-400 hover:underline cursor-pointer mr-1"
                                                     >
                                                         {t('external_accounting.contact_action_view_txns')}
                                                     </button>
@@ -8256,7 +12256,8 @@ function ExternalAccountingContent() {
                         </table>
                     </div>
                 </div>
-            )}
+                )
+            })()}
 
             {/* TAB 7: ADVANCED CPA REPORTS (CONTADORA) */}
             {activeTab === 'reports' && (
@@ -10956,10 +14957,26 @@ function ExternalAccountingContent() {
                     : formLines.reduce((s, l) => s + Number(l.amount || 0), 0)
 
                 const openBillsForCompany = modalMode === 'BillPayment'
-                    ? transactions.filter(tx => tx.txn_type === 'Bill' && !tx.is_voided).slice(0, 6)
+                    ? allLoadedTransactions.filter(tx => {
+                        if (tx.txn_type !== 'Bill' || tx.is_voided) return false
+                        const openBal = Number(tx.open_balance ?? tx.raw_data?.Balance ?? tx.total_amount ?? 0)
+                        if (openBal <= 0.004) return false
+                        if (formPayeeName.trim()) {
+                            return String(tx.entity_name || '').toLowerCase() === formPayeeName.trim().toLowerCase()
+                        }
+                        return true
+                    })
                     : []
                 const openInvoicesForCompany = modalMode === 'Payment'
-                    ? transactions.filter(tx => tx.txn_type === 'Invoice' && !tx.is_voided).slice(0, 6)
+                    ? allLoadedTransactions.filter(tx => {
+                        if (tx.txn_type !== 'Invoice' || tx.is_voided) return false
+                        const openBal = Number(tx.open_balance ?? tx.raw_data?.Balance ?? tx.total_amount ?? 0)
+                        if (openBal <= 0.004) return false
+                        if (formPayeeName.trim()) {
+                            return String(tx.entity_name || '').toLowerCase() === formPayeeName.trim().toLowerCase()
+                        }
+                        return true
+                    })
                     : []
 
                 return (
@@ -11067,7 +15084,15 @@ function ExternalAccountingContent() {
                                                     type="text"
                                                     list="contacts-datalist"
                                                     value={formPayeeName}
-                                                    onChange={(e) => setFormPayeeName(e.target.value)}
+                                                    onChange={(e) => {
+                                                        const val = e.target.value
+                                                        setFormPayeeName(val)
+                                                        const found = contacts.find(c => (c.display_name || '').toLowerCase() === val.trim().toLowerCase())
+                                                        if (found?.address) {
+                                                            const addrStr = [found.address.Line1, found.address.City, found.address.CountrySubDivisionCode, found.address.PostalCode].filter(Boolean).join(', ')
+                                                            if (addrStr) setFormAddress(addrStr)
+                                                        }
+                                                    }}
                                                     placeholder="Vendor / Payee"
                                                     className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 font-bold"
                                                 />
@@ -11080,7 +15105,7 @@ function ExternalAccountingContent() {
                                                     value={formBankQbId}
                                                     onChange={(e) => {
                                                         setFormBankQbId(e.target.value)
-                                                        if (!editingTxnId) {
+                                                        if (!editingTxnId && !formPrintLater) {
                                                             setFormDocNumber(nextCheckNumberByBank[e.target.value] || '1001')
                                                         }
                                                     }}
@@ -11113,15 +15138,24 @@ function ExternalAccountingContent() {
                                                     <input
                                                         type="text"
                                                         value={formDocNumber}
+                                                        disabled={formPrintLater}
                                                         onChange={(e) => setFormDocNumber(e.target.value)}
                                                         placeholder="1001"
-                                                        className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 font-mono font-bold"
+                                                        className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 font-mono font-bold disabled:opacity-60"
                                                     />
                                                     <label className="inline-flex items-center gap-1 text-[11px] font-bold text-slate-600 dark:text-slate-300 whitespace-nowrap cursor-pointer">
                                                         <input
                                                             type="checkbox"
                                                             checked={formPrintLater}
-                                                            onChange={(e) => setFormPrintLater(e.target.checked)}
+                                                            onChange={(e) => {
+                                                                const checked = e.target.checked
+                                                                setFormPrintLater(checked)
+                                                                if (checked) {
+                                                                    setFormDocNumber('To Print')
+                                                                } else if (formDocNumber === 'To Print') {
+                                                                    setFormDocNumber(nextCheckNumberByBank[formBankQbId] || '1001')
+                                                                }
+                                                            }}
                                                         />
                                                         <span>{t('external_accounting.field_print_later')}</span>
                                                     </label>
@@ -11237,7 +15271,15 @@ function ExternalAccountingContent() {
                                                     type="text"
                                                     list="contacts-datalist"
                                                     value={formPayeeName}
-                                                    onChange={(e) => setFormPayeeName(e.target.value)}
+                                                    onChange={(e) => {
+                                                        const val = e.target.value
+                                                        setFormPayeeName(val)
+                                                        const found = contacts.find(c => (c.display_name || '').toLowerCase() === val.trim().toLowerCase())
+                                                        if (found?.address) {
+                                                            const addrStr = [found.address.Line1, found.address.City, found.address.CountrySubDivisionCode, found.address.PostalCode].filter(Boolean).join(', ')
+                                                            if (addrStr) setFormAddress(addrStr)
+                                                        }
+                                                    }}
                                                     placeholder="Choose a vendor"
                                                     className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 font-bold"
                                                 />
@@ -11393,32 +15435,71 @@ function ExternalAccountingContent() {
                                             </div>
                                         </div>
                                         {openBillsForCompany.length > 0 && (
-                                            <div className="pt-2 border-t border-slate-200 dark:border-slate-800">
-                                                <div className="text-[11px] font-bold text-amber-600 dark:text-amber-400 mb-1.5">
-                                                    {t('external_accounting.qbo_open_bills_hint')}
+                                            <div className="pt-2 border-t border-slate-200 dark:border-slate-800 space-y-2">
+                                                <div className="text-[11px] font-bold text-amber-700 dark:text-amber-400">
+                                                    {t('external_accounting.qbo_open_bills_table_title')} ({openBillsForCompany.length})
                                                 </div>
-                                                <div className="flex flex-wrap gap-1.5">
-                                                    {openBillsForCompany.map(b => (
-                                                        <button
-                                                            key={b.id}
-                                                            type="button"
-                                                            onClick={() => {
-                                                                setFormPayeeName(b.entity_name || '')
-                                                                setFormMemo(`Pago Bill ${b.doc_number ? `#${b.doc_number}` : ''} (${b.txn_date})`)
-                                                                const apAcc = accounts.find(a => a.account_type === 'Accounts Payable') || accounts.find(a => a.qb_account_id === b.account_qb_id)
-                                                                setFormLines([{
-                                                                    account_qb_id: apAcc?.qb_account_id || b.account_qb_id || '',
-                                                                    account_name: apAcc?.name || b.account_name || '',
-                                                                    description: `Bill ${b.doc_number || ''} — ${b.entity_name || ''}`,
-                                                                    amount: String(b.total_amount || ''),
-                                                                    entity_name: b.entity_name || ''
-                                                                }])
-                                                            }}
-                                                            className="px-2.5 py-1 rounded-lg border border-amber-500/40 bg-amber-500/10 hover:bg-amber-500/20 text-amber-800 dark:text-amber-200 font-semibold text-[11px] cursor-pointer"
-                                                        >
-                                                            {b.entity_name || 'Vendor'} · #{b.doc_number || b.id} · {formatCurrency(b.total_amount)}
-                                                        </button>
-                                                    ))}
+                                                <div className="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900">
+                                                    <table className="w-full text-left border-collapse text-xs">
+                                                        <thead>
+                                                            <tr className="bg-slate-100 dark:bg-slate-800 text-[10px] font-black uppercase text-slate-500">
+                                                                <th className="py-2 px-3 text-center">✓</th>
+                                                                <th className="py-2 px-3">{t('external_accounting.type_vendor')}</th>
+                                                                <th className="py-2 px-3">Bill #</th>
+                                                                <th className="py-2 px-3">{t('external_accounting.field_date')}</th>
+                                                                <th className="py-2 px-3">{t('external_accounting.qbo_field_due_date')}</th>
+                                                                <th className="py-2 px-3 text-right">Original Amount</th>
+                                                                <th className="py-2 px-3 text-right">Open Balance</th>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody className="divide-y divide-slate-200/70 dark:divide-slate-800">
+                                                            {openBillsForCompany.map(b => {
+                                                                const idStr = String(b.id)
+                                                                const isChecked = selectedLinkedInvoiceIds.includes(idStr)
+                                                                const openBal = Number(b.open_balance ?? b.raw_data?.Balance ?? b.total_amount ?? 0)
+                                                                return (
+                                                                    <tr
+                                                                        key={idStr}
+                                                                        onClick={() => {
+                                                                            const nextIds = isChecked
+                                                                                ? selectedLinkedInvoiceIds.filter(x => x !== idStr)
+                                                                                : [...selectedLinkedInvoiceIds, idStr]
+                                                                            setSelectedLinkedInvoiceIds(nextIds)
+                                                                            const selectedBills = openBillsForCompany.filter(x => nextIds.includes(String(x.id)))
+                                                                            if (selectedBills.length > 0) {
+                                                                                setFormPayeeName(selectedBills[0].entity_name || '')
+                                                                                const totalSel = selectedBills.reduce((s, x) => s + Number(x.open_balance ?? x.raw_data?.Balance ?? x.total_amount ?? 0), 0)
+                                                                                setFormAmount(String(totalSel))
+                                                                                setFormMemo(`Pago Bill ${selectedBills.map(x => `#${x.doc_number || x.id}`).join(', ')}`)
+                                                                                const apAcc = accounts.find(a => a.account_type === 'Accounts Payable') || accounts.find(a => a.qb_account_id === b.account_qb_id)
+                                                                                setFormLines(selectedBills.map(x => {
+                                                                                    const bal = Number(x.open_balance ?? x.raw_data?.Balance ?? x.total_amount ?? 0)
+                                                                                    return {
+                                                                                        account_qb_id: apAcc?.qb_account_id || x.account_qb_id || '',
+                                                                                        account_name: apAcc?.name || x.account_name || 'Accounts Payable',
+                                                                                        description: `Bill #${x.doc_number || x.id} — ${x.entity_name || ''}`,
+                                                                                        amount: String(bal),
+                                                                                        entity_name: x.entity_name || ''
+                                                                                    }
+                                                                                }))
+                                                                            }
+                                                                        }}
+                                                                        className={`cursor-pointer transition-colors ${isChecked ? 'bg-amber-50 dark:bg-amber-950/30 font-semibold' : 'hover:bg-slate-50 dark:hover:bg-slate-800/40'}`}
+                                                                    >
+                                                                        <td className="py-2 px-3 text-center">
+                                                                            <input type="checkbox" checked={isChecked} onChange={() => {}} />
+                                                                        </td>
+                                                                        <td className="py-2 px-3 font-bold">{b.entity_name || 'Vendor'}</td>
+                                                                        <td className="py-2 px-3 font-mono">#{b.doc_number || b.id}</td>
+                                                                        <td className="py-2 px-3 font-mono">{b.txn_date}</td>
+                                                                        <td className="py-2 px-3 font-mono">{b.due_date || b.txn_date}</td>
+                                                                        <td className="py-2 px-3 text-right font-mono">{formatCurrency(b.total_amount || 0)}</td>
+                                                                        <td className="py-2 px-3 text-right font-mono font-bold text-amber-700 dark:text-amber-400">{formatCurrency(openBal)}</td>
+                                                                    </tr>
+                                                                )
+                                                            })}
+                                                        </tbody>
+                                                    </table>
                                                 </div>
                                             </div>
                                         )}
@@ -11440,9 +15521,36 @@ function ExternalAccountingContent() {
                                                     list="contacts-datalist"
                                                     value={formPayeeName}
                                                     onChange={(e) => {
-                                                        setFormPayeeName(e.target.value)
-                                                        const found = contacts.find(c => (c.display_name || '').toLowerCase() === e.target.value.trim().toLowerCase())
-                                                        if (found?.email) setFormCustomerEmail(found.email)
+                                                        const val = e.target.value
+                                                        setFormPayeeName(val)
+                                                        const found = contacts.find(c => (c.display_name || '').toLowerCase() === val.trim().toLowerCase())
+                                                        if (found) {
+                                                            if (found.email) setFormCustomerEmail(found.email)
+                                                            if (found.address) {
+                                                                const addrStr = [found.address.Line1, found.address.City, found.address.CountrySubDivisionCode, found.address.PostalCode].filter(Boolean).join(', ')
+                                                                if (addrStr) setFormAddress(addrStr)
+                                                            }
+                                                            if (modalMode === 'Invoice' && !editingTxnId) {
+                                                                const latestCustInv = transactions.find(tx =>
+                                                                    tx.txn_type === 'Invoice' &&
+                                                                    !tx.is_voided &&
+                                                                    String(tx.entity_name || '').toLowerCase() === val.trim().toLowerCase()
+                                                                )
+                                                                if (latestCustInv && Number(formLines[0]?.amount || 0) === 0) {
+                                                                    const prevAmt = String(latestCustInv.total_amount || '')
+                                                                    setFormAmount(prevAmt)
+                                                                    setFormLines(prev => prev.map((l, idx) => idx === 0 ? {
+                                                                        ...l,
+                                                                        item_name: l.item_name || 'Rent',
+                                                                        description: l.description || 'Monthly Rent',
+                                                                        qty: '1',
+                                                                        rate: prevAmt,
+                                                                        amount: prevAmt,
+                                                                        entity_name: found.display_name
+                                                                    } : l))
+                                                                }
+                                                            }
+                                                        }
                                                     }}
                                                     placeholder="Customer / Tenant"
                                                     className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 font-bold"
@@ -11646,32 +15754,71 @@ function ExternalAccountingContent() {
                                             </div>
                                         </div>
                                         {openInvoicesForCompany.length > 0 && (
-                                            <div className="pt-2 border-t border-slate-200 dark:border-slate-800">
-                                                <div className="text-[11px] font-bold text-emerald-600 dark:text-emerald-400 mb-1.5">
-                                                    {t('external_accounting.qbo_open_invoices_hint')}
+                                            <div className="pt-2 border-t border-slate-200 dark:border-slate-800 space-y-2">
+                                                <div className="text-[11px] font-bold text-emerald-700 dark:text-emerald-400">
+                                                    {t('external_accounting.qbo_outstanding_txns_title')} ({openInvoicesForCompany.length})
                                                 </div>
-                                                <div className="flex flex-wrap gap-1.5">
-                                                    {openInvoicesForCompany.map(inv => (
-                                                        <button
-                                                            key={inv.id}
-                                                            type="button"
-                                                            onClick={() => {
-                                                                setFormPayeeName(inv.entity_name || '')
-                                                                setFormMemo(`Cobro Invoice ${inv.doc_number ? `#${inv.doc_number}` : ''} (${inv.txn_date})`)
-                                                                const arAcc = accounts.find(a => a.account_type === 'Accounts Receivable') || accounts.find(a => a.qb_account_id === inv.account_qb_id)
-                                                                setFormLines([{
-                                                                    account_qb_id: arAcc?.qb_account_id || inv.account_qb_id || '',
-                                                                    account_name: arAcc?.name || inv.account_name || '',
-                                                                    description: `Invoice ${inv.doc_number || ''} — ${inv.entity_name || ''}`,
-                                                                    amount: String(inv.total_amount || ''),
-                                                                    entity_name: inv.entity_name || ''
-                                                                }])
-                                                            }}
-                                                            className="px-2.5 py-1 rounded-lg border border-emerald-500/40 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-800 dark:text-emerald-200 font-semibold text-[11px] cursor-pointer"
-                                                        >
-                                                            {inv.entity_name || 'Customer'} · #{inv.doc_number || inv.id} · {formatCurrency(inv.total_amount)}
-                                                        </button>
-                                                    ))}
+                                                <div className="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900">
+                                                    <table className="w-full text-left border-collapse text-xs">
+                                                        <thead>
+                                                            <tr className="bg-slate-100 dark:bg-slate-800 text-[10px] font-black uppercase text-slate-500">
+                                                                <th className="py-2 px-3 text-center">✓</th>
+                                                                <th className="py-2 px-3">{t('external_accounting.type_customer')}</th>
+                                                                <th className="py-2 px-3">Invoice #</th>
+                                                                <th className="py-2 px-3">{t('external_accounting.field_date')}</th>
+                                                                <th className="py-2 px-3">{t('external_accounting.qbo_field_due_date')}</th>
+                                                                <th className="py-2 px-3 text-right">Original Amount</th>
+                                                                <th className="py-2 px-3 text-right">Open Balance</th>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody className="divide-y divide-slate-200/70 dark:divide-slate-800">
+                                                            {openInvoicesForCompany.map(inv => {
+                                                                const idStr = String(inv.id)
+                                                                const isChecked = selectedLinkedInvoiceIds.includes(idStr)
+                                                                const openBal = Number(inv.open_balance ?? inv.raw_data?.Balance ?? inv.total_amount ?? 0)
+                                                                return (
+                                                                    <tr
+                                                                        key={idStr}
+                                                                        onClick={() => {
+                                                                            const nextIds = isChecked
+                                                                                ? selectedLinkedInvoiceIds.filter(x => x !== idStr)
+                                                                                : [...selectedLinkedInvoiceIds, idStr]
+                                                                            setSelectedLinkedInvoiceIds(nextIds)
+                                                                            const selectedInvs = openInvoicesForCompany.filter(x => nextIds.includes(String(x.id)))
+                                                                            if (selectedInvs.length > 0) {
+                                                                                setFormPayeeName(selectedInvs[0].entity_name || '')
+                                                                                const totalSel = selectedInvs.reduce((s, x) => s + Number(x.open_balance ?? x.raw_data?.Balance ?? x.total_amount ?? 0), 0)
+                                                                                setFormAmount(String(totalSel))
+                                                                                setFormMemo(`Cobro Invoice ${selectedInvs.map(x => `#${x.doc_number || x.id}`).join(', ')}`)
+                                                                                const arAcc = accounts.find(a => a.account_type === 'Accounts Receivable') || accounts.find(a => a.qb_account_id === inv.account_qb_id)
+                                                                                setFormLines(selectedInvs.map(x => {
+                                                                                    const bal = Number(x.open_balance ?? x.raw_data?.Balance ?? x.total_amount ?? 0)
+                                                                                    return {
+                                                                                        account_qb_id: arAcc?.qb_account_id || x.account_qb_id || '',
+                                                                                        account_name: arAcc?.name || x.account_name || 'Accounts Receivable',
+                                                                                        description: `Invoice #${x.doc_number || x.id} — ${x.entity_name || ''}`,
+                                                                                        amount: String(bal),
+                                                                                        entity_name: x.entity_name || ''
+                                                                                    }
+                                                                                }))
+                                                                            }
+                                                                        }}
+                                                                        className={`cursor-pointer transition-colors ${isChecked ? 'bg-emerald-50 dark:bg-emerald-950/30 font-semibold' : 'hover:bg-slate-50 dark:hover:bg-slate-800/40'}`}
+                                                                    >
+                                                                        <td className="py-2 px-3 text-center">
+                                                                            <input type="checkbox" checked={isChecked} onChange={() => {}} />
+                                                                        </td>
+                                                                        <td className="py-2 px-3 font-bold">{inv.entity_name || 'Customer'}</td>
+                                                                        <td className="py-2 px-3 font-mono">#{inv.doc_number || inv.id}</td>
+                                                                        <td className="py-2 px-3 font-mono">{inv.txn_date}</td>
+                                                                        <td className="py-2 px-3 font-mono">{inv.due_date || inv.txn_date}</td>
+                                                                        <td className="py-2 px-3 text-right font-mono">{formatCurrency(inv.total_amount || 0)}</td>
+                                                                        <td className="py-2 px-3 text-right font-mono font-bold text-emerald-700 dark:text-emerald-400">{formatCurrency(openBal)}</td>
+                                                                    </tr>
+                                                                )
+                                                            })}
+                                                        </tbody>
+                                                    </table>
                                                 </div>
                                             </div>
                                         )}
@@ -11834,112 +15981,227 @@ function ExternalAccountingContent() {
                                             </button>
                                         </div>
 
-                                        {/* GRID A: QBO BANK DEPOSIT 6-COLUMN TABLE (RECEIVED FROM | ACCOUNT | DESCRIPTION | PAYMENT METHOD | REF NO. | AMOUNT) */}
+                                        {/* GRID A: QBO BANK DEPOSIT (Select Undeposited Payments + Add Funds to This Deposit + Cash Back) */}
                                         {modalMode === 'Deposit' && (
-                                            <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800">
-                                                <table className="w-full text-xs border-collapse">
-                                                    <thead className="bg-slate-100 dark:bg-slate-800/90 text-[10px] font-black uppercase text-slate-600 dark:text-slate-300">
-                                                        <tr>
-                                                            <th className="py-2 px-2 text-center w-8">#</th>
-                                                            <th className="py-2 px-2 text-left">{t('external_accounting.qbo_col_received_from')}</th>
-                                                            <th className="py-2 px-2 text-left">{t('external_accounting.qbo_col_account')}</th>
-                                                            <th className="py-2 px-2 text-left">{t('external_accounting.qbo_col_description')}</th>
-                                                            <th className="py-2 px-2 text-left">{t('external_accounting.qbo_col_payment_method')}</th>
-                                                            <th className="py-2 px-2 text-left w-28">{t('external_accounting.qbo_col_ref_no')}</th>
-                                                            <th className="py-2 px-2 text-right w-32">{t('external_accounting.qbo_col_amount')}</th>
-                                                            <th className="py-2 px-2 text-center w-8"></th>
-                                                        </tr>
-                                                    </thead>
-                                                    <tbody className="divide-y divide-slate-200/70 dark:divide-slate-800">
-                                                        {formLines.map((line, idx) => (
-                                                            <tr key={idx} className="bg-white dark:bg-slate-900">
-                                                                <td className="py-1.5 px-2 text-center font-mono text-slate-400">{idx + 1}</td>
-                                                                <td className="py-1.5 px-2">
-                                                                    <input
-                                                                        type="text"
-                                                                        list="contacts-datalist"
-                                                                        value={line.entity_name || ''}
-                                                                        onChange={(e) => setFormLines(prev => prev.map((item, i) => i === idx ? { ...item, entity_name: e.target.value } : item))}
-                                                                        placeholder="Customer / Payor"
-                                                                        className="w-full px-2 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 font-semibold"
-                                                                    />
-                                                                </td>
-                                                                <td className="py-1.5 px-2">
-                                                                    <select
-                                                                        value={line.account_qb_id}
-                                                                        onChange={(e) => {
-                                                                            const acc = accounts.find(a => a.qb_account_id === e.target.value)
-                                                                            setFormLines(prev => prev.map((item, i) => i === idx ? {
-                                                                                ...item,
-                                                                                account_qb_id: e.target.value,
-                                                                                account_name: acc?.name || ''
-                                                                            } : item))
-                                                                        }}
-                                                                        className="w-full px-2 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 font-semibold"
-                                                                    >
-                                                                        {accounts.map(a => (
-                                                                            <option key={a.qb_account_id} value={a.qb_account_id}>
-                                                                                {a.name} ({a.account_type})
-                                                                            </option>
-                                                                        ))}
-                                                                    </select>
-                                                                </td>
-                                                                <td className="py-1.5 px-2">
-                                                                    <input
-                                                                        type="text"
-                                                                        value={line.description}
-                                                                        onChange={(e) => setFormLines(prev => prev.map((item, i) => i === idx ? { ...item, description: e.target.value } : item))}
-                                                                        placeholder="Description"
-                                                                        className="w-full px-2 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950"
-                                                                    />
-                                                                </td>
-                                                                <td className="py-1.5 px-2">
-                                                                    <select
-                                                                        value={line.payment_method || 'Check'}
-                                                                        onChange={(e) => setFormLines(prev => prev.map((item, i) => i === idx ? { ...item, payment_method: e.target.value } : item))}
-                                                                        className="w-full px-2 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 font-semibold"
-                                                                    >
-                                                                        <option value="Check">Check</option>
-                                                                        <option value="Cash">Cash</option>
-                                                                        <option value="EFT">EFT / ACH</option>
-                                                                        <option value="Credit Card">Credit Card</option>
-                                                                    </select>
-                                                                </td>
-                                                                <td className="py-1.5 px-2">
-                                                                    <input
-                                                                        type="text"
-                                                                        value={line.check_num || ''}
-                                                                        onChange={(e) => setFormLines(prev => prev.map((item, i) => i === idx ? { ...item, check_num: e.target.value } : item))}
-                                                                        placeholder="Check / Ref #"
-                                                                        className="w-full px-2 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 font-mono font-bold"
-                                                                    />
-                                                                </td>
-                                                                <td className="py-1.5 px-2">
-                                                                    <input
-                                                                        type="number"
-                                                                        step="0.01"
-                                                                        required
-                                                                        value={line.amount}
-                                                                        onChange={(e) => setFormLines(prev => prev.map((item, i) => i === idx ? { ...item, amount: e.target.value } : item))}
-                                                                        placeholder="0.00"
-                                                                        className="w-full px-2 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-right font-mono font-bold"
-                                                                    />
-                                                                </td>
-                                                                <td className="py-1.5 px-2 text-center">
-                                                                    {formLines.length > 1 && (
-                                                                        <button
-                                                                            type="button"
-                                                                            onClick={() => setFormLines(prev => prev.filter((_, i) => i !== idx))}
-                                                                            className="text-red-500 hover:text-red-700 font-bold cursor-pointer"
-                                                                        >
-                                                                            ✕
-                                                                        </button>
-                                                                    )}
-                                                                </td>
+                                            <div className="space-y-4">
+                                                {/* QBO Top Section: Select the payments included in this deposit (qbo_gf_deposit.png) */}
+                                                {(() => {
+                                                    const candidatePayments = transactions
+                                                        .filter(tx => (tx.txn_type === 'Payment' || tx.txn_type === 'SalesReceipt') && !tx.is_voided)
+                                                        .slice(0, 8)
+                                                    if (candidatePayments.length === 0) return null
+                                                    const undepositedAcc = accounts.find(a => /undeposited/i.test(a.name || '')) || accounts[0]
+                                                    return (
+                                                        <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/60 p-3 space-y-2">
+                                                            <div className="text-[11px] font-black uppercase tracking-wider text-slate-600 dark:text-slate-300">
+                                                                {t('external_accounting.qbo_deposit_select_payments')} ({candidatePayments.length})
+                                                            </div>
+                                                            <div className="overflow-x-auto max-h-40 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900">
+                                                                <table className="w-full text-xs border-collapse">
+                                                                    <thead className="bg-slate-100 dark:bg-slate-800 text-[10px] font-bold uppercase text-slate-500">
+                                                                        <tr>
+                                                                            <th className="py-1.5 px-2 w-8" />
+                                                                            <th className="py-1.5 px-2 text-left">{t('external_accounting.qbo_col_received_from')}</th>
+                                                                            <th className="py-1.5 px-2 text-left">{t('external_accounting.col_date')}</th>
+                                                                            <th className="py-1.5 px-2 text-left">{t('external_accounting.qbo_col_ref_no')}</th>
+                                                                            <th className="py-1.5 px-2 text-right">{t('external_accounting.col_amount')}</th>
+                                                                        </tr>
+                                                                    </thead>
+                                                                    <tbody className="divide-y divide-slate-200/60 dark:divide-slate-800">
+                                                                        {candidatePayments.map(pmt => {
+                                                                            const pId = String(pmt.id)
+                                                                            const isChecked = depositSelectedPaymentIds.includes(pId)
+                                                                            return (
+                                                                                <tr key={pmt.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
+                                                                                    <td className="py-1.5 px-2 text-center">
+                                                                                        <input
+                                                                                            type="checkbox"
+                                                                                            checked={isChecked}
+                                                                                            onChange={(e) => {
+                                                                                                const next = e.target.checked
+                                                                                                    ? [...depositSelectedPaymentIds, pId]
+                                                                                                    : depositSelectedPaymentIds.filter(x => x !== pId)
+                                                                                                setDepositSelectedPaymentIds(next)
+                                                                                                if (e.target.checked) {
+                                                                                                    setFormLines(prev => [
+                                                                                                        ...prev.filter(l => Number(l.amount || 0) !== 0),
+                                                                                                        {
+                                                                                                            account_qb_id: undepositedAcc?.qb_account_id || '',
+                                                                                                            account_name: undepositedAcc?.name || 'Undeposited Funds',
+                                                                                                            description: `Payment #${pmt.doc_number || pmt.id} (${pmt.txn_date})`,
+                                                                                                            amount: String(pmt.total_amount || 0),
+                                                                                                            entity_name: pmt.entity_name || '',
+                                                                                                            payment_method: 'Check',
+                                                                                                            check_num: pmt.doc_number || '',
+                                                                                                        }
+                                                                                                    ])
+                                                                                                }
+                                                                                            }}
+                                                                                        />
+                                                                                    </td>
+                                                                                    <td className="py-1.5 px-2 font-semibold">{pmt.entity_name || '—'}</td>
+                                                                                    <td className="py-1.5 px-2 font-mono">{pmt.txn_date}</td>
+                                                                                    <td className="py-1.5 px-2 font-mono">{pmt.doc_number || '—'}</td>
+                                                                                    <td className="py-1.5 px-2 text-right font-mono font-bold">{formatCurrency(pmt.total_amount || 0)}</td>
+                                                                                </tr>
+                                                                            )
+                                                                        })}
+                                                                    </tbody>
+                                                                </table>
+                                                            </div>
+                                                        </div>
+                                                    )
+                                                })()}
+
+                                                <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800">
+                                                    <table className="w-full text-xs border-collapse">
+                                                        <thead className="bg-slate-100 dark:bg-slate-800/90 text-[10px] font-black uppercase text-slate-600 dark:text-slate-300">
+                                                            <tr>
+                                                                <th className="py-2 px-2 text-center w-8">#</th>
+                                                                <th className="py-2 px-2 text-left">{t('external_accounting.qbo_col_received_from')}</th>
+                                                                <th className="py-2 px-2 text-left">{t('external_accounting.qbo_col_account')}</th>
+                                                                <th className="py-2 px-2 text-left">{t('external_accounting.qbo_col_description')}</th>
+                                                                <th className="py-2 px-2 text-left">{t('external_accounting.qbo_col_payment_method')}</th>
+                                                                <th className="py-2 px-2 text-left w-28">{t('external_accounting.qbo_col_ref_no')}</th>
+                                                                <th className="py-2 px-2 text-right w-32">{t('external_accounting.qbo_col_amount')}</th>
+                                                                <th className="py-2 px-2 text-center w-8"></th>
                                                             </tr>
-                                                        ))}
-                                                    </tbody>
-                                                </table>
+                                                        </thead>
+                                                        <tbody className="divide-y divide-slate-200/70 dark:divide-slate-800">
+                                                            {formLines.map((line, idx) => (
+                                                                <tr key={idx} className="bg-white dark:bg-slate-900">
+                                                                    <td className="py-1.5 px-2 text-center font-mono text-slate-400">{idx + 1}</td>
+                                                                    <td className="py-1.5 px-2">
+                                                                        <input
+                                                                            type="text"
+                                                                            list="contacts-datalist"
+                                                                            value={line.entity_name || ''}
+                                                                            onChange={(e) => setFormLines(prev => prev.map((item, i) => i === idx ? { ...item, entity_name: e.target.value } : item))}
+                                                                            placeholder="Customer / Payor"
+                                                                            className="w-full px-2 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 font-semibold"
+                                                                        />
+                                                                    </td>
+                                                                    <td className="py-1.5 px-2">
+                                                                        <select
+                                                                            value={line.account_qb_id}
+                                                                            onChange={(e) => {
+                                                                                const acc = accounts.find(a => a.qb_account_id === e.target.value)
+                                                                                setFormLines(prev => prev.map((item, i) => i === idx ? {
+                                                                                    ...item,
+                                                                                    account_qb_id: e.target.value,
+                                                                                    account_name: acc?.name || ''
+                                                                                } : item))
+                                                                            }}
+                                                                            className="w-full px-2 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 font-semibold"
+                                                                        >
+                                                                            {accounts.map(a => (
+                                                                                <option key={a.qb_account_id} value={a.qb_account_id}>
+                                                                                    {a.name} ({a.account_type})
+                                                                                </option>
+                                                                            ))}
+                                                                        </select>
+                                                                    </td>
+                                                                    <td className="py-1.5 px-2">
+                                                                        <input
+                                                                            type="text"
+                                                                            value={line.description}
+                                                                            onChange={(e) => setFormLines(prev => prev.map((item, i) => i === idx ? { ...item, description: e.target.value } : item))}
+                                                                            placeholder="Description"
+                                                                            className="w-full px-2 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950"
+                                                                        />
+                                                                    </td>
+                                                                    <td className="py-1.5 px-2">
+                                                                        <select
+                                                                            value={line.payment_method || 'Check'}
+                                                                            onChange={(e) => setFormLines(prev => prev.map((item, i) => i === idx ? { ...item, payment_method: e.target.value } : item))}
+                                                                            className="w-full px-2 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 font-semibold"
+                                                                        >
+                                                                            <option value="Check">Check</option>
+                                                                            <option value="Cash">Cash</option>
+                                                                            <option value="EFT">EFT / ACH</option>
+                                                                            <option value="Credit Card">Credit Card</option>
+                                                                        </select>
+                                                                    </td>
+                                                                    <td className="py-1.5 px-2">
+                                                                        <input
+                                                                            type="text"
+                                                                            value={line.check_num || ''}
+                                                                            onChange={(e) => setFormLines(prev => prev.map((item, i) => i === idx ? { ...item, check_num: e.target.value } : item))}
+                                                                            placeholder="Check / Ref #"
+                                                                            className="w-full px-2 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 font-mono font-bold"
+                                                                        />
+                                                                    </td>
+                                                                    <td className="py-1.5 px-2">
+                                                                        <input
+                                                                            type="number"
+                                                                            step="0.01"
+                                                                            required
+                                                                            value={line.amount}
+                                                                            onChange={(e) => setFormLines(prev => prev.map((item, i) => i === idx ? { ...item, amount: e.target.value } : item))}
+                                                                            placeholder="0.00"
+                                                                            className="w-full px-2 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-right font-mono font-bold"
+                                                                        />
+                                                                    </td>
+                                                                    <td className="py-1.5 px-2 text-center">
+                                                                        {formLines.length > 1 && (
+                                                                            <button
+                                                                                type="button"
+                                                                                onClick={() => setFormLines(prev => prev.filter((_, i) => i !== idx))}
+                                                                                className="text-red-500 hover:text-red-700 font-bold cursor-pointer"
+                                                                            >
+                                                                                ✕
+                                                                            </button>
+                                                                        )}
+                                                                    </td>
+                                                                </tr>
+                                                            ))}
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+
+                                                {/* QBO Bottom Section: Cash back goes to / Cash back memo / Cash back amount */}
+                                                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-3 rounded-xl bg-slate-50 dark:bg-slate-950/60 border border-slate-200 dark:border-slate-800 text-xs">
+                                                    <div>
+                                                        <label className="block font-bold text-slate-600 dark:text-slate-300 mb-1">
+                                                            {t('external_accounting.qbo_deposit_cashback_account')}
+                                                        </label>
+                                                        <select
+                                                            value={depositCashBackAccId}
+                                                            onChange={(e) => setDepositCashBackAccId(e.target.value)}
+                                                            className="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 font-semibold"
+                                                        >
+                                                            <option value="">— None —</option>
+                                                            {accounts.map(a => (
+                                                                <option key={a.qb_account_id} value={a.qb_account_id}>{a.name}</option>
+                                                            ))}
+                                                        </select>
+                                                    </div>
+                                                    <div>
+                                                        <label className="block font-bold text-slate-600 dark:text-slate-300 mb-1">
+                                                            {t('external_accounting.qbo_deposit_cashback_memo')}
+                                                        </label>
+                                                        <input
+                                                            type="text"
+                                                            value={depositCashBackMemo}
+                                                            onChange={(e) => setDepositCashBackMemo(e.target.value)}
+                                                            placeholder="Cash back memo"
+                                                            className="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900"
+                                                        />
+                                                    </div>
+                                                    <div>
+                                                        <label className="block font-bold text-slate-600 dark:text-slate-300 mb-1">
+                                                            {t('external_accounting.qbo_deposit_cashback_amount')}
+                                                        </label>
+                                                        <input
+                                                            type="number"
+                                                            step="0.01"
+                                                            value={depositCashBackAmount}
+                                                            onChange={(e) => setDepositCashBackAmount(e.target.value)}
+                                                            placeholder="0.00"
+                                                            className="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-right font-mono font-bold"
+                                                        />
+                                                    </div>
+                                                </div>
                                             </div>
                                         )}
 
@@ -12387,6 +16649,17 @@ function ExternalAccountingContent() {
                                         >
                                             {t('external_accounting.btn_save_transaction')}
                                         </button>
+                                        {modalMode === 'Invoice' && (
+                                            <button
+                                                type="button"
+                                                disabled={saving}
+                                                onClick={() => handleSaveAndSendInvoice()}
+                                                className="inline-flex items-center gap-1.5 px-5 py-2 rounded-xl bg-[#003b32] hover:bg-[#002b24] text-white font-bold shadow-sm cursor-pointer"
+                                            >
+                                                <Send size={13} />
+                                                <span>{t('external_accounting.qbo_save_and_send_btn')}</span>
+                                            </button>
+                                        )}
                                     </div>
                                 </div>
                             </form>
@@ -12845,8 +17118,22 @@ function ExternalAccountingContent() {
                                         className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-100 text-xs font-bold cursor-pointer transition-colors"
                                     >
                                         <Printer size={14} />
-                                        <span>{t('external_accounting.preview_btn_print')}</span>
+                                        <span>{kind === 'transaction' && data?.txn_type === 'Invoice' ? t('external_accounting.qbo_action_download_pdf') : t('external_accounting.preview_btn_print')}</span>
                                     </button>
+
+                                    {kind === 'transaction' && data?.txn_type === 'Invoice' && (
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                closePreview()
+                                                openInvoiceEmailModal(data)
+                                            }}
+                                            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#2ca01c] hover:bg-[#248817] text-white text-xs font-bold cursor-pointer transition-colors shadow-xs"
+                                        >
+                                            <Send size={13} />
+                                            <span>{t('external_accounting.qbo_action_send_invoice_pdf')}</span>
+                                        </button>
+                                    )}
 
                                     <button
                                         type="button"
@@ -14011,6 +18298,156 @@ function ExternalAccountingContent() {
                                 <button type="submit" disabled={saving} className="px-4 py-2 rounded-xl bg-emerald-600 text-white font-bold cursor-pointer">
                                     {t('external_accounting.btn_save_transaction')}
                                 </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            )}
+
+            {/* MODAL: QBO OFFICIAL INVOICE EMAIL & STATEMENT PDF DISPATCHER */}
+            {invoiceEmailModal && (
+                <div
+                    className="fixed inset-0 z-[120] bg-slate-950/75 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto"
+                    onClick={() => !invoiceEmailModal.sending && setInvoiceEmailModal(null)}
+                >
+                    <div
+                        className="w-full max-w-5xl rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden my-auto"
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        <div className="px-6 py-4 bg-[#003b32] text-white flex items-center justify-between">
+                            <div>
+                                <h3 className="text-base font-black flex items-center gap-2">
+                                    <Mail size={18} className="text-emerald-300" />
+                                    <span>{t('external_accounting.qbo_invoice_email_modal_title')}</span>
+                                </h3>
+                                <p className="text-xs text-emerald-100/80 mt-0.5">
+                                    {t('external_accounting.qbo_invoice_email_modal_sub')}
+                                </p>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setInvoiceEmailModal(null)}
+                                className="px-2.5 py-1 rounded-lg bg-white/10 hover:bg-white/20 text-white text-xs font-bold cursor-pointer"
+                            >
+                                ✕
+                            </button>
+                        </div>
+
+                        <form onSubmit={handleSendInvoiceEmailSubmit} className="p-6 grid grid-cols-1 lg:grid-cols-12 gap-6 text-xs max-h-[82vh] overflow-y-auto">
+                            {/* Left Column: Email Form + Attached PDF */}
+                            <div className="lg:col-span-5 space-y-4">
+                                <div>
+                                    <label className="block font-bold text-slate-700 dark:text-slate-200 mb-1">
+                                        {t('external_accounting.qbo_invoice_email_to')}
+                                    </label>
+                                    <input
+                                        type="text"
+                                        required
+                                        value={invoiceEmailModal.toEmail}
+                                        onChange={(e) => setInvoiceEmailModal(prev => (prev ? { ...prev, toEmail: e.target.value } : null))}
+                                        placeholder="tenant@example.com, raquel@tacosgavilan.com"
+                                        className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 font-semibold"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block font-bold text-slate-700 dark:text-slate-200 mb-1">
+                                        {t('external_accounting.qbo_invoice_email_cc')}
+                                    </label>
+                                    <input
+                                        type="text"
+                                        value={invoiceEmailModal.ccEmail}
+                                        onChange={(e) => setInvoiceEmailModal(prev => (prev ? { ...prev, ccEmail: e.target.value } : null))}
+                                        placeholder="raquel@tacosgavilan.com"
+                                        className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 font-semibold"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block font-bold text-slate-700 dark:text-slate-200 mb-1">
+                                        {t('external_accounting.qbo_invoice_email_subject')}
+                                    </label>
+                                    <input
+                                        type="text"
+                                        required
+                                        value={invoiceEmailModal.subject}
+                                        onChange={(e) => setInvoiceEmailModal(prev => (prev ? { ...prev, subject: e.target.value } : null))}
+                                        className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 font-bold"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block font-bold text-slate-700 dark:text-slate-200 mb-1">
+                                        {t('external_accounting.qbo_invoice_email_body')}
+                                    </label>
+                                    <textarea
+                                        rows={6}
+                                        value={invoiceEmailModal.customMessage}
+                                        onChange={(e) => setInvoiceEmailModal(prev => (prev ? { ...prev, customMessage: e.target.value } : null))}
+                                        className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 font-medium leading-relaxed"
+                                    />
+                                </div>
+
+                                {/* Attached Official PDF Card */}
+                                <div className="p-3.5 rounded-xl border border-emerald-500/40 bg-emerald-50/50 dark:bg-emerald-950/20 flex items-center justify-between gap-3">
+                                    <div className="flex items-center gap-2.5 min-w-0">
+                                        <FileText size={18} className="text-red-600 shrink-0" />
+                                        <div className="min-w-0">
+                                            <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                                                {t('external_accounting.qbo_invoice_pdf_attached')}
+                                            </div>
+                                            <div className="font-mono font-bold text-slate-900 dark:text-white truncate">
+                                                {invoiceEmailModal.fileName}
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={() => handleDownloadOfficialInvoicePdf(invoiceEmailModal.txn)}
+                                        className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 hover:bg-slate-100 font-bold text-slate-800 dark:text-slate-100 shrink-0 cursor-pointer"
+                                    >
+                                        <Download size={13} />
+                                        <span>PDF</span>
+                                    </button>
+                                </div>
+
+                                <div className="flex items-center justify-end gap-2.5 pt-2">
+                                    <button
+                                        type="button"
+                                        onClick={() => setInvoiceEmailModal(null)}
+                                        className="px-4 py-2 rounded-xl border border-slate-300 dark:border-slate-700 font-bold cursor-pointer"
+                                    >
+                                        {t('external_accounting.close_btn')}
+                                    </button>
+                                    <button
+                                        type="submit"
+                                        disabled={invoiceEmailModal.sending}
+                                        className="inline-flex items-center gap-1.5 px-5 py-2 rounded-xl bg-[#2ca01c] hover:bg-[#248817] text-white font-bold shadow-sm cursor-pointer"
+                                    >
+                                        <Send size={13} />
+                                        <span>
+                                            {invoiceEmailModal.sending
+                                                ? t('external_accounting.qbo_invoice_email_sending')
+                                                : t('external_accounting.qbo_invoice_email_send_btn')}
+                                        </span>
+                                    </button>
+                                </div>
+                            </div>
+
+                            {/* Right Column: Live QBO HTML Email Preview (`Your invoice is ready!`) */}
+                            <div className="lg:col-span-7 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 p-4 overflow-y-auto max-h-[540px]">
+                                <div className="text-[10px] font-black uppercase tracking-wider text-slate-400 mb-2">
+                                    QBO Email & Statement Preview
+                                </div>
+                                {invoiceEmailModal.loadingPreview ? (
+                                    <div className="py-20 text-center text-slate-400 font-semibold">
+                                        Generating QBO Statement Invoice Preview...
+                                    </div>
+                                ) : invoiceEmailModal.htmlPreview ? (
+                                    <div
+                                        className="rounded-lg bg-white p-3 shadow-xs border border-slate-200 text-slate-900"
+                                        dangerouslySetInnerHTML={{ __html: invoiceEmailModal.htmlPreview }}
+                                    />
+                                ) : (
+                                    <div className="py-16 text-center text-slate-400">Preview ready on send</div>
+                                )}
                             </div>
                         </form>
                     </div>

@@ -44,6 +44,7 @@ import {
   ArrowUpRight,
   Info,
   X,
+  Calendar,
 } from 'lucide-react'
 
 type DeliveryPlatform = 'DOORDASH' | 'UBER_EATS' | 'GRUBHUB'
@@ -158,15 +159,34 @@ const fmtMoney = (val: number | null | undefined) => {
   })}`
 }
 
+const fmtDateMDY = (dateStr: string | null | undefined): string => {
+  if (!dateStr) return '-'
+  const raw = String(dateStr).trim()
+  const m = raw.match(/^(\d{4})-(\d{2})-(\d{2})/)
+  if (m) {
+    return `${m[2]}/${m[3]}/${m[1]}`
+  }
+  const d = new Date(raw)
+  if (!isNaN(d.getTime())) {
+    return d.toLocaleDateString('en-US', {
+      timeZone: 'America/Los_Angeles',
+      month: '2-digit',
+      day: '2-digit',
+      year: 'numeric',
+    })
+  }
+  return raw
+}
+
 const fmtLaTimestamp = (iso: string | null | undefined): string => {
   if (!iso) return '—'
   const d = new Date(iso)
   if (isNaN(d.getTime())) return '—'
   return (
-    d.toLocaleString('es-MX', {
+    d.toLocaleString('en-US', {
       timeZone: 'America/Los_Angeles',
-      day: '2-digit',
       month: '2-digit',
+      day: '2-digit',
       year: 'numeric',
       hour: '2-digit',
       minute: '2-digit',
@@ -178,12 +198,9 @@ const fmtLaTimestamp = (iso: string | null | undefined): string => {
 export default function ConciliarDeliveryPage() {
   const { t } = useLanguage()
 
-  // Default range: last 5 days up to today
-  const [startDate, setStartDate] = useState<string>(() => {
-    const d = new Date(Date.now() - 5 * 86400000)
-    return d.toISOString().slice(0, 10)
-  })
-  const [endDate, setEndDate] = useState<string>(() => new Date().toISOString().slice(0, 10))
+  // Default range: Latest closed full week (Corte Oct 19 - Oct 25) so payouts & orders load cleanly from the first second
+  const [startDate, setStartDate] = useState<string>('2026-10-19')
+  const [endDate, setEndDate] = useState<string>('2026-10-25')
   const [selectedStore, setSelectedStore] = useState<string>('14') // Default Lynwood #14 for fast initial load, or ALL
   const [selectedPlatform, setSelectedPlatform] = useState<string>('ALL')
   const [selectedStatus, setSelectedStatus] = useState<string>('ALL')
@@ -356,7 +373,7 @@ export default function ConciliarDeliveryPage() {
         .join(', ')
       setBannerMessage({
         type: 'success',
-        text: `✅ Journal Entry publicado exitosamente en QuickBooks Online: ${createdList}`,
+        text: t('deliveryReconciliation.qb_published_toast', { list: createdList }),
       })
       setSelectedQbPayoutIds(new Set())
       setSelectedQbRecord(null)
@@ -368,9 +385,27 @@ export default function ConciliarDeliveryPage() {
     }
   }
 
-  const handleLiveSyncForStore = async (overrideStoreId?: string) => {
-    const targetStore = overrideStoreId || selectedStore
-    if (overrideStoreId) setSelectedStore(overrideStoreId)
+  const handleLiveSyncForStore = async (override?: {
+    storeId?: string
+    platform?: string
+    startDate?: string
+    endDate?: string
+    payoutRef?: string
+    openOrdersTab?: boolean
+  }) => {
+    const targetStore = override?.storeId || selectedStore
+    const targetStart = override?.startDate || startDate
+    const targetEnd = override?.endDate || endDate
+    if (override?.storeId) setSelectedStore(override.storeId)
+    if (override?.platform) setSelectedPlatform(override.platform)
+    if (override?.startDate) setStartDate(override.startDate)
+    if (override?.endDate) setEndDate(override.endDate)
+    if (override?.payoutRef !== undefined) setSearchQuery('')
+    if (override?.openOrdersTab) {
+      setQuickFilter('ALL')
+      setActiveTab('orders')
+    }
+
     setSyncing(true)
     setBannerMessage(null)
     try {
@@ -380,8 +415,8 @@ export default function ConciliarDeliveryPage() {
         body: JSON.stringify({
           action: 'sync_live',
           store_id: targetStore,
-          start_date: startDate,
-          end_date: endDate,
+          start_date: targetStart,
+          end_date: targetEnd,
           sync_toast: true,
           sync_grubhub: true,
         }),
@@ -539,7 +574,7 @@ export default function ConciliarDeliveryPage() {
       headers.join(','),
       ...orders.map((o) =>
         [
-          o.business_date,
+          fmtDateMDY(o.business_date),
           `"${o.store_name}"`,
           o.platform,
           o.fulfillment_type,
@@ -565,7 +600,7 @@ export default function ConciliarDeliveryPage() {
           o.reconciliation_status,
           o.dispute_status,
           `"${o.payout_reference_id || ''}"`,
-          o.payout_date || '',
+          o.payout_date ? fmtDateMDY(o.payout_date) : '',
         ].join(',')
       ),
     ]
@@ -684,52 +719,49 @@ export default function ConciliarDeliveryPage() {
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 p-3 md:p-5 space-y-4">
-      {/* HEADER COMPACTO EJECUTIVO */}
-      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm">
-        <div className="space-y-0.5">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20 text-[11px] font-bold tracking-wider">
-              <Scale className="w-3 h-3" />
-              {t('deliveryReconciliation.badge')}
-            </span>
-            <span className="text-[11px] font-semibold px-2 py-0.5 rounded bg-orange-500/10 text-orange-700 dark:text-orange-300 border border-orange-500/20">
-              DD + GH: Tax a TEG (Cta 24001)
-            </span>
-            <span className="text-[11px] font-semibold px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/20">
-              Uber Eats: Uber paga Tax (Cta 12050)
-            </span>
+      {/* 1. CABECERA LIMPIA + BARRA DE FILTROS INTEGRADA */}
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm space-y-4">
+        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 pb-3 border-b border-slate-100 dark:border-slate-800">
+          <div>
+            <div className="flex flex-wrap items-center gap-2 mb-1">
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20 text-[11px] font-bold">
+                <Scale className="w-3 h-3" />
+                {t('deliveryReconciliation.badge')}
+              </span>
+              <span className="text-[11px] text-slate-500 dark:text-slate-400 font-semibold">
+                {t('deliveryReconciliation.header_formula_desc')}
+              </span>
+            </div>
+            <h1 className="text-xl md:text-2xl font-extrabold tracking-tight">
+              {t('deliveryReconciliation.title')}
+            </h1>
           </div>
-          <h1 className="text-xl md:text-2xl font-extrabold tracking-tight">
-            {t('deliveryReconciliation.title')}
-          </h1>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              onClick={handleLiveSync}
+              disabled={syncing}
+              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 text-white font-bold text-xs md:text-sm shadow-sm transition"
+            >
+              <RefreshCw className={`w-4 h-4 ${syncing ? 'animate-spin' : ''}`} />
+              {syncing ? t('deliveryReconciliation.syncing_short') : t('deliveryReconciliation.sync_store_period_btn')}
+            </button>
+
+            <button
+              onClick={handleExportCsv}
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-semibold text-xs md:text-sm border border-slate-200 dark:border-slate-700 transition"
+            >
+              <Download className="w-4 h-4" />
+              {t('deliveryReconciliation.export_csv_short')}
+            </button>
+          </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
-          <button
-            onClick={handleLiveSync}
-            disabled={syncing}
-            className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 text-white font-bold text-xs md:text-sm shadow-sm transition"
-          >
-            <RefreshCw className={`w-4 h-4 ${syncing ? 'animate-spin' : ''}`} />
-            {syncing ? t('deliveryReconciliation.syncing_btn') : t('deliveryReconciliation.sync_live_btn')}
-          </button>
-
-          <button
-            onClick={handleExportCsv}
-            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-semibold text-xs md:text-sm border border-slate-200 dark:border-slate-700 transition"
-          >
-            <Download className="w-4 h-4" />
-            {t('deliveryReconciliation.export_csv_btn')}
-          </button>
-        </div>
-      </div>
-
-      {/* BARRA COMPACTA DE FILTROS + PRESETS DE CORTE + ESTADO DE SINCRONIZACIÓN */}
-      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm space-y-3">
+        {/* FILTROS: SUCURSAL, PLATAFORMA, SEMANA DE CORTE Y BUSCADOR */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
           <div>
             <label className="block text-[11px] font-bold text-slate-500 dark:text-slate-400 mb-1">
-              {t('deliveryReconciliation.store_filter')}
+              {t('deliveryReconciliation.filter_1_store')}
             </label>
             <select
               value={selectedStore}
@@ -749,47 +781,69 @@ export default function ConciliarDeliveryPage() {
 
           <div>
             <label className="block text-[11px] font-bold text-slate-500 dark:text-slate-400 mb-1">
-              {t('deliveryReconciliation.platform_filter')}
+              {t('deliveryReconciliation.filter_2_platform')}
             </label>
             <select
               value={selectedPlatform}
               onChange={(e) => setSelectedPlatform(e.target.value)}
               className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 text-xs md:text-sm font-bold"
             >
-              <option value="ALL">{t('deliveryReconciliation.all_platforms')}</option>
-              <option value="DOORDASH">DoorDash (Lun → Dom)</option>
-              <option value="UBER_EATS">Uber Eats (Lun → Dom)</option>
-              <option value="GRUBHUB">Grubhub (Mar → Lun)</option>
+              <option value="ALL">{t('deliveryReconciliation.filter_all_platforms_combo')}</option>
+              <option value="DOORDASH">{t('deliveryReconciliation.filter_dd_cycle')}</option>
+              <option value="UBER_EATS">{t('deliveryReconciliation.filter_ue_cycle')}</option>
+              <option value="GRUBHUB">{t('deliveryReconciliation.filter_gh_cycle')}</option>
             </select>
           </div>
 
           <div>
             <label className="block text-[11px] font-bold text-slate-500 dark:text-slate-400 mb-1">
-              {t('deliveryReconciliation.start_date')}
+              {t('deliveryReconciliation.filter_3_start_date')}
             </label>
-            <input
-              type="date"
-              value={startDate}
-              onChange={(e) => setStartDate(e.target.value)}
-              className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 text-xs md:text-sm font-semibold"
-            />
+            <div className="relative">
+              <div className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 text-xs md:text-sm font-semibold flex items-center justify-between pointer-events-none">
+                <span>{fmtDateMDY(startDate)}</span>
+                <Calendar className="w-4 h-4 text-slate-400" />
+              </div>
+              <input
+                type="date"
+                value={startDate}
+                onChange={(e) => setStartDate(e.target.value)}
+                onClick={(e) => {
+                  try {
+                    ;(e.currentTarget as HTMLInputElement).showPicker?.()
+                  } catch {}
+                }}
+                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+              />
+            </div>
           </div>
 
           <div>
             <label className="block text-[11px] font-bold text-slate-500 dark:text-slate-400 mb-1">
-              {t('deliveryReconciliation.end_date')}
+              {t('deliveryReconciliation.filter_4_end_date')}
             </label>
-            <input
-              type="date"
-              value={endDate}
-              onChange={(e) => setEndDate(e.target.value)}
-              className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 text-xs md:text-sm font-semibold"
-            />
+            <div className="relative">
+              <div className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 text-xs md:text-sm font-semibold flex items-center justify-between pointer-events-none">
+                <span>{fmtDateMDY(endDate)}</span>
+                <Calendar className="w-4 h-4 text-slate-400" />
+              </div>
+              <input
+                type="date"
+                value={endDate}
+                onChange={(e) => setEndDate(e.target.value)}
+                onClick={(e) => {
+                  try {
+                    ;(e.currentTarget as HTMLInputElement).showPicker?.()
+                  } catch {}
+                }}
+                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+              />
+            </div>
           </div>
 
           <div>
             <label className="block text-[11px] font-bold text-slate-500 dark:text-slate-400 mb-1">
-              {t('common.search')}
+              {t('deliveryReconciliation.filter_5_search')}
             </label>
             <div className="relative">
               <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
@@ -797,7 +851,7 @@ export default function ConciliarDeliveryPage() {
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder={t('deliveryReconciliation.search_placeholder')}
+                placeholder={t('deliveryReconciliation.filter_5_placeholder')}
                 className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 pl-9 pr-7 py-2 text-xs md:text-sm"
               />
               {searchQuery && (
@@ -812,96 +866,63 @@ export default function ConciliarDeliveryPage() {
           </div>
         </div>
 
-        {/* ATAJOS DE PERIODO + CINTA COMPACTA DE SINCRONIZACIÓN */}
-        <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-2.5 pt-2.5 border-t border-slate-100 dark:border-slate-800">
-          <div className="flex flex-wrap items-center gap-1.5 text-xs">
-            <span className="text-[11px] font-bold text-slate-400 uppercase mr-1">Periodos rápidos:</span>
-            <button
-              onClick={() => {
-                setStartDate('2026-10-24')
-                setEndDate('2026-10-29')
-              }}
-              className={`px-2.5 py-1 rounded-lg font-bold transition border ${
-                startDate === '2026-10-24' && endDate === '2026-10-29'
-                  ? 'bg-indigo-600 text-white border-indigo-600'
-                  : 'bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-100'
-              }`}
-            >
-              📅 {t('deliveryReconciliation.preset_last_7d')}
-            </button>
-            <button
-              onClick={() => {
-                setStartDate('2026-10-19')
-                setEndDate('2026-10-26')
-              }}
-              className={`px-2.5 py-1 rounded-lg font-bold transition border ${
-                startDate === '2026-10-19' && endDate === '2026-10-26'
-                  ? 'bg-indigo-600 text-white border-indigo-600'
-                  : 'bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-100'
-              }`}
-            >
-              🧾 {t('deliveryReconciliation.preset_oct_19_25')}
-            </button>
-            <button
-              onClick={() => {
-                setStartDate('2026-10-12')
-                setEndDate('2026-10-19')
-              }}
-              className={`px-2.5 py-1 rounded-lg font-bold transition border ${
-                startDate === '2026-10-12' && endDate === '2026-10-19'
-                  ? 'bg-emerald-600 text-white border-emerald-600'
-                  : 'bg-emerald-500/5 text-emerald-700 dark:text-emerald-300 border-emerald-500/25 hover:bg-emerald-500/15'
-              }`}
-            >
-              🔄 {t('deliveryReconciliation.preset_oct_12_18')}
-            </button>
-            <button
-              onClick={() => {
-                setStartDate('2026-09-28')
-                setEndDate('2026-10-29')
-              }}
-              className={`px-2.5 py-1 rounded-lg font-bold transition border ${
-                startDate === '2026-09-28' && endDate === '2026-10-29'
-                  ? 'bg-indigo-600 text-white border-indigo-600'
-                  : 'bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-100'
-              }`}
-            >
-              📊 {t('deliveryReconciliation.preset_all_oct')}
-            </button>
-          </div>
-
-          {syncStatus && (
-            <div className="flex flex-wrap items-center gap-2 text-[11px]">
-              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
-                <span className="w-2 h-2 rounded-full bg-emerald-500" />
-                <span className="font-bold">Toast POS:</span>
-                <span className="font-mono text-slate-500">
-                  {syncStatus.TOAST?.ordersCount || syncStatus.TOAST?.globalOrdersCount || 0} órd.
-                </span>
-              </span>
-              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-red-500/5 border border-red-500/20">
-                <span className="w-2 h-2 rounded-full bg-emerald-500" />
-                <span className="font-bold text-red-600 dark:text-red-400">DoorDash:</span>
-                <span className="font-mono text-slate-500">
-                  {syncStatus.DOORDASH?.ordersCount ?? syncStatus.DOORDASH?.globalOrdersCount ?? 0} órd.
-                </span>
-              </span>
-              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-500/5 border border-emerald-500/20">
-                <span className="w-2 h-2 rounded-full bg-emerald-500" />
-                <span className="font-bold text-emerald-600 dark:text-emerald-400">Uber Eats:</span>
-                <span className="font-mono text-slate-500">
-                  {syncStatus.UBER_EATS?.ordersCount || syncStatus.UBER_EATS?.globalOrdersCount || 0} órd.
-                </span>
-              </span>
-              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-orange-500/5 border border-orange-500/20">
-                <span className="w-2 h-2 rounded-full bg-emerald-500" />
-                <span className="font-bold text-orange-600 dark:text-orange-400">Grubhub:</span>
-                <span className="font-mono text-slate-500">
-                  {syncStatus.GRUBHUB?.ordersCount ?? syncStatus.GRUBHUB?.globalOrdersCount ?? 0} órd.
-                </span>
-              </span>
-            </div>
-          )}
+        {/* BOTONES DE SEMANAS RÁPIDAS */}
+        <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-100 dark:border-slate-800 text-xs">
+          <span className="text-[11px] font-extrabold text-slate-400 uppercase">
+            {t('deliveryReconciliation.quick_weeks_label')}
+          </span>
+          <button
+            onClick={() => {
+              setStartDate('2026-10-19')
+              setEndDate('2026-10-25')
+            }}
+            className={`px-3 py-1.5 rounded-lg font-bold transition border ${
+              startDate === '2026-10-19' && endDate === '2026-10-25'
+                ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
+                : 'bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-100'
+            }`}
+          >
+            {t('deliveryReconciliation.preset_week_oct_19_25')}
+          </button>
+          <button
+            onClick={() => {
+              setStartDate('2026-10-12')
+              setEndDate('2026-10-18')
+            }}
+            className={`px-3 py-1.5 rounded-lg font-bold transition border ${
+              startDate === '2026-10-12' && endDate === '2026-10-18'
+                ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
+                : 'bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-100'
+            }`}
+          >
+            {t('deliveryReconciliation.preset_week_oct_12_18')}
+          </button>
+          <button
+            onClick={() => {
+              setStartDate('2026-10-05')
+              setEndDate('2026-10-11')
+            }}
+            className={`px-3 py-1.5 rounded-lg font-bold transition border ${
+              startDate === '2026-10-05' && endDate === '2026-10-11'
+                ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
+                : 'bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-100'
+            }`}
+          >
+            {t('deliveryReconciliation.preset_week_oct_05_11')}
+          </button>
+          <button
+            onClick={() => {
+              setStartDate('2026-09-28')
+              setEndDate('2026-10-29')
+            }}
+            className={`px-3 py-1.5 rounded-lg font-bold transition border ${
+              startDate === '2026-09-28' && endDate === '2026-10-29'
+                ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
+                : 'bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-100'
+            }`}
+          >
+            {t('deliveryReconciliation.preset_month_oct_all')}
+          </button>
         </div>
       </div>
 
@@ -920,7 +941,7 @@ export default function ConciliarDeliveryPage() {
         </div>
       )}
 
-      {/* 3 TARJETAS EJECUTIVAS POR PLATAFORMA (DOORDASH | UBER EATS | GRUBHUB) */}
+      {/* 2. LAS 3 TARJETAS DE PLATAFORMA: MUESTRAN LA FÓRMULA DE PAGO DE LA SEMANA SIN MEZCLAR CONCEPTOS */}
       {summary?.byPlatform && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-3.5">
           {(['DOORDASH', 'UBER_EATS', 'GRUBHUB'] as DeliveryPlatform[]).map((plat) => {
@@ -935,12 +956,12 @@ export default function ConciliarDeliveryPage() {
                 ? 'border-emerald-500/30 bg-white dark:bg-slate-900'
                 : 'border-orange-500/30 bg-white dark:bg-slate-900'
 
-            const topAccent =
-              plat === 'DOORDASH'
-                ? 'bg-red-500/10 border-red-500/20'
-                : plat === 'UBER_EATS'
-                ? 'bg-emerald-500/10 border-emerald-500/20'
-                : 'bg-orange-500/10 border-orange-500/20'
+            const grossCut = pData.payoutsGrossTotal || pData.settledPlatformGross || pData.platformGross || 0
+            const feesCut = pData.payoutsFeesTotal || pData.totalFees || 0
+            const errorsCut = pData.payoutsErrorTotal || pData.errorCharges || 0
+            const netBankCut = pData.payoutsNetTotal || pData.netPayout || 0
+            const toastAuditedGross = pData.settledToastExpected || pData.toastExpectedGross || 0
+            const settledCount = pData.settledOrdersCount || 0
 
             return (
               <div
@@ -950,90 +971,90 @@ export default function ConciliarDeliveryPage() {
                   isSelected ? 'ring-2 ring-indigo-500' : 'hover:border-slate-400'
                 }`}
               >
-                {/* Fila Superior: Plataforma + Ciclo de Corte + Estado de Órdenes */}
                 <div className="flex items-center justify-between gap-2 mb-3">
-                  <div className="flex flex-wrap items-center gap-1.5">
+                  <div className="flex items-center gap-2">
                     {renderPlatformBadge(plat)}
-                    <span className={`px-2 py-0.5 rounded-md text-[10px] font-extrabold border ${topAccent}`}>
-                      {isGrubhub
-                        ? t('deliveryReconciliation.cycle_tue_mon')
-                        : t('deliveryReconciliation.cycle_mon_sun')}
+                    <span className="text-[11px] font-bold text-slate-500">
+                      {isGrubhub ? t('deliveryReconciliation.cycle_tue_mon') : t('deliveryReconciliation.cycle_mon_sun')}
                     </span>
                   </div>
-                  <div className="flex items-center gap-1 text-[11px] font-bold">
-                    <span className="px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-700 dark:text-emerald-300">
-                      ✓ {pData.matchedCount || 0} OK
-                    </span>
-                    {(pData.disputedCount || 0) > 0 && (
-                      <span className="px-2 py-0.5 rounded-full bg-rose-500/15 text-rose-600 dark:text-rose-400">
-                        ⚠ {pData.disputedCount} disp.
-                      </span>
-                    )}
-                  </div>
+                  <span className="px-2.5 py-0.5 rounded-full text-xs font-extrabold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
+                    {pData.payoutsCount || 0}{' '}
+                    {(pData.payoutsCount || 0) === 1
+                      ? t('deliveryReconciliation.weekly_cut_singular')
+                      : t('deliveryReconciliation.weekly_cut_plural')}
+                  </span>
                 </div>
 
-                {/* Caja Comparativa Principal: Esperado en Toast POS vs Reconocido en Plataforma */}
-                <div className="grid grid-cols-2 gap-3 bg-slate-50 dark:bg-slate-800/60 rounded-xl p-3 border border-slate-200/80 dark:border-slate-800">
-                  <div>
-                    <div className="text-[10px] text-slate-500 dark:text-slate-400 uppercase font-bold">
-                      {t('deliveryReconciliation.plat_card_toast_expected')}
-                    </div>
-                    <div className="text-lg font-extrabold font-mono text-slate-900 dark:text-white mt-0.5">
-                      {fmtMoney(pData.settledToastExpected || 0)}
-                    </div>
-                    <div className="text-[10px] text-slate-400">
-                      {pData.settledOrdersCount || 0} órdenes conciliadas
-                    </div>
-                  </div>
-                  <div className="text-right border-l border-slate-200 dark:border-slate-700 pl-3">
-                    <div className="text-[10px] text-slate-500 dark:text-slate-400 uppercase font-bold">
-                      {t('deliveryReconciliation.plat_card_plat_recognized')}
-                    </div>
-                    <div className="text-lg font-extrabold font-mono text-indigo-600 dark:text-indigo-400 mt-0.5">
-                      {fmtMoney(pData.settledPlatformGross || pData.platformGross || 0)}
-                    </div>
-                    <div className="text-[10px] font-semibold text-slate-500">
-                      {isUber ? 'Uber retiene Sales Tax (12050)' : 'Incluye Tax a TEG (24001)'}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Resumen de 3 bloques inferiores: Tax | Comisiones/Disputas | Depósito Neto */}
-                <div className="grid grid-cols-3 gap-2 mt-3 pt-2.5 border-t border-slate-100 dark:border-slate-800 text-xs">
-                  <div>
-                    <div className="text-[10px] text-slate-400 font-bold uppercase">
-                      {isUber ? 'Tax Uber (12050)' : 'Tax a TEG (24001)'}
-                    </div>
-                    <div className="font-mono font-bold text-slate-700 dark:text-slate-200 mt-0.5">
+                {/* Fórmula clara de 3 renglones: Venta Bruta - Comisiones/Reembolsos = Depósito Neto en Banco */}
+                <div className="space-y-1.5 bg-slate-50 dark:bg-slate-800/60 rounded-xl p-3 border border-slate-200/80 dark:border-slate-800 text-xs">
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-500 font-semibold">
+                      {t('deliveryReconciliation.card_gross_sales')}{' '}
                       {isUber
-                        ? fmtMoney(pData.platformTaxWithheld || 0)
-                        : fmtMoney(pData.platformTaxToMerchant || 0)}
-                    </div>
+                        ? t('deliveryReconciliation.card_without_tax')
+                        : t('deliveryReconciliation.card_with_tax')}
+                      :
+                    </span>
+                    <span className="font-mono font-bold text-slate-900 dark:text-white">
+                      {fmtMoney(grossCut)}
+                    </span>
                   </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-500 font-semibold">
+                      {t('deliveryReconciliation.card_platform_fees')}
+                    </span>
+                    <span className="font-mono font-bold text-amber-600 dark:text-amber-400">
+                      {fmtMoney(feesCut)}
+                    </span>
+                  </div>
+                  {Math.abs(errorsCut) > 0.01 && (
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate-500 font-semibold">
+                        {errorsCut > 0
+                          ? t('deliveryReconciliation.card_reimbursements_won')
+                          : t('deliveryReconciliation.card_error_charges')}
+                      </span>
+                      <span
+                        className={`font-mono font-bold ${
+                          errorsCut > 0 ? 'text-emerald-600' : 'text-rose-600'
+                        }`}
+                      >
+                        {errorsCut > 0 ? `+${fmtMoney(errorsCut)}` : fmtMoney(errorsCut)}
+                      </span>
+                    </div>
+                  )}
+                  <div className="flex items-center justify-between pt-1.5 border-t border-slate-200 dark:border-slate-700 text-sm">
+                    <span className="font-extrabold text-emerald-700 dark:text-emerald-400">
+                      {t('deliveryReconciliation.card_net_bank_deposit')}
+                    </span>
+                    <span className="font-mono font-extrabold text-emerald-600 dark:text-emerald-400">
+                      {fmtMoney(netBankCut)}
+                    </span>
+                  </div>
+                </div>
 
-                  <div>
-                    <div className="text-[10px] text-slate-400 font-bold uppercase">Comisiones / Error</div>
-                    <div className="font-mono font-bold text-amber-600 dark:text-amber-400 mt-0.5">
-                      {fmtMoney(pData.totalFees || 0)}{' '}
-                      {Math.abs(pData.errorCharges || 0) > 0.01 && (
-                        <span className="text-rose-600 dark:text-rose-400 block text-[11px]">
-                          Desc: {fmtMoney(pData.errorCharges || 0)}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="text-right">
-                    <div className="text-[10px] text-emerald-700 dark:text-emerald-400 font-extrabold uppercase">
-                      Depósito / Cortes
-                    </div>
-                    <div className="font-mono font-extrabold text-emerald-600 dark:text-emerald-400 mt-0.5">
-                      {fmtMoney(pData.payoutsNetTotal || pData.netPayout || 0)}
-                    </div>
-                    <div className="text-[10px] text-slate-400 font-semibold">
-                      {pData.payoutsCount || 0} corte(s) en periodo
-                    </div>
-                  </div>
+                {/* Pie de tarjeta: Estatus de Auditoría Orden por Orden contra Toast POS */}
+                <div className="mt-2.5 pt-2 flex items-center justify-between text-[11px]">
+                  <span className="text-slate-500 font-semibold">
+                    {t('deliveryReconciliation.card_audited_tickets_label')}
+                  </span>
+                  {settledCount > 0 ? (
+                    <span className="font-mono font-bold text-indigo-600 dark:text-indigo-400">
+                      {t('deliveryReconciliation.card_audited_summary', {
+                        count: settledCount,
+                        amount: fmtMoney(toastAuditedGross),
+                        matched: pData.matchedCount || 0,
+                      })}
+                      {(pData.disputedCount || 0) > 0
+                        ? ` • 🚨 ${pData.disputedCount} ${t('deliveryReconciliation.card_disputes_short')}`
+                        : ''}
+                    </span>
+                  ) : (
+                    <span className="text-amber-600 dark:text-amber-400 font-semibold">
+                      {t('deliveryReconciliation.card_click_audit_below')}
+                    </span>
+                  )}
                 </div>
               </div>
             )
@@ -1041,7 +1062,7 @@ export default function ConciliarDeliveryPage() {
         </div>
       )}
 
-      {/* NAVEGACIÓN PRINCIPAL EN 1 SOLA FILA (4 PASOS CLAROS) */}
+      {/* 3. NAVEGACIÓN PRINCIPAL EN 3 PASOS CLAROS */}
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-1.5 shadow-sm">
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-1.5">
           <button
@@ -1052,8 +1073,8 @@ export default function ConciliarDeliveryPage() {
                 : 'text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800'
             }`}
           >
-            <FileSpreadsheet className="w-4 h-4 shrink-0" />
-            <span className="truncate">{t('deliveryReconciliation.step_1_tab')}</span>
+            <Landmark className="w-4 h-4 shrink-0" />
+            <span className="truncate">{t('deliveryReconciliation.nav_step_1')}</span>
             <span
               className={`px-2 py-0.5 rounded-full text-xs font-extrabold ${
                 activeTab === 'qb_journals' || activeTab === 'payouts'
@@ -1062,32 +1083,6 @@ export default function ConciliarDeliveryPage() {
               }`}
             >
               {qbRecords.length}
-            </span>
-            {(qbSummary?.pendingCount || 0) > 0 && (
-              <span className="px-1.5 py-0.5 rounded-full text-[10px] font-extrabold bg-amber-500 text-white">
-                {qbSummary.pendingCount} pend.
-              </span>
-            )}
-          </button>
-
-          <button
-            onClick={() => setActiveTab('disputes')}
-            className={`flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs md:text-sm font-extrabold transition ${
-              activeTab === 'disputes'
-                ? 'bg-rose-600 text-white shadow-sm'
-                : 'text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800'
-            }`}
-          >
-            <AlertTriangle className="w-4 h-4 shrink-0" />
-            <span className="truncate">{t('deliveryReconciliation.step_2_tab')}</span>
-            <span
-              className={`px-2 py-0.5 rounded-full text-xs font-extrabold ${
-                activeTab === 'disputes'
-                  ? 'bg-white/20 text-white'
-                  : 'bg-rose-500/15 text-rose-600 dark:text-rose-400'
-              }`}
-            >
-              {disputedOrders.length}
             </span>
           </button>
 
@@ -1100,7 +1095,7 @@ export default function ConciliarDeliveryPage() {
             }`}
           >
             <Receipt className="w-4 h-4 shrink-0" />
-            <span className="truncate">{t('deliveryReconciliation.step_3_tab')}</span>
+            <span className="truncate">{t('deliveryReconciliation.nav_step_2')}</span>
             <span
               className={`px-2 py-0.5 rounded-full text-xs font-extrabold ${
                 activeTab === 'orders'
@@ -1108,7 +1103,28 @@ export default function ConciliarDeliveryPage() {
                   : 'bg-indigo-500/15 text-indigo-600 dark:text-indigo-400'
               }`}
             >
-              {displayedOrders.length}
+              {orders.length}
+            </span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('disputes')}
+            className={`flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs md:text-sm font-extrabold transition ${
+              activeTab === 'disputes'
+                ? 'bg-rose-600 text-white shadow-sm'
+                : 'text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800'
+            }`}
+          >
+            <AlertTriangle className="w-4 h-4 shrink-0" />
+            <span className="truncate">{t('deliveryReconciliation.nav_step_3')}</span>
+            <span
+              className={`px-2 py-0.5 rounded-full text-xs font-extrabold ${
+                activeTab === 'disputes'
+                  ? 'bg-white/20 text-white'
+                  : 'bg-rose-500/15 text-rose-600 dark:text-rose-400'
+              }`}
+            >
+              {disputedOrders.length}
             </span>
           </button>
 
@@ -1121,10 +1137,7 @@ export default function ConciliarDeliveryPage() {
             }`}
           >
             <Store className="w-4 h-4 shrink-0" />
-            <span className="truncate">{t('deliveryReconciliation.step_4_tab')}</span>
-            <span className="px-2 py-0.5 rounded-full text-xs font-extrabold bg-slate-500/15">
-              {mappings.length}
-            </span>
+            <span className="truncate">{t('deliveryReconciliation.nav_step_4')}</span>
           </button>
         </div>
       </div>
@@ -1132,6 +1145,131 @@ export default function ConciliarDeliveryPage() {
       {/* TAB 3: AUDITORÍA ORDEN POR ORDEN (CON FILTRO RÁPIDO INTEGRADO Y 10 COLUMNAS APILADAS LIMPIAS) */}
       {activeTab === 'orders' && (
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm overflow-hidden">
+          {/* BANNER DE ECUACIÓN DE AUDITORÍA: 1. TOAST POS ⟷ 2. ÓRDENES PLATAFORMA ⟷ 3. CORTE BANCARIO */}
+          <div className="p-4 bg-gradient-to-r from-slate-50 via-indigo-50/40 to-emerald-50/40 dark:from-slate-800/60 dark:via-indigo-950/20 dark:to-emerald-950/20 border-b border-slate-200 dark:border-slate-800">
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 mb-3">
+              <div>
+                <h3 className="text-xs md:text-sm font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
+                  <span>{t('deliveryReconciliation.eq_banner_title')}</span>
+                  <span className="px-2 py-0.5 rounded-full text-[11px] bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 font-bold">
+                    {selectedStore === 'ALL'
+                      ? t('deliveryReconciliation.all_stores')
+                      : mappings.find((m) => String(m.store_id) === String(selectedStore))?.store_name || `#${selectedStore}`}
+                  </span>
+                </h3>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                  {t('deliveryReconciliation.eq_banner_desc', {
+                    start: fmtDateMDY(startDate),
+                    end: fmtDateMDY(endDate),
+                  })}
+                </p>
+              </div>
+
+              {selectedStore !== 'ALL' ? (
+                <button
+                  onClick={() =>
+                    handleLiveSyncForStore({
+                      storeId: String(selectedStore),
+                      platform: selectedPlatform !== 'ALL' ? (selectedPlatform as DeliveryPlatform) : undefined,
+                      startDate,
+                      endDate,
+                      openOrdersTab: true,
+                    })
+                  }
+                  disabled={syncing}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-extrabold bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm transition disabled:opacity-50"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${syncing ? 'animate-spin' : ''}`} />
+                  {syncing
+                    ? t('deliveryReconciliation.eq_syncing_week_btn')
+                    : t('deliveryReconciliation.eq_sync_week_btn')}
+                </button>
+              ) : (
+                <div className="text-[11px] font-bold text-amber-700 dark:text-amber-300 bg-amber-500/10 border border-amber-500/25 px-3 py-1.5 rounded-xl">
+                  {t('deliveryReconciliation.eq_select_store_tip')}
+                </div>
+              )}
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
+              <div className="rounded-xl bg-white dark:bg-slate-900 p-3 border border-slate-200/80 dark:border-slate-800">
+                <div className="text-[10px] font-extrabold uppercase text-slate-400">
+                  {t('deliveryReconciliation.eq_step1_title')}
+                </div>
+                <div className="text-base font-extrabold font-mono text-slate-900 dark:text-white mt-0.5">
+                  {fmtMoney(
+                    settledOrders.reduce((acc, o) => acc + Number(o.toast_expected_gross || 0), 0)
+                  )}
+                </div>
+                <div className="text-[11px] text-slate-500 mt-0.5">
+                  <strong className="text-slate-700 dark:text-slate-200">{settledOrders.length}</strong>{' '}
+                  {t('deliveryReconciliation.eq_step1_matched_sub')}
+                  {pendingToastOrders.length > 0 && (
+                    <span className="text-amber-600 dark:text-amber-400 font-bold">
+                      {' '}• {pendingToastOrders.length} {t('deliveryReconciliation.eq_step1_pending_sub')}
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              <div className="rounded-xl bg-white dark:bg-slate-900 p-3 border border-indigo-500/25">
+                <div className="text-[10px] font-extrabold uppercase text-indigo-600 dark:text-indigo-400">
+                  {t('deliveryReconciliation.eq_step2_title')}
+                </div>
+                <div className="text-base font-extrabold font-mono text-indigo-600 dark:text-indigo-400 mt-0.5">
+                  {fmtMoney(
+                    settledOrders.reduce((acc, o) => acc + Number(o.platform_gross_receivable || 0), 0)
+                  )}
+                </div>
+                <div className="text-[11px] text-slate-500 mt-0.5">
+                  <span className="text-emerald-600 font-bold">
+                    {t('deliveryReconciliation.eq_step2_matched', { count: matchedOrdersList.length })}
+                  </span>
+                  {' • '}
+                  <span className="text-rose-600 font-bold">
+                    {t('deliveryReconciliation.eq_step2_disputed', { count: disputedOrders.length })}
+                  </span>
+                </div>
+              </div>
+
+              <div className="rounded-xl bg-white dark:bg-slate-900 p-3 border border-emerald-500/25">
+                <div className="text-[10px] font-extrabold uppercase text-emerald-700 dark:text-emerald-400">
+                  {t('deliveryReconciliation.eq_step3_title', { count: payouts.length })}
+                </div>
+                <div className="text-base font-extrabold font-mono text-emerald-600 dark:text-emerald-400 mt-0.5">
+                  {fmtMoney(
+                    payouts.reduce((acc, p) => acc + Number(p.net_payout_amount || 0), 0)
+                  )}{' '}
+                  <span className="text-xs font-normal text-slate-400">
+                    ({t('deliveryReconciliation.eq_step3_gross_label')}:{' '}
+                    {fmtMoney(payouts.reduce((acc, p) => acc + Number(p.platform_gross_receivable || 0), 0))})
+                  </span>
+                </div>
+                <div className="text-[11px] text-slate-500 mt-0.5">
+                  {t('deliveryReconciliation.eq_step3_fees_label')}:{' '}
+                  {fmtMoney(
+                    payouts.reduce(
+                      (acc, p) =>
+                        acc +
+                        Number(p.commission_fees || 0) +
+                        Number(p.delivery_fees || 0) +
+                        Number(p.processing_fees || 0) +
+                        Number(p.marketing_fees || 0),
+                      0
+                    )
+                  )}{' '}
+                  • {t('deliveryReconciliation.eq_step3_errors_label')}:{' '}
+                  {fmtMoney(
+                    payouts.reduce(
+                      (acc, p) => acc + Number(p.error_charges || 0) + Number(p.adjustments_amount || 0),
+                      0
+                    )
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+
           {/* Sub-barra integrada de filtro de órdenes */}
           <div className="p-3.5 bg-slate-50/70 dark:bg-slate-800/40 border-b border-slate-200 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2">
             <div className="flex flex-wrap items-center gap-1.5">
@@ -1237,7 +1375,9 @@ export default function ConciliarDeliveryPage() {
                         className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition"
                       >
                         <td className="p-3 whitespace-nowrap">
-                          <div className="font-bold text-slate-900 dark:text-white">{ord.business_date}</div>
+                          <div className="font-bold text-slate-900 dark:text-white">
+                            {fmtDateMDY(ord.business_date)}
+                          </div>
                           <div className="text-xs font-semibold text-slate-500">{ord.store_name}</div>
                         </td>
                         <td className="p-3 whitespace-nowrap">
@@ -1261,7 +1401,7 @@ export default function ConciliarDeliveryPage() {
                           )}
                           {ord.payout_reference_id && (
                             <div className="text-[11px] font-mono text-indigo-600 dark:text-indigo-400">
-                              Corte: #{ord.payout_reference_id}
+                              {t('deliveryReconciliation.cut_prefix')}: #{ord.payout_reference_id}
                             </div>
                           )}
                         </td>
@@ -1270,7 +1410,8 @@ export default function ConciliarDeliveryPage() {
                             {fmtMoney(ord.toast_expected_gross)}
                           </div>
                           <div className="text-[11px] text-slate-500">
-                            Sub: {fmtMoney(ord.toast_net_sales)} • Tax: {fmtMoney(ord.toast_tax)}
+                            {t('deliveryReconciliation.sub_prefix')}: {fmtMoney(ord.toast_net_sales)} •{' '}
+                            {t('deliveryReconciliation.tax_prefix')}: {fmtMoney(ord.toast_tax)}
                             {ord.platform === 'UBER_EATS' && ord.toast_tax > 0 ? ' (Uber)' : ''}
                           </div>
                         </td>
@@ -1279,7 +1420,8 @@ export default function ConciliarDeliveryPage() {
                             {fmtMoney(ord.platform_gross_receivable)}
                           </div>
                           <div className="text-[11px] text-slate-500">
-                            Sub: {fmtMoney(ord.platform_subtotal)} • Tax:{' '}
+                            {t('deliveryReconciliation.sub_prefix')}: {fmtMoney(ord.platform_subtotal)} •{' '}
+                            {t('deliveryReconciliation.tax_prefix')}:{' '}
                             {fmtMoney(ord.platform_tax_paid_to_merchant)}
                           </div>
                         </td>
@@ -1298,7 +1440,8 @@ export default function ConciliarDeliveryPage() {
                           </div>
                           {Math.abs(procMkt) > 0.01 && (
                             <div className="text-[10px] text-slate-400">
-                              Com: {fmtMoney(commDel)} • Fees: {fmtMoney(procMkt)}
+                              {t('deliveryReconciliation.comm_prefix')}: {fmtMoney(commDel)} •{' '}
+                              {t('deliveryReconciliation.fees_prefix')}: {fmtMoney(procMkt)}
                             </div>
                           )}
                         </td>
@@ -1329,7 +1472,7 @@ export default function ConciliarDeliveryPage() {
                             {ord.raw_payload?.reimbursement_payout_ref && (
                               <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold">
                                 {t('deliveryReconciliation.reimbursed_in_payout_sub', {
-                                  date: ord.raw_payload.reimbursement_deposit_date || '-',
+                                  date: fmtDateMDY(ord.raw_payload.reimbursement_deposit_date),
                                   desc: ord.raw_payload.reimbursement_description || 'Goodwill Refund',
                                 })}
                               </span>
@@ -1405,6 +1548,7 @@ export default function ConciliarDeliveryPage() {
                     </th>
                     <th className="p-3 text-right">{t('deliveryReconciliation.payout_toast_expected')}</th>
                     <th className="p-3 text-right">{t('deliveryReconciliation.payout_variance')}</th>
+                    <th className="p-3 text-center">{t('deliveryReconciliation.col_actions')}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
@@ -1415,24 +1559,29 @@ export default function ConciliarDeliveryPage() {
                       Number(p.processing_fees || 0) +
                       Number(p.marketing_fees || 0)
                     const errTotal = Number(p.error_charges || 0) + Number(p.adjustments_amount || 0)
+                    const hasToastAudit = Number(p.toast_expected_gross || 0) > 0
                     return (
                       <tr
                         key={p.id}
                         onClick={() => {
-                          setSearchQuery(p.payout_reference_id)
+                          setSelectedStore(String(p.store_id))
+                          setSelectedPlatform(p.platform)
+                          if (p.period_start) setStartDate(p.period_start)
+                          if (p.period_end) setEndDate(p.period_end)
+                          setSearchQuery('')
                           setQuickFilter('ALL')
                           setActiveTab('orders')
                         }}
                         className="hover:bg-slate-50 dark:hover:bg-slate-800/40 cursor-pointer transition"
                       >
-                        <td className="p-3 font-bold">{p.payout_date || '-'}</td>
+                        <td className="p-3 font-bold">{fmtDateMDY(p.payout_date)}</td>
                         <td className="p-3 font-semibold">{p.store_name}</td>
                         <td className="p-3">{renderPlatformBadge(p.platform)}</td>
                         <td className="p-3 font-mono text-xs font-bold text-indigo-600 dark:text-indigo-400">
                           {p.payout_reference_id}
                         </td>
                         <td className="p-3 text-xs text-slate-500">
-                          {p.period_start} → {p.period_end}
+                          {fmtDateMDY(p.period_start)} → {fmtDateMDY(p.period_end)}
                         </td>
                         <td className="p-3 font-mono text-xs">
                           {p.bank_account_last4 ? `•••• ${p.bank_account_last4}` : '-'}
@@ -1478,15 +1627,52 @@ export default function ConciliarDeliveryPage() {
                         <td className="p-3 text-right font-mono font-extrabold text-emerald-600 dark:text-emerald-400">
                           {fmtMoney(p.net_payout_amount)}
                         </td>
-                        <td className="p-3 text-right font-mono">{fmtMoney(p.toast_expected_gross)}</td>
+                        <td className="p-3 text-right font-mono">
+                          {hasToastAudit ? (
+                            <div>
+                              <span className="font-bold">{fmtMoney(p.toast_expected_gross)}</span>
+                              <span className="block text-[10px] text-slate-400">
+                                {t('deliveryReconciliation.toast_ord_short', {
+                                  count: p.toast_matched_orders_count || 0,
+                                })}
+                              </span>
+                            </div>
+                          ) : (
+                            <span className="text-[11px] text-amber-600 dark:text-amber-400 font-semibold">
+                              {t('deliveryReconciliation.pending_audit_badge')}
+                            </span>
+                          )}
+                        </td>
                         <td
                           className={`p-3 text-right font-mono font-bold ${
-                            Math.abs(Number(p.gross_variance || 0)) <= 0.1
+                            !hasToastAudit
+                              ? 'text-slate-400'
+                              : Math.abs(Number(p.gross_variance || 0)) <= 0.1
                               ? 'text-emerald-600 dark:text-emerald-400'
                               : 'text-rose-600 dark:text-rose-400'
                           }`}
                         >
-                          {fmtMoney(p.gross_variance)}
+                          {hasToastAudit ? fmtMoney(p.gross_variance) : '—'}
+                        </td>
+                        <td className="p-3 text-center whitespace-nowrap">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              handleLiveSyncForStore({
+                                storeId: String(p.store_id),
+                                platform: p.platform,
+                                startDate: p.period_start || startDate,
+                                endDate: p.period_end || endDate,
+                                payoutRef: p.payout_reference_id,
+                                openOrdersTab: true,
+                              })
+                            }}
+                            disabled={syncing}
+                            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-xs font-extrabold shadow-sm transition"
+                          >
+                            <RefreshCw className={`w-3 h-3 ${syncing ? 'animate-spin' : ''}`} />
+                            {t('deliveryReconciliation.audit_vs_toast_btn')}
+                          </button>
                         </td>
                       </tr>
                     )
@@ -1526,7 +1712,7 @@ export default function ConciliarDeliveryPage() {
                 <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
                   {disputedOrders.map((ord) => (
                     <tr key={ord.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
-                      <td className="p-3 font-medium">{ord.business_date}</td>
+                      <td className="p-3 font-medium">{fmtDateMDY(ord.business_date)}</td>
                       <td className="p-3 font-semibold">{ord.store_name}</td>
                       <td className="p-3">{renderPlatformBadge(ord.platform)}</td>
                       <td className="p-3 font-mono font-bold">
@@ -1538,7 +1724,7 @@ export default function ConciliarDeliveryPage() {
                         )}
                         {ord.payout_reference_id && (
                           <span className="block text-[11px] font-mono font-semibold text-indigo-600 dark:text-indigo-400">
-                            Corte descuento: #{ord.payout_reference_id}
+                            {t('deliveryReconciliation.deduction_cut_prefix')} #{ord.payout_reference_id}
                           </span>
                         )}
                       </td>
@@ -1548,8 +1734,10 @@ export default function ConciliarDeliveryPage() {
                         <div>{fmtMoney(Number(ord.error_charge || 0) + Number(ord.adjustment_amount || 0))}</div>
                         {ord.raw_payload?.reimbursement_payout_ref && (
                           <span className="inline-block mt-1 px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30">
-                            +{fmtMoney(ord.raw_payload.reimbursement_amount || ord.dispute_amount)} en #
-                            {ord.raw_payload.reimbursement_payout_ref}
+                            {t('deliveryReconciliation.reimbursed_in_short', {
+                              amount: fmtMoney(ord.raw_payload.reimbursement_amount || ord.dispute_amount),
+                              ref: ord.raw_payload.reimbursement_payout_ref,
+                            })}
                           </span>
                         )}
                       </td>
@@ -1577,7 +1765,7 @@ export default function ConciliarDeliveryPage() {
                               })}
                               <span className="block text-[10px] font-normal text-slate-500">
                                 {t('deliveryReconciliation.reimbursed_in_payout_sub', {
-                                  date: ord.raw_payload.reimbursement_deposit_date || '-',
+                                  date: fmtDateMDY(ord.raw_payload.reimbursement_deposit_date),
                                   desc: ord.raw_payload.reimbursement_description || '',
                                 })}
                               </span>
@@ -1636,7 +1824,8 @@ export default function ConciliarDeliveryPage() {
                         <div>{m.toast_restaurant_guid}</div>
                         {stSync?.toastLastSync && (
                           <div className="text-[11px] text-emerald-600 dark:text-emerald-400 font-semibold mt-0.5">
-                            Toast: {fmtLaTimestamp(stSync.toastLastSync)} ({stSync.toastOrders} órd.)
+                            Toast: {fmtLaTimestamp(stSync.toastLastSync)} ({stSync.toastOrders}{' '}
+                            {t('deliveryReconciliation.ord_short')})
                           </div>
                         )}
                       </td>
@@ -1646,7 +1835,7 @@ export default function ConciliarDeliveryPage() {
                         </div>
                         <div className="text-[11px] text-slate-500">
                           {stSync?.ddLastSync
-                            ? `${fmtLaTimestamp(stSync.ddLastSync)} (${stSync.ddOrders} órd / ${stSync.ddPayouts} cortes)`
+                            ? `${fmtLaTimestamp(stSync.ddLastSync)} (${stSync.ddOrders} ${t('deliveryReconciliation.ord_short')} / ${stSync.ddPayouts} ${t('deliveryReconciliation.cuts_short')})`
                             : '—'}
                         </div>
                       </td>
@@ -1656,7 +1845,7 @@ export default function ConciliarDeliveryPage() {
                         </div>
                         <div className="text-[11px] text-slate-500">
                           {stSync?.ghLastSync
-                            ? `${fmtLaTimestamp(stSync.ghLastSync)} (${stSync.ghOrders} órd / ${stSync.ghPayouts} cortes)`
+                            ? `${fmtLaTimestamp(stSync.ghLastSync)} (${stSync.ghOrders} ${t('deliveryReconciliation.ord_short')} / ${stSync.ghPayouts} ${t('deliveryReconciliation.cuts_short')})`
                             : '—'}
                         </div>
                       </td>
@@ -1666,7 +1855,7 @@ export default function ConciliarDeliveryPage() {
                         </div>
                         <div className="text-[11px] text-slate-500">
                           {stSync?.ueLastSync
-                            ? `${fmtLaTimestamp(stSync.ueLastSync)} (${stSync.ueOrders} órd / ${stSync.uePayouts} cortes)`
+                            ? `${fmtLaTimestamp(stSync.ueLastSync)} (${stSync.ueOrders} ${t('deliveryReconciliation.ord_short')} / ${stSync.uePayouts} ${t('deliveryReconciliation.cuts_short')})`
                             : '—'}
                         </div>
                       </td>
@@ -1684,8 +1873,10 @@ export default function ConciliarDeliveryPage() {
                           )}
                           <button
                             onClick={() => {
-                              setActiveTab('orders')
-                              handleLiveSyncForStore(String(m.store_id))
+                              handleLiveSyncForStore({
+                                storeId: String(m.store_id),
+                                openOrdersTab: true,
+                              })
                             }}
                             disabled={syncing}
                             className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-xs font-bold transition"
@@ -1704,179 +1895,73 @@ export default function ConciliarDeliveryPage() {
         </div>
       )}
 
-      {/* TAB 5: PÓLIZAS QUICKBOOKS (SETTLEMENT JOURNAL ENTRIES) */}
+      {/* TAB 1: CORTES SEMANALES Y PÓLIZAS QUICKBOOKS (VISTA SIMPLE SIN RUIDO) */}
       {activeTab === 'qb_journals' && (
-        <div className="space-y-4">
-          {/* BARRA SUPERIOR DE CONEXIÓN QUICKBOOKS ONLINE Y CREACIÓN EN LOTE */}
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 flex flex-col lg:flex-row lg:items-center justify-between gap-3 shadow-sm">
-            <div className="flex flex-wrap items-center gap-2.5">
-              {qbAuthError ? (
-                <div className="flex flex-wrap items-center gap-2 bg-rose-500/10 border border-rose-500/30 px-3.5 py-2 rounded-xl">
-                  <AlertTriangle className="w-4 h-4 text-rose-600 dark:text-rose-400" />
-                  <span className="text-xs font-bold text-rose-700 dark:text-rose-300">
-                    Sesión de QuickBooks Online expirada
-                  </span>
-                  <button
-                    onClick={handleQuickBooksReauth}
-                    className="px-3 py-1 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-xs font-extrabold transition"
-                  >
-                    {t('deliveryReconciliation.qb_reconnect_btn')}
-                  </button>
-                </div>
-              ) : (
-                <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-700 dark:text-emerald-300 text-xs font-bold">
-                  <CheckCircle2 className="w-4 h-4" />
-                  {t('deliveryReconciliation.qb_connected_badge')} (Tacos Gavilan LLC)
-                </div>
-              )}
-
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm overflow-hidden">
+          {/* Sub-barra única: Estado QuickBooks + Filtro Rápido + Selector de Vista */}
+          <div className="p-3.5 bg-slate-50/70 dark:bg-slate-800/40 border-b border-slate-200 dark:border-slate-800 flex flex-col lg:flex-row lg:items-center justify-between gap-2.5">
+            <div className="flex flex-wrap items-center gap-1.5">
               <button
-                onClick={handleQuickBooksReauth}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-semibold transition"
+                onClick={() => setQbQuickFilter('ALL')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition border ${
+                  qbQuickFilter === 'ALL'
+                    ? 'bg-slate-800 text-white border-slate-800 dark:bg-slate-200 dark:text-slate-900'
+                    : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700'
+                }`}
               >
-                🔗 {t('deliveryReconciliation.qb_reconnect_btn')}
+                {t('deliveryReconciliation.qb_filter_all_cuts', { count: qbRecords.length })}
+              </button>
+              <button
+                onClick={() => setQbQuickFilter('PENDING')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition border ${
+                  qbQuickFilter === 'PENDING'
+                    ? 'bg-amber-600 text-white border-amber-600'
+                    : 'bg-white dark:bg-slate-900 text-amber-600 dark:text-amber-400 border-amber-500/30'
+                }`}
+              >
+                {t('deliveryReconciliation.qb_filter_pending', { count: qbSummary?.pendingCount || 0 })}
+              </button>
+              <button
+                onClick={() => setQbQuickFilter('CREATED')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition border ${
+                  qbQuickFilter === 'CREATED'
+                    ? 'bg-emerald-600 text-white border-emerald-600'
+                    : 'bg-white dark:bg-slate-900 text-emerald-600 dark:text-emerald-400 border-emerald-500/30'
+                }`}
+              >
+                {t('deliveryReconciliation.qb_filter_created', { count: qbSummary?.createdCount || 0 })}
               </button>
 
-              <button
-                onClick={fetchQbJournalRecords}
-                disabled={qbLoading}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-semibold transition"
-              >
-                <RefreshCw className={`w-3.5 h-3.5 ${qbLoading ? 'animate-spin' : ''}`} />
-                {t('deliveryReconciliation.qb_refresh_btn')}
-              </button>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-2">
               {selectedQbPayoutIds.size > 0 && (
                 <button
                   onClick={() => handlePublishQbJournalEntries(Array.from(selectedQbPayoutIds))}
                   disabled={publishingQb}
-                  className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs md:text-sm font-extrabold shadow-sm transition"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-extrabold shadow-sm transition"
                 >
-                  <FileSpreadsheet className="w-4 h-4" />
+                  <FileSpreadsheet className="w-3.5 h-3.5" />
                   {publishingQb
-                    ? t('deliveryReconciliation.qb_creating_btn')
-                    : t('deliveryReconciliation.qb_batch_create_btn', { count: selectedQbPayoutIds.size })}
+                    ? t('deliveryReconciliation.qb_publishing_short')
+                    : t('deliveryReconciliation.qb_publish_selected_btn', {
+                        count: selectedQbPayoutIds.size,
+                      })}
                 </button>
               )}
             </div>
-          </div>
 
-          {/* 4 TARJETAS KPI DE PÓLIZAS QUICKBOOKS E IMPUESTOS (CLICABLES COMO FILTRO) */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-            <div
-              onClick={() => setQbQuickFilter('ALL')}
-              className={`cursor-pointer bg-white dark:bg-slate-900 border rounded-2xl p-4 shadow-sm transition ${
-                qbQuickFilter === 'ALL'
-                  ? 'border-indigo-500 ring-2 ring-indigo-500/20'
-                  : 'border-slate-200 dark:border-slate-800 hover:border-indigo-400'
-              }`}
-            >
-              <div className="text-[11px] font-bold uppercase text-slate-400">
-                {t('deliveryReconciliation.qb_kpi_total_cuts')}
-              </div>
-              <div className="text-2xl font-extrabold font-mono mt-1">{qbSummary?.totalCount || 0}</div>
-              <div className="text-xs text-slate-500 mt-1">
-                Depósito Neto Total: <span className="font-mono font-bold">{fmtMoney(qbSummary?.totalNetPayout)}</span>
-              </div>
-            </div>
-
-            <div
-              onClick={() => setQbQuickFilter(qbQuickFilter === 'PENDING' ? 'ALL' : 'PENDING')}
-              className={`cursor-pointer bg-white dark:bg-slate-900 border rounded-2xl p-4 shadow-sm transition ${
-                qbQuickFilter === 'PENDING'
-                  ? 'border-amber-500 ring-2 ring-amber-500/25'
-                  : 'border-amber-500/30 hover:border-amber-500'
-              }`}
-            >
-              <div className="text-[11px] font-bold uppercase text-amber-600 dark:text-amber-400">
-                {t('deliveryReconciliation.qb_kpi_pending_je')}
-              </div>
-              <div className="text-2xl font-extrabold font-mono text-amber-600 dark:text-amber-400 mt-1">
-                {qbSummary?.pendingCount || 0}
-              </div>
-              <div className="text-xs text-slate-500 mt-1">
-                Por contabilizar: <span className="font-mono font-bold">{fmtMoney(qbSummary?.pendingNetPayout)}</span>
-              </div>
-            </div>
-
-            <div
-              onClick={() => setQbQuickFilter(qbQuickFilter === 'CREATED' ? 'ALL' : 'CREATED')}
-              className={`cursor-pointer bg-white dark:bg-slate-900 border rounded-2xl p-4 shadow-sm transition ${
-                qbQuickFilter === 'CREATED'
-                  ? 'border-emerald-500 ring-2 ring-emerald-500/25'
-                  : 'border-emerald-500/30 hover:border-emerald-500'
-              }`}
-            >
-              <div className="text-[11px] font-bold uppercase text-emerald-600 dark:text-emerald-400">
-                {t('deliveryReconciliation.qb_kpi_created_je')}
-              </div>
-              <div className="text-2xl font-extrabold font-mono text-emerald-600 dark:text-emerald-400 mt-1">
-                {qbSummary?.createdCount || 0}
-              </div>
-              <div className="text-xs text-slate-500 mt-1">
-                Siguiente Folio Sugerido: <span className="font-mono font-bold">#{qbNextDocNumber}</span>
-              </div>
-            </div>
-
-            <div className="bg-white dark:bg-slate-900 border border-rose-500/30 rounded-2xl p-4 shadow-sm">
-              <div className="text-[11px] font-bold uppercase text-rose-600 dark:text-rose-400">
-                {t('deliveryReconciliation.qb_kpi_at_risk_tax')}
-              </div>
-              <div className="text-2xl font-extrabold font-mono text-rose-600 dark:text-rose-400 mt-1">
-                {fmtMoney(
-                  displayedQbRecords.reduce(
-                    (acc, r) => acc + Number(r.journalPreview?.auditBreakdown?.totalAtRiskTax || 0),
-                    0
-                  )
-                )}
-              </div>
-              <div className="text-xs text-slate-500 mt-1">
-                Sales Tax (DD/GH) en reembolsos u órdenes no pagadas
-              </div>
-            </div>
-          </div>
-
-          {/* TABLA DE PÓLIZAS DE LIQUIDACIÓN SEMANAL (4 LÍNEAS QUICKBOOKS) */}
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm overflow-hidden">
-            {/* Sub-barra de filtros de estado QB y selector de vista */}
-            <div className="p-3.5 bg-slate-50/70 dark:bg-slate-800/40 border-b border-slate-200 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
-              <div className="flex flex-wrap items-center gap-1.5">
-                <span className="text-xs font-extrabold text-slate-500 mr-1">
-                  {t('deliveryReconciliation.filter_inside_qb_label')}
+            <div className="flex flex-wrap items-center gap-2">
+              {qbAuthError ? (
+                <button
+                  onClick={handleQuickBooksReauth}
+                  className="px-3 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-extrabold transition"
+                >
+                  ⚠ {t('deliveryReconciliation.qb_reconnect_btn')}
+                </button>
+              ) : (
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-700 dark:text-emerald-300 text-xs font-bold">
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  {t('deliveryReconciliation.qb_connected_short')}
                 </span>
-                <button
-                  onClick={() => setQbQuickFilter('ALL')}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition border ${
-                    qbQuickFilter === 'ALL'
-                      ? 'bg-slate-800 text-white border-slate-800 dark:bg-slate-200 dark:text-slate-900'
-                      : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700'
-                  }`}
-                >
-                  📋 {t('deliveryReconciliation.quick_filter_all')} ({qbRecords.length})
-                </button>
-                <button
-                  onClick={() => setQbQuickFilter('PENDING')}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition border ${
-                    qbQuickFilter === 'PENDING'
-                      ? 'bg-amber-600 text-white border-amber-600'
-                      : 'bg-white dark:bg-slate-900 text-amber-600 dark:text-amber-400 border-amber-500/30'
-                  }`}
-                >
-                  ⏳ {t('deliveryReconciliation.qb_status_pending')} ({qbSummary?.pendingCount || 0})
-                </button>
-                <button
-                  onClick={() => setQbQuickFilter('CREATED')}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition border ${
-                    qbQuickFilter === 'CREATED'
-                      ? 'bg-emerald-600 text-white border-emerald-600'
-                      : 'bg-white dark:bg-slate-900 text-emerald-600 dark:text-emerald-400 border-emerald-500/30'
-                  }`}
-                >
-                  ✅ {t('deliveryReconciliation.qb_status_created')} ({qbSummary?.createdCount || 0})
-                </button>
-              </div>
+              )}
 
               <div className="inline-flex rounded-xl p-1 bg-slate-200/70 dark:bg-slate-800 border border-slate-300/60 dark:border-slate-700 text-xs font-bold">
                 <button
@@ -1884,226 +1969,220 @@ export default function ConciliarDeliveryPage() {
                     setCutsSubView('qb')
                     setActiveTab('qb_journals')
                   }}
-                  className={`px-3 py-1 rounded-lg transition ${
+                  className={`px-2.5 py-1 rounded-lg transition ${
                     cutsSubView === 'qb'
                       ? 'bg-white dark:bg-slate-900 text-emerald-700 dark:text-emerald-300 shadow-sm'
                       : 'text-slate-600 dark:text-slate-400'
                   }`}
                 >
-                  🧾 {t('deliveryReconciliation.view_mode_qb')}
+                  {t('deliveryReconciliation.qb_subview_accounting')}
                 </button>
                 <button
                   onClick={() => {
                     setCutsSubView('bank')
                     setActiveTab('payouts')
                   }}
-                  className={`px-3 py-1 rounded-lg transition ${
+                  className={`px-2.5 py-1 rounded-lg transition ${
                     cutsSubView === 'bank'
                       ? 'bg-white dark:bg-slate-900 text-indigo-700 dark:text-indigo-300 shadow-sm'
                       : 'text-slate-600 dark:text-slate-400'
                   }`}
                 >
-                  🏦 {t('deliveryReconciliation.view_mode_bank')}
+                  {t('deliveryReconciliation.qb_subview_bank')}
                 </button>
               </div>
             </div>
+          </div>
 
-            {qbLoading ? (
-              <div className="p-12 text-center text-slate-500">{t('deliveryReconciliation.syncing_btn')}</div>
-            ) : displayedQbRecords.length === 0 ? (
-              <div className="p-12 text-center text-slate-500">{t('deliveryReconciliation.empty_payouts')}</div>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-left border-collapse text-xs md:text-sm">
-                  <thead>
-                    <tr className="bg-slate-100 dark:bg-slate-800/70 text-slate-600 dark:text-slate-300 border-b border-slate-200 dark:border-slate-800 font-bold">
-                      <th className="p-3 w-10 text-center">
-                        <input
-                          type="checkbox"
-                          checked={
-                            displayedQbRecords.filter((r) => !r.hasJournalEntry).length > 0 &&
+          {qbLoading ? (
+            <div className="p-12 text-center text-slate-500">{t('deliveryReconciliation.syncing_btn')}</div>
+          ) : displayedQbRecords.length === 0 ? (
+            <div className="p-12 text-center text-slate-500">{t('deliveryReconciliation.empty_payouts')}</div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse text-xs md:text-sm">
+                <thead>
+                  <tr className="bg-slate-100 dark:bg-slate-800/70 text-slate-600 dark:text-slate-300 border-b border-slate-200 dark:border-slate-800 font-bold">
+                    <th className="p-3 w-10 text-center">
+                      <input
+                        type="checkbox"
+                        checked={
+                          displayedQbRecords.filter((r) => !r.hasJournalEntry).length > 0 &&
+                          displayedQbRecords
+                            .filter((r) => !r.hasJournalEntry)
+                            .every((r) => selectedQbPayoutIds.has(r.id))
+                        }
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            const next = new Set<string>()
                             displayedQbRecords
                               .filter((r) => !r.hasJournalEntry)
-                              .every((r) => selectedQbPayoutIds.has(r.id))
+                              .forEach((r) => next.add(r.id))
+                            setSelectedQbPayoutIds(next)
+                          } else {
+                            setSelectedQbPayoutIds(new Set())
                           }
-                          onChange={(e) => {
-                            if (e.target.checked) {
-                              const next = new Set<string>()
-                              displayedQbRecords
-                                .filter((r) => !r.hasJournalEntry)
-                                .forEach((r) => next.add(r.id))
-                              setSelectedQbPayoutIds(next)
-                            } else {
-                              setSelectedQbPayoutIds(new Set())
-                            }
-                          }}
-                          className="rounded border-slate-300"
-                        />
-                      </th>
-                      <th className="p-3">{t('deliveryReconciliation.payout_period')}</th>
-                      <th className="p-3">{t('deliveryReconciliation.col_store')}</th>
-                      <th className="p-3">{t('deliveryReconciliation.col_platform')}</th>
-                      <th className="p-3 text-right">{t('deliveryReconciliation.qb_col_bank_debit')}</th>
-                      <th className="p-3 text-right">{t('deliveryReconciliation.qb_col_fees_debit')}</th>
-                      <th className="p-3 text-right">{t('deliveryReconciliation.qb_col_ar_credit')}</th>
-                      <th className="p-3 text-right">{t('deliveryReconciliation.qb_col_sales_adj')}</th>
-                      <th className="p-3">{t('deliveryReconciliation.qb_col_orders_involved')}</th>
-                      <th className="p-3">{t('deliveryReconciliation.qb_col_je_status')}</th>
-                      <th className="p-3 text-center">{t('deliveryReconciliation.col_actions')}</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
-                    {displayedQbRecords.map((r) => {
-                      const prev = r.journalPreview || {}
-                      const audit = prev.auditBreakdown || {}
-                      const line1 = prev.lines?.[0]
-                      const line2 = prev.lines?.[1]
-                      const line3 = prev.lines?.[2]
-                      const line4 = prev.lines?.[3]
-                      const isChecked = selectedQbPayoutIds.has(r.id)
+                        }}
+                        className="rounded border-slate-300"
+                      />
+                    </th>
+                    <th className="p-3">{t('deliveryReconciliation.qb_col_cut_week')}</th>
+                    <th className="p-3">{t('deliveryReconciliation.col_store')}</th>
+                    <th className="p-3">{t('deliveryReconciliation.col_platform')}</th>
+                    <th className="p-3 text-right">{t('deliveryReconciliation.qb_col_gross_recognized')}</th>
+                    <th className="p-3 text-right">{t('deliveryReconciliation.qb_col_platform_fees')}</th>
+                    <th className="p-3 text-right">{t('deliveryReconciliation.qb_col_refunds_errors')}</th>
+                    <th className="p-3 text-right font-extrabold text-emerald-700 dark:text-emerald-400">
+                      {t('deliveryReconciliation.qb_col_bank_deposit')}
+                    </th>
+                    <th className="p-3">{t('deliveryReconciliation.qb_col_policy_status')}</th>
+                    <th className="p-3 text-center">{t('deliveryReconciliation.qb_col_actions')}</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
+                  {displayedQbRecords.map((r) => {
+                    const prev = r.journalPreview || {}
+                    const audit = prev.auditBreakdown || {}
+                    const line1 = prev.lines?.[0]
+                    const line2 = prev.lines?.[1]
+                    const line3 = prev.lines?.[2]
+                    const line4 = prev.lines?.[3]
+                    const isChecked = selectedQbPayoutIds.has(r.id)
 
-                      return (
-                        <tr key={r.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition">
-                          <td className="p-3 text-center">
-                            <input
-                              type="checkbox"
-                              disabled={r.hasJournalEntry}
-                              checked={isChecked}
-                              onChange={(e) => {
-                                const next = new Set(selectedQbPayoutIds)
-                                if (e.target.checked) next.add(r.id)
-                                else next.delete(r.id)
-                                setSelectedQbPayoutIds(next)
+                    return (
+                      <tr key={r.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition">
+                        <td className="p-3 text-center">
+                          <input
+                            type="checkbox"
+                            disabled={r.hasJournalEntry}
+                            checked={isChecked}
+                            onChange={(e) => {
+                              const next = new Set(selectedQbPayoutIds)
+                              if (e.target.checked) next.add(r.id)
+                              else next.delete(r.id)
+                              setSelectedQbPayoutIds(next)
+                            }}
+                            className="rounded border-slate-300 disabled:opacity-40"
+                          />
+                        </td>
+                        <td className="p-3 whitespace-nowrap">
+                          <div className="font-bold text-slate-900 dark:text-white">
+                            {fmtDateMDY(r.period_start)} → {fmtDateMDY(r.period_end)}
+                          </div>
+                          <div className="text-[11px] font-mono text-indigo-600 dark:text-indigo-400">
+                            Ref: #{r.payout_reference_id}
+                          </div>
+                        </td>
+                        <td className="p-3 font-bold whitespace-nowrap">{r.store_name}</td>
+                        <td className="p-3 whitespace-nowrap">{renderPlatformBadge(r.platform)}</td>
+                        <td className="p-3 text-right font-mono">
+                          <div className="font-bold text-indigo-600 dark:text-indigo-400">
+                            {fmtMoney(line3?.amount || r.platform_gross_receivable)}
+                          </div>
+                          <div className="text-[10px] text-slate-400">{line3?.accountName}</div>
+                        </td>
+                        <td className="p-3 text-right font-mono">
+                          <div className="font-bold text-amber-600 dark:text-amber-400">
+                            -{fmtMoney(line2?.amount || r.total_fees)}
+                          </div>
+                          <div className="text-[10px] text-slate-400">{line2?.accountName}</div>
+                        </td>
+                        <td className="p-3 text-right font-mono">
+                          {line4 ? (
+                            <div>
+                              <span
+                                className={`font-extrabold ${
+                                  line4.postingType === 'Credit'
+                                    ? 'text-emerald-600 dark:text-emerald-400'
+                                    : 'text-rose-600 dark:text-rose-400'
+                                }`}
+                              >
+                                {line4.postingType === 'Credit' ? '+' : '-'}
+                                {fmtMoney(line4.amount)}
+                              </span>
+                              <div className="text-[10px] text-slate-400">{line4.accountName}</div>
+                            </div>
+                          ) : (
+                            <span className="text-slate-400">$0.00</span>
+                          )}
+                          {Array.isArray(audit.crossPayoutRefunds) &&
+                            audit.crossPayoutRefunds.map((cr: any, idx: number) => (
+                              <div
+                                key={idx}
+                                className="mt-0.5 text-[10px] font-extrabold text-emerald-600 dark:text-emerald-400"
+                              >
+                                {t('deliveryReconciliation.qb_reimb_short', {
+                                  order: cr.orderCode,
+                                  amount: fmtMoney(cr.amount),
+                                })}
+                              </div>
+                            ))}
+                        </td>
+                        <td className="p-3 text-right font-mono">
+                          <div className="font-extrabold text-emerald-600 dark:text-emerald-400">
+                            {fmtMoney(line1?.amount || r.net_payout_amount)}
+                          </div>
+                          <div className="text-[10px] text-slate-400">{line1?.accountName}</div>
+                        </td>
+                        <td className="p-3 whitespace-nowrap">
+                          {r.hasJournalEntry ? (
+                            <div className="flex flex-col gap-0.5 items-start">
+                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-extrabold bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30">
+                                <CheckCircle2 className="w-3.5 h-3.5" />
+                                {t('deliveryReconciliation.qb_badge_created')}
+                              </span>
+                              {r.qbJournalEntry?.docNumber && (
+                                <span className="text-[11px] font-mono font-bold text-slate-500">
+                                  JE #{r.qbJournalEntry.docNumber}
+                                </span>
+                              )}
+                            </div>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30">
+                              {t('deliveryReconciliation.qb_badge_pending')}
+                            </span>
+                          )}
+                        </td>
+                        <td className="p-3 text-center whitespace-nowrap">
+                          <div className="flex items-center justify-center gap-1.5">
+                            <button
+                              onClick={() => {
+                                setSelectedStore(String(r.store_id))
+                                setSelectedPlatform(r.platform)
+                                if (r.period_start && r.period_end) {
+                                  setStartDate(r.period_start)
+                                  setEndDate(r.period_end)
+                                }
+                                setQuickFilter('ALL')
+                                setActiveTab('orders')
                               }}
-                              className="rounded border-slate-300 disabled:opacity-40"
-                            />
-                          </td>
-                          <td className="p-3 whitespace-nowrap">
-                            <div className="font-bold text-slate-900 dark:text-white">
-                              {r.period_start} → {r.period_end}
-                            </div>
-                            <div className="flex items-center gap-1.5 mt-0.5">
-                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-500">
-                                {r.platform === 'GRUBHUB'
-                                  ? t('deliveryReconciliation.cycle_tue_mon')
-                                  : t('deliveryReconciliation.cycle_mon_sun')}
-                              </span>
-                              <span className="text-[11px] font-mono text-indigo-600 dark:text-indigo-400">
-                                Ref: #{r.payout_reference_id}
-                              </span>
-                            </div>
-                          </td>
-                          <td className="p-3 font-bold whitespace-nowrap">{r.store_name}</td>
-                          <td className="p-3 whitespace-nowrap">{renderPlatformBadge(r.platform)}</td>
-                          <td className="p-3 text-right font-mono">
-                            <div className="font-extrabold text-emerald-600 dark:text-emerald-400">
-                              {fmtMoney(line1?.amount || r.net_payout_amount)}
-                            </div>
-                            <div className="text-[10px] text-slate-400">{line1?.accountName}</div>
-                          </td>
-                          <td className="p-3 text-right font-mono">
-                            <div className="font-bold text-amber-600 dark:text-amber-400">
-                              {fmtMoney(line2?.amount || r.total_fees)}
-                            </div>
-                            <div className="text-[10px] text-slate-400">{line2?.accountName}</div>
-                          </td>
-                          <td className="p-3 text-right font-mono">
-                            <div className="font-bold text-indigo-600 dark:text-indigo-400">
-                              {fmtMoney(line3?.amount || r.platform_gross_receivable)}
-                            </div>
-                            <div className="text-[10px] text-slate-400">{line3?.accountName}</div>
-                          </td>
-                          <td className="p-3 text-right font-mono">
-                            {line4 ? (
-                              <div>
-                                <span
-                                  className={`font-extrabold ${
-                                    line4.postingType === 'Credit'
-                                      ? 'text-emerald-600 dark:text-emerald-400'
-                                      : 'text-rose-600 dark:text-rose-400'
-                                  }`}
-                                >
-                                  {line4.postingType === 'Credit' ? 'CR ' : 'DR '}
-                                  {fmtMoney(line4.amount)}
-                                </span>
-                                <div className="text-[10px] text-slate-400">{line4.accountName}</div>
-                              </div>
-                            ) : (
-                              <span className="text-slate-400">$0.00</span>
-                            )}
-                          </td>
-                          <td className="p-3">
-                            <div className="flex flex-col gap-1 items-start">
-                              {Array.isArray(audit.crossPayoutRefunds) &&
-                                audit.crossPayoutRefunds.map((cr: any, idx: number) => (
-                                  <span
-                                    key={idx}
-                                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30"
-                                  >
-                                    🔄 Reembolso #{cr.orderCode} (+{fmtMoney(cr.amount)})
-                                  </span>
-                                ))}
-                              {(audit.deductedOrders?.length || 0) > 0 && (
-                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-500/15 text-rose-700 dark:text-rose-300">
-                                  🚨 {audit.deductedOrders.length} órd. con descuento
-                                </span>
-                              )}
-                              {(audit.totalAtRiskTax || 0) > 0.01 && (
-                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30">
-                                  ⚠ Tax 24001: {fmtMoney(audit.totalAtRiskTax)}
-                                </span>
-                              )}
-                              {(audit.crossPayoutRefunds?.length || 0) === 0 &&
-                                (audit.deductedOrders?.length || 0) === 0 &&
-                                (audit.totalAtRiskTax || 0) <= 0.01 && (
-                                  <span className="text-[11px] text-slate-400">
-                                    {audit.settledOrdersCount || 0} órd. liquidadas
-                                  </span>
-                                )}
-                            </div>
-                          </td>
-                          <td className="p-3 whitespace-nowrap">
-                            {r.hasJournalEntry ? (
-                              <div className="flex flex-col gap-0.5 items-start">
-                                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-extrabold bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30">
-                                  <CheckCircle2 className="w-3.5 h-3.5" />
-                                  {t('deliveryReconciliation.qb_status_created')}
-                                </span>
-                                {r.qbJournalEntry?.docNumber && (
-                                  <span className="text-[11px] font-mono font-bold text-slate-500">
-                                    JE #{r.qbJournalEntry.docNumber} (ID: {r.qbJournalEntry.id})
-                                  </span>
-                                )}
-                              </div>
-                            ) : (
-                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30">
-                                ⏳ {t('deliveryReconciliation.qb_status_pending')}
-                              </span>
-                            )}
-                          </td>
-                          <td className="p-3 text-center whitespace-nowrap">
+                              title={t('deliveryReconciliation.qb_audit_orders_tooltip')}
+                              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-extrabold bg-indigo-50 hover:bg-indigo-600 hover:text-white dark:bg-indigo-950/50 dark:hover:bg-indigo-600 text-indigo-700 dark:text-indigo-300 transition border border-indigo-200 dark:border-indigo-800"
+                            >
+                              {t('deliveryReconciliation.qb_audit_orders_btn')}
+                            </button>
                             <button
                               onClick={() => handleOpenQbModal(r)}
                               className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-extrabold transition ${
                                 r.hasJournalEntry
                                   ? 'bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200'
-                                  : 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm'
+                                  : 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm'
                               }`}
                             >
                               <Eye className="w-3.5 h-3.5" />
                               {r.hasJournalEntry
-                                ? t('deliveryReconciliation.qb_view_single_btn')
-                                : t('deliveryReconciliation.qb_create_single_btn')}
+                                ? t('deliveryReconciliation.qb_view_policy_btn')
+                                : t('deliveryReconciliation.qb_create_policy_btn')}
                             </button>
-                          </td>
-                        </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
+                          </div>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       )}
 
@@ -2157,11 +2236,12 @@ export default function ConciliarDeliveryPage() {
                     <h3 className="text-lg font-extrabold">{t('deliveryReconciliation.qb_modal_title')}</h3>
                   </div>
                   <p className="text-xs text-slate-500 mt-1">
-                    Sucursal: <span className="font-bold">{selectedQbRecord.store_name}</span> • Corte:{' '}
-                    <span className="font-mono font-bold">#{selectedQbRecord.payout_reference_id}</span> • Periodo:{' '}
-                    <span className="font-mono">
-                      {selectedQbRecord.period_start} → {selectedQbRecord.period_end}
-                    </span>
+                    {t('deliveryReconciliation.qb_modal_subtitle', {
+                      store: selectedQbRecord.store_name,
+                      ref: selectedQbRecord.payout_reference_id,
+                      start: fmtDateMDY(selectedQbRecord.period_start),
+                      end: fmtDateMDY(selectedQbRecord.period_end),
+                    })}
                   </p>
                 </div>
                 <button
@@ -2181,7 +2261,7 @@ export default function ConciliarDeliveryPage() {
                       {t('deliveryReconciliation.qb_modal_already_created_banner', {
                         doc: selectedQbRecord.qbJournalEntry.docNumber || '-',
                         id: selectedQbRecord.qbJournalEntry.id,
-                        date: selectedQbRecord.qbJournalEntry.txnDate,
+                        date: fmtDateMDY(selectedQbRecord.qbJournalEntry.txnDate),
                       })}
                     </span>
                   </div>
@@ -2229,18 +2309,22 @@ export default function ConciliarDeliveryPage() {
                           {t('deliveryReconciliation.qb_modal_split_tax_label')} (+{fmtMoney(embeddedTax)})
                         </span>
                         <span className="text-[11px] text-slate-500">
-                          Debita {fmtMoney(embeddedTax)} de 24001 Sales tax payable
+                          {t('deliveryReconciliation.qb_modal_debit_24001_hint', {
+                            amount: fmtMoney(embeddedTax),
+                          })}
                         </span>
                       </div>
                     </label>
                   ) : (
                     <div className="text-xs text-slate-500">
                       <span className="font-bold text-slate-700 dark:text-slate-200 block">
-                        Regla de Impuestos ({selectedQbRecord.platform}):
+                        {t('deliveryReconciliation.qb_modal_tax_rule_label', {
+                          platform: selectedQbRecord.platform,
+                        })}
                       </span>
                       {selectedQbRecord.platform === 'UBER_EATS'
-                        ? 'Uber Eats es Marketplace Facilitator (retiene y declara el Sales Tax directamente).'
-                        : 'Sin cargos por error con Sales Tax por revertir en este corte.'}
+                        ? t('deliveryReconciliation.qb_modal_tax_rule_uber')
+                        : t('deliveryReconciliation.qb_modal_tax_rule_no_err')}
                     </div>
                   )}
                 </div>
@@ -2310,11 +2394,11 @@ export default function ConciliarDeliveryPage() {
                     {t('deliveryReconciliation.qb_modal_deducted_orders_title')}
                   </h4>
                   <div className="text-xs font-mono">
-                    Chargebacks del Corte:{' '}
+                    {t('deliveryReconciliation.qb_modal_chargebacks_summary')}{' '}
                     <span className="font-bold text-rose-600 dark:text-rose-400">
                       {fmtMoney(prev.chargebacksInCut || 0)}
                     </span>{' '}
-                    | Otros Pagos / Reembolsos:{' '}
+                    | {t('deliveryReconciliation.qb_modal_other_payments')}{' '}
                     <span className="font-bold text-emerald-600 dark:text-emerald-400">
                       +{fmtMoney(prev.adjustmentsInCut || 0)}
                     </span>{' '}
@@ -2334,13 +2418,16 @@ export default function ConciliarDeliveryPage() {
                         className="flex flex-wrap items-center justify-between gap-2 p-2.5 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-xs"
                       >
                         <div className="font-bold text-emerald-800 dark:text-emerald-200">
-                          🔄 Disputa Ganada / Reembolso de Otro Periodo: Orden{' '}
-                          <span className="font-mono font-extrabold">#{cr.orderCode}</span>{' '}
-                          {cr.orderDate ? `(Fecha original: ${cr.orderDate})` : ''} —{' '}
-                          <span className="font-mono">&ldquo;{cr.description}&rdquo;</span>
+                          {t('deliveryReconciliation.qb_modal_cross_refund_banner', {
+                            order: cr.orderCode,
+                          })}{' '}
+                          {cr.orderDate
+                            ? t('deliveryReconciliation.qb_modal_orig_date', { date: fmtDateMDY(cr.orderDate) })
+                            : ''}{' '}
+                          — <span className="font-mono">&ldquo;{cr.description}&rdquo;</span>
                         </div>
                         <span className="font-mono font-extrabold text-emerald-700 dark:text-emerald-300">
-                          +{fmtMoney(cr.amount)} (Crédito a favor en Línea 4)
+                          +{fmtMoney(cr.amount)} {t('deliveryReconciliation.qb_modal_credit_line4')}
                         </span>
                       </div>
                     ))}
@@ -2353,20 +2440,20 @@ export default function ConciliarDeliveryPage() {
                     <table className="w-full text-left border-collapse text-xs">
                       <thead>
                         <tr className="bg-rose-500/10 text-slate-700 dark:text-slate-200 font-bold border-b border-slate-200 dark:border-slate-700">
-                          <th className="p-2">Fecha</th>
-                          <th className="p-2"># Orden</th>
-                          <th className="p-2">Toast # / Cliente</th>
-                          <th className="p-2 text-right">Toast Subtotal</th>
-                          <th className="p-2 text-right">Toast Tax</th>
-                          <th className="p-2 text-right">Cargo Error / Ajuste</th>
-                          <th className="p-2 text-right">Neto Pagado</th>
-                          <th className="p-2">Estado Disputa</th>
+                          <th className="p-2">{t('deliveryReconciliation.qb_modal_col_date')}</th>
+                          <th className="p-2">{t('deliveryReconciliation.qb_modal_col_order')}</th>
+                          <th className="p-2">{t('deliveryReconciliation.qb_modal_col_toast_cust')}</th>
+                          <th className="p-2 text-right">{t('deliveryReconciliation.col_toast_net')}</th>
+                          <th className="p-2 text-right">{t('deliveryReconciliation.col_toast_tax')}</th>
+                          <th className="p-2 text-right">{t('deliveryReconciliation.qb_modal_col_error_adj')}</th>
+                          <th className="p-2 text-right">{t('deliveryReconciliation.col_net_payout')}</th>
+                          <th className="p-2">{t('deliveryReconciliation.qb_modal_col_dispute_status')}</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
                         {audit.deductedOrders.map((o: any) => (
                           <tr key={o.id}>
-                            <td className="p-2 font-mono">{o.business_date}</td>
+                            <td className="p-2 font-mono">{fmtDateMDY(o.business_date)}</td>
                             <td className="p-2 font-mono font-bold">{o.platform_order_id}</td>
                             <td className="p-2">
                               {o.toast_display_number ? `#${o.toast_display_number} • ${o.toast_tab_name || ''}` : '-'}
@@ -2378,10 +2465,15 @@ export default function ConciliarDeliveryPage() {
                             </td>
                             <td className="p-2 text-right font-mono font-bold">{fmtMoney(o.net_payout)}</td>
                             <td className="p-2">
-                              <span className="font-semibold">{o.dispute_status}</span>
+                              <span className="font-semibold">
+                                {t(`deliveryReconciliation.dispute_${o.dispute_status}`) || o.dispute_status}
+                              </span>
                               {o.reimbursement_payout_ref && (
                                 <span className="block text-[10px] font-bold text-emerald-600">
-                                  Reembolsada en #{o.reimbursement_payout_ref} (+{fmtMoney(o.reimbursement_amount)})
+                                  {t('deliveryReconciliation.qb_modal_reimbursed_in', {
+                                    ref: o.reimbursement_payout_ref,
+                                    amount: fmtMoney(o.reimbursement_amount),
+                                  })}
                                 </span>
                               )}
                             </td>
@@ -2393,10 +2485,10 @@ export default function ConciliarDeliveryPage() {
                 ) : (
                   <div className="text-xs text-slate-500">
                     {Math.abs(prev.chargebacksInCut || 0) > 0.01
-                      ? `Este corte incluye ${fmtMoney(
-                          prev.chargebacksInCut
-                        )} en ajustes/chargebacks globales del estado de cuenta semanal. Sincroniza el rango de fechas de este periodo para ver el detalle orden por orden.`
-                      : 'No hay órdenes individuales con descuento por cargo de error en este corte.'}
+                      ? t('deliveryReconciliation.qb_modal_global_chargebacks_msg', {
+                          amount: fmtMoney(prev.chargebacksInCut),
+                        })
+                      : t('deliveryReconciliation.qb_modal_no_deducted_orders')}
                   </div>
                 )}
               </div>
@@ -2408,9 +2500,11 @@ export default function ConciliarDeliveryPage() {
                     {t('deliveryReconciliation.qb_modal_unpaid_toast_title')}
                   </h4>
                   <div className="text-xs font-mono">
-                    Órdenes en Toast sin Pago:{' '}
-                    <span className="font-extrabold">{audit.unpaidToastOrdersCount || 0}</span> | Subtotal:{' '}
-                    <span className="font-bold">{fmtMoney(audit.unpaidToastSubtotal || 0)}</span> | Tax Cta 24001:{' '}
+                    {t('deliveryReconciliation.qb_modal_unpaid_count')}{' '}
+                    <span className="font-extrabold">{audit.unpaidToastOrdersCount || 0}</span> |{' '}
+                    {t('deliveryReconciliation.col_toast_net')}:{' '}
+                    <span className="font-bold">{fmtMoney(audit.unpaidToastSubtotal || 0)}</span> |{' '}
+                    {t('deliveryReconciliation.qb_modal_tax_24001')}{' '}
                     <span className="font-extrabold text-rose-600 dark:text-rose-400">
                       {fmtMoney(audit.unpaidToastTax || 0)}
                     </span>
@@ -2426,18 +2520,18 @@ export default function ConciliarDeliveryPage() {
                     <table className="w-full text-left border-collapse text-xs">
                       <thead>
                         <tr className="bg-amber-500/10 font-bold border-b border-slate-200 dark:border-slate-700">
-                          <th className="p-2">Fecha Operativa</th>
-                          <th className="p-2"># Orden / Ticket Toast</th>
+                          <th className="p-2">{t('deliveryReconciliation.col_date')}</th>
+                          <th className="p-2">{t('deliveryReconciliation.col_order_id')}</th>
                           <th className="p-2">Tab Name</th>
-                          <th className="p-2 text-right">Subtotal Toast</th>
-                          <th className="p-2 text-right">Sales Tax (Cta 24001)</th>
-                          <th className="p-2 text-right">Bruto Esperado</th>
+                          <th className="p-2 text-right">{t('deliveryReconciliation.col_toast_net')}</th>
+                          <th className="p-2 text-right">{t('deliveryReconciliation.qb_modal_col_tax_24001')}</th>
+                          <th className="p-2 text-right">{t('deliveryReconciliation.col_toast_expected')}</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
                         {audit.unpaidToastOrdersSample.map((uo: any) => (
                           <tr key={uo.id}>
-                            <td className="p-2 font-mono">{uo.business_date}</td>
+                            <td className="p-2 font-mono">{fmtDateMDY(uo.business_date)}</td>
                             <td className="p-2 font-mono font-bold">
                               {uo.platform_order_id} (Toast #{uo.toast_display_number || '-'})
                             </td>
@@ -2495,7 +2589,7 @@ export default function ConciliarDeliveryPage() {
               <div>
                 <h3 className="text-lg font-extrabold">{t('deliveryReconciliation.modal_order_detail_title')}</h3>
                 <p className="text-xs text-slate-500">
-                  {selectedOrder.store_name} • {selectedOrder.business_date} • #{selectedOrder.platform_order_id}
+                  {selectedOrder.store_name} • {fmtDateMDY(selectedOrder.business_date)} • #{selectedOrder.platform_order_id}
                 </p>
               </div>
               <button
@@ -2579,7 +2673,7 @@ export default function ConciliarDeliveryPage() {
                 </span>
                 <span className="font-mono font-extrabold text-indigo-600 dark:text-indigo-400">
                   #{selectedOrder.payout_reference_id}{' '}
-                  {selectedOrder.payout_date ? `(${selectedOrder.payout_date})` : ''}
+                  {selectedOrder.payout_date ? `(${fmtDateMDY(selectedOrder.payout_date)})` : ''}
                 </span>
               </div>
             )}
@@ -2596,18 +2690,20 @@ export default function ConciliarDeliveryPage() {
                   </span>
                 </div>
                 <div className="text-xs font-semibold text-emerald-800 dark:text-emerald-200">
-                  Corte de Reembolso:{' '}
+                  {t('deliveryReconciliation.modal_reimb_cut_label')}{' '}
                   <span className="font-mono font-extrabold">
                     #{selectedOrder.raw_payload.reimbursement_payout_ref}
                   </span>{' '}
                   {selectedOrder.raw_payload.reimbursement_period
                     ? `(${selectedOrder.raw_payload.reimbursement_period})`
                     : ''}{' '}
-                  • Depositado: <span className="font-mono">{selectedOrder.raw_payload.reimbursement_deposit_date || '-'}</span>
+                  • {t('deliveryReconciliation.modal_deposited_label')}{' '}
+                  <span className="font-mono">{fmtDateMDY(selectedOrder.raw_payload.reimbursement_deposit_date)}</span>
                 </div>
                 {selectedOrder.raw_payload.reimbursement_description && (
                   <div className="text-xs font-mono text-emerald-700 dark:text-emerald-300">
-                    Concepto oficial: &ldquo;{selectedOrder.raw_payload.reimbursement_description}&rdquo;
+                    {t('deliveryReconciliation.modal_official_concept')} &ldquo;
+                    {selectedOrder.raw_payload.reimbursement_description}&rdquo;
                   </div>
                 )}
               </div>
@@ -2655,7 +2751,9 @@ export default function ConciliarDeliveryPage() {
 
             {selectedOrder.items_summary && selectedOrder.items_summary.length > 0 && (
               <div className="bg-slate-50 dark:bg-slate-800/40 rounded-xl p-3 border border-slate-200 dark:border-slate-800">
-                <div className="text-xs font-bold text-slate-500 mb-2">Platillos de la Orden (Toast POS)</div>
+                <div className="text-xs font-bold text-slate-500 mb-2">
+                  {t('deliveryReconciliation.modal_toast_items_title')}
+                </div>
                 <div className="space-y-1">
                   {selectedOrder.items_summary.map((it, idx) => (
                     <div key={idx} className="flex justify-between text-xs">
@@ -2813,7 +2911,10 @@ export default function ConciliarDeliveryPage() {
               />
               {importFileName && (
                 <div className="text-xs text-emerald-600 mt-1 font-semibold">
-                  Archivo cargado: {importFileName} ({importText.length.toLocaleString()} bytes)
+                  {t('deliveryReconciliation.import_loaded_file', {
+                    name: importFileName,
+                    bytes: importText.length.toLocaleString(),
+                  })}
                 </div>
               )}
             </div>

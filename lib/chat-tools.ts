@@ -726,7 +726,7 @@ async function queryDeliveryReconciliationTool(args: any): Promise<string> {
   const limit = Math.min(50, Math.max(1, Number(args?.limit) || 20))
   let query = supabaseAdmin
     .from('delivery_platform_orders')
-    .select('store_id, platform, business_date, platform_order_id, toast_display_number, toast_net_sales, toast_tax, toast_expected_gross, platform_subtotal, platform_tax_paid_to_merchant, platform_gross_receivable, commission_fee, delivery_fee, processing_fee, error_charge, net_payout, gross_diff, reconciliation_status, dispute_status')
+    .select('store_id, platform, business_date, platform_order_id, payout_reference_id, toast_display_number, toast_net_sales, toast_tax, toast_expected_gross, platform_subtotal, platform_tax_paid_to_merchant, platform_gross_receivable, commission_fee, delivery_fee, processing_fee, error_charge, net_payout, gross_diff, reconciliation_status, dispute_status')
     .order('business_date', { ascending: false })
     .limit(limit)
 
@@ -734,13 +734,30 @@ async function queryDeliveryReconciliationTool(args: any): Promise<string> {
   if (args?.platform && args.platform !== 'ALL') query = query.eq('platform', String(args.platform))
   if (args?.status && args.status !== 'ALL') query = query.eq('reconciliation_status', String(args.status))
 
-  const { data, error } = await query
+  let payoutQuery = supabaseAdmin
+    .from('delivery_platform_payouts')
+    .select('store_id, platform, payout_reference_id, period_start, period_end, payout_date, orders_count, platform_gross_receivable, commission_fees, delivery_fees, processing_fees, marketing_fees, error_charges, adjustments_amount, net_payout_amount, toast_matched_orders_count, toast_expected_gross, gross_variance')
+    .order('period_end', { ascending: false })
+    .limit(15)
+
+  if (Number(args?.store_id) > 0) payoutQuery = payoutQuery.eq('store_id', Number(args.store_id))
+  if (args?.platform && args.platform !== 'ALL') payoutQuery = payoutQuery.eq('platform', String(args.platform))
+
+  const [{ data, error }, { data: payoutsData }] = await Promise.all([query, payoutQuery])
   if (error) throw error
   const rows = data || []
+  const payouts = payoutsData || []
+
+  const payoutLines = payouts.map((p: any) => {
+    const fees = Number(p.commission_fees || 0) + Number(p.delivery_fees || 0) + Number(p.processing_fees || 0) + Number(p.marketing_fees || 0)
+    const err = Number(p.error_charges || 0) + Number(p.adjustments_amount || 0)
+    return `- Corte #${p.payout_reference_id} (${p.period_start} → ${p.period_end}) | Tienda #${p.store_id} | ${p.platform} | (+) Bruto: $${Number(p.platform_gross_receivable || 0).toFixed(2)} | (-) Comisiones: $${fees.toFixed(2)} | (±) Errores/Reemb: $${err.toFixed(2)} | (=) Depósito Neto: $${Number(p.net_payout_amount || 0).toFixed(2)} | Toast Auditado: $${Number(p.toast_expected_gross || 0).toFixed(2)} (${p.toast_matched_orders_count || 0} órd.)`
+  })
+
   const lines = rows.map((r: any) =>
-    `- ${r.business_date} | Tienda #${r.store_id} | ${r.platform} | Orden #${r.platform_order_id} (Toast #${r.toast_display_number || '-'}) | Toast Esperado: $${Number(r.toast_expected_gross || 0).toFixed(2)} | Plat Bruto: $${Number(r.platform_gross_receivable || 0).toFixed(2)} | Neto Pagado: $${Number(r.net_payout || 0).toFixed(2)} | Diff: $${Number(r.gross_diff || 0).toFixed(2)} | ${r.reconciliation_status}`
+    `- ${r.business_date} | Tienda #${r.store_id} | ${r.platform} | Orden #${r.platform_order_id} (Toast #${r.toast_display_number || '-'} • Corte #${r.payout_reference_id || '-'}) | Toast Esperado: $${Number(r.toast_expected_gross || 0).toFixed(2)} | Plat Bruto: $${Number(r.platform_gross_receivable || 0).toFixed(2)} | Neto Pagado: $${Number(r.net_payout || 0).toFixed(2)} | Diff: $${Number(r.gross_diff || 0).toFixed(2)} | ${r.reconciliation_status}`
   )
-  return `Conciliación Delivery (/admin/conciliar-delivery): ${rows.length} órdenes consultadas.\n${lines.join('\n')}`
+  return `Conciliación Delivery (/admin/conciliar-delivery):\n### Cortes Semanales (${payouts.length}):\n${payoutLines.join('\n') || 'Sin cortes'}\n\n### Órdenes (${rows.length}):\n${lines.join('\n') || 'Sin órdenes'}`
 }
 
 // ── Store map helper (shared) ──

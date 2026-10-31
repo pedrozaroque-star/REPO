@@ -472,15 +472,18 @@ export async function GET(req: NextRequest) {
     const rawPayouts = (rawPayoutsAll || []).filter((p: any) => {
       if (search && search.length >= 2) return true
       if (!startDate && !endDate) return true
-      const pEnd = p.period_end || p.payout_date || ''
+      const pEnd = p.period_end || ''
       const pStart = p.period_start || pEnd
-      const pPay = p.payout_date || pEnd
-      if (!pEnd && !pPay) return true
+      const pPay = p.payout_date || ''
       const effStart = startDate || '2020-01-01'
       const effEnd = endDate || '2099-12-31'
-      const periodOverlaps = pStart <= effEnd && pEnd >= effStart
-      const payoutDateInWindow = pPay >= effStart && pPay <= effEnd
-      return periodOverlaps || payoutDateInWindow
+      if (pStart && pEnd) {
+        return pStart <= effEnd && pEnd >= effStart
+      }
+      if (pPay) {
+        return pPay >= effStart && pPay <= effEnd
+      }
+      return true
     })
 
     // Calcular ventana de fechas dinámica para consultar en QuickBooks Online el 100% de las pólizas del rango seleccionado

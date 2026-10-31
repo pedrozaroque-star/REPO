@@ -972,12 +972,14 @@ export function buildQboTransactionPayload(txn: any): { entityName: string; endp
   // 6. BillPayment -> BillPayment
   if (tType === 'BillPayment') {
     const payType = txn.payment_type === 'CreditCard' ? 'CreditCard' : 'Check'
-    const qboLines = lines.map((l: any) => ({
-      Amount: Number(Number(l.amount || totalAmt).toFixed(2)),
-      LinkedTxn: l.linked_txn_id && !isLocalId(l.linked_txn_id)
-        ? [{ TxnId: String(l.linked_txn_id), TxnType: l.linked_txn_type || 'Bill' }]
-        : [],
-    }))
+    const qboLines = lines
+      .map((l: any) => ({
+        Amount: Number(Number(l.amount || totalAmt).toFixed(2)),
+        LinkedTxn: l.linked_txn_id && !isLocalId(l.linked_txn_id)
+          ? [{ TxnId: String(l.linked_txn_id), TxnType: l.linked_txn_type || 'Bill' }]
+          : [],
+      }))
+      .filter((ql: any) => ql.LinkedTxn.length > 0)
     const payload: Record<string, any> = {
       VendorRef: {
         value: String(txn.entity_qb_id),
@@ -1062,12 +1064,14 @@ export function buildQboTransactionPayload(txn: any): { entityName: string; endp
 
   // 8. Payment (Customer Payment) -> Payment
   if (tType === 'Payment') {
-    const qboLines = lines.map((l: any) => ({
-      Amount: Number(Number(l.amount || totalAmt).toFixed(2)),
-      LinkedTxn: l.linked_txn_id && !isLocalId(l.linked_txn_id)
-        ? [{ TxnId: String(l.linked_txn_id), TxnType: l.linked_txn_type || 'Invoice' }]
-        : [],
-    }))
+    const qboLines = lines
+      .map((l: any) => ({
+        Amount: Number(Number(l.amount || totalAmt).toFixed(2)),
+        LinkedTxn: l.linked_txn_id && !isLocalId(l.linked_txn_id)
+          ? [{ TxnId: String(l.linked_txn_id), TxnType: l.linked_txn_type || 'Invoice' }]
+          : [],
+      }))
+      .filter((ql: any) => ql.LinkedTxn.length > 0)
     const payload: Record<string, any> = {
       CustomerRef: {
         value: String(txn.entity_qb_id),
@@ -1197,6 +1201,10 @@ export async function pushTransactionToQbo(
       }
     }
   }
+
+  // Rebuild payload after resolving any LOCAL-C-* or LOCAL-ACC-* references
+  const { payload: resolvedPayload } = buildQboTransactionPayload(workingTxn)
+  Object.assign(payload, resolvedPayload)
 
   // 4. Handle DELETE in QBO
   if (operation === 'DELETE') {
@@ -1760,7 +1768,14 @@ export async function syncCompanyWithQbo(
 
       if (ent === 'Purchase') {
         const pType = item.PaymentType || 'Check'
-        const txnType = pType === 'Check' ? 'Check' : pType === 'CreditCard' ? 'CreditCardExpense' : 'Expense'
+        const isCreditPurchase = Boolean(item.Credit)
+        const txnType = isCreditPurchase
+          ? 'CreditCardCredit'
+          : pType === 'Check'
+          ? 'Check'
+          : pType === 'CreditCard'
+          ? 'CreditCardExpense'
+          : 'Expense'
         const isVoided = Boolean(item.PrivateNote && /void/i.test(item.PrivateNote)) && Number(item.TotalAmt ?? 0) === 0
         pulledTxnRows.push({
           company_realm_id: realmId,
@@ -1770,7 +1785,7 @@ export async function syncCompanyWithQbo(
           txn_date: item.TxnDate,
           doc_number: item.DocNumber || null,
           payment_type: pType,
-          direction: 'OUT',
+          direction: isCreditPurchase ? 'IN' : 'OUT',
           account_qb_id: item.AccountRef?.value ? String(item.AccountRef.value) : null,
           account_name: item.AccountRef?.name || (item.AccountRef?.value ? accNameById.get(String(item.AccountRef.value)) : null) || null,
           to_account_qb_id: lineItems[0]?.account_qb_id || null,

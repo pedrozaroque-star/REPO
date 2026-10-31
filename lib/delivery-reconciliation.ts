@@ -2358,8 +2358,9 @@ async function fetchChromeLiveDoorDashAndUberForStores(
               const discoveredRefundDates: string[] = Array.isArray(payVal?.refundDates) ? payVal.refundDates : []
 
               // 2. Construir ventanas de fechas para consultar `getHistoricOrders` (rango principal + fechas históricas con reembolso en corte posterior)
+              const primaryMaxPages = targetMappings.length === 1 ? 8 : 3
               const dateWindows: Array<{ s: string; e: string; maxPages: number }> = storesForOrders.has(m.store_id)
-                ? [{ s: startDate, e: endDate, maxPages: 2 }]
+                ? [{ s: startDate, e: endDate, maxPages: primaryMaxPages }]
                 : []
               for (const rDate of discoveredRefundDates) {
                 if (rDate < startDate || rDate > endDate) {
@@ -2526,35 +2527,53 @@ async function fetchChromeLiveDoorDashAndUberForStores(
               if (!m.doordash_store_id || !storesForOrders.has(m.store_id)) continue
               const ddStoreId = String(m.doordash_store_id).trim()
               const storeSummaries = allDdSummaries.filter((s: any) => String(s?.storeId || '').trim() === ddStoreId)
-              const latestPayoutId = storeSummaries[0]?.payoutId || storeSummaries[0]?.payout?.id
-              if (!latestPayoutId) continue
+              const matchingPayoutIds: string[] = []
+              for (const s of storeSummaries) {
+                const pId = String(s?.payoutId || s?.payout?.id || '').trim()
+                if (!pId) continue
+                const pDate = toOperationalBusinessDate(s.payoutDate)
+                const pStart = addDaysToDateStr(pDate, -10)
+                const pEnd = addDaysToDateStr(pDate, -4)
+                const overlaps = pStart <= endDate && pEnd >= startDate
+                const payInWindow = pDate >= startDate && pDate <= endDate
+                if (overlaps || payInWindow) {
+                  matchingPayoutIds.push(pId)
+                }
+              }
+              if (matchingPayoutIds.length === 0 && storeSummaries[0]) {
+                const fallbackId = String(storeSummaries[0]?.payoutId || storeSummaries[0]?.payout?.id || '').trim()
+                if (fallbackId) matchingPayoutIds.push(fallbackId)
+              }
 
-              const evalRes = await send(
-                'Runtime.evaluate',
-                {
-                  expression: `(async () => {
-                    const transactions = [];
-                    for (let offset = 0; offset < 300; offset += 100) {
-                      const txRes = await fetch('https://merchant-portal.doordash.com/merchant-analytics-service/api/v1/payout_transactions?businessId=137616&entityType=business&limit=100&offset=' + offset + '&payoutId=' + ${JSON.stringify(String(latestPayoutId))} + '&storeId=${ddStoreId}', {
-                        credentials: 'include'
-                      });
-                      const txJson = await txRes.json().catch(() => ({}));
-                      const batch = txJson?.transactions || [];
-                      for (const r of batch) transactions.push(r);
-                      if (batch.length < 100) break;
-                    }
-                    return { summariesList: [], transactions, storeId: '${ddStoreId}', payoutId: ${JSON.stringify(String(latestPayoutId))} };
-                  })()`,
-                  awaitPromise: true,
-                  returnByValue: true,
-                },
-                ddSession
-              ).catch(() => null)
+              const targetPayoutIds = matchingPayoutIds.slice(0, targetMappings.length === 1 ? 3 : 1)
+              for (const pId of targetPayoutIds) {
+                const evalRes = await send(
+                  'Runtime.evaluate',
+                  {
+                    expression: `(async () => {
+                      const transactions = [];
+                      for (let offset = 0; offset < 600; offset += 100) {
+                        const txRes = await fetch('https://merchant-portal.doordash.com/merchant-analytics-service/api/v1/payout_transactions?businessId=137616&entityType=business&limit=100&offset=' + offset + '&payoutId=' + ${JSON.stringify(pId)} + '&storeId=${ddStoreId}', {
+                          credentials: 'include'
+                        });
+                        const txJson = await txRes.json().catch(() => ({}));
+                        const batch = txJson?.transactions || [];
+                        for (const r of batch) transactions.push(r);
+                        if (batch.length < 100) break;
+                      }
+                      return { summariesList: [], transactions, storeId: '${ddStoreId}', payoutId: ${JSON.stringify(pId)} };
+                    })()`,
+                    awaitPromise: true,
+                    returnByValue: true,
+                  },
+                  ddSession
+                ).catch(() => null)
 
-              const val = evalRes?.result?.value
-              if (val) {
-                const parsed = parseDoorDashNativeApiObject(val, allMappings, byDoorDashStoreId, m.store_id)
-                orders.push(...parsed.orders)
+                const val = evalRes?.result?.value
+                if (val) {
+                  const parsed = parseDoorDashNativeApiObject(val, allMappings, byDoorDashStoreId, m.store_id)
+                  orders.push(...parsed.orders)
+                }
               }
             }
           }
@@ -2674,8 +2693,9 @@ async function fetchChromeLiveDoorDashAndUberForStores(
             })
           )
 
+          const primaryMaxPages = targetMappings.length === 1 ? 8 : 3
           const dateWindows: Array<{ s: string; e: string; maxPages: number }> = storesForOrders.has(m.store_id)
-            ? [{ s: startDate, e: endDate, maxPages: 2 }]
+            ? [{ s: startDate, e: endDate, maxPages: primaryMaxPages }]
             : []
           for (const rDate of discoveredRefundDates) {
             if (rDate < startDate || rDate > endDate) {
@@ -3091,7 +3111,7 @@ export async function reconcileAndPersistDeliveryData(params: {
     // 7. Actualizar los totales conciliados de Toast en `delivery_platform_payouts` y vincular reembolsos en cortes posteriores (`cross_payout_refunds`)
     const { data: storePayouts } = await supabaseAdmin
       .from('delivery_platform_payouts')
-      .select('id, platform, payout_reference_id, platform_gross_receivable, raw_payload')
+      .select('id, platform, payout_reference_id, period_start, period_end, platform_gross_receivable, raw_payload')
       .eq('store_id', mapping.store_id)
 
     for (const payout of storePayouts || []) {
@@ -3138,12 +3158,21 @@ export async function reconcileAndPersistDeliveryData(params: {
         }
       }
 
-      const { data: payoutOrders } = await supabaseAdmin
+      let payoutOrdersQuery = supabaseAdmin
         .from('delivery_platform_orders')
-        .select('toast_net_sales, toast_tax, toast_expected_gross, toast_order_guid')
+        .select('toast_net_sales, toast_tax, toast_expected_gross, toast_order_guid, payout_reference_id, business_date')
         .eq('store_id', mapping.store_id)
         .eq('platform', payout.platform)
-        .eq('payout_reference_id', payout.payout_reference_id)
+
+      if (payout.period_start && payout.period_end) {
+        payoutOrdersQuery = payoutOrdersQuery.or(
+          `payout_reference_id.eq.${payout.payout_reference_id},and(business_date.gte.${payout.period_start},business_date.lte.${payout.period_end})`
+        )
+      } else {
+        payoutOrdersQuery = payoutOrdersQuery.eq('payout_reference_id', payout.payout_reference_id)
+      }
+
+      const { data: payoutOrders } = await payoutOrdersQuery
 
       if (payoutOrders && payoutOrders.length > 0) {
         let tNet = 0
@@ -3151,6 +3180,8 @@ export async function reconcileAndPersistDeliveryData(params: {
         let tExp = 0
         let matchedCnt = 0
         for (const po of payoutOrders) {
+          // Si la orden ya tiene asignado otro payout_reference_id distinto, no sumarla a este corte
+          if (po.payout_reference_id && po.payout_reference_id !== payout.payout_reference_id) continue
           if (po.toast_order_guid) matchedCnt++
           tNet += Number(po.toast_net_sales || 0)
           tTax += Number(po.toast_tax || 0)

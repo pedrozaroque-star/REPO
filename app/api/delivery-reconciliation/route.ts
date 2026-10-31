@@ -342,14 +342,17 @@ export async function GET(req: NextRequest) {
             crossMatch
           )
         }
-        // Mostrar cortes cuyo periodo [period_start, period_end] o fecha de depósito [payout_date] se traslape con [startDate, endDate]
-        const pEnd = p.period_end || p.payout_date || ''
+        // Mostrar cortes cuyo periodo [period_start, period_end] se traslape con [startDate, endDate] (si no tiene period_start/end, usar payout_date)
+        const pEnd = p.period_end || ''
         const pStart = p.period_start || pEnd
-        const pPay = p.payout_date || pEnd
-        if (!pEnd && !pPay) return true
-        const periodOverlaps = pStart <= endDate && pEnd >= startDate
-        const payoutDateInWindow = pPay >= startDate && pPay <= endDate
-        return periodOverlaps || payoutDateInWindow
+        const pPay = p.payout_date || ''
+        if (pStart && pEnd) {
+          return pStart <= endDate && pEnd >= startDate
+        }
+        if (pPay) {
+          return pPay >= startDate && pPay <= endDate
+        }
+        return true
       })
 
     // Calcular Resumen Ejecutivo (KPIs) separando Órdenes Liquidadas/Cruzadas vs Pendientes de Corte en Toast
@@ -401,6 +404,12 @@ export async function GET(req: NextRequest) {
       variance: 0,
       settledVariance: 0,
       payoutsCount: 0,
+      payoutsOrdersCount: 0,
+      payoutsGrossTotal: 0,
+      payoutsFeesTotal: 0,
+      payoutsErrorTotal: 0,
+      payoutsTaxToMerchant: 0,
+      payoutsTaxWithheld: 0,
       payoutsNetTotal: 0,
     })
 
@@ -413,7 +422,25 @@ export async function GET(req: NextRequest) {
     for (const p of payouts) {
       const plat = (p.platform as DeliveryPlatformCode) || 'DOORDASH'
       if (byPlatform[plat]) {
+        const pFees =
+          Number(p.commission_fees || 0) +
+          Number(p.delivery_fees || 0) +
+          Number(p.processing_fees || 0) +
+          Number(p.marketing_fees || 0)
+        const pErr = Number(p.error_charges || 0) + Number(p.adjustments_amount || 0)
         byPlatform[plat].payoutsCount++
+        byPlatform[plat].payoutsOrdersCount += Number(p.orders_count || 0)
+        byPlatform[plat].payoutsGrossTotal = round2(
+          byPlatform[plat].payoutsGrossTotal + Number(p.platform_gross_receivable || 0)
+        )
+        byPlatform[plat].payoutsFeesTotal = round2(byPlatform[plat].payoutsFeesTotal + pFees)
+        byPlatform[plat].payoutsErrorTotal = round2(byPlatform[plat].payoutsErrorTotal + pErr)
+        byPlatform[plat].payoutsTaxToMerchant = round2(
+          byPlatform[plat].payoutsTaxToMerchant + Number(p.tax_paid_to_merchant || 0)
+        )
+        byPlatform[plat].payoutsTaxWithheld = round2(
+          byPlatform[plat].payoutsTaxWithheld + Number(p.tax_remitted_by_platform || 0)
+        )
         byPlatform[plat].payoutsNetTotal = round2(
           byPlatform[plat].payoutsNetTotal + Number(p.net_payout_amount || 0)
         )

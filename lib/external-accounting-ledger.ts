@@ -547,10 +547,16 @@ function buildFromNormalized(t: any, ctx: LedgerContext): Posting[] {
       })
       return out
     }
-    case 'Payment':
+    case 'Payment': {
       push(header(ctx.undepositedFundsId), total, -1, true)
-      push(resolveAccountByIdOrName(ctx, t.to_account_qb_id, t.to_account_name) || ctx.defaultArId, -total, 0, false)
+      const candArId = resolveAccountByIdOrName(ctx, t.to_account_qb_id, t.to_account_name)
+      const candArAcc = candArId ? ctx.accounts.get(candArId) : null
+      const arId = candArAcc && (candArAcc.account_type === 'Accounts Receivable' || String(candArAcc.account_sub_type || '').includes('AccountsReceivable'))
+        ? candArId
+        : ctx.defaultArId
+      push(arId || ctx.defaultArId, -total, 0, false)
       return out
+    }
     case 'Invoice':
       push(header(ctx.defaultArId), total, -1, true)
       lines.forEach((l, i) => push(lineAccount(l, 'INCOME'), -Number(l?.amount || 0), i, false, l))
@@ -571,10 +577,16 @@ function buildFromNormalized(t: any, ctx: LedgerContext): Posting[] {
       push(header(ctx.defaultApId), total, -1, true)
       lines.forEach((l, i) => push(lineAccount(l, 'EXPENSE'), -Number(l?.amount || 0), i, false, l))
       return out
-    case 'BillPayment':
+    case 'BillPayment': {
       push(header(null), -total, -1, true)
-      push(resolveAccountByIdOrName(ctx, t.to_account_qb_id, t.to_account_name) || ctx.defaultApId, total, 0, false)
+      const candApId = resolveAccountByIdOrName(ctx, t.to_account_qb_id, t.to_account_name)
+      const candApAcc = candApId ? ctx.accounts.get(candApId) : null
+      const apId = candApAcc && (candApAcc.account_type === 'Accounts Payable' || String(candApAcc.account_sub_type || '').includes('AccountsPayable'))
+        ? candApId
+        : ctx.defaultApId
+      push(apId || ctx.defaultApId, total, 0, false)
       return out
+    }
     case 'CreditCardCredit':
       push(header(null), total, -1, true)
       lines.forEach((l, i) => push(lineAccount(l, 'EXPENSE'), -Number(l?.amount || 0), i, false, l))

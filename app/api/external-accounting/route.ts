@@ -34,7 +34,16 @@ import {
   syncCompanyWithQbo,
   syncAllCompaniesWithQbo,
 } from '@/lib/external-accounting-qbo-sync'
-import { markRawAsLocallyEdited, isCreditNormalAccount, toNaturalBalance, buildLedgerContext } from '@/lib/external-accounting-ledger'
+import { markRawAsLocallyEdited, isCreditNormalAccount, toNaturalBalance, fromNaturalBalance, buildLedgerContext } from '@/lib/external-accounting-ledger'
+import {
+  computeTenantAccountSummary,
+  generateQboInvoicePdfBuffer,
+  generateQboInvoiceEmailHtml,
+  sendQboInvoiceEmail,
+  generateQboStatementPdfBuffer,
+  QboInvoicePdfInput,
+  QboInvoiceLineItem,
+} from '@/lib/external-accounting-invoice-email'
 
 export const dynamic = 'force-dynamic'
 
@@ -42,6 +51,325 @@ function getAdminSupabase() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL!
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY!
   return createClient(url, key, { auth: { persistSession: false } })
+}
+
+/**
+ * Computes the next sequential numeric document number for a given transaction type in a company (e.g. Invoice #3313 -> #3314).
+ */
+function computeNextSequentialDocNumber(txns: any[], targetType: string, fallbackBase = 1000): string {
+  let maxNum = fallbackBase
+  for (const t of txns || []) {
+    if (t.txn_type === targetType && t.doc_number && /^\d+$/.test(String(t.doc_number).trim())) {
+      const n = parseInt(String(t.doc_number).trim(), 10)
+      if (n > maxNum && n < 99999999) maxNum = n
+    }
+  }
+  return String(maxNum + 1)
+}
+
+/**
+ * Fetches all transactions for a specific Customer/Tenant or Vendor within a company,
+ * filtering directly in PostgreSQL so it is never truncated by PostgREST's 1,000-row company limit.
+ */
+async function fetchEntityTransactions(
+  supabase: any,
+  realmId: string,
+  entityQbId: string | null,
+  entityName: string,
+  txnTypes: string[]
+): Promise<any[]> {
+  const selectCols =
+    'id, qb_txn_id, txn_type, txn_date, due_date, doc_number, total_amount, open_balance, is_voided, memo, entity_qb_id, entity_name, line_items, custom_fields, raw_data'
+  const queries: Promise<any>[] = []
+
+  if (entityQbId) {
+    queries.push(
+      supabase
+        .from('external_accounting_transactions')
+        .select(selectCols)
+        .eq('company_realm_id', realmId)
+        .eq('entity_qb_id', String(entityQbId))
+        .in('txn_type', txnTypes)
+        .order('txn_date', { ascending: true })
+        .limit(5000)
+    )
+  }
+  if (entityName) {
+    queries.push(
+      supabase
+        .from('external_accounting_transactions')
+        .select(selectCols)
+        .eq('company_realm_id', realmId)
+        .ilike('entity_name', entityName)
+        .in('txn_type', txnTypes)
+        .order('txn_date', { ascending: true })
+        .limit(5000)
+    )
+  }
+
+  const results = await Promise.all(queries)
+  const byId = new Map<string, any>()
+  for (const res of results) {
+    for (const row of res.data || []) {
+      byId.set(row.id, row)
+    }
+  }
+  return Array.from(byId.values()).sort((a, b) =>
+    String(a.txn_date || '').localeCompare(String(b.txn_date || ''))
+  )
+}
+
+/**
+ * Recalculates open_balance & raw_data.Balance on linked Invoices/Bills AND updates external_accounting_contacts.balance
+ * whenever an Invoice, Payment, CreditMemo, RefundReceipt, Bill, BillPayment, or VendorCredit is created, edited, voided, or deleted.
+ */
+async function recalculateEntityAndInvoiceBalances(
+  supabase: any,
+  realmId: string,
+  txn: any,
+  opts?: { linkedInvoiceIds?: string[]; wasDeletedOrVoided?: boolean }
+) {
+  if (!txn) return
+  const tType = String(txn.txn_type || '')
+  const isAr = ['Invoice', 'Payment', 'CreditMemo', 'RefundReceipt'].includes(tType)
+  const isAp = ['Bill', 'BillPayment', 'VendorCredit'].includes(tType)
+  if (!isAr && !isAp) return
+
+  const entityQbId = txn.entity_qb_id ? String(txn.entity_qb_id) : null
+  const entityName = String(txn.entity_name || '').trim()
+  if (!entityQbId && !entityName) return
+
+  const docType = isAr ? 'Invoice' : 'Bill'
+  const payTypes = isAr ? ['Payment', 'CreditMemo'] : ['BillPayment', 'VendorCredit']
+  const contactType = isAr ? 'Customer' : 'Vendor'
+
+  const entityRows = await fetchEntityTransactions(supabase, realmId, entityQbId, entityName, [
+    docType,
+    ...payTypes,
+  ])
+
+  const docs = entityRows.filter((r: any) => r.txn_type === docType && !r.is_voided)
+  const payments = entityRows.filter((r: any) => payTypes.includes(r.txn_type) && !r.is_voided)
+
+  // If this call just saved a Payment/CreditMemo/BillPayment/VendorCredit and has explicit or auto-linked invoices/bills
+  if (payTypes.includes(tType) && !opts?.wasDeletedOrVoided && txn.id) {
+    const currentPay = payments.find((p: any) => p.id === txn.id) || txn
+    const pLines: any[] = Array.isArray(currentPay.line_items) ? [...currentPay.line_items] : []
+    const explicitIds: string[] = [
+      ...(opts?.linkedInvoiceIds || []),
+      ...(Array.isArray(currentPay.custom_fields?.linked_invoice_ids) ? currentPay.custom_fields.linked_invoice_ids : []),
+      ...pLines.map((l: any) => l.linked_txn_id).filter(Boolean).map(String),
+    ]
+
+    if (explicitIds.length === 0 && (!currentPay.raw_data?.Line || !Array.isArray(currentPay.raw_data?.Line))) {
+      // Auto-link FIFO to open Invoices/Bills (matching exact amount first, then oldest open first)
+      let remainingToLink = Number(currentPay.total_amount || 0)
+      const openDocs = docs.filter((d: any) => Number(d.open_balance ?? d.raw_data?.Balance ?? d.total_amount ?? 0) > 0)
+      const exactDoc = openDocs.find((d: any) => Math.abs(Number(d.open_balance ?? d.raw_data?.Balance ?? d.total_amount ?? 0) - remainingToLink) < 0.01)
+      const orderedOpen = exactDoc ? [exactDoc, ...openDocs.filter((d: any) => d.id !== exactDoc.id)] : openDocs
+
+      const newLinkedLines: any[] = []
+      for (const d of orderedOpen) {
+        if (remainingToLink <= 0.005) break
+        const dOpen = Number(d.open_balance ?? d.raw_data?.Balance ?? d.total_amount ?? 0)
+        const applyAmt = Math.min(remainingToLink, dOpen)
+        if (applyAmt > 0) {
+          newLinkedLines.push({
+            id: String(newLinkedLines.length + 1),
+            line_num: newLinkedLines.length + 1,
+            description: `${tType} for ${docType} #${d.doc_number || d.qb_txn_id}`,
+            amount: Number(applyAmt.toFixed(2)),
+            linked_txn_id: String(d.qb_txn_id || d.id),
+            linked_txn_uuid: String(d.id),
+            linked_txn_doc_number: d.doc_number || null,
+            linked_txn_type: docType,
+            detail_type: 'PaymentLineDetail',
+          })
+          remainingToLink = Number((remainingToLink - applyAmt).toFixed(2))
+        }
+      }
+
+      if (newLinkedLines.length > 0) {
+        currentPay.line_items = newLinkedLines
+        await supabase
+          .from('external_accounting_transactions')
+          .update({ line_items: newLinkedLines })
+          .eq('id', currentPay.id)
+          .eq('company_realm_id', realmId)
+      }
+    }
+  }
+
+  // Collect all active applied amounts per Invoice/Bill (by id, qb_txn_id, or doc_number)
+  const appliedByDocId = new Map<string, number>()
+  const addApplied = (docRow: any, amt: number) => {
+    if (!docRow || amt <= 0) return
+    appliedByDocId.set(docRow.id, Number(((appliedByDocId.get(docRow.id) || 0) + amt).toFixed(2)))
+  }
+
+  const findMatchingDoc = (l: any) => {
+    if (l?.linked_txn_uuid) {
+      const byUuid = docs.find((d: any) => String(d.id) === String(l.linked_txn_uuid).trim())
+      if (byUuid) return byUuid
+    }
+    if (l?.linked_txn_id) {
+      const byQbId = docs.find(
+        (d: any) => String(d.qb_txn_id) === String(l.linked_txn_id).trim() || String(d.id) === String(l.linked_txn_id).trim()
+      )
+      if (byQbId) return byQbId
+    }
+    if (l?.linked_txn_doc_number) {
+      const byDocNum = docs.find(
+        (d: any) => d.doc_number && String(d.doc_number).trim() === String(l.linked_txn_doc_number).trim()
+      )
+      if (byDocNum) return byDocNum
+    }
+    return null
+  }
+
+  let unappliedCreditsTotal = 0
+  for (const p of payments) {
+    const pTotal = Number(p.total_amount || 0)
+    let pApplied = 0
+    const pLines: any[] = Array.isArray(p.line_items) ? p.line_items : []
+    const rawLines: any[] = Array.isArray(p.raw_data?.Line) ? p.raw_data.Line : []
+    const customLinkedIds: string[] = Array.isArray(p.custom_fields?.linked_invoice_ids)
+      ? p.custom_fields.linked_invoice_ids.map(String)
+      : []
+
+    let foundLinkInLines = false
+    let updatedCurrentPayLines = false
+    for (const l of pLines) {
+      const hasAnyLinkProp = Boolean(l.linked_txn_id || l.linked_txn_uuid || l.linked_txn_doc_number)
+      if (hasAnyLinkProp) {
+        foundLinkInLines = true
+        const target = findMatchingDoc(l)
+        const amt = Number(l.amount || pTotal || 0)
+        if (target) {
+          addApplied(target, amt)
+          if (p.id === txn.id && target.qb_txn_id && l.linked_txn_id !== String(target.qb_txn_id)) {
+            l.linked_txn_id = String(target.qb_txn_id)
+            updatedCurrentPayLines = true
+          }
+        }
+        pApplied += amt
+      }
+    }
+    if (updatedCurrentPayLines && p.id === txn.id) {
+      txn.line_items = pLines
+      await supabase
+        .from('external_accounting_transactions')
+        .update({ line_items: pLines })
+        .eq('id', p.id)
+        .eq('company_realm_id', realmId)
+    }
+
+    if (!foundLinkInLines && rawLines.length > 0) {
+      for (const rl of rawLines) {
+        const lt = Array.isArray(rl.LinkedTxn) ? rl.LinkedTxn[0] : null
+        if (lt?.TxnId) {
+          foundLinkInLines = true
+          const target = docs.find((d: any) => String(d.qb_txn_id) === String(lt.TxnId) || String(d.id) === String(lt.TxnId))
+          const amt = Number(rl.Amount || pTotal || 0)
+          if (target) {
+            addApplied(target, amt)
+          }
+          pApplied += amt
+        }
+      }
+    }
+
+    if (!foundLinkInLines && customLinkedIds.length > 0) {
+      let rem = pTotal
+      for (const cid of customLinkedIds) {
+        const target = docs.find((d: any) => String(d.id) === cid || String(d.qb_txn_id) === cid || String(d.doc_number) === cid)
+        if (target && rem > 0) {
+          const amt = Math.min(rem, Number(target.total_amount || 0))
+          addApplied(target, amt)
+          rem = Number((rem - amt).toFixed(2))
+          pApplied += amt
+        }
+      }
+    }
+
+    if (!foundLinkInLines && customLinkedIds.length === 0) {
+      // Unlinked local payment
+      unappliedCreditsTotal = Number((unappliedCreditsTotal + pTotal).toFixed(2))
+    } else if (pTotal > pApplied + 0.01 && p.raw_data?.UnappliedAmt === undefined) {
+      unappliedCreditsTotal = Number((unappliedCreditsTotal + (pTotal - pApplied)).toFixed(2))
+    } else if (p.raw_data?.UnappliedAmt !== undefined) {
+      unappliedCreditsTotal = Number((unappliedCreditsTotal + Number(p.raw_data.UnappliedAmt || 0)).toFixed(2))
+    }
+  }
+
+  // Detect if a voided/deleted payment was previously linked to specific Invoices/Bills so we know to reopen them
+  const reopenedDocIds = new Set<string>()
+  if (opts?.wasDeletedOrVoided && payTypes.includes(tType)) {
+    const oldLines: any[] = Array.isArray(txn.line_items) ? txn.line_items : []
+    const oldRawLines: any[] = Array.isArray(txn.raw_data?.Line) ? txn.raw_data.Line : []
+    for (const l of oldLines) {
+      const target = findMatchingDoc(l)
+      if (target) reopenedDocIds.add(target.id)
+    }
+    for (const rl of oldRawLines) {
+      const lt = Array.isArray(rl.LinkedTxn) ? rl.LinkedTxn[0] : null
+      if (lt?.TxnId) {
+        const target = docs.find((d: any) => String(d.qb_txn_id) === String(lt.TxnId) || String(d.id) === String(lt.TxnId))
+        if (target) reopenedDocIds.add(target.id)
+      }
+    }
+  }
+
+  // Update open_balance & raw_data.Balance on any Invoice/Bill whose computed open balance changed
+  let totalOpenDocsBalance = 0
+  for (const d of docs) {
+    const hasActiveLink = appliedByDocId.has(d.id)
+    const wasReopened = reopenedDocIds.has(d.id)
+    const isThisDocJustSaved = d.id === txn.id
+    const currentOpen = Number(d.open_balance ?? d.raw_data?.Balance ?? d.total_amount ?? 0)
+
+    let nextOpen = currentOpen
+    if (hasActiveLink || wasReopened || isThisDocJustSaved) {
+      const applied = appliedByDocId.get(d.id) || 0
+      nextOpen = Math.max(0, Number((Number(d.total_amount || 0) - applied).toFixed(2)))
+    }
+
+    if (Math.abs(nextOpen - Number(d.open_balance ?? -1)) > 0.005 || Math.abs(nextOpen - Number(d.raw_data?.Balance ?? nextOpen)) > 0.005) {
+      const nextRaw = { ...(d.raw_data && typeof d.raw_data === 'object' ? d.raw_data : {}), Balance: nextOpen }
+      await supabase
+        .from('external_accounting_transactions')
+        .update({ open_balance: nextOpen, raw_data: nextRaw })
+        .eq('id', d.id)
+        .eq('company_realm_id', realmId)
+      d.open_balance = nextOpen
+      d.raw_data = nextRaw
+    }
+
+    totalOpenDocsBalance = Number((totalOpenDocsBalance + nextOpen).toFixed(2))
+  }
+
+  const finalContactBalance = Math.max(0, Number((totalOpenDocsBalance - unappliedCreditsTotal).toFixed(2)))
+
+  // Update external_accounting_contacts.balance for this Customer/Tenant or Vendor
+  const { data: matchingContacts } = await supabase
+    .from('external_accounting_contacts')
+    .select('id, qb_contact_id, display_name, company_name, contact_type')
+    .eq('company_realm_id', realmId)
+    .eq('contact_type', contactType)
+
+  const targetContact = (matchingContacts || []).find((c: any) =>
+    (entityQbId && String(c.qb_contact_id) === entityQbId) ||
+    (entityName && String(c.display_name || '').trim().toLowerCase() === entityName.toLowerCase()) ||
+    (entityName && String(c.company_name || '').trim().toLowerCase() === entityName.toLowerCase())
+  )
+
+  if (targetContact) {
+    await supabase
+      .from('external_accounting_contacts')
+      .update({ balance: finalContactBalance, updated_at: new Date().toISOString() })
+      .eq('id', targetContact.id)
+      .eq('company_realm_id', realmId)
+  }
 }
 
 export async function GET(req: NextRequest) {
@@ -348,6 +676,35 @@ export async function GET(req: NextRequest) {
       return true
     })
 
+    // 6B. Dedicated untruncated QBO sub-view lists (Invoices, Sales, Bills, Expenses) independent of Bank Register pagination/direction filter
+    const invoicesFiltered = txnsWithRunningBalance.filter(t => {
+      if (t.txn_type !== 'Invoice') return false
+      if (startDate && t.txn_date < startDate) return false
+      if (endDate && t.txn_date > endDate) return false
+      return true
+    })
+
+    const salesFiltered = txnsWithRunningBalance.filter(t => {
+      if (!['Invoice', 'Payment', 'SalesReceipt', 'CreditMemo', 'Estimate', 'RefundReceipt', 'Deposit'].includes(t.txn_type)) return false
+      if (startDate && t.txn_date < startDate) return false
+      if (endDate && t.txn_date > endDate) return false
+      return true
+    })
+
+    const billsFiltered = txnsWithRunningBalance.filter(t => {
+      if (!['Bill', 'BillPayment', 'VendorCredit', 'PurchaseOrder'].includes(t.txn_type)) return false
+      if (startDate && t.txn_date < startDate) return false
+      if (endDate && t.txn_date > endDate) return false
+      return true
+    })
+
+    const expensesFiltered = txnsWithRunningBalance.filter(t => {
+      if (!['Expense', 'Check', 'Bill', 'BillPayment', 'CreditCardExpense', 'CreditCardCredit', 'VendorCredit', 'PurchaseOrder'].includes(t.txn_type)) return false
+      if (startDate && t.txn_date < startDate) return false
+      if (endDate && t.txn_date > endDate) return false
+      return true
+    })
+
     // 7. Calculate Period & Company Summary KPIs
     let totalInflows = 0
     let totalOutflows = 0
@@ -394,18 +751,26 @@ export async function GET(req: NextRequest) {
     const bankAccounts = accountsList.filter(a => a.account_type === 'Bank' && a.is_active)
     const totalBankBalance = bankAccounts.reduce((acc, b) => acc + Number(b.current_balance || 0), 0)
 
-    // Suggest next check number for each bank account
+    // Suggest next check number for each bank account (only Check & BillPayment)
     const nextCheckNumberByBank: Record<string, string> = {}
     for (const b of bankAccounts) {
       let maxNum = 1000
       for (const t of allCompanyTxns) {
-        if (t.account_qb_id === b.qb_account_id && t.doc_number && /^\d+$/.test(t.doc_number.trim())) {
+        if (
+          (t.txn_type === 'Check' || t.txn_type === 'BillPayment') &&
+          t.account_qb_id === b.qb_account_id &&
+          t.doc_number &&
+          /^\d+$/.test(t.doc_number.trim())
+        ) {
           const n = parseInt(t.doc_number.trim(), 10)
           if (n > maxNum && n < 9999999) maxNum = n
         }
       }
       nextCheckNumberByBank[b.qb_account_id] = String(maxNum + 1)
     }
+
+    const nextInvoiceNumber = computeNextSequentialDocNumber(allCompanyTxns, 'Invoice', 1000)
+    const nextEstimateNumber = computeNextSequentialDocNumber(allCompanyTxns, 'Estimate', 1000)
 
     const totalPages = Math.max(1, Math.ceil(filteredTxns.length / pageSize))
     const checkbookTotalPages = Math.max(1, Math.ceil(checkbookFiltered.length / pageSize))
@@ -691,8 +1056,14 @@ export async function GET(req: NextRequest) {
         hasNextPage: checkbookOffset + pageSize < checkbookFiltered.length,
         hasPrevPage: checkbookOffset > 0,
       },
-      depositsTransactions: depositsFiltered.slice(0, 200),
+      depositsTransactions: depositsFiltered.slice(0, 500),
+      invoicesTransactions: invoicesFiltered.map((t, i) => i < 200 ? t : { ...t, raw_data: { Balance: t.open_balance } }),
+      salesTransactions: salesFiltered.map((t, i) => i < 200 ? t : { ...t, raw_data: { Balance: t.open_balance } }),
+      billsTransactions: billsFiltered.map((t, i) => i < 200 ? t : { ...t, raw_data: { Balance: t.open_balance } }),
+      expensesTransactions: expensesFiltered.map((t, i) => i < 200 ? t : { ...t, raw_data: { Balance: t.open_balance } }),
       nextCheckNumberByBank,
+      nextInvoiceNumber,
+      nextEstimateNumber,
       summary: {
         totalBankBalance: Number(totalBankBalance.toFixed(2)),
         totalInflows: Number(totalInflows.toFixed(2)),
@@ -747,17 +1118,31 @@ export async function POST(req: NextRequest) {
     }
     const companyClosingDate: string | null = companyRecord.metadata?.closing_date || null
 
-    // Load company accounts map for strict cross-realm reference validation & atomic delta calculation
-    const { data: companyAccounts, error: accLoadErr } = await supabase
-      .from('external_accounting_accounts')
-      .select('*')
-      .eq('company_realm_id', realmId)
+    // Load company accounts & items map for strict cross-realm reference validation & atomic delta calculation
+    const [{ data: companyAccounts, error: accLoadErr }, { data: companyItems }] = await Promise.all([
+      supabase
+        .from('external_accounting_accounts')
+        .select('*')
+        .eq('company_realm_id', realmId),
+      supabase
+        .from('external_accounting_items')
+        .select('*')
+        .eq('company_realm_id', realmId),
+    ])
 
     if (accLoadErr) throw accLoadErr
     const acctByQbId = new Map<string, any>()
     for (const a of companyAccounts || []) {
       acctByQbId.set(a.qb_account_id, a)
     }
+    const itemByQbId = new Map<string, any>()
+    const itemByNameLower = new Map<string, any>()
+    for (const it of companyItems || []) {
+      if (it.qb_item_id) itemByQbId.set(String(it.qb_item_id), it)
+      if (it.name) itemByNameLower.set(String(it.name).trim().toLowerCase(), it)
+      if (it.fully_qualified_name) itemByNameLower.set(String(it.fully_qualified_name).trim().toLowerCase(), it)
+    }
+    const ledgerCtx = buildLedgerContext(companyAccounts || [], companyItems || [])
 
     // -------------------------------------------------------------------------
     // 1. SAVE TRANSACTION (Check, Deposit, Expense, Transfer, JournalEntry, Invoice, Payment, Bill, BillPayment)
@@ -827,29 +1212,55 @@ export async function POST(req: NextRequest) {
         existingTxn = found
       }
 
-      // Normalize line items
-      const normalizedLines = Array.isArray(line_items) ? line_items.map((l: any, idx: number) => ({
-        id: String(idx + 1),
-        line_num: idx + 1,
-        description: l.description || '',
-        amount: Number(l.amount || 0),
-        posting_type: l.posting_type || null,
-        account_qb_id: l.account_qb_id || null,
-        account_name: l.account_name || acctByQbId.get(l.account_qb_id)?.name || '',
-        entity_qb_id: l.entity_qb_id || null,
-        entity_name: l.entity_name || entity_name || null,
-        payment_method: l.payment_method || payment_type || null,
-        check_num: l.check_num || doc_number || null,
-        item_qb_id: l.item_qb_id || l.item_id || null,
-        item_id: l.item_id || l.item_qb_id || null,
-        item_name: l.item_name || null,
-        class_qb_id: l.class_qb_id || class_qb_id || null,
-        class_name: l.class_name || class_name || null,
-        department_qb_id: l.department_qb_id || department_qb_id || null,
-        department_name: l.department_name || department_name || null,
-        qty: l.qty != null && l.qty !== '' ? Number(l.qty) : null,
-        rate: l.rate != null && l.rate !== '' ? Number(l.rate) : null,
-      })) : []
+      // Normalize line items (preserving detail_type, linked_txn_id, linked_txn_type, entity_type, and resolving item -> account mapping)
+      const isSalesLikeTxn =
+        txn_type === 'Invoice' ||
+        txn_type === 'SalesReceipt' ||
+        txn_type === 'CreditMemo' ||
+        txn_type === 'RefundReceipt' ||
+        txn_type === 'Estimate' ||
+        txn_type === 'Deposit'
+      const normalizedLines = Array.isArray(line_items) ? line_items.map((l: any, idx: number) => {
+        const rawItemQbId = l.item_qb_id || l.item_id || null
+        const matchedItem =
+          (rawItemQbId && itemByQbId.get(String(rawItemQbId))) ||
+          (l.item_name && itemByNameLower.get(String(l.item_name).trim().toLowerCase())) ||
+          null
+        const itemFallbackAccQbId = matchedItem
+          ? (isSalesLikeTxn
+              ? (matchedItem.income_account_qb_id || matchedItem.expense_account_qb_id || null)
+              : (matchedItem.expense_account_qb_id || matchedItem.asset_account_qb_id || matchedItem.income_account_qb_id || null))
+          : null
+        const resolvedLineAccQbId = l.account_qb_id || itemFallbackAccQbId || null
+        return {
+          id: String(idx + 1),
+          line_num: idx + 1,
+          description: l.description || matchedItem?.description || '',
+          amount: Number(l.amount || 0),
+          posting_type: l.posting_type || null,
+          detail_type: l.detail_type || null,
+          account_qb_id: resolvedLineAccQbId,
+          account_name: l.account_name || (resolvedLineAccQbId ? acctByQbId.get(String(resolvedLineAccQbId))?.name : '') || '',
+          entity_qb_id: l.entity_qb_id || null,
+          entity_name: l.entity_name || entity_name || null,
+          entity_type: l.entity_type || null,
+          payment_method: l.payment_method || payment_type || null,
+          check_num: l.check_num || doc_number || null,
+          item_qb_id: rawItemQbId || matchedItem?.qb_item_id || null,
+          item_id: rawItemQbId || matchedItem?.qb_item_id || null,
+          item_name: l.item_name || matchedItem?.name || null,
+          class_qb_id: l.class_qb_id || class_qb_id || null,
+          class_name: l.class_name || class_name || null,
+          department_qb_id: l.department_qb_id || department_qb_id || null,
+          department_name: l.department_name || department_name || null,
+          qty: l.qty != null && l.qty !== '' ? Number(l.qty) : null,
+          rate: l.rate != null && l.rate !== '' ? Number(l.rate) : (l.unit_price != null && l.unit_price !== '' ? Number(l.unit_price) : null),
+          linked_txn_id: l.linked_txn_id || null,
+          linked_txn_uuid: l.linked_txn_uuid || null,
+          linked_txn_doc_number: l.linked_txn_doc_number || null,
+          linked_txn_type: l.linked_txn_type || null,
+        }
+      }) : []
 
       // Validate that all referenced accounts belong to this company (realmId)
       if (account_qb_id && !acctByQbId.has(account_qb_id)) {
@@ -888,8 +1299,16 @@ export async function POST(req: NextRequest) {
             }, { status: 400 })
           }
           computedTotal = Number(debitSum.toFixed(2))
-        } else {
+        } else if (txn_type === 'Payment' || txn_type === 'BillPayment') {
           const linesSum = normalizedLines.reduce((s, l) => s + Number(l.amount || 0), 0)
+          if (computedTotal <= 0 && linesSum > 0) {
+            computedTotal = Number(linesSum.toFixed(2))
+          }
+        } else {
+          const linesSum = normalizedLines.reduce((s, l) => {
+            const amt = Number(l.amount || 0)
+            return l.detail_type === 'CashBackLineDetail' ? s - Math.abs(amt) : s + amt
+          }, 0)
           if (linesSum > 0) computedTotal = Number(linesSum.toFixed(2))
         }
       }
@@ -908,7 +1327,7 @@ export async function POST(req: NextRequest) {
         direction = 'NON_POSTING'
       }
 
-      // Resolve primary account for Invoice/CreditMemo (Accounts Receivable) or Bill/VendorCredit (Accounts Payable) if not explicitly chosen
+      // Resolve primary account for Invoice/CreditMemo (Accounts Receivable), Bill/VendorCredit (Accounts Payable), or Payment/SalesReceipt (Undeposited Funds / Bank)
       let resolvedAccountQbId = account_qb_id || null
       let resolvedAccountName = account_qb_id ? (acctByQbId.get(account_qb_id)?.name || account_name || null) : null
       if (!resolvedAccountQbId && (txn_type === 'Invoice' || txn_type === 'CreditMemo' || txn_type === 'Bill' || txn_type === 'VendorCredit')) {
@@ -918,6 +1337,16 @@ export async function POST(req: NextRequest) {
           resolvedAccountQbId = fallbackAcc.qb_account_id
           resolvedAccountName = fallbackAcc.name
         }
+      } else if (!resolvedAccountQbId && (txn_type === 'Payment' || txn_type === 'SalesReceipt')) {
+        const ufAcc = (companyAccounts || []).find(a =>
+          (String(a.account_sub_type || '').toLowerCase() === 'undepositedfunds' ||
+            String(a.name || '').toLowerCase().includes('undeposited funds')) &&
+          a.is_active
+        ) || (companyAccounts || []).find(a => a.account_type === 'Bank' && a.is_active)
+        if (ufAcc) {
+          resolvedAccountQbId = ufAcc.qb_account_id
+          resolvedAccountName = ufAcc.name
+        }
       }
 
       // Auto-create or resolve contact strictly within this realmId
@@ -925,7 +1354,20 @@ export async function POST(req: NextRequest) {
       const lineEntityNames = Array.from(new Set(normalizedLines.map(l => (l.entity_name || '').trim()).filter(Boolean)))
       const trimmedEntityName = (entity_name || '').trim() || lineEntityNames.join(', ')
       const lineDocNums = Array.from(new Set(normalizedLines.map(l => (l.check_num || '').trim()).filter(Boolean)))
-      const resolvedDocNumber = (doc_number || '').trim() || lineDocNums.join(', ') || null
+      let resolvedDocNumber = (doc_number || '').trim() || lineDocNums.join(', ') || null
+
+      // Auto-assign sequential Invoice # if creating an Invoice without a doc_number
+      if (!resolvedDocNumber && (txn_type === 'Invoice' || txn_type === 'Estimate')) {
+        const { data: existingDocs } = await supabase
+          .from('external_accounting_transactions')
+          .select('txn_type, doc_number')
+          .eq('company_realm_id', realmId)
+          .eq('txn_type', txn_type)
+          .order('txn_date', { ascending: false })
+          .limit(1000)
+        resolvedDocNumber = computeNextSequentialDocNumber(existingDocs || [], txn_type, 1000)
+      }
+
       if (trimmedEntityName && !resolvedEntityQbId) {
         const primaryEntityName = (entity_name || '').trim() || lineEntityNames[0] || trimmedEntityName
         const contactType = (direction === 'IN' || txn_type === 'Invoice' || txn_type === 'CreditMemo' || txn_type === 'Estimate' || txn_type === 'RefundReceipt') ? 'Customer' : 'Vendor'
@@ -952,14 +1394,30 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      const resolvedToAccountName = to_account_qb_id
-        ? (acctByQbId.get(to_account_qb_id)?.name || to_account_name || null)
+      const arDefaultAcc = (companyAccounts || []).find(a => a.account_type === 'Accounts Receivable' && a.is_active)
+      const apDefaultAcc = (companyAccounts || []).find(a => a.account_type === 'Accounts Payable' && a.is_active)
+
+      const resolvedToAccountQbId = txn_type === 'Payment'
+        ? (arDefaultAcc?.qb_account_id || to_account_qb_id || null)
+        : txn_type === 'BillPayment'
+        ? (apDefaultAcc?.qb_account_id || to_account_qb_id || null)
+        : (to_account_qb_id || normalizedLines[0]?.account_qb_id || null)
+
+      const resolvedToAccountName = resolvedToAccountQbId
+        ? (acctByQbId.get(resolvedToAccountQbId)?.name || to_account_name || null)
         : (normalizedLines[0]?.account_name || null)
 
       const categories = Array.from(new Set(normalizedLines.map(l => l.account_name).filter(Boolean)))
       const categorySummary = (txn_type === 'Transfer' || txn_type === 'PayDownCreditCard')
         ? `${resolvedAccountName || ''} ➔ ${resolvedToAccountName || ''}`
         : categories.join(', ') || resolvedToAccountName || txn_type
+
+      const mergedCustomFields = {
+        ...(custom_fields && typeof custom_fields === 'object' ? custom_fields : {}),
+        ...(Array.isArray(body.linked_invoice_ids) && body.linked_invoice_ids.length > 0
+          ? { linked_invoice_ids: body.linked_invoice_ids }
+          : {}),
+      }
 
       const payload: Record<string, any> = {
         company_realm_id: realmId,
@@ -973,7 +1431,7 @@ export async function POST(req: NextRequest) {
         direction,
         account_qb_id: resolvedAccountQbId,
         account_name: resolvedAccountName,
-        to_account_qb_id: to_account_qb_id || normalizedLines[0]?.account_qb_id || null,
+        to_account_qb_id: resolvedToAccountQbId,
         to_account_name: resolvedToAccountName,
         entity_qb_id: resolvedEntityQbId,
         entity_name: trimmedEntityName || null,
@@ -985,9 +1443,11 @@ export async function POST(req: NextRequest) {
         term_qb_id: term_qb_id || null,
         term_name: term_name || null,
         payment_method_qb_id: payment_method_qb_id || null,
-        custom_fields: custom_fields || {},
+        custom_fields: mergedCustomFields,
         total_amount: computedTotal,
-        open_balance: (txn_type === 'Invoice' || txn_type === 'Bill') ? computedTotal : 0,
+        open_balance: (txn_type === 'Invoice' || txn_type === 'Bill')
+          ? (existingTxn ? Number(existingTxn.open_balance ?? computedTotal) : computedTotal)
+          : 0,
         memo: memo || null,
         category_summary: categorySummary,
         print_status: print_status || 'NotSet',
@@ -999,7 +1459,7 @@ export async function POST(req: NextRequest) {
       }
 
       if (id) {
-        const oldReversalDeltas = computeTransactionAccountDeltas(acctByQbId, existingTxn, -1)
+        const oldReversalDeltas = computeTransactionAccountDeltas(acctByQbId, existingTxn, -1, ledgerCtx)
         // The QBO snapshot no longer describes this row until the next successful push/sync
         payload.raw_data = markRawAsLocallyEdited(existingTxn?.raw_data)
         const { data: savedTxn, error: updErr } = await supabase
@@ -1012,9 +1472,10 @@ export async function POST(req: NextRequest) {
 
         if (updErr) throw updErr
 
-        const newApplyDeltas = computeTransactionAccountDeltas(acctByQbId, savedTxn, 1)
+        const newApplyDeltas = computeTransactionAccountDeltas(acctByQbId, savedTxn, 1, ledgerCtx)
         const netDeltas = mergeAccountDeltas(oldReversalDeltas, newApplyDeltas)
         await applyAccountDeltasAtomically(supabase, realmId, netDeltas)
+        await recalculateEntityAndInvoiceBalances(supabase, realmId, savedTxn, { linkedInvoiceIds: body.linked_invoice_ids })
 
         // Two-way mirror push to Intuit QuickBooks Online V3 (if company is connected & mirror mode active)
         const qboSync = await pushTransactionToQbo(supabase, realmId, savedTxn, 'UPSERT')
@@ -1042,8 +1503,9 @@ export async function POST(req: NextRequest) {
         if (insErr) throw insErr
 
         try {
-          const newApplyDeltas = computeTransactionAccountDeltas(acctByQbId, savedTxn, 1)
+          const newApplyDeltas = computeTransactionAccountDeltas(acctByQbId, savedTxn, 1, ledgerCtx)
           await applyAccountDeltasAtomically(supabase, realmId, newApplyDeltas)
+          await recalculateEntityAndInvoiceBalances(supabase, realmId, savedTxn, { linkedInvoiceIds: body.linked_invoice_ids })
         } catch (balErr) {
           // Compensating rollback if balance update fails
           await supabase.from('external_accounting_transactions').delete().eq('id', savedTxn.id)
@@ -1051,7 +1513,12 @@ export async function POST(req: NextRequest) {
         }
 
         // Two-way mirror push to Intuit QuickBooks Online V3 (if company is connected & mirror mode active)
-        const qboSync = await pushTransactionToQbo(supabase, realmId, savedTxn, 'UPSERT')
+        const qboSync = body.skipQboSync
+          ? { synced: false, status: 'SKIPPED_BY_CALLER' }
+          : await pushTransactionToQbo(supabase, realmId, savedTxn, 'UPSERT')
+        if (qboSync?.qbTxnId) {
+          savedTxn.qb_txn_id = qboSync.qbTxnId
+        }
 
         await logExternalAccountingAudit(supabase, {
           realmId,
@@ -1174,6 +1641,7 @@ export async function POST(req: NextRequest) {
       if (reversalDeltas.size > 0) {
         await applyAccountDeltasAtomically(supabase, realmId, reversalDeltas)
       }
+      await recalculateEntityAndInvoiceBalances(supabase, realmId, existing, { wasDeletedOrVoided: true })
 
       const qboSync = await pushTransactionToQbo(supabase, realmId, existing, 'VOID')
 
@@ -1236,6 +1704,7 @@ export async function POST(req: NextRequest) {
       if (reversalDeltas.size > 0) {
         await applyAccountDeltasAtomically(supabase, realmId, reversalDeltas)
       }
+      await recalculateEntityAndInvoiceBalances(supabase, realmId, existing, { wasDeletedOrVoided: true })
 
       const qboSync = await pushTransactionToQbo(supabase, realmId, existing, 'DELETE')
 
@@ -1316,6 +1785,20 @@ export async function POST(req: NextRequest) {
       const lines = Array.isArray(rec.line_items) ? rec.line_items : []
       const categories = Array.from(new Set(lines.map((l: any) => l.account_name).filter(Boolean)))
 
+      let resolvedRecDocNumber = docNumber || lines[0]?.check_num || null
+      if (!resolvedRecDocNumber) {
+        if (tType === 'Invoice' || tType === 'Estimate') {
+          const { data: existingDocs } = await supabase
+            .from('external_accounting_transactions')
+            .select('txn_type, doc_number')
+            .eq('company_realm_id', realmId)
+            .eq('txn_type', tType)
+          resolvedRecDocNumber = computeNextSequentialDocNumber(existingDocs || [], tType, 1000)
+        } else {
+          resolvedRecDocNumber = 'EFT'
+        }
+      }
+
       const { data: createdTxn, error: insErr } = await supabase
         .from('external_accounting_transactions')
         .insert({
@@ -1324,7 +1807,7 @@ export async function POST(req: NextRequest) {
           qb_entity_type: tType === 'Check' || tType === 'Expense' ? 'Purchase' : tType,
           qb_txn_id: `REC-${Date.now()}`,
           txn_date: effectiveDate,
-          doc_number: docNumber || lines[0]?.check_num || (tType === 'Invoice' ? `INV-${effectiveDate.replace(/-/g, '')}` : 'EFT'),
+          doc_number: resolvedRecDocNumber,
           payment_type: tType,
           direction,
           account_qb_id: resolvedAcctQbId,
@@ -1353,6 +1836,7 @@ export async function POST(req: NextRequest) {
       try {
         const deltas = computeTransactionAccountDeltas(acctByQbId, createdTxn, 1)
         await applyAccountDeltasAtomically(supabase, realmId, deltas)
+        await recalculateEntityAndInvoiceBalances(supabase, realmId, createdTxn)
       } catch (balErr) {
         await supabase.from('external_accounting_transactions').delete().eq('id', createdTxn.id)
         throw balErr
@@ -1635,6 +2119,11 @@ export async function POST(req: NextRequest) {
           ? { ...existingRaw, Description: description || null }
           : existingRaw
 
+        const signedBalance = fromNaturalBalance(
+          { account_type, classification: derivedClass },
+          Number(current_balance || 0)
+        )
+
         const { data, error } = await supabase
           .from('external_accounting_accounts')
           .update({
@@ -1644,7 +2133,7 @@ export async function POST(req: NextRequest) {
             classification: derivedClass,
             account_type,
             account_sub_type: account_sub_type || account_type,
-            current_balance: Number(current_balance || 0),
+            current_balance: signedBalance,
             is_sub_account: Boolean(is_sub_account && parent_qb_id),
             parent_qb_id: is_sub_account && parent_qb_id ? String(parent_qb_id) : null,
             is_active: is_active !== undefined ? Boolean(is_active) : existingAcc.is_active,
@@ -1658,6 +2147,11 @@ export async function POST(req: NextRequest) {
         if (error) throw error
         savedAcc = data
       } else {
+        const signedBalance = fromNaturalBalance(
+          { account_type, classification: derivedClass },
+          Number(current_balance || 0)
+        )
+
         const { data, error } = await supabase
           .from('external_accounting_accounts')
           .insert({
@@ -1669,8 +2163,8 @@ export async function POST(req: NextRequest) {
             classification: derivedClass,
             account_type,
             account_sub_type: account_sub_type || account_type,
-            current_balance: Number(current_balance || 0),
-            initial_qbo_balance: Number(current_balance || 0),
+            current_balance: signedBalance,
+            initial_qbo_balance: signedBalance,
             is_sub_account: Boolean(is_sub_account && parent_qb_id),
             parent_qb_id: is_sub_account && parent_qb_id ? String(parent_qb_id) : null,
             is_active: is_active !== undefined ? Boolean(is_active) : true,
@@ -3217,6 +3711,532 @@ export async function POST(req: NextRequest) {
       })
 
       return NextResponse.json({ success: true, list: currentList, qboDel })
+    }
+
+    // -------------------------------------------------------------------------
+    // 14. OFFICIAL QBO STATEMENT INVOICE PDF & EMAIL DISPATCH (`generate_invoice_pdf` / `send_invoice_email`)
+    // -------------------------------------------------------------------------
+    if (action === 'generate_invoice_pdf' || action === 'send_invoice_email') {
+      const txnId = body.id || body.txnId || body.transactionId
+      if (!txnId) {
+        return NextResponse.json({ error: 'Transaction id is required' }, { status: 400 })
+      }
+
+      const { data: invoiceRow, error: invErr } = await supabase
+        .from('external_accounting_transactions')
+        .select('*')
+        .eq('id', txnId)
+        .eq('company_realm_id', realmId)
+        .maybeSingle()
+
+      if (invErr || !invoiceRow) {
+        return NextResponse.json({ error: 'Factura (Invoice) no encontrada en la empresa activa.' }, { status: 404 })
+      }
+
+      // Fetch company details + tenant contact + all tenant transactions for Account Summary
+      const entityName = String(invoiceRow.entity_name || '').trim()
+      const entityQbId = invoiceRow.entity_qb_id ? String(invoiceRow.entity_qb_id) : null
+
+      const [compFullRes, contactsRes, rawTenantTxns] = await Promise.all([
+        supabase
+          .from('external_accounting_companies')
+          .select('*')
+          .eq('realm_id', realmId)
+          .maybeSingle(),
+        supabase
+          .from('external_accounting_contacts')
+          .select('*')
+          .eq('company_realm_id', realmId),
+        fetchEntityTransactions(supabase, realmId, entityQbId, entityName, [
+          'Invoice',
+          'Payment',
+          'CreditMemo',
+          'SalesReceipt',
+        ]),
+      ])
+
+      const compFull = compFullRes.data || companyRecord
+      const allContacts = contactsRes.data || []
+      const matchedContact = allContacts.find((c: any) =>
+        (entityQbId && String(c.qb_contact_id) === entityQbId) ||
+        (entityName && String(c.display_name || '').trim().toLowerCase() === entityName.toLowerCase()) ||
+        (entityName && String(c.company_name || '').trim().toLowerCase() === entityName.toLowerCase())
+      )
+
+      const tenantTxns = (rawTenantTxns || []).filter((t: any) => !t.is_voided)
+
+      // Build company address lines
+      const compAddr = compFull?.address && typeof compFull.address === 'object' ? compFull.address : {}
+      const companyAddressLines: string[] = []
+      if (compAddr.Line1) companyAddressLines.push(String(compAddr.Line1))
+      if (compAddr.Line2) companyAddressLines.push(String(compAddr.Line2))
+      const cityStateZip = [
+        compAddr.City,
+        [compAddr.CountrySubDivisionCode, compAddr.PostalCode, compAddr.Country].filter(Boolean).join(' ')
+      ].filter(Boolean).join(', ')
+      if (cityStateZip) companyAddressLines.push(cityStateZip)
+
+      // Build Bill To lines & greeting name
+      const rawInv = invoiceRow.raw_data?.Invoice || invoiceRow.raw_data || {}
+      const billAddr = rawInv?.BillAddr || matchedContact?.address || {}
+      const contactFullName = [matchedContact?.given_name, matchedContact?.family_name].filter(Boolean).join(' ').trim()
+      const contactGreetingName = contactFullName || billAddr.Line1 || matchedContact?.display_name || entityName || 'Valued Tenant'
+      const customerDisplayName = matchedContact?.display_name || matchedContact?.company_name || entityName || 'Tenant'
+
+      const billToLines: string[] = []
+      if (billAddr.Line1 || billAddr.Line2 || billAddr.Line3) {
+        if (billAddr.Line1) billToLines.push(String(billAddr.Line1))
+        if (billAddr.Line2) billToLines.push(String(billAddr.Line2))
+        if (billAddr.Line3) billToLines.push(String(billAddr.Line3))
+        if (billAddr.Line4) billToLines.push(String(billAddr.Line4))
+        const billCityLine = [
+          billAddr.City,
+          [billAddr.CountrySubDivisionCode, billAddr.PostalCode, billAddr.Country].filter(Boolean).join(' ')
+        ].filter(Boolean).join(', ')
+        if (billCityLine && !billToLines.some(l => l.includes(billAddr.City || '___'))) {
+          billToLines.push(billCityLine)
+        }
+      } else {
+        if (contactFullName && contactFullName.toLowerCase() !== customerDisplayName.toLowerCase()) {
+          billToLines.push(contactFullName)
+        }
+        billToLines.push(customerDisplayName)
+      }
+
+      // Compute QBO Statement Account Summary
+      const accountSummary = computeTenantAccountSummary(invoiceRow, tenantTxns, matchedContact)
+
+      // Extract line items (Item name e.g. "Rent" + Description e.g. "Monthly Rent")
+      const rawQboLines: any[] = Array.isArray(rawInv?.Line)
+        ? rawInv.Line.filter((l: any) => l.DetailType !== 'SubTotalLineDetail')
+        : []
+      const dbLines: any[] = Array.isArray(invoiceRow.line_items) ? invoiceRow.line_items : []
+
+      let parsedLineItems: QboInvoiceLineItem[] = []
+      if (rawQboLines.length > 0) {
+        parsedLineItems = rawQboLines.map((rl: any) => {
+          const salesDetail = rl.SalesItemLineDetail || {}
+          const itemRefName = salesDetail.ItemRef?.name || rl.AccountBasedExpenseLineDetail?.AccountRef?.name || 'Rent'
+          const amt = Number(rl.Amount || 0)
+          const unitPrice = salesDetail.UnitPrice !== undefined ? Number(salesDetail.UnitPrice) : amt
+          const qty = salesDetail.Qty !== undefined ? salesDetail.Qty : null
+          return {
+            itemName: String(itemRefName),
+            description: rl.Description ? String(rl.Description) : '',
+            qty,
+            rate: unitPrice,
+            amount: amt,
+          }
+        })
+      } else if (dbLines.length > 0) {
+        parsedLineItems = dbLines.map((dl: any) => {
+          const amt = Number(dl.amount || 0)
+          const itemTitle = dl.item_name || dl.account_name || invoiceRow.category_summary || 'Rent'
+          const cleanItemTitle = String(itemTitle).includes(':') ? String(itemTitle).split(':').pop()!.trim() : String(itemTitle)
+          const resolvedRate = dl.unit_price !== undefined && dl.unit_price !== null
+            ? Number(dl.unit_price)
+            : dl.rate !== undefined && dl.rate !== null
+            ? Number(dl.rate)
+            : amt
+          return {
+            itemName: cleanItemTitle,
+            description: dl.description || invoiceRow.memo || 'Monthly Rent',
+            qty: dl.qty || null,
+            rate: resolvedRate,
+            amount: amt,
+          }
+        })
+      } else {
+        const amt = Number(invoiceRow.total_amount || 0)
+        parsedLineItems = [{
+          itemName: 'Rent',
+          description: invoiceRow.memo || 'Monthly Rent',
+          qty: null,
+          rate: amt,
+          amount: amt,
+        }]
+      }
+
+      const termsName = rawInv?.SalesTermRef?.name || body.terms || 'Due on receipt'
+      const dueDateStr = invoiceRow.due_date || rawInv?.DueDate || invoiceRow.txn_date
+      const defaultCustomerEmail = matchedContact?.email || rawInv?.BillEmail?.Address || ''
+
+      const pdfInput: QboInvoicePdfInput = {
+        companyName: compFull?.company_name || compFull?.legal_name || 'Gutierrez Financial',
+        companyAddressLines,
+        companyPhone: compFull?.phone || '',
+        companyEmail: compFull?.email || 'raquel@tacosgavilan.com',
+        invoiceNumber: String(invoiceRow.doc_number || invoiceRow.qb_txn_id || 'INV'),
+        invoiceDate: String(invoiceRow.txn_date || ''),
+        dueDate: String(dueDateStr || invoiceRow.txn_date || ''),
+        terms: String(termsName),
+        billToLines,
+        contactGreetingName,
+        customerDisplayName,
+        customerEmail: defaultCustomerEmail,
+        accountSummary,
+        lineItems: parsedLineItems,
+        totalNewCharges: Number(invoiceRow.total_amount || 0),
+        balanceDue: accountSummary.totalAmountDue,
+        memo: invoiceRow.memo || '',
+      }
+
+      if (action === 'generate_invoice_pdf') {
+        const pdfBuffer = generateQboInvoicePdfBuffer(pdfInput)
+        const safeCompanySlug = pdfInput.companyName.replace(/[^a-zA-Z0-9]+/g, '_').replace(/^_+|_+$/g, '')
+        const safeInvSlug = String(pdfInput.invoiceNumber || 'INV').replace(/[^a-zA-Z0-9_-]+/g, '')
+        const filename = `Invoice_${safeInvSlug}_from_${safeCompanySlug}.pdf`
+        const emailPreviewHtml = generateQboInvoiceEmailHtml(pdfInput, body.customMessage)
+
+        return NextResponse.json({
+          ok: true,
+          success: true,
+          filename,
+          fileName: filename,
+          pdfBase64: pdfBuffer.toString('base64'),
+          emailPreviewHtml,
+          htmlPreview: emailPreviewHtml,
+          pdfInput,
+          defaultRecipient: defaultCustomerEmail,
+          recipientEmail: defaultCustomerEmail,
+          subject: `Invoice #${pdfInput.invoiceNumber} from ${pdfInput.companyName}`,
+        })
+      }
+
+      // action === 'send_invoice_email'
+      const recipientTo = String(body.to || body.toEmail || defaultCustomerEmail || '').trim()
+      if (!recipientTo) {
+        return NextResponse.json(
+          { error: 'Ingresa al menos un correo electrónico destinatario para enviar la factura PDF.' },
+          { status: 400 }
+        )
+      }
+
+      const rawCc = String(body.cc || body.ccEmail || '').trim()
+      const mailRes = await sendQboInvoiceEmail({
+        pdfInput,
+        toEmails: recipientTo.split(/[;,]/).map(s => s.trim()).filter(Boolean),
+        ccEmails: rawCc ? rawCc.split(/[;,]/).map(s => s.trim()).filter(Boolean) : undefined,
+        subject: body.subject ? String(body.subject).trim() : undefined,
+        customMessage: body.customMessage ? String(body.customMessage).trim() : undefined,
+      })
+
+      if (!mailRes.success) {
+        return NextResponse.json({ error: mailRes.error || 'Error enviando correo' }, { status: 500 })
+      }
+
+      await logExternalAccountingAudit(supabase, {
+        realmId,
+        user: auth.user,
+        actionType: 'SEND_INVOICE_EMAIL',
+        entityType: 'Invoice',
+        entityId: invoiceRow.id,
+        docNumber: pdfInput.invoiceNumber,
+        amount: pdfInput.balanceDue,
+        summary: `Envió Factura PDF (${mailRes.filename}) por correo a ${mailRes.recipients.join(', ')} — Balance Due $${pdfInput.balanceDue.toFixed(2)}`,
+        details: { recipients: mailRes.recipients, filename: mailRes.filename, messageId: mailRes.messageId }
+      })
+
+      return NextResponse.json({
+        ok: true,
+        success: true,
+        messageId: mailRes.messageId,
+        recipients: mailRes.recipients,
+        sentTo: mailRes.recipients.join(', '),
+        filename: mailRes.filename,
+        fileName: mailRes.filename,
+        pdfBase64: mailRes.pdfBase64,
+        pdfInput,
+      })
+    }
+
+    // -------------------------------------------------------------------------
+    // 15. GENERATE OFFICIAL QBO CUSTOMER / TENANT STATEMENT PDF (`generate_statement_pdf`)
+    // -------------------------------------------------------------------------
+    if (action === 'generate_statement_pdf') {
+      const contactId = body.contactId || body.id
+      const entityName = String(body.entityName || body.display_name || '').trim()
+      const entityQbId = body.qb_contact_id ? String(body.qb_contact_id) : null
+
+      const [compFullRes, contactsRes] = await Promise.all([
+        supabase
+          .from('external_accounting_companies')
+          .select('*')
+          .eq('realm_id', realmId)
+          .maybeSingle(),
+        supabase
+          .from('external_accounting_contacts')
+          .select('*')
+          .eq('company_realm_id', realmId),
+      ])
+
+      const compFull = compFullRes.data || companyRecord
+      const allContacts = contactsRes.data || []
+      const matchedContact = allContacts.find((c: any) =>
+        (contactId && String(c.id) === String(contactId)) ||
+        (entityQbId && String(c.qb_contact_id) === entityQbId) ||
+        (entityName && String(c.display_name || '').trim().toLowerCase() === entityName.toLowerCase())
+      )
+
+      const targetQbId = matchedContact?.qb_contact_id ? String(matchedContact.qb_contact_id) : entityQbId
+      const targetName = matchedContact?.display_name || entityName || 'Tenant'
+
+      const rawTenantTxns = await fetchEntityTransactions(supabase, realmId, targetQbId, targetName, [
+        'Invoice',
+        'Payment',
+        'CreditMemo',
+      ])
+      const tenantTxns = (rawTenantTxns || []).filter((t: any) => !t.is_voided)
+
+      const compAddr = compFull?.address && typeof compFull.address === 'object' ? compFull.address : {}
+      const companyAddressLines: string[] = []
+      if (compAddr.Line1) companyAddressLines.push(String(compAddr.Line1))
+      if (compAddr.Line2) companyAddressLines.push(String(compAddr.Line2))
+      const cityStateZip = [
+        compAddr.City,
+        [compAddr.CountrySubDivisionCode, compAddr.PostalCode, compAddr.Country].filter(Boolean).join(' ')
+      ].filter(Boolean).join(', ')
+      if (cityStateZip) companyAddressLines.push(cityStateZip)
+
+      const billAddr = matchedContact?.address || {}
+      const billToLines: string[] = [targetName]
+      if (billAddr.Line1) billToLines.push(String(billAddr.Line1))
+      const billCityLine = [
+        billAddr.City,
+        [billAddr.CountrySubDivisionCode, billAddr.PostalCode, billAddr.Country].filter(Boolean).join(' ')
+      ].filter(Boolean).join(', ')
+      if (billCityLine) billToLines.push(billCityLine)
+
+      const todayIso = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' })
+      const todayMs = new Date(`${todayIso}T12:00:00Z`).getTime()
+      const aging = { current: 0, days1_30: 0, days31_60: 0, days61_90: 0, over90: 0 }
+      let totalBalanceDue = 0
+
+      for (const t of tenantTxns) {
+        if (t.txn_type === 'Invoice') {
+          const openAmt = Number(t.open_balance ?? t.raw_data?.Balance ?? t.total_amount ?? 0)
+          if (openAmt > 0) {
+            totalBalanceDue = Number((totalBalanceDue + openAmt).toFixed(2))
+            const dueStr = String(t.due_date || t.txn_date || todayIso).slice(0, 10)
+            const diffDays = Math.floor((todayMs - new Date(`${dueStr}T12:00:00Z`).getTime()) / 86400000)
+            if (diffDays <= 0) aging.current = Number((aging.current + openAmt).toFixed(2))
+            else if (diffDays <= 30) aging.days1_30 = Number((aging.days1_30 + openAmt).toFixed(2))
+            else if (diffDays <= 60) aging.days31_60 = Number((aging.days31_60 + openAmt).toFixed(2))
+            else if (diffDays <= 90) aging.days61_90 = Number((aging.days61_90 + openAmt).toFixed(2))
+            else aging.over90 = Number((aging.over90 + openAmt).toFixed(2))
+          }
+        }
+      }
+
+      const pdfBuffer = generateQboStatementPdfBuffer({
+        companyName: compFull?.company_name || compFull?.legal_name || 'Gutierrez Financial',
+        companyAddressLines,
+        companyPhone: compFull?.phone || '',
+        companyEmail: compFull?.email || 'raquel@tacosgavilan.com',
+        statementDate: todayIso,
+        customerDisplayName: targetName,
+        billToLines,
+        totalBalanceDue,
+        transactions: tenantTxns,
+        aging,
+      })
+
+      const safeTenantSlug = targetName.replace(/[^a-zA-Z0-9]+/g, '_').replace(/^_+|_+$/g, '')
+      const filename = `Statement_${safeTenantSlug}_${todayIso}.pdf`
+
+      return NextResponse.json({
+        ok: true,
+        success: true,
+        filename,
+        pdfBase64: pdfBuffer.toString('base64'),
+        totalBalanceDue,
+        aging,
+      })
+    }
+
+    // -------------------------------------------------------------------------
+    // 16. SAVE CONTACT NOTE (`save_contact_note`)
+    // -------------------------------------------------------------------------
+    if (action === 'save_contact_note') {
+      const contactId = body.contactId || body.id
+      const noteText = String(body.note ?? body.notes ?? '').trim()
+      if (!contactId) {
+        return NextResponse.json({ error: 'contactId is required' }, { status: 400 })
+      }
+
+      const { data: existingCon, error: findErr } = await supabase
+        .from('external_accounting_contacts')
+        .select('*')
+        .eq('id', contactId)
+        .eq('company_realm_id', realmId)
+        .maybeSingle()
+
+      if (findErr || !existingCon) {
+        return NextResponse.json({ error: 'Contacto no encontrado en la empresa activa.' }, { status: 404 })
+      }
+
+      const rawObj = existingCon.raw_data && typeof existingCon.raw_data === 'object' ? existingCon.raw_data : {}
+      const existingNotesList: any[] = Array.isArray(rawObj.notes_history) ? rawObj.notes_history : []
+      const newEntry = {
+        id: `NOTE-${Date.now()}`,
+        text: noteText,
+        author: auth.user.name || auth.user.email,
+        created_at: new Date().toISOString(),
+      }
+      const nextRaw = {
+        ...rawObj,
+        Notes: noteText,
+        notes_history: noteText ? [newEntry, ...existingNotesList.slice(0, 49)] : existingNotesList,
+      }
+
+      const { data: updatedCon, error: updErr } = await supabase
+        .from('external_accounting_contacts')
+        .update({ raw_data: nextRaw, updated_at: new Date().toISOString() })
+        .eq('id', contactId)
+        .eq('company_realm_id', realmId)
+        .select()
+        .single()
+
+      if (updErr) throw updErr
+      return NextResponse.json({ ok: true, success: true, contact: updatedCon })
+    }
+
+    // -------------------------------------------------------------------------
+    // 17. WRITE OFF INVOICES (My menu -> Accountant Tools -> Write off invoices / /app/writeoffinvoices)
+    // -------------------------------------------------------------------------
+    if (action === 'write_off_invoices') {
+      const invoiceIds: string[] = Array.isArray(body.invoiceIds)
+        ? Array.from(new Set(body.invoiceIds.map(String).filter(Boolean)))
+        : []
+      if (invoiceIds.length === 0) {
+        return NextResponse.json({ error: 'Selecciona al menos una factura (Invoice) con saldo pendiente para condonar (Write Off).' }, { status: 400 })
+      }
+
+      const writeOffDate = String(body.writeOffDate || new Date().toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' })).slice(0, 10)
+      if (companyClosingDate && writeOffDate <= companyClosingDate && !body.overrideClosingDate) {
+        return NextResponse.json(
+          { error: `No se pueden condonar facturas en una fecha dentro de un periodo cerrado (${writeOffDate} ≤ ${companyClosingDate}).` },
+          { status: 400 }
+        )
+      }
+
+      const requestedAccQbId = body.writeOffAccountQbId ? String(body.writeOffAccountQbId) : null
+      const writeOffAcc =
+        (requestedAccQbId && acctByQbId.get(requestedAccQbId)) ||
+        (companyAccounts || []).find(a =>
+          a.is_active &&
+          (String(a.name || '').toLowerCase().includes('bad debt') ||
+            String(a.name || '').toLowerCase().includes('write') ||
+            String(a.name || '').toLowerCase().includes('discount') ||
+            a.account_type === 'Expense' ||
+            a.account_type === 'Income')
+        )
+      if (!writeOffAcc) {
+        return NextResponse.json({ error: 'Selecciona una cuenta contable válida para aplicar el Write-Off.' }, { status: 400 })
+      }
+
+      const arDefaultAcc = (companyAccounts || []).find(a => a.account_type === 'Accounts Receivable' && a.is_active)
+
+      const { data: openInvoices, error: loadInvErr } = await supabase
+        .from('external_accounting_transactions')
+        .select('*')
+        .eq('company_realm_id', realmId)
+        .eq('txn_type', 'Invoice')
+        .in('id', invoiceIds)
+
+      if (loadInvErr) throw loadInvErr
+
+      let mergedDeltas = new Map<string, number>()
+      const createdCreditMemos: any[] = []
+      let totalWrittenOff = 0
+
+      for (const inv of openInvoices || []) {
+        if (inv.is_voided) continue
+        const remBal = Number(inv.open_balance ?? inv.raw_data?.Balance ?? inv.total_amount ?? 0)
+        if (remBal <= 0.009) continue
+
+        const cmDocNumber = `WO-${inv.doc_number || inv.qb_txn_id || Date.now()}`
+        const cmMemo = body.memo || `Write-off of Invoice #${inv.doc_number || inv.qb_txn_id} (${writeOffDate})`
+
+        const { data: createdCm, error: cmErr } = await supabase
+          .from('external_accounting_transactions')
+          .insert({
+            company_realm_id: realmId,
+            txn_type: 'CreditMemo',
+            qb_entity_type: 'CreditMemo',
+            qb_txn_id: `LOCAL-WO-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+            txn_date: writeOffDate,
+            doc_number: cmDocNumber,
+            payment_type: 'CreditMemo',
+            direction: 'ACCRUAL',
+            account_qb_id: arDefaultAcc?.qb_account_id || inv.account_qb_id || null,
+            account_name: arDefaultAcc?.name || inv.account_name || 'Accounts Receivable (A/R)',
+            to_account_qb_id: writeOffAcc.qb_account_id,
+            to_account_name: writeOffAcc.name,
+            entity_qb_id: inv.entity_qb_id || null,
+            entity_name: inv.entity_name || null,
+            entity_type: 'Customer',
+            total_amount: Number(remBal.toFixed(2)),
+            open_balance: 0,
+            memo: cmMemo,
+            category_summary: writeOffAcc.name,
+            print_status: 'NotSet',
+            cleared_status: 'Cleared',
+            is_voided: false,
+            custom_fields: { linked_invoice_ids: [inv.id], write_off: true },
+            line_items: [{
+              id: '1',
+              line_num: 1,
+              description: cmMemo,
+              amount: Number(remBal.toFixed(2)),
+              account_qb_id: writeOffAcc.qb_account_id,
+              account_name: writeOffAcc.name,
+              linked_txn_id: inv.qb_txn_id,
+              linked_txn_uuid: inv.id,
+              linked_txn_doc_number: inv.doc_number,
+              linked_txn_type: 'Invoice',
+            }],
+            created_by: auth.user.name || auth.user.email,
+          })
+          .select()
+          .single()
+
+        if (!cmErr && createdCm) {
+          createdCreditMemos.push(createdCm)
+          totalWrittenOff = Number((totalWrittenOff + remBal).toFixed(2))
+          const d = computeTransactionAccountDeltas(acctByQbId, createdCm, 1, ledgerCtx)
+          mergedDeltas = mergeAccountDeltas(mergedDeltas, d)
+          const nextInvRaw = { ...(inv.raw_data && typeof inv.raw_data === 'object' ? inv.raw_data : {}), Balance: 0 }
+          await supabase
+            .from('external_accounting_transactions')
+            .update({ open_balance: 0, raw_data: nextInvRaw })
+            .eq('id', inv.id)
+            .eq('company_realm_id', realmId)
+          await recalculateEntityAndInvoiceBalances(supabase, realmId, createdCm, { linkedInvoiceIds: [inv.id] })
+        }
+      }
+
+      if (mergedDeltas.size > 0) {
+        await applyAccountDeltasAtomically(supabase, realmId, mergedDeltas)
+      }
+
+      await logExternalAccountingAudit(supabase, {
+        realmId,
+        user: auth.user,
+        actionType: 'WRITE_OFF_INVOICES',
+        entityType: 'WriteOffInvoices',
+        amount: totalWrittenOff,
+        summary: `Condonó (Write Off) ${createdCreditMemos.length} facturas hacia "${writeOffAcc.name}" por un total de $${totalWrittenOff.toFixed(2)}`,
+        details: { count: createdCreditMemos.length, totalWrittenOff, writeOffAccount: writeOffAcc.name }
+      })
+
+      return NextResponse.json({
+        ok: true,
+        success: true,
+        writtenOffCount: createdCreditMemos.length,
+        totalWrittenOff,
+        creditMemos: createdCreditMemos,
+      })
     }
 
     return NextResponse.json({ error: `Unknown action: ${action}` }, { status: 400 })
