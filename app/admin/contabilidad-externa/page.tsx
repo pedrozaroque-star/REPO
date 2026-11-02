@@ -756,7 +756,15 @@ function ExternalAccountingContent() {
         taxId: '',
     })
 
-    // Bank Reconciliation State (Gear ⚙️ -> Tools -> Reconcile)
+    // Bank Reconciliation State (Gear ⚙️ -> Tools -> Reconcile — 1:1 QBO Suite)
+    const [reconcileSubView, setReconcileSubView] = useState<'reconcile' | 'summary' | 'history'>('reconcile')
+    const [reconcileWorkspaceOpen, setReconcileWorkspaceOpen] = useState<boolean>(false)
+    const [recEditInfoModalOpen, setRecEditInfoModalOpen] = useState<boolean>(false)
+    const [recSaveMenuOpen, setRecSaveMenuOpen] = useState<boolean>(false)
+    const [recBannerCollapsed, setRecBannerCollapsed] = useState<boolean>(false)
+    const [recHistoryPeriod, setRecHistoryPeriod] = useState<'365' | 'ALL'>('365')
+    const [recHistoryAccountFilter, setRecHistoryAccountFilter] = useState<string>('ALL')
+    const [recViewReportModal, setRecViewReportModal] = useState<any | null>(null)
     const [reconcileAccountId, setReconcileAccountId] = useState<string>('')
     const [editingReconciliationId, setEditingReconciliationId] = useState<string | null>(null)
     const [recEndingDate, setRecEndingDate] = useState<string>(() => new Date().toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' }))
@@ -769,8 +777,16 @@ function ExternalAccountingContent() {
     const [recNotes, setRecNotes] = useState<string>('')
     const [recSelectedIds, setRecSelectedIds] = useState<string[]>([])
     const [recFilterSide, setRecFilterSide] = useState<'ALL' | 'PAYMENTS' | 'DEPOSITS'>('ALL')
-    const [recUpToEndDateOnly, setRecUpToEndDateOnly] = useState<boolean>(false)
+    const [recUpToEndDateOnly, setRecUpToEndDateOnly] = useState<boolean>(true)
     const [recSearch, setRecSearch] = useState<string>('')
+    // Live Reconcile Payment & Deposit Quick-Capture State
+    const [recQuickType, setRecQuickType] = useState<'Check' | 'Expense' | 'Deposit'>('Check')
+    const [recQuickDate, setRecQuickDate] = useState<string>('')
+    const [recQuickDocNum, setRecQuickDocNum] = useState<string>('EFT')
+    const [recQuickPayee, setRecQuickPayee] = useState<string>('')
+    const [recQuickGlAccountId, setRecQuickGlAccountId] = useState<string>('')
+    const [recQuickMemo, setRecQuickMemo] = useState<string>('')
+    const [recQuickAmount, setRecQuickAmount] = useState<string>('')
 
     // Batch Reclassify State (Gear ⚙️ -> Tools -> Reclassify Transactions)
     const [reclassifySelectedIds, setReclassifySelectedIds] = useState<string[]>([])
@@ -1190,11 +1206,59 @@ function ExternalAccountingContent() {
             }
 
             // Initialize default bank for Reconciliation if empty or not in active company
+            const loadedReconciliations = json.reconciliations || []
             const companyBanks = loadedAccounts.filter((a: any) => a.is_active && (a.account_type === 'Bank' || (a.account_type || '').toLowerCase().includes('credit card')))
             if (companyBanks.length > 0 && (!reconcileAccountId || !companyBanks.some((b: any) => b.qb_account_id === reconcileAccountId))) {
-                const firstBank = companyBanks[0]
+                const bankWithDraft = companyBanks.find((b: any) =>
+                    loadedReconciliations.some((r: any) => r.account_qb_id === b.qb_account_id && r.status === 'Draft')
+                )
+                const bankWithHistory = companyBanks.find((b: any) =>
+                    loadedReconciliations.some((r: any) => r.account_qb_id === b.qb_account_id && r.status === 'Completed')
+                )
+                const firstBank = bankWithDraft || bankWithHistory || companyBanks[0]
                 setReconcileAccountId(firstBank.qb_account_id)
-                setRecEndingBalance(Number(firstBank.current_balance || 0).toFixed(2))
+
+                const draftRec = loadedReconciliations.find((r: any) => r.account_qb_id === firstBank.qb_account_id && r.status === 'Draft')
+                const completedRecs = loadedReconciliations
+                    .filter((r: any) => r.account_qb_id === firstBank.qb_account_id && r.status === 'Completed')
+                    .sort((a: any, b: any) => String(b.statement_ending_date || '').localeCompare(String(a.statement_ending_date || '')))
+                const lastComp = completedRecs[0]
+
+                if (draftRec) {
+                    setEditingReconciliationId(draftRec.id)
+                    setRecBeginningBalance(Number(draftRec.beginning_balance ?? lastComp?.ending_balance ?? 0).toFixed(2))
+                    setRecEndingBalance(Number(draftRec.ending_balance ?? 0).toFixed(2))
+                    if (draftRec.statement_ending_date) setRecEndingDate(draftRec.statement_ending_date)
+                    setRecServiceCharge(String(draftRec.service_charge ?? '0'))
+                    setRecInterestEarned(String(draftRec.interest_earned ?? '0'))
+                    const savedIds = Array.isArray(draftRec.reconciled_txn_ids) ? draftRec.reconciled_txn_ids.map(String) : []
+                    if (savedIds.length > 0) {
+                        setRecSelectedIds(savedIds)
+                    } else {
+                        const clearedTxns = (json.reconcileTransactions || []).filter((t: any) =>
+                            !t.is_voided &&
+                            t.cleared_status !== 'Reconciled' &&
+                            (t.account_qb_id === firstBank.qb_account_id || t.to_account_qb_id === firstBank.qb_account_id) &&
+                            t.cleared_status === 'Cleared' &&
+                            (!draftRec.statement_ending_date || t.txn_date <= draftRec.statement_ending_date)
+                        )
+                        setRecSelectedIds(clearedTxns.map((t: any) => String(t.id)))
+                    }
+                    setReconcileWorkspaceOpen(true)
+                } else {
+                    setEditingReconciliationId(null)
+                    setRecBeginningBalance(Number(lastComp?.ending_balance ?? 0).toFixed(2))
+                    setRecEndingBalance(Number(firstBank.current_balance || 0).toFixed(2))
+                    if (lastComp?.statement_ending_date) {
+                        const [y, m] = String(lastComp.statement_ending_date).split('-').map(Number)
+                        if (y && m) {
+                            const nextEnd = new Date(Date.UTC(y, m + 1, 0))
+                            setRecEndingDate(nextEnd.toISOString().slice(0, 10))
+                        }
+                    }
+                    setRecSelectedIds([])
+                    setReconcileWorkspaceOpen(false)
+                }
             }
 
             // Initialize Company Settings form fields from active company
@@ -1454,17 +1518,20 @@ function ExternalAccountingContent() {
             setDepositCashBackAccId('')
             setDepositCashBackMemo('')
             setDepositCashBackAmount('')
-            setFormDate(today)
+            const effectiveDefaultDate = (activeTab === 'reconcile' && recEndingDate) ? recEndingDate : today
+            setFormDate(effectiveDefaultDate)
             const initialTerms = mode === 'Bill' ? 'Net 30' : 'Due on receipt'
             setFormTerms(initialTerms)
-            setFormDueDate(computeDueDateFromTerms(today, initialTerms))
+            setFormDueDate(computeDueDateFromTerms(effectiveDefaultDate, initialTerms))
             setFormAddress('')
             setFormCustomerEmail('')
             const ufAccount = expenseAndGlAccounts.find(a =>
                 String(a.account_sub_type || '').toLowerCase() === 'undepositedfunds' ||
                 String(a.name || '').toLowerCase().includes('undeposited funds')
             )
-            const bankId = (mode === 'Payment' || mode === 'SalesReceipt') && ufAccount
+            const bankId = activeTab === 'reconcile' && reconcileAccountId
+                ? reconcileAccountId
+                : (mode === 'Payment' || mode === 'SalesReceipt') && ufAccount
                 ? ufAccount.qb_account_id
                 : (primaryDefaultAcc?.qb_account_id || '')
             setFormBankQbId(bankId)
@@ -1676,6 +1743,10 @@ function ExternalAccountingContent() {
             const json = await res.json()
             if (!res.ok) throw new Error(json.error || 'Error saving transaction')
 
+            if (activeTab === 'reconcile' && json.transaction?.id != null) {
+                const newIdStr = String(json.transaction.id)
+                setRecSelectedIds(prev => (prev.includes(newIdStr) ? prev : [...prev, newIdStr]))
+            }
             notify('ok', t('external_accounting.saved_successfully'))
             setModalMode(null)
             await fetchWorkspaceData()
@@ -2206,6 +2277,10 @@ function ExternalAccountingContent() {
             const json = await res.json()
             if (!res.ok) throw new Error(json.error || 'Error saving invoice')
 
+            if (activeTab === 'reconcile' && json.transaction?.id != null) {
+                const newIdStr = String(json.transaction.id)
+                setRecSelectedIds(prev => (prev.includes(newIdStr) ? prev : [...prev, newIdStr]))
+            }
             notify('ok', t('external_accounting.saved_successfully'))
             setModalMode(null)
             await fetchWorkspaceData()
@@ -4407,6 +4482,28 @@ function ExternalAccountingContent() {
     }, [contacts, contactSearch, contactFilterType])
 
     // ── Bank Reconciliation Computed Rows & Live Equation (Gear ⚙️ -> Reconcile) ──
+    const activeReconcileAccount = useMemo(
+        () => accounts.find(a => a.qb_account_id === reconcileAccountId) || null,
+        [accounts, reconcileAccountId]
+    )
+
+    const reconcileAccountHistory = useMemo(() => {
+        if (!reconcileAccountId) return []
+        return reconciliations
+            .filter(r => r.account_qb_id === reconcileAccountId)
+            .sort((a, b) => String(b.statement_ending_date || '').localeCompare(String(a.statement_ending_date || '')))
+    }, [reconciliations, reconcileAccountId])
+
+    const activeAccountDraftRec = useMemo(
+        () => reconcileAccountHistory.find(r => r.status === 'Draft') || null,
+        [reconcileAccountHistory]
+    )
+
+    const activeAccountLastCompletedRec = useMemo(
+        () => reconcileAccountHistory.find(r => r.status === 'Completed') || null,
+        [reconcileAccountHistory]
+    )
+
     const isTxnPaymentForAccount = useCallback((txn: any, bankQbId: string): boolean => {
         if (txn.txn_type === 'Transfer') {
             return txn.account_qb_id === bankQbId
@@ -4416,12 +4513,27 @@ function ExternalAccountingContent() {
 
     const reconcileAccountRows = useMemo(() => {
         if (!reconcileAccountId) return []
-        return reconcileTransactions.filter(t => {
-            if (t.is_voided) return false
-            const lineHit = Array.isArray(t.line_items) && t.line_items.some((l: any) => l.account_qb_id === reconcileAccountId)
-            return t.account_qb_id === reconcileAccountId || t.to_account_qb_id === reconcileAccountId || lineHit
-        })
-    }, [reconcileTransactions, reconcileAccountId])
+        const activeRecObj = reconciliations.find(r => r.id === editingReconciliationId)
+        const reopenedTxnSet = new Set(
+            Array.isArray(activeRecObj?.reconciled_txn_ids) ? activeRecObj.reconciled_txn_ids.map(String) : []
+        )
+        return reconcileTransactions
+            .filter(t => {
+                if (t.is_voided) return false
+                // Exclude already-reconciled historical transactions (they are already inside Beginning Balance),
+                // unless this transaction belongs to the currently reopened/draft session
+                if (t.cleared_status === 'Reconciled' && !reopenedTxnSet.has(String(t.id))) {
+                    return false
+                }
+                const lineHit = Array.isArray(t.line_items) && t.line_items.some((l: any) => l.account_qb_id === reconcileAccountId)
+                return t.account_qb_id === reconcileAccountId || t.to_account_qb_id === reconcileAccountId || lineHit
+            })
+            .sort((a, b) => {
+                const cmp = String(a.txn_date || '').localeCompare(String(b.txn_date || ''))
+                if (cmp !== 0) return cmp
+                return String(a.doc_number || '').localeCompare(String(b.doc_number || ''))
+            })
+    }, [reconcileTransactions, reconcileAccountId, reconciliations, editingReconciliationId])
 
     const visibleReconcileRows = useMemo(() => {
         const q = recSearch.trim().toLowerCase()
@@ -4447,6 +4559,8 @@ function ExternalAccountingContent() {
 
         for (const t of reconcileAccountRows) {
             if (!selectedSet.has(String(t.id))) continue
+            // Match QBO behavior: when "Statement ending date" filter is active, only count rows within statement period
+            if (recUpToEndDateOnly && recEndingDate && t.txn_date > recEndingDate) continue
             const amt = Number(t.total_amount || 0)
             if (isTxnPaymentForAccount(t, reconcileAccountId)) {
                 paymentsCount++
@@ -4461,13 +4575,21 @@ function ExternalAccountingContent() {
         const intEarn = Number(recInterestEarned || 0)
         const begBal = Number(recBeginningBalance || 0)
         const endBal = Number(recEndingBalance || 0)
+        const isCc = String(activeReconcileAccount?.account_type || '').toLowerCase().includes('credit card')
 
-        const clearedBalance = Number((begBal - paymentsTotal - svcFee + depositsTotal + intEarn).toFixed(2))
+        // For Bank: Cleared = Beginning - Payments - ServiceCharge + Deposits + InterestEarned
+        // For Credit Card: Cleared = Beginning + Charges(Payments) + FinanceCharge - Payments(Deposits)
+        const clearedBalance = isCc
+            ? Number((begBal + paymentsTotal + svcFee - depositsTotal - intEarn).toFixed(2))
+            : Number((begBal - paymentsTotal - svcFee + depositsTotal + intEarn).toFixed(2))
         const difference = Number((endBal - clearedBalance).toFixed(2))
 
         return {
             begBal,
             endBal,
+            svcFee,
+            intEarn,
+            isCc,
             paymentsCount,
             paymentsTotal: Number(paymentsTotal.toFixed(2)),
             depositsCount,
@@ -4476,24 +4598,208 @@ function ExternalAccountingContent() {
             difference,
             isBalanced: Math.abs(difference) < 0.005,
         }
-    }, [recSelectedIds, reconcileAccountRows, recServiceCharge, recInterestEarned, recBeginningBalance, recEndingBalance, reconcileAccountId, isTxnPaymentForAccount])
+    }, [recSelectedIds, reconcileAccountRows, recUpToEndDateOnly, recEndingDate, recServiceCharge, recInterestEarned, recBeginningBalance, recEndingBalance, reconcileAccountId, activeReconcileAccount, isTxnPaymentForAccount])
 
-    const handleAutoSelectReconcileAccount = (accQbId: string) => {
+    const computeNextStatementDate = useCallback((lastDateStr?: string | null) => {
+        if (!lastDateStr) return new Date().toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' })
+        const [y, m] = String(lastDateStr).split('-').map(Number)
+        if (!y || !m) return new Date().toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' })
+        const nextMonthEnd = new Date(Date.UTC(y, m + 1, 0))
+        return nextMonthEnd.toISOString().slice(0, 10)
+    }, [])
+
+    const handleAutoSelectReconcileAccount = (accQbId: string, forceWorkspaceOpen?: boolean) => {
         setReconcileAccountId(accQbId)
-        setEditingReconciliationId(null)
         const acc = accounts.find(a => a.qb_account_id === accQbId)
-        const lastCompleted = reconciliations.find(r => r.account_qb_id === accQbId && r.status === 'Completed')
-        const beg = lastCompleted ? Number(lastCompleted.ending_balance || 0) : 0
-        const end = acc ? Number(acc.current_balance || 0) : 0
-        setRecBeginningBalance(beg.toFixed(2))
-        setRecEndingBalance(end.toFixed(2))
+        const accRecs = reconciliations
+            .filter(r => r.account_qb_id === accQbId)
+            .sort((a, b) => String(b.statement_ending_date || '').localeCompare(String(a.statement_ending_date || '')))
+        const draftRec = accRecs.find(r => r.status === 'Draft')
+        const lastCompleted = accRecs.find(r => r.status === 'Completed')
 
-        // Pre-select all cleared/reconciled transactions for this account so the CPA starts close to $0.00 difference
-        const rowsForAcc = reconcileTransactions.filter(t => !t.is_voided && (t.account_qb_id === accQbId || t.to_account_qb_id === accQbId))
-        setRecSelectedIds(rowsForAcc.map(r => String(r.id)))
+        if (draftRec) {
+            setEditingReconciliationId(draftRec.id)
+            setRecBeginningBalance(Number(draftRec.beginning_balance ?? lastCompleted?.ending_balance ?? 0).toFixed(2))
+            setRecEndingBalance(Number(draftRec.ending_balance ?? 0).toFixed(2))
+            const endDt = draftRec.statement_ending_date || computeNextStatementDate(lastCompleted?.statement_ending_date)
+            setRecEndingDate(endDt)
+            setRecQuickDate(endDt)
+            setRecServiceCharge(String(draftRec.service_charge ?? '0'))
+            setRecInterestEarned(String(draftRec.interest_earned ?? '0'))
+            const savedIds = Array.isArray(draftRec.reconciled_txn_ids) ? draftRec.reconciled_txn_ids.map(String) : []
+            if (savedIds.length > 0) {
+                setRecSelectedIds(savedIds)
+            } else {
+                const preCleared = reconcileTransactions.filter(t =>
+                    !t.is_voided &&
+                    t.cleared_status === 'Cleared' &&
+                    (t.account_qb_id === accQbId || t.to_account_qb_id === accQbId) &&
+                    (!endDt || t.txn_date <= endDt)
+                )
+                setRecSelectedIds(preCleared.map(r => String(r.id)))
+            }
+            if (forceWorkspaceOpen !== undefined) {
+                setReconcileWorkspaceOpen(forceWorkspaceOpen)
+            }
+        } else {
+            setEditingReconciliationId(null)
+            const beg = lastCompleted ? Number(lastCompleted.ending_balance || 0) : 0
+            const end = acc ? Number(acc.current_balance || 0) : 0
+            const nextDt = computeNextStatementDate(lastCompleted?.statement_ending_date)
+            setRecBeginningBalance(beg.toFixed(2))
+            setRecEndingBalance(end.toFixed(2))
+            setRecEndingDate(nextDt)
+            setRecQuickDate(nextDt)
+            setRecServiceCharge('0')
+            setRecInterestEarned('0')
+            const preCleared = reconcileTransactions.filter(t =>
+                !t.is_voided &&
+                t.cleared_status === 'Cleared' &&
+                (t.account_qb_id === accQbId || t.to_account_qb_id === accQbId) &&
+                (!nextDt || t.txn_date <= nextDt)
+            )
+            setRecSelectedIds(preCleared.map(r => String(r.id)))
+            if (forceWorkspaceOpen !== undefined) {
+                setReconcileWorkspaceOpen(forceWorkspaceOpen)
+            } else {
+                setReconcileWorkspaceOpen(false)
+            }
+        }
     }
 
-    const handleSaveReconciliation = async (status: 'Draft' | 'Completed', autoAdjust = false) => {
+    const handleStartOrResumeReconciling = async () => {
+        if (!reconcileAccountId) {
+            notify('err', t('external_accounting.reconcile_select_placeholder'))
+            return
+        }
+        if (!recEndingDate) {
+            notify('err', 'Ingrese la fecha de corte del estado de cuenta (Statement ending date).')
+            return
+        }
+        setRecQuickDate(recEndingDate)
+        setReconcileWorkspaceOpen(true)
+        setRecEditInfoModalOpen(false)
+        await handleSaveReconciliation('Draft', false, true)
+    }
+
+    const handleResetDraftReconciliation = async () => {
+        if (!reconcileAccountId) return
+        const lastCompleted = activeAccountLastCompletedRec
+        const beg = lastCompleted ? Number(lastCompleted.ending_balance || 0) : 0
+        const nextDt = computeNextStatementDate(lastCompleted?.statement_ending_date)
+        setRecBeginningBalance(beg.toFixed(2))
+        setRecEndingBalance('0.00')
+        setRecEndingDate(nextDt)
+        setRecQuickDate(nextDt)
+        setRecServiceCharge('0')
+        setRecInterestEarned('0')
+        setRecSelectedIds([])
+        setReconcileWorkspaceOpen(false)
+        notify('ok', 'Valores de conciliación restablecidos al último estado de cuenta completado.')
+    }
+
+    const handleFillRemainingReconcileDifference = () => {
+        const diff = reconcileMath.difference
+        if (Math.abs(diff) < 0.005) {
+            notify('ok', t('external_accounting.qbo_rec_diff_zero_ready'))
+            return
+        }
+        if (diff < 0) {
+            // Ending Balance < Cleared Balance -> Need Payment(s) (Check / Expense) to reduce Cleared Balance
+            setRecQuickType('Check')
+            setRecQuickAmount(Math.abs(diff).toFixed(2))
+            if (!recQuickDocNum) {
+                setRecQuickDocNum(nextCheckNumberByBank[reconcileAccountId] || '1001')
+            }
+        } else {
+            // Ending Balance > Cleared Balance -> Need Deposit(s) to increase Cleared Balance
+            setRecQuickType('Deposit')
+            setRecQuickAmount(Math.abs(diff).toFixed(2))
+            setRecQuickDocNum('DEP')
+        }
+        if (!recQuickDate) setRecQuickDate(recEndingDate)
+        if (!recQuickGlAccountId) {
+            const defaultGl = diff < 0
+                ? expenseAndGlAccounts.find(a => a.classification === 'Expense' || a.account_type === 'Expense')
+                : expenseAndGlAccounts.find(a => a.classification === 'Revenue' || a.account_type === 'Income')
+            if (defaultGl) setRecQuickGlAccountId(defaultGl.qb_account_id)
+        }
+    }
+
+    const handleQuickCaptureInReconcile = async (e?: React.FormEvent) => {
+        if (e) e.preventDefault()
+        if (!reconcileAccountId) return
+        const amt = Number(recQuickAmount || 0)
+        if (!Number.isFinite(amt) || amt <= 0) {
+            notify('err', 'Ingrese un monto válido mayor a $0.00 para capturar en la conciliación.')
+            return
+        }
+        const bankObj = accounts.find(a => a.qb_account_id === reconcileAccountId)
+        const defaultExpense = expenseAndGlAccounts.find(a => a.classification === 'Expense' || a.account_type === 'Expense') || expenseAndGlAccounts[0]
+        const defaultIncome = expenseAndGlAccounts.find(a => a.classification === 'Revenue' || a.account_type === 'Income') || expenseAndGlAccounts[0]
+        const selectedGl = accounts.find(a => a.qb_account_id === recQuickGlAccountId) || (recQuickType === 'Deposit' ? defaultIncome : defaultExpense)
+        const effectiveDate = recQuickDate || recEndingDate || new Date().toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' })
+        const effectivePayee = recQuickPayee.trim() || (recQuickType === 'Deposit' ? 'Bank Deposit' : 'Vendor Payment')
+        const matchedContact = contacts.find(c => (c.display_name || '').toLowerCase() === effectivePayee.toLowerCase())
+
+        setSaving(true)
+        try {
+            const res = await authFetch('/api/external-accounting', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    action: 'save_transaction',
+                    realmId: activeRealmId,
+                    txn_type: recQuickType,
+                    txn_date: effectiveDate,
+                    doc_number: recQuickDocNum.trim() || (recQuickType === 'Check' ? (nextCheckNumberByBank[reconcileAccountId] || '') : ''),
+                    payment_type: recQuickType === 'Check' ? 'Check' : recQuickType === 'Deposit' ? 'Deposit' : 'Cash',
+                    account_qb_id: reconcileAccountId,
+                    account_name: bankObj?.name || '',
+                    to_account_qb_id: selectedGl?.qb_account_id || null,
+                    to_account_name: selectedGl?.name || '',
+                    entity_qb_id: matchedContact?.qb_contact_id || null,
+                    entity_name: effectivePayee,
+                    memo: recQuickMemo.trim() || `Captured during ${recEndingDate} reconciliation`,
+                    total_amount: amt,
+                    line_items: [
+                        {
+                            account_qb_id: selectedGl?.qb_account_id || null,
+                            account_name: selectedGl?.name || '',
+                            description: recQuickMemo.trim() || effectivePayee,
+                            amount: amt,
+                            posting_type: recQuickType === 'Deposit' ? 'Credit' : 'Debit',
+                            entity_name: effectivePayee,
+                        },
+                    ],
+                    created_by: user?.name || user?.email || 'Raquel Velazquez',
+                }),
+            })
+            const json = await res.json()
+            if (!res.ok) throw new Error(json.error || 'Error capturing transaction in reconciliation')
+
+            const createdTxn = json.transaction
+            if (createdTxn?.id != null) {
+                const newIdStr = String(createdTxn.id)
+                setReconcileTransactions(prev => [...prev, createdTxn])
+                setRecSelectedIds(prev => (prev.includes(newIdStr) ? prev : [...prev, newIdStr]))
+            }
+            // Clear quick form amount & memo so next payment/deposit can be typed immediately
+            setRecQuickAmount('')
+            setRecQuickMemo('')
+            if (recQuickDocNum && /^\d+$/.test(recQuickDocNum.trim())) {
+                setRecQuickDocNum(String(Number(recQuickDocNum.trim()) + 1))
+            }
+            notify('ok', `${recQuickType === 'Deposit' ? 'Depósito' : 'Pago'} por ${formatCurrency(amt)} registrado y marcado (✓) en la conciliación.`)
+            await fetchWorkspaceData()
+        } catch (err: any) {
+            notify('err', err.message || 'Error')
+        } finally {
+            setSaving(false)
+        }
+    }
+
+    const handleSaveReconciliation = async (status: 'Draft' | 'Completed', autoAdjust = false, silent = false) => {
         if (!reconcileAccountId) return
         let adjustmentReason = ''
         if (status === 'Completed' && Math.abs(reconcileMath.difference) >= 0.01) {
@@ -4545,8 +4851,15 @@ function ExternalAccountingContent() {
             })
             const json = await res.json()
             if (!res.ok) throw new Error(json.error || 'Error saving reconciliation')
-            notify('ok', status === 'Completed' ? 'Conciliación bancaria finalizada oficialmente ($0.00).' : 'Borrador de conciliación guardado.')
+            if (!silent) {
+                notify('ok', status === 'Completed' ? 'Conciliación bancaria finalizada oficialmente ($0.00).' : 'Borrador de conciliación guardado (Save for later).')
+            }
             setEditingReconciliationId(json.reconciliation?.id || null)
+            setRecSaveMenuOpen(false)
+            if (status === 'Completed') {
+                setReconcileWorkspaceOpen(false)
+                setReconcileSubView('history')
+            }
             await fetchWorkspaceData()
         } catch (err: any) {
             notify('err', err.message || 'Error')
@@ -4572,9 +4885,12 @@ function ExternalAccountingContent() {
             setReconcileAccountId(rec.account_qb_id)
             setEditingReconciliationId(rec.id)
             setRecEndingDate(rec.statement_ending_date)
+            setRecQuickDate(rec.statement_ending_date)
             setRecBeginningBalance(Number(rec.beginning_balance || 0).toFixed(2))
             setRecEndingBalance(Number(rec.ending_balance || 0).toFixed(2))
             setRecSelectedIds(Array.isArray(rec.reconciled_txn_ids) ? rec.reconciled_txn_ids.map(String) : [])
+            setReconcileSubView('reconcile')
+            setReconcileWorkspaceOpen(true)
             notify('ok', 'Conciliación reabierta para edición.')
             await fetchWorkspaceData()
         } catch (err: any) {
@@ -14960,416 +15276,1403 @@ function ExternalAccountingContent() {
                 </div>
             )}
 
-            {/* TAB 8: BANK & CREDIT CARD RECONCILIATION (GEAR ⚙️ -> TOOLS -> RECONCILE) */}
+            {/* TAB 8: BANK & CREDIT CARD RECONCILIATION — 1:1 QBO SUITE (RECONCILE / SUMMARY / HISTORY BY ACCOUNT + LIVE PAYMENT & DEPOSIT CAPTURE) */}
             {activeTab === 'reconcile' && (
-                <div className="space-y-5">
-                    {/* Top Reconciliation Setup & Live Equation Banner */}
-                    <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 shadow-xs space-y-4">
-                        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-                            <div>
-                                <h2 className="text-lg font-black text-slate-900 dark:text-white flex items-center gap-2">
-                                    <Scale size={20} className="text-emerald-500" />
-                                    <span>{t('external_accounting.reconcile_title')} — {activeCompany?.company_name}</span>
-                                </h2>
-                                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                                    {t('external_accounting.reconcile_subtitle')}
-                                </p>
-                            </div>
-                            <div className="flex flex-wrap items-center gap-2">
-                                <button
-                                    type="button"
-                                    onClick={() => handlePrintReconciliationReport()}
-                                    className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-xs font-bold cursor-pointer"
-                                >
-                                    <Printer size={14} />
-                                    <span>{t('external_accounting.reconcile_btn_print')}</span>
-                                </button>
-                                <button
-                                    type="button"
-                                    disabled={saving}
-                                    onClick={() => handleSaveReconciliation('Draft', false)}
-                                    className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-bold cursor-pointer"
-                                >
-                                    <span>{t('external_accounting.reconcile_btn_save_draft')}</span>
-                                </button>
-                                {!reconcileMath.isBalanced && (
+                <div className="space-y-4">
+                    {/* Top QBO Sub-Navigation Bar: Chart of accounts | Register  <-->  Reconcile | Summary | History by account */}
+                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 pb-2 border-b border-slate-200 dark:border-slate-800">
+                        <div className="flex flex-wrap items-center gap-3 text-xs">
+                            <button
+                                type="button"
+                                onClick={() => setActiveTab('accounts')}
+                                className="font-bold text-blue-600 dark:text-blue-400 hover:underline cursor-pointer"
+                            >
+                                {t('external_accounting.qbo_rec_link_chart_of_accounts')}
+                            </button>
+                            <span className="text-slate-300 dark:text-slate-700">|</span>
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    if (reconcileAccountId) setFilterAccountId(reconcileAccountId)
+                                    setTxnViewMode('all')
+                                    setActiveTab('transactions')
+                                }}
+                                className="font-bold text-blue-600 dark:text-blue-400 hover:underline cursor-pointer"
+                            >
+                                {t('external_accounting.qbo_rec_link_register')}
+                            </button>
+                            {reconcileSubView === 'reconcile' && (
+                                <>
+                                    <span className="text-slate-300 dark:text-slate-700">|</span>
                                     <button
                                         type="button"
-                                        disabled={saving}
-                                        onClick={() => handleSaveReconciliation('Completed', true)}
-                                        className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl border border-amber-500/40 bg-amber-500/15 hover:bg-amber-500/25 text-amber-800 dark:text-amber-200 text-xs font-bold cursor-pointer"
+                                        onClick={() => setReconcileWorkspaceOpen(prev => !prev)}
+                                        className="font-bold text-emerald-600 dark:text-emerald-400 hover:underline cursor-pointer"
                                     >
-                                        <span>{t('external_accounting.reconcile_btn_auto_adjust')}</span>
+                                        {reconcileWorkspaceOpen
+                                            ? `← ${t('external_accounting.qbo_rec_step1_title')}`
+                                            : `${t('external_accounting.qbo_rec_btn_resume_reconciling')} →`}
                                     </button>
+                                </>
+                            )}
+                        </div>
+
+                        <div className="flex flex-wrap items-center gap-1.5">
+                            <button
+                                type="button"
+                                onClick={() => setReconcileSubView('reconcile')}
+                                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors cursor-pointer ${
+                                    reconcileSubView === 'reconcile'
+                                        ? 'bg-emerald-600 text-white shadow-xs'
+                                        : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200'
+                                }`}
+                            >
+                                {t('external_accounting.reconcile_title')}
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setReconcileSubView('summary')}
+                                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors cursor-pointer ${
+                                    reconcileSubView === 'summary'
+                                        ? 'bg-emerald-600 text-white shadow-xs'
+                                        : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200'
+                                }`}
+                            >
+                                {t('external_accounting.qbo_rec_subview_summary')}
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setRecHistoryAccountFilter(reconcileAccountId || 'ALL')
+                                    setReconcileSubView('history')
+                                }}
+                                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors cursor-pointer ${
+                                    reconcileSubView === 'history'
+                                        ? 'bg-emerald-600 text-white shadow-xs'
+                                        : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200'
+                                }`}
+                            >
+                                {t('external_accounting.qbo_rec_subview_history')} ({reconciliations.filter(r => r.status === 'Completed').length})
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* ═══════════════════════════════════════════════════════════════════════════
+                        SUBVIEW 1A: QBO STEP 1 — SETUP / START OR RESUME RECONCILING (/app/reconcile)
+                       ═══════════════════════════════════════════════════════════════════════════ */}
+                    {reconcileSubView === 'reconcile' && !reconcileWorkspaceOpen && (
+                        <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 sm:p-8 shadow-xs max-w-4xl mx-auto space-y-6">
+                            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-slate-200 dark:border-slate-800 pb-4">
+                                <div>
+                                    <h2 className="text-xl font-black text-slate-900 dark:text-white">
+                                        {t('external_accounting.qbo_rec_step1_title')}
+                                    </h2>
+                                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                                        {t('external_accounting.qbo_rec_step1_subtitle')} ({activeCompany?.company_name})
+                                    </p>
+                                </div>
+                                {activeAccountLastCompletedRec && (
+                                    <div className="text-xs text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 px-3 py-1.5 rounded-lg font-medium">
+                                        {t('external_accounting.qbo_rec_last_stmt_date')}:{' '}
+                                        <span className="font-mono font-black text-slate-900 dark:text-white">
+                                            {activeAccountLastCompletedRec.statement_ending_date}
+                                        </span>
+                                    </div>
                                 )}
-                                <button
-                                    type="button"
-                                    disabled={saving || !reconcileMath.isBalanced}
-                                    title={!reconcileMath.isBalanced ? `Diferencia pendiente: ${formatCurrency(reconcileMath.difference)}. Cuadre a $0.00 o utilice el Ajuste Autorizado.` : undefined}
-                                    onClick={() => handleSaveReconciliation('Completed', false)}
-                                    className={`inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-black shadow-sm ${
-                                        reconcileMath.isBalanced
-                                            ? 'bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer'
-                                            : 'bg-slate-200 dark:bg-slate-800 text-slate-400 cursor-not-allowed'
-                                    }`}
-                                >
-                                    <CheckCircle2 size={15} />
-                                    <span>{t('external_accounting.reconcile_btn_finish')}</span>
-                                </button>
                             </div>
-                        </div>
 
-                        {/* Statement Inputs Row */}
-                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3 text-xs pt-2 border-t border-slate-200 dark:border-slate-800">
-                            <div className="lg:col-span-2">
-                                <label className="block font-bold text-slate-500 mb-1">
-                                    {t('external_accounting.reconcile_select_account')}
-                                </label>
-                                <select
-                                    value={reconcileAccountId}
-                                    onChange={(e) => handleAutoSelectReconcileAccount(e.target.value)}
-                                    className="w-full px-3 py-2 rounded-xl border border-emerald-500/40 bg-emerald-50/40 dark:bg-emerald-950/30 font-bold"
-                                >
-                                    <option value="">{t('external_accounting.reconcile_select_placeholder')}</option>
-                                    {bankAndCardAccounts.map(a => (
-                                        <option key={a.qb_account_id} value={a.qb_account_id}>
-                                            {a.name} ({a.account_type}) — {formatCurrency(a.display_balance ?? a.current_balance)}
-                                        </option>
-                                    ))}
-                                </select>
-                            </div>
-                            <div>
-                                <label className="block font-bold text-slate-500 mb-1">
-                                    {t('external_accounting.reconcile_ending_date')}
-                                </label>
-                                <input
-                                    type="date"
-                                    value={recEndingDate}
-                                    onChange={(e) => setRecEndingDate(e.target.value)}
-                                    className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 font-mono font-bold"
-                                />
-                            </div>
-                            <div>
-                                <label className="block font-bold text-slate-500 mb-1">
-                                    {t('external_accounting.reconcile_beginning_balance')}
-                                </label>
-                                <input
-                                    type="number"
-                                    step="0.01"
-                                    value={recBeginningBalance}
-                                    onChange={(e) => setRecBeginningBalance(e.target.value)}
-                                    className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 font-mono font-bold"
-                                />
-                            </div>
-                            <div>
-                                <label className="block font-bold text-slate-500 mb-1">
-                                    {t('external_accounting.reconcile_ending_balance')}
-                                </label>
-                                <input
-                                    type="number"
-                                    step="0.01"
-                                    value={recEndingBalance}
-                                    onChange={(e) => setRecEndingBalance(e.target.value)}
-                                    className="w-full px-3 py-2 rounded-xl border border-emerald-500 bg-white dark:bg-slate-950 font-mono font-black"
-                                />
-                            </div>
-                            <div className="grid grid-cols-2 gap-2">
-                                <div>
-                                    <label className="block font-bold text-slate-500 mb-1 truncate" title={t('external_accounting.reconcile_service_charge')}>
-                                        Fee ($)
+                            {/* Which account do you want to reconcile? */}
+                            <div className="space-y-2">
+                                <h3 className="text-sm font-bold text-slate-800 dark:text-slate-200">
+                                    {t('external_accounting.qbo_rec_which_account')}
+                                </h3>
+                                <div className="max-w-md">
+                                    <label className="block text-xs font-bold text-slate-500 mb-1">
+                                        {t('external_accounting.qbo_rec_account_label')}
                                     </label>
-                                    <input
-                                        type="number"
-                                        step="0.01"
-                                        value={recServiceCharge}
-                                        onChange={(e) => setRecServiceCharge(e.target.value)}
-                                        className="w-full px-2 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 font-mono"
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block font-bold text-slate-500 mb-1 truncate" title={t('external_accounting.reconcile_interest_earned')}>
-                                        Interest ($)
-                                    </label>
-                                    <input
-                                        type="number"
-                                        step="0.01"
-                                        value={recInterestEarned}
-                                        onChange={(e) => setRecInterestEarned(e.target.value)}
-                                        className="w-full px-2 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 font-mono"
-                                    />
-                                </div>
-                            </div>
-                        </div>
-
-                        {/* Live QBO Reconciliation Equation Banner */}
-                        <div className={`p-4 rounded-2xl border-2 grid grid-cols-2 sm:grid-cols-5 gap-3 items-center ${
-                            reconcileMath.isBalanced
-                                ? 'border-emerald-500 bg-emerald-500/10'
-                                : 'border-amber-500/60 bg-amber-500/10'
-                        }`}>
-                            <div>
-                                <div className="text-[10px] font-black uppercase text-slate-500">
-                                    {t('external_accounting.reconcile_ending_balance')}
-                                </div>
-                                <div className="text-lg font-black font-mono">
-                                    {formatCurrency(reconcileMath.endBal)}
-                                </div>
-                            </div>
-                            <div>
-                                <div className="text-[10px] font-black uppercase text-slate-500">
-                                    {t('external_accounting.reconcile_cleared_balance')}
-                                </div>
-                                <div className="text-lg font-black font-mono text-slate-900 dark:text-white">
-                                    {formatCurrency(reconcileMath.clearedBalance)}
-                                </div>
-                            </div>
-                            <div>
-                                <div className="text-[10px] font-black uppercase text-slate-500">
-                                    {t('external_accounting.reconcile_payments_checked')} ({reconcileMath.paymentsCount})
-                                </div>
-                                <div className="text-base font-bold font-mono text-red-600 dark:text-red-400">
-                                    -{formatCurrency(reconcileMath.paymentsTotal)}
-                                </div>
-                            </div>
-                            <div>
-                                <div className="text-[10px] font-black uppercase text-slate-500">
-                                    {t('external_accounting.reconcile_deposits_checked')} ({reconcileMath.depositsCount})
-                                </div>
-                                <div className="text-base font-bold font-mono text-emerald-600 dark:text-emerald-400">
-                                    +{formatCurrency(reconcileMath.depositsTotal)}
-                                </div>
-                            </div>
-                            <div className="text-right">
-                                <div className="text-[10px] font-black uppercase text-slate-500">
-                                    {t('external_accounting.reconcile_difference')}
-                                </div>
-                                <div className={`text-2xl font-black font-mono flex items-center justify-end gap-1.5 ${
-                                    reconcileMath.isBalanced ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'
-                                }`}>
-                                    {reconcileMath.isBalanced && <CheckCircle2 size={20} />}
-                                    <span>{formatCurrency(reconcileMath.difference)}</span>
-                                </div>
-                            </div>
-                        </div>
-
-                        {/* Filter & Bulk Check Controls */}
-                        <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
-                            <div className="flex flex-wrap items-center gap-1.5">
-                                {(['ALL', 'PAYMENTS', 'DEPOSITS'] as const).map(side => (
-                                    <button
-                                        key={side}
-                                        type="button"
-                                        onClick={() => setRecFilterSide(side)}
-                                        className={`px-3 py-1.5 rounded-xl font-bold cursor-pointer ${
-                                            recFilterSide === side
-                                                ? 'bg-emerald-600 text-white'
-                                                : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'
-                                        }`}
+                                    <select
+                                        value={reconcileAccountId}
+                                        onChange={(e) => handleAutoSelectReconcileAccount(e.target.value, false)}
+                                        className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-sm font-bold"
                                     >
-                                        {side === 'ALL' ? t('external_accounting.reconcile_filter_all') : side === 'PAYMENTS' ? t('external_accounting.reconcile_filter_payments') : t('external_accounting.reconcile_filter_deposits')}
-                                    </button>
-                                ))}
-                                <label className="inline-flex items-center gap-1.5 ml-2 font-semibold cursor-pointer">
-                                    <input
-                                        type="checkbox"
-                                        checked={recUpToEndDateOnly}
-                                        onChange={(e) => setRecUpToEndDateOnly(e.target.checked)}
-                                    />
-                                    <span>≤ {recEndingDate}</span>
-                                </label>
+                                        <option value="">{t('external_accounting.reconcile_select_placeholder')}</option>
+                                        {bankAndCardAccounts.map(a => (
+                                            <option key={a.qb_account_id} value={a.qb_account_id}>
+                                                {a.name} ({a.account_type}) — {formatCurrency(a.display_balance ?? a.current_balance)}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </div>
                             </div>
-                            <div className="flex items-center gap-2">
-                                <input
-                                    type="text"
-                                    value={recSearch}
-                                    onChange={(e) => setRecSearch(e.target.value)}
-                                    placeholder={t('external_accounting.search_placeholder')}
-                                    className="px-3 py-1.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-xs"
-                                />
+
+                            {/* Add the following information */}
+                            <div className="space-y-4 pt-3 border-t border-slate-200 dark:border-slate-800">
+                                <div className="flex items-center justify-between">
+                                    <h3 className="text-sm font-bold text-slate-800 dark:text-slate-200">
+                                        {t('external_accounting.qbo_rec_add_info_header')}
+                                    </h3>
+                                    {activeAccountDraftRec && (
+                                        <button
+                                            type="button"
+                                            onClick={handleResetDraftReconciliation}
+                                            className="text-xs font-bold text-blue-600 dark:text-blue-400 hover:underline cursor-pointer"
+                                        >
+                                            {t('external_accounting.qbo_rec_btn_reset_values')}
+                                        </button>
+                                    )}
+                                </div>
+
+                                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                                    <div>
+                                        <label className="block text-xs font-bold text-slate-500 mb-1">
+                                            {t('external_accounting.reconcile_beginning_balance')}
+                                        </label>
+                                        <div className="px-3.5 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-800 font-mono text-base font-black text-slate-900 dark:text-white">
+                                            {formatCurrency(Number(recBeginningBalance || 0))}
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-bold text-slate-700 dark:text-slate-200 mb-1">
+                                            {t('external_accounting.qbo_rec_ending_balance_req')}
+                                        </label>
+                                        <input
+                                            type="number"
+                                            step="0.01"
+                                            value={recEndingBalance}
+                                            onChange={(e) => setRecEndingBalance(e.target.value)}
+                                            placeholder="0.00"
+                                            className="w-full px-3.5 py-2.5 rounded-xl border-2 border-emerald-500 bg-white dark:bg-slate-950 font-mono text-base font-black"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-bold text-slate-700 dark:text-slate-200 mb-1">
+                                            {t('external_accounting.qbo_rec_ending_date_req')}
+                                        </label>
+                                        <input
+                                            type="date"
+                                            value={recEndingDate}
+                                            onChange={(e) => setRecEndingDate(e.target.value)}
+                                            className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 font-mono text-sm font-bold"
+                                        />
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Optional Service Charge & Interest Earned */}
+                            <div className="space-y-3 pt-3 border-t border-slate-200 dark:border-slate-800">
+                                <h4 className="text-xs font-bold text-slate-500">
+                                    {t('external_accounting.qbo_rec_enter_service_interest')}
+                                </h4>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
+                                    <div>
+                                        <label className="block font-bold text-slate-500 mb-1">
+                                            {t('external_accounting.reconcile_service_charge')}
+                                        </label>
+                                        <input
+                                            type="number"
+                                            step="0.01"
+                                            value={recServiceCharge}
+                                            onChange={(e) => setRecServiceCharge(e.target.value)}
+                                            className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 font-mono"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block font-bold text-slate-500 mb-1">
+                                            {t('external_accounting.qbo_rec_expense_account')}
+                                        </label>
+                                        <select
+                                            value={recServiceChargeAccId}
+                                            onChange={(e) => setRecServiceChargeAccId(e.target.value)}
+                                            className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950"
+                                        >
+                                            <option value="">Bank Charges & Fees</option>
+                                            {expenseAndGlAccounts
+                                                .filter(a => a.classification === 'Expense' || a.account_type === 'Expense')
+                                                .map(a => (
+                                                    <option key={a.qb_account_id} value={a.qb_account_id}>
+                                                        {a.name}
+                                                    </option>
+                                                ))}
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label className="block font-bold text-slate-500 mb-1">
+                                            {t('external_accounting.reconcile_interest_earned')}
+                                        </label>
+                                        <input
+                                            type="number"
+                                            step="0.01"
+                                            value={recInterestEarned}
+                                            onChange={(e) => setRecInterestEarned(e.target.value)}
+                                            className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 font-mono"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block font-bold text-slate-500 mb-1">
+                                            {t('external_accounting.qbo_rec_income_account')}
+                                        </label>
+                                        <select
+                                            value={recInterestAccId}
+                                            onChange={(e) => setRecInterestAccId(e.target.value)}
+                                            className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950"
+                                        >
+                                            <option value="">Interest Earned</option>
+                                            {expenseAndGlAccounts
+                                                .filter(a => a.classification === 'Revenue' || a.account_type === 'Income' || a.account_type === 'Other Income')
+                                                .map(a => (
+                                                    <option key={a.qb_account_id} value={a.qb_account_id}>
+                                                        {a.name}
+                                                    </option>
+                                                ))}
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Start / Resume Reconciling Button */}
+                            <div className="pt-2 flex items-center justify-between">
+                                <div className="text-xs text-slate-500">
+                                    {reconcileAccountHistory.filter(r => r.status === 'Completed').length} conciliaciones históricas registradas para esta cuenta.
+                                </div>
                                 <button
                                     type="button"
-                                    onClick={() => setRecSelectedIds(visibleReconcileRows.map(r => String(r.id)))}
-                                    className="px-3 py-1.5 rounded-xl bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 font-bold cursor-pointer"
+                                    disabled={saving || !reconcileAccountId}
+                                    onClick={handleStartOrResumeReconciling}
+                                    className="px-6 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-black shadow-sm cursor-pointer"
                                 >
-                                    ✓ {t('external_accounting.reconcile_mark_visible')} ({visibleReconcileRows.length})
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={() => setRecSelectedIds([])}
-                                    className="px-3 py-1.5 rounded-xl bg-slate-200 dark:bg-slate-800 font-bold cursor-pointer"
-                                >
-                                    {t('external_accounting.reconcile_unmark_all')}
+                                    {activeAccountDraftRec
+                                        ? t('external_accounting.qbo_rec_btn_resume_reconciling')
+                                        : t('external_accounting.qbo_rec_btn_start_reconciling')}
                                 </button>
                             </div>
                         </div>
+                    )}
 
-                        {/* Transactions Selection Table */}
-                        <div className="overflow-x-auto max-h-[420px] rounded-xl border border-slate-200 dark:border-slate-800">
-                            <table className="w-full text-xs border-collapse">
-                                <thead className="sticky top-0 bg-slate-100 dark:bg-slate-800 font-black uppercase text-[10px]">
-                                    <tr>
-                                        <th className="py-2.5 px-3 text-center w-10">✓</th>
-                                        <th className="py-2.5 px-3 text-left">{t('external_accounting.col_date')}</th>
-                                        <th className="py-2.5 px-3 text-left">{t('external_accounting.col_type')}</th>
-                                        <th className="py-2.5 px-3 text-left">{t('external_accounting.col_doc_num')}</th>
-                                        <th className="py-2.5 px-3 text-left">{t('external_accounting.col_payee')}</th>
-                                        <th className="py-2.5 px-3 text-left">{t('external_accounting.col_category')}</th>
-                                        <th className="py-2.5 px-3 text-right">{t('external_accounting.reconcile_col_payment')}</th>
-                                        <th className="py-2.5 px-3 text-right">{t('external_accounting.reconcile_col_deposit')}</th>
-                                        <th className="py-2.5 px-3 text-center">Clr</th>
-                                        <th className="py-2.5 px-3 text-right">{t('external_accounting.col_actions')}</th>
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y divide-slate-200/70 dark:divide-slate-800">
-                                    {visibleReconcileRows.map(row => {
-                                        const idStr = String(row.id)
-                                        const checked = recSelectedIds.includes(idStr)
-                                        const isPay = isTxnPaymentForAccount(row, reconcileAccountId)
-                                        return (
-                                            <tr
-                                                key={idStr}
-                                                onClick={() => openRecordPreview('transaction', row)}
-                                                className={`cursor-pointer transition-colors ${
-                                                    checked ? 'bg-emerald-500/10' : 'hover:bg-slate-50 dark:hover:bg-slate-800/50'
+                    {/* ═══════════════════════════════════════════════════════════════════════════
+                        SUBVIEW 1B: QBO STEP 2 — ACTIVE RECONCILIATION WORKSPACE (/app/reconcileAccount)
+                       ═══════════════════════════════════════════════════════════════════════════ */}
+                    {reconcileSubView === 'reconcile' && reconcileWorkspaceOpen && (
+                        <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 shadow-xs space-y-4">
+                            {/* Top Workspace Header: Account Name + Statement ending date + [Edit info] + [Save for later / Finish now ▾] */}
+                            <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 pb-3 border-b border-slate-200 dark:border-slate-800">
+                                <div className="flex flex-wrap items-center gap-3">
+                                    <div>
+                                        <div className="flex flex-wrap items-center gap-2">
+                                            <h2 className="text-lg font-black text-slate-900 dark:text-white">
+                                                {t('external_accounting.qbo_rec_workspace_title_prefix')}{' '}
+                                                <span className="text-emerald-600 dark:text-emerald-400">
+                                                    {activeReconcileAccount?.name || 'Account'}
+                                                </span>
+                                            </h2>
+                                            <select
+                                                value={reconcileAccountId}
+                                                onChange={(e) => handleAutoSelectReconcileAccount(e.target.value, true)}
+                                                className="px-2.5 py-1 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-bold"
+                                                title={t('external_accounting.reconcile_select_account')}
+                                            >
+                                                {bankAndCardAccounts.map(a => (
+                                                    <option key={a.qb_account_id} value={a.qb_account_id}>
+                                                        {a.name} ({a.account_type})
+                                                    </option>
+                                                ))}
+                                            </select>
+                                        </div>
+                                        <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 mt-0.5">
+                                            {t('external_accounting.qbo_rec_stmt_ending_date_prefix')}:{' '}
+                                            <span className="font-mono font-bold text-slate-800 dark:text-slate-200">
+                                                {recEndingDate}
+                                            </span>
+                                            {activeAccountLastCompletedRec && (
+                                                <span className="ml-3 text-slate-400">
+                                                    ({t('external_accounting.qbo_rec_last_stmt_date')}: {activeAccountLastCompletedRec.statement_ending_date})
+                                                </span>
+                                            )}
+                                        </p>
+                                    </div>
+                                </div>
+
+                                {/* Right Action Buttons: [Edit info] + [Print] + QBO Split Button [Finish now / Save for later | ▾] */}
+                                <div className="flex flex-wrap items-center gap-2">
+                                    <button
+                                        type="button"
+                                        onClick={() => setRecEditInfoModalOpen(true)}
+                                        className="px-3.5 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-xs font-bold text-slate-800 dark:text-slate-200 cursor-pointer"
+                                    >
+                                        {t('external_accounting.qbo_rec_btn_edit_info')}
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => handlePrintReconciliationReport()}
+                                        className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 text-xs font-bold cursor-pointer"
+                                    >
+                                        <Printer size={14} />
+                                        <span>{t('external_accounting.reconcile_btn_print')}</span>
+                                    </button>
+
+                                    {/* QBO Split Green Action Button */}
+                                    <div className="relative inline-flex rounded-lg shadow-xs">
+                                        <button
+                                            type="button"
+                                            disabled={saving}
+                                            onClick={() => {
+                                                if (reconcileMath.isBalanced) {
+                                                    handleSaveReconciliation('Completed', false)
+                                                } else {
+                                                    handleSaveReconciliation('Draft', false)
+                                                }
+                                            }}
+                                            className="px-4 py-2 rounded-l-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black cursor-pointer inline-flex items-center gap-1.5"
+                                        >
+                                            {reconcileMath.isBalanced && <CheckCircle2 size={14} />}
+                                            <span>
+                                                {reconcileMath.isBalanced
+                                                    ? t('external_accounting.qbo_rec_btn_finish_now')
+                                                    : t('external_accounting.qbo_rec_btn_save_for_later')}
+                                            </span>
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => setRecSaveMenuOpen(prev => !prev)}
+                                            className="px-2.5 py-2 rounded-r-lg bg-emerald-700 hover:bg-emerald-800 text-white border-l border-emerald-500 cursor-pointer"
+                                            title="Opciones de guardado"
+                                        >
+                                            <ChevronDown size={14} />
+                                        </button>
+                                        {recSaveMenuOpen && (
+                                            <div className="absolute right-0 top-full mt-1 w-52 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-xl z-30 py-1 text-xs font-bold">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        setRecSaveMenuOpen(false)
+                                                        if (reconcileMath.isBalanced) {
+                                                            handleSaveReconciliation('Completed', false)
+                                                        } else {
+                                                            handleSaveReconciliation('Completed', true)
+                                                        }
+                                                    }}
+                                                    className="w-full text-left px-3.5 py-2 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 cursor-pointer flex items-center justify-between"
+                                                >
+                                                    <span>{t('external_accounting.qbo_rec_btn_finish_now')}</span>
+                                                    <CheckCircle2 size={13} />
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        setRecSaveMenuOpen(false)
+                                                        handleSaveReconciliation('Draft', false)
+                                                    }}
+                                                    className="w-full text-left px-3.5 py-2 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 cursor-pointer"
+                                                >
+                                                    {t('external_accounting.qbo_rec_btn_save_for_later')}
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        setRecSaveMenuOpen(false)
+                                                        setReconcileWorkspaceOpen(false)
+                                                    }}
+                                                    className="w-full text-left px-3.5 py-2 hover:bg-red-50 dark:hover:bg-red-950/30 text-red-600 dark:text-red-400 cursor-pointer border-t border-slate-100 dark:border-slate-800"
+                                                >
+                                                    {t('external_accounting.qbo_rec_btn_close_without_saving')}
+                                                </button>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* ── EXACT QBO 2-TIER MATHEMATICAL FORMULA BANNER (Hoy.mp4 & QBO Live Match) ── */}
+                            {!recBannerCollapsed && (
+                                <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/60 p-4 sm:p-5">
+                                    <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-center">
+                                        {/* Left 8 Cols: 2-Tier Equation */}
+                                        <div className="lg:col-span-8 space-y-3 lg:border-r border-slate-200 dark:border-slate-800 lg:pr-6">
+                                            {/* Tier 1: STATEMENT ENDING BALANCE - CLEARED BALANCE */}
+                                            <div className="flex flex-wrap items-center justify-center sm:justify-around gap-4 pb-3 border-b border-slate-200 dark:border-slate-800">
+                                                <div className="text-center">
+                                                    <div className="text-xl sm:text-2xl font-black font-mono text-slate-900 dark:text-white">
+                                                        {formatCurrency(reconcileMath.endBal)}
+                                                    </div>
+                                                    <div className="text-[10px] font-black uppercase tracking-wider text-slate-500">
+                                                        {t('external_accounting.qbo_rec_formula_stmt_ending')}
+                                                    </div>
+                                                </div>
+
+                                                <div className="text-2xl font-light text-slate-400 select-none">−</div>
+
+                                                <div className="text-center">
+                                                    <div className="text-xl sm:text-2xl font-black font-mono text-slate-900 dark:text-white">
+                                                        {formatCurrency(reconcileMath.clearedBalance)}
+                                                    </div>
+                                                    <div className="text-[10px] font-black uppercase tracking-wider text-slate-500">
+                                                        {t('external_accounting.qbo_rec_formula_cleared')}
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            {/* Tier 2 (Sub-breakdown of Cleared Balance): BEGINNING BALANCE - PAYMENTS + DEPOSITS */}
+                                            <div className="flex flex-wrap items-center justify-center sm:justify-around gap-3 pt-1">
+                                                <div className="text-center">
+                                                    <div className="text-base sm:text-lg font-bold font-mono text-slate-800 dark:text-slate-200">
+                                                        {formatCurrency(reconcileMath.begBal)}
+                                                    </div>
+                                                    <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                                                        {t('external_accounting.qbo_rec_formula_beginning')}
+                                                    </div>
+                                                </div>
+
+                                                <div className="text-xl font-light text-slate-400 select-none">
+                                                    {reconcileMath.isCc ? '+' : '−'}
+                                                </div>
+
+                                                <div className="text-center">
+                                                    <div className="text-base sm:text-lg font-bold font-mono text-red-600 dark:text-red-400">
+                                                        {formatCurrency(reconcileMath.paymentsTotal)}
+                                                    </div>
+                                                    <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                                                        {reconcileMath.paymentsCount}{' '}
+                                                        {reconcileMath.isCc
+                                                            ? t('external_accounting.qbo_rec_formula_charges')
+                                                            : t('external_accounting.qbo_rec_formula_payments')}
+                                                    </div>
+                                                </div>
+
+                                                <div className="text-xl font-light text-slate-400 select-none">
+                                                    {reconcileMath.isCc ? '−' : '+'}
+                                                </div>
+
+                                                <div className="text-center">
+                                                    <div className="text-base sm:text-lg font-bold font-mono text-emerald-600 dark:text-emerald-400">
+                                                        {formatCurrency(reconcileMath.depositsTotal)}
+                                                    </div>
+                                                    <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                                                        {reconcileMath.depositsCount}{' '}
+                                                        {reconcileMath.isCc
+                                                            ? t('external_accounting.qbo_rec_formula_payments')
+                                                            : t('external_accounting.qbo_rec_formula_deposits')}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        {/* Right 4 Cols: DIFFERENCE + Live Guidance to Reach $0.00 */}
+                                        <div className="lg:col-span-4 flex flex-col items-center lg:items-end justify-center text-center lg:text-right space-y-1.5">
+                                            <div className={`text-2xl sm:text-3xl font-black font-mono flex items-center gap-2 ${
+                                                reconcileMath.isBalanced
+                                                    ? 'text-emerald-600 dark:text-emerald-400'
+                                                    : 'text-amber-600 dark:text-amber-400'
+                                            }`}>
+                                                {reconcileMath.isBalanced ? (
+                                                    <CheckCircle2 size={24} className="text-emerald-500 shrink-0" />
+                                                ) : (
+                                                    <AlertTriangle size={22} className="text-amber-500 shrink-0" />
+                                                )}
+                                                <span>{formatCurrency(reconcileMath.difference)}</span>
+                                            </div>
+                                            <div className="text-[10px] font-black uppercase tracking-wider text-slate-500">
+                                                {t('external_accounting.reconcile_difference')}
+                                            </div>
+                                            <div className={`text-[11px] font-semibold px-2.5 py-1 rounded-lg ${
+                                                reconcileMath.isBalanced
+                                                    ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
+                                                    : 'bg-amber-500/15 text-amber-800 dark:text-amber-200'
+                                            }`}>
+                                                {reconcileMath.isBalanced
+                                                    ? t('external_accounting.qbo_rec_diff_zero_ready')
+                                                    : reconcileMath.difference < 0
+                                                    ? `${t('external_accounting.qbo_rec_diff_need_payments')}: ${formatCurrency(Math.abs(reconcileMath.difference))}`
+                                                    : `${t('external_accounting.qbo_rec_diff_need_deposits')}: ${formatCurrency(Math.abs(reconcileMath.difference))}`}
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* ── LIVE CAPTURE OF PAYMENTS & DEPOSITS DURING RECONCILIATION (RAQUEL WORKFLOW) ── */}
+                            <div className="rounded-xl border border-emerald-500/30 bg-emerald-50/40 dark:bg-emerald-950/20 p-3.5 space-y-3">
+                                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                                    <div>
+                                        <div className="text-xs font-black text-slate-900 dark:text-white flex items-center gap-1.5">
+                                            <Plus size={14} className="text-emerald-600" />
+                                            <span>{t('external_accounting.qbo_rec_quick_capture_title')}</span>
+                                        </div>
+                                        <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                                            {t('external_accounting.qbo_rec_quick_capture_subtitle')}
+                                        </p>
+                                    </div>
+                                    <div className="flex flex-wrap items-center gap-1.5">
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                setRecQuickType('Check')
+                                                if (!recQuickDate) setRecQuickDate(recEndingDate)
+                                                if (!recQuickDocNum) setRecQuickDocNum(nextCheckNumberByBank[reconcileAccountId] || '1001')
+                                            }}
+                                            className={`px-2.5 py-1 rounded-lg text-[11px] font-bold cursor-pointer border ${
+                                                recQuickType !== 'Deposit'
+                                                    ? 'bg-red-600 text-white border-red-600'
+                                                    : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-300 dark:border-slate-700'
+                                            }`}
+                                        >
+                                            {t('external_accounting.qbo_rec_quick_add_payment')}
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                setRecQuickType('Deposit')
+                                                if (!recQuickDate) setRecQuickDate(recEndingDate)
+                                                setRecQuickDocNum('DEP')
+                                            }}
+                                            className={`px-2.5 py-1 rounded-lg text-[11px] font-bold cursor-pointer border ${
+                                                recQuickType === 'Deposit'
+                                                    ? 'bg-emerald-600 text-white border-emerald-600'
+                                                    : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-300 dark:border-slate-700'
+                                            }`}
+                                        >
+                                            {t('external_accounting.qbo_rec_quick_add_deposit')}
+                                        </button>
+                                        {!reconcileMath.isBalanced && (
+                                            <button
+                                                type="button"
+                                                onClick={handleFillRemainingReconcileDifference}
+                                                className="px-2.5 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-800 dark:text-amber-200 border border-amber-500/40 text-[11px] font-black cursor-pointer inline-flex items-center gap-1"
+                                            >
+                                                <Zap size={12} />
+                                                <span>
+                                                    {t('external_accounting.qbo_rec_quick_fill_diff')} ({formatCurrency(Math.abs(reconcileMath.difference))})
+                                                </span>
+                                            </button>
+                                        )}
+                                        <button
+                                            type="button"
+                                            onClick={() => openTransactionModal(recQuickType === 'Deposit' ? 'Deposit' : 'Check')}
+                                            className="px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-700 dark:text-slate-300 text-[11px] font-bold cursor-pointer"
+                                        >
+                                            Formulario Completo ↗
+                                        </button>
+                                    </div>
+                                </div>
+
+                                {/* 1-Row Inline Entry Form */}
+                                <form onSubmit={handleQuickCaptureInReconcile} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 gap-2 items-end text-xs">
+                                    <div className="lg:col-span-2">
+                                        <label className="block text-[10px] font-bold uppercase text-slate-500 mb-0.5">
+                                            {t('external_accounting.col_type')}
+                                        </label>
+                                        <select
+                                            value={recQuickType}
+                                            onChange={(e) => setRecQuickType(e.target.value as 'Check' | 'Expense' | 'Deposit')}
+                                            className="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 font-bold"
+                                        >
+                                            <option value="Check">Check (Pago)</option>
+                                            <option value="Expense">Expense (Cargo/Salida)</option>
+                                            <option value="Deposit">Deposit (Depósito)</option>
+                                        </select>
+                                    </div>
+                                    <div className="lg:col-span-2">
+                                        <label className="block text-[10px] font-bold uppercase text-slate-500 mb-0.5">
+                                            {t('external_accounting.col_date')}
+                                        </label>
+                                        <input
+                                            type="date"
+                                            value={recQuickDate || recEndingDate}
+                                            onChange={(e) => setRecQuickDate(e.target.value)}
+                                            className="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 font-mono"
+                                        />
+                                    </div>
+                                    <div className="lg:col-span-1">
+                                        <label className="block text-[10px] font-bold uppercase text-slate-500 mb-0.5">
+                                            {t('external_accounting.qbo_rec_col_ref_no')}
+                                        </label>
+                                        <input
+                                            type="text"
+                                            value={recQuickDocNum}
+                                            onChange={(e) => setRecQuickDocNum(e.target.value)}
+                                            placeholder={recQuickType === 'Check' ? '1001' : 'REF'}
+                                            className="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 font-mono"
+                                        />
+                                    </div>
+                                    <div className="lg:col-span-2">
+                                        <label className="block text-[10px] font-bold uppercase text-slate-500 mb-0.5">
+                                            {t('external_accounting.col_payee')}
+                                        </label>
+                                        <input
+                                            type="text"
+                                            list="reconcile-payees-datalist"
+                                            value={recQuickPayee}
+                                            onChange={(e) => setRecQuickPayee(e.target.value)}
+                                            placeholder="Payee / Vendor / Customer"
+                                            className="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900"
+                                        />
+                                        <datalist id="reconcile-payees-datalist">
+                                            {contacts.slice(0, 200).map(c => (
+                                                <option key={c.id} value={c.display_name} />
+                                            ))}
+                                        </datalist>
+                                    </div>
+                                    <div className="lg:col-span-2">
+                                        <label className="block text-[10px] font-bold uppercase text-slate-500 mb-0.5">
+                                            {t('external_accounting.col_account')} (GL)
+                                        </label>
+                                        <select
+                                            value={recQuickGlAccountId}
+                                            onChange={(e) => setRecQuickGlAccountId(e.target.value)}
+                                            className="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900"
+                                        >
+                                            <option value="">Cuenta Contable...</option>
+                                            {expenseAndGlAccounts
+                                                .filter(a => a.qb_account_id !== reconcileAccountId)
+                                                .map(a => (
+                                                    <option key={a.qb_account_id} value={a.qb_account_id}>
+                                                        {a.name} ({a.account_type})
+                                                    </option>
+                                                ))}
+                                        </select>
+                                    </div>
+                                    <div className="lg:col-span-1">
+                                        <label className="block text-[10px] font-bold uppercase text-slate-500 mb-0.5">
+                                            {t('external_accounting.col_memo')}
+                                        </label>
+                                        <input
+                                            type="text"
+                                            value={recQuickMemo}
+                                            onChange={(e) => setRecQuickMemo(e.target.value)}
+                                            placeholder="Memo"
+                                            className="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900"
+                                        />
+                                    </div>
+                                    <div className="lg:col-span-1">
+                                        <label className="block text-[10px] font-bold uppercase text-slate-500 mb-0.5">
+                                            USD ($)
+                                        </label>
+                                        <input
+                                            type="number"
+                                            step="0.01"
+                                            value={recQuickAmount}
+                                            onChange={(e) => setRecQuickAmount(e.target.value)}
+                                            placeholder="0.00"
+                                            className="w-full px-2.5 py-1.5 rounded-lg border-2 border-emerald-500 bg-white dark:bg-slate-900 font-mono font-black"
+                                        />
+                                    </div>
+                                    <div className="lg:col-span-1">
+                                        <button
+                                            type="submit"
+                                            disabled={saving}
+                                            className="w-full px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-black cursor-pointer shadow-xs whitespace-nowrap"
+                                        >
+                                            {t('external_accounting.qbo_rec_quick_submit')}
+                                        </button>
+                                    </div>
+                                </form>
+                            </div>
+
+                            {/* ── QBO FILTER CHIPS & SEGMENTED PILLS (Payments | Deposits | All) ── */}
+                            <div className="flex flex-wrap items-center justify-between gap-2 text-xs pt-1">
+                                <div className="flex flex-wrap items-center gap-2">
+                                    {recUpToEndDateOnly ? (
+                                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-slate-200 dark:bg-slate-800 text-slate-800 dark:text-slate-200 font-bold">
+                                            <button
+                                                type="button"
+                                                onClick={() => setRecUpToEndDateOnly(false)}
+                                                className="hover:text-red-500 cursor-pointer"
+                                                title="Quitar filtro de fecha de corte"
+                                            >
+                                                ×
+                                            </button>
+                                            <span>{t('external_accounting.qbo_rec_chip_stmt_date')} (≤ {recEndingDate})</span>
+                                        </span>
+                                    ) : (
+                                        <button
+                                            type="button"
+                                            onClick={() => setRecUpToEndDateOnly(true)}
+                                            className="text-blue-600 dark:text-blue-400 font-bold hover:underline cursor-pointer"
+                                        >
+                                            {t('external_accounting.qbo_rec_reset_stmt_date_filter')}
+                                        </button>
+                                    )}
+                                    {(recUpToEndDateOnly || recSearch || recFilterSide !== 'ALL') && (
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                setRecUpToEndDateOnly(false)
+                                                setRecSearch('')
+                                                setRecFilterSide('ALL')
+                                            }}
+                                            className="text-blue-600 dark:text-blue-400 font-semibold hover:underline cursor-pointer"
+                                        >
+                                            {t('external_accounting.qbo_rec_clear_filter_view_all')}
+                                        </button>
+                                    )}
+                                    <input
+                                        type="text"
+                                        value={recSearch}
+                                        onChange={(e) => setRecSearch(e.target.value)}
+                                        placeholder={t('external_accounting.search_placeholder')}
+                                        className="px-3 py-1 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-xs"
+                                    />
+                                </div>
+
+                                <div className="flex flex-wrap items-center gap-2">
+                                    <button
+                                        type="button"
+                                        onClick={() => setRecSelectedIds(visibleReconcileRows.map(r => String(r.id)))}
+                                        className="px-2.5 py-1 rounded-lg bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 font-bold cursor-pointer"
+                                    >
+                                        ✓ {t('external_accounting.reconcile_mark_visible')} ({visibleReconcileRows.length})
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setRecSelectedIds([])}
+                                        className="px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 font-bold cursor-pointer"
+                                    >
+                                        {t('external_accounting.reconcile_unmark_all')}
+                                    </button>
+
+                                    {/* QBO Segmented Pills: Payments | Deposits | All */}
+                                    <div className="inline-flex rounded-lg border border-slate-300 dark:border-slate-700 overflow-hidden">
+                                        {(['PAYMENTS', 'DEPOSITS', 'ALL'] as const).map(side => (
+                                            <button
+                                                key={side}
+                                                type="button"
+                                                onClick={() => setRecFilterSide(side)}
+                                                className={`px-3 py-1 font-bold cursor-pointer text-xs ${
+                                                    recFilterSide === side
+                                                        ? 'bg-slate-800 text-white dark:bg-emerald-600'
+                                                        : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 hover:bg-slate-100'
                                                 }`}
                                             >
-                                                <td
-                                                    className="py-2 px-3 text-center"
-                                                    onClick={(e) => {
-                                                        e.stopPropagation()
-                                                        setRecSelectedIds(prev =>
-                                                            prev.includes(idStr) ? prev.filter(x => x !== idStr) : [...prev, idStr]
-                                                        )
+                                                {side === 'PAYMENTS'
+                                                    ? t('external_accounting.reconcile_filter_payments')
+                                                    : side === 'DEPOSITS'
+                                                    ? t('external_accounting.reconcile_filter_deposits')
+                                                    : t('external_accounting.reconcile_filter_all')}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* ── QBO RECONCILIATION TRANSACTIONS TABLE (1:1 COLUMNS) ── */}
+                            <div className="overflow-x-auto max-h-[480px] rounded-xl border border-slate-200 dark:border-slate-800">
+                                <table className="w-full text-xs border-collapse">
+                                    <thead className="sticky top-0 bg-slate-100 dark:bg-slate-800 font-black uppercase text-[10px] text-slate-600 dark:text-slate-300 z-10">
+                                        <tr>
+                                            <th className="py-2.5 px-3 text-left">{t('external_accounting.col_date')} ▲</th>
+                                            <th className="py-2.5 px-3 text-left">{t('external_accounting.qbo_rec_col_cleared_date')}</th>
+                                            <th className="py-2.5 px-3 text-left">{t('external_accounting.col_type')}</th>
+                                            <th className="py-2.5 px-3 text-left">{t('external_accounting.qbo_rec_col_ref_no')}</th>
+                                            <th className="py-2.5 px-3 text-left">{t('external_accounting.col_account')}</th>
+                                            <th className="py-2.5 px-3 text-left">{t('external_accounting.col_payee')}</th>
+                                            <th className="py-2.5 px-3 text-left">{t('external_accounting.col_memo')}</th>
+                                            <th className="py-2.5 px-3 text-right">{t('external_accounting.reconcile_col_payment')}</th>
+                                            <th className="py-2.5 px-3 text-right">{t('external_accounting.reconcile_col_deposit')}</th>
+                                            <th className="py-2.5 px-3 text-center w-12">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={visibleReconcileRows.length > 0 && visibleReconcileRows.every(r => recSelectedIds.includes(String(r.id)))}
+                                                    onChange={(e) => {
+                                                        if (e.target.checked) {
+                                                            const visIds = visibleReconcileRows.map(r => String(r.id))
+                                                            setRecSelectedIds(prev => Array.from(new Set([...prev, ...visIds])))
+                                                        } else {
+                                                            const visSet = new Set(visibleReconcileRows.map(r => String(r.id)))
+                                                            setRecSelectedIds(prev => prev.filter(id => !visSet.has(id)))
+                                                        }
                                                     }}
-                                                >
-                                                    <input
-                                                        type="checkbox"
-                                                        checked={checked}
-                                                        onChange={() => {}}
-                                                        className="cursor-pointer"
-                                                    />
-                                                </td>
-                                                <td className="py-2 px-3 font-mono">{row.txn_date}</td>
-                                                <td className="py-2 px-3">{row.txn_type}</td>
-                                                <td className="py-2 px-3 font-mono font-bold">{row.doc_number || '—'}</td>
-                                                <td className="py-2 px-3 font-semibold">{row.entity_name || '—'}</td>
-                                                <td className="py-2 px-3 text-slate-500">{row.category_summary || '—'}</td>
-                                                <td className="py-2 px-3 text-right font-mono font-bold text-red-600 dark:text-red-400">
-                                                    {isPay ? formatCurrency(row.total_amount) : ''}
-                                                </td>
-                                                <td className="py-2 px-3 text-right font-mono font-bold text-emerald-600 dark:text-emerald-400">
-                                                    {!isPay ? formatCurrency(row.total_amount) : ''}
-                                                </td>
-                                                <td className="py-2 px-3 text-center font-mono font-black">
-                                                    {checked ? 'R' : (row.cleared_status === 'Reconciled' ? 'R' : 'C')}
-                                                </td>
-                                                <td className="py-2 px-3 text-right whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
-                                                    <div className="inline-flex items-center gap-1">
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => handlePrintRecord('transaction', row)}
-                                                            className="p-1 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 cursor-pointer"
-                                                            title={t('external_accounting.preview_btn_print')}
-                                                        >
-                                                            <Printer size={12} />
-                                                        </button>
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => handleEditRecord('transaction', row)}
-                                                            className="p-1 rounded-lg hover:bg-blue-500/20 text-blue-600 dark:text-blue-400 cursor-pointer"
-                                                            title={t('external_accounting.preview_btn_edit')}
-                                                        >
-                                                            <Edit3 size={12} />
-                                                        </button>
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => openDeleteWizard('transaction', row)}
-                                                            className="p-1 rounded-lg hover:bg-red-500/20 text-red-600 dark:text-red-400 cursor-pointer"
-                                                            title={t('external_accounting.preview_btn_delete')}
-                                                        >
-                                                            <Trash2 size={12} />
-                                                        </button>
+                                                    className="cursor-pointer w-4 h-4 accent-emerald-600"
+                                                />
+                                            </th>
+                                            <th className="py-2.5 px-3 text-right">{t('external_accounting.col_actions')}</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-200/70 dark:divide-slate-800">
+                                        {visibleReconcileRows.length === 0 ? (
+                                            <tr>
+                                                <td colSpan={11} className="py-12 text-center space-y-2">
+                                                    <div className="text-sm font-bold text-slate-600 dark:text-slate-300">
+                                                        {t('external_accounting.qbo_rec_no_matching_txns')}
                                                     </div>
+                                                    {recUpToEndDateOnly && (
+                                                        <div>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => setRecUpToEndDateOnly(false)}
+                                                                className="text-xs font-bold text-blue-600 dark:text-blue-400 hover:underline cursor-pointer"
+                                                            >
+                                                                {t('external_accounting.qbo_rec_reset_stmt_date_filter')}
+                                                            </button>
+                                                        </div>
+                                                    )}
                                                 </td>
                                             </tr>
-                                        )
-                                    })}
-                                </tbody>
-                            </table>
+                                        ) : (
+                                            visibleReconcileRows.map(row => {
+                                                const idStr = String(row.id)
+                                                const checked = recSelectedIds.includes(idStr)
+                                                const isPay = isTxnPaymentForAccount(row, reconcileAccountId)
+                                                const isSplit = Array.isArray(row.line_items) && row.line_items.length > 1
+                                                return (
+                                                    <tr
+                                                        key={idStr}
+                                                        onClick={() => {
+                                                            setRecSelectedIds(prev =>
+                                                                prev.includes(idStr) ? prev.filter(x => x !== idStr) : [...prev, idStr]
+                                                            )
+                                                        }}
+                                                        className={`cursor-pointer transition-colors ${
+                                                            checked
+                                                                ? 'bg-emerald-500/10 hover:bg-emerald-500/15'
+                                                                : 'hover:bg-slate-50 dark:hover:bg-slate-800/50'
+                                                        }`}
+                                                    >
+                                                        <td className="py-2 px-3 font-mono whitespace-nowrap">{row.txn_date}</td>
+                                                        <td className="py-2 px-3 font-mono text-slate-500 whitespace-nowrap">
+                                                            {checked ? row.txn_date : ''}
+                                                        </td>
+                                                        <td className="py-2 px-3 whitespace-nowrap">{row.txn_type}</td>
+                                                        <td className="py-2 px-3 font-mono font-bold">{row.doc_number || ''}</td>
+                                                        <td className="py-2 px-3 text-slate-600 dark:text-slate-300">
+                                                            {isSplit
+                                                                ? t('external_accounting.qbo_rec_split_label')
+                                                                : (row.to_account_name || row.category_summary || '—')}
+                                                        </td>
+                                                        <td className="py-2 px-3 font-semibold">{row.entity_name || ''}</td>
+                                                        <td className="py-2 px-3 text-slate-500 max-w-[200px] truncate">{row.memo || ''}</td>
+                                                        <td className="py-2 px-3 text-right font-mono font-bold text-slate-900 dark:text-white">
+                                                            {isPay ? formatCurrency(row.total_amount) : ''}
+                                                        </td>
+                                                        <td className="py-2 px-3 text-right font-mono font-bold text-emerald-700 dark:text-emerald-400">
+                                                            {!isPay ? formatCurrency(row.total_amount) : ''}
+                                                        </td>
+                                                        <td
+                                                            className="py-2 px-3 text-center"
+                                                            onClick={(e) => {
+                                                                e.stopPropagation()
+                                                                setRecSelectedIds(prev =>
+                                                                    prev.includes(idStr) ? prev.filter(x => x !== idStr) : [...prev, idStr]
+                                                                )
+                                                            }}
+                                                        >
+                                                            <input
+                                                                type="checkbox"
+                                                                checked={checked}
+                                                                onChange={() => {}}
+                                                                className="cursor-pointer w-4 h-4 accent-emerald-600"
+                                                            />
+                                                        </td>
+                                                        <td className="py-2 px-3 text-right whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                                                            <div className="inline-flex items-center gap-1">
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => openRecordPreview('transaction', row)}
+                                                                    className="p-1 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 cursor-pointer"
+                                                                    title="Ver detalle"
+                                                                >
+                                                                    <Eye size={12} />
+                                                                </button>
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => handleEditRecord('transaction', row)}
+                                                                    className="p-1 rounded-lg hover:bg-blue-500/20 text-blue-600 dark:text-blue-400 cursor-pointer"
+                                                                    title={t('external_accounting.preview_btn_edit')}
+                                                                >
+                                                                    <Edit3 size={12} />
+                                                                </button>
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => openDeleteWizard('transaction', row)}
+                                                                    className="p-1 rounded-lg hover:bg-red-500/20 text-red-600 dark:text-red-400 cursor-pointer"
+                                                                    title={t('external_accounting.preview_btn_delete')}
+                                                                >
+                                                                    <Trash2 size={12} />
+                                                                </button>
+                                                            </div>
+                                                        </td>
+                                                    </tr>
+                                                )
+                                            })
+                                        )}
+                                    </tbody>
+                                </table>
+                            </div>
                         </div>
-                    </div>
+                    )}
 
-                    {/* Saved Reconciliations History Table */}
-                    <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 shadow-xs space-y-3">
-                        <h3 className="text-sm font-black uppercase tracking-wider text-slate-700 dark:text-slate-200">
-                            {t('external_accounting.reconcile_history_title')} ({reconciliations.length})
-                        </h3>
-                        <div className="overflow-x-auto">
-                            <table className="w-full text-xs border-collapse">
-                                <thead>
-                                    <tr className="bg-slate-100 dark:bg-slate-800 font-black uppercase text-[10px]">
-                                        <th className="py-2.5 px-3 text-left">{t('external_accounting.col_account')}</th>
-                                        <th className="py-2.5 px-3 text-left">{t('external_accounting.reconcile_ending_date')}</th>
-                                        <th className="py-2.5 px-3 text-right">{t('external_accounting.reconcile_beginning_balance')}</th>
-                                        <th className="py-2.5 px-3 text-right">{t('external_accounting.reconcile_ending_balance')}</th>
-                                        <th className="py-2.5 px-3 text-right">{t('external_accounting.reconcile_difference')}</th>
-                                        <th className="py-2.5 px-3 text-center">{t('external_accounting.col_status')}</th>
-                                        <th className="py-2.5 px-3 text-right">{t('external_accounting.col_actions')}</th>
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y divide-slate-200/70 dark:divide-slate-800">
-                                    {reconciliations.map(rec => (
-                                        <tr
-                                            key={rec.id}
-                                            onClick={() => openRecordPreview('reconciliation', rec)}
-                                            className="hover:bg-slate-50 dark:hover:bg-slate-800/50 cursor-pointer transition-colors"
-                                        >
-                                            <td className="py-2 px-3 font-bold">{rec.account_name}</td>
-                                            <td className="py-2 px-3 font-mono">{rec.statement_ending_date}</td>
-                                            <td className="py-2 px-3 text-right font-mono">{formatCurrency(rec.beginning_balance)}</td>
-                                            <td className="py-2 px-3 text-right font-mono font-bold">{formatCurrency(rec.ending_balance)}</td>
-                                            <td className="py-2 px-3 text-right font-mono">{formatCurrency(rec.difference)}</td>
-                                            <td className="py-2 px-3 text-center">
-                                                <span className={`px-2 py-0.5 rounded-full text-[10px] font-black ${
-                                                    rec.status === 'Completed'
-                                                        ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
-                                                        : 'bg-amber-500/15 text-amber-700 dark:text-amber-300'
-                                                }`}>
-                                                    {rec.status === 'Completed' ? t('external_accounting.reconcile_status_completed') : t('external_accounting.reconcile_status_draft')}
-                                                </span>
-                                            </td>
-                                            <td className="py-2 px-3 text-right whitespace-nowrap space-x-1.5" onClick={(e) => e.stopPropagation()}>
-                                                <button
-                                                    type="button"
-                                                    onClick={() => handlePrintReconciliationReport(rec)}
-                                                    className="px-2 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 font-bold cursor-pointer"
-                                                    title={t('external_accounting.preview_btn_print')}
-                                                >
-                                                    <Printer size={12} className="inline mr-1" />
-                                                    PDF
-                                                </button>
-                                                <button
-                                                    type="button"
-                                                    onClick={() => handleReopenReconciliation(rec)}
-                                                    className="px-2 py-1 rounded-lg bg-amber-500/15 text-amber-700 dark:text-amber-300 font-bold cursor-pointer"
-                                                >
-                                                    {t('external_accounting.reconcile_btn_reopen')}
-                                                </button>
-                                                <button
-                                                    type="button"
-                                                    onClick={() => openDeleteWizard('reconciliation', rec)}
-                                                    className="p-1.5 rounded-lg hover:bg-red-500/20 text-red-600 dark:text-red-400 cursor-pointer inline-flex items-center"
-                                                    title={t('external_accounting.preview_btn_delete')}
-                                                >
-                                                    <Trash2 size={13} />
-                                                </button>
-                                            </td>
+                    {/* ═══════════════════════════════════════════════════════════════════════════
+                        SUBVIEW 2: QBO RECONCILIATION SUMMARY (/app/reconcile?view=summary)
+                       ═══════════════════════════════════════════════════════════════════════════ */}
+                    {reconcileSubView === 'summary' && (
+                        <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 shadow-xs space-y-4">
+                            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                                <div>
+                                    <h2 className="text-lg font-black text-slate-900 dark:text-white uppercase tracking-wide">
+                                        {t('external_accounting.qbo_rec_summary_title')}
+                                    </h2>
+                                    <p className="text-xs text-slate-500">
+                                        {activeCompany?.company_name} — {bankAndCardAccounts.length} cuentas bancarias y de tarjeta
+                                    </p>
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={() => setReconcileSubView('reconcile')}
+                                    className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black cursor-pointer"
+                                >
+                                    {t('external_accounting.reconcile_title')}
+                                </button>
+                            </div>
+
+                            <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800">
+                                <table className="w-full text-xs border-collapse">
+                                    <thead>
+                                        <tr className="bg-slate-100 dark:bg-slate-800 font-black uppercase text-[10px] text-slate-600 dark:text-slate-300">
+                                            <th className="py-3 px-4 text-left">{t('external_accounting.col_account')}</th>
+                                            <th className="py-3 px-4 text-left">{t('external_accounting.col_type')}</th>
+                                            <th className="py-3 px-4 text-left">{t('external_accounting.qbo_rec_summary_col_last_reconciled')}</th>
+                                            <th className="py-3 px-4 text-left">{t('external_accounting.qbo_rec_summary_col_ending_date')}</th>
+                                            <th className="py-3 px-4 text-right">{t('external_accounting.reconcile_ending_balance')}</th>
+                                            <th className="py-3 px-4 text-center">{t('external_accounting.col_status')}</th>
+                                            <th className="py-3 px-4 text-right">{t('external_accounting.col_actions')}</th>
                                         </tr>
-                                    ))}
-                                </tbody>
-                            </table>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-200/70 dark:divide-slate-800">
+                                        {bankAndCardAccounts.map(acc => {
+                                            const accRecs = reconciliations
+                                                .filter(r => r.account_qb_id === acc.qb_account_id)
+                                                .sort((a, b) => String(b.statement_ending_date || '').localeCompare(String(a.statement_ending_date || '')))
+                                            const draft = accRecs.find(r => r.status === 'Draft')
+                                            const lastComp = accRecs.find(r => r.status === 'Completed')
+                                            return (
+                                                <tr key={acc.qb_account_id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
+                                                    <td className="py-3 px-4 font-bold text-slate-900 dark:text-white">
+                                                        {acc.name}
+                                                    </td>
+                                                    <td className="py-3 px-4 text-slate-500">{acc.account_type}</td>
+                                                    <td className="py-3 px-4 font-mono">
+                                                        {lastComp?.completed_at
+                                                            ? String(lastComp.completed_at).slice(0, 10)
+                                                            : (lastComp?.statement_ending_date || '—')}
+                                                    </td>
+                                                    <td className="py-3 px-4 font-mono font-bold">
+                                                        {lastComp?.statement_ending_date || '—'}
+                                                    </td>
+                                                    <td className="py-3 px-4 text-right font-mono font-bold">
+                                                        {lastComp ? formatCurrency(lastComp.ending_balance) : formatCurrency(acc.current_balance || 0)}
+                                                    </td>
+                                                    <td className="py-3 px-4 text-center">
+                                                        {draft ? (
+                                                            <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-amber-500/15 text-amber-700 dark:text-amber-300">
+                                                                In Progress (Δ {formatCurrency(draft.difference)})
+                                                            </span>
+                                                        ) : lastComp ? (
+                                                            <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-emerald-500/15 text-emerald-700 dark:text-emerald-300">
+                                                                {accRecs.filter(r => r.status === 'Completed').length} Reconciled
+                                                            </span>
+                                                        ) : (
+                                                            <span className="text-slate-400">—</span>
+                                                        )}
+                                                    </td>
+                                                    <td className="py-3 px-4 text-right whitespace-nowrap space-x-2">
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => {
+                                                                handleAutoSelectReconcileAccount(acc.qb_account_id, true)
+                                                                setReconcileSubView('reconcile')
+                                                            }}
+                                                            className="px-3 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold cursor-pointer"
+                                                        >
+                                                            {draft
+                                                                ? t('external_accounting.qbo_rec_btn_resume_reconciling')
+                                                                : t('external_accounting.reconcile_title')}
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => {
+                                                                setReconcileAccountId(acc.qb_account_id)
+                                                                setRecHistoryAccountFilter(acc.qb_account_id)
+                                                                setReconcileSubView('history')
+                                                            }}
+                                                            className="px-3 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 font-bold text-blue-600 dark:text-blue-400 cursor-pointer"
+                                                        >
+                                                            {t('external_accounting.qbo_rec_subview_history')}
+                                                        </button>
+                                                    </td>
+                                                </tr>
+                                            )
+                                        })}
+                                    </tbody>
+                                </table>
+                            </div>
                         </div>
-                    </div>
+                    )}
+
+                    {/* ═══════════════════════════════════════════════════════════════════════════
+                        SUBVIEW 3: QBO HISTORY BY ACCOUNT (/app/reconcile?view=history)
+                       ═══════════════════════════════════════════════════════════════════════════ */}
+                    {reconcileSubView === 'history' && (
+                        <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 shadow-xs space-y-4">
+                            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                                <div>
+                                    <h2 className="text-lg font-black text-slate-900 dark:text-white">
+                                        {t('external_accounting.qbo_rec_history_title_by_account')}
+                                    </h2>
+                                    <p className="text-xs text-slate-500">
+                                        {activeCompany?.company_name} — {reconciliations.length} sesiones registradas en Supabase
+                                    </p>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    <button
+                                        type="button"
+                                        onClick={() => setReconcileSubView('summary')}
+                                        className="px-3.5 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-bold cursor-pointer"
+                                    >
+                                        {t('external_accounting.qbo_rec_subview_summary')}
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setReconcileSubView('reconcile')
+                                        }}
+                                        className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black cursor-pointer"
+                                    >
+                                        {t('external_accounting.reconcile_title')}
+                                    </button>
+                                </div>
+                            </div>
+
+                            {/* Filter Controls: Account + Report Period */}
+                            <div className="flex flex-wrap items-end gap-3 text-xs pb-2 border-b border-slate-200 dark:border-slate-800">
+                                <div className="min-w-[260px]">
+                                    <label className="block font-bold text-slate-500 mb-1">
+                                        {t('external_accounting.col_account')}
+                                    </label>
+                                    <select
+                                        value={recHistoryAccountFilter}
+                                        onChange={(e) => {
+                                            setRecHistoryAccountFilter(e.target.value)
+                                            if (e.target.value !== 'ALL') setReconcileAccountId(e.target.value)
+                                        }}
+                                        className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 font-bold"
+                                    >
+                                        <option value="ALL">Todas las Cuentas ({reconciliations.length})</option>
+                                        {bankAndCardAccounts.map(a => (
+                                            <option key={a.qb_account_id} value={a.qb_account_id}>
+                                                {a.name} ({reconciliations.filter(r => r.account_qb_id === a.qb_account_id).length})
+                                            </option>
+                                        ))}
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="block font-bold text-slate-500 mb-1">
+                                        {t('external_accounting.qbo_rec_history_report_period')}
+                                    </label>
+                                    <select
+                                        value={recHistoryPeriod}
+                                        onChange={(e) => setRecHistoryPeriod(e.target.value as 'ALL' | '365')}
+                                        className="px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 font-bold"
+                                    >
+                                        <option value="ALL">{t('external_accounting.qbo_rec_history_all_dates')}</option>
+                                        <option value="365">{t('external_accounting.qbo_rec_history_since_365')}</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            {/* History Table matching QBO History by account */}
+                            <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800">
+                                <table className="w-full text-xs border-collapse">
+                                    <thead>
+                                        <tr className="bg-slate-100 dark:bg-slate-800 font-black uppercase text-[10px] text-slate-600 dark:text-slate-300">
+                                            <th className="py-2.5 px-3 text-left">{t('external_accounting.col_account')}</th>
+                                            <th className="py-2.5 px-3 text-left">{t('external_accounting.reconcile_ending_date')} ▼</th>
+                                            <th className="py-2.5 px-3 text-left">{t('external_accounting.qbo_rec_history_col_reconciled_on')}</th>
+                                            <th className="py-2.5 px-3 text-right">{t('external_accounting.reconcile_beginning_balance')}</th>
+                                            <th className="py-2.5 px-3 text-right">{t('external_accounting.reconcile_ending_balance')}</th>
+                                            <th className="py-2.5 px-3 text-right">{t('external_accounting.qbo_rec_history_col_changes')}</th>
+                                            <th className="py-2.5 px-3 text-right">{t('external_accounting.qbo_rec_history_col_auto_adj')}</th>
+                                            <th className="py-2.5 px-3 text-center">{t('external_accounting.col_status')}</th>
+                                            <th className="py-2.5 px-3 text-right">{t('external_accounting.qbo_rec_history_col_action')}</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-200/70 dark:divide-slate-800">
+                                        {reconciliations
+                                            .filter(rec => {
+                                                if (recHistoryAccountFilter !== 'ALL' && rec.account_qb_id !== recHistoryAccountFilter) return false
+                                                if (recHistoryPeriod === '365') {
+                                                    const cutoff = new Date(Date.now() - 365 * 86400000).toISOString().slice(0, 10)
+                                                    if (String(rec.statement_ending_date || '') < cutoff) return false
+                                                }
+                                                return true
+                                            })
+                                            .map(rec => (
+                                                <tr
+                                                    key={rec.id}
+                                                    onClick={() => setRecViewReportModal(rec)}
+                                                    className="hover:bg-slate-50 dark:hover:bg-slate-800/50 cursor-pointer transition-colors"
+                                                >
+                                                    <td className="py-2.5 px-3 font-bold">{rec.account_name}</td>
+                                                    <td className="py-2.5 px-3 font-mono font-bold">{rec.statement_ending_date}</td>
+                                                    <td className="py-2.5 px-3 font-mono text-slate-500">
+                                                        {rec.completed_at ? String(rec.completed_at).slice(0, 10) : (rec.statement_ending_date || '—')}
+                                                    </td>
+                                                    <td className="py-2.5 px-3 text-right font-mono">{formatCurrency(rec.beginning_balance)}</td>
+                                                    <td className="py-2.5 px-3 text-right font-mono font-bold">{formatCurrency(rec.ending_balance)}</td>
+                                                    <td className="py-2.5 px-3 text-right font-mono text-slate-500">{formatCurrency(0)}</td>
+                                                    <td className="py-2.5 px-3 text-right font-mono">
+                                                        {rec.status === 'Draft' ? formatCurrency(rec.difference) : formatCurrency(0)}
+                                                    </td>
+                                                    <td className="py-2.5 px-3 text-center">
+                                                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-black ${
+                                                            rec.status === 'Completed'
+                                                                ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
+                                                                : 'bg-amber-500/15 text-amber-700 dark:text-amber-300'
+                                                        }`}>
+                                                            {rec.status === 'Completed'
+                                                                ? t('external_accounting.reconcile_status_completed')
+                                                                : t('external_accounting.reconcile_status_draft')}
+                                                        </span>
+                                                    </td>
+                                                    <td className="py-2.5 px-3 text-right whitespace-nowrap space-x-1.5" onClick={(e) => e.stopPropagation()}>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => setRecViewReportModal(rec)}
+                                                            className="px-2.5 py-1 rounded-lg bg-blue-500/10 text-blue-600 dark:text-blue-400 hover:bg-blue-500/20 font-bold cursor-pointer"
+                                                        >
+                                                            {t('external_accounting.qbo_rec_history_view_report')}
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => handlePrintReconciliationReport(rec)}
+                                                            className="px-2 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 font-bold cursor-pointer"
+                                                            title={t('external_accounting.preview_btn_print')}
+                                                        >
+                                                            <Printer size={12} className="inline mr-1" />
+                                                            PDF
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => handleReopenReconciliation(rec)}
+                                                            className="px-2 py-1 rounded-lg bg-amber-500/15 text-amber-700 dark:text-amber-300 font-bold cursor-pointer"
+                                                        >
+                                                            {t('external_accounting.reconcile_btn_reopen')}
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => openDeleteWizard('reconciliation', rec)}
+                                                            className="p-1.5 rounded-lg hover:bg-red-500/20 text-red-600 dark:text-red-400 cursor-pointer inline-flex items-center"
+                                                            title={t('external_accounting.preview_btn_delete')}
+                                                        >
+                                                            <Trash2 size={13} />
+                                                        </button>
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* ═══════════════════════════════════════════════════════════════════════════
+                        QBO "EDIT INFO" SLIDE-OVER DRAWER (Edit information from your statement)
+                       ═══════════════════════════════════════════════════════════════════════════ */}
+                    {recEditInfoModalOpen && (
+                        <div className="fixed inset-0 z-50 bg-black/50 flex justify-end">
+                            <div className="w-full max-w-md bg-white dark:bg-slate-900 h-full shadow-2xl p-6 flex flex-col justify-between overflow-y-auto">
+                                <div className="space-y-5">
+                                    <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-4">
+                                        <h3 className="text-base font-black text-slate-900 dark:text-white">
+                                            {t('external_accounting.qbo_rec_edit_info_modal_title')}
+                                        </h3>
+                                        <button
+                                            type="button"
+                                            onClick={() => setRecEditInfoModalOpen(false)}
+                                            className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                                        >
+                                            <XCircle size={18} />
+                                        </button>
+                                    </div>
+
+                                    <div className="space-y-4 text-xs">
+                                        <div>
+                                            <label className="block font-bold text-slate-500 mb-1">
+                                                {t('external_accounting.reconcile_beginning_balance')}
+                                            </label>
+                                            <input
+                                                type="number"
+                                                step="0.01"
+                                                value={recBeginningBalance}
+                                                onChange={(e) => setRecBeginningBalance(e.target.value)}
+                                                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 font-mono text-sm font-bold"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block font-bold text-slate-700 dark:text-slate-200 mb-1">
+                                                {t('external_accounting.qbo_rec_ending_balance_req')}
+                                            </label>
+                                            <input
+                                                type="number"
+                                                step="0.01"
+                                                value={recEndingBalance}
+                                                onChange={(e) => setRecEndingBalance(e.target.value)}
+                                                className="w-full px-3.5 py-2.5 rounded-xl border-2 border-emerald-500 bg-white dark:bg-slate-950 font-mono text-base font-black"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block font-bold text-slate-700 dark:text-slate-200 mb-1">
+                                                {t('external_accounting.qbo_rec_ending_date_req')}
+                                            </label>
+                                            <input
+                                                type="date"
+                                                value={recEndingDate}
+                                                onChange={(e) => setRecEndingDate(e.target.value)}
+                                                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 font-mono text-sm font-bold"
+                                            />
+                                        </div>
+                                        <div className="pt-3 border-t border-slate-200 dark:border-slate-800 grid grid-cols-2 gap-3">
+                                            <div>
+                                                <label className="block font-bold text-slate-500 mb-1">
+                                                    {t('external_accounting.reconcile_service_charge')}
+                                                </label>
+                                                <input
+                                                    type="number"
+                                                    step="0.01"
+                                                    value={recServiceCharge}
+                                                    onChange={(e) => setRecServiceCharge(e.target.value)}
+                                                    className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 font-mono"
+                                                />
+                                            </div>
+                                            <div>
+                                                <label className="block font-bold text-slate-500 mb-1">
+                                                    {t('external_accounting.reconcile_interest_earned')}
+                                                </label>
+                                                <input
+                                                    type="number"
+                                                    step="0.01"
+                                                    value={recInterestEarned}
+                                                    onChange={(e) => setRecInterestEarned(e.target.value)}
+                                                    className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 font-mono"
+                                                />
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="flex items-center justify-end gap-2 pt-4 border-t border-slate-200 dark:border-slate-800">
+                                    <button
+                                        type="button"
+                                        onClick={() => setRecEditInfoModalOpen(false)}
+                                        className="px-4 py-2 rounded-xl border border-slate-300 dark:border-slate-700 font-bold text-xs cursor-pointer"
+                                    >
+                                        {t('external_accounting.btn_cancel')}
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={handleStartOrResumeReconciling}
+                                        className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs cursor-pointer"
+                                    >
+                                        {t('external_accounting.btn_save')}
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* ═══════════════════════════════════════════════════════════════════════════
+                        QBO RECONCILIATION REPORT VIEWER MODAL ("View report" from History)
+                       ═══════════════════════════════════════════════════════════════════════════ */}
+                    {recViewReportModal && (
+                        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
+                            <div className="w-full max-w-4xl max-h-[90vh] bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 flex flex-col overflow-hidden">
+                                <div className="p-5 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
+                                    <div>
+                                        <div className="text-xs font-bold uppercase tracking-wider text-emerald-600">
+                                            {activeCompany?.legal_name || activeCompany?.company_name}
+                                        </div>
+                                        <h3 className="text-lg font-black text-slate-900 dark:text-white">
+                                            {t('external_accounting.reconcile_title')} — {recViewReportModal.account_name}
+                                        </h3>
+                                        <p className="text-xs text-slate-500">
+                                            {t('external_accounting.reconcile_ending_date')}:{' '}
+                                            <span className="font-mono font-bold">{recViewReportModal.statement_ending_date}</span>
+                                        </p>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                        <button
+                                            type="button"
+                                            onClick={() => handlePrintReconciliationReport(recViewReportModal)}
+                                            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black cursor-pointer"
+                                        >
+                                            <Printer size={14} />
+                                            <span>{t('external_accounting.reconcile_btn_print')}</span>
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                const target = recViewReportModal
+                                                setRecViewReportModal(null)
+                                                handleReopenReconciliation(target)
+                                            }}
+                                            className="px-3.5 py-2 rounded-xl bg-amber-500/15 text-amber-700 dark:text-amber-300 text-xs font-bold cursor-pointer"
+                                        >
+                                            {t('external_accounting.reconcile_btn_reopen')}
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => setRecViewReportModal(null)}
+                                            className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                                        >
+                                            <XCircle size={18} />
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <div className="p-6 overflow-y-auto space-y-5 text-xs">
+                                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                                        <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800">
+                                            <div className="text-[10px] font-bold uppercase text-slate-500">
+                                                {t('external_accounting.reconcile_beginning_balance')}
+                                            </div>
+                                            <div className="text-base font-black font-mono mt-0.5">
+                                                {formatCurrency(recViewReportModal.beginning_balance)}
+                                            </div>
+                                        </div>
+                                        <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800">
+                                            <div className="text-[10px] font-bold uppercase text-slate-500">
+                                                {t('external_accounting.reconcile_cleared_balance')}
+                                            </div>
+                                            <div className="text-base font-black font-mono mt-0.5">
+                                                {formatCurrency(recViewReportModal.cleared_balance)}
+                                            </div>
+                                        </div>
+                                        <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800">
+                                            <div className="text-[10px] font-bold uppercase text-slate-500">
+                                                {t('external_accounting.reconcile_ending_balance')}
+                                            </div>
+                                            <div className="text-base font-black font-mono text-emerald-600 mt-0.5">
+                                                {formatCurrency(recViewReportModal.ending_balance)}
+                                            </div>
+                                        </div>
+                                        <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800">
+                                            <div className="text-[10px] font-bold uppercase text-slate-500">
+                                                {t('external_accounting.reconcile_difference')}
+                                            </div>
+                                            <div className="text-base font-black font-mono mt-0.5">
+                                                {formatCurrency(recViewReportModal.difference)}
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 space-y-2">
+                                        <div className="font-bold text-slate-700 dark:text-slate-200">
+                                            Notas / Metadatos de Auditoría QBO:
+                                        </div>
+                                        <div className="text-slate-500 font-mono">
+                                            {recViewReportModal.notes || 'Conciliación sincronizada 1:1 desde Intuit QuickBooks Online Accountant Suite.'}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
                 </div>
             )}
 

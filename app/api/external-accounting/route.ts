@@ -1619,21 +1619,23 @@ export async function GET(req: NextRequest) {
     const totalPages = Math.max(1, Math.ceil(filteredTxns.length / pageSize))
     const checkbookTotalPages = Math.max(1, Math.ceil(checkbookFiltered.length / pageSize))
 
-    // Build full non-truncated candidate list for Bank / Credit Card Reconciliation
-    const reconcileAccountId = searchParams.get('reconcileAccountId') || bankAccounts[0]?.qb_account_id || ''
+    // Build full non-truncated candidate list for Bank / Credit Card Reconciliation across all company bank/CC accounts
     const bankAndCcIds = new Set(
       accountsList
         .filter(a => a.account_type === 'Bank' || (a.account_type || '').toLowerCase().includes('credit card'))
-        .map(a => a.qb_account_id)
+        .map(a => String(a.qb_account_id))
     )
-    const reconcileTransactions = txnsWithRunningBalance.filter(t => {
-      if (t.is_voided || t.txn_type === 'Estimate' || t.txn_type === 'PurchaseOrder') return false
-      if (reconcileAccountId && reconcileAccountId !== 'ALL') {
-        const lineHit = Array.isArray(t.line_items) && t.line_items.some((l: any) => l.account_qb_id === reconcileAccountId)
-        return t.account_qb_id === reconcileAccountId || t.to_account_qb_id === reconcileAccountId || lineHit
-      }
-      return (t.account_qb_id && bankAndCcIds.has(t.account_qb_id)) || (t.to_account_qb_id && bankAndCcIds.has(t.to_account_qb_id))
-    })
+    const reconcileTransactions = [...txnsWithRunningBalance]
+      .filter(t => {
+        if (t.is_voided || t.txn_type === 'Estimate' || t.txn_type === 'PurchaseOrder') return false
+        const lineHit = Array.isArray(t.line_items) && t.line_items.some((l: any) => bankAndCcIds.has(String(l.account_qb_id)))
+        return (
+          (t.account_qb_id && bankAndCcIds.has(String(t.account_qb_id))) ||
+          (t.to_account_qb_id && bankAndCcIds.has(String(t.to_account_qb_id))) ||
+          lineHit
+        )
+      })
+      .sort((a, b) => String(a.txn_date || '').localeCompare(String(b.txn_date || '')))
 
     const compMeta = validCompany?.metadata || {}
 
@@ -3812,9 +3814,9 @@ export async function POST(req: NextRequest) {
         }
       }> = []
 
-      // Optional auto-create Bank Service Charge on statement ending date (inside atomic RPC)
+      // Optional auto-create Bank Service Charge on statement ending date (inside atomic RPC when completing)
       const svcChargeAmt = Number(service_charge || 0)
-      if (svcChargeAmt > 0 && !id) {
+      if (svcChargeAmt > 0 && status === 'Completed') {
         const explicitSvcAcc = service_charge_account_qb_id
           ? (acctByQbId.get(String(service_charge_account_qb_id)) || {
               qb_account_id: String(service_charge_account_qb_id),
@@ -3879,9 +3881,9 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      // Optional auto-create Interest Earned on statement ending date (inside atomic RPC)
+      // Optional auto-create Interest Earned on statement ending date (inside atomic RPC when completing)
       const intEarnedAmt = Number(interest_earned || 0)
-      if (intEarnedAmt > 0 && !id) {
+      if (intEarnedAmt > 0 && status === 'Completed') {
         const explicitIntAcc = interest_account_qb_id
           ? (acctByQbId.get(String(interest_account_qb_id)) || {
               qb_account_id: String(interest_account_qb_id),
