@@ -36,7 +36,6 @@ export const ALLOWED_EXTERNAL_ACCOUNTING_EMAILS = new Set([
   'raquel@tacosgavilan.com',
   'roberto@tacosgavilan.com',
   'roque@tacosgavilan.com',
-  'rvelasquez95@yahoo.com',
 ])
 
 export const ALLOWED_EXTERNAL_ACCOUNTING_USER_IDS = new Set([
@@ -119,13 +118,20 @@ export async function authorizeExternalAccounting(
   const dbEmailLower = String(dbUser.email || '').trim().toLowerCase()
   const dbIdStr = String(dbUser.id || '').trim()
   if (
-    !ALLOWED_EXTERNAL_ACCOUNTING_EMAILS.has(dbEmailLower) &&
-    !ALLOWED_EXTERNAL_ACCOUNTING_USER_IDS.has(dbIdStr)
+    !ALLOWED_EXTERNAL_ACCOUNTING_USER_IDS.has(dbIdStr) &&
+    !ALLOWED_EXTERNAL_ACCOUNTING_EMAILS.has(dbEmailLower)
   ) {
     return {
       authorized: false,
       status: 403,
       error: 'Acceso restringido: Cuenta no autorizada para Contabilidad Externa.'
+    }
+  }
+  if (!ALLOWED_EXTERNAL_ACCOUNTING_USER_IDS.has(dbIdStr)) {
+    return {
+      authorized: false,
+      status: 403,
+      error: 'Acceso restringido: Solo los IDs autorizados (45 Raquel, 46 Roberto, 47 Roque) tienen acceso.'
     }
   }
 
@@ -363,42 +369,560 @@ export function mergeAccountDeltas(
 
 /**
  * Aplica de forma atómica un conjunto de ajustes (`qb_account_id -> delta`) en PostgreSQL
- * estrictamente aislados por `company_realm_id = realmId`.
+ * estrictamente aislados por `company_realm_id = realmId` mediante el RPC transaccional
+ * `public.fn_ext_acct_apply_account_deltas`.
  */
 export async function applyAccountDeltasAtomically(
   supabase: SupabaseClient,
   realmId: string,
   deltas: Map<string, number>
 ): Promise<void> {
-  const entries = Array.from(deltas.entries()).filter(([, d]) => Math.abs(d) >= 0.001)
+  const entries = Array.from(deltas.entries())
+    .filter(([, d]) => Math.abs(d) >= 0.001)
+    .map(([qb_account_id, delta]) => ({
+      qb_account_id: String(qb_account_id).trim(),
+      delta: Number(delta.toFixed(2)),
+    }))
   if (entries.length === 0) return
 
-  const safeRealm = realmId.replace(/'/g, "''")
-  const valuesSql = entries
-    .map(([qbId, delta]) => `('${qbId.replace(/'/g, "''")}', ${Number(delta.toFixed(2))})`)
-    .join(', ')
-
-  const atomicUpdateSql = `
-    SELECT 1 ) t;
-    UPDATE external_accounting_accounts AS a
-    SET
-      current_balance = ROUND(COALESCE(a.current_balance, 0) + v.delta, 2),
-      updated_at = NOW()
-    FROM (VALUES ${valuesSql}) AS v(qb_account_id, delta)
-    WHERE a.company_realm_id = '${safeRealm}'
-      AND a.qb_account_id = v.qb_account_id;
-    SELECT * FROM (SELECT 1
-  `
-
-  const { error } = await supabase.rpc('execute_sql', { query_text: atomicUpdateSql })
+  const { data, error } = await supabase.rpc('fn_ext_acct_apply_account_deltas', {
+    p_realm_id: realmId,
+    p_deltas: entries,
+  })
   if (error) {
     throw new Error(`Atomic balance update failed: ${error.message}`)
+  }
+  if (!data || (typeof data === 'object' && 'ok' in data && !(data as any).ok)) {
+    throw new Error(`Atomic balance update returned unexpected payload: ${JSON.stringify(data)}`)
+  }
+}
+
+export interface AtomicTransactionMutationParams {
+  operation: 'UPSERT' | 'VOID' | 'DELETE'
+  realmId: string
+  txn: Record<string, any>
+  deltas: Map<string, number>
+  invoiceUpdates?: Array<{ id: string; open_balance: number; raw_data?: Record<string, any> }>
+  contactDeltas?: Array<{
+    id?: string
+    qb_contact_id?: string
+    display_name?: string
+    delta?: number
+    balance?: number
+    require_found?: boolean
+  }>
+  user: ServerUser
+  audit: {
+    actionType: string
+    entityType?: string
+    entityId?: string
+    docNumber?: string | null
+    amount?: number | null
+    summary: string
+    details?: Record<string, any>
+  }
+  outbox?: {
+    entityKind?: 'TRANSACTION' | 'ACCOUNT' | 'CONTACT' | 'LIST_ITEM' | 'RECURRING' | 'ATTACHMENT'
+    entityType?: string
+    qbEntityId?: string | null
+    operation?: 'CREATE' | 'UPDATE' | 'UPSERT' | 'VOID' | 'DELETE' | 'DEACTIVATE'
+    idempotencyKey: string
+    payload?: Record<string, any>
+    status?: 'PENDING' | 'PROCESSING' | 'SYNCED' | 'FAILED' | 'SKIPPED_LOCAL_ONLY'
+  } | null
+}
+
+/**
+ * Ejecuta una mutación contable completa (Transacción + Líneas + LinkedTxn + Saldos de Cuentas +
+ * Facturas/Bills vinculadas + Saldo de Contacto + Cola Outbox QBO + Auditoría Obligatoria)
+ * dentro de una ÚNICA transacción ACID de PostgreSQL (`public.fn_ext_acct_mutate_transaction_atomic`).
+ */
+export async function mutateTransactionAtomically(
+  supabase: SupabaseClient,
+  params: AtomicTransactionMutationParams
+): Promise<{
+  transaction: Record<string, any>
+  balanceUpdates: any
+  auditId: string
+  outboxId: string | null
+  autoCreatedContactId: string | null
+  autoCreatedContactQbId: string | null
+  autoCreatedContactOutboxId: string | null
+}> {
+  const deltaEntries = Array.from(params.deltas.entries())
+    .filter(([, d]) => Math.abs(d) >= 0.001)
+    .map(([qb_account_id, delta]) => ({
+      qb_account_id: String(qb_account_id).trim(),
+      delta: Number(delta.toFixed(2)),
+    }))
+
+  const auditPayload = {
+    user_id: String(params.user.id || ''),
+    user_name: params.user.name || params.user.email || 'Authorized User',
+    user_email: params.user.email || null,
+    action_type: params.audit.actionType,
+    entity_type: params.audit.entityType || params.txn.txn_type || null,
+    entity_id: params.audit.entityId ? String(params.audit.entityId) : null,
+    doc_number: params.audit.docNumber ?? params.txn.doc_number ?? null,
+    amount:
+      params.audit.amount !== undefined && params.audit.amount !== null
+        ? Number(params.audit.amount)
+        : Number(params.txn.total_amount || 0),
+    summary: params.audit.summary,
+    details: params.audit.details || {},
+  }
+
+  const outboxPayload = params.outbox
+    ? {
+        entity_kind: params.outbox.entityKind || 'TRANSACTION',
+        entity_type: params.outbox.entityType || params.txn.qb_entity_type || params.txn.txn_type,
+        qb_entity_id: params.outbox.qbEntityId || params.txn.qb_txn_id || null,
+        operation: params.outbox.operation || params.operation,
+        idempotency_key: params.outbox.idempotencyKey,
+        payload: params.outbox.payload || params.txn,
+        status: params.outbox.status || 'PENDING',
+      }
+    : null
+
+  const { data, error } = await supabase.rpc('fn_ext_acct_mutate_transaction_atomic', {
+    p_operation: params.operation,
+    p_realm_id: params.realmId,
+    p_txn: params.txn,
+    p_deltas: deltaEntries,
+    p_invoice_updates: params.invoiceUpdates || [],
+    p_contact_deltas: params.contactDeltas || [],
+    p_audit: auditPayload,
+    p_outbox: outboxPayload,
+  })
+
+  if (error) {
+    throw new Error(`Atomic accounting transaction failed: ${error.message}`)
+  }
+  if (!data || !(data as any).ok || !(data as any).transaction) {
+    throw new Error(`Atomic accounting transaction returned invalid response: ${JSON.stringify(data)}`)
+  }
+
+  return {
+    transaction: (data as any).transaction,
+    balanceUpdates: (data as any).balance_updates,
+    auditId: String((data as any).audit_id || ''),
+    outboxId: (data as any).outbox_id ? String((data as any).outbox_id) : null,
+    autoCreatedContactId: (data as any).auto_created_contact_id ? String((data as any).auto_created_contact_id) : null,
+    autoCreatedContactQbId: (data as any).auto_created_contact_qb_id ? String((data as any).auto_created_contact_qb_id) : null,
+    autoCreatedContactOutboxId: (data as any).auto_created_contact_outbox_id ? String((data as any).auto_created_contact_outbox_id) : null,
   }
 }
 
 /**
- * Registra en la bitácora de auditoría contable (`external_accounting_audit_log`)
- * cualquier mutación realizada por Raquel, Roberto o Roque.
+ * Ejecuta en una ÚNICA transacción ACID de PostgreSQL (`public.fn_ext_acct_batch_mutate_transactions_atomic`)
+ * la creación o actualización masiva de transacciones (Batch Save, Reclassify, Bank Rules, Write-Off Invoices),
+ * junto con ajustes de saldos de cuentas, saldos pendientes de facturas, saldos de contactos,
+ * encolado obligatorio de Outbox QBO y bitácora de auditoría. Si falla 1 renglón, se revierte el 100% del lote.
+ */
+export async function batchMutateTransactionsAtomically(
+  supabase: SupabaseClient,
+  params: {
+    mode?: 'BATCH_INSERT' | 'BATCH_UPDATE' | 'WRITE_OFF'
+    realmId: string
+    items: Array<{
+      operation?: string
+      txn: Record<string, any>
+      deltas?: Map<string, number>
+      outbox?: {
+        idempotency_key?: string
+        idempotencyKey?: string
+        status?: 'PENDING' | 'SKIPPED_LOCAL_ONLY'
+        [key: string]: any
+      }
+    }>
+    deltas?: Map<string, number>
+    outboxStatus?: 'PENDING' | 'SKIPPED_LOCAL_ONLY'
+    invoiceUpdates?: Array<{ id?: string; invoice_id?: string; open_balance: number; raw_data?: Record<string, any> }>
+    contactUpdates?: Array<{ id?: string; qb_contact_id?: string; balance?: number; delta?: number }>
+    user: ServerUser
+    audit?: {
+      actionType: string
+      entityType?: string
+      entityId?: string
+      docNumber?: string | null
+      amount?: number | null
+      summary: string
+      details?: Record<string, any>
+    }
+    batchAudit?: {
+      actionType: string
+      entityType?: string
+      entityId?: string
+      docNumber?: string | null
+      amount?: number | null
+      summary: string
+      details?: Record<string, any>
+    }
+  }
+): Promise<{
+  count: number
+  mutatedCount: number
+  transactions: Record<string, any>[]
+  outboxIds: string[]
+  auditId: string
+}> {
+  let combinedDeltas = params.deltas ? new Map(params.deltas) : new Map<string, number>()
+  for (const item of params.items || []) {
+    if (item.deltas) {
+      combinedDeltas = mergeAccountDeltas(combinedDeltas, item.deltas)
+    }
+  }
+
+  const deltaEntries = Array.from(combinedDeltas.entries())
+    .filter(([, d]) => Math.abs(d) >= 0.001)
+    .map(([qb_account_id, delta]) => ({
+      qb_account_id: String(qb_account_id).trim(),
+      delta: Number(delta.toFixed(2)),
+    }))
+
+  const normalizedItems = (params.items || []).map(item => ({
+    txn: item.txn,
+    outbox: {
+      ...(item.outbox || {}),
+      idempotency_key: item.outbox?.idempotency_key || item.outbox?.idempotencyKey || undefined,
+      status: item.outbox?.status || params.outboxStatus || undefined,
+    },
+  }))
+
+  const normalizedInvoiceUpdates = (params.invoiceUpdates || []).map(inv => ({
+    id: String(inv.id || inv.invoice_id || ''),
+    open_balance: Number(inv.open_balance || 0),
+    ...(inv.raw_data !== undefined ? { raw_data: inv.raw_data } : {}),
+  }))
+
+  const normalizedContactUpdates = (params.contactUpdates || []).map((c: any) => ({
+    id: c.id || c.contact_id ? String(c.id || c.contact_id) : undefined,
+    qb_contact_id: c.qb_contact_id ? String(c.qb_contact_id) : undefined,
+    ...(c.balance !== undefined ? { balance: Number(c.balance) } : {}),
+    ...(c.delta !== undefined ? { delta: Number(c.delta) } : {}),
+  }))
+
+  const auditInfo = params.audit || params.batchAudit || {
+    actionType: 'BATCH_MUTATE_TRANSACTIONS',
+    summary: `Batch mutated ${(params.items || []).length} transactions`,
+  }
+  const effectiveMode = params.mode || (params.invoiceUpdates && params.invoiceUpdates.length > 0 ? 'WRITE_OFF' : 'BATCH_UPDATE')
+
+  const auditPayload = {
+    user_id: String(params.user.id || ''),
+    user_name: params.user.name || params.user.email || 'Authorized User',
+    user_email: params.user.email || null,
+    action_type: auditInfo.actionType,
+    entity_type: auditInfo.entityType || effectiveMode,
+    entity_id: auditInfo.entityId || null,
+    doc_number: auditInfo.docNumber || null,
+    amount:
+      auditInfo.amount !== undefined && auditInfo.amount !== null
+        ? Number(auditInfo.amount)
+        : null,
+    summary: auditInfo.summary,
+    details: auditInfo.details || {},
+  }
+
+  const { data, error } = await supabase.rpc('fn_ext_acct_batch_mutate_transactions_atomic', {
+    p_mode: effectiveMode,
+    p_realm_id: params.realmId,
+    p_items: normalizedItems,
+    p_deltas: deltaEntries,
+    p_invoice_updates: normalizedInvoiceUpdates,
+    p_contact_updates: normalizedContactUpdates,
+    p_audit: auditPayload,
+  })
+
+  if (error) {
+    throw new Error(`Atomic batch transaction mutation failed: ${error.message}`)
+  }
+  if (!data || !(data as any).ok) {
+    throw new Error(`Atomic batch transaction mutation returned invalid response: ${JSON.stringify(data)}`)
+  }
+
+  const countVal = Number((data as any).count || 0)
+  return {
+    count: countVal,
+    mutatedCount: countVal,
+    transactions: Array.isArray((data as any).transactions) ? (data as any).transactions : [],
+    outboxIds: Array.isArray((data as any).outbox_ids) ? (data as any).outbox_ids.map(String) : [],
+    auditId: String((data as any).audit_id || ''),
+  }
+}
+
+/**
+ * Ejecuta en una ÚNICA transacción ACID de PostgreSQL (`public.fn_ext_acct_save_reconciliation_atomic`)
+ * la conciliación bancaria completa: cargos bancarios, intereses ganados, asiento de ajuste justificado,
+ * actualización de `cleared_status = 'Reconciled'`, actualización de saldos de cuentas,
+ * registro en `external_accounting_reconciliations`, Outbox QBO y bitácora de auditoría.
+ */
+export async function saveReconciliationAtomically(
+  supabase: SupabaseClient,
+  params: {
+    realmId: string
+    reconciliation: Record<string, any>
+    reconciledTxnIds?: string[]
+    extraTransactions?: Array<{
+      txn: Record<string, any>
+      deltas?: Map<string, number>
+      outbox?: {
+        idempotency_key?: string
+        idempotencyKey?: string
+        status?: 'PENDING' | 'SKIPPED_LOCAL_ONLY'
+        [key: string]: any
+      }
+      audit?: Record<string, any>
+    }>
+    deltas?: Map<string, number>
+    user: ServerUser
+    audit: {
+      actionType: string
+      entityType?: string
+      entityId?: string
+      docNumber?: string | null
+      amount?: number | null
+      summary: string
+      details?: Record<string, any>
+    }
+  }
+): Promise<{
+  reconciliation: Record<string, any>
+  extraTransactions: Record<string, any>[]
+  extraTxnIds: string[]
+  outboxIds: string[]
+  auditId: string
+}> {
+  let combinedDeltas = params.deltas ? new Map(params.deltas) : new Map<string, number>()
+  for (const et of params.extraTransactions || []) {
+    if (et.deltas) {
+      combinedDeltas = mergeAccountDeltas(combinedDeltas, et.deltas)
+    }
+  }
+
+  const deltaEntries = Array.from(combinedDeltas.entries())
+    .filter(([, d]) => Math.abs(d) >= 0.001)
+    .map(([qb_account_id, delta]) => ({
+      qb_account_id: String(qb_account_id).trim(),
+      delta: Number(delta.toFixed(2)),
+    }))
+
+  const normalizedExtraTxns = (params.extraTransactions || []).map(et => ({
+    txn: et.txn,
+    outbox: et.outbox
+      ? {
+          ...et.outbox,
+          idempotency_key: et.outbox.idempotency_key || et.outbox.idempotencyKey || undefined,
+        }
+      : undefined,
+    audit: et.audit,
+  }))
+
+  const recPayload = {
+    ...params.reconciliation,
+    reconciled_txn_ids:
+      params.reconciledTxnIds !== undefined
+        ? params.reconciledTxnIds
+        : params.reconciliation.reconciled_txn_ids || [],
+  }
+
+  const auditPayload = {
+    user_id: String(params.user.id || ''),
+    user_name: params.user.name || params.user.email || 'Authorized User',
+    user_email: params.user.email || null,
+    action_type: params.audit.actionType,
+    doc_number: params.audit.docNumber || null,
+    amount: params.audit.amount !== undefined && params.audit.amount !== null ? Number(params.audit.amount) : null,
+    summary: params.audit.summary,
+    details: params.audit.details || {},
+  }
+
+  const { data, error } = await supabase.rpc('fn_ext_acct_save_reconciliation_atomic', {
+    p_realm_id: params.realmId,
+    p_reconciliation: recPayload,
+    p_extra_transactions: normalizedExtraTxns,
+    p_deltas: deltaEntries,
+    p_audit: auditPayload,
+  })
+
+  if (error) {
+    throw new Error(`Atomic reconciliation save failed: ${error.message}`)
+  }
+  if (!data || !(data as any).ok || !(data as any).reconciliation) {
+    throw new Error(`Atomic reconciliation save returned invalid response: ${JSON.stringify(data)}`)
+  }
+
+  const extraTxns = Array.isArray((data as any).extra_transactions) ? (data as any).extra_transactions : []
+  return {
+    reconciliation: (data as any).reconciliation,
+    extraTransactions: extraTxns,
+    extraTxnIds: extraTxns.map((t: any) => String(t?.id || '')).filter(Boolean),
+    outboxIds: Array.isArray((data as any).outbox_ids) ? (data as any).outbox_ids.map(String) : [],
+    auditId: String((data as any).audit_id || ''),
+  }
+}
+
+/**
+ * Reabre o elimina una conciliación bancaria en una ÚNICA transacción ACID de PostgreSQL
+ * (`public.fn_ext_acct_reopen_or_delete_reconciliation_atomic`).
+ */
+export async function reopenOrDeleteReconciliationAtomically(
+  supabase: SupabaseClient,
+  params: {
+    operation: 'REOPEN' | 'DELETE'
+    realmId: string
+    reconciliationId: string
+    user: ServerUser
+    audit?: {
+      actionType?: string
+      docNumber?: string | null
+      amount?: number | null
+      summary?: string
+      details?: Record<string, any>
+    }
+  }
+): Promise<{
+  reconciliation: Record<string, any>
+  auditId: string
+}> {
+  const auditPayload = {
+    user_id: String(params.user.id || ''),
+    user_name: params.user.name || params.user.email || 'Authorized User',
+    user_email: params.user.email || null,
+    action_type: params.audit?.actionType || `RECONCILE_BANK_${params.operation}`,
+    doc_number: params.audit?.docNumber || null,
+    amount: params.audit?.amount !== undefined && params.audit?.amount !== null ? Number(params.audit.amount) : null,
+    summary: params.audit?.summary || `${params.operation} reconciliation ${params.reconciliationId}`,
+    details: params.audit?.details || {},
+  }
+
+  const { data, error } = await supabase.rpc('fn_ext_acct_reopen_or_delete_reconciliation_atomic', {
+    p_operation: params.operation,
+    p_realm_id: params.realmId,
+    p_reconciliation_id: params.reconciliationId,
+    p_audit: auditPayload,
+  })
+
+  if (error) {
+    throw new Error(`Atomic reconciliation ${params.operation} failed: ${error.message}`)
+  }
+  if (!data || !(data as any).ok) {
+    throw new Error(`Atomic reconciliation ${params.operation} returned invalid response: ${JSON.stringify(data)}`)
+  }
+
+  return {
+    reconciliation: (data as any).reconciliation,
+    auditId: String((data as any).audit_id || ''),
+  }
+}
+
+/**
+ * Ejecuta en una ÚNICA transacción ACID de PostgreSQL (`public.fn_ext_acct_mutate_entity_atomic`)
+ * el CRUD de entidades (`ACCOUNT`, `CONTACT`, `LIST_ITEM`, `RECURRING`, `ATTACHMENT`) junto con
+ * su registro obligatorio en `external_accounting_sync_outbox` y `external_accounting_audit_log`.
+ */
+export async function mutateEntityAtomically(
+  supabase: SupabaseClient,
+  params: {
+    entityKind: 'ACCOUNT' | 'CONTACT' | 'LIST_ITEM' | 'RECURRING' | 'ATTACHMENT' | 'BANK_RULE' | 'BUDGET' | 'COMPANY_SETTINGS' | 'NOTE_TASK'
+    operation: 'UPSERT' | 'DELETE' | 'DEACTIVATE' | 'TOGGLE'
+    realmId: string
+    listKey?: string | null
+    entity?: Record<string, any>
+    record?: Record<string, any>
+    user: ServerUser
+    audit: {
+      actionType: string
+      entityType?: string
+      entityId?: string
+      docNumber?: string | null
+      amount?: number | null
+      summary: string
+      details?: Record<string, any>
+    }
+    outbox?: {
+      entityKind?: string
+      entityType?: string
+      qbEntityId?: string | null
+      operation?: 'CREATE' | 'UPDATE' | 'UPSERT' | 'DELETE' | 'DEACTIVATE' | 'TOGGLE'
+      idempotencyKey?: string
+      payload?: Record<string, any>
+      status?: 'PENDING' | 'SKIPPED_LOCAL_ONLY'
+      maxAttempts?: number
+    } | null
+  }
+): Promise<{
+  entity: Record<string, any>
+  record: Record<string, any>
+  localId: string | null
+  qbId: string | null
+  outboxId: string | null
+  outboxStatus: string | null
+  qboSyncEnabled: boolean
+  auditId: string
+}> {
+  const entityObj = params.entity || params.record || {}
+  const auditPayload = {
+    user_id: String(params.user.id || ''),
+    user_name: params.user.name || params.user.email || 'Authorized User',
+    user_email: params.user.email || null,
+    action_type: params.audit.actionType,
+    entity_type: params.audit.entityType || params.listKey || params.entityKind,
+    entity_id: params.audit.entityId || null,
+    doc_number: params.audit.docNumber || null,
+    amount: params.audit.amount !== undefined && params.audit.amount !== null ? Number(params.audit.amount) : null,
+    summary: params.audit.summary,
+    details: params.audit.details || {},
+  }
+
+  const outboxPayload =
+    params.outbox === null
+      ? null
+      : {
+          entity_type: params.outbox?.entityType || params.listKey || params.entityKind,
+          qb_entity_id: params.outbox?.qbEntityId || null,
+          operation: params.outbox?.operation || params.operation,
+          idempotency_key:
+            params.outbox?.idempotencyKey ||
+            `${params.entityKind}-${params.operation}-${params.realmId}-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+          payload: params.outbox?.payload || entityObj,
+          status: params.outbox?.status || 'PENDING',
+          max_attempts: params.outbox?.maxAttempts || 5,
+        }
+
+  const { data, error } = await supabase.rpc('fn_ext_acct_mutate_entity_atomic', {
+    p_entity_kind: params.entityKind,
+    p_operation: params.operation,
+    p_realm_id: params.realmId,
+    p_list_key: params.listKey || null,
+    p_entity: entityObj,
+    p_audit: auditPayload,
+    p_outbox: outboxPayload,
+  })
+
+  if (error) {
+    throw new Error(`Atomic entity mutation (${params.entityKind}/${params.operation}) failed: ${error.message}`)
+  }
+  if (!data || !(data as any).ok) {
+    throw new Error(`Atomic entity mutation returned invalid response: ${JSON.stringify(data)}`)
+  }
+
+  const retEntity = (data as any).entity || {}
+  return {
+    entity: retEntity,
+    record: retEntity,
+    localId: (data as any).local_id ? String((data as any).local_id) : null,
+    qbId: (data as any).qb_id ? String((data as any).qb_id) : null,
+    outboxId: (data as any).outbox_id ? String((data as any).outbox_id) : null,
+    outboxStatus: (data as any).outbox_status ? String((data as any).outbox_status) : null,
+    qboSyncEnabled: Boolean((data as any).qbo_sync_enabled),
+    auditId: String((data as any).audit_id || ''),
+  }
+}
+
+/**
+ * Registra de forma obligatoria y NO silenciosa en la bitácora de auditoría contable
+ * (`external_accounting_audit_log`) cualquier mutación realizada por Raquel, Roberto o Roque.
  */
 export async function logExternalAccountingAudit(
   supabase: SupabaseClient,
@@ -412,23 +936,27 @@ export async function logExternalAccountingAudit(
     amount?: number | null
     summary: string
     details?: Record<string, any>
+    strict?: boolean
   }
 ): Promise<void> {
-  try {
-    await supabase.from('external_accounting_audit_log').insert({
-      company_realm_id: params.realmId,
-      user_id: String(params.user.id || ''),
-      user_name: params.user.name || params.user.email || 'Authorized User',
-      user_email: params.user.email || null,
-      action_type: params.actionType,
-      entity_type: params.entityType || null,
-      entity_id: params.entityId ? String(params.entityId) : null,
-      doc_number: params.docNumber || null,
-      amount: params.amount !== undefined && params.amount !== null ? Number(params.amount) : null,
-      summary: params.summary,
-      details: params.details || {},
-    })
-  } catch (err) {
-    console.warn('[external_accounting_audit_log] Non-blocking log warning:', err)
+  const { error } = await supabase.from('external_accounting_audit_log').insert({
+    company_realm_id: params.realmId,
+    user_id: String(params.user.id || ''),
+    user_name: params.user.name || params.user.email || 'Authorized User',
+    user_email: params.user.email || null,
+    action_type: params.actionType,
+    entity_type: params.entityType || null,
+    entity_id: params.entityId ? String(params.entityId) : null,
+    doc_number: params.docNumber || null,
+    amount: params.amount !== undefined && params.amount !== null ? Number(params.amount) : null,
+    summary: params.summary,
+    details: params.details || {},
+  })
+
+  if (error) {
+    if (params.strict !== false) {
+      throw new Error(`Mandatory audit log insert failed: ${error.message}`)
+    }
+    console.warn('[external_accounting_audit_log] Non-blocking log warning:', error)
   }
 }

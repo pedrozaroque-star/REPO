@@ -170,6 +170,7 @@ export function buildLedgerContext(accountsList: LedgerAccount[], itemsList: Led
   let defaultArId: string | null = null
   let defaultApId: string | null = null
   let salesTaxPayableId: string | null = null
+  let fallbackTaxLiabilityId: string | null = null
   for (const a of accountsList || []) {
     if (!a?.qb_account_id) continue
     const id = String(a.qb_account_id)
@@ -177,11 +178,19 @@ export function buildLedgerContext(accountsList: LedgerAccount[], itemsList: Led
     if (a.name) accountsByName.set(String(a.name).toLowerCase().trim(), a)
     if (a.fully_qualified_name) accountsByName.set(String(a.fully_qualified_name).toLowerCase().trim(), a)
     const sub = String(a.account_sub_type || '')
+    const subLower = sub.toLowerCase()
     const nm = String(a.name || '').toLowerCase()
     if (!undepositedFundsId && (sub === 'UndepositedFunds' || nm === 'undeposited funds')) undepositedFundsId = id
     if (!defaultArId && a.account_type === 'Accounts Receivable') defaultArId = id
     if (!defaultApId && a.account_type === 'Accounts Payable') defaultApId = id
-    if (!salesTaxPayableId && (sub === 'SalesTaxPayable' || sub === 'GlobalTaxPayable' || (a.account_type === 'Other Current Liability' && nm.includes('sales tax')))) salesTaxPayableId = id
+    if (!salesTaxPayableId && (sub === 'SalesTaxPayable' || sub === 'GlobalTaxPayable' || (a.account_type === 'Other Current Liability' && nm.includes('sales tax')))) {
+      salesTaxPayableId = id
+    } else if (!fallbackTaxLiabilityId && a.account_type === 'Other Current Liability' && (subLower.includes('tax') || nm.includes('tax') || nm.includes('impuesto'))) {
+      fallbackTaxLiabilityId = id
+    }
+  }
+  if (!salesTaxPayableId && fallbackTaxLiabilityId) {
+    salesTaxPayableId = fallbackTaxLiabilityId
   }
   const items = new Map<string, LedgerItem>()
   const itemsByName = new Map<string, LedgerItem>()
@@ -367,10 +376,14 @@ function buildFromRaw(t: any, ctx: LedgerContext): Posting[] | null {
   }
   // Sales-side lines (Invoice, SalesReceipt, CreditMemo, RefundReceipt): credit income (sign=-1) or debit (sign=+1)
   const salesLines = (sign: 1 | -1) => {
+    const normLines: any[] = Array.isArray(t.line_items) ? t.line_items : []
     flattenSalesLines(lines).forEach((l, i) => {
       if (l?.DetailType === 'SalesItemLineDetail') {
         const det = l.SalesItemLineDetail || {}
-        const acc = resolveAccountRef(ctx, det.ItemAccountRef) || itemAccount(ctx, det.ItemRef, 'INCOME')
+        const normAcc = normLines[i]?.account_qb_id
+          ? resolveAccountByIdOrName(ctx, normLines[i].account_qb_id, normLines[i].account_name)
+          : null
+        const acc = resolveAccountRef(ctx, det.ItemAccountRef) || normAcc || itemAccount(ctx, det.ItemRef, 'INCOME')
         push(acc, sign * Number(l.Amount || 0), i, false, lineExtra(l, det))
       } else if (l?.DetailType === 'DiscountLineDetail') {
         const det = l.DiscountLineDetail || {}
@@ -521,6 +534,15 @@ function buildFromNormalized(t: any, ctx: LedgerContext): Posting[] {
     return direct
   }
   const header = (fallback: string | null) => resolveAccountByIdOrName(ctx, t.account_qb_id, t.account_name) || fallback
+  const appendSalesTaxPostingIfApplicable = (sign: 1 | -1) => {
+    const taxAmt = r2(Number(t.tax_amount ?? t.raw_data?.TxnTaxDetail?.TotalTax ?? 0))
+    if (!taxAmt) return
+    const linesSum = r2(lines.reduce((s, l) => s + Number(l?.amount || 0), 0))
+    if (Math.abs(total - (linesSum + taxAmt)) <= 0.02) {
+      const taxAcc = resolveAccountByIdOrName(ctx, t.tax_account_qb_id, t.tax_account_name) || ctx.salesTaxPayableId
+      push(taxAcc, sign * taxAmt, 9999, false, { description: 'Sales Tax' })
+    }
+  }
 
   switch (tType) {
     case 'Transfer':
@@ -545,6 +567,7 @@ function buildFromNormalized(t: any, ctx: LedgerContext): Posting[] {
         if (l?.detail_type === 'CashBackLineDetail') { push(lineAccount(l, 'DEPOSIT'), Math.abs(amt), i, false, l); return }
         push(lineAccount(l, tType === 'SalesReceipt' ? 'INCOME' : 'DEPOSIT'), -amt, i, false, l)
       })
+      if (tType === 'SalesReceipt') appendSalesTaxPostingIfApplicable(-1)
       return out
     }
     case 'Payment': {
@@ -560,14 +583,17 @@ function buildFromNormalized(t: any, ctx: LedgerContext): Posting[] {
     case 'Invoice':
       push(header(ctx.defaultArId), total, -1, true)
       lines.forEach((l, i) => push(lineAccount(l, 'INCOME'), -Number(l?.amount || 0), i, false, l))
+      appendSalesTaxPostingIfApplicable(-1)
       return out
     case 'CreditMemo':
       push(header(ctx.defaultArId), -total, -1, true)
       lines.forEach((l, i) => push(lineAccount(l, 'INCOME'), Number(l?.amount || 0), i, false, l))
+      appendSalesTaxPostingIfApplicable(1)
       return out
     case 'RefundReceipt':
       push(header(null), -total, -1, true)
       lines.forEach((l, i) => push(lineAccount(l, 'INCOME'), Number(l?.amount || 0), i, false, l))
+      appendSalesTaxPostingIfApplicable(1)
       return out
     case 'Bill':
       push(header(ctx.defaultApId), -total, -1, true)
@@ -625,6 +651,96 @@ export function postingsToDeltaMap(postings: Posting[], ctx: LedgerContext, mult
 /** Sum of debits minus credits of a posting set (0 when balanced). */
 export function postingImbalance(postings: Posting[]): number {
   return r2(postings.reduce((s, p) => s + p.amount, 0))
+}
+
+export interface PostingValidationResult {
+  valid: boolean
+  balanced: boolean
+  postings: Posting[]
+  totalDebits: number
+  totalCredits: number
+  imbalance: number
+  missingAccounts: string[]
+  error?: string
+}
+
+/**
+ * Validates that a transaction produces a strictly balanced double-entry posting set
+ * where every referenced account exists in `ctx.accounts` (same company realm).
+ */
+export function validateBalancedTransactionPostings(t: any, ctx: LedgerContext): PostingValidationResult {
+  if (!t || t.is_voided) {
+    return { valid: true, balanced: true, postings: [], totalDebits: 0, totalCredits: 0, imbalance: 0, missingAccounts: [] }
+  }
+  const tType = String(t.txn_type || t.qb_entity_type || 'Check')
+  if (tType === 'Estimate' || tType === 'PurchaseOrder' || t.direction === 'NON_POSTING') {
+    return { valid: true, balanced: true, postings: [], totalDebits: 0, totalCredits: 0, imbalance: 0, missingAccounts: [] }
+  }
+
+  const totalAmt = r2(Math.abs(Number(t.total_amount ?? t.raw_data?.TotalAmt ?? 0)))
+  const rawLines: any[] = Array.isArray(t.line_items) ? t.line_items : []
+  const hasNonZeroLines = rawLines.some(l => Math.abs(Number(l?.amount || 0)) >= 0.005)
+
+  const postings = buildTxnPostings(t, ctx)
+  const totalDebits = r2(postings.filter(p => p.amount > 0).reduce((s, p) => s + p.amount, 0))
+  const totalCredits = r2(postings.filter(p => p.amount < 0).reduce((s, p) => s + Math.abs(p.amount), 0))
+  const imbalance = postingImbalance(postings)
+  const missingAccounts = Array.from(
+    new Set(postings.map(p => p.account_qb_id).filter(accId => !accId || !ctx.accounts.has(String(accId))))
+  )
+
+  if (totalAmt === 0 && !hasNonZeroLines && postings.length === 0) {
+    return { valid: true, balanced: true, postings, totalDebits: 0, totalCredits: 0, imbalance: 0, missingAccounts: [] }
+  }
+
+  if (postings.length < 2) {
+    return {
+      valid: false,
+      balanced: false,
+      postings,
+      totalDebits,
+      totalCredits,
+      imbalance,
+      missingAccounts,
+      error: `UNBALANCED_POSTINGS: Transaction (${tType}) produced only ${postings.length} posting line(s) for amount $${totalAmt.toFixed(2)}. Both debit and credit accounts must be valid in this company.`,
+    }
+  }
+
+  if (missingAccounts.length > 0) {
+    return {
+      valid: false,
+      balanced: false,
+      postings,
+      totalDebits,
+      totalCredits,
+      imbalance,
+      missingAccounts,
+      error: `INVALID_POSTING_ACCOUNTS: Account ID(s) [${missingAccounts.join(', ')}] do not exist in this company's Chart of Accounts.`,
+    }
+  }
+
+  if (Math.abs(imbalance) > 0.01) {
+    return {
+      valid: false,
+      balanced: false,
+      postings,
+      totalDebits,
+      totalCredits,
+      imbalance,
+      missingAccounts,
+      error: `UNBALANCED_POSTINGS: Double-entry imbalance of $${imbalance.toFixed(2)} (Debits: $${totalDebits.toFixed(2)}, Credits: $${totalCredits.toFixed(2)}) on ${tType}. Ensure all line accounts and tax accounts are valid.`,
+    }
+  }
+
+  return {
+    valid: true,
+    balanced: true,
+    postings,
+    totalDebits,
+    totalCredits,
+    imbalance,
+    missingAccounts: [],
+  }
 }
 
 /** First day of the fiscal year that contains `date` (YYYY-MM-DD). */

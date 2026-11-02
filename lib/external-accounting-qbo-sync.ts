@@ -29,12 +29,20 @@
  *   con cliente/factura/método de pago, y el `CashBack` se guarda como línea `CashBackLineDetail` (antes 132 depósitos quedaron
  *   sin cuenta en sus líneas y 43 sin Cash Back; se repararon desde `raw_data`). Los pagos recuperan "Payment for Invoice #N (fecha)",
  *   cada transacción guarda su Location (`DepartmentRef`) y los errores de `upsert` ya no se ignoran en silencio.
+ * - 2026-10-31 (Fase 6 Hardening):
+ *   1) Contrato unificado de Outbox (`external_accounting_sync_outbox`): usa exclusivamente `attempts`, `max_attempts`, `next_retry_at`,
+ *      `status`, `last_error`, `synced_at` con backoff exponencial, idempotencia y `SKIPPED_LOCAL_ONLY` para empresas con `qbo_sync_enabled=false`.
+ *   2) Pull paginado endurecido (`fetchAllQboEntitiesPaginatedDetailed`): si cualquier página falla devuelve `ok: false, status: 'incomplete'`
+ *      con `failedEntity`, `failedPage`, `cursor` y `error`; si se alcanza el techo técnico (`maxPages`) reporta `truncated: true` y `truncatedEntities`.
  */
 
+import crypto from 'crypto'
 import { SupabaseClient } from '@supabase/supabase-js'
 import { getAuthClient } from '@/lib/quickbooks'
 
 const QBO_MINOR_VERSION = '73'
+const QBO_ATTACHMENT_BUCKET = 'external-accounting-attachments'
+const MAX_QBO_ATTACHMENT_BYTES = 15 * 1024 * 1024
 
 export interface QboOAuthState {
   connected: boolean
@@ -1034,6 +1042,9 @@ export function buildQboTransactionPayload(txn: any): { entityName: string; endp
       } else {
         salesDetail.ItemRef = { value: '1', name: l.item_name || l.account_name || 'Services' }
       }
+      if (l.account_qb_id && !isLocalId(l.account_qb_id)) {
+        salesDetail.ItemAccountRef = { value: String(l.account_qb_id), name: l.account_name || undefined }
+      }
       return {
         Amount: amt,
         Description: l.description || txn.memo || '',
@@ -1285,6 +1296,29 @@ export async function pushTransactionToQbo(
   const qboEntity = saveRes.data[entityName]
   const realQbTxnId = String(qboEntity.Id)
 
+  const localLines = Array.isArray(workingTxn.line_items) ? workingTxn.line_items : []
+  let salesIdx = 0
+  const mergedQboLines = Array.isArray(qboEntity.Line)
+    ? qboEntity.Line.map((ql: any) => {
+        if (ql?.DetailType === 'SalesItemLineDetail') {
+          const localLine = localLines[salesIdx++]
+          if (localLine?.account_qb_id) {
+            return {
+              ...ql,
+              SalesItemLineDetail: {
+                ...(ql.SalesItemLineDetail || {}),
+                ItemAccountRef: {
+                  value: String(localLine.account_qb_id),
+                  name: localLine.account_name || ql.SalesItemLineDetail?.ItemAccountRef?.name || undefined,
+                },
+              },
+            }
+          }
+        }
+        return ql
+      })
+    : qboEntity.Line
+
   await supabase
     .from('external_accounting_transactions')
     .update({
@@ -1294,6 +1328,7 @@ export async function pushTransactionToQbo(
       account_qb_id: workingTxn.account_qb_id,
       raw_data: {
         ...qboEntity,
+        ...(Array.isArray(mergedQboLines) ? { Line: mergedQboLines } : {}),
         qbo_sync_status: 'SYNCED',
         qbo_synced_at: new Date().toISOString(),
         qbo_sync_error: null,
@@ -1447,26 +1482,741 @@ export function buildDepositLineItems(
   return out
 }
 
+export interface PaginatedQboPullResult {
+  ok: boolean
+  status: 'complete' | 'incomplete' | 'truncated'
+  entityName: string
+  items: any[]
+  pagesFetched: number
+  truncated: boolean
+  truncationCeiling?: number
+  nextCursor?: number
+  failedPage?: number
+  cursor?: number
+  error?: string
+}
+
+export type CustomQboQueryRunner = (
+  realmId: string,
+  query: string,
+  page: number,
+  startPosition: number
+) => Promise<{ ok: boolean; status: number; data?: any; error?: string }>
+
 /**
- * Ejecuta una sincronización bidireccional completa (Push de pendientes locales + Pull de QBO V3) para la empresa activa.
+ * Consulta paginada endurecida contra Intuit QuickBooks V3 Query API (`STARTPOSITION` / `MAXRESULTS`).
+ * - NUNCA ignora ni devuelve éxito parcial silencioso si falla una página (`status: 'incomplete'`, `failedPage`, `cursor`).
+ * - NUNCA trunca sin visibilidad: si alcanza `maxPages` con página llena, reporta `truncated: true`, `truncationCeiling` y `nextCursor`.
+ */
+export async function fetchAllQboEntitiesPaginatedDetailed(
+  supabase: SupabaseClient,
+  realmId: string,
+  entityName: string,
+  options?: {
+    whereClause?: string
+    orderByClause?: string
+    pageSize?: number
+    maxPages?: number
+    queryRunner?: CustomQboQueryRunner
+  }
+): Promise<PaginatedQboPullResult> {
+  const pageSize = Math.min(Math.max(options?.pageSize ?? 500, 1), 1000)
+  const maxPages = Math.max(options?.maxPages ?? 25, 1)
+  const allItems: any[] = []
+  let startPosition = 1
+  let pagesFetched = 0
+  let truncated = false
+  let truncationCeiling: number | undefined
+  let nextCursor: number | undefined
+
+  for (let page = 0; page < maxPages; page++) {
+    let query = `SELECT * FROM ${entityName}`
+    if (options?.whereClause) {
+      query += ` WHERE ${options.whereClause}`
+    }
+    if (options?.orderByClause) {
+      query += ` ORDERBY ${options.orderByClause}`
+    }
+    query += ` STARTPOSITION ${startPosition} MAXRESULTS ${pageSize}`
+
+    const res = options?.queryRunner
+      ? await options.queryRunner(realmId, query, page + 1, startPosition)
+      : await qboV3Request(supabase, realmId, 'GET', `query?query=${encodeURIComponent(query)}`)
+
+    if (!res.ok) {
+      return {
+        ok: false,
+        status: 'incomplete',
+        entityName,
+        items: allItems,
+        pagesFetched,
+        truncated: false,
+        failedPage: page + 1,
+        cursor: startPosition,
+        error:
+          res.error ||
+          `Error en paginación QBO para entidad ${entityName} en página ${page + 1} (STARTPOSITION ${startPosition})`,
+      }
+    }
+
+    pagesFetched = page + 1
+    const batch = res.data?.QueryResponse?.[entityName]
+    if (!Array.isArray(batch) || batch.length === 0) break
+
+    allItems.push(...batch)
+    if (batch.length < pageSize) break
+
+    startPosition += batch.length
+    if (page + 1 === maxPages) {
+      truncated = true
+      truncationCeiling = maxPages * pageSize
+      nextCursor = startPosition
+    }
+  }
+
+  return {
+    ok: true,
+    status: truncated ? 'truncated' : 'complete',
+    entityName,
+    items: allItems,
+    pagesFetched,
+    truncated,
+    truncationCeiling,
+    nextCursor,
+  }
+}
+
+/**
+ * Wrapper retrocompatible que devuelve el arreglo de entidades pero lanza excepción explícita
+ * si alguna página falla, evitando truncamientos silenciosos.
+ */
+export async function fetchAllQboEntitiesPaginated(
+  supabase: SupabaseClient,
+  realmId: string,
+  entityName: string,
+  options?: {
+    whereClause?: string
+    orderByClause?: string
+    pageSize?: number
+    maxPages?: number
+    queryRunner?: CustomQboQueryRunner
+  }
+): Promise<any[]> {
+  const res = await fetchAllQboEntitiesPaginatedDetailed(supabase, realmId, entityName, options)
+  if (!res.ok) {
+    throw new Error(
+      `[QBO Pull Incomplete] entity=${res.entityName} page=${res.failedPage} cursor=${res.cursor}: ${res.error}`
+    )
+  }
+  return res.items
+}
+
+export interface OutboxExecutionResult {
+  synced: boolean
+  qbEntityId?: string | null
+  status?: string
+  error?: string | null
+}
+
+export type OutboxCustomExecutor = (entry: Record<string, any>) => Promise<OutboxExecutionResult>
+
+/**
+ * Procesa una única fila del Outbox QBO (`external_accounting_sync_outbox`) respetando:
+ * - Contrato unificado (`attempts`, `max_attempts`, `next_retry_at`, `status`, `last_error`, `synced_at`).
+ * - Idempotencia estricta: si la fila o su `idempotency_key` ya está `SYNCED`, no vuelve a mutar QBO.
+ * - Empresas `qbo_sync_enabled = false`: marca `SKIPPED_LOCAL_ONLY` y jamás llama a QBO.
+ * - Backoff exponencial en `next_retry_at` cuando ocurre un error, sin perder jamás la operación.
+ */
+export async function processSingleOutboxEntry(
+  supabase: SupabaseClient,
+  realmIdOrOutboxId: string,
+  outboxIdOrOptions?:
+    | string
+    | {
+        customExecutor?: OutboxCustomExecutor
+        baseBackoffSeconds?: number
+        forceNow?: boolean
+      },
+  maybeOptions?: {
+    customExecutor?: OutboxCustomExecutor
+    baseBackoffSeconds?: number
+    forceNow?: boolean
+  }
+): Promise<{
+  id: string
+  status: 'SYNCED' | 'FAILED' | 'SKIPPED_LOCAL_ONLY' | 'ALREADY_SYNCED' | 'MAX_ATTEMPTS_EXCEEDED' | 'NOT_DUE_YET'
+  attempts: number
+  maxAttempts: number
+  qbEntityId: string | null
+  qbId: string | null
+  lastError: string | null
+  error: string | null
+  nextRetryAt: string | null
+  syncedAt: string | null
+  remoteCalled: boolean
+  alreadyIdempotent: boolean
+}> {
+  const isTwoArgForm = typeof outboxIdOrOptions !== 'string'
+  const outboxId = isTwoArgForm ? realmIdOrOutboxId : outboxIdOrOptions
+  const explicitRealmId = isTwoArgForm ? null : realmIdOrOutboxId
+  const options = isTwoArgForm ? outboxIdOrOptions : maybeOptions
+
+  let loadQuery = supabase
+    .from('external_accounting_sync_outbox')
+    .select('*')
+    .eq('id', outboxId)
+  if (explicitRealmId) {
+    loadQuery = loadQuery.eq('company_realm_id', explicitRealmId)
+  }
+  const { data: ob, error: loadErr } = await loadQuery.maybeSingle()
+
+  if (loadErr || !ob) {
+    throw new Error(`Outbox entry ${outboxId} not found${explicitRealmId ? ` in company ${explicitRealmId}` : ''}`)
+  }
+  const realmId = String(ob.company_realm_id)
+
+  const currentAttempts = Number(ob.attempts ?? 0)
+  const maxAttempts = Number(ob.max_attempts ?? 5)
+
+  // 1. Idempotency check on the row itself
+  if (ob.status === 'SYNCED') {
+    const qId = ob.qb_entity_id || null
+    return {
+      id: ob.id,
+      status: 'ALREADY_SYNCED',
+      attempts: currentAttempts,
+      maxAttempts,
+      qbEntityId: qId,
+      qbId: qId,
+      lastError: null,
+      error: null,
+      nextRetryAt: ob.next_retry_at || null,
+      syncedAt: ob.synced_at || null,
+      remoteCalled: false,
+      alreadyIdempotent: true,
+    }
+  }
+
+  if (ob.status === 'SKIPPED_LOCAL_ONLY') {
+    const qId = ob.qb_entity_id || null
+    return {
+      id: ob.id,
+      status: 'SKIPPED_LOCAL_ONLY',
+      attempts: currentAttempts,
+      maxAttempts,
+      qbEntityId: qId,
+      qbId: qId,
+      lastError: null,
+      error: null,
+      nextRetryAt: null,
+      syncedAt: null,
+      remoteCalled: false,
+      alreadyIdempotent: false,
+    }
+  }
+
+  // 2. Check if another entry with the same idempotency_key already succeeded
+  if (ob.idempotency_key) {
+    const { data: dupSynced } = await supabase
+      .from('external_accounting_sync_outbox')
+      .select('id, qb_entity_id, synced_at')
+      .eq('company_realm_id', realmId)
+      .eq('idempotency_key', ob.idempotency_key)
+      .eq('status', 'SYNCED')
+      .neq('id', ob.id)
+      .limit(1)
+      .maybeSingle()
+
+    if (dupSynced) {
+      const nowIso = new Date().toISOString()
+      const qId = dupSynced.qb_entity_id || ob.qb_entity_id || null
+      await supabase
+        .from('external_accounting_sync_outbox')
+        .update({
+          status: 'SYNCED',
+          qb_entity_id: qId,
+          last_error: null,
+          synced_at: dupSynced.synced_at || nowIso,
+          updated_at: nowIso,
+        })
+        .eq('id', ob.id)
+      return {
+        id: ob.id,
+        status: 'ALREADY_SYNCED',
+        attempts: currentAttempts,
+        maxAttempts,
+        qbEntityId: qId,
+        qbId: qId,
+        lastError: null,
+        error: null,
+        nextRetryAt: null,
+        syncedAt: dupSynced.synced_at || nowIso,
+        remoteCalled: false,
+        alreadyIdempotent: true,
+      }
+    }
+  }
+
+  const isLocalStorageCleanupTask =
+    ob.entity_kind === 'ATTACHMENT' && ob.operation === 'STORAGE_CLEANUP'
+
+  // 3. Check company qbo_sync_enabled flag BEFORE any remote call (except local Storage cleanup compensation tasks)
+  const { data: compRow } = await supabase
+    .from('external_accounting_companies')
+    .select('metadata')
+    .eq('realm_id', realmId)
+    .maybeSingle()
+
+  if (!isLocalStorageCleanupTask && compRow?.metadata?.qbo_sync_enabled === false) {
+    const nowIso = new Date().toISOString()
+    const qId = ob.qb_entity_id || null
+    await supabase
+      .from('external_accounting_sync_outbox')
+      .update({
+        status: 'SKIPPED_LOCAL_ONLY',
+        last_error: null,
+        updated_at: nowIso,
+      })
+      .eq('id', ob.id)
+    return {
+      id: ob.id,
+      status: 'SKIPPED_LOCAL_ONLY',
+      attempts: currentAttempts,
+      maxAttempts,
+      qbEntityId: qId,
+      qbId: qId,
+      lastError: null,
+      error: null,
+      nextRetryAt: null,
+      syncedAt: null,
+      remoteCalled: false,
+      alreadyIdempotent: false,
+    }
+  }
+
+  // 4. Respect max_attempts
+  if (currentAttempts >= maxAttempts) {
+    const qId = ob.qb_entity_id || null
+    const errStr = ob.last_error || 'Max attempts reached'
+    return {
+      id: ob.id,
+      status: 'MAX_ATTEMPTS_EXCEEDED',
+      attempts: currentAttempts,
+      maxAttempts,
+      qbEntityId: qId,
+      qbId: qId,
+      lastError: errStr,
+      error: errStr,
+      nextRetryAt: ob.next_retry_at || null,
+      syncedAt: null,
+      remoteCalled: false,
+      alreadyIdempotent: false,
+    }
+  }
+
+  // 5. Respect next_retry_at <= NOW() unless forceNow is set
+  if (!options?.forceNow && ob.next_retry_at) {
+    const retryMs = new Date(ob.next_retry_at).getTime()
+    if (Number.isFinite(retryMs) && retryMs > Date.now() + 50) {
+      const qId = ob.qb_entity_id || null
+      return {
+        id: ob.id,
+        status: 'NOT_DUE_YET',
+        attempts: currentAttempts,
+        maxAttempts,
+        qbEntityId: qId,
+        qbId: qId,
+        lastError: ob.last_error || null,
+        error: ob.last_error || null,
+        nextRetryAt: ob.next_retry_at,
+        syncedAt: null,
+        remoteCalled: false,
+        alreadyIdempotent: false,
+      }
+    }
+  }
+
+  let execRes: OutboxExecutionResult
+  if (options?.customExecutor) {
+    execRes = await options.customExecutor(ob)
+  } else if (ob.entity_kind === 'TRANSACTION') {
+    let txnPayload = ob.payload
+    if (ob.local_entity_id && ob.operation !== 'DELETE') {
+      const { data: dbTxn } = await supabase
+        .from('external_accounting_transactions')
+        .select('*')
+        .eq('id', ob.local_entity_id)
+        .eq('company_realm_id', realmId)
+        .maybeSingle()
+      if (dbTxn) txnPayload = dbTxn
+    }
+    const op = ob.operation === 'DELETE' ? 'DELETE' : ob.operation === 'VOID' ? 'VOID' : 'UPSERT'
+    const pushRes = await pushTransactionToQbo(supabase, realmId, txnPayload, op)
+    execRes = {
+      synced: pushRes.synced,
+      qbEntityId: pushRes.qbTxnId || ob.qb_entity_id || null,
+      status: pushRes.status,
+      error: pushRes.error || null,
+    }
+  } else if (ob.entity_kind === 'ACCOUNT') {
+    let accPayload = ob.payload
+    if (ob.local_entity_id && ob.operation !== 'DELETE') {
+      const { data: dbAcc } = await supabase
+        .from('external_accounting_accounts')
+        .select('*')
+        .eq('id', ob.local_entity_id)
+        .eq('company_realm_id', realmId)
+        .maybeSingle()
+      if (dbAcc) accPayload = dbAcc
+    }
+    const op = ob.operation === 'DELETE' || ob.operation === 'DEACTIVATE' ? 'DELETE' : 'UPSERT'
+    const pushRes = await pushAccountToQbo(supabase, realmId, accPayload, op)
+    execRes = {
+      synced: pushRes.synced,
+      qbEntityId: pushRes.qbAccountId || ob.qb_entity_id || null,
+      status: pushRes.status,
+      error: pushRes.error || null,
+    }
+  } else if (ob.entity_kind === 'CONTACT') {
+    let conPayload = ob.payload
+    if (ob.local_entity_id && ob.operation !== 'DELETE') {
+      const { data: dbCon } = await supabase
+        .from('external_accounting_contacts')
+        .select('*')
+        .eq('id', ob.local_entity_id)
+        .eq('company_realm_id', realmId)
+        .maybeSingle()
+      if (dbCon) conPayload = dbCon
+    }
+    const op = ob.operation === 'DELETE' || ob.operation === 'DEACTIVATE' ? 'DELETE' : 'UPSERT'
+    const pushRes = await pushContactToQbo(supabase, realmId, conPayload, op)
+    execRes = {
+      synced: pushRes.synced,
+      qbEntityId: pushRes.qbContactId || ob.qb_entity_id || null,
+      status: pushRes.status,
+      error: pushRes.error || null,
+    }
+  } else if (ob.entity_kind === 'LIST_ITEM') {
+    const listKey = String(ob.entity_type || ob.payload?.listKey || 'items')
+    const op = ob.operation === 'DELETE' || ob.operation === 'DEACTIVATE' ? 'DEACTIVATE' : 'UPSERT'
+    const pushRes = await pushListItemToQbo(supabase, realmId, listKey, ob.payload || {}, op)
+    if (pushRes.status === 'LOCAL_ONLY_LIST') {
+      const nowIso = new Date().toISOString()
+      const qId = ob.qb_entity_id || null
+      await supabase
+        .from('external_accounting_sync_outbox')
+        .update({
+          status: 'SKIPPED_LOCAL_ONLY',
+          last_error: null,
+          updated_at: nowIso,
+        })
+        .eq('id', ob.id)
+      return {
+        id: ob.id,
+        status: 'SKIPPED_LOCAL_ONLY',
+        attempts: currentAttempts,
+        maxAttempts,
+        qbEntityId: qId,
+        qbId: qId,
+        lastError: null,
+        error: null,
+        nextRetryAt: null,
+        syncedAt: null,
+        remoteCalled: false,
+        alreadyIdempotent: false,
+      }
+    }
+    execRes = {
+      synced: pushRes.synced,
+      qbEntityId: pushRes.qbId || ob.qb_entity_id || null,
+      status: pushRes.status,
+      error: pushRes.error || null,
+    }
+  } else if (isLocalStorageCleanupTask) {
+    const storageBucket = String(ob.payload?.storage_bucket || 'external-accounting-attachments')
+    const storagePath = String(ob.payload?.storage_path || '')
+    if (!storagePath) {
+      execRes = {
+        synced: false,
+        qbEntityId: ob.qb_entity_id || null,
+        status: 'INVALID_STORAGE_PATH',
+        error: 'Missing storage_path in STORAGE_CLEANUP payload',
+      }
+    } else {
+      const { error: rmErr } = await supabase.storage.from(storageBucket).remove([storagePath])
+      if (rmErr) {
+        execRes = {
+          synced: false,
+          qbEntityId: ob.qb_entity_id || null,
+          status: 'STORAGE_REMOVE_FAILED',
+          error: rmErr.message || 'Failed to remove orphaned file from Supabase Storage',
+        }
+      } else {
+        await supabase.from('external_accounting_audit_log').insert({
+          company_realm_id: realmId,
+          user_id: 'SYSTEM',
+          user_name: ob.created_by || 'Outbox Compensation Worker',
+          user_email: null,
+          action_type: 'ATTACHMENT_STORAGE_CLEANUP_COMPLETED',
+          entity_type: 'AttachmentStorageCleanup',
+          entity_id: ob.local_entity_id ? String(ob.local_entity_id) : ob.id,
+          summary: `Completó limpieza física diferida en Supabase Storage ("${storagePath}") desde tarea de compensación ${ob.id}`,
+          details: {
+            outbox_id: ob.id,
+            storage_bucket: storageBucket,
+            storage_path: storagePath,
+          },
+        })
+        execRes = {
+          synced: true,
+          qbEntityId: ob.qb_entity_id || null,
+          status: 'SYNCED',
+          error: null,
+        }
+      }
+    }
+  } else {
+    // RECURRING & ATTACHMENT local-first metadata sync when QBO endpoint is not invoked directly
+    const auth = await getExternalCompanyQboAuth(supabase, realmId)
+    if (!auth.connected || !auth.syncEnabled) {
+      execRes = {
+        synced: false,
+        qbEntityId: ob.qb_entity_id || null,
+        status: !auth.connected ? 'NOT_CONNECTED' : 'SYNC_DISABLED',
+        error: !auth.connected ? 'NOT_CONNECTED' : 'SYNC_DISABLED',
+      }
+    } else {
+      execRes = {
+        synced: true,
+        qbEntityId: ob.qb_entity_id || null,
+        status: 'SYNCED',
+        error: null,
+      }
+    }
+  }
+
+  const nextAttempts = currentAttempts + 1
+  const nowIso = new Date().toISOString()
+
+  if (execRes.synced) {
+    const finalQbId = execRes.qbEntityId || ob.qb_entity_id || null
+    await supabase
+      .from('external_accounting_sync_outbox')
+      .update({
+        status: 'SYNCED',
+        qb_entity_id: finalQbId,
+        attempts: nextAttempts,
+        last_error: null,
+        synced_at: nowIso,
+        updated_at: nowIso,
+      })
+      .eq('id', ob.id)
+
+    return {
+      id: ob.id,
+      status: 'SYNCED',
+      attempts: nextAttempts,
+      maxAttempts,
+      qbEntityId: finalQbId,
+      qbId: finalQbId,
+      lastError: null,
+      error: null,
+      nextRetryAt: ob.next_retry_at || nowIso,
+      syncedAt: nowIso,
+      remoteCalled: true,
+      alreadyIdempotent: false,
+    }
+  }
+
+  // Failed: compute exponential backoff and preserve operation in FAILED state
+  const baseBackoff = options?.baseBackoffSeconds !== undefined ? options.baseBackoffSeconds : 30
+  const backoffSec = Math.min(3600, Math.max(0, baseBackoff * Math.pow(2, nextAttempts - 1)))
+  const nextRetryIso = new Date(Date.now() + backoffSec * 1000).toISOString()
+  const errMsg = execRes.error || 'Error sincronizando operación con QuickBooks Online'
+  const qId = execRes.qbEntityId || ob.qb_entity_id || null
+
+  await supabase
+    .from('external_accounting_sync_outbox')
+    .update({
+      status: 'FAILED',
+      qb_entity_id: qId,
+      attempts: nextAttempts,
+      last_error: errMsg,
+      next_retry_at: nextRetryIso,
+      synced_at: null,
+      updated_at: nowIso,
+    })
+    .eq('id', ob.id)
+
+  return {
+    id: ob.id,
+    status: 'FAILED',
+    attempts: nextAttempts,
+    maxAttempts,
+    qbEntityId: qId,
+    qbId: qId,
+    lastError: errMsg,
+    error: errMsg,
+    nextRetryAt: nextRetryIso,
+    syncedAt: null,
+    remoteCalled: true,
+    alreadyIdempotent: false,
+  }
+}
+
+/**
+ * Worker del Outbox QBO:
+ * - Consulta únicamente filas `PENDING` o `FAILED` cuyo `next_retry_at <= NOW()`.
+ * - Respeta `attempts < max_attempts`.
+ * - Incrementa `attempts`, calcula backoff exponencial en `next_retry_at`, registra `last_error` y jamás pierde una operación.
+ */
+export async function processPendingQboOutbox(
+  supabase: SupabaseClient,
+  realmIdOrOptions?:
+    | string
+    | {
+        realmId?: string
+        limit?: number
+        outboxIds?: string[]
+        customExecutor?: OutboxCustomExecutor
+        baseBackoffSeconds?: number
+        forceNow?: boolean
+      },
+  maybeOptions?: {
+    limit?: number
+    outboxIds?: string[]
+    customExecutor?: OutboxCustomExecutor
+    baseBackoffSeconds?: number
+    forceNow?: boolean
+  }
+): Promise<{
+  processedCount: number
+  syncedCount: number
+  failedCount: number
+  skippedCount: number
+  results: Array<Awaited<ReturnType<typeof processSingleOutboxEntry>>>
+}> {
+  const isOptionsObj = typeof realmIdOrOptions === 'object' && realmIdOrOptions !== null
+  const realmId = isOptionsObj ? realmIdOrOptions.realmId : realmIdOrOptions
+  const options = isOptionsObj ? realmIdOrOptions : maybeOptions
+
+  const MAX_OUTBOX_WORKER_BATCH_LIMIT = 100
+  const rawLimit = Number(options?.limit ?? 50)
+  const effectiveLimit =
+    Number.isFinite(rawLimit) && rawLimit > 0
+      ? Math.min(Math.floor(rawLimit), MAX_OUTBOX_WORKER_BATCH_LIMIT)
+      : 50
+
+  const nowIso = new Date().toISOString()
+  let query = supabase
+    .from('external_accounting_sync_outbox')
+    .select('*')
+    .in('status', ['PENDING', 'FAILED'])
+    .order('created_at', { ascending: true })
+    .limit(effectiveLimit)
+
+  if (realmId) {
+    query = query.eq('company_realm_id', realmId)
+  }
+  if (!options?.forceNow) {
+    query = query.lte('next_retry_at', nowIso)
+  }
+  if (options?.outboxIds && options.outboxIds.length > 0) {
+    query = query.in('id', options.outboxIds)
+  }
+
+  const { data: candidates, error } = await query
+  if (error) {
+    throw new Error(`Outbox worker query failed: ${error.message}`)
+  }
+
+  const eligible = (candidates || []).filter(
+    (row: any) => Number(row.attempts ?? 0) < Number(row.max_attempts ?? 5)
+  )
+
+  let syncedCount = 0
+  let failedCount = 0
+  let skippedCount = 0
+  const results: Array<Awaited<ReturnType<typeof processSingleOutboxEntry>>> = []
+
+  for (const row of eligible) {
+    const res = await processSingleOutboxEntry(supabase, String(row.company_realm_id), row.id, {
+      customExecutor: options?.customExecutor,
+      baseBackoffSeconds: options?.baseBackoffSeconds,
+      forceNow: options?.forceNow,
+    })
+    results.push(res)
+    if (res.status === 'SYNCED' || res.status === 'ALREADY_SYNCED') syncedCount++
+    else if (res.status === 'FAILED') failedCount++
+    else skippedCount++
+  }
+
+  return {
+    processedCount: eligible.length,
+    syncedCount,
+    failedCount,
+    skippedCount,
+    results,
+  }
+}
+
+/**
+ * Ejecuta una sincronización bidireccional completa (Push de pendientes locales + Pull paginado de QBO V3) para la empresa activa.
+ * Si cualquier página de cualquier entidad falla, aborta y devuelve `ok: false, status: 'incomplete'` con `failedEntity`, `failedPage` y `cursor`.
  */
 export async function syncCompanyWithQbo(
   supabase: SupabaseClient,
-  realmId: string
+  realmId: string,
+  options?: {
+    incrementalSince?: string
+    fullHistory?: boolean
+    queryRunner?: CustomQboQueryRunner
+    maxPagesOverride?: number
+  }
 ): Promise<{
   ok: boolean
+  status?: 'complete' | 'incomplete' | 'completed_with_truncation_warning' | 'skipped_local_only'
   pushedTransactions: number
   pushedAccounts: number
   pushedContacts: number
   pulledAccounts: number
   pulledContacts: number
   pulledTransactions: number
+  pulledLists?: number
+  failedEntity?: string
+  failedPage?: number
+  cursor?: number
+  truncated?: boolean
+  truncatedEntities?: Array<{ entityName: string; fetchedCount: number; ceiling?: number; nextCursor?: number }>
   error?: string
 }> {
-  const auth = await getExternalCompanyQboAuth(supabase, realmId)
+  const { data: compCheck } = await supabase
+    .from('external_accounting_companies')
+    .select('metadata')
+    .eq('realm_id', realmId)
+    .maybeSingle()
+
+  if (compCheck?.metadata?.qbo_sync_enabled === false) {
+    return {
+      ok: false,
+      status: 'skipped_local_only',
+      pushedTransactions: 0,
+      pushedAccounts: 0,
+      pushedContacts: 0,
+      pulledAccounts: 0,
+      pulledContacts: 0,
+      pulledTransactions: 0,
+      error: 'Esta empresa está configurada en modo autónomo local (qbo_sync_enabled=false). No se realiza conexión a QuickBooks Online.',
+    }
+  }
+
+  const auth = options?.queryRunner
+    ? { connected: true, syncEnabled: true, lastSyncError: null }
+    : await getExternalCompanyQboAuth(supabase, realmId)
   if (!auth.connected) {
     return {
       ok: false,
+      status: 'incomplete',
       pushedTransactions: 0,
       pushedAccounts: 0,
       pushedContacts: 0,
@@ -1483,60 +2233,97 @@ export async function syncCompanyWithQbo(
   let pulledAccounts = 0
   let pulledContacts = 0
   let pulledTransactions = 0
+  const truncatedEntities: Array<{ entityName: string; fetchedCount: number; ceiling?: number; nextCursor?: number }> = []
+
+  const recordIncompletePullFailure = async (pageRes: PaginatedQboPullResult) => {
+    const meta = compCheck?.metadata && typeof compCheck.metadata === 'object' ? compCheck.metadata : {}
+    await supabase
+      .from('external_accounting_companies')
+      .update({
+        metadata: {
+          ...meta,
+          qbo_oauth: {
+            ...(meta.qbo_oauth || {}),
+            last_sync_status: 'incomplete',
+            last_sync_error: pageRes.error,
+            failed_entity: pageRes.entityName,
+            failed_page: pageRes.failedPage,
+            failed_cursor: pageRes.cursor,
+            last_attempt_at: new Date().toISOString(),
+          },
+        },
+        updated_at: new Date().toISOString(),
+      })
+      .eq('realm_id', realmId)
+
+    return {
+      ok: false,
+      status: 'incomplete' as const,
+      pushedTransactions,
+      pushedAccounts,
+      pushedContacts,
+      pulledAccounts,
+      pulledContacts,
+      pulledTransactions,
+      failedEntity: pageRes.entityName,
+      failedPage: pageRes.failedPage,
+      cursor: pageRes.cursor,
+      error: pageRes.error,
+    }
+  }
 
   // ---------------------------------------------------------------------------
   // PHASE 1: PUSH LOCAL PENDING ACCOUNTS, CONTACTS, TRANSACTIONS & DELETES TO QBO
   // ---------------------------------------------------------------------------
-  const { data: preSyncComp } = await supabase
-    .from('external_accounting_companies')
-    .select('metadata')
-    .eq('realm_id', realmId)
-    .maybeSingle()
-
-  const preMeta = preSyncComp?.metadata && typeof preSyncComp.metadata === 'object' ? preSyncComp.metadata : {}
+  const preMeta = compCheck?.metadata && typeof compCheck.metadata === 'object' ? compCheck.metadata : {}
   const pendingDeletes: any[] = Array.isArray(preMeta.pending_qbo_deletes) ? preMeta.pending_qbo_deletes : []
   const deletedArchive: any[] = Array.isArray(preMeta.deleted_qbo_ids) ? preMeta.deleted_qbo_ids : []
   const remainingPendingDeletes: any[] = []
 
-  for (const delItem of pendingDeletes) {
-    if (!delItem?.qbId || isLocalId(delItem.qbId)) continue
-    const endpoint = String(delItem.endpoint || '').toLowerCase()
-    const entityType = String(delItem.entityType || '')
-    if (!endpoint || !entityType) continue
+  if (!options?.queryRunner) {
+    for (const delItem of pendingDeletes) {
+      if (!delItem?.qbId || isLocalId(delItem.qbId)) continue
+      const endpoint = String(delItem.endpoint || '').toLowerCase()
+      const entityType = String(delItem.entityType || '')
+      if (!endpoint || !entityType) continue
 
-    const getRes = await qboV3Request(supabase, realmId, 'GET', `${endpoint}/${delItem.qbId}`)
-    const syncToken = getRes.data?.[entityType]?.SyncToken ?? '0'
+      const getRes = await qboV3Request(supabase, realmId, 'GET', `${endpoint}/${delItem.qbId}`)
+      const syncToken = getRes.data?.[entityType]?.SyncToken ?? '0'
 
-    if (delItem.kind === 'TRANSACTION') {
-      const opQuery = delItem.operation === 'VOID' ? 'void' : 'delete'
-      const delRes = await qboV3Request(supabase, realmId, 'POST', `${endpoint}?operation=${opQuery}`, {
-        Id: String(delItem.qbId),
-        SyncToken: String(syncToken),
-        ...(opQuery === 'void' ? { sparse: true } : {}),
-      })
-      if (delRes.ok) {
-        pushedTransactions++
+      if (delItem.kind === 'TRANSACTION') {
+        const opQuery = delItem.operation === 'VOID' ? 'void' : 'delete'
+        const delRes = await qboV3Request(supabase, realmId, 'POST', `${endpoint}?operation=${opQuery}`, {
+          Id: String(delItem.qbId),
+          SyncToken: String(syncToken),
+          ...(opQuery === 'void' ? { sparse: true } : {}),
+        })
+        if (delRes.ok) {
+          pushedTransactions++
+        } else {
+          remainingPendingDeletes.push(delItem)
+        }
       } else {
-        remainingPendingDeletes.push(delItem)
-      }
-    } else {
-      // ACCOUNT, CONTACT, LIST_ITEM -> Active: false sparse update in QBO V3
-      const currentObj = getRes.data?.[entityType] || {}
-      const deactPayload: Record<string, any> = {
-        ...currentObj,
-        Id: String(delItem.qbId),
-        SyncToken: String(syncToken),
-        Active: false,
-        sparse: true,
-      }
-      const deactRes = await qboV3Request(supabase, realmId, 'POST', endpoint, deactPayload)
-      if (deactRes.ok) {
-        if (delItem.kind === 'ACCOUNT') pushedAccounts++
-        if (delItem.kind === 'CONTACT') pushedContacts++
-      } else {
-        remainingPendingDeletes.push(delItem)
+        const currentObj = getRes.data?.[entityType] || {}
+        const deactPayload: Record<string, any> = {
+          ...currentObj,
+          Id: String(delItem.qbId),
+          SyncToken: String(syncToken),
+          Active: false,
+          sparse: true,
+        }
+        const deactRes = await qboV3Request(supabase, realmId, 'POST', endpoint, deactPayload)
+        if (deactRes.ok) {
+          if (delItem.kind === 'ACCOUNT') pushedAccounts++
+          if (delItem.kind === 'CONTACT') pushedContacts++
+        } else {
+          remainingPendingDeletes.push(delItem)
+        }
       }
     }
+
+    // 1b. Process pending/failed retryable entries in external_accounting_sync_outbox via unified worker
+    const outboxWorkerRes = await processPendingQboOutbox(supabase, realmId, { limit: 100 })
+    pushedTransactions += outboxWorkerRes.syncedCount
   }
 
   const deletedAccountIds = new Set(
@@ -1549,51 +2336,29 @@ export async function syncCompanyWithQbo(
     deletedArchive.filter((d: any) => d.kind === 'TRANSACTION').map((d: any) => `${d.entityType}:${d.qbId}`)
   )
 
-  const { data: localAccounts } = await supabase
-    .from('external_accounting_accounts')
-    .select('*')
-    .eq('company_realm_id', realmId)
-    .like('qb_account_id', 'LOCAL-%')
-
-  for (const acc of localAccounts || []) {
-    const r = await pushAccountToQbo(supabase, realmId, acc)
-    if (r.synced) pushedAccounts++
-  }
-
-  const { data: localContacts } = await supabase
-    .from('external_accounting_contacts')
-    .select('*')
-    .eq('company_realm_id', realmId)
-    .like('qb_contact_id', 'LOCAL-%')
-
-  for (const con of localContacts || []) {
-    const r = await pushContactToQbo(supabase, realmId, con)
-    if (r.synced) pushedContacts++
-  }
-
-  const { data: localTxns } = await supabase
-    .from('external_accounting_transactions')
-    .select('*')
-    .eq('company_realm_id', realmId)
-    .or('qb_txn_id.like.LOCAL-%,qb_txn_id.like.REC-%,qb_txn_id.like.BATCH-%')
-    .eq('is_voided', false)
-
-  for (const txn of localTxns || []) {
-    const r = await pushTransactionToQbo(supabase, realmId, txn, 'UPSERT')
-    if (r.synced) pushedTransactions++
-  }
-
   // ---------------------------------------------------------------------------
-  // PHASE 2: PULL ACCOUNTS, CONTACTS & RECENT TRANSACTIONS FROM QBO V3
+  // PHASE 2: PULL ACCOUNTS, CONTACTS, LISTS, ATTACHABLES & TRANSACTIONS FROM QBO V3
   // ---------------------------------------------------------------------------
-  // 2a. Pull Accounts (includes updated CurrentBalance from QBO, excluding locally deleted accounts)
-  const accQuery = await qboV3Request(
-    supabase,
-    realmId,
-    'GET',
-    `query?query=${encodeURIComponent('SELECT * FROM Account WHERE Active IN (true, false) MAXRESULTS 1000')}`
-  )
-  const rawAccounts = (accQuery.data?.QueryResponse?.Account || []).filter(
+  let pulledLists = 0
+
+  // 2a. Pull Accounts with pagination
+  const accountsPageRes = await fetchAllQboEntitiesPaginatedDetailed(supabase, realmId, 'Account', {
+    whereClause: 'Active IN (true, false)',
+    pageSize: 500,
+    maxPages: options?.maxPagesOverride ?? 10,
+    queryRunner: options?.queryRunner,
+  })
+  if (!accountsPageRes.ok) return recordIncompletePullFailure(accountsPageRes)
+  if (accountsPageRes.truncated) {
+    truncatedEntities.push({
+      entityName: 'Account',
+      fetchedCount: accountsPageRes.items.length,
+      ceiling: accountsPageRes.truncationCeiling,
+      nextCursor: accountsPageRes.nextCursor,
+    })
+  }
+
+  const rawAccounts = accountsPageRes.items.filter(
     (acc: any) => !deletedAccountIds.has(String(acc.Id))
   )
   if (rawAccounts.length > 0) {
@@ -1619,15 +2384,24 @@ export async function syncCompanyWithQbo(
     pulledAccounts = accountRows.length
   }
 
-  // 2b. Pull Vendors & Customers (excluding locally deleted contacts)
-  for (const cType of ['Vendor', 'Customer'] as const) {
-    const cQuery = await qboV3Request(
-      supabase,
-      realmId,
-      'GET',
-      `query?query=${encodeURIComponent(`SELECT * FROM ${cType} WHERE Active IN (true, false) MAXRESULTS 1000`)}`
-    )
-    const rawContacts = (cQuery.data?.QueryResponse?.[cType] || []).filter(
+  // 2b. Pull Vendors, Customers & Employees with pagination (excluding locally deleted contacts)
+  for (const cType of ['Vendor', 'Customer', 'Employee'] as const) {
+    const contactsPageRes = await fetchAllQboEntitiesPaginatedDetailed(supabase, realmId, cType, {
+      whereClause: 'Active IN (true, false)',
+      pageSize: 500,
+      maxPages: options?.maxPagesOverride ?? 10,
+      queryRunner: options?.queryRunner,
+    })
+    if (!contactsPageRes.ok) return recordIncompletePullFailure(contactsPageRes)
+    if (contactsPageRes.truncated) {
+      truncatedEntities.push({
+        entityName: cType,
+        fetchedCount: contactsPageRes.items.length,
+        ceiling: contactsPageRes.truncationCeiling,
+        nextCursor: contactsPageRes.nextCursor,
+      })
+    }
+    const rawContacts = contactsPageRes.items.filter(
       (c: any) => !deletedContactKeys.has(`${cType}:${c.Id}`)
     )
     if (rawContacts.length > 0) {
@@ -1658,9 +2432,230 @@ export async function syncCompanyWithQbo(
     }
   }
 
-  // 2c. Pull Recent Transactions (Purchase, Deposit, JournalEntry, Transfer, Bill, BillPayment, Invoice, Payment)
+  // 2b-ii. Pull Complete QBO Lists (Item, Category, Class, Department, PaymentMethod, Term)
+  const itemsPageRes = await fetchAllQboEntitiesPaginatedDetailed(supabase, realmId, 'Item', {
+    whereClause: 'Active IN (true, false)',
+    pageSize: 500,
+    maxPages: options?.maxPagesOverride ?? 10,
+    queryRunner: options?.queryRunner,
+  })
+  if (!itemsPageRes.ok) return recordIncompletePullFailure(itemsPageRes)
+  if (itemsPageRes.truncated) {
+    truncatedEntities.push({
+      entityName: 'Item',
+      fetchedCount: itemsPageRes.items.length,
+      ceiling: itemsPageRes.truncationCeiling,
+      nextCursor: itemsPageRes.nextCursor,
+    })
+  }
+  const rawItemsAll = itemsPageRes.items
+  if (rawItemsAll.length > 0) {
+    const categoryItems = rawItemsAll.filter((it: any) => it.Type === 'Category')
+    const productServiceItems = rawItemsAll.filter((it: any) => it.Type !== 'Category')
+    if (categoryItems.length > 0) {
+      const catRows = categoryItems.map((cat: any) => ({
+        company_realm_id: realmId,
+        qb_category_id: String(cat.Id),
+        name: cat.Name || 'Unnamed Category',
+        fully_qualified_name: cat.FullyQualifiedName || cat.Name || '',
+        parent_qb_id: cat.ParentRef?.value ? String(cat.ParentRef.value) : null,
+        is_sub_category: Boolean(cat.SubItem),
+        is_active: cat.Active !== false,
+        raw_data: cat,
+        updated_at: new Date().toISOString(),
+      }))
+      await supabase
+        .from('external_accounting_categories')
+        .upsert(catRows, { onConflict: 'company_realm_id,qb_category_id' })
+      pulledLists += catRows.length
+    }
+    if (productServiceItems.length > 0) {
+      const itemRows = productServiceItems.map((it: any) => ({
+        company_realm_id: realmId,
+        qb_item_id: String(it.Id),
+        name: it.Name || 'Unnamed Item',
+        fully_qualified_name: it.FullyQualifiedName || it.Name || '',
+        sku: it.Sku || null,
+        item_type: it.Type || 'Service',
+        category_qb_id: it.ParentRef?.value ? String(it.ParentRef.value) : null,
+        category_name: it.ParentRef?.name || null,
+        description: it.Description || null,
+        unit_price: Number(it.UnitPrice ?? 0),
+        income_account_qb_id: it.IncomeAccountRef?.value ? String(it.IncomeAccountRef.value) : null,
+        income_account_name: it.IncomeAccountRef?.name || null,
+        purchase_desc: it.PurchaseDesc || null,
+        purchase_cost: Number(it.PurchaseCost ?? 0),
+        expense_account_qb_id: it.ExpenseAccountRef?.value ? String(it.ExpenseAccountRef.value) : null,
+        expense_account_name: it.ExpenseAccountRef?.name || null,
+        asset_account_qb_id: it.AssetAccountRef?.value ? String(it.AssetAccountRef.value) : null,
+        asset_account_name: it.AssetAccountRef?.name || null,
+        track_qty_on_hand: Boolean(it.TrackQtyOnHand),
+        qty_on_hand: Number(it.QtyOnHand ?? 0),
+        taxable: Boolean(it.Taxable),
+        is_active: it.Active !== false,
+        raw_data: it,
+        updated_at: new Date().toISOString(),
+      }))
+      await supabase
+        .from('external_accounting_items')
+        .upsert(itemRows, { onConflict: 'company_realm_id,qb_item_id' })
+      pulledLists += itemRows.length
+    }
+  }
+
+  const classesPageRes = await fetchAllQboEntitiesPaginatedDetailed(supabase, realmId, 'Class', {
+    whereClause: 'Active IN (true, false)',
+    pageSize: 500,
+    maxPages: options?.maxPagesOverride ?? 5,
+    queryRunner: options?.queryRunner,
+  })
+  if (!classesPageRes.ok) return recordIncompletePullFailure(classesPageRes)
+  if (classesPageRes.truncated) {
+    truncatedEntities.push({
+      entityName: 'Class',
+      fetchedCount: classesPageRes.items.length,
+      ceiling: classesPageRes.truncationCeiling,
+      nextCursor: classesPageRes.nextCursor,
+    })
+  }
+  const rawClasses = classesPageRes.items
+  if (rawClasses.length > 0) {
+    const classRows = rawClasses.map((cl: any) => ({
+      company_realm_id: realmId,
+      qb_class_id: String(cl.Id),
+      name: cl.Name || 'Unnamed Class',
+      fully_qualified_name: cl.FullyQualifiedName || cl.Name || '',
+      parent_qb_id: cl.ParentRef?.value ? String(cl.ParentRef.value) : null,
+      is_sub_class: Boolean(cl.SubClass),
+      is_active: cl.Active !== false,
+      raw_data: cl,
+      updated_at: new Date().toISOString(),
+    }))
+    await supabase
+      .from('external_accounting_classes')
+      .upsert(classRows, { onConflict: 'company_realm_id,qb_class_id' })
+    pulledLists += classRows.length
+  }
+
+  const deptsPageRes = await fetchAllQboEntitiesPaginatedDetailed(supabase, realmId, 'Department', {
+    whereClause: 'Active IN (true, false)',
+    pageSize: 500,
+    maxPages: options?.maxPagesOverride ?? 5,
+    queryRunner: options?.queryRunner,
+  })
+  if (!deptsPageRes.ok) return recordIncompletePullFailure(deptsPageRes)
+  if (deptsPageRes.truncated) {
+    truncatedEntities.push({
+      entityName: 'Department',
+      fetchedCount: deptsPageRes.items.length,
+      ceiling: deptsPageRes.truncationCeiling,
+      nextCursor: deptsPageRes.nextCursor,
+    })
+  }
+  const rawDepts = deptsPageRes.items
+  if (rawDepts.length > 0) {
+    const locRows = rawDepts.map((dp: any) => ({
+      company_realm_id: realmId,
+      qb_location_id: String(dp.Id),
+      name: dp.Name || 'Unnamed Location',
+      fully_qualified_name: dp.FullyQualifiedName || dp.Name || '',
+      parent_qb_id: dp.ParentRef?.value ? String(dp.ParentRef.value) : null,
+      is_sub_location: Boolean(dp.SubDepartment),
+      is_active: dp.Active !== false,
+      raw_data: dp,
+      updated_at: new Date().toISOString(),
+    }))
+    await supabase
+      .from('external_accounting_locations')
+      .upsert(locRows, { onConflict: 'company_realm_id,qb_location_id' })
+    pulledLists += locRows.length
+  }
+
+  const pmPageRes = await fetchAllQboEntitiesPaginatedDetailed(supabase, realmId, 'PaymentMethod', {
+    whereClause: 'Active IN (true, false)',
+    pageSize: 500,
+    maxPages: options?.maxPagesOverride ?? 5,
+    queryRunner: options?.queryRunner,
+  })
+  if (!pmPageRes.ok) return recordIncompletePullFailure(pmPageRes)
+  if (pmPageRes.truncated) {
+    truncatedEntities.push({
+      entityName: 'PaymentMethod',
+      fetchedCount: pmPageRes.items.length,
+      ceiling: pmPageRes.truncationCeiling,
+      nextCursor: pmPageRes.nextCursor,
+    })
+  }
+  const rawPaymentMethods = pmPageRes.items
+  if (rawPaymentMethods.length > 0) {
+    const pmRows = rawPaymentMethods.map((pm: any) => ({
+      company_realm_id: realmId,
+      qb_payment_method_id: String(pm.Id),
+      name: pm.Name || 'Payment Method',
+      method_type: pm.Type || 'NON_CREDIT_CARD',
+      is_active: pm.Active !== false,
+      raw_data: pm,
+      updated_at: new Date().toISOString(),
+    }))
+    await supabase
+      .from('external_accounting_payment_methods')
+      .upsert(pmRows, { onConflict: 'company_realm_id,qb_payment_method_id' })
+    pulledLists += pmRows.length
+  }
+
+  const termsPageRes = await fetchAllQboEntitiesPaginatedDetailed(supabase, realmId, 'Term', {
+    whereClause: 'Active IN (true, false)',
+    pageSize: 500,
+    maxPages: options?.maxPagesOverride ?? 5,
+    queryRunner: options?.queryRunner,
+  })
+  if (!termsPageRes.ok) return recordIncompletePullFailure(termsPageRes)
+  if (termsPageRes.truncated) {
+    truncatedEntities.push({
+      entityName: 'Term',
+      fetchedCount: termsPageRes.items.length,
+      ceiling: termsPageRes.truncationCeiling,
+      nextCursor: termsPageRes.nextCursor,
+    })
+  }
+  const rawTerms = termsPageRes.items
+  if (rawTerms.length > 0) {
+    const termRows = rawTerms.map((tm: any) => ({
+      company_realm_id: realmId,
+      qb_term_id: String(tm.Id),
+      name: tm.Name || 'Term',
+      term_type: tm.Type || 'STANDARD',
+      due_days: Number(tm.DueDays ?? 30),
+      discount_percent: Number(tm.DiscountPercent ?? 0),
+      discount_days: Number(tm.DiscountDays ?? 0),
+      is_active: tm.Active !== false,
+      raw_data: tm,
+      updated_at: new Date().toISOString(),
+    }))
+    await supabase
+      .from('external_accounting_terms')
+      .upsert(termRows, { onConflict: 'company_realm_id,qb_term_id' })
+    pulledLists += termRows.length
+  }
+
+  // 2c. Pull Transactions across all 14 QBO Transaction Entity Types (paginated)
   const pulledTxnRows: any[] = []
-  const pullEntities = ['Purchase', 'Deposit', 'JournalEntry', 'Transfer', 'Bill', 'BillPayment', 'Invoice', 'Payment'] as const
+  const pullEntities = [
+    'Purchase',
+    'Deposit',
+    'JournalEntry',
+    'Transfer',
+    'Bill',
+    'BillPayment',
+    'Invoice',
+    'Payment',
+    'CreditMemo',
+    'VendorCredit',
+    'SalesReceipt',
+    'RefundReceipt',
+    'Estimate',
+    'PurchaseOrder',
+  ] as const
 
   const accNameById = new Map<string, string>()
   let defaultArAcc: { id: string; name: string } | null = null
@@ -1679,12 +2674,29 @@ export async function syncCompanyWithQbo(
   const ufAcc = rawAccounts.find((a: any) => a.AccountSubType === 'UndepositedFunds')
   const undepositedFunds = ufAcc ? { id: String(ufAcc.Id), name: ufAcc.FullyQualifiedName || ufAcc.Name || 'Undeposited Funds' } : null
 
-  // Phase A: download the latest page of every entity first (so deposits can resolve their linked payments)
+  // Phase A: download paginated pages of every entity (supporting incrementalSince or full paginated pull)
   const fetchedByEnt: Record<string, any[]> = {}
+  const whereClause = options?.incrementalSince
+    ? `MetaData.LastUpdatedTime >= '${options.incrementalSince}'`
+    : undefined
   for (const ent of pullEntities) {
-    const q = `SELECT * FROM ${ent} ORDERBY MetaData.LastUpdatedTime DESC MAXRESULTS 250`
-    const tRes = await qboV3Request(supabase, realmId, 'GET', `query?query=${encodeURIComponent(q)}`)
-    fetchedByEnt[ent] = (tRes.data?.QueryResponse?.[ent] || []).filter(
+    const entPageRes = await fetchAllQboEntitiesPaginatedDetailed(supabase, realmId, ent, {
+      whereClause,
+      orderByClause: 'MetaData.LastUpdatedTime DESC',
+      pageSize: 500,
+      maxPages: options?.maxPagesOverride ?? (options?.fullHistory ? 25 : 5),
+      queryRunner: options?.queryRunner,
+    })
+    if (!entPageRes.ok) return recordIncompletePullFailure(entPageRes)
+    if (entPageRes.truncated) {
+      truncatedEntities.push({
+        entityName: ent,
+        fetchedCount: entPageRes.items.length,
+        ceiling: entPageRes.truncationCeiling,
+        nextCursor: entPageRes.nextCursor,
+      })
+    }
+    fetchedByEnt[ent] = entPageRes.items.filter(
       (item: any) => !deletedTxnKeys.has(`${ent}:${item.Id}`)
     )
   }
@@ -2062,6 +3074,72 @@ export async function syncCompanyWithQbo(
           raw_data: syncedRaw,
           updated_at: new Date().toISOString(),
         })
+      } else if (ent === 'CreditMemo' || ent === 'SalesReceipt' || ent === 'RefundReceipt' || ent === 'Estimate') {
+        const arId = item.ARAccountRef?.value ? String(item.ARAccountRef.value) : defaultArAcc?.id || null
+        const arName = item.ARAccountRef?.name || (arId ? accNameById.get(arId) : null) || defaultArAcc?.name || 'Accounts Receivable (A/R)'
+        const depId = item.DepositToAccountRef?.value ? String(item.DepositToAccountRef.value) : null
+        const depName = item.DepositToAccountRef?.name || (depId ? accNameById.get(depId) : null) || null
+        const headerAccId = (ent === 'SalesReceipt' || ent === 'RefundReceipt') ? (depId || undepositedFunds?.id || arId) : arId
+        const headerAccName = (ent === 'SalesReceipt' || ent === 'RefundReceipt') ? (depName || undepositedFunds?.name || arName) : arName
+        pulledTxnRows.push({
+          company_realm_id: realmId,
+          txn_type: ent,
+          qb_entity_type: ent,
+          qb_txn_id: String(item.Id),
+          txn_date: item.TxnDate,
+          due_date: item.DueDate || item.TxnDate || null,
+          doc_number: item.DocNumber || null,
+          payment_type: item.PaymentMethodRef?.name || ent,
+          direction: ent === 'SalesReceipt' ? 'IN' : ent === 'RefundReceipt' ? 'OUT' : 'ACCRUAL',
+          account_qb_id: headerAccId,
+          account_name: headerAccName,
+          to_account_qb_id: lineItems[0]?.account_qb_id || null,
+          to_account_name: lineItems[0]?.account_name || lineItems[0]?.item_name || null,
+          entity_qb_id: item.CustomerRef?.value ? String(item.CustomerRef.value) : null,
+          entity_name: item.CustomerRef?.name || null,
+          entity_type: 'Customer',
+          total_amount: Number(item.TotalAmt ?? 0),
+          open_balance: ent === 'CreditMemo' ? Number(item.RemainingCredit ?? item.Balance ?? 0) : Number(item.Balance ?? 0),
+          memo: item.PrivateNote || item.CustomerMemo?.value || lineItems.map((l: any) => l.description).filter(Boolean).join('; ') || null,
+          category_summary: categorySummary || lineItems[0]?.item_name || ent,
+          print_status: item.PrintStatus || 'NotSet',
+          cleared_status: 'Cleared',
+          is_voided: false,
+          line_items: lineItems,
+          raw_data: syncedRaw,
+          updated_at: new Date().toISOString(),
+        })
+      } else if (ent === 'VendorCredit' || ent === 'PurchaseOrder') {
+        const apId = item.APAccountRef?.value ? String(item.APAccountRef.value) : defaultApAcc?.id || null
+        const apName = item.APAccountRef?.name || (apId ? accNameById.get(apId) : null) || defaultApAcc?.name || 'Accounts Payable (A/P)'
+        pulledTxnRows.push({
+          company_realm_id: realmId,
+          txn_type: ent,
+          qb_entity_type: ent,
+          qb_txn_id: String(item.Id),
+          txn_date: item.TxnDate,
+          due_date: item.DueDate || item.TxnDate || null,
+          doc_number: item.DocNumber || null,
+          payment_type: ent,
+          direction: 'ACCRUAL',
+          account_qb_id: ent === 'PurchaseOrder' ? null : apId,
+          account_name: ent === 'PurchaseOrder' ? null : apName,
+          to_account_qb_id: lineItems[0]?.account_qb_id || null,
+          to_account_name: lineItems[0]?.account_name || null,
+          entity_qb_id: item.VendorRef?.value ? String(item.VendorRef.value) : null,
+          entity_name: item.VendorRef?.name || null,
+          entity_type: 'Vendor',
+          total_amount: Number(item.TotalAmt ?? 0),
+          open_balance: Number(item.Balance ?? 0),
+          memo: item.PrivateNote || lineItems.map((l: any) => l.description).filter(Boolean).join('; ') || null,
+          category_summary: categorySummary || ent,
+          print_status: 'NotSet',
+          cleared_status: 'Cleared',
+          is_voided: false,
+          line_items: lineItems,
+          raw_data: syncedRaw,
+          updated_at: new Date().toISOString(),
+        })
       }
 
       // QBO Location (DepartmentRef) & Class (ClassRef) live on the transaction header
@@ -2092,6 +3170,103 @@ export async function syncCompanyWithQbo(
     console.error(`[syncCompanyWithQbo] ${realmId} upsert errors:`, upsertErrors)
   }
 
+  // 2d. Pull QBO Attachables AFTER transactions & contacts are upserted so FK trigger resolves transaction_id and contact_id UUIDs
+  const attPageRes = await fetchAllQboEntitiesPaginatedDetailed(supabase, realmId, 'Attachable', {
+    orderByClause: 'MetaData.LastUpdatedTime DESC',
+    pageSize: 500,
+    maxPages: options?.maxPagesOverride ?? 5,
+    queryRunner: options?.queryRunner,
+  })
+  if (!attPageRes.ok) {
+    return await recordIncompletePullFailure(attPageRes)
+  }
+  if (attPageRes.truncated) {
+    truncatedEntities.push({
+      entityName: 'Attachable',
+      fetchedCount: attPageRes.items.length,
+      ceiling: attPageRes.truncationCeiling,
+      nextCursor: attPageRes.nextCursor,
+    })
+  }
+  const rawAttachables = attPageRes.items
+  if (rawAttachables.length > 0) {
+    const attRows: any[] = []
+    for (const att of rawAttachables) {
+      const firstRef = Array.isArray(att.AttachableRef) ? att.AttachableRef[0]?.EntityRef : null
+      const refType = firstRef?.type ? String(firstRef.type) : null
+      const refId = firstRef?.value ? String(firstRef.value) : null
+      const isContactRef = refType === 'Customer' || refType === 'Vendor' || refType === 'Employee'
+      const rawFileName = String(att.FileName || att.Note || `Attachment-${att.Id}`)
+      const contentType = String(att.ContentType || 'application/octet-stream')
+      let fileSize = Number(att.Size ?? 0)
+      let storageBucket: string | null = null
+      let storagePath: string | null = null
+      let sha256Hash: string | null = null
+      let fileUrl: string | null = att.TempDownloadUri || att.FileAccessUri || null
+
+      if (att.TempDownloadUri && (fileSize === 0 || fileSize <= MAX_QBO_ATTACHMENT_BYTES)) {
+        try {
+          const dlRes = await fetch(String(att.TempDownloadUri))
+          if (dlRes.ok) {
+            const arrBuf = await dlRes.arrayBuffer()
+            const binBuf = Buffer.from(arrBuf)
+            if (binBuf.byteLength > 0 && binBuf.byteLength <= MAX_QBO_ATTACHMENT_BYTES) {
+              fileSize = binBuf.byteLength
+              sha256Hash = crypto.createHash('sha256').update(binBuf).digest('hex')
+              const safeName = rawFileName
+                .replace(/[^a-zA-Z0-9._-]+/g, '_')
+                .replace(/^_+|_+$/g, '')
+                .slice(0, 120) || 'attachment.bin'
+              const pathInBucket = `${realmId}/qbo_${String(att.Id)}_${sha256Hash.slice(0, 12)}_${safeName}`
+              const { error: upErr } = await supabase.storage
+                .from(QBO_ATTACHMENT_BUCKET)
+                .upload(pathInBucket, binBuf, {
+                  contentType,
+                  upsert: true,
+                })
+              if (!upErr) {
+                storageBucket = QBO_ATTACHMENT_BUCKET
+                storagePath = pathInBucket
+                const { data: signedData } = await supabase.storage
+                  .from(QBO_ATTACHMENT_BUCKET)
+                  .createSignedUrl(pathInBucket, 60 * 60 * 24 * 7)
+                if (signedData?.signedUrl) {
+                  fileUrl = signedData.signedUrl
+                }
+              }
+            }
+          }
+        } catch {
+          // Keep metadata even if QBO temporary URI has expired or failed network fetch
+        }
+      }
+
+      attRows.push({
+        company_realm_id: realmId,
+        qb_attachable_id: String(att.Id),
+        file_name: rawFileName,
+        content_type: contentType,
+        file_size: fileSize,
+        size_bytes: fileSize,
+        storage_bucket: storageBucket,
+        storage_path: storagePath,
+        sha256_hash: sha256Hash,
+        file_url: fileUrl,
+        linked_entity_type: refType,
+        linked_entity_id: refId,
+        qb_txn_id: !isContactRef && refId ? refId : null,
+        qb_contact_id: isContactRef && refId ? refId : null,
+        note: att.Note || null,
+        raw_data: att,
+        updated_at: new Date().toISOString(),
+      })
+    }
+    await supabase
+      .from('external_accounting_attachments')
+      .upsert(attRows, { onConflict: 'company_realm_id,qb_attachable_id' })
+    pulledLists += attRows.length
+  }
+
   // Update last_synced_at in company metadata
   const { data: compRow } = await supabase
     .from('external_accounting_companies')
@@ -2099,6 +3274,8 @@ export async function syncCompanyWithQbo(
     .eq('realm_id', realmId)
     .maybeSingle()
   const meta = compRow?.metadata && typeof compRow.metadata === 'object' ? compRow.metadata : {}
+  const syncFinalStatus =
+    truncatedEntities.length > 0 ? 'completed_with_truncation_warning' : 'complete'
   const updatedMeta = {
     ...meta,
     pending_qbo_deletes: remainingPendingDeletes,
@@ -2106,6 +3283,9 @@ export async function syncCompanyWithQbo(
       ...(meta.qbo_oauth || {}),
       last_synced_at: new Date().toISOString(),
       last_sync_error: null,
+      last_sync_status: syncFinalStatus,
+      last_sync_truncated_entities: truncatedEntities,
+      last_sync_incomplete_cursor: null,
     },
   }
   await supabase
@@ -2115,12 +3295,16 @@ export async function syncCompanyWithQbo(
 
   return {
     ok: true,
+    status: syncFinalStatus,
     pushedTransactions,
     pushedAccounts,
     pushedContacts,
     pulledAccounts,
     pulledContacts,
     pulledTransactions,
+    pulledLists,
+    truncated: truncatedEntities.length > 0,
+    truncatedEntities,
   }
 }
 
