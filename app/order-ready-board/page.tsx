@@ -2024,10 +2024,10 @@ function OrderReadyBoardContent() {
                 const storeKey = `${String(ord.store_code || selectedStore).toUpperCase()}:${ord.order_number}`
                 const lastCall = lastImpulseTimeRef.current.get(storeKey) || 0
                 const lastAnnMs = lastAnnouncedAtMsRef.current.get(storeKey) || 0
-                const isSameTap = lastAnnMs > 0 && Math.abs(annMs - lastAnnMs) < 2500
-                const isRecentCall = lastCall > 0 && (Date.now() - lastCall) < 6000
+                const isSameTap = lastAnnMs > 0 && Math.abs(annMs - lastAnnMs) < 1400
+                const isRecentCall = lastCall > 0 && (Date.now() - lastCall) < 1800
                 if (isSameTap || isRecentCall) {
-                  if (isRecentCall && (lastAnnMs === 0 || Math.abs(annMs - lastAnnMs) < 5000)) {
+                  if (isRecentCall) {
                     lastAnnouncedAtMsRef.current.set(storeKey, annMs)
                   }
                 } else {
@@ -2089,21 +2089,18 @@ function OrderReadyBoardContent() {
     }
   }, [selectedStore, storeOk])
 
-  // Precargar la voz de las órdenes en preparación (las más antiguas primero) para que el anuncio sea instantáneo
+  // Precargar la voz de las órdenes en preparación (las más antiguas primero) para que el anuncio sea instantáneo al primer toque
   useEffect(() => {
-    if (prefetchRunningRef.current || inProgressOrders.length === 0) return
-    prefetchRunningRef.current = true
-    const targets = [...inProgressOrders].reverse().slice(0, 12)
+    if (inProgressOrders.length === 0) return
+    const targets = [...inProgressOrders].reverse().slice(0, 15)
     const langs = clipLangs()
     ;(async () => {
-      try {
-        for (const o of targets) {
-          if (!/^\d{1,6}$/.test(o.order_number)) continue
-          const num = String(parseInt(o.order_number, 10))
-          for (const l of langs) await getClipUrl(l, num, selectedVoice)
+      for (const o of targets) {
+        if (!/^\d{1,6}$/.test(o.order_number)) continue
+        const num = String(parseInt(o.order_number, 10))
+        for (const l of langs) {
+          void getClipUrl(l, num, selectedVoice)
         }
-      } finally {
-        prefetchRunningRef.current = false
       }
     })()
   }, [inProgressOrders, clipLangs, getClipUrl, selectedVoice])
@@ -2184,10 +2181,10 @@ function OrderReadyBoardContent() {
                   const storeKey = `${rowStore}:${newRow.order_number}`
                   const lastCall = lastImpulseTimeRef.current.get(storeKey) || 0
                   const lastAnnMs = lastAnnouncedAtMsRef.current.get(storeKey) || 0
-                  const isSameTap = lastAnnMs > 0 && Math.abs(announcedMs - lastAnnMs) < 2500
-                  const isRecentCall = lastCall > 0 && (Date.now() - lastCall) < 6000
+                  const isSameTap = lastAnnMs > 0 && Math.abs(announcedMs - lastAnnMs) < 1400
+                  const isRecentCall = lastCall > 0 && (Date.now() - lastCall) < 1800
                   if (isSameTap || isRecentCall) {
-                    if (isRecentCall && (lastAnnMs === 0 || Math.abs(announcedMs - lastAnnMs) < 5000)) {
+                    if (isRecentCall) {
                       lastAnnouncedAtMsRef.current.set(storeKey, announcedMs)
                     }
                   } else {
@@ -2498,13 +2495,13 @@ function OrderReadyBoardContent() {
       const storeKey = `${normStore}:${orderNumStr}`
       const incomingCalledMs = data.called_at ? Date.parse(data.called_at) : NaN
 
-      // 1. Deduplicación exacta por timestamp de toque (called_at) y debounce acústico de 6 segundos por tienda+orden.
+      // 1. Deduplicación exacta por timestamp de toque (called_at) y debounce acústico corto (1.8s) para deduplicar las 4 capas de un mismo toque sin bloquear un 2do toque real.
       const lastCallTime = lastImpulseTimeRef.current.get(storeKey) || 0
       const lastAnnMs = lastAnnouncedAtMsRef.current.get(storeKey) || 0
-      const isSameTap = !isNaN(incomingCalledMs) && lastAnnMs > 0 && Math.abs(incomingCalledMs - lastAnnMs) < 2500
-      const isRecentCall = lastCallTime > 0 && (now - lastCallTime) < 6000
+      const isSameTap = !isNaN(incomingCalledMs) && lastAnnMs > 0 && Math.abs(incomingCalledMs - lastAnnMs) < 1400
+      const isRecentCall = lastCallTime > 0 && (now - lastCallTime) < 1800
       if (isSameTap || isRecentCall) {
-        if (isRecentCall && !isNaN(incomingCalledMs) && (lastAnnMs === 0 || Math.abs(incomingCalledMs - lastAnnMs) < 5000)) {
+        if (isRecentCall && !isNaN(incomingCalledMs)) {
           lastAnnouncedAtMsRef.current.set(storeKey, incomingCalledMs)
         }
         console.log(`[OrderReadyBoard] Impulso duplicado ignorado por debounce para orden #${orderNumStr}`)

@@ -31,8 +31,12 @@ export const dynamic = 'force-dynamic'
 let lastCallTimestampMs = 0
 
 function getMonotonicIsoTimestamp(preferredIso?: string): string {
+  const serverNow = Date.now()
   const parsed = preferredIso ? Date.parse(preferredIso) : NaN
-  const baseMs = Number.isFinite(parsed) ? parsed : Date.now()
+  // Si el reloj local de la tableta está desfasado por más de 15 segundos respecto al servidor NTP,
+  // usar el reloj autoritativo del servidor para que las Capas 3 y 4 (<45s) de la PC del Manager jamás descarten el llamado.
+  const isClockAligned = Number.isFinite(parsed) && Math.abs(serverNow - parsed) <= 15000
+  const baseMs = isClockAligned ? parsed : serverNow
   const nextMs = baseMs <= lastCallTimestampMs ? lastCallTimestampMs + 1 : baseMs
   lastCallTimestampMs = nextMs
   return new Date(nextMs).toISOString()
@@ -62,6 +66,7 @@ export async function POST(request: Request) {
 
     const normalizedStoreCode = storeCode.toUpperCase()
     const nowIso = getMonotonicIsoTimestamp(calledAt)
+    const channelTopic = `order-ready-realtime:${normalizedStoreCode}`
     const storeTopic = `realtime:order-ready-realtime:${normalizedStoreCode}`
 
     // 1. Actualizar el registro en Supabase para auditoría, trazabilidad y réplica DB (con aislamiento por store_code)
@@ -127,6 +132,14 @@ export async function POST(request: Request) {
       const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
       const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
       if (supabaseUrl && serviceKey) {
+        const broadcastPayload = {
+          order_id: orderId || persistedRowId,
+          order_number: String(orderNumber),
+          store_code: normalizedStoreCode,
+          dining_option: diningOption || 'TOGO',
+          store_name: storeName || normalizedStoreCode,
+          called_at: nowIso
+        }
         await fetch(`${supabaseUrl.replace(/\/$/, '')}/realtime/v1/api/broadcast`, {
           method: 'POST',
           headers: {
@@ -138,16 +151,14 @@ export async function POST(request: Request) {
           body: JSON.stringify({
             messages: [
               {
+                topic: channelTopic,
+                event: 'call_order',
+                payload: broadcastPayload
+              },
+              {
                 topic: storeTopic,
                 event: 'call_order',
-                payload: {
-                  order_id: orderId || persistedRowId,
-                  order_number: String(orderNumber),
-                  store_code: normalizedStoreCode,
-                  dining_option: diningOption || 'TOGO',
-                  store_name: storeName || normalizedStoreCode,
-                  called_at: nowIso
-                }
+                payload: broadcastPayload
               }
             ]
           })

@@ -632,6 +632,30 @@ export default function PreparadorPage() {
         return uniqueRecent
     }
 
+    // Actualiza readyOrdersList SOLO si realmente cambió el listado de órdenes (evita re-renderizar los botones cada 5s mientras el cocinero toca la pantalla)
+    const applyReadyOrdersIfChanged = (nextOrders: any[]) => {
+        setReadyOrdersList((prev) => {
+            if (prev.length === nextOrders.length) {
+                let identical = true
+                for (let i = 0; i < prev.length; i++) {
+                    const a = prev[i]
+                    const b = nextOrders[i]
+                    if (
+                        String(a?.id) !== String(b?.id) ||
+                        String(a?.order_number) !== String(b?.order_number) ||
+                        String(a?.status) !== String(b?.status) ||
+                        String(a?.dining_option) !== String(b?.dining_option)
+                    ) {
+                        identical = false
+                        break
+                    }
+                }
+                if (identical) return prev
+            }
+            return nextOrders
+        })
+    }
+
     // Consulta de órdenes en preparación de la sucursal actual (status = IN_PROGRESS / SEND)
     const fetchReadyOrders = async (isManual = false, syncToastExplicit = false) => {
         if (!storeId || stores.length === 0) return
@@ -669,7 +693,7 @@ export default function PreparadorPage() {
                 .limit(150)
 
             if (!error && data) {
-                setReadyOrdersList(filterAndDedupePrepOrders(data, storeCode, todayLA))
+                applyReadyOrdersIfChanged(filterAndDedupePrepOrders(data, storeCode, todayLA))
             }
 
             // 2. Consultar el servidor (/api/order-ready/orders) sin caché de navegador:
@@ -684,7 +708,7 @@ export default function PreparadorPage() {
             if (syncRes.ok) {
                 const syncJson = await syncRes.json()
                 if (Array.isArray(syncJson?.inProgressOrders)) {
-                    setReadyOrdersList(filterAndDedupePrepOrders(syncJson.inProgressOrders, storeCode, todayLA))
+                    applyReadyOrdersIfChanged(filterAndDedupePrepOrders(syncJson.inProgressOrders, storeCode, todayLA))
                 }
             }
         } catch (err) {
@@ -978,12 +1002,12 @@ export default function PreparadorPage() {
     })
 
     // Radar de proximidad capacitiva: si el cocinero con guante presiona sobre el borde exterior o entre dos cuadros
-    // (hasta 18px afuera del borde del cuadro), detecta el cuadro más cercano y dispara el llamado en 0ms
+    // (hasta 24px afuera del borde del cuadro), detecta el cuadro más cercano y dispara el llamado en 0ms
     const handleOrdersProximityRadar = (clientX: number, clientY: number, containerEl: HTMLElement | null) => {
         if (!containerEl || !Number.isFinite(clientX) || !Number.isFinite(clientY)) return
         const cards = containerEl.querySelectorAll<HTMLButtonElement>('button[data-order-tap-id]')
         let closestBtn: HTMLButtonElement | null = null
-        let minDistance = 18 // 18px de halo magnético alrededor de todo el cuadro
+        let minDistance = 24 // 24px de halo magnético alrededor de todo el cuadro
 
         cards.forEach((btn) => {
             const rect = btn.getBoundingClientRect()
@@ -1002,7 +1026,7 @@ export default function PreparadorPage() {
                 const ordId = tapId.slice(4)
                 const foundOrder = readyOrdersList.find((o) => String(o.id) === ordId)
                 if (foundOrder) {
-                    triggerPrepDedupedAction(tapId, () => handleCallOrderImpulse(foundOrder), 380)
+                    triggerPrepDedupedAction(tapId, () => handleCallOrderImpulse(foundOrder), 350)
                 }
             } else if (tapId === 'bev:bev-cafe') {
                 triggerPrepDedupedAction(tapId, () => handleCallOrderImpulse({
@@ -1011,7 +1035,7 @@ export default function PreparadorPage() {
                     dining_option: 'TOGO',
                     label: t('prep.callCafeBtn'),
                     speech: t('prep.cafeReadySpeech')
-                }), 380)
+                }), 350)
             } else if (tapId === 'bev:bev-champurrado') {
                 triggerPrepDedupedAction(tapId, () => handleCallOrderImpulse({
                     id: 'bev-champurrado',
@@ -1019,7 +1043,7 @@ export default function PreparadorPage() {
                     dining_option: 'TOGO',
                     label: t('prep.callChampurradoBtn'),
                     speech: t('prep.champurradoReadySpeech')
-                }), 380)
+                }), 350)
             }
         }
     }
@@ -1036,12 +1060,21 @@ export default function PreparadorPage() {
         setCallSuccessOrderIds(prev => new Set(prev).add(order.id))
 
         const currentStore = stores.find(s => String(s.id) === String(storeId))
-        const storeCode = (currentStore?.code || TOAST_STORE_MAP[currentStore?.external_id]?.code || '').toUpperCase()
+        const storeCode = (order?.store_code || currentStore?.code || TOAST_STORE_MAP[currentStore?.external_id]?.code || '').toUpperCase()
 
         try {
             const calledAt = new Date().toISOString()
-            // Disparar en paralelo el broadcast WebSocket de cliente y el endpoint REST de persistencia/redundancia,
-            // de modo que si el WebSocket del tablet está reconectando en la noche, el POST salga en 0ms sin bloquearse.
+            const callBody = JSON.stringify({
+                orderId: order.id,
+                orderNumber: order.order_number,
+                storeCode: storeCode,
+                diningOption: order.dining_option,
+                storeName: order?.store_name || currentStore?.name || storeCode,
+                fromClientBroadcast: Boolean(realtimeChannelRef.current),
+                calledAt
+            })
+
+            // 1. Broadcast WebSocket directo de cliente (0ms)
             const wsPromise = realtimeChannelRef.current
                 ? Promise.race([
                       realtimeChannelRef.current.send({
@@ -1052,7 +1085,7 @@ export default function PreparadorPage() {
                               order_number: order.order_number,
                               store_code: storeCode,
                               dining_option: order.dining_option,
-                              store_name: currentStore?.name || storeCode,
+                              store_name: order?.store_name || currentStore?.name || storeCode,
                               called_at: calledAt
                           }
                       }),
@@ -1060,25 +1093,36 @@ export default function PreparadorPage() {
                   ])
                 : Promise.resolve()
 
-            const apiPromise = fetch('/api/order-ready/call', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    orderId: order.id,
-                    orderNumber: order.order_number,
-                    storeCode: storeCode,
-                    diningOption: order.dining_option,
-                    storeName: currentStore?.name || storeCode,
-                    fromClientBroadcast: Boolean(realtimeChannelRef.current),
-                    calledAt
-                })
-            })
+            // 2. Endpoint REST con reintento automático (hasta 3 intentos: 0ms, +550ms, +1250ms)
+            // para que un micro-corte de Wi-Fi en cocina jamás pierda el primer toque del cocinero.
+            const apiPromise = (async () => {
+                const retryDelays = [0, 550, 1250]
+                for (let attempt = 0; attempt < retryDelays.length; attempt++) {
+                    if (retryDelays[attempt] > 0) {
+                        await new Promise((r) => setTimeout(r, retryDelays[attempt]))
+                    }
+                    try {
+                        const res = await fetch('/api/order-ready/call', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: callBody,
+                            signal: AbortSignal.timeout(3500)
+                        })
+                        if (res.ok) return true
+                    } catch (fetchErr) {
+                        if (attempt === retryDelays.length - 1) {
+                            console.warn('Reintentos agotados enviando llamado de orden:', fetchErr)
+                        }
+                    }
+                }
+                return false
+            })()
 
             await Promise.allSettled([wsPromise, apiPromise])
         } catch (err) {
             console.error('Error enviando impulso de orden desde tableta:', err)
         } finally {
-            // Cooldown corto de 900ms por orden para permitir re-llamado rápido con guantes sin duplicar por rebote
+            // Cooldown corto de 650ms por orden para permitir re-llamado rápido con guantes sin duplicar por rebote
             setTimeout(() => {
                 callingIdsRef.current.delete(order.id)
                 setCallingOrderIds(prev => {
@@ -1086,7 +1130,7 @@ export default function PreparadorPage() {
                     next.delete(order.id)
                     return next
                 })
-            }, 900)
+            }, 650)
             setTimeout(() => {
                 setCallSuccessOrderIds(prev => {
                     const next = new Set(prev)
@@ -2572,6 +2616,14 @@ export default function PreparadorPage() {
                         /* VISTA DE ÓRDENES EN PREPARACIÓN (ENVIADAS POR CAJERA) */
                         <div
                             className={`flex-1 flex flex-col overflow-hidden p-2 sm:p-4 ${hideCookingPanel ? 'lg:pl-7' : ''}`}
+                            onPointerDownCapture={(e) => {
+                                if (e.pointerType === 'mouse' && e.button !== 0) return
+                                handleOrdersProximityRadar(e.clientX, e.clientY, e.currentTarget)
+                            }}
+                            onTouchStartCapture={(e) => {
+                                const t0 = e.touches?.[0] || e.changedTouches?.[0]
+                                if (t0) handleOrdersProximityRadar(t0.clientX, t0.clientY, e.currentTarget)
+                            }}
                             onPointerDown={(e) => {
                                 if (e.pointerType === 'mouse' && e.button !== 0) return
                                 handleOrdersProximityRadar(e.clientX, e.clientY, e.currentTarget)

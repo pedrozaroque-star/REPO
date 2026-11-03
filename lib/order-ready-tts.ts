@@ -68,7 +68,7 @@ export function getGeminiKeyPool(): string[] {
   return Array.from(new Set(raw.map((k) => (k || '').trim()).filter(Boolean)))
 }
 
-async function getGeminiKeyPoolWithRemote(): Promise<string[]> {
+export async function getGeminiKeyPoolWithRemote(): Promise<string[]> {
   const now = Date.now()
   if (!remoteKeyPoolCache || now - remoteKeyPoolCache.fetchedAt > 10 * 60 * 1000) {
     try {
