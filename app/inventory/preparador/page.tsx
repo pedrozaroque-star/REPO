@@ -45,6 +45,14 @@
  *   - MODO SOLO ÓRDENES / OCULTAR COCCIÓN (2026-10-28):
  *     Permite ocultar el panel izquierdo de Ritmo de Cocción en la tableta mediante botón en cabecera o adorno divisor lateral retráctil,
  *     dedicando el 100% del ancho de pantalla exclusivamente a la vista de ÓRDENES EN PREPARACIÓN con cuadrícula expandida.
+ *   - MOTOR TÁCTIL ULTRA-SENSIBLE PARA GUANTES Y MICA PROTECTORA (2026-11-02):
+ *     Optimización del reconocimiento de toques (`bindPrepInstantTap` y `bindPrepForgivingTap`) para cocineros con guantes sobre micas:
+ *     1) Disparo al Primer Contacto (`onPointerDown` / `onTouchStart` a 0ms) en botones fijos (Café, Champurrado, tabs, navegación de cocción,
+ *        Enviar) y en tarjetas cuando el contenedor no requiere scroll vertical.
+ *     2) Rescate de `onPointerCancel` / `onTouchCancel`: cuando el guante + mica provoca un micro-corte de capacitancia a mitad del toque,
+ *        el sistema rescata y ejecuta el toque en vez de descartarlo.
+ *     3) Tolerancia ampliada para presión prolongada con guante (`hasta 3500ms`) y deslizamiento por aplastamiento de la yema del guante (`hasta 75px`),
+ *        bloqueando `onContextMenu` para evitar que el navegador cancele el toque por pulsación larga.
  */
 'use client'
 
@@ -818,28 +826,91 @@ export default function PreparadorPage() {
         } catch {}
     }
 
-    const prepPointerStartRef = useRef<{ x: number; y: number; key: string; at: number } | null>(null)
+    const prepPointerStartRef = useRef<{ x: number; y: number; maxDist: number; key: string; at: number; firedOnDown: boolean } | null>(null)
     const prepLastTouchAtRef = useRef<number>(0)
+    const prepLastTouchKeyRef = useRef<string>('')
 
+    const triggerPrepDedupedAction = (key: string, action: () => void) => {
+        const now = Date.now()
+        if (prepLastTouchKeyRef.current === key && now - prepLastTouchAtRef.current < 420) return
+        if (now - prepLastTouchAtRef.current < 140) return
+        prepLastTouchAtRef.current = now
+        prepLastTouchKeyRef.current = key
+        action()
+    }
+
+    // Disparo instantáneo al PRIMER CONTACTO (0ms) para botones fijos fuera de listas con scroll
+    // Ideal para uso con guantes de cocina sobre mica protectora donde la señal capacitiva es breve o intermitente
+    const bindPrepInstantTap = (key: string, action: () => void) => ({
+        onPointerDown: (e: React.PointerEvent) => {
+            if (e.pointerType === 'mouse' && e.button !== 0) return
+            triggerPrepDedupedAction(key, action)
+        },
+        onTouchStart: () => {
+            triggerPrepDedupedAction(key, action)
+        },
+        onContextMenu: (e: React.MouseEvent) => {
+            e.preventDefault()
+        },
+        onClick: () => {
+            triggerPrepDedupedAction(key, action)
+        }
+    })
+
+    // Toque ultra-tolerante para tarjetas dentro de contenedores que pueden tener scroll (Órdenes y Alimentos)
+    // - Si el contenedor NO tiene scroll vertical activo, dispara al primer milisegundo de contacto (0ms).
+    // - Si hay scroll disponible, tolera presión larga con guante (hasta 3.5s), aplastamiento de yema (75px)
+    //   y rescata micro-cortes de capacitancia de la mica (onPointerCancel / onTouchCancel).
     const bindPrepForgivingTap = (key: string, action: () => void) => ({
         onPointerDown: (e: React.PointerEvent) => {
             if (e.pointerType === 'mouse' && e.button !== 0) return
-            prepPointerStartRef.current = { x: e.clientX, y: e.clientY, key, at: Date.now() }
+            const scroller = (e.currentTarget as HTMLElement | null)?.closest?.('.overflow-y-auto') as HTMLElement | null
+            const hasVerticalScroll = !!scroller && (scroller.scrollHeight > scroller.clientHeight + 16)
+            if (!hasVerticalScroll) {
+                prepPointerStartRef.current = { x: e.clientX, y: e.clientY, maxDist: 0, key, at: Date.now(), firedOnDown: true }
+                triggerPrepDedupedAction(key, action)
+                return
+            }
+            prepPointerStartRef.current = { x: e.clientX, y: e.clientY, maxDist: 0, key, at: Date.now(), firedOnDown: false }
+        },
+        onPointerMove: (e: React.PointerEvent) => {
+            const start = prepPointerStartRef.current
+            if (!start || start.key !== key) return
+            const dist = Math.hypot(e.clientX - start.x, e.clientY - start.y)
+            if (dist > start.maxDist) start.maxDist = dist
         },
         onPointerUp: (e: React.PointerEvent) => {
             const start = prepPointerStartRef.current
             prepPointerStartRef.current = null
-            if (!start || start.key !== key) return
+            if (!start || start.key !== key || start.firedOnDown) return
             const dist = Math.hypot(e.clientX - start.x, e.clientY - start.y)
             const elapsed = Date.now() - start.at
-            if (dist <= 28 && elapsed <= 650) {
-                prepLastTouchAtRef.current = Date.now()
-                action()
+            if (dist <= 75 && start.maxDist <= 75 && elapsed <= 3500) {
+                triggerPrepDedupedAction(key, action)
             }
         },
+        onPointerCancel: () => {
+            const start = prepPointerStartRef.current
+            prepPointerStartRef.current = null
+            if (!start || start.key !== key || start.firedOnDown) return
+            // Si la mica + guante cortó la señal capacitiva antes de levantar el dedo y no estaba haciendo scroll, rescatamos el tap
+            if (start.maxDist <= 42 && Date.now() - start.at <= 3500) {
+                triggerPrepDedupedAction(key, action)
+            }
+        },
+        onTouchCancel: () => {
+            const start = prepPointerStartRef.current
+            prepPointerStartRef.current = null
+            if (!start || start.key !== key || start.firedOnDown) return
+            if (start.maxDist <= 42 && Date.now() - start.at <= 3500) {
+                triggerPrepDedupedAction(key, action)
+            }
+        },
+        onContextMenu: (e: React.MouseEvent) => {
+            e.preventDefault()
+        },
         onClick: () => {
-            if (Date.now() - prepLastTouchAtRef.current < 450) return
-            action()
+            triggerPrepDedupedAction(key, action)
         }
     })
 
@@ -1861,9 +1932,9 @@ export default function PreparadorPage() {
                     {/* Botón / Píldora Rápida para Ocultar Cocción y Ver Solo Órdenes (Visible siempre en Tableta / Pantalla Completa) */}
                     <button
                         type="button"
-                        onClick={() => toggleHideCookingPanel()}
+                        {...bindPrepInstantTap('hdr:toggle-cooking', () => toggleHideCookingPanel())}
                         title={hideCookingPanel ? t('prep.showCookingTooltip') : t('prep.hideCookingTooltip')}
-                        className={`ml-1 flex items-center gap-2 px-3.5 py-2 rounded-xl font-black text-xs uppercase tracking-wider transition-all cursor-pointer border shadow-xs active:scale-95 ${
+                        className={`ml-1 flex items-center gap-2 px-3.5 py-2 rounded-xl font-black text-xs uppercase tracking-wider transition-all cursor-pointer select-none touch-manipulation border shadow-xs active:scale-95 ${
                             hideCookingPanel
                                 ? 'bg-blue-600 hover:bg-blue-700 text-white border-blue-500 shadow-blue-500/20'
                                 : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border-emerald-300 dark:bg-emerald-950/50 dark:hover:bg-emerald-900/60 dark:text-emerald-300 dark:border-emerald-800'
@@ -2013,18 +2084,18 @@ export default function PreparadorPage() {
                             </div>
                         </div>
                         <div className="flex items-center gap-1.5 sm:gap-2 shrink-0 w-full sm:w-auto justify-end">
-                            <button onClick={() => setShowGuideModal(true)} className="bg-red-600 hover:bg-red-700 text-white px-2.5 py-1.5 sm:px-3 sm:py-2 md:px-4 md:py-2.5 rounded-xl text-xs sm:text-sm md:text-base font-black transition-colors shrink-0 shadow-sm flex items-center gap-1 cursor-pointer">
+                            <button {...bindPrepInstantTap('pace:guide', () => setShowGuideModal(true))} className="bg-red-600 hover:bg-red-700 text-white px-2.5 py-1.5 sm:px-3 sm:py-2 md:px-4 md:py-2.5 rounded-xl text-xs sm:text-sm md:text-base font-black transition-colors shrink-0 shadow-sm flex items-center gap-1 cursor-pointer select-none touch-manipulation">
                                 <BookOpen size={14} />
                                 <span>{t('prep.viewGuide')}</span>
                             </button>
-                            <button onClick={() => setShowDayModal(true)} className="hidden lg:flex bg-blue-100 hover:bg-blue-200 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300 dark:hover:bg-blue-900 px-3.5 py-2 md:py-2.5 rounded-xl text-sm md:text-base font-black transition-colors shrink-0 shadow-sm cursor-pointer">
+                            <button {...bindPrepInstantTap('pace:day', () => setShowDayModal(true))} className="hidden lg:flex bg-blue-100 hover:bg-blue-200 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300 dark:hover:bg-blue-900 px-3.5 py-2 md:py-2.5 rounded-xl text-sm md:text-base font-black transition-colors shrink-0 shadow-sm cursor-pointer select-none touch-manipulation">
                                 {t('prep.viewDay')}
                             </button>
                             <button
                                 type="button"
-                                onClick={() => toggleHideCookingPanel(true)}
+                                {...bindPrepInstantTap('pace:hide', () => toggleHideCookingPanel(true))}
                                 title={t('prep.hideCookingTooltip')}
-                                className="hidden lg:flex items-center gap-1.5 bg-slate-200/80 hover:bg-emerald-600 text-slate-700 hover:text-white dark:bg-slate-700 dark:hover:bg-emerald-600 dark:text-slate-200 px-3 py-2 md:py-2.5 rounded-xl text-xs md:text-sm font-black transition-all shrink-0 shadow-xs cursor-pointer active:scale-95"
+                                className="hidden lg:flex items-center gap-1.5 bg-slate-200/80 hover:bg-emerald-600 text-slate-700 hover:text-white dark:bg-slate-700 dark:hover:bg-emerald-600 dark:text-slate-200 px-3 py-2 md:py-2.5 rounded-xl text-xs md:text-sm font-black transition-all shrink-0 shadow-xs cursor-pointer select-none touch-manipulation active:scale-95"
                             >
                                 <PanelLeftClose size={17} />
                                 <span className="hidden xl:inline">{t('prep.hideCookingPace')}</span>
@@ -2035,14 +2106,14 @@ export default function PreparadorPage() {
                     {/* Stepper Rápido de Bloques de Horario */}
                     <div className="flex items-center justify-between gap-2 w-full max-w-lg mx-auto mb-3 bg-slate-100 dark:bg-slate-800/80 p-1.5 rounded-xl border border-slate-200 dark:border-slate-700">
                         <button
-                            onClick={() => {
+                            {...bindPrepInstantTap('pace:prev', () => {
                                 if (activeIndex > 0) {
                                     setScrollDirection(-1)
                                     setActiveIndex(prev => prev - 1)
                                 }
-                            }}
+                            })}
                             disabled={activeIndex === 0}
-                            className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold text-xs shadow-xs disabled:opacity-30 disabled:cursor-not-allowed hover:bg-blue-50 dark:hover:bg-slate-600 cursor-pointer transition-colors"
+                            className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold text-xs shadow-xs disabled:opacity-30 disabled:cursor-not-allowed hover:bg-blue-50 dark:hover:bg-slate-600 cursor-pointer select-none touch-manipulation transition-colors"
                         >
                             <ChevronLeft size={16} />
                             <span>{t('prep.prevBlock')}</span>
@@ -2053,14 +2124,14 @@ export default function PreparadorPage() {
                         </span>
 
                         <button
-                            onClick={() => {
+                            {...bindPrepInstantTap('pace:next', () => {
                                 if (activeIndex < carouselBuckets.length - 1) {
                                     setScrollDirection(1)
                                     setActiveIndex(prev => prev + 1)
                                 }
-                            }}
+                            })}
                             disabled={activeIndex >= carouselBuckets.length - 1}
-                            className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold text-xs shadow-xs disabled:opacity-30 disabled:cursor-not-allowed hover:bg-blue-50 dark:hover:bg-slate-600 cursor-pointer transition-colors"
+                            className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold text-xs shadow-xs disabled:opacity-30 disabled:cursor-not-allowed hover:bg-blue-50 dark:hover:bg-slate-600 cursor-pointer select-none touch-manipulation transition-colors"
                         >
                             <span>{t('prep.nextBlock')}</span>
                             <ChevronRight size={16} />
@@ -2075,7 +2146,7 @@ export default function PreparadorPage() {
                     ) : (
                         <div 
                             ref={carouselContainerRef}
-                            className="flex-1 flex flex-col items-center justify-center gap-4 sm:gap-6 xl:gap-8 overflow-hidden py-1 sm:py-4 px-1 sm:px-2 w-full relative"
+                            className="flex-1 flex flex-col items-center justify-center gap-4 sm:gap-6 xl:gap-8 overflow-hidden py-1 sm:py-4 px-1 sm:px-2 w-full relative touch-manipulation select-none"
                             onTouchStart={(e) => {
                                 touchEndRef.current = null
                                 touchStartRef.current = e.targetTouches[0].clientY
@@ -2086,8 +2157,25 @@ export default function PreparadorPage() {
                             onTouchEnd={() => {
                                 if (touchStartRef.current === null || touchEndRef.current === null) return
                                 const distance = touchStartRef.current - touchEndRef.current
-                                const isSwipeUp = distance > 28
-                                const isSwipeDown = distance < -28
+                                const isSwipeUp = distance > 18
+                                const isSwipeDown = distance < -18
+                                
+                                if (isSwipeUp && activeIndex < carouselBuckets.length - 1) {
+                                    setScrollDirection(1)
+                                    setActiveIndex(prev => prev + 1)
+                                }
+                                if (isSwipeDown && activeIndex > 0) {
+                                    setScrollDirection(-1)
+                                    setActiveIndex(prev => prev - 1)
+                                }
+                                touchStartRef.current = null
+                                touchEndRef.current = null
+                            }}
+                            onTouchCancel={() => {
+                                if (touchStartRef.current === null || touchEndRef.current === null) return
+                                const distance = touchStartRef.current - touchEndRef.current
+                                const isSwipeUp = distance > 18
+                                const isSwipeDown = distance < -18
                                 
                                 if (isSwipeUp && activeIndex < carouselBuckets.length - 1) {
                                     setScrollDirection(1)
@@ -2287,7 +2375,7 @@ export default function PreparadorPage() {
                 <div className="hidden lg:flex items-center justify-center relative z-30 shrink-0 w-0">
                     <button
                         type="button"
-                        onClick={() => toggleHideCookingPanel()}
+                        {...bindPrepInstantTap('div:toggle-cooking', () => toggleHideCookingPanel())}
                         title={hideCookingPanel ? t('prep.showCookingTooltip') : t('prep.hideCookingTooltip')}
                         className={`group flex flex-col items-center justify-center gap-1.5 transition-all duration-300 cursor-pointer select-none touch-manipulation active:scale-95 shadow-lg border ${
                             hideCookingPanel
@@ -2316,18 +2404,18 @@ export default function PreparadorPage() {
                     {/* TABS DE INSUMOS Y ÓRDENES LISTAS (Se ocultan en desktop cuando está activo el modo Solo Órdenes / hideCookingPanel) */}
                     <div className={`p-2 sm:p-4 gap-2 sm:gap-4 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 shadow-sm shrink-0 ${hideCookingPanel ? 'flex lg:hidden' : 'flex'}`}>
                         <button 
-                            onClick={() => setActiveTab('alimentos')}
-                            className={`flex-1 py-2.5 sm:py-4 font-black flex items-center justify-center gap-1.5 sm:gap-2 rounded-xl transition-all shadow-sm text-xs sm:text-base cursor-pointer
+                            {...bindPrepInstantTap('tab:alimentos', () => setActiveTab('alimentos'))}
+                            className={`flex-1 py-2.5 sm:py-4 font-black flex items-center justify-center gap-1.5 sm:gap-2 rounded-xl transition-all shadow-sm text-xs sm:text-base cursor-pointer select-none touch-manipulation
                                 ${activeTab === 'alimentos' ? 'bg-orange-100 text-orange-700 border-2 border-orange-500 dark:bg-orange-900/30 dark:text-orange-300' : 'bg-slate-50 text-slate-500 hover:bg-slate-200 border-2 border-transparent dark:bg-slate-800'}`}
                         >
                             <UtensilsCrossed size={16} /> {t('prep.foodItems')}
                         </button>
                         <button 
-                            onClick={() => {
+                            {...bindPrepInstantTap('tab:ordenes', () => {
                                 setActiveTab('ordenes')
                                 fetchReadyOrders(true)
-                            }}
-                            className={`flex-1 py-2.5 sm:py-4 font-black flex items-center justify-center gap-1.5 sm:gap-2 rounded-xl transition-all shadow-sm text-xs sm:text-base cursor-pointer
+                            })}
+                            className={`flex-1 py-2.5 sm:py-4 font-black flex items-center justify-center gap-1.5 sm:gap-2 rounded-xl transition-all shadow-sm text-xs sm:text-base cursor-pointer select-none touch-manipulation
                                 ${activeTab === 'ordenes' ? 'bg-emerald-100 text-emerald-800 border-2 border-emerald-500 dark:bg-emerald-950/50 dark:text-emerald-300' : 'bg-slate-50 text-slate-500 hover:bg-slate-200 border-2 border-transparent dark:bg-slate-800'}`}
                         >
                             <BellRing size={18} className={readyOrdersList.length > 0 ? "text-emerald-600 dark:text-emerald-400 animate-pulse" : ""} />
@@ -2355,8 +2443,8 @@ export default function PreparadorPage() {
                                     return (
                                     <button
                                         key={itemObj.name}
-                                        onClick={() => addToCart(itemObj.name)}
-                                        className={`relative h-14 sm:h-16 md:h-20 lg:h-[84px] rounded-xl sm:rounded-2xl flex flex-col items-center justify-center p-1.5 sm:p-2 active:scale-95 transition-all outline-none ${baseStyle} overflow-hidden cursor-pointer`}
+                                        {...bindPrepForgivingTap(`alim:${itemObj.name}`, () => addToCart(itemObj.name))}
+                                        className={`relative h-14 sm:h-16 md:h-20 lg:h-[84px] rounded-xl sm:rounded-2xl flex flex-col items-center justify-center p-1.5 sm:p-2 active:scale-95 transition-all outline-none select-none touch-manipulation ${baseStyle} overflow-hidden cursor-pointer`}
                                     >
                                         <span className={`relative w-full px-1 text-center text-xs sm:text-sm md:text-lg lg:text-2xl leading-tight md:leading-snug font-sans tracking-tight z-10 ${isSelected ? 'font-black scale-105 drop-shadow-sm' : 'font-bold'}`}>
                                             {itemObj.name}
@@ -2393,9 +2481,9 @@ export default function PreparadorPage() {
                                     {hideCookingPanel && (
                                         <button
                                             type="button"
-                                            onClick={() => toggleHideCookingPanel(false)}
+                                            {...bindPrepInstantTap('ord:show-cooking', () => toggleHideCookingPanel(false))}
                                             title={t('prep.showCookingTooltip')}
-                                            className="hidden lg:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-black text-xs uppercase tracking-wider shadow-sm transition active:scale-95 cursor-pointer"
+                                            className="hidden lg:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-black text-xs uppercase tracking-wider shadow-sm transition active:scale-95 cursor-pointer select-none touch-manipulation"
                                         >
                                             <Flame size={14} className="text-amber-300 shrink-0" />
                                             <span>{t('prep.showCookingPace')}</span>
@@ -2407,10 +2495,10 @@ export default function PreparadorPage() {
                                     </span>
                                     <button
                                         type="button"
-                                        onClick={() => fetchReadyOrders(true)}
+                                        {...bindPrepInstantTap('ord:refresh', () => fetchReadyOrders(true))}
                                         disabled={loadingReadyOrders}
                                         title={t('prep.refreshOrdersTooltip')}
-                                        className="p-2 sm:p-2.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 active:scale-95 transition cursor-pointer shadow-sm disabled:opacity-50"
+                                        className="p-2 sm:p-2.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 active:scale-95 transition cursor-pointer select-none touch-manipulation shadow-sm disabled:opacity-50"
                                     >
                                         <RefreshCw size={16} className={loadingReadyOrders ? 'animate-spin text-emerald-600' : ''} />
                                     </button>
@@ -2447,7 +2535,7 @@ export default function PreparadorPage() {
                                         <button
                                             key={bev.id}
                                             type="button"
-                                            {...bindPrepForgivingTap(`bev:${bev.id}`, () => handleCallOrderImpulse(bev))}
+                                            {...bindPrepInstantTap(`bev:${bev.id}`, () => handleCallOrderImpulse(bev))}
                                             disabled={isCalling}
                                             className={`group relative rounded-2xl px-3 sm:px-4 py-2.5 sm:py-3.5 text-left transition-all active:scale-[0.97] cursor-pointer flex flex-col justify-between select-none touch-manipulation shadow-sm hover:shadow-md border-2 overflow-hidden ${
                                                 isCalling
@@ -2657,8 +2745,8 @@ export default function PreparadorPage() {
                                     {cart.map(c => (
                                         <div 
                                             key={c.name} 
-                                            onClick={() => decreaseItem(c.name)}
-                                            className="relative bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-600 px-2.5 py-1.5 sm:px-4 sm:py-3 md:px-5 md:py-4 rounded-xl flex items-center gap-1.5 sm:gap-3 shrink-0 group shadow-sm cursor-pointer select-none active:scale-95 transition-transform"
+                                            {...bindPrepInstantTap(`cart:${c.name}`, () => decreaseItem(c.name))}
+                                            className="relative bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-600 px-2.5 py-1.5 sm:px-4 sm:py-3 md:px-5 md:py-4 rounded-xl flex items-center gap-1.5 sm:gap-3 shrink-0 group shadow-sm cursor-pointer select-none touch-manipulation active:scale-95 transition-transform"
                                         >
                                             <span className="bg-white dark:bg-slate-700 text-slate-800 dark:text-white font-black w-5 h-5 sm:w-8 sm:h-8 md:w-10 md:h-10 rounded-full flex items-center justify-center text-xs sm:text-sm md:text-lg shadow-sm">
                                                 {c.qty}
@@ -2674,9 +2762,9 @@ export default function PreparadorPage() {
                                 
                                 {/* BOTÓN ENVIAR PEDIDO */}
                                 <button 
-                                    onClick={sendRequest}
+                                    {...bindPrepInstantTap('cart:send', () => sendRequest())}
                                     disabled={sending}
-                                    className="bg-red-600 hover:bg-red-700 text-white font-black text-sm sm:text-lg md:text-2xl px-4 sm:px-8 py-2.5 sm:py-4 rounded-xl sm:rounded-2xl flex items-center justify-center gap-2 sm:gap-3 shadow-[0_0_25px_rgba(220,38,38,0.5)] active:scale-95 transition-all disabled:opacity-50 h-[48px] sm:h-[70px] md:h-[80px] w-full md:w-[300px] shrink-0 cursor-pointer"
+                                    className="bg-red-600 hover:bg-red-700 text-white font-black text-sm sm:text-lg md:text-2xl px-4 sm:px-8 py-2.5 sm:py-4 rounded-xl sm:rounded-2xl flex items-center justify-center gap-2 sm:gap-3 shadow-[0_0_25px_rgba(220,38,38,0.5)] active:scale-95 transition-all disabled:opacity-50 h-[48px] sm:h-[70px] md:h-[80px] w-full md:w-[300px] shrink-0 cursor-pointer select-none touch-manipulation"
                                 >
                                     {sending ? <Loader2 className="animate-spin w-5 h-5 sm:w-8 sm:h-8" /> : (
                                         <>
