@@ -14,7 +14,7 @@
  *     tras completar el cobro (fulfillmentStatus: 'SENT' en Toast).
  *     Presenta una cuadrícula táctil limpia con números de orden gigantes, canal de venta (`FOR_HERE` / `TOGO`), tiempo transcurrido
  *     y botón táctil para llamar a la orden por altavoz, además de dos botones táctiles permanentes de llamado por voz para **Café**
- *     (`"Café pendiente ya está listo"`) y **Champurrado** (`"Champurrado pendiente ya está listo"`).
+ *     (`"Café pendiente, ¡ya está!"`) y **Champurrado** (`"Champurrado pendiente, ¡ya está!"`).
  *   - **Filtro de Bebidas y Postres**: Las órdenes que SOLO contienen bebidas (horchata, café, sodas, etc.) o postres
  *     (flan, cheesecake) se atienden directamente en mostrador/caja y NO se muestran en la pantalla de preparación.
  *   - **Emisión Exclusiva de Voz en PC (Cero Duplicación de Voces)**:
@@ -829,49 +829,113 @@ export default function PreparadorPage() {
     const prepPointerStartRef = useRef<{ x: number; y: number; maxDist: number; key: string; at: number; firedOnDown: boolean } | null>(null)
     const prepLastTouchAtRef = useRef<number>(0)
     const prepLastTouchKeyRef = useRef<string>('')
+    const prepLastTouchByKeyRef = useRef<Map<string, number>>(new Map())
 
-    const triggerPrepDedupedAction = (key: string, action: () => void) => {
+    const triggerPrepDedupedAction = (key: string, action: () => void, dedupeMs = 340) => {
         const now = Date.now()
-        if (prepLastTouchKeyRef.current === key && now - prepLastTouchAtRef.current < 420) return
-        if (now - prepLastTouchAtRef.current < 140) return
+        const lastForKey = prepLastTouchByKeyRef.current.get(key) || 0
+        if (now - lastForKey < dedupeMs) return
+        prepLastTouchByKeyRef.current.set(key, now)
         prepLastTouchAtRef.current = now
         prepLastTouchKeyRef.current = key
         action()
     }
+
+    // Disparo ULTRA-SENSIBLE al PRIMER MICROSEGUNDO DE CONTACTO (0.0ms) en TODA el área del cuadro
+    // Diseñado especialmente para las tarjetas de Órdenes (#531) y Voz (Café/Champurrado) con guantes + mica:
+    // - No espera a levantar el dedo (onPointerUp) ni depende de si hay barra de scroll.
+    // - Captura cualquier roce o presión en onPointerDown, onTouchStart, onMouseDown, e incluso si la mica
+    //   recién detecta la electricidad del guante al apretar más fuerte a mitad del toque (onPointerMove / onTouchMove).
+    const bindOrderCardUltraTap = (key: string, action: () => void) => ({
+        onPointerDown: (e: React.PointerEvent) => {
+            if (e.pointerType === 'mouse' && e.button !== 0) return
+            triggerPrepDedupedAction(key, action, 380)
+        },
+        onTouchStart: () => {
+            triggerPrepDedupedAction(key, action, 380)
+        },
+        onMouseDown: (e: React.MouseEvent) => {
+            if (e.button !== 0) return
+            triggerPrepDedupedAction(key, action, 380)
+        },
+        onPointerMove: (e: React.PointerEvent) => {
+            // Si el cocinero aprieta con el guante y la mica recién conduce capacitancia al aplastar la yema
+            if (e.pointerType === 'touch' || e.pointerType === 'pen' || e.buttons > 0) {
+                triggerPrepDedupedAction(key, action, 480)
+            }
+        },
+        onTouchMove: () => {
+            triggerPrepDedupedAction(key, action, 480)
+        },
+        onPointerUp: (e: React.PointerEvent) => {
+            if (e.pointerType === 'mouse' && e.button !== 0) return
+            triggerPrepDedupedAction(key, action, 380)
+        },
+        onTouchEnd: () => {
+            triggerPrepDedupedAction(key, action, 380)
+        },
+        onPointerCancel: () => {
+            triggerPrepDedupedAction(key, action, 380)
+        },
+        onTouchCancel: () => {
+            triggerPrepDedupedAction(key, action, 380)
+        },
+        onContextMenu: (e: React.MouseEvent) => {
+            e.preventDefault()
+        },
+        onClick: () => {
+            triggerPrepDedupedAction(key, action, 380)
+        }
+    })
 
     // Disparo instantáneo al PRIMER CONTACTO (0ms) para botones fijos fuera de listas con scroll
     // Ideal para uso con guantes de cocina sobre mica protectora donde la señal capacitiva es breve o intermitente
     const bindPrepInstantTap = (key: string, action: () => void) => ({
         onPointerDown: (e: React.PointerEvent) => {
             if (e.pointerType === 'mouse' && e.button !== 0) return
-            triggerPrepDedupedAction(key, action)
+            triggerPrepDedupedAction(key, action, 320)
         },
         onTouchStart: () => {
-            triggerPrepDedupedAction(key, action)
+            triggerPrepDedupedAction(key, action, 320)
+        },
+        onMouseDown: (e: React.MouseEvent) => {
+            if (e.button !== 0) return
+            triggerPrepDedupedAction(key, action, 320)
+        },
+        onPointerUp: (e: React.PointerEvent) => {
+            if (e.pointerType === 'mouse' && e.button !== 0) return
+            triggerPrepDedupedAction(key, action, 320)
+        },
+        onTouchEnd: () => {
+            triggerPrepDedupedAction(key, action, 320)
         },
         onContextMenu: (e: React.MouseEvent) => {
             e.preventDefault()
         },
         onClick: () => {
-            triggerPrepDedupedAction(key, action)
+            triggerPrepDedupedAction(key, action, 320)
         }
     })
 
-    // Toque ultra-tolerante para tarjetas dentro de contenedores que pueden tener scroll (Órdenes y Alimentos)
-    // - Si el contenedor NO tiene scroll vertical activo, dispara al primer milisegundo de contacto (0ms).
-    // - Si hay scroll disponible, tolera presión larga con guante (hasta 3.5s), aplastamiento de yema (75px)
-    //   y rescata micro-cortes de capacitancia de la mica (onPointerCancel / onTouchCancel).
+    // Toque ultra-tolerante para tarjetas de Alimentos/Insumos
     const bindPrepForgivingTap = (key: string, action: () => void) => ({
         onPointerDown: (e: React.PointerEvent) => {
             if (e.pointerType === 'mouse' && e.button !== 0) return
             const scroller = (e.currentTarget as HTMLElement | null)?.closest?.('.overflow-y-auto') as HTMLElement | null
-            const hasVerticalScroll = !!scroller && (scroller.scrollHeight > scroller.clientHeight + 16)
+            const hasVerticalScroll = !!scroller && (scroller.scrollHeight > scroller.clientHeight + 24)
             if (!hasVerticalScroll) {
                 prepPointerStartRef.current = { x: e.clientX, y: e.clientY, maxDist: 0, key, at: Date.now(), firedOnDown: true }
-                triggerPrepDedupedAction(key, action)
+                triggerPrepDedupedAction(key, action, 320)
                 return
             }
             prepPointerStartRef.current = { x: e.clientX, y: e.clientY, maxDist: 0, key, at: Date.now(), firedOnDown: false }
+        },
+        onTouchStart: (e: React.TouchEvent) => {
+            const scroller = (e.currentTarget as HTMLElement | null)?.closest?.('.overflow-y-auto') as HTMLElement | null
+            const hasVerticalScroll = !!scroller && (scroller.scrollHeight > scroller.clientHeight + 24)
+            if (!hasVerticalScroll) {
+                triggerPrepDedupedAction(key, action, 320)
+            }
         },
         onPointerMove: (e: React.PointerEvent) => {
             const start = prepPointerStartRef.current
@@ -885,45 +949,91 @@ export default function PreparadorPage() {
             if (!start || start.key !== key || start.firedOnDown) return
             const dist = Math.hypot(e.clientX - start.x, e.clientY - start.y)
             const elapsed = Date.now() - start.at
-            if (dist <= 75 && start.maxDist <= 75 && elapsed <= 3500) {
-                triggerPrepDedupedAction(key, action)
+            if (dist <= 85 && start.maxDist <= 85 && elapsed <= 4000) {
+                triggerPrepDedupedAction(key, action, 320)
             }
         },
         onPointerCancel: () => {
             const start = prepPointerStartRef.current
             prepPointerStartRef.current = null
             if (!start || start.key !== key || start.firedOnDown) return
-            // Si la mica + guante cortó la señal capacitiva antes de levantar el dedo y no estaba haciendo scroll, rescatamos el tap
-            if (start.maxDist <= 42 && Date.now() - start.at <= 3500) {
-                triggerPrepDedupedAction(key, action)
+            if (start.maxDist <= 55 && Date.now() - start.at <= 4000) {
+                triggerPrepDedupedAction(key, action, 320)
             }
         },
         onTouchCancel: () => {
             const start = prepPointerStartRef.current
             prepPointerStartRef.current = null
             if (!start || start.key !== key || start.firedOnDown) return
-            if (start.maxDist <= 42 && Date.now() - start.at <= 3500) {
-                triggerPrepDedupedAction(key, action)
+            if (start.maxDist <= 55 && Date.now() - start.at <= 4000) {
+                triggerPrepDedupedAction(key, action, 320)
             }
         },
         onContextMenu: (e: React.MouseEvent) => {
             e.preventDefault()
         },
         onClick: () => {
-            triggerPrepDedupedAction(key, action)
+            triggerPrepDedupedAction(key, action, 320)
         }
     })
 
+    // Radar de proximidad capacitiva: si el cocinero con guante presiona sobre el borde exterior o entre dos cuadros
+    // (hasta 18px afuera del borde del cuadro), detecta el cuadro más cercano y dispara el llamado en 0ms
+    const handleOrdersProximityRadar = (clientX: number, clientY: number, containerEl: HTMLElement | null) => {
+        if (!containerEl || !Number.isFinite(clientX) || !Number.isFinite(clientY)) return
+        const cards = containerEl.querySelectorAll<HTMLButtonElement>('button[data-order-tap-id]')
+        let closestBtn: HTMLButtonElement | null = null
+        let minDistance = 18 // 18px de halo magnético alrededor de todo el cuadro
+
+        cards.forEach((btn) => {
+            const rect = btn.getBoundingClientRect()
+            const dx = Math.max(rect.left - clientX, 0, clientX - rect.right)
+            const dy = Math.max(rect.top - clientY, 0, clientY - rect.bottom)
+            const dist = Math.hypot(dx, dy)
+            if (dist <= minDistance) {
+                minDistance = dist
+                closestBtn = btn
+            }
+        })
+
+        if (closestBtn) {
+            const tapId = (closestBtn as HTMLButtonElement).getAttribute('data-order-tap-id') || ''
+            if (tapId.startsWith('ord:')) {
+                const ordId = tapId.slice(4)
+                const foundOrder = readyOrdersList.find((o) => String(o.id) === ordId)
+                if (foundOrder) {
+                    triggerPrepDedupedAction(tapId, () => handleCallOrderImpulse(foundOrder), 380)
+                }
+            } else if (tapId === 'bev:bev-cafe') {
+                triggerPrepDedupedAction(tapId, () => handleCallOrderImpulse({
+                    id: 'bev-cafe',
+                    order_number: 'CAFE',
+                    dining_option: 'TOGO',
+                    label: t('prep.callCafeBtn'),
+                    speech: t('prep.cafeReadySpeech')
+                }), 380)
+            } else if (tapId === 'bev:bev-champurrado') {
+                triggerPrepDedupedAction(tapId, () => handleCallOrderImpulse({
+                    id: 'bev-champurrado',
+                    order_number: 'CHAMPURRADO',
+                    dining_option: 'TOGO',
+                    label: t('prep.callChampurradoBtn'),
+                    speech: t('prep.champurradoReadySpeech')
+                }), 380)
+            }
+        }
+    }
+
     // Acción de llamado de orden (impulso táctil enviado a la PC del Manager; la voz suena EXCLUSIVAMENTE en la PC)
     const handleCallOrderImpulse = async (order: any) => {
-        if (!order || !order.id || callingIdsRef.current.has(order.id)) return
+        if (!order || !order.id) return
+        // Siempre reproducir el tick táctil inmediato al tocar el cuadro para confirmar que la pantalla reconoció el guante
+        playTabletTick()
+        if (callingIdsRef.current.has(order.id)) return
 
         callingIdsRef.current.add(order.id)
         setCallingOrderIds(prev => new Set(prev).add(order.id))
         setCallSuccessOrderIds(prev => new Set(prev).add(order.id))
-
-        // Feedback táctil inmediato: sonido sutil de tick sin emitir voz en la tableta
-        playTabletTick()
 
         const currentStore = stores.find(s => String(s.id) === String(storeId))
         const storeCode = (currentStore?.code || TOAST_STORE_MAP[currentStore?.external_id]?.code || '').toUpperCase()
@@ -968,7 +1078,7 @@ export default function PreparadorPage() {
         } catch (err) {
             console.error('Error enviando impulso de orden desde tableta:', err)
         } finally {
-            // Cooldown de 2.5s por orden para evitar toques accidentales repetidos
+            // Cooldown corto de 900ms por orden para permitir re-llamado rápido con guantes sin duplicar por rebote
             setTimeout(() => {
                 callingIdsRef.current.delete(order.id)
                 setCallingOrderIds(prev => {
@@ -976,7 +1086,7 @@ export default function PreparadorPage() {
                     next.delete(order.id)
                     return next
                 })
-            }, 2500)
+            }, 900)
             setTimeout(() => {
                 setCallSuccessOrderIds(prev => {
                     const next = new Set(prev)
@@ -2460,9 +2570,23 @@ export default function PreparadorPage() {
                         </div>
                     ) : (
                         /* VISTA DE ÓRDENES EN PREPARACIÓN (ENVIADAS POR CAJERA) */
-                        <div className={`flex-1 flex flex-col overflow-hidden p-2 sm:p-4 ${hideCookingPanel ? 'lg:pl-7' : ''}`}>
+                        <div
+                            className={`flex-1 flex flex-col overflow-hidden p-2 sm:p-4 ${hideCookingPanel ? 'lg:pl-7' : ''}`}
+                            onPointerDown={(e) => {
+                                if (e.pointerType === 'mouse' && e.button !== 0) return
+                                handleOrdersProximityRadar(e.clientX, e.clientY, e.currentTarget)
+                            }}
+                            onTouchStart={(e) => {
+                                const t0 = e.touches?.[0] || e.changedTouches?.[0]
+                                if (t0) handleOrdersProximityRadar(t0.clientX, t0.clientY, e.currentTarget)
+                            }}
+                            onTouchMove={(e) => {
+                                const t0 = e.touches?.[0] || e.changedTouches?.[0]
+                                if (t0) handleOrdersProximityRadar(t0.clientX, t0.clientY, e.currentTarget)
+                            }}
+                        >
                             {/* Cabecera del Panel de Órdenes */}
-                            <div className="flex items-center justify-between gap-2 pb-3 mb-3 border-b border-slate-200 dark:border-slate-800 shrink-0">
+                            <div className="flex items-center justify-between gap-2 pb-2.5 mb-2.5 border-b border-slate-200 dark:border-slate-800 shrink-0">
                                 <div>
                                     <div className="flex items-center gap-2">
                                         <h3 className="text-sm sm:text-lg font-black text-slate-800 dark:text-white uppercase tracking-tight">
@@ -2506,7 +2630,7 @@ export default function PreparadorPage() {
                             </div>
 
                             {/* Botones de Anuncio por Voz de Bebidas Calientes (Café y Champurrado) junto a las órdenes */}
-                            <div className="grid grid-cols-2 gap-2.5 sm:gap-3.5 pb-3 mb-3 border-b border-slate-200 dark:border-slate-800 shrink-0">
+                            <div className="grid grid-cols-2 gap-2.5 sm:gap-3.5 pb-2.5 mb-2.5 border-b border-slate-200 dark:border-slate-800 shrink-0">
                                 {[
                                     {
                                         id: 'bev-cafe',
@@ -2514,7 +2638,7 @@ export default function PreparadorPage() {
                                         dining_option: 'TOGO',
                                         label: t('prep.callCafeBtn'),
                                         speech: t('prep.cafeReadySpeech'),
-                                        idleBg: 'border-amber-300 dark:border-amber-700/80 bg-gradient-to-br from-amber-50 to-orange-50/70 dark:from-amber-950/40 dark:to-slate-900 hover:border-amber-500',
+                                        idleBg: 'border-amber-300 dark:border-amber-700/80 bg-gradient-to-br from-amber-50 to-orange-50/70 dark:from-amber-950/40 dark:to-slate-900 hover:border-amber-500 active:bg-emerald-100 active:border-emerald-500',
                                         badgeBg: 'bg-amber-100 text-amber-900 dark:bg-amber-900/60 dark:text-amber-200',
                                         btnBg: 'bg-amber-700 group-hover:bg-amber-800 text-white'
                                     },
@@ -2524,7 +2648,7 @@ export default function PreparadorPage() {
                                         dining_option: 'TOGO',
                                         label: t('prep.callChampurradoBtn'),
                                         speech: t('prep.champurradoReadySpeech'),
-                                        idleBg: 'border-orange-300 dark:border-orange-700/80 bg-gradient-to-br from-orange-50 to-amber-50/70 dark:from-orange-950/40 dark:to-slate-900 hover:border-orange-500',
+                                        idleBg: 'border-orange-300 dark:border-orange-700/80 bg-gradient-to-br from-orange-50 to-amber-50/70 dark:from-orange-950/40 dark:to-slate-900 hover:border-orange-500 active:bg-emerald-100 active:border-emerald-500',
                                         badgeBg: 'bg-orange-100 text-orange-900 dark:bg-orange-900/60 dark:text-orange-200',
                                         btnBg: 'bg-orange-700 group-hover:bg-orange-800 text-white'
                                     }
@@ -2535,9 +2659,16 @@ export default function PreparadorPage() {
                                         <button
                                             key={bev.id}
                                             type="button"
-                                            {...bindPrepInstantTap(`bev:${bev.id}`, () => handleCallOrderImpulse(bev))}
-                                            disabled={isCalling}
-                                            className={`group relative rounded-2xl px-3 sm:px-4 py-2.5 sm:py-3.5 text-left transition-all active:scale-[0.97] cursor-pointer flex flex-col justify-between select-none touch-manipulation shadow-sm hover:shadow-md border-2 overflow-hidden ${
+                                            data-order-tap-id={`bev:${bev.id}`}
+                                            aria-busy={isCalling}
+                                            style={{
+                                                touchAction: 'none',
+                                                WebkitTapHighlightColor: 'transparent',
+                                                WebkitTouchCallout: 'none',
+                                                userSelect: 'none'
+                                            }}
+                                            {...bindOrderCardUltraTap(`bev:${bev.id}`, () => handleCallOrderImpulse(bev))}
+                                            className={`group relative rounded-2xl px-3 sm:px-4 py-2.5 sm:py-3 text-left transition-all active:scale-[0.97] cursor-pointer flex flex-col justify-between select-none touch-none shadow-sm hover:shadow-md border-2 [&_*]:pointer-events-none before:content-[''] before:absolute before:-inset-2.5 before:rounded-3xl ${
                                                 isCalling
                                                     ? 'ring-4 ring-emerald-500 scale-[0.98] border-emerald-500 bg-emerald-50 dark:bg-emerald-950/80 shadow-lg'
                                                     : isSuccess
@@ -2594,7 +2725,7 @@ export default function PreparadorPage() {
                             </div>
 
                             {/* Contenedor con scroll para las tarjetas de órdenes */}
-                            <div className="flex-1 overflow-y-auto pb-24 lg:pb-6">
+                            <div className="flex-1 overflow-y-auto pb-16 lg:pb-2">
                                 {readyOrdersList.length === 0 ? (
                                     <div className="h-64 sm:h-80 flex flex-col items-center justify-center text-center p-6 bg-white dark:bg-slate-900 rounded-2xl border-2 border-dashed border-slate-200 dark:border-slate-800">
                                         <div className="w-14 h-14 rounded-full bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-200 dark:border-emerald-800 flex items-center justify-center mb-3 text-emerald-600">
@@ -2608,7 +2739,7 @@ export default function PreparadorPage() {
                                         </p>
                                     </div>
                                 ) : (
-                                    <div className={`grid gap-3.5 sm:gap-5 ${
+                                    <div className={`grid gap-3 sm:gap-4 ${
                                         hideCookingPanel
                                             ? 'grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5'
                                             : 'grid-cols-1 sm:grid-cols-2 md:grid-cols-2 lg:grid-cols-2 xl:grid-cols-2 2xl:grid-cols-3'
@@ -2641,9 +2772,16 @@ export default function PreparadorPage() {
                                                 <button
                                                     key={order.id}
                                                     type="button"
-                                                    {...bindPrepForgivingTap(`ord:${order.id}`, () => handleCallOrderImpulse(order))}
-                                                    disabled={isCalling}
-                                                    className={`group relative rounded-2xl sm:rounded-3xl px-3.5 sm:px-4 py-4 sm:py-5 text-left transition-all active:scale-[0.97] cursor-pointer flex flex-col justify-between min-h-[220px] sm:min-h-[250px] select-none touch-manipulation shadow-sm hover:shadow-lg border-2 sm:border-3 overflow-hidden ${
+                                                    data-order-tap-id={`ord:${order.id}`}
+                                                    aria-busy={isCalling}
+                                                    style={{
+                                                        touchAction: 'none',
+                                                        WebkitTapHighlightColor: 'transparent',
+                                                        WebkitTouchCallout: 'none',
+                                                        userSelect: 'none'
+                                                    }}
+                                                    {...bindOrderCardUltraTap(`ord:${order.id}`, () => handleCallOrderImpulse(order))}
+                                                    className={`group relative rounded-2xl sm:rounded-3xl px-3.5 sm:px-4 py-3 sm:py-4 text-left transition-all active:scale-[0.97] active:bg-emerald-100 dark:active:bg-emerald-950/90 active:border-emerald-500 cursor-pointer flex flex-col justify-between min-h-[180px] sm:min-h-[205px] select-none touch-none shadow-sm hover:shadow-lg border-2 sm:border-3 [&_*]:pointer-events-none before:content-[''] before:absolute before:-inset-2.5 before:rounded-3xl ${
                                                         isCalling
                                                             ? 'ring-4 ring-emerald-500 scale-[0.98] border-emerald-500 bg-emerald-50 dark:bg-emerald-950/80 shadow-lg'
                                                             : isSuccess
@@ -2688,7 +2826,7 @@ export default function PreparadorPage() {
                                                     </div>
 
                                                     {/* Número de Orden Adaptable y sin bold en el símbolo '#' */}
-                                                    <div className="my-2 sm:my-3 text-center flex-1 flex flex-col justify-center items-center w-full px-1 min-w-0 overflow-hidden">
+                                                    <div className="my-1.5 sm:my-2 text-center flex-1 flex flex-col justify-center items-center w-full px-1 min-w-0 overflow-hidden">
                                                         <div className={`tracking-tight leading-none transition-transform flex items-baseline justify-center max-w-full ${numSizeClass} ${
                                                             isCalling ? 'scale-105 text-emerald-700 dark:text-emerald-300' : 'text-slate-900 dark:text-white'
                                                         }`}>
@@ -2703,7 +2841,7 @@ export default function PreparadorPage() {
                                                     </div>
 
                                                     {/* Botón de Acción Táctil Inferior */}
-                                                    <div className={`w-full py-3 sm:py-3.5 px-3 rounded-xl sm:rounded-2xl flex items-center justify-center gap-2 font-black text-xs sm:text-sm tracking-wide transition-all shadow-sm ${
+                                                    <div className={`w-full py-2.5 sm:py-3 px-3 rounded-xl sm:rounded-2xl flex items-center justify-center gap-2 font-black text-xs sm:text-sm tracking-wide transition-all shadow-sm ${
                                                         isCalling
                                                             ? 'bg-emerald-600 text-white animate-pulse shadow-md'
                                                             : isSuccess
