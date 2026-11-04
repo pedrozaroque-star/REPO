@@ -191,10 +191,19 @@ function pcmToWav(pcm: Buffer, sampleRate = 24000, channels = 1, bitDepth = 16):
 
 function ensureWav(data: Buffer, sampleRate = 24000, channels = 1, bitDepth = 16): Buffer {
   if (data.length >= 44 && data.subarray(0, 4).toString('ascii') === 'RIFF') {
-    if (data.length > 88 && data.subarray(44, 48).toString('ascii') === 'RIFF') {
-      return data.subarray(44)
+    const inner =
+      data.length > 88 && data.subarray(44, 48).toString('ascii') === 'RIFF'
+        ? data.subarray(44)
+        : data
+    const dataSz = inner.readUInt32LE(40)
+    if (dataSz > 0 && 44 + dataSz <= inner.length) {
+      const cleanPcm = inner.subarray(44, 44 + dataSz)
+      const hdr = Buffer.from(inner.subarray(0, 44))
+      hdr.writeUInt32LE(36 + cleanPcm.length, 4)
+      hdr.writeUInt32LE(cleanPcm.length, 40)
+      return Buffer.concat([hdr, cleanPcm])
     }
-    return data
+    return inner
   }
   return pcmToWav(data, sampleRate, channels, bitDepth)
 }
@@ -408,7 +417,7 @@ export async function getAnnouncementSpeech(
   // 1. Intentar caché en Storage (salvo si se fuerza regeneración)
   if (!forceRegenerate) {
     const hit = await supabaseAdmin.storage.from(BUCKET).download(path)
-    if (hit.data) return Buffer.from(await hit.data.arrayBuffer())
+    if (hit.data) return ensureWav(Buffer.from(await hit.data.arrayBuffer()))
   }
 
   const existing = inflight.get(path)
@@ -418,8 +427,8 @@ export async function getAnnouncementSpeech(
     try {
       const stylePrompt =
         lang === 'es'
-          ? 'warm, smiling, pleasant and friendly Mexican restaurant counter announcement, speaking with a natural Mexican Spanish accent at a calm, moderate volume, never shouting'
-          : 'warm, smiling, pleasant and friendly counter announcement at a calm, moderate volume, never shouting'
+          ? 'cheerful, energetic, warm and enthusiastic Mexican restaurant counter announcement, speaking with a warm natural Mexican Spanish accent and saying the company slogan "¡ya está!" with joyful energy'
+          : 'cheerful, energetic, warm and enthusiastic restaurant counter announcement'
       const wav = await generateTextWithGemini(clean, lang, selectedVoice, stylePrompt)
       try {
         await ensureBucket()
@@ -442,7 +451,7 @@ export async function getAnnouncementSpeech(
         const koreHit = await supabaseAdmin.storage.from(BUCKET).download(korePath)
         if (koreHit.data) {
           console.warn(`[order-ready-tts] Fallback a voz oficial ${DEFAULT_VOICE} para anuncio "${clean.slice(0, 40)}"`)
-          return Buffer.from(await koreHit.data.arrayBuffer())
+          return ensureWav(Buffer.from(await koreHit.data.arrayBuffer()))
         }
       }
       throw genErr

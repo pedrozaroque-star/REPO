@@ -1405,12 +1405,12 @@ function OrderReadyBoardContent() {
     const voice = voiceOverride || selectedVoice
     const staticUrl =
       bevKey === 'CAFE'
-        ? '/audio/order-ready/cafe-listo.wav?v=2'
+        ? '/audio/order-ready/cafe-listo.wav?v=3'
         : bevKey === 'CHAMPURRADO'
-        ? '/audio/order-ready/champurrado-listo.wav?v=2'
+        ? '/audio/order-ready/champurrado-listo.wav?v=3'
         : null
 
-    const key = `bev:v2:${voice}:es:${bevKey}`
+    const key = `bev:v3:${voice}:es:${bevKey}`
     const cached = clipCacheRef.current.get(key)
     if (cached) return cached
 
@@ -1418,7 +1418,7 @@ function OrderReadyBoardContent() {
       // 1. Para voz Kore (por defecto) o como carga primaria ultrarrápida, convertir el WAV estático local a Blob URL en RAM
       if (voice === 'Kore' && staticUrl) {
         try {
-          const res = await fetch(staticUrl, { cache: 'force-cache' })
+          const res = await fetch(staticUrl, { cache: 'no-cache' })
           if (res.ok) {
             const blob = await res.blob()
             if (blob.size >= 1000) {
@@ -1432,7 +1432,7 @@ function OrderReadyBoardContent() {
       // 2. Si el admin configuró otra voz neuronal, intentar obtener su WAV de Storage/TTS con fallback inmediato al WAV estático
       try {
         const res = await fetch(
-          `/api/order-ready/announcement-tts?text=${encodeURIComponent(phrase)}&lang=es&voice=${voice}`,
+          `/api/order-ready/announcement-tts?text=${encodeURIComponent(phrase)}&lang=es&voice=${voice}&v=3`,
           { signal: AbortSignal.timeout(4000) }
         )
         if (res.ok) {
@@ -1447,7 +1447,7 @@ function OrderReadyBoardContent() {
 
       if (staticUrl) {
         try {
-          const res = await fetch(staticUrl, { cache: 'force-cache' })
+          const res = await fetch(staticUrl, { cache: 'no-cache' })
           if (res.ok) {
             const blob = await res.blob()
             if (blob.size >= 1000) {
@@ -1483,8 +1483,8 @@ function OrderReadyBoardContent() {
           setActiveSpeech(`☕ ${bevSpeech}`)
           let ok = clipUrl ? await playClip(clipUrl) : false
           if (!ok) {
-            clipCacheRef.current.delete(`bev:v2:${voice}:es:${bevKey}`)
-            clipCacheRef.current.delete(`bev:v2:Kore:es:${bevKey}`)
+            clipCacheRef.current.delete(`bev:v3:${voice}:es:${bevKey}`)
+            clipCacheRef.current.delete(`bev:v3:Kore:es:${bevKey}`)
             clipUrl = await getBeverageClipUrl(bevKey, bevSpeech, 'Kore')
             if (clipUrl) {
               ok = await playClip(clipUrl)
