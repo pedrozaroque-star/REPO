@@ -23,8 +23,103 @@ import { verifyStaffAuth } from '@/lib/auth-server';
 import { supabaseAdmin } from '@/lib/supabase';
 import { TOOL_DECLARATIONS, executeTool } from '@/lib/chat-tools';
 
-const GEMINI_MODEL = 'gemini-2.5-flash';
+import { getGeminiKeyPoolWithRemote } from '@/lib/order-ready-tts';
+
 const GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
+const MODERN_CHAT_MODELS = [
+  'gemini-3.5-flash',
+  'gemini-3.6-flash',
+  'gemini-3.5-flash-lite',
+  'gemini-3-flash-preview'
+];
+const CLASSIC_CHAT_MODELS = [
+  'gemini-2.5-flash',
+  'gemini-3.5-flash',
+  'gemini-3.5-flash-lite'
+];
+
+// In-memory circuit breaker for depleted (402), invalid (401/403), or rate-limited (429) keys
+const chatKeyQuarantineUntil = new Map<string, number>();
+let chatKeyRoundRobin = 0;
+
+async function callGeminiChatWithFailover(
+  body: any,
+  preferredModel?: string | null,
+  preferredKey?: string | null
+): Promise<{ ok: true; data: any; usedModel: string; usedKey: string } | { ok: false; status: number; error: string }> {
+  const rawPool = await getGeminiKeyPoolWithRemote();
+  if (rawPool.length === 0) {
+    return { ok: false, status: 500, error: 'Missing Gemini API Key pool.' };
+  }
+
+  const now = Date.now();
+  const activePool = rawPool.filter((k) => (chatKeyQuarantineUntil.get(k) || 0) <= now);
+  const candidateKeys = activePool.length > 0 ? activePool : rawPool;
+
+  // Rotate starting key while prioritizing modern AQ. keys first (or preferredKey if continuing a tool loop)
+  const startIdx = chatKeyRoundRobin++ % candidateKeys.length;
+  const rotated = [...candidateKeys.slice(startIdx), ...candidateKeys.slice(0, startIdx)];
+  const modernKeys = rotated.filter((k) => k.startsWith('AQ.'));
+  const classicKeys = rotated.filter((k) => !k.startsWith('AQ.'));
+  let orderedKeys = [...modernKeys, ...classicKeys];
+  if (preferredKey && orderedKeys.includes(preferredKey)) {
+    orderedKeys = [preferredKey, ...orderedKeys.filter((k) => k !== preferredKey)];
+  }
+
+  let lastStatus = 500;
+  let lastError = 'AI service temporarily unavailable.';
+
+  for (const key of orderedKeys) {
+    const defaultModels = key.startsWith('AQ.') ? MODERN_CHAT_MODELS : CLASSIC_CHAT_MODELS;
+    const modelsToTry = preferredModel
+      ? [preferredModel, ...defaultModels.filter((m) => m !== preferredModel)]
+      : defaultModels;
+
+    for (const model of modelsToTry) {
+      const url = `${GEMINI_BASE}/${model}:generateContent?key=${key}`;
+      try {
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body)
+        });
+        const data = await res.json().catch(() => ({}));
+
+        if (res.ok && data?.candidates?.[0]?.content?.parts) {
+          return { ok: true, data, usedModel: model, usedKey: key };
+        }
+
+        const errMsg = data?.error?.message || `HTTP ${res.status}`;
+        lastStatus = res.status;
+        lastError = errMsg;
+        console.warn(`[TEG Assistant Failover] Key ${key.slice(0, 8)}... / Model ${model} failed (${res.status}): ${errMsg.slice(0, 120)}`);
+
+        // 402 = Prepayment credits depleted, 401/403 = Key invalid/revoked -> Quarantine key for 6 hours and switch key immediately
+        if (res.status === 402 || res.status === 401 || res.status === 403 || /prepayment credits|depleted|API key not valid/i.test(errMsg)) {
+          chatKeyQuarantineUntil.set(key, Date.now() + 6 * 60 * 60 * 1000);
+          break; // Break model loop -> try next key
+        }
+
+        // 429 = Quota/Rate limit on this key -> Quarantine key for 2 minutes and switch key immediately
+        if (res.status === 429) {
+          chatKeyQuarantineUntil.set(key, Date.now() + 2 * 60 * 1000);
+          break; // Break model loop -> try next key
+        }
+
+        // 404 (model not available for this key tier) or 503 (model high demand spike) -> Try next model on same key
+        if (res.status === 404 || res.status === 503 || res.status === 500) {
+          continue;
+        }
+      } catch (netErr: any) {
+        lastError = netErr?.message || 'Network error';
+        console.warn(`[TEG Assistant Failover] Network error on ${model}:`, lastError);
+        continue;
+      }
+    }
+  }
+
+  return { ok: false, status: lastStatus, error: lastError };
+}
 
 // Reliable PST business date (matches toast-api.ts pattern exactly)
 function getBusinessDates() {
@@ -493,7 +588,7 @@ SM TEG SIDEBAR NAVIGATION MAP & PATHS (MASTER DIRECTORY - 6 GROUPS):
     *   **Miles (Acceso Directo Contabilidad / Raquel)**: \`/miles\`. Access: Admin only. Purpose: Direct shortcut to supervisor mileage logs, drive calculations (\$0.760/mi IRS rate), travel reports, and payroll reimbursement dispatch for Raquel and corporate accounting. Tooltip: Control y cálculo de millas manejadas por supervisores, registro de viajes y despacho a RRHH.
     *   **Contabilidad Externa (External Accounting ERP — 8 Empresas de Raquel Velazquez, Sincronización Espejo Bidireccional QBO V3 + Ecosistema Universal de Reportes Desglosados Drill-Down con Exportación PDF / .XLS / .CSV)**: \`/admin/contabilidad-externa\`. Access: Lista blanca estricta de 3 usuarios (\`raquel@tacosgavilan.com\` ID 45, \`roberto@tacosgavilan.com\` ID 46 y \`roque@tacosgavilan.com\` ID 47) validada fail-closed tanto en UI como en backend (\`verifyExternalAccountingAccess\`). Purpose: Sistema contable de partida doble en Supabase que opera en **Modo Espejo Bidireccional en Vivo con Intuit QuickBooks Online V3 (\`lib/external-accounting-qbo-sync.ts\`, OAuth 2.0 multi-empresa vía \`/api/integrations/quickbooks/auth?mode=external&realmId=...\`: 6 empresas activas conectadas en vivo [*7947 Downey Plaza LLC*, *Canasty Financial, LLC*, *Govegu LLC*, *Gutierrez Financial*, *Raquel Accounting* y *TEG Holdings Inc*] y 2 empresas con suscripción QBO cancelada [*Chicken Taco Catering LLC* y *Elveze LLC*] operando en Modo Autónomo Standalone \`qbo_sync_enabled: false\` con el 100% de su historial preservado)**, certificado al 100% para auditoría CPA con 524 cuentas contables (con jerarquía multinivel recursiva \`L1 → L2 → L3 → L4\` vía \`SubAccount\`/\`ParentRef\`, ruta de navegación interactiva \`breadcrumb_path\`, saldos acumulados con subcuentas \`rollup_balance\`, \`Description\` y registro corrido para cualquier cuenta de Balance General), 225 clientes/proveedores (con \`CompanyName\`, \`PrintOnCheckName\`, \`AcctNum\`, \`Billing Address\`, \`Vendor1099\` y \`Open Balance\`), modales responsivos de ancho completo (\`96vw\` vía \`createPortal\`) que muestran todas las columnas sin recortes horizontales, las **11 Listas Oficiales de QuickBooks Online (\`/app/lists\`)** sincronizadas y conectadas relacionalmente a Pólizas y Catálogo de Cuentas (\`external_accounting_accounts\`, \`external_accounting_items\`, \`external_accounting_categories\`, \`external_accounting_locations\`, \`external_accounting_classes\`, \`external_accounting_payment_methods\`, \`external_accounting_terms\`, \`external_accounting_custom_fields\`, \`external_accounting_attachments\`, \`external_accounting_cost_groups\` y \`external_accounting_recurring\`), más de 18,837 transacciones históricas enriquecidas forensemente (incluyendo pull bidireccional de \`Purchase\`, \`Deposit\`, \`Transfer\`, \`JournalEntry\`, \`Bill\`, \`BillPayment\`, \`Invoice\` y \`Payment\`) y 92 reportes oficiales archivados. Incluye el **Ecosistema Universal de Reportes Desglosados (Interactive Transaction Report Drill-Down, \`reportType=account_quickreport\`)**: al hacer clic en cualquier cifra, cuenta individual, cuenta padre con subcuentas, subtotal de sección o gran total en el Balance General jerárquico (*Total Bank Accounts*, *Total Accounts Receivable*, *Total Other Current Assets*, *Total Current Assets*, *Total Fixed Assets*, *Total Other Assets*, *TOTAL ASSETS*, *Total Current Liabilities*, *Total Long-Term Liabilities*, *Total Liabilities*, *Total Equity*, *TOTAL LIABILITIES AND EQUITY*), Estado de Resultados (*P&L* renglones y totales), Balanza de Comprobación (*Trial Balance*), Gastos por Proveedor, Ingresos por Cliente, tarjetas KPI de Resumen (*Saldo Total en Bancos*, *Ingresos*, *Egresos*, *Flujo Neto*), Catálogo de Cuentas, Proveedores y Clientes, Presupuestos (*Actual*) o cualquiera de las Listas (*Productos/Servicios, Categorías, Ubicaciones/Propiedades, Clases, Métodos de Pago, Términos*), se abre el **Transaction Report Agrupado estilo QuickBooks Online** con secciones colapsables por cuenta (\`▾ Cuenta (N)\`), fila de **Saldo Inicial (\`Beginning Balance\`)** calculada exactamente a la fecha inicial del período (\`computeBalancesAsOfEndDate\`), movimientos cronológicos con saldo acumulado corrido (\`Running Balance\`), fila de subtotal **\`Total for [Account]\`** y pie general **\`TOTAL\`**, donde además al hacer clic en cualquier transacción se abre la vista previa del cheque/depósito/póliza original; y **cada pantalla, pestaña, reporte financiero y modal desglosado cuenta con botones de exportación e impresión en 1 clic a \`PDF\` (\`openCleanPrintWindow\`), Excel \`.XLS\` (\`downloadStyledExcelXls\`) y \`.CSV\`**. Incluye también el **Mega-Menú \`+ Create\` de 4 Columnas** (*Sales, Vendors, Team, Other*) con formularios 1:1 idénticos a QBO y el **Mega-Menú Superior del Engrane (\`⚙️ Gear Menu -> Settings, Lists, Tools, Profile\`)** con Conciliación Bancaria Oficial (\`Reconcile\`), Reclasificación Masiva (\`Reclassify Transactions\`), Reglas Bancarias (\`Rules\`), Presupuestos (\`Budgeting\`), Bitácora de Auditoría (\`Audit Log\`), Todas las Listas (\`All Lists\`) y Candado de Cierre de Libros (\`Books Closing Date Lock\`). Tooltip: Sistema contable autónomo de partida doble, sincronización espejo QBO V3, reportes desglosados drill-down con exportación PDF/XLS/CSV y conciliación bancaria para las 8 empresas externas. **MOTOR DE PÓLIZAS / LIBRO MAYOR (\`lib/external-accounting-ledger.ts\`, auditado 28-Oct-2026 al centavo contra la API de QBO en las 6 empresas conectadas)**: cada transacción se convierte en sus asientos de partida doble igual que QBO (Depósitos con \`LinkedTxn\` salen de *Undeposited Funds* y su \`CashBack\` va a su cuenta; Invoice/CreditMemo usan la cuenta del Producto/Servicio; Payment = Dr Banco/Undeposited Funds, Cr A/R; BillPayment = Dr A/P, Cr Banco). Los saldos usan la convención de la API de QBO (débito positivo; pasivos, capital e ingresos negativos en BD) y se muestran como QBO (en positivo). Balance Sheet: saldos al corte + *Retained Earnings* (resultados de años fiscales anteriores + asientos directos) + *Net Income* (año fiscal a la fecha). P&L con estructura QBO (Income, Cost of Goods Sold, Gross Profit, Expenses, Net Operating Income, Other Income, Other Expenses, Net Other Income, Net Income) en base Accrual o Cash (en Cash, facturas y bills se reconocen al cobrarse/pagarse proporcionalmente). Trial Balance: cuentas de Balance al corte + cuentas de Resultados del año fiscal a la fecha + Retained Earnings. Expenses by Vendor solo cuenta beneficiarios tipo Vendor (el resto "Not Specified"); Income by Customer solo movimientos ligados a un Customer (columnas Income / Expenses / Net Income).
     *   **Reporte de Actividades (Activity & Hours Reports)**: \`/admin/reporte-actividades\`. Access: Admin only. Purpose: Executive dashboard with audited dev hours, Lynwood #14 real shift linking, 24h master scale Gantt timeline, 27-task roadmap, and instant CSV export. Tooltip: Interactive executive report of monthly roadmaps, audited dev hours, and Gantt schedules.
-    *   **Conciliar Delivery (Delivery Platforms Financial Reconciliation & QuickBooks Settlement Journal Entries)**: \`/admin/conciliar-delivery\` (\`/api/delivery-reconciliation\` & \`/api/delivery-reconciliation/quickbooks-journal\`). Access: Admin, Supervisor, Manager. Purpose: Conciliación financiera orden por orden, por corte bancario semanal y por disputa entre Toast POS y las 3 plataformas de Delivery (Uber Eats, DoorDash y Grubhub) para las 15 sucursales, aplicando la Regla Fiscal de Impuestos (DoorDash y Grubhub entregan el Sales Tax a Tacos Gavilan en Cuenta \`24001\`, por lo que \`Bruto Esperado = Venta Neta Toast + Tax\`; Uber Eats retiene y declara el Sales Tax como Marketplace Facilitator en Cuenta \`12050\`, por lo que \`Bruto Esperado = Venta Neta Toast\`). Incluye 5 pestañas: (1) Orden por Orden, (2) Cortes y Depósitos Bancarios, (3) Disputas, Reembolsos y Cargos por Error (con rastreo de reembolsos en cortes posteriores como \`#650DD\` y evidencia fotográfica de cámaras), (4) Mapeo de las 15 Sucursales, y (5) **Pólizas QuickBooks (Journal Entry)** que replica la conexión OAuth 2.0 y flujo individual/en lote de \`Crear Bills\` para publicar en QuickBooks Online el asiento semanal de 4 líneas por tienda y plataforma (\`100XX Banco\`, \`50039/50036/50037 Fees\`, \`12050/12053/12054 Receivables\`, \`40060/40062/40063 Refunds/Error Charges\`) mostrando exactamente qué órdenes e impuestos (\`24001 Sales tax payable\`) están involucrados.
+    *   **Conciliar Delivery (Delivery Platforms Financial Reconciliation & QuickBooks Settlement Journal Entries)**: \`/admin/conciliar-delivery\` (\`/api/delivery-reconciliation\` & \`/api/delivery-reconciliation/quickbooks-journal\`). Access: Admin, Supervisor, Manager (publicación QBO y aprobaciones financieras reservadas a Admin/Finanzas). Purpose: Conciliación financiera orden por orden, por corte bancario semanal y por disputa entre Toast POS y las 3 plataformas de Delivery (Uber Eats, DoorDash y Grubhub) para las 15 sucursales, aplicando la Regla Fiscal de Impuestos (DoorDash y Grubhub entregan el Sales Tax real a Tacos Gavilan en Cuenta \`24001\`, por lo que \`Bruto Esperado = Venta Neta Toast + Tax\`; Uber Eats retiene y declara el Sales Tax como Marketplace Facilitator en Cuenta \`12050\`, por lo que \`Bruto Esperado = Venta Neta Toast\` y Tax Payable = \`$0.00\`, sin estimaciones porcentuales). Ruta operativa priorizada: \`1. Atención Requerida (Órdenes: 1. Bloqueados -> 2. Diferencias por investigar -> 3. Disputas / recuperaciones -> 4. Listos para contabilizar) -> 2. Disputas y Recuperaciones -> 3. Cobertura por Sucursal / Plataforma -> 4. Paso Final: Publicar Pólizas QBO\`. Vincula automáticamente tickets anulados en Toast POS (\`voided: true\`) en Pasada 1 por ID exacto conservando \`netSales = $0.00\` pero mostrando el número de ticket real (\`Toast #NNN [ANULADO EN POS]\`) y su subtotal original antes de anulación (\`voidedOriginalSubtotal\`), clasificando como \`MATCHED ($0.00)\` las cancelaciones inmediatas del cliente antes de cocina (\`cancelled_before_prep\`) y diferenciando órdenes cocinadas (\`READY_FOR_PICKUP\`) que la plataforma sí pagó tras falla de repartidor (\`DELIVERY_FAILED\`). En **Pólizas QuickBooks (Journal Entry)** aplica reserva atómica de idempotencia en Supabase antes de llamar a QBO y separa bloqueos contables reales de las 4 líneas del corte (\`publishBlockers\`) de las alertas informativas de auditoría de órdenes individuales (\`auditWarnings\`), manteniendo habilitado el botón \`Crear Póliza / Create Entry\` cuando el corte semanal de 4 líneas está cuadrado.
 3.  **OPERACIONES DE TIENDA (Store Operations Group)**:
     *   **Basecamp**: \`/basecamp\`. Access: Manager, Supervisor, Admin, Assistant (asistente). Purpose: Daily operational ticket hub, corporate cases, announcements, documents, and company requests. Sincronización incremental (\`/api/basecamp/sync\`), vista de detalle en vivo (\`/api/basecamp/todo-detail\`) y webhooks en tiempo real (\`/api/basecamp/webhook\`) con migración determinista e idempotente de adjuntos a Supabase Storage (\`checklist-photos/basecamp-attachments/\` vía \`extractDeterministicBlobKey\`, \`isExternalBasecampUrl\`, \`healPartiallyMigratedBcAttachmentHrefs\` y \`resolveHtmlAttachmentsFromCache\` en \`lib/basecamp-api.ts\`), reemplazando tanto \`url\` como \`href\` en etiquetas \`<bc-attachment>\` y excluyendo URLs ya alojadas en Supabase Storage para evitar re-subidas duplicadas. Tooltip: Communication hub, operational tickets, and company announcements.
     *   **Dashboard**: \`/dashboard\`. Access: Manager, Supervisor, Admin. Purpose: Operational landing home with live Toast POS KPIs and store alerts. Tooltip: Executive dashboard with real-time Toast POS sales and store alerts.
@@ -737,7 +832,7 @@ Food Cost % = (Total Ingredient Cost ÷ Net Sales) × 100
 - **Recipes**: Link menu items to ingredients. Each recipe defines quantity and unit of each ingredient needed per menu item sold. This drives the food cost calculation. Editing a recipe automatically invalidates food cost cache for the current day. NUEVO: Post-save validation detects anomalies (high cost ingredients >$15, unit mismatches pza↔lb, total cost >$20) and shows warnings in the UI.
 - **Warehouse Orders & QuickBooks Sync**: Daily, Liquids, and Uniforms order sheets sync live with QBO. Sync fetches up to 1000 items (\`MAXRESULTS 1000\`) selecting expanded recurring templates (\`lineCount > currentCount\`), displays live QBO packaging descriptions and unit costs, supports interactive column visibility toggles (\`👁️ PAR Ideal\` and \`👁️ Sugerido\`), and auto-saves weekly PAR base edits in real time to Supabase.
 - **Blindaje de Captura y Detección de Anomalías (Triple-Layer Safeguards)**: En Orden Diaria (/inventory/orders), el sistema cuenta con protección contra errores humanos de captura (ej. teclear 55 en vez de 5, ajustes negativos o disparados). Capa 1: Resaltado visual en vivo (ámbar para sobrantes excesivos vs PAR, rojo/púrpura para ajustes negativos o anormales con badges de advertencia). Capa 2: Escaneo pre-flight al hacer clic en "Generar Orden" o "Enviar a QuickBooks"; si hay datos anómalos (sobrante >1.5x PAR, ajuste manual excesivo, cantidad final >2.5x PAR, o insumo de alto volumen en 0), abre el modal de revisión de anomalías permitiendo "Revisar y Corregir" o "Confirmar que es Correcto y Proceder". Capa 3: Bloqueo duro contra catástrofes operativas (impide cualquier pedido con cantidad negativa o mayor a 999 unidades por producto).
-- **Captura Ultrarrápida de Sobrantes (Optimistic UI & Background Sync)**: En Orden Diaria (/inventory/orders), la captura de sobrantes opera en memoria inmediata a 60 FPS sin retraso por llamadas de red (0 ms lag). Al escribir, recalcula 'Pedir' y varianzas al instante. La persistencia a Supabase se ejecuta en segundo plano al salir de la celda (onBlur) o tras 600 ms de inactividad (debounce), con vaciado atómico garantizado antes de generar el pedido o enviar a QuickBooks. Incluye indicador visual de sincronización en vivo (🟢 Sincronizado / 🟡 Guardando en la nube) y alertas sutiles ante pérdidas de conexión en cuartos fríos.
+- **Captura Ultrarrápida de Sobrantes (Optimistic UI & Background Sync)**: En Orden Diaria (/inventory/orders), la captura de sobrantes opera en memoria inmediata a 60 FPS sin retraso por llamadas de red (0 ms lag). Al escribir, recalcula 'Pedir' y varianzas al instante. La persistencia a Supabase se ejecuta en segundo plano al salir de la celda (onBlur) o tras 600 ms de inactividad (debounce), con vaciado atómico garantizado antes de generar el pedido o enviar a QuickBooks. Incluye auto-reintento silencioso en background (800 ms) ante micro-cortes de Wi-Fi en cuartos fríos, respuestas estructuradas sin excepciones que evitan la censura de Next.js en producción, auto-desvanecimiento del banner tras 8s e indicador visual de sincronización en vivo (🟢 Sincronizado / 🟡 Guardando en la nube).
 - **Lynwood Blind-Count Pilot**: Orden Diaria oculta el sobrante teórico y la varianza hasta cerrar todos los conteos físicos requeridos. El pedido oficial usa solo PAR de mañana menos conteo físico, con redondeo de compra pero sin colchón adicional; la comparación teórica no autoriza pedidos automáticos. Para consumo de artículos con unit_type X dz y quantity_per_unit X*12 piezas, se divide una sola vez y jamás se redondea consumo como si fuera pedido.
 - **Packaging Auto-Sync & Manual PAR Protection**: The QB sync reads Description fields from Recurring Transactions (e.g., "(Bag of 5 lbs)") to automatically detect packaging changes. PAR values are protected as manual business rules and are never mutated automatically by QB sync.
 - **DB Trigger Auto-Invalidation**: PostgreSQL trigger \`trg_invalidate_fc_cache_on_inventory_change\` fires on any UPDATE to inventory_items that changes price, qty_per_unit, or unit_measure. Deletes last 3 days of food_cost_daily_cache automatically. Works for QB sync, manual edits, and scripts.
@@ -872,7 +967,8 @@ export async function POST(req: NextRequest) {
   if (!auth.authorized) return auth.response!;
 
   try {
-    const apiKey = process.env.GEMINI_API_KEY;
+    const keyPool = await getGeminiKeyPoolWithRemote();
+    const apiKey = keyPool[0] || process.env.GEMINI_API_KEY;
     if (!apiKey) return NextResponse.json({ error: 'Missing Gemini API Key.' }, { status: 500 });
 
     const { messages, language, conversation_id, user } = await req.json();
@@ -952,7 +1048,7 @@ export async function POST(req: NextRequest) {
     let lastRole = '';
     messages.forEach((msg: any) => {
       if (msg.role !== 'user' && msg.role !== 'model') return;
-      if (msg.role === 'model' && (msg.content.includes('Soy TEG Assistant') || msg.content.includes('Error de conexión') || msg.content.includes('Todos los modelos') || msg.content.includes('operator does not exist') || msg.content.includes('no puedo adjuntar un archivo') || msg.content.includes('escalar este problema al equipo técnico'))) return;
+      if (msg.role === 'model' && (msg.content.includes('Soy TEG Assistant') || msg.content.includes('Error de conexión') || msg.content.includes('Connection error') || msg.content.includes('prepayment credits') || msg.content.includes('Todos los modelos') || msg.content.includes('operator does not exist') || msg.content.includes('no puedo adjuntar un archivo') || msg.content.includes('escalar este problema al equipo técnico'))) return;
       if (msg.role === lastRole && validContents.length > 0) {
         validContents[validContents.length - 1].parts[0].text += '\n\n' + msg.content;
       } else {
@@ -964,11 +1060,12 @@ export async function POST(req: NextRequest) {
     if (validContents.length > 0 && validContents[0].role === 'model') validContents.shift();
     if (validContents.length === 0) return NextResponse.json({ error: 'No messages.' }, { status: 400 });
 
-    // ── Function Calling Loop ──
-    const url = `${GEMINI_BASE}/${GEMINI_MODEL}:generateContent?key=${apiKey}`;
+    // ── Function Calling Loop with Multi-Key & Multi-Model Automatic Failover ──
     let currentContents = [...validContents];
     let finalReply = '';
     let lastToolMarkdownTable = '';
+    let stickyModel: string | null = null;
+    let stickyKey: string | null = null;
     const MAX_TOOL_ROUNDS = 5; // Safety limit
 
     for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
@@ -981,22 +1078,20 @@ export async function POST(req: NextRequest) {
         tools: [{ functionDeclarations: TOOL_DECLARATIONS }]
       };
 
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body)
-      });
+      const callResult = await callGeminiChatWithFailover(body, stickyModel, stickyKey);
 
-      const data = await response.json();
-
-      if (!response.ok) {
-        const errMsg = data.error?.message || 'Unknown error';
-        console.warn(`[TEG Assistant] Gemini error (${response.status}): ${errMsg}`);
-        if (response.status === 429) {
-          return NextResponse.json({ error: 'AI is busy. Try again in a few seconds.' }, { status: 429 });
-        }
-        return NextResponse.json({ error: errMsg }, { status: response.status });
+      if (!callResult.ok) {
+        const errMsg = callResult.error || 'Unknown error';
+        console.warn(`[TEG Assistant] All Gemini keys/models failed (${callResult.status}): ${errMsg}`);
+        const friendlyErr = language === 'en'
+          ? 'The AI assistant is temporarily busy. Please try again in a few seconds.'
+          : 'El asistente está procesando alta demanda en este momento. Por favor intenta de nuevo en unos segundos.';
+        return NextResponse.json({ error: friendlyErr }, { status: callResult.status === 429 ? 429 : 503 });
       }
+
+      stickyModel = callResult.usedModel;
+      stickyKey = callResult.usedKey;
+      const data = callResult.data;
 
       const candidate = data.candidates?.[0];
       if (!candidate?.content?.parts) {
@@ -1015,7 +1110,7 @@ export async function POST(req: NextRequest) {
         // Execute each function call and build responses
         const functionResponses: any[] = [];
         for (const fc of functionCalls) {
-          const { name, args } = fc.functionCall;
+          const { name, args, id: callId } = fc.functionCall;
           console.log(`[TEG Assistant] Tool call: ${name}(${JSON.stringify(args).slice(0, 100)})`);
 
           const result = await executeTool(name, args || {});
@@ -1027,6 +1122,7 @@ export async function POST(req: NextRequest) {
 
           functionResponses.push({
             functionResponse: {
+              ...(callId ? { id: callId } : {}),
               name,
               response: { result }
             }

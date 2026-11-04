@@ -24,6 +24,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
+import { authorizeDeliveryReconciliationRequest } from '@/lib/auth-server'
 import { reconcileAndPersistDeliveryData } from '@/lib/delivery-reconciliation'
 
 export const dynamic = 'force-dynamic'
@@ -43,6 +44,24 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url)
     const storeIdParam = searchParams.get('storeId')
     const daysParam = Math.min(Math.max(Number(searchParams.get('days') || 5), 1), 14)
+
+    const requestedStoreId =
+      storeIdParam && Number.isFinite(Number(storeIdParam)) && Number(storeIdParam) > 0
+        ? Number(storeIdParam)
+        : null
+
+    const auth = await authorizeDeliveryReconciliationRequest(request, supabaseAdmin, {
+      permission: 'sync',
+      allowCron: true,
+      targetStoreIds: requestedStoreId ? [requestedStoreId] : [],
+      requireAllStores: !requestedStoreId,
+    })
+    if (!auth.authorized) {
+      return NextResponse.json(
+        { success: false, error: auth.error || 'No autorizado para ejecutar cron de conciliación delivery', code: auth.code },
+        { status: auth.status || 401 }
+      )
+    }
 
     const now = new Date()
     const endDate = formatIsoDatePT(now)

@@ -1,18 +1,23 @@
 /**
  * @module app/api/delivery-reconciliation/route
- * @description Endpoint REST para el Módulo Conciliar Delivery Plataformas (DoorDash, Uber Eats, Grubhub vs Toast POS).
+ * @description Endpoint REST seguro para el Módulo de Conciliación de Plataformas de Delivery (DoorDash, Uber Eats, Grubhub vs Toast POS) de Tacos Gavilan.
  *
  * @businessRules
- * - Soporta consulta filtrada por sucursal, plataforma, estado de conciliación y rango de fechas operativas (6:00 AM - 5:59 AM PT).
- * - Calcula KPIs financieros respetando la regla de impuestos de Tacos Gavilan:
- *   * DoorDash y Grubhub entregan el Sales Tax al restaurante -> `Toast Expected Gross = Net Sales + Tax`.
- *   * Uber Eats retiene y declara el Sales Tax directamente -> `Toast Expected Gross = Net Sales`.
- * - Permite sincronización en vivo con Toast POS y Grubhub Accounting API, importación universal de reportes CSV/JSON
- *   de DoorDash / Uber Eats / Grubhub, y gestión de estado de disputas.
+ * - Reglas Fiscales Obligatorias:
+ *   * DoorDash y Grubhub: Tacos Gavilan recibe/reporta el Sales Tax (Cuenta 24001) -> `Expected Gross = Toast Net Sales + Tax Real`.
+ *   * Uber Eats: Marketplace Facilitator; Uber retiene y remite el Sales Tax (Cuenta 12050) -> `Expected Gross = Toast Net Sales (sin tax)` y `tax_paid_to_merchant = $0`.
+ *   * Prohibido estimar impuestos (ej. 10.25%) o comisiones (20%). Si falta desglose fiscal real, se marca `REQUIRES_REVIEW` y se bloquea publicación a QBO.
+ * - Clasificación en 4 Grupos Operativos Mutuamente Claros:
+ *   1. `CONCILIATED_READY`: Match exacto por ID (`EXACT_ID`), con `payout_reference_id` comprobado, sin diferencia (`$0.00`) y con desglose fiscal real.
+ *   2. `VARIANCE_INVESTIGATE`: Diferencia de subtotal o impuesto (`AMOUNT_MISMATCH`, `TAX_MISMATCH`, `MISSING_IN_TOAST`) que requiere investigación.
+ *   3. `DISPUTE_RECOVERY`: Órdenes con cargo por error, reembolso, contracargo o recuperación en corte posterior.
+ *   4. `BLOCKED_MISSING_INFO`: Bloqueado por falta de información o sincronización (`AMBIGUOUS`, `UNVERIFIED_NO_ID`, `MISSING_TAX_BREAKDOWN`, `UNASSIGNED_STORE`, o en Toast pendiente de corte `TOAST_ONLY`).
+ * - Paginación completa de las 15 sucursales mediante `fetchAllSupabaseRows` (sin truncamiento a 1,000 filas de PostgREST).
+ * - Seguridad: Protegido con `verifyStaffAuth` en `GET` y `POST`, validación estricta de payloads y lista blanca de columnas en mutaciones.
  *
  * @dataFlow
- * - GET `/api/delivery-reconciliation` -> Consulta `delivery_platform_orders`, `delivery_platform_payouts`, `delivery_platform_store_mappings` y genera `summary`.
- * - POST `/api/delivery-reconciliation` -> Ejecuta `sync_live`, `import_report`, `update_dispute`, `update_mapping`.
+ * - GET `/api/delivery-reconciliation` -> Pagina `delivery_platform_orders`, `delivery_platform_payouts`, `delivery_platform_store_mappings` + cuarentena `UNASSIGNED_STORE`, calcula cobertura por tienda/plataforma y los 4 grupos de acción.
+ * - POST `/api/delivery-reconciliation` -> Ejecuta `sync_live`, `import_report`, `update_dispute`, `batch_update_disputes`, `update_mapping`, `assign_unassigned_store`, `resolve_review_order`, `batch_resolve_review`.
  *
  * @notes
  * - No incluye ninguna columna autogenerada (`GENERATED ALWAYS AS`) en mutaciones SQL.
@@ -20,23 +25,527 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
+import { authorizeDeliveryReconciliationRequest } from '@/lib/auth-server'
 import {
   DeliveryPlatformCode,
+  buildStorePlatformCoverageMatrix,
+  fetchAllSupabaseRows,
+  getQuarantinedUnassignedRecords,
   getStorePlatformMappings,
+  hasDedicatedIntegrationEncryptionKey,
   parsePlatformReportPayload,
   reconcileAndPersistDeliveryData,
   round2,
+  saveQuarantinedUnassignedRecords,
 } from '@/lib/delivery-reconciliation'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 300
 
+export type ReconciliationActionGroup =
+  | 'CONCILIATED_READY'
+  | 'VARIANCE_INVESTIGATE'
+  | 'DISPUTE_RECOVERY'
+  | 'BLOCKED_MISSING_INFO'
+
+const VALID_PLATFORMS = new Set<string>(['DOORDASH', 'UBER_EATS', 'GRUBHUB'])
+const VALID_DISPUTE_STATUSES = new Set<string>(['NONE', 'OPEN', 'SUBMITTED', 'APPROVED', 'REJECTED', 'REIMBURSED'])
+const ALLOWED_MAPPING_COLUMNS = new Set<string>([
+  'doordash_store_id',
+  'doordash_business_id',
+  'doordash_merchant_store_id',
+  'doordash_store_name',
+  'doordash_delivery_comm_pct',
+  'doordash_pickup_comm_pct',
+  'ubereats_store_uuid',
+  'ubereats_org_uuid',
+  'ubereats_store_name',
+  'ubereats_delivery_comm_pct',
+  'ubereats_pickup_comm_pct',
+  'grubhub_cust_id',
+  'grubhub_merchant_id',
+  'grubhub_store_name',
+  'grubhub_delivery_comm_pct',
+  'grubhub_pickup_comm_pct',
+  'qbo_location_id',
+  'qbo_department_name',
+  'is_active',
+])
+
+function isValidIsoDate(val: unknown): val is string {
+  return typeof val === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(val.trim())
+}
+
+/**
+ * Verifica si una orden con varianza tiene una aprobación persistida en servidor compatible:
+ * - Usuario aprobador + rol + fecha/hora
+ * - Motivo obligatorio (>= 5 caracteres)
+ * - Monto aprobado coincidente (±$0.02)
+ * - Payout reference coincidente
+ * - Evidencia disponible
+ */
+export function hasValidPersistedOrderVarianceApproval(o: any): boolean {
+  const va = o?.raw_payload?.variance_approval
+  if (!va || va.approved !== true) return false
+  if (!va.approved_by_email || !va.approved_at) return false
+  if (typeof va.reason !== 'string' || va.reason.trim().length < 5) return false
+  if (!va.evidence || typeof va.evidence !== 'string') return false
+  const orderPayoutRef = String(o?.payout_reference_id || '').trim()
+  const approvedPayoutRef = String(va.payout_reference_id || '').trim()
+  if (orderPayoutRef && approvedPayoutRef !== orderPayoutRef) return false
+  const grossVar = round2(Number(o?.gross_diff ?? o?.gross_variance ?? 0))
+  const approvedAmt = round2(Number(va.approved_amount ?? 0))
+  return Math.abs(grossVar - approvedAmt) <= 0.02
+}
+
+function classifyOrderActionGroupAndExplanation(o: any) {
+  const plat = (o.platform as DeliveryPlatformCode) || 'DOORDASH'
+  const isUnassignedStore = !o.store_id || Number(o.store_id) <= 0 || o.store_code === 'UNASSIGNED_STORE'
+  const isToastOnly = o.match_confidence === 'TOAST_ONLY' || o.reconciliation_status === 'MISSING_IN_PLATFORM'
+  const isAmbiguous = o.match_confidence === 'AMBIGUOUS' || Boolean(o.raw_payload?.ambiguous_toast_candidates?.length)
+  const isUnverifiedNoId =
+    o.match_confidence === 'UNVERIFIED_NO_ID' ||
+    Boolean(o.raw_payload?.unverified_no_platform_id) ||
+    Boolean(o.raw_payload?.suggested_toast_candidate)
+  const isMissingTax =
+    Boolean(o.raw_payload?.missing_tax_breakdown) || o.raw_payload?.tax_breakdown_verified === false
+  const hasPayoutRef = Boolean(o.payout_reference_id && String(o.payout_reference_id).trim())
+
+  const errCharge = Number(o.error_charge || 0)
+  const adjAmount = Number(o.adjustment_amount || 0)
+  const reimbRef = o.raw_payload?.reimbursement_payout_ref ? String(o.raw_payload.reimbursement_payout_ref) : null
+  const reimbAmt = Number(o.raw_payload?.reimbursement_amount || 0)
+  const reimbDate = o.raw_payload?.reimbursement_deposit_date ? String(o.raw_payload.reimbursement_deposit_date) : null
+  const grossVar = round2(Number(o.gross_diff ?? o.gross_variance ?? 0))
+  const subVar = round2(Number(o.subtotal_diff ?? o.subtotal_variance ?? 0))
+  const taxVar = round2(Number(o.tax_diff ?? o.tax_variance ?? 0))
+
+  const isDisputeOrRecovery =
+    Boolean(o.is_disputed) ||
+    o.reconciliation_status === 'REFUNDED_OR_DISPUTED' ||
+    errCharge < -0.01 ||
+    Boolean(reimbRef)
+
+  const lifecycleTrace = [
+    {
+      step: 1,
+      stage: 'TOAST_ORDER',
+      title_es: o.toast_order_guid ? `Orden Toast #${o.toast_display_number || 'S/N'}` : 'Sin orden en Toast POS',
+      title_en: o.toast_order_guid ? `Toast Order #${o.toast_display_number || 'N/A'}` : 'No Toast POS order',
+      date: o.business_date || null,
+      amount: round2(Number(o.toast_expected_gross || 0)),
+      detail_es: o.toast_order_guid
+        ? `Ventas Netas: $${Number(o.toast_net_sales || 0).toFixed(2)} | Tax Toast: $${Number(o.toast_tax || 0).toFixed(2)} | Esperado: $${Number(o.toast_expected_gross || 0).toFixed(2)}`
+        : 'No se encontró ticket de Toast POS vinculado',
+      detail_en: o.toast_order_guid
+        ? `Net Sales: $${Number(o.toast_net_sales || 0).toFixed(2)} | Toast Tax: $${Number(o.toast_tax || 0).toFixed(2)} | Expected: $${Number(o.toast_expected_gross || 0).toFixed(2)}`
+        : 'No linked Toast POS check found',
+      completed: Boolean(o.toast_order_guid),
+    },
+    {
+      step: 2,
+      stage: 'PLATFORM_ORDER',
+      title_es: !isToastOnly ? `Orden ${plat} #${o.platform_order_id}` : `Pendiente en ${plat}`,
+      title_en: !isToastOnly ? `${plat} Order #${o.platform_order_id}` : `Pending in ${plat}`,
+      date: o.business_date || null,
+      amount: round2(Number(o.platform_gross_receivable || 0)),
+      detail_es: !isToastOnly
+        ? plat === 'UBER_EATS'
+          ? `Subtotal: $${Number(o.platform_subtotal || 0).toFixed(2)} | Uber retiene Tax ($${Number(o.platform_tax_withheld || 0).toFixed(2)} Cta 12050, Tax a TEG $0.00)`
+          : `Subtotal: $${Number(o.platform_subtotal || 0).toFixed(2)} | Tax a TEG (Cta 24001): $${Number(o.platform_tax_paid_to_merchant || 0).toFixed(2)}`
+        : 'Aún no aparece en reporte/API de plataforma',
+      detail_en: !isToastOnly
+        ? plat === 'UBER_EATS'
+          ? `Subtotal: $${Number(o.platform_subtotal || 0).toFixed(2)} | Uber withholds Tax ($${Number(o.platform_tax_withheld || 0).toFixed(2)} Acct 12050, Tax to TEG $0.00)`
+          : `Subtotal: $${Number(o.platform_subtotal || 0).toFixed(2)} | Tax to TEG (Acct 24001): $${Number(o.platform_tax_paid_to_merchant || 0).toFixed(2)}`
+        : 'Not yet present in platform report/API',
+      completed: !isToastOnly,
+    },
+    {
+      step: 3,
+      stage: 'PAYOUT_SETTLEMENT',
+      title_es: hasPayoutRef ? `Corte #${o.payout_reference_id}` : 'Sin corte de pago asignado',
+      title_en: hasPayoutRef ? `Payout #${o.payout_reference_id}` : 'No payout settlement assigned',
+      date: o.payout_date || null,
+      amount: round2(Number(o.net_payout || 0)),
+      detail_es: hasPayoutRef
+        ? `Comisiones: $${(Number(o.commission_fee || 0) + Number(o.delivery_fee || 0) + Number(o.processing_fee || 0) + Number(o.marketing_fee || 0)).toFixed(2)} | Cargo/Ajuste: $${(errCharge + adjAmount).toFixed(2)} | Neto en corte: $${Number(o.net_payout || 0).toFixed(2)}`
+        : 'La orden aún no tiene referencia verificable de depósito/settlement',
+      detail_en: hasPayoutRef
+        ? `Fees: $${(Number(o.commission_fee || 0) + Number(o.delivery_fee || 0) + Number(o.processing_fee || 0) + Number(o.marketing_fee || 0)).toFixed(2)} | Error/Adj: $${(errCharge + adjAmount).toFixed(2)} | Net in payout: $${Number(o.net_payout || 0).toFixed(2)}`
+        : 'Order does not yet have a verifiable settlement reference',
+      completed: hasPayoutRef,
+    },
+    {
+      step: 4,
+      stage: 'DISPUTE_RECOVERY',
+      title_es: reimbRef
+        ? `Recuperado en Corte #${reimbRef}`
+        : isDisputeOrRecovery
+        ? `Disputa (${o.dispute_status || 'OPEN'})`
+        : 'Sin disputa ni deducción',
+      title_en: reimbRef
+        ? `Recovered in Payout #${reimbRef}`
+        : isDisputeOrRecovery
+        ? `Dispute (${o.dispute_status || 'OPEN'})`
+        : 'No dispute or deduction',
+      date: reimbDate || o.payout_date || null,
+      amount: reimbRef ? round2(reimbAmt || Math.abs(errCharge)) : round2(errCharge),
+      detail_es: reimbRef
+        ? `Deducción original: $${errCharge.toFixed(2)} en corte #${o.payout_reference_id || 'N/A'} → Recuperado: +$${(reimbAmt || Math.abs(errCharge)).toFixed(2)} en corte #${reimbRef} (${reimbDate || 'depositado'})`
+        : isDisputeOrRecovery
+        ? `Cargo deducido por plataforma: $${errCharge.toFixed(2)}. Motivo: ${o.dispute_reason || 'Deducción / Reembolso de cliente'}`
+        : 'Orden cobrada sin cargos por error ni contracargos',
+      detail_en: reimbRef
+        ? `Original deduction: $${errCharge.toFixed(2)} in payout #${o.payout_reference_id || 'N/A'} → Recovered: +$${(reimbAmt || Math.abs(errCharge)).toFixed(2)} in payout #${reimbRef} (${reimbDate || 'deposited'})`
+        : isDisputeOrRecovery
+        ? `Platform error deduction: $${errCharge.toFixed(2)}. Reason: ${o.dispute_reason || 'Customer refund / chargeback'}`
+        : 'Order settled without error charges or chargebacks',
+      completed: Boolean(reimbRef) || !isDisputeOrRecovery,
+    },
+  ]
+
+  // 1) Check Group 4: BLOCKED_MISSING_INFO first for structural blockers
+  if (isUnassignedStore) {
+    return {
+      action_group: 'BLOCKED_MISSING_INFO' as ReconciliationActionGroup,
+      status_code: 'BLOCKED_UNASSIGNED_STORE',
+      status_label_es: 'Bloqueado: Tienda desconocida',
+      status_label_en: 'Blocked: Unknown store',
+      what_happened_es: 'Transacción recibida sin mapeo a ninguna de las 15 sucursales de Tacos Gavilan.',
+      what_happened_en: 'Transaction received without a valid mapping to any of the 15 Tacos Gavilan stores.',
+      cause_es: 'El ID de tienda del reporte o API no coincide con delivery_platform_store_mappings.',
+      cause_en: 'Store ID in report or API does not match delivery_platform_store_mappings.',
+      evidence_es: `ID externo detectado: ${o.raw_payload?.unassigned_external_store_id || 'Desconocido'}`,
+      evidence_en: `Detected external store ID: ${o.raw_payload?.unassigned_external_store_id || 'Unknown'}`,
+      next_action_es: 'Asignar manualmente la tienda en la pestaña Conexión de Tiendas.',
+      next_action_en: 'Manually map the store in the Store Connections tab.',
+      lifecycle_trace: lifecycleTrace,
+    }
+  }
+
+  if (isAmbiguous) {
+    const candidates = o.raw_payload?.ambiguous_toast_candidates || []
+    return {
+      action_group: 'BLOCKED_MISSING_INFO' as ReconciliationActionGroup,
+      status_code: 'BLOCKED_AMBIGUOUS_MATCH',
+      status_label_es: 'Bloqueado: Coincidencia ambigua',
+      status_label_en: 'Blocked: Ambiguous match',
+      what_happened_es: `Existen ${candidates.length || 'múltiples'} órdenes candidatas con el mismo código o subtotal.`,
+      what_happened_en: `There are ${candidates.length || 'multiple'} candidate orders with the same code or subtotal.`,
+      cause_es: 'El sistema bloqueó el emparejamiento automático para evitar asignar la orden equivocada.',
+      cause_en: 'Auto-matching was blocked to avoid linking the wrong order.',
+      evidence_es: `Candidatos Toast: ${candidates.map((c: any) => `#${c.displayNumber} ($${c.netSales})`).join(', ') || 'Múltiples'}`,
+      evidence_en: `Toast candidates: ${candidates.map((c: any) => `#${c.displayNumber} ($${c.netSales})`).join(', ') || 'Multiple'}`,
+      next_action_es: 'Revisar tickets en Toast POS y confirmar manualmente cuál corresponde.',
+      next_action_en: 'Review checks in Toast POS and manually confirm the matching order.',
+      lifecycle_trace: lifecycleTrace,
+    }
+  }
+
+  if (isUnverifiedNoId) {
+    return {
+      action_group: 'BLOCKED_MISSING_INFO' as ReconciliationActionGroup,
+      status_code: 'BLOCKED_NO_PLATFORM_ID',
+      status_label_es: 'Bloqueado: Sin ID verificable',
+      status_label_en: 'Blocked: Unverified platform ID',
+      what_happened_es: 'Misma fecha y subtotal similar en Toast, pero sin código de orden de plataforma en el ticket.',
+      what_happened_en: 'Same date and similar subtotal in Toast, but missing platform order ID on the check.',
+      cause_es: 'Prohibido conciliar automáticamente solo por fecha + subtotal parecido.',
+      cause_en: 'Auto-reconciling solely by date + similar subtotal is prohibited.',
+      evidence_es: `Toast #${o.toast_display_number || 'N/A'} ($${Number(o.toast_net_sales || 0).toFixed(2)}) vs ${plat} #${o.platform_order_id} ($${Number(o.platform_subtotal || 0).toFixed(2)})`,
+      evidence_en: `Toast #${o.toast_display_number || 'N/A'} ($${Number(o.toast_net_sales || 0).toFixed(2)}) vs ${plat} #${o.platform_order_id} ($${Number(o.platform_subtotal || 0).toFixed(2)})`,
+      next_action_es: 'Verificar la comanda física o tablet y aprobar revisión manual.',
+      next_action_en: 'Verify physical slip or tablet and approve manual review.',
+      lifecycle_trace: lifecycleTrace,
+    }
+  }
+
+  if (isMissingTax) {
+    return {
+      action_group: 'BLOCKED_MISSING_INFO' as ReconciliationActionGroup,
+      status_code: 'BLOCKED_MISSING_TAX',
+      status_label_es: 'Bloqueado: Falta desglose de Tax real',
+      status_label_en: 'Blocked: Missing real Tax breakdown',
+      what_happened_es: 'La plataforma no entregó el desglose atómico de Sales Tax para esta orden.',
+      what_happened_en: 'The platform did not provide the atomic Sales Tax breakdown for this order.',
+      cause_es: 'Prohibido estimar impuestos con tasa fija (10.25%). Se requiere el impuesto real.',
+      cause_en: 'Estimating tax with a fixed rate (10.25%) is prohibited. Real tax is required.',
+      evidence_es: `Subtotal ${plat}: $${Number(o.platform_subtotal || 0).toFixed(2)} | Tax reportado: N/D`,
+      evidence_en: `${plat} Subtotal: $${Number(o.platform_subtotal || 0).toFixed(2)} | Reported tax: N/A`,
+      next_action_es: 'Sincronizar transacciones detalladas del payout o importar CSV con columna Tax.',
+      next_action_en: 'Sync detailed payout transactions or import CSV with Tax column.',
+      lifecycle_trace: lifecycleTrace,
+    }
+  }
+
+  if (isToastOnly) {
+    return {
+      action_group: 'BLOCKED_MISSING_INFO' as ReconciliationActionGroup,
+      status_code: 'PENDING_PLATFORM_SETTLEMENT',
+      status_label_es: 'En Toast (Pendiente de sincronizar/corte de plataforma)',
+      status_label_en: 'In Toast (Pending platform settlement/sync)',
+      what_happened_es: `Orden registrada en Toast POS ($${Number(o.toast_expected_gross || 0).toFixed(2)}) aún sin corte o reporte de ${plat}.`,
+      what_happened_en: `Order recorded in Toast POS ($${Number(o.toast_expected_gross || 0).toFixed(2)}) not yet in ${plat} settlement/report.`,
+      cause_es: 'El corte semanal aún no cierra o falta sincronizar el detalle de órdenes de esta tienda.',
+      cause_en: 'Weekly payout has not closed yet or store order detail sync is incomplete.',
+      evidence_es: `Toast #${o.toast_display_number || 'S/N'} (${o.toast_tab_name || 'Sin nombre'}) del ${o.business_date}`,
+      evidence_en: `Toast #${o.toast_display_number || 'N/A'} (${o.toast_tab_name || 'No tab'}) on ${o.business_date}`,
+      next_action_es: 'Sincronizar plataforma o esperar al cierre del corte semanal.',
+      next_action_en: 'Sync platform or wait for weekly settlement close.',
+      lifecycle_trace: lifecycleTrace,
+    }
+  }
+
+  // 2) Check Group 3: DISPUTE_RECOVERY
+  if (isDisputeOrRecovery) {
+    const isRecovered = Boolean(reimbRef) || o.dispute_status === 'REIMBURSED'
+    return {
+      action_group: 'DISPUTE_RECOVERY' as ReconciliationActionGroup,
+      status_code: isRecovered ? 'DISPUTE_RECOVERED' : 'DISPUTE_DEDUCTED',
+      status_label_es: isRecovered
+        ? `Disputa Recuperada (+$${(reimbAmt || Math.abs(errCharge)).toFixed(2)})`
+        : `Con Payout, en Disputa / Cargo por Error ($${errCharge.toFixed(2)})`,
+      status_label_en: isRecovered
+        ? `Dispute Recovered (+$${(reimbAmt || Math.abs(errCharge)).toFixed(2)})`
+        : `In Payout, Disputed / Error Charge ($${errCharge.toFixed(2)})`,
+      what_happened_es: isRecovered
+        ? `Orden #${o.platform_order_id} sufrió deducción de $${errCharge.toFixed(2)} en corte #${o.payout_reference_id || 'N/A'} y fue recuperada (+$${(reimbAmt || Math.abs(errCharge)).toFixed(2)}) en el corte posterior #${reimbRef}.`
+        : `La plataforma descontó $${errCharge.toFixed(2)} por reembolso/error en la orden #${o.platform_order_id}.`,
+      what_happened_en: isRecovered
+        ? `Order #${o.platform_order_id} had a $${errCharge.toFixed(2)} deduction in payout #${o.payout_reference_id || 'N/A'} and was recovered (+$${(reimbAmt || Math.abs(errCharge)).toFixed(2)}) in subsequent payout #${reimbRef}.`
+        : `Platform deducted $${errCharge.toFixed(2)} for refund/error on order #${o.platform_order_id}.`,
+      cause_es: o.dispute_reason || 'Reembolso de cliente o ajuste de orden aplicado por la plataforma.',
+      cause_en: o.dispute_reason || 'Customer refund or order adjustment applied by the platform.',
+      evidence_es: isRecovered
+        ? `Corte deducción: #${o.payout_reference_id || 'N/A'} → Corte recuperación: #${reimbRef} (${reimbDate || ''})`
+        : `Corte: #${o.payout_reference_id || 'Sin corte'} | Estado disputa: ${o.dispute_status || 'OPEN'}`,
+      evidence_en: isRecovered
+        ? `Deduction payout: #${o.payout_reference_id || 'N/A'} → Recovery payout: #${reimbRef} (${reimbDate || ''})`
+        : `Payout: #${o.payout_reference_id || 'No payout'} | Dispute status: ${o.dispute_status || 'OPEN'}`,
+      next_action_es: isRecovered
+        ? 'Evidencia completa verificada. Lista para auditoría contable.'
+        : 'Presentar disputa en el portal de la plataforma y registrar el corte de reembolso.',
+      next_action_en: isRecovered
+        ? 'Full lifecycle evidence verified. Ready for accounting audit.'
+        : 'Submit dispute in platform portal and record reimbursement payout reference.',
+      lifecycle_trace: lifecycleTrace,
+    }
+  }
+
+  // 3) Check Group 2: VARIANCE_INVESTIGATE (or CONCILIATED_READY if variance has persisted server approval)
+  if (
+    o.reconciliation_status === 'MISSING_IN_TOAST' ||
+    o.reconciliation_status === 'AMOUNT_MISMATCH' ||
+    o.reconciliation_status === 'TAX_MISMATCH' ||
+    Math.abs(grossVar) > 0.05
+  ) {
+    if (hasValidPersistedOrderVarianceApproval(o) && hasPayoutRef) {
+      const va = o.raw_payload.variance_approval
+      return {
+        action_group: 'CONCILIATED_READY' as ReconciliationActionGroup,
+        status_code: 'VARIANCE_APPROVED_READY',
+        status_label_es: `Varianza aprobada ($${grossVar.toFixed(2)}) — Lista para contabilizar`,
+        status_label_en: `Variance approved ($${grossVar.toFixed(2)}) — Ready to post`,
+        what_happened_es: `Diferencia de $${grossVar.toFixed(2)} revisada y aprobada en servidor por ${va.approved_by_email}.`,
+        what_happened_en: `Variance of $${grossVar.toFixed(2)} reviewed and approved on server by ${va.approved_by_email}.`,
+        cause_es: `Motivo documentado: ${va.reason}`,
+        cause_en: `Documented reason: ${va.reason}`,
+        evidence_es: `${va.evidence} | Corte: #${o.payout_reference_id}`,
+        evidence_en: `${va.evidence} | Payout: #${o.payout_reference_id}`,
+        next_action_es: 'Listo para publicar en póliza contable (Journal Entry) de QuickBooks.',
+        next_action_en: 'Ready to publish in QuickBooks Journal Entry.',
+        lifecycle_trace: lifecycleTrace,
+      }
+    }
+
+    if (
+      o.raw_payload?.toast_voided === true &&
+      Number(o.platform_gross_receivable || 0) > 0 &&
+      Number(o.net_payout || 0) > 0
+    ) {
+      const voidOrig = Number(
+        o.raw_payload?.toast_voided_original_subtotal || o.platform_gross_receivable || 0
+      )
+      const pGrossVal = Number(o.platform_gross_receivable || 0)
+      const pNetVal = Number(o.net_payout || 0)
+      const orderStatusRaw = String(o.raw_payload?.orderStatus || '').toUpperCase()
+      const isDeliveryFailed = orderStatusRaw.includes('DELIVERY_FAILED')
+      const courierName = o.raw_payload?.courierName ? ` (${o.raw_payload.courierName})` : ''
+      return {
+        action_group: 'VARIANCE_INVESTIGATE' as ReconciliationActionGroup,
+        status_code: 'PAID_BY_PLATFORM_VOIDED_IN_TOAST',
+        status_label_es: `Pagada por ${plat} (+$${pNetVal.toFixed(2)} neto) • Ticket #${
+          o.toast_display_number || 'S/N'
+        } anulado (VOID) en Toast`,
+        status_label_en: `Paid by ${plat} (+$${pNetVal.toFixed(2)} net) • Check #${
+          o.toast_display_number || 'N/A'
+        } VOIDED in Toast`,
+        what_happened_es: `El Ticket #${o.toast_display_number || 'S/N'} (${
+          o.toast_tab_name || o.platform_order_id
+        }, orig. $${voidOrig.toFixed(2)}) SÍ existió en Toast POS y se cocinó, pero fue anulado (VOID → $0.00) cuando ${
+          isDeliveryFailed
+            ? `falló la entrega del repartidor${courierName}`
+            : 'el cliente canceló después de prepararse'
+        }. ${plat} SÍ pagó la orden a Tacos Gavilan ($${pGrossVal.toFixed(
+          2
+        )} venta / +$${pNetVal.toFixed(2)} neto).`,
+        what_happened_en: `Check #${o.toast_display_number || 'N/A'} (${
+          o.toast_tab_name || o.platform_order_id
+        }, orig. $${voidOrig.toFixed(2)}) DID enter Toast POS and was cooked, but was VOIDED ($0.00) when ${
+          isDeliveryFailed
+            ? `courier delivery failed${courierName}`
+            : 'customer canceled after preparation'
+        }. ${plat} PAID Tacos Gavilan in full ($${pGrossVal.toFixed(2)} gross / +$${pNetVal.toFixed(
+          2
+        )} net).`,
+        cause_es: `Al fallar la entrega o cancelarse tarde, la integración envía un VOID automático a Toast POS ($0.00), pero ${plat} protege y paga la comida ya preparada al restaurante.`,
+        cause_en: `Upon delivery failure or late cancellation, POS integration automatically VOIDS the Toast check ($0.00), while ${plat} protects and pays the restaurant for cooked food.`,
+        evidence_es: `Toast Ticket #${o.toast_display_number || 'S/N'} (VOID orig. $${voidOrig.toFixed(
+          2
+        )} → $0.00) ↔ ${plat} #${o.platform_order_id} (Pagado: $${pGrossVal.toFixed(
+          2
+        )} / Neto: +$${pNetVal.toFixed(2)}) | Corte: #${o.payout_reference_id || 'Pendiente'}`,
+        evidence_en: `Toast Check #${o.toast_display_number || 'N/A'} (VOID orig. $${voidOrig.toFixed(
+          2
+        )} → $0.00) ↔ ${plat} #${o.platform_order_id} (Paid: $${pGrossVal.toFixed(
+          2
+        )} / Net: +$${pNetVal.toFixed(2)}) | Payout: #${o.payout_reference_id || 'Pending'}`,
+        next_action_es: `Saldo a favor de Tacos Gavilan (+$${pNetVal.toFixed(
+          2
+        )}). Puedes aprobar la varianza para marcarla como revisada.`,
+        next_action_en: `Balance in favor of Tacos Gavilan (+$${pNetVal.toFixed(
+          2
+        )}). You may approve the variance to mark as reviewed.`,
+        lifecycle_trace: lifecycleTrace,
+      }
+    }
+
+    const isMissingToast = o.reconciliation_status === 'MISSING_IN_TOAST' || !o.toast_order_guid
+    return {
+      action_group: 'VARIANCE_INVESTIGATE' as ReconciliationActionGroup,
+      status_code: isMissingToast
+        ? 'MISSING_IN_TOAST'
+        : Math.abs(taxVar) > 0.05 && Math.abs(subVar) <= 0.05
+        ? 'TAX_MISMATCH'
+        : 'AMOUNT_MISMATCH',
+      status_label_es: isMissingToast
+        ? 'Con Payout, sin orden en Toast POS'
+        : `Con Payout, pendiente de revisión (Dif: $${grossVar.toFixed(2)})`,
+      status_label_en: isMissingToast
+        ? 'With Payout, missing in Toast POS'
+        : `With Payout, pending review (Var: $${grossVar.toFixed(2)})`,
+      what_happened_es: isMissingToast
+        ? `La plataforma reportó la orden #${o.platform_order_id} ($${Number(o.platform_gross_receivable || 0).toFixed(2)}), pero no existe ticket en Toast POS.`
+        : `Diferencia bruta de $${grossVar.toFixed(2)} entre Toast ($${Number(o.toast_expected_gross || 0).toFixed(2)}) y ${plat} ($${Number(o.platform_gross_receivable || 0).toFixed(2)}).`,
+      what_happened_en: isMissingToast
+        ? `Platform reported order #${o.platform_order_id} ($${Number(o.platform_gross_receivable || 0).toFixed(2)}), but no check exists in Toast POS.`
+        : `Gross variance of $${grossVar.toFixed(2)} between Toast ($${Number(o.toast_expected_gross || 0).toFixed(2)}) and ${plat} ($${Number(o.platform_gross_receivable || 0).toFixed(2)}).`,
+      cause_es: isMissingToast
+        ? 'Orden cancelada en POS, ingresada en fecha operativa distinta o sincronización de Toast incompleta.'
+        : `Variación de subtotal ($${subVar.toFixed(2)}) o variación de Sales Tax ($${taxVar.toFixed(2)}).`,
+      cause_en: isMissingToast
+        ? 'Order cancelled in POS, entered on different business date, or incomplete Toast sync.'
+        : `Subtotal variance ($${subVar.toFixed(2)}) or Sales Tax variance ($${taxVar.toFixed(2)}).`,
+      evidence_es: `Toast #${o.toast_display_number || 'N/A'} vs ${plat} #${o.platform_order_id} | Corte: #${o.payout_reference_id || 'Pendiente'}`,
+      evidence_en: `Toast #${o.toast_display_number || 'N/A'} vs ${plat} #${o.platform_order_id} | Payout: #${o.payout_reference_id || 'Pending'}`,
+      next_action_es: 'Investigar diferencia de precio/impuesto o documentar aprobación de revisión.',
+      next_action_en: 'Investigate price/tax variance or document review approval.',
+      lifecycle_trace: lifecycleTrace,
+    }
+  }
+
+  if (o.raw_payload?.cancelled_before_prep === true) {
+    const origSub = Number(
+      o.raw_payload?.original_cancelled_subtotal ||
+        o.raw_payload?.toast_voided_original_subtotal ||
+        0
+    )
+    return {
+      action_group: 'CONCILIATED_READY' as ReconciliationActionGroup,
+      status_code: 'CANCELLED_IMMEDIATELY_VOIDED_ZERO',
+      status_label_es: `Cancelada al instante por cliente (VOID en Toast #${
+        o.toast_display_number || 'S/N'
+      } — $0.00)`,
+      status_label_en: `Canceled immediately by customer (VOID in Toast #${
+        o.toast_display_number || 'N/A'
+      } — $0.00)`,
+      what_happened_es: `El cliente canceló la orden #${o.platform_order_id} (orig. $${origSub.toFixed(
+        2
+      )}) ~1 minuto después de pedirla, antes de cocinarse. Se anuló automáticamente en Toast POS (Ticket #${
+        o.toast_display_number || 'S/N'
+      }) sin cargo ni pago ($0.00).`,
+      what_happened_en: `Customer canceled order #${o.platform_order_id} (orig. $${origSub.toFixed(
+        2
+      )}) ~1 minute after placing it, before cooking. Automatically voided in Toast POS (Check #${
+        o.toast_display_number || 'N/A'
+      }) with zero charge/payout ($0.00).`,
+      cause_es: 'Cancelación inmediata del cliente antes de preparación (READY_FOR_PICKUP) con anulación (VOID) en Toast POS.',
+      cause_en: 'Immediate customer cancellation before preparation (READY_FOR_PICKUP) with automatic VOID in Toast POS.',
+      evidence_es: `Toast Ticket #${o.toast_display_number || 'S/N'} (VOID orig. $${origSub.toFixed(
+        2
+      )} → $0.00) ↔ ${plat} #${o.platform_order_id} (Cancelada sin cobro: $0.00)`,
+      evidence_en: `Toast Check #${o.toast_display_number || 'N/A'} (VOID orig. $${origSub.toFixed(
+        2
+      )} → $0.00) ↔ ${plat} #${o.platform_order_id} (Canceled with $0.00 settlement)`,
+      next_action_es: 'Sin impacto financiero ($0.00). No requiere acción.',
+      next_action_en: 'Zero financial impact ($0.00). No action required.',
+      lifecycle_trace: lifecycleTrace,
+    }
+  }
+
+  // If matched in platform & Toast with $0 variance, check if it has a verified payout_reference_id
+  if (!hasPayoutRef) {
+    return {
+      action_group: 'BLOCKED_MISSING_INFO' as ReconciliationActionGroup,
+      status_code: 'MATCHED_AWAITING_PAYOUT_REF',
+      status_label_es: 'Emparejada sin referencia de Payout',
+      status_label_en: 'Matched awaiting Payout reference',
+      what_happened_es: `Orden #${o.platform_order_id} cuadra al centavo con Toast ($${Number(o.toast_expected_gross || 0).toFixed(2)}), pero aún no tiene ID de depósito/corte vinculado.`,
+      what_happened_en: `Order #${o.platform_order_id} matches Toast to the cent ($${Number(o.toast_expected_gross || 0).toFixed(2)}), but has no linked payout reference ID yet.`,
+      cause_es: 'No se permite incluir en póliza de QuickBooks sin un payout_reference_id verificable.',
+      cause_en: 'Cannot include in QuickBooks Journal Entry without a verifiable payout_reference_id.',
+      evidence_es: `Toast #${o.toast_display_number} = ${plat} #${o.platform_order_id} ($${Number(o.platform_gross_receivable || 0).toFixed(2)})`,
+      evidence_en: `Toast #${o.toast_display_number} = ${plat} #${o.platform_order_id} ($${Number(o.platform_gross_receivable || 0).toFixed(2)})`,
+      next_action_es: 'Sincronizar el corte de pago (settlement) donde se depositó esta orden.',
+      next_action_en: 'Sync the payout settlement where this order was deposited.',
+      lifecycle_trace: lifecycleTrace,
+    }
+  }
+
+  // 4) Group 1: CONCILIATED_READY
+  return {
+    action_group: 'CONCILIATED_READY' as ReconciliationActionGroup,
+    status_code: 'CONCILIATED',
+    status_label_es: 'Conciliado y listo para contabilizar',
+    status_label_en: 'Reconciled and ready to post',
+    what_happened_es: `Orden #${o.platform_order_id} conciliada al centavo entre Toast POS, ${plat} y el corte #${o.payout_reference_id}.`,
+    what_happened_en: `Order #${o.platform_order_id} reconciled to the cent across Toast POS, ${plat}, and payout #${o.payout_reference_id}.`,
+    cause_es: 'Sin diferencias ($0.00). Identificador exacto y reglas fiscales verificadas.',
+    cause_en: 'Zero variance ($0.00). Exact ID and fiscal rules verified.',
+    evidence_es: `Toast #${o.toast_display_number} ↔ ${plat} #${o.platform_order_id} ↔ Corte #${o.payout_reference_id}`,
+    evidence_en: `Toast #${o.toast_display_number} ↔ ${plat} #${o.platform_order_id} ↔ Payout #${o.payout_reference_id}`,
+    next_action_es: 'Listo para publicar en póliza contable (Journal Entry) de QuickBooks.',
+    next_action_en: 'Ready to publish in QuickBooks Journal Entry.',
+    lifecycle_trace: lifecycleTrace,
+  }
+}
+
 export async function GET(req: NextRequest) {
   try {
+    const auth = await authorizeDeliveryReconciliationRequest(req, supabaseAdmin, {
+      permission: 'read',
+      allowCron: false,
+    })
+    if (!auth.authorized) {
+      return NextResponse.json({ success: false, error: auth.error || 'No autorizado' }, { status: auth.status || 401 })
+    }
+
     const { searchParams } = new URL(req.url)
     const storeIdParam = searchParams.get('store_id')
     const platformParam = searchParams.get('platform')
     const statusParam = searchParams.get('status')
+    const payoutRefParam = (searchParams.get('payout_reference_id') || '').trim()
     const startDate = searchParams.get('start_date') || new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10)
     const endDate = searchParams.get('end_date') || new Date().toISOString().slice(0, 10)
     const search = (searchParams.get('search') || '').trim().toLowerCase()
@@ -46,92 +555,185 @@ export async function GET(req: NextRequest) {
     for (const m of mappings) {
       storeNameMap.set(m.store_id, { name: m.store_name, code: m.store_code })
     }
+    storeNameMap.set(0, { name: 'Tienda Desconocida (Requiere Mapeo)', code: 'UNASSIGNED_STORE' })
 
-    let ordersQuery = supabaseAdmin
-      .from('delivery_platform_orders')
-      .select('*')
-      .order('business_date', { ascending: false })
-      .order('placed_at', { ascending: false })
-
-    // Si el usuario NO está buscando un código de orden específico, filtrar por rango de fechas
-    if (!search || search.length < 2) {
-      ordersQuery = ordersQuery.gte('business_date', startDate).lte('business_date', endDate)
-    }
-
-    let disputedCrossPayoutQuery = supabaseAdmin
-      .from('delivery_platform_orders')
-      .select('*')
-      .eq('is_disputed', true)
-
-    let payoutsQuery = supabaseAdmin
-      .from('delivery_platform_payouts')
-      .select('*')
-      .order('payout_date', { ascending: false })
-
-    if (storeIdParam && storeIdParam !== 'ALL' && Number.isFinite(Number(storeIdParam))) {
-      const sId = Number(storeIdParam)
-      ordersQuery = ordersQuery.eq('store_id', sId)
-      disputedCrossPayoutQuery = disputedCrossPayoutQuery.eq('store_id', sId)
-      payoutsQuery = payoutsQuery.eq('store_id', sId)
-    }
-
-    if (platformParam && platformParam !== 'ALL') {
-      ordersQuery = ordersQuery.eq('platform', platformParam)
-      disputedCrossPayoutQuery = disputedCrossPayoutQuery.eq('platform', platformParam)
-      payoutsQuery = payoutsQuery.eq('platform', platformParam)
-    }
-
-    if (statusParam && statusParam !== 'ALL') {
-      ordersQuery = ordersQuery.eq('reconciliation_status', statusParam)
-      disputedCrossPayoutQuery = disputedCrossPayoutQuery.eq('reconciliation_status', statusParam)
-    }
-
-    const [
-      { data: rawOrdersRange, error: ordErr },
-      { data: disputedOrdersAll },
-      { data: rawPayouts, error: payErr },
-      { data: allSyncOrders },
-      { data: allSyncPayouts },
-    ] = await Promise.all([
-      ordersQuery.limit(2500),
-      disputedCrossPayoutQuery.limit(200),
-      payoutsQuery.limit(500),
-      supabaseAdmin
-        .from('delivery_platform_orders')
-        .select('store_id, platform, business_date, match_confidence, toast_order_guid, updated_at')
-        .limit(5000),
-      supabaseAdmin
-        .from('delivery_platform_payouts')
-        .select('store_id, platform, payout_date, period_end, updated_at')
-        .limit(1000),
-    ])
-
-    if (ordErr) throw new Error(`Error querying delivery_platform_orders: ${ordErr.message}`)
-    if (payErr) throw new Error(`Error querying delivery_platform_payouts: ${payErr.message}`)
-
-    // Unir órdenes del rango con órdenes en disputa cuyo reembolso ocurrió dentro del rango seleccionado o búsqueda activa (ej. #650DD)
-    const rawOrdersMap = new Map<string, any>()
-    for (const r of rawOrdersRange || []) {
-      rawOrdersMap.set(String(r.id), r)
-    }
-    for (const d of disputedOrdersAll || []) {
-      const reimbRef = d?.raw_payload?.reimbursement_payout_ref
-      if (reimbRef && !rawOrdersMap.has(String(d.id))) {
-        const reimbDate = String(d?.raw_payload?.reimbursement_deposit_date || '')
-        const isSearchMatch = Boolean(search && search.length >= 2)
-        const isReimbInWindow = Boolean(reimbDate && reimbDate >= startDate && reimbDate <= endDate)
-        if (isSearchMatch || isReimbInWindow) {
-          rawOrdersMap.set(String(d.id), d)
-        }
-      }
-    }
-    const rawOrders = Array.from(rawOrdersMap.values())
-
-    // Calcular Estado de Última Sincronización (Global, Por Tienda Seleccionada y Por las 15 Sucursales)
-    const selectedStoreNum =
+    const requestedStoreNum =
       storeIdParam && storeIdParam !== 'ALL' && Number.isFinite(Number(storeIdParam))
         ? Number(storeIdParam)
         : null
+
+    if (!auth.isGlobalScope && auth.user?.storeId) {
+      if (requestedStoreNum !== null && requestedStoreNum !== auth.user.storeId) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: `Acceso denegado: Tu cuenta solo tiene autorización para consultar la sucursal #${auth.user.storeId}.`,
+          },
+          { status: 403 }
+        )
+      }
+    }
+
+    const selectedStoreNum =
+      !auth.isGlobalScope && auth.user?.storeId ? auth.user.storeId : requestedStoreNum
+
+    const [
+      rawOrdersRange,
+      disputedOrdersAll,
+      rawPayouts,
+      allSyncOrders,
+      allSyncPayouts,
+      quarantinedUnassigned,
+    ] = await Promise.all([
+      fetchAllSupabaseRows<any>((from, to) => {
+        let q = supabaseAdmin
+          .from('delivery_platform_orders')
+          .select('*')
+          .order('business_date', { ascending: false })
+          .order('placed_at', { ascending: false })
+        if (payoutRefParam) {
+          q = q.eq('payout_reference_id', payoutRefParam)
+        } else if (!search || search.length < 2) {
+          q = q.gte('business_date', startDate).lte('business_date', endDate)
+        }
+        if (selectedStoreNum !== null && selectedStoreNum > 0) {
+          q = q.eq('store_id', selectedStoreNum)
+        }
+        if (platformParam && platformParam !== 'ALL') {
+          q = q.eq('platform', platformParam)
+        }
+        if (statusParam && statusParam !== 'ALL') {
+          q = q.eq('reconciliation_status', statusParam)
+        }
+        return q.range(from, to)
+      }),
+      fetchAllSupabaseRows<any>((from, to) => {
+        let q = supabaseAdmin
+          .from('delivery_platform_orders')
+          .select('*')
+          .eq('is_disputed', true)
+        if (selectedStoreNum !== null && selectedStoreNum > 0) {
+          q = q.eq('store_id', selectedStoreNum)
+        }
+        if (platformParam && platformParam !== 'ALL') {
+          q = q.eq('platform', platformParam)
+        }
+        if (statusParam && statusParam !== 'ALL') {
+          q = q.eq('reconciliation_status', statusParam)
+        }
+        return q.range(from, to)
+      }),
+      fetchAllSupabaseRows<any>((from, to) => {
+        let q = supabaseAdmin
+          .from('delivery_platform_payouts')
+          .select('*')
+          .order('payout_date', { ascending: false })
+        if (selectedStoreNum !== null && selectedStoreNum > 0) {
+          q = q.eq('store_id', selectedStoreNum)
+        }
+        if (platformParam && platformParam !== 'ALL') {
+          q = q.eq('platform', platformParam)
+        }
+        if (payoutRefParam) {
+          q = q.eq('payout_reference_id', payoutRefParam)
+        }
+        return q.range(from, to)
+      }),
+      fetchAllSupabaseRows<any>((from, to) =>
+        supabaseAdmin
+          .from('delivery_platform_orders')
+          .select('store_id, platform, business_date, match_confidence, toast_order_guid, payout_reference_id, updated_at')
+          .neq('match_confidence', 'TOAST_ONLY')
+          .range(from, to)
+      ),
+      fetchAllSupabaseRows<any>((from, to) =>
+        supabaseAdmin
+          .from('delivery_platform_payouts')
+          .select('store_id, platform, payout_reference_id, payout_date, period_start, period_end, orders_count, updated_at')
+          .range(from, to)
+      ),
+      getQuarantinedUnassignedRecords(),
+    ])
+
+    // Unir órdenes del rango con órdenes en disputa cuyo reembolso ocurrió dentro del rango seleccionado o payout seleccionado
+    const rawOrdersMap = new Map<string, any>()
+    if (selectedStoreNum !== 0) {
+      for (const r of rawOrdersRange || []) {
+        rawOrdersMap.set(String(r.id), r)
+      }
+      for (const d of disputedOrdersAll || []) {
+        const reimbRef = d?.raw_payload?.reimbursement_payout_ref
+        if (reimbRef && !rawOrdersMap.has(String(d.id))) {
+          const reimbDate = String(d?.raw_payload?.reimbursement_deposit_date || '')
+          const isSearchMatch = Boolean(search && search.length >= 2)
+          const isPayoutRefMatch = Boolean(payoutRefParam && (reimbRef === payoutRefParam || d.payout_reference_id === payoutRefParam))
+          const isReimbInWindow = Boolean(!payoutRefParam && reimbDate && reimbDate >= startDate && reimbDate <= endDate)
+          if (isSearchMatch || isPayoutRefMatch || isReimbInWindow) {
+            rawOrdersMap.set(String(d.id), d)
+          }
+        }
+      }
+    }
+
+    // Agregar órdenes en cuarentena con store_id = 0 (UNASSIGNED_STORE) cuando aplique
+    if (selectedStoreNum === null || selectedStoreNum === 0) {
+      for (let idx = 0; idx < (quarantinedUnassigned.orders || []).length; idx++) {
+        const uo = quarantinedUnassigned.orders[idx]
+        if (platformParam && platformParam !== 'ALL' && uo.platform !== platformParam) continue
+        if (payoutRefParam && uo.payoutReferenceId !== payoutRefParam) continue
+        if (!search && !payoutRefParam && (uo.businessDate < startDate || uo.businessDate > endDate)) continue
+        const synthId = `UNASSIGNED-ORD-${uo.platform}-${uo.platformOrderId}-${idx}`
+        const pSub = Number(uo.platformSubtotal ?? uo.subtotal ?? 0)
+        const pTax = Number(uo.platformTax ?? uo.taxCollected ?? 0)
+        const pTaxMerch = Number(uo.platformTaxPaidToMerchant ?? uo.taxPaidToMerchant ?? 0)
+        const pTaxWith = Number(uo.platformTaxWithheld ?? uo.taxRemittedByPlatform ?? 0)
+        const pGross = Number(
+          uo.platformGrossReceivable ?? (uo.platform === 'UBER_EATS' ? pSub : round2(pSub + pTaxMerch))
+        )
+        rawOrdersMap.set(synthId, {
+          id: synthId,
+          store_id: 0,
+          platform: uo.platform,
+          platform_order_id: uo.platformOrderId,
+          business_date: uo.businessDate,
+          placed_at: uo.placedAt,
+          customer_name: uo.customerName || null,
+          toast_order_guid: null,
+          toast_display_number: null,
+          toast_tab_name: null,
+          toast_net_sales: 0,
+          toast_tax: 0,
+          toast_expected_gross: 0,
+          platform_subtotal: pSub,
+          platform_tax: pTax,
+          platform_tax_paid_to_merchant: pTaxMerch,
+          platform_tax_withheld: pTaxWith,
+          platform_gross_receivable: pGross,
+          commission_fee: Number(uo.commissionFee || 0),
+          delivery_fee: Number(uo.deliveryFee || 0),
+          processing_fee: Number(uo.processingFee || 0),
+          marketing_fee: Number(uo.marketingFee || 0),
+          error_charge: Number(uo.errorCharge || 0),
+          adjustment_amount: Number(uo.adjustmentAmount || 0),
+          net_payout: Number(uo.netPayout || 0),
+          subtotal_diff: 0,
+          tax_diff: 0,
+          gross_diff: 0,
+          subtotal_variance: 0,
+          tax_variance: 0,
+          gross_variance: 0,
+          reconciliation_status: 'REQUIRES_REVIEW',
+          match_confidence: 'UNASSIGNED_STORE',
+          payout_reference_id: uo.payoutReferenceId || null,
+          payout_date: uo.payoutDate || null,
+          is_disputed: false,
+          dispute_status: 'NONE',
+          raw_payload: uo.rawPayload || { unassigned_store: true },
+        })
+      }
+    }
+
+    const rawOrders = Array.from(rawOrdersMap.values())
 
     type PlatformSyncMeta = {
       lastSyncedAt: string | null
@@ -206,6 +808,9 @@ export async function GET(req: NextRequest) {
       return b > a ? b : a
     }
 
+    // Track linked order counts per payout reference key (platform:store_id:payout_reference_id)
+    const linkedOrdersByPayoutKey = new Map<string, number>()
+
     for (const so of allSyncOrders || []) {
       const sId = Number(so.store_id)
       const plat = (so.platform as DeliveryPlatformCode) || 'DOORDASH'
@@ -214,7 +819,11 @@ export async function GET(req: NextRequest) {
       const isSelectedStore = selectedStoreNum === null || sId === selectedStoreNum
       const stEntry = syncStatus.byStore[sId]
 
-      // Si tiene toast_order_guid, cuenta como orden sincronizada de Toast POS
+      if (so.payout_reference_id) {
+        const pKey = `${plat}:${sId}:${so.payout_reference_id}`
+        linkedOrdersByPayoutKey.set(pKey, (linkedOrdersByPayoutKey.get(pKey) || 0) + 1)
+      }
+
       if (so.toast_order_guid) {
         syncStatus.TOAST.globalOrdersCount++
         syncStatus.TOAST.globalLastSyncedAt = maxIso(syncStatus.TOAST.globalLastSyncedAt, upd)
@@ -230,7 +839,6 @@ export async function GET(req: NextRequest) {
         }
       }
 
-      // Si NO es TOAST_ONLY, proviene de la plataforma (DoorDash, Grubhub, Uber Eats)
       if (so.match_confidence !== 'TOAST_ONLY' && syncStatus[plat]) {
         syncStatus[plat].globalOrdersCount++
         syncStatus[plat].globalLastSyncedAt = maxIso(syncStatus[plat].globalLastSyncedAt, upd)
@@ -252,6 +860,27 @@ export async function GET(req: NextRequest) {
             stEntry.ueLastSync = maxIso(stEntry.ueLastSync, upd)
           }
         }
+      }
+    }
+
+    for (const ro of rawOrdersRange || []) {
+      if (ro.match_confidence !== 'TOAST_ONLY' || !ro.toast_order_guid) continue
+      const sId = Number(ro.store_id)
+      const upd = ro.updated_at || null
+      const bDate = ro.business_date || null
+      const isSelectedStore = selectedStoreNum === null || sId === selectedStoreNum
+      const stEntry = syncStatus.byStore[sId]
+      syncStatus.TOAST.globalOrdersCount++
+      syncStatus.TOAST.globalLastSyncedAt = maxIso(syncStatus.TOAST.globalLastSyncedAt, upd)
+      syncStatus.TOAST.globalLatestBusinessDate = maxIso(syncStatus.TOAST.globalLatestBusinessDate, bDate)
+      if (isSelectedStore) {
+        syncStatus.TOAST.ordersCount++
+        syncStatus.TOAST.lastSyncedAt = maxIso(syncStatus.TOAST.lastSyncedAt, upd)
+        syncStatus.TOAST.latestBusinessDate = maxIso(syncStatus.TOAST.latestBusinessDate, bDate)
+      }
+      if (stEntry) {
+        stEntry.toastOrders++
+        stEntry.toastLastSync = maxIso(stEntry.toastLastSync, upd)
       }
     }
 
@@ -287,11 +916,59 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    let orders = (rawOrders || []).map((o: any) => ({
-      ...o,
-      store_name: storeNameMap.get(o.store_id)?.name || `Store #${o.store_id}`,
-      store_code: storeNameMap.get(o.store_id)?.code || '',
-    }))
+    let orders = (rawOrders || []).map((o: any) => {
+      const storeMeta = storeNameMap.get(Number(o.store_id)) || {
+        name: o.store_id === 0 ? 'Tienda Desconocida (Requiere Mapeo)' : `Store #${o.store_id}`,
+        code: o.store_id === 0 ? 'UNASSIGNED_STORE' : '',
+      }
+      const subVar = round2(Number(o.subtotal_diff ?? o.subtotal_variance ?? 0))
+      const taxVar = round2(Number(o.tax_diff ?? o.tax_variance ?? 0))
+      const grossVar = round2(Number(o.gross_diff ?? o.gross_variance ?? 0))
+      const enrichedBase = {
+        ...o,
+        store_name: storeMeta.name,
+        store_code: storeMeta.code,
+        subtotal_diff: subVar,
+        tax_diff: taxVar,
+        gross_diff: grossVar,
+        subtotal_variance: subVar,
+        tax_variance: taxVar,
+        gross_variance: grossVar,
+      }
+      const audit = classifyOrderActionGroupAndExplanation(enrichedBase)
+      const rp = o.raw_payload || {}
+      const slimRawPayload = {
+        reimbursement_payout_ref: rp.reimbursement_payout_ref ?? undefined,
+        reimbursement_period: rp.reimbursement_period ?? undefined,
+        reimbursement_deposit_date: rp.reimbursement_deposit_date ?? undefined,
+        reimbursement_amount: rp.reimbursement_amount ?? undefined,
+        reimbursement_description: rp.reimbursement_description ?? undefined,
+        ambiguous_toast_candidates: rp.ambiguous_toast_candidates ?? undefined,
+        missing_tax_breakdown: rp.missing_tax_breakdown ?? undefined,
+        tax_breakdown_verified: rp.tax_breakdown_verified ?? undefined,
+        unverified_reason: rp.unverified_reason ?? undefined,
+        unassigned_store: rp.unassigned_store ?? undefined,
+        manual_review_approved: rp.manual_review_approved ?? undefined,
+        variance_approval: rp.variance_approval ?? undefined,
+        explicit_review_decision: rp.explicit_review_decision ?? undefined,
+        explicit_review_notes: rp.explicit_review_notes ?? undefined,
+        explicit_reviewed_by: rp.explicit_reviewed_by ?? undefined,
+        explicit_reviewed_at: rp.explicit_reviewed_at ?? undefined,
+        toast_voided: rp.toast_voided ?? undefined,
+        toast_voided_original_subtotal: rp.toast_voided_original_subtotal ?? undefined,
+        toast_void_date: rp.toast_void_date ?? undefined,
+        cancelled_before_prep: rp.cancelled_before_prep ?? undefined,
+        original_cancelled_subtotal: rp.original_cancelled_subtotal ?? undefined,
+        orderStatus: rp.orderStatus ?? undefined,
+        courierName: rp.courierName ?? undefined,
+        canceledBy: rp.canceledBy ?? undefined,
+      }
+      return {
+        ...enrichedBase,
+        raw_payload: slimRawPayload,
+        ...audit,
+      }
+    })
 
     if (search) {
       orders = orders.filter(
@@ -306,24 +983,90 @@ export async function GET(req: NextRequest) {
       )
     }
 
-    // Ordenar para que primero se vean las órdenes ya reportadas/conciliadas con la plataforma y luego las pendientes de corte (TOAST_ONLY)
+    // P1-13: Orden de prioridad visual: 1. Bloqueados -> 2. Diferencias por investigar -> 3. Disputas / recuperaciones -> 4. Listos para contabilizar
+    const groupPriority: Record<ReconciliationActionGroup, number> = {
+      BLOCKED_MISSING_INFO: 1,
+      VARIANCE_INVESTIGATE: 2,
+      DISPUTE_RECOVERY: 3,
+      CONCILIATED_READY: 4,
+    }
+
     orders.sort((a: any, b: any) => {
       const aToastOnly = a.match_confidence === 'TOAST_ONLY' ? 1 : 0
       const bToastOnly = b.match_confidence === 'TOAST_ONLY' ? 1 : 0
       if (aToastOnly !== bToastOnly) return aToastOnly - bToastOnly
+      const aPrio = groupPriority[a.action_group as ReconciliationActionGroup] || 9
+      const bPrio = groupPriority[b.action_group as ReconciliationActionGroup] || 9
+      if (aPrio !== bPrio) return aPrio - bPrio
       if (a.business_date !== b.business_date) return a.business_date > b.business_date ? -1 : 1
       return String(b.placed_at || b.toast_opened_at || '').localeCompare(
         String(a.placed_at || a.toast_opened_at || '')
       )
     })
 
-    const payouts = (rawPayouts || [])
-      .map((p: any) => ({
-        ...p,
-        store_name: storeNameMap.get(p.store_id)?.name || `Store #${p.store_id}`,
-        store_code: storeNameMap.get(p.store_id)?.code || '',
-      }))
+    // Combinar payouts de DB + payouts en cuarentena (UNASSIGNED_STORE)
+    const combinedRawPayouts = [...(rawPayouts || [])]
+    if (selectedStoreNum === null || selectedStoreNum === 0) {
+      for (let idx = 0; idx < (quarantinedUnassigned.payouts || []).length; idx++) {
+        const up = quarantinedUnassigned.payouts[idx]
+        if (platformParam && platformParam !== 'ALL' && up.platform !== platformParam) continue
+        if (payoutRefParam && up.payout_reference_id !== payoutRefParam) continue
+        combinedRawPayouts.push({
+          ...up,
+          id: `UNASSIGNED-PAY-${up.platform}-${up.payout_reference_id}-${idx}`,
+          store_id: 0,
+        })
+      }
+    }
+
+    const payouts = combinedRawPayouts
+      .map((p: any) => {
+        const sId = Number(p.store_id ?? 0)
+        const storeMeta = storeNameMap.get(sId) || {
+          name: sId === 0 ? 'Tienda Desconocida (Requiere Mapeo)' : `Store #${sId}`,
+          code: sId === 0 ? 'UNASSIGNED_STORE' : '',
+        }
+        const pKey = `${p.platform}:${sId}:${p.payout_reference_id}`
+        const linkedOrdersCount = linkedOrdersByPayoutKey.get(pKey) || 0
+        const expectedOrdersCount = Number(p.orders_count || 0)
+        const hasMissingTaxFlag =
+          Boolean(p.raw_payload?.missing_tax_breakdown) || p.raw_payload?.tax_breakdown_verified === false
+        const hasIncompleteOrderDetail = expectedOrdersCount > 0 && linkedOrdersCount === 0
+        const prp = p.raw_payload || {}
+        const slimPayoutRaw = {
+          tax_breakdown_verified: prp.tax_breakdown_verified ?? undefined,
+          period_verified: prp.period_verified ?? undefined,
+          missing_tax_breakdown: prp.missing_tax_breakdown ?? undefined,
+          unverified_reason: prp.unverified_reason ?? undefined,
+          unassigned_store: prp.unassigned_store ?? undefined,
+          qb_journal_entry_id: prp.qb_journal_entry_id ?? undefined,
+          qb_doc_number: prp.qb_doc_number ?? undefined,
+          qb_txn_date: prp.qb_txn_date ?? undefined,
+          qb_published_at: prp.qb_published_at ?? undefined,
+          cross_payout_refunds: prp.cross_payout_refunds ?? undefined,
+          variance_approval: prp.variance_approval ?? undefined,
+        }
+        return {
+          ...p,
+          raw_payload: slimPayoutRaw,
+          store_name: storeMeta.name,
+          store_code: storeMeta.code,
+          linked_orders_count: linkedOrdersCount,
+          coverage_complete: sId > 0 && !hasMissingTaxFlag && !hasIncompleteOrderDetail,
+          coverage_warning:
+            sId <= 0
+              ? 'UNASSIGNED_STORE'
+              : hasMissingTaxFlag
+              ? 'MISSING_TAX_BREAKDOWN'
+              : hasIncompleteOrderDetail
+              ? 'MISSING_ORDER_DETAIL_EXTRACTION'
+              : null,
+        }
+      })
       .filter((p: any) => {
+        if (payoutRefParam) {
+          return p.payout_reference_id === payoutRefParam
+        }
         if (search && search.length >= 2) {
           const crossMatch = Array.isArray(p.raw_payload?.cross_payout_refunds)
             ? p.raw_payload.cross_payout_refunds.some(
@@ -342,11 +1085,13 @@ export async function GET(req: NextRequest) {
             crossMatch
           )
         }
-        // Mostrar cortes cuyo periodo [period_start, period_end] se traslape con [startDate, endDate] (si no tiene period_start/end, usar payout_date)
         const pEnd = p.period_end || ''
         const pStart = p.period_start || pEnd
         const pPay = p.payout_date || ''
         if (pStart && pEnd) {
+          if (pStart < pEnd && startDate < endDate) {
+            return pStart < endDate && pEnd > startDate
+          }
           return pStart <= endDate && pEnd >= startDate
         }
         if (pPay) {
@@ -355,7 +1100,130 @@ export async function GET(req: NextRequest) {
         return true
       })
 
-    // Calcular Resumen Ejecutivo (KPIs) separando Órdenes Liquidadas/Cruzadas vs Pendientes de Corte en Toast
+    // Calcular cobertura de las 15 tiendas por plataforma en el contexto actual
+    const targetStoresForCoverage =
+      selectedStoreNum !== null && selectedStoreNum > 0
+        ? mappings.filter((m) => m.store_id === selectedStoreNum)
+        : mappings
+
+    const platformCoverage = buildStorePlatformCoverageMatrix({
+      mappings: targetStoresForCoverage,
+      orders,
+      payouts,
+      encryptionKeyConfigured: hasDedicatedIntegrationEncryptionKey(),
+    }).filter((item) => !platformParam || platformParam === 'ALL' || item.platform === platformParam)
+
+    const storeCoverageList = targetStoresForCoverage.map((m) => {
+      const stSync = syncStatus.byStore[m.store_id] || {
+        toastLastSync: null,
+        toastOrders: 0,
+        ddLastSync: null,
+        ddOrders: 0,
+        ddPayouts: 0,
+        ghLastSync: null,
+        ghOrders: 0,
+        ghPayouts: 0,
+        ueLastSync: null,
+        ueOrders: 0,
+        uePayouts: 0,
+      }
+      const storePayoutsInWindow = payouts.filter((p: any) => Number(p.store_id) === m.store_id)
+      const incompletePayouts = storePayoutsInWindow.filter((p: any) => !p.coverage_complete)
+      const storePlatformStates = platformCoverage.filter((pc) => pc.store_id === m.store_id)
+      const hasFailedOrPartialPlatform = storePlatformStates.some((pc) => pc.status !== 'COMPLETE')
+      return {
+        store_id: m.store_id,
+        store_name: m.store_name,
+        store_code: m.store_code,
+        toast_orders_total: stSync.toastOrders,
+        doordash_orders_total: stSync.ddOrders,
+        doordash_payouts_total: stSync.ddPayouts,
+        ubereats_orders_total: stSync.ueOrders,
+        ubereats_payouts_total: stSync.uePayouts,
+        grubhub_orders_total: stSync.ghOrders,
+        grubhub_payouts_total: stSync.ghPayouts,
+        payouts_in_window: storePayoutsInWindow.length,
+        incomplete_payouts_in_window: incompletePayouts.length,
+        is_complete_in_window: incompletePayouts.length === 0 && !hasFailedOrPartialPlatform,
+        platform_states: storePlatformStates,
+      }
+    })
+
+    const incompleteStoresInWindow = storeCoverageList.filter((s) => !s.is_complete_in_window)
+    const unassignedOrdersCount = quarantinedUnassigned.orders?.length || 0
+    const unassignedPayoutsCount = quarantinedUnassigned.payouts?.length || 0
+    const nonCompletePlatformCount = platformCoverage.filter((pc) => pc.status !== 'COMPLETE').length
+
+    const totalToastOnlyInWindow = orders.filter((o: any) => o.match_confidence === 'TOAST_ONLY').length
+    const totalPayoutsInWindow = payouts.length
+    const hasEncryptionKey = hasDedicatedIntegrationEncryptionKey()
+
+    const buildCoverageStatusEs = () => {
+      if (
+        incompleteStoresInWindow.length === 0 &&
+        unassignedOrdersCount === 0 &&
+        unassignedPayoutsCount === 0 &&
+        nonCompletePlatformCount === 0
+      ) {
+        return `Cobertura verificada (${storeCoverageList.length}/${mappings.length} sucursales)`
+      }
+      if (totalPayoutsInWindow === 0 && totalToastOnlyInWindow > 0) {
+        return `Alerta informativa: 0 cortes semanales cerrados en este periodo (${totalToastOnlyInWindow} órdenes de Toast POS pendientes de liquidación en plataformas)`
+      }
+      if (!hasEncryptionKey) {
+        return `Alerta informativa: Falta INTEGRATION_ENCRYPTION_KEY en servidor (${incompleteStoresInWindow.length} tienda(s) requieren sincronización)`
+      }
+      return `Alerta informativa de cobertura (${incompleteStoresInWindow.length} tienda(s) con detalle de órdenes pendiente${
+        unassignedOrdersCount + unassignedPayoutsCount > 0
+          ? `, ${unassignedOrdersCount + unassignedPayoutsCount} registro(s) sin tienda asignada`
+          : ''
+      })`
+    }
+
+    const buildCoverageStatusEn = () => {
+      if (
+        incompleteStoresInWindow.length === 0 &&
+        unassignedOrdersCount === 0 &&
+        unassignedPayoutsCount === 0 &&
+        nonCompletePlatformCount === 0
+      ) {
+        return `Verified coverage (${storeCoverageList.length}/${mappings.length} stores)`
+      }
+      if (totalPayoutsInWindow === 0 && totalToastOnlyInWindow > 0) {
+        return `Informative alert: 0 closed weekly payouts in this period (${totalToastOnlyInWindow} Toast POS orders pending platform settlement)`
+      }
+      if (!hasEncryptionKey) {
+        return `Informative alert: Missing server INTEGRATION_ENCRYPTION_KEY (${incompleteStoresInWindow.length} store(s) require sync)`
+      }
+      return `Coverage informative alert (${incompleteStoresInWindow.length} store(s) with pending order detail${
+        unassignedOrdersCount + unassignedPayoutsCount > 0
+          ? `, ${unassignedOrdersCount + unassignedPayoutsCount} unassigned store record(s)`
+          : ''
+      })`
+    }
+
+    const coverageReport = {
+      totalStoresConfigured: mappings.length,
+      storesEvaluated: storeCoverageList.length,
+      storesWithCompleteDetailInWindow: storeCoverageList.length - incompleteStoresInWindow.length,
+      incompleteStoresCount: incompleteStoresInWindow.length,
+      incompleteStores: incompleteStoresInWindow,
+      unassignedOrdersCount,
+      unassignedPayoutsCount,
+      nonCompletePlatformCount,
+      encryptionKeyConfigured: hasEncryptionKey,
+      isCoverageComplete:
+        incompleteStoresInWindow.length === 0 &&
+        unassignedOrdersCount === 0 &&
+        unassignedPayoutsCount === 0 &&
+        nonCompletePlatformCount === 0,
+      statusLabelEs: buildCoverageStatusEs(),
+      statusLabelEn: buildCoverageStatusEn(),
+      byStore: storeCoverageList,
+      byStorePlatform: platformCoverage,
+    }
+
+    // Calcular Resumen Ejecutivo (KPIs) y los 4 Grupos de Acción
     let toastNetTotal = 0
     let toastTaxTotal = 0
     let toastTaxForMerchantTotal = 0
@@ -372,11 +1240,21 @@ export async function GET(req: NextRequest) {
     let errorAndAdjustmentTotal = 0
     let netPayoutOrdersTotal = 0
 
+    let conciliatedReadyCount = 0
+    let conciliatedReadyGross = 0
+    let varianceInvestigateCount = 0
+    let varianceInvestigateAmount = 0
+    let disputeRecoveryCount = 0
+    let disputeRecoveryAmount = 0
+    let blockedMissingInfoCount = 0
+    let blockedMissingInfoAmount = 0
+
     let matchedOrdersCount = 0
     let discrepancyOrdersCount = 0
     let disputedOrdersCount = 0
 
     let settledOrdersCount = 0
+    let withPayoutPendingReviewCount = 0
     let settledToastExpectedTotal = 0
     let settledPlatformGrossTotal = 0
     let pendingToastOnlyCount = 0
@@ -384,6 +1262,11 @@ export async function GET(req: NextRequest) {
 
     const initPlatSummary = () => ({
       ordersCount: 0,
+      conciliatedReadyCount: 0,
+      withPayoutPendingReviewCount: 0,
+      varianceInvestigateCount: 0,
+      disputeRecoveryCount: 0,
+      blockedMissingInfoCount: 0,
       settledOrdersCount: 0,
       matchedCount: 0,
       disputedCount: 0,
@@ -451,6 +1334,7 @@ export async function GET(req: NextRequest) {
       const plat = (o.platform as DeliveryPlatformCode) || 'DOORDASH'
       const isToastOnly = o.match_confidence === 'TOAST_ONLY' || o.reconciliation_status === 'MISSING_IN_PLATFORM'
       const isMatchedBothSides = Boolean(o.toast_order_guid) && !isToastOnly
+      const group = o.action_group as ReconciliationActionGroup
 
       const tNet = Number(o.toast_net_sales || 0)
       const tTax = Number(o.toast_tax || 0)
@@ -485,31 +1369,43 @@ export async function GET(req: NextRequest) {
       errorAndAdjustmentTotal += errAdj
       netPayoutOrdersTotal += netPay
 
+      if (group === 'CONCILIATED_READY') {
+        conciliatedReadyCount++
+        conciliatedReadyGross = round2(conciliatedReadyGross + pGross)
+      } else if (group === 'VARIANCE_INVESTIGATE') {
+        varianceInvestigateCount++
+        varianceInvestigateAmount = round2(varianceInvestigateAmount + Math.abs(Number(o.gross_variance || 0)))
+      } else if (group === 'DISPUTE_RECOVERY') {
+        disputeRecoveryCount++
+        disputeRecoveryAmount = round2(disputeRecoveryAmount + Math.abs(Number(o.error_charge || 0)))
+      } else {
+        blockedMissingInfoCount++
+        blockedMissingInfoAmount = round2(blockedMissingInfoAmount + (tExp || pGross))
+      }
+
       if (isToastOnly) {
         pendingToastOnlyCount++
         pendingToastOnlyGross = round2(pendingToastOnlyGross + tExp)
       } else {
-        settledOrdersCount++
+        // Solo contar como "conciliada" real cuando está en CONCILIATED_READY; de lo contrario es "Con payout, pendiente de revisión"
+        if (group === 'CONCILIATED_READY') {
+          settledOrdersCount++
+        } else {
+          withPayoutPendingReviewCount++
+        }
         if (isMatchedBothSides) {
           settledToastExpectedTotal = round2(settledToastExpectedTotal + tExp)
           settledPlatformGrossTotal = round2(settledPlatformGrossTotal + pGross)
         }
       }
 
-      if (o.reconciliation_status === 'MATCHED') {
+      if (group === 'CONCILIATED_READY') {
         matchedOrdersCount++
       } else if (!isToastOnly) {
         discrepancyOrdersCount++
       }
 
-      const isOrderDisputed =
-        o.is_disputed ||
-        o.reconciliation_status === 'REFUNDED_OR_DISPUTED' ||
-        o.reconciliation_status === 'AMOUNT_MISMATCH' ||
-        o.reconciliation_status === 'TAX_MISMATCH' ||
-        Number(o.error_charge || 0) < -0.01
-
-      if (isOrderDisputed) {
+      if (group === 'DISPUTE_RECOVERY') {
         disputedOrdersCount++
       }
 
@@ -527,24 +1423,33 @@ export async function GET(req: NextRequest) {
         byPlatform[plat].netPayout = round2(byPlatform[plat].netPayout + netPay)
         byPlatform[plat].variance = round2(byPlatform[plat].platformGross - byPlatform[plat].toastExpectedGross)
 
+        if (group === 'CONCILIATED_READY') {
+          byPlatform[plat].conciliatedReadyCount++
+          byPlatform[plat].settledOrdersCount++
+          byPlatform[plat].matchedCount++
+        } else if (group === 'VARIANCE_INVESTIGATE') {
+          byPlatform[plat].varianceInvestigateCount++
+          byPlatform[plat].withPayoutPendingReviewCount++
+        } else if (group === 'DISPUTE_RECOVERY') {
+          byPlatform[plat].disputeRecoveryCount++
+          byPlatform[plat].disputedCount++
+          byPlatform[plat].withPayoutPendingReviewCount++
+        } else {
+          byPlatform[plat].blockedMissingInfoCount++
+          if (!isToastOnly) {
+            byPlatform[plat].withPayoutPendingReviewCount++
+          }
+        }
+
         if (isToastOnly) {
           byPlatform[plat].pendingToastCount++
           byPlatform[plat].pendingToastGross = round2(byPlatform[plat].pendingToastGross + tExp)
-        } else {
-          byPlatform[plat].settledOrdersCount++
-          if (isMatchedBothSides) {
-            byPlatform[plat].settledToastExpected = round2(byPlatform[plat].settledToastExpected + tExp)
-            byPlatform[plat].settledPlatformGross = round2(byPlatform[plat].settledPlatformGross + pGross)
-            byPlatform[plat].settledVariance = round2(
-              byPlatform[plat].settledPlatformGross - byPlatform[plat].settledToastExpected
-            )
-          }
-        }
-        if (o.reconciliation_status === 'MATCHED') {
-          byPlatform[plat].matchedCount++
-        }
-        if (isOrderDisputed) {
-          byPlatform[plat].disputedCount++
+        } else if (isMatchedBothSides) {
+          byPlatform[plat].settledToastExpected = round2(byPlatform[plat].settledToastExpected + tExp)
+          byPlatform[plat].settledPlatformGross = round2(byPlatform[plat].settledPlatformGross + pGross)
+          byPlatform[plat].settledVariance = round2(
+            byPlatform[plat].settledPlatformGross - byPlatform[plat].settledToastExpected
+          )
         }
       }
     }
@@ -556,6 +1461,15 @@ export async function GET(req: NextRequest) {
 
     const summary = {
       totalOrders: orders.length,
+      conciliatedReadyCount,
+      conciliatedReadyGross: round2(conciliatedReadyGross),
+      withPayoutPendingReviewCount,
+      varianceInvestigateCount,
+      varianceInvestigateAmount: round2(varianceInvestigateAmount),
+      disputeRecoveryCount,
+      disputeRecoveryAmount: round2(disputeRecoveryAmount),
+      blockedMissingInfoCount,
+      blockedMissingInfoAmount: round2(blockedMissingInfoAmount),
       settledOrdersCount,
       matchedOrdersCount,
       discrepancyOrdersCount,
@@ -592,6 +1506,7 @@ export async function GET(req: NextRequest) {
       payouts,
       summary,
       syncStatus,
+      coverageReport,
     })
   } catch (error: any) {
     console.error('[GET /api/delivery-reconciliation] Error:', error)
@@ -605,12 +1520,40 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json()
-    const action = body.action
+    if (!body || typeof body !== 'object') {
+      return NextResponse.json({ success: false, error: 'Payload inválido' }, { status: 400 })
+    }
+    const action = String(body.action || '').trim()
 
     if (action === 'sync_live') {
-      const storeId = body.store_id && body.store_id !== 'ALL' ? [Number(body.store_id)] : []
-      const startDate = body.start_date || new Date(Date.now() - 3 * 86400000).toISOString().slice(0, 10)
-      const endDate = body.end_date || new Date().toISOString().slice(0, 10)
+      const storeId =
+        body.store_id && body.store_id !== 'ALL' && Number.isFinite(Number(body.store_id)) && Number(body.store_id) > 0
+          ? [Number(body.store_id)]
+          : []
+
+      const auth = await authorizeDeliveryReconciliationRequest(req, supabaseAdmin, {
+        permission: 'sync',
+        allowCron: true,
+        targetStoreIds: storeId,
+        requireAllStores: storeId.length === 0,
+      })
+      if (!auth.authorized) {
+        return NextResponse.json({ success: false, error: auth.error || 'No autorizado' }, { status: auth.status || 401 })
+      }
+
+      const startDate = isValidIsoDate(body.start_date)
+        ? body.start_date.trim()
+        : new Date(Date.now() - 3 * 86400000).toISOString().slice(0, 10)
+      const endDate = isValidIsoDate(body.end_date)
+        ? body.end_date.trim()
+        : new Date().toISOString().slice(0, 10)
+
+      if (startDate > endDate) {
+        return NextResponse.json(
+          { success: false, error: 'La fecha de inicio no puede ser posterior a la fecha final.' },
+          { status: 400 }
+        )
+      }
 
       const result = await reconcileAndPersistDeliveryData({
         storeIds: storeId,
@@ -627,15 +1570,34 @@ export async function POST(req: NextRequest) {
     }
 
     if (action === 'import_report') {
+      const auth = await authorizeDeliveryReconciliationRequest(req, supabaseAdmin, {
+        permission: 'sync',
+        allowCron: false,
+      })
+      if (!auth.authorized) {
+        return NextResponse.json({ success: false, error: auth.error || 'No autorizado' }, { status: auth.status || 401 })
+      }
+
       const rawContent = String(body.raw_content || '')
-      const forcedPlatform = body.platform || 'AUTO'
-      const defaultStoreId = body.store_id && body.store_id !== 'ALL' ? Number(body.store_id) : 14
+      const forcedPlatform =
+        body.platform && VALID_PLATFORMS.has(String(body.platform)) ? body.platform : 'AUTO'
+      // P1-10: Prohibido asumir Lynwood #14 o usar defaultStoreId sin confirmación explícita del usuario
+      const explicitStoreId: number | undefined =
+        body.store_id && body.store_id !== 'ALL' && Number.isFinite(Number(body.store_id)) && Number(body.store_id) > 0
+          ? Number(body.store_id)
+          : undefined
+      const confirmStoreAssignment = Boolean(explicitStoreId && body.confirm_store_assignment === true)
 
       if (!rawContent.trim()) {
         return NextResponse.json({ success: false, error: 'El contenido del archivo está vacío.' }, { status: 400 })
       }
 
-      const parsed = await parsePlatformReportPayload(rawContent, forcedPlatform, defaultStoreId)
+      const parsed = await parsePlatformReportPayload(rawContent, forcedPlatform, explicitStoreId, {
+        confirmStoreAssignment,
+        confirmedByUserId: auth.user?.id || null,
+        confirmedByEmail: auth.user?.email || 'staff',
+        confirmedAt: new Date().toISOString(),
+      })
       if (parsed.orders.length === 0 && parsed.payouts.length === 0) {
         return NextResponse.json(
           { success: false, error: 'No se encontraron transacciones válidas en el archivo.' },
@@ -643,18 +1605,30 @@ export async function POST(req: NextRequest) {
         )
       }
 
-      // Determinar el rango de fechas y sucursales involucradas en el archivo importado
       const storeIdsSet = new Set<number>()
-      let minDate = body.start_date || '2099-12-31'
-      let maxDate = body.end_date || '2000-01-01'
+      let minDate = isValidIsoDate(body.start_date) ? body.start_date : '2099-12-31'
+      let maxDate = isValidIsoDate(body.end_date) ? body.end_date : '2000-01-01'
 
       for (const o of parsed.orders) {
-        storeIdsSet.add(o.storeId)
+        if (o.storeId > 0) storeIdsSet.add(o.storeId)
         if (o.businessDate < minDate) minDate = o.businessDate
         if (o.businessDate > maxDate) maxDate = o.businessDate
       }
       for (const p of parsed.payouts) {
-        if (p.store_id) storeIdsSet.add(Number(p.store_id))
+        if (p.store_id && Number(p.store_id) > 0) storeIdsSet.add(Number(p.store_id))
+      }
+
+      // Verificar alcance de sucursales para usuarios restringidos a una tienda
+      const storeScopeAuth = await authorizeDeliveryReconciliationRequest(req, supabaseAdmin, {
+        permission: 'sync',
+        allowCron: false,
+        targetStoreIds: Array.from(storeIdsSet),
+      })
+      if (!storeScopeAuth.authorized) {
+        return NextResponse.json(
+          { success: false, error: storeScopeAuth.error || 'Acceso denegado a sucursal del reporte' },
+          { status: storeScopeAuth.status || 403 }
+        )
       }
 
       if (minDate > maxDate) {
@@ -678,6 +1652,7 @@ export async function POST(req: NextRequest) {
         detectedPlatform: parsed.detectedPlatform,
         importedOrdersCount: parsed.orders.length,
         importedPayoutsCount: parsed.payouts.length,
+        manualStoreOverrideApplied: confirmStoreAssignment,
         ...result,
       })
     }
@@ -697,26 +1672,168 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ success: false, error: 'Missing order id' }, { status: 400 })
       }
 
-      const { data: existingOrd } = await supabaseAdmin
+      const normalizedStatus = String(dispute_status || 'NONE').toUpperCase()
+      if (!VALID_DISPUTE_STATUSES.has(normalizedStatus)) {
+        return NextResponse.json(
+          { success: false, error: `Invalid dispute_status: ${dispute_status}` },
+          { status: 400 }
+        )
+      }
+
+      const { data: existingOrd, error: fetchErr } = await supabaseAdmin
         .from('delivery_platform_orders')
-        .select('raw_payload, dispute_amount')
+        .select('id, store_id, platform, platform_order_id, error_charge, platform_gross_receivable, toast_expected_gross, raw_payload, dispute_amount')
         .eq('id', id)
         .single()
 
-      const updatedRaw = {
-        ...(existingOrd?.raw_payload || {}),
-        ...(reimbursement_payout_ref !== undefined ? { reimbursement_payout_ref } : {}),
-        ...(reimbursement_amount !== undefined ? { reimbursement_amount: Number(reimbursement_amount || 0) } : {}),
-        ...(reimbursement_deposit_date !== undefined ? { reimbursement_deposit_date } : {}),
-        ...(reimbursement_description !== undefined ? { reimbursement_description } : {}),
+      if (fetchErr || !existingOrd) {
+        return NextResponse.json({ success: false, error: 'Order not found' }, { status: 404 })
       }
 
-      const isDisputed = dispute_status && dispute_status !== 'NONE'
+      const auth = await authorizeDeliveryReconciliationRequest(req, supabaseAdmin, {
+        permission: 'dispute_review',
+        allowCron: false,
+        targetStoreIds: [Number(existingOrd.store_id)],
+      })
+      if (!auth.authorized) {
+        return NextResponse.json({ success: false, error: auth.error || 'No autorizado' }, { status: auth.status || 401 })
+      }
+
+      const effectivePayoutRef = String(
+        reimbursement_payout_ref !== undefined
+          ? reimbursement_payout_ref || ''
+          : existingOrd.raw_payload?.reimbursement_payout_ref || ''
+      ).trim()
+      const effectiveReimbAmt = round2(
+        Number(
+          reimbursement_amount !== undefined
+            ? reimbursement_amount || 0
+            : existingOrd.raw_payload?.reimbursement_amount || 0
+        )
+      )
+      const effectiveDepositDate = String(
+        reimbursement_deposit_date !== undefined
+          ? reimbursement_deposit_date || ''
+          : existingOrd.raw_payload?.reimbursement_deposit_date || ''
+      ).trim()
+      const effectiveNotes = String(
+        dispute_notes !== undefined
+          ? dispute_notes || ''
+          : reimbursement_description !== undefined
+            ? reimbursement_description || ''
+            : existingOrd.raw_payload?.reimbursement_description || ''
+      ).trim()
+
+      // P0-6: No permitir estado REIMBURSED sin payout de recuperación, monto > 0, fecha de depósito y nota/evidencia obligatoria,
+      // validando en DB que el payout exista, pertenezca a la misma plataforma/tienda y tenga consistencia de importe.
+      if (normalizedStatus === 'REIMBURSED') {
+        if (!effectivePayoutRef) {
+          return NextResponse.json(
+            {
+              success: false,
+              error: 'No se permite marcar como REIMBURSED sin una referencia de payout de recuperación (reimbursement_payout_ref).',
+            },
+            { status: 400 }
+          )
+        }
+        if (!Number.isFinite(effectiveReimbAmt) || effectiveReimbAmt <= 0) {
+          return NextResponse.json(
+            {
+              success: false,
+              error: 'No se permite marcar como REIMBURSED sin un monto de recuperación positivo (reimbursement_amount > 0).',
+            },
+            { status: 400 }
+          )
+        }
+        if (!isValidIsoDate(effectiveDepositDate)) {
+          return NextResponse.json(
+            {
+              success: false,
+              error: 'No se permite marcar como REIMBURSED sin una fecha válida de depósito/recuperación (YYYY-MM-DD).',
+            },
+            { status: 400 }
+          )
+        }
+        if (effectiveNotes.length < 5) {
+          return NextResponse.json(
+            {
+              success: false,
+              error: 'No se permite marcar como REIMBURSED sin nota o evidencia obligatoria (mínimo 5 caracteres).',
+            },
+            { status: 400 }
+          )
+        }
+
+        const { data: recoveryPayouts } = await supabaseAdmin
+          .from('delivery_platform_payouts')
+          .select('id, store_id, platform, payout_reference_id, net_payout_amount, adjustments_amount, raw_payload')
+          .eq('store_id', existingOrd.store_id)
+          .eq('platform', existingOrd.platform)
+          .eq('payout_reference_id', effectivePayoutRef)
+
+        if (!recoveryPayouts || recoveryPayouts.length === 0) {
+          return NextResponse.json(
+            {
+              success: false,
+              error: `El payout de recuperación #${effectivePayoutRef} no existe o no pertenece a la sucursal #${existingOrd.store_id} y plataforma ${existingOrd.platform}.`,
+            },
+            { status: 400 }
+          )
+        }
+        if (recoveryPayouts.length > 1) {
+          return NextResponse.json(
+            {
+              success: false,
+              error: `Referencia de payout de recuperación #${effectivePayoutRef} ambigua (${recoveryPayouts.length} registros). Requiere revisión.`,
+            },
+            { status: 400 }
+          )
+        }
+
+        const maxPossibleRecovery = round2(
+          Math.max(
+            Math.abs(Number(existingOrd.error_charge || 0)),
+            Math.abs(Number(existingOrd.platform_gross_receivable || 0)),
+            Number(existingOrd.toast_expected_gross || 0)
+          )
+        )
+        if (maxPossibleRecovery > 0 && effectiveReimbAmt > maxPossibleRecovery + 0.5) {
+          return NextResponse.json(
+            {
+              success: false,
+              error: `El monto de recuperación ($${effectiveReimbAmt.toFixed(2)}) excede el importe máximo reclamable de la orden ($${maxPossibleRecovery.toFixed(2)}).`,
+            },
+            { status: 400 }
+          )
+        }
+      }
+
+      const updatedRaw = {
+        ...(existingOrd?.raw_payload || {}),
+        ...(reimbursement_payout_ref !== undefined
+          ? { reimbursement_payout_ref: effectivePayoutRef || null }
+          : {}),
+        ...(reimbursement_amount !== undefined
+          ? { reimbursement_amount: effectiveReimbAmt }
+          : {}),
+        ...(reimbursement_deposit_date !== undefined
+          ? { reimbursement_deposit_date: effectiveDepositDate || null }
+          : {}),
+        ...(reimbursement_description !== undefined
+          ? { reimbursement_description: String(reimbursement_description || '').trim() || null }
+          : {}),
+        last_dispute_updated_by_id: auth.user?.id || null,
+        last_dispute_updated_by: auth.user?.email || 'staff',
+        last_dispute_updated_by_role: auth.user?.role || null,
+        last_dispute_updated_at: new Date().toISOString(),
+      }
+
+      const isDisputed = normalizedStatus !== 'NONE'
       const updatePayload: Record<string, any> = {
         is_disputed: Boolean(isDisputed),
-        dispute_status: dispute_status || 'NONE',
-        dispute_notes: dispute_notes ?? null,
-        dispute_reason: dispute_reason ?? null,
+        dispute_status: normalizedStatus,
+        dispute_notes: dispute_notes !== undefined ? String(dispute_notes || '').slice(0, 1000) : null,
+        dispute_reason: dispute_reason !== undefined ? String(dispute_reason || '').slice(0, 500) : null,
         raw_payload: updatedRaw,
         updated_at: new Date().toISOString(),
       }
@@ -735,19 +1852,573 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: true, order: data })
     }
 
+    if (action === 'resolve_review_order') {
+      const { id, review_decision, review_notes, selected_toast_guid } = body
+      if (!id || !review_decision) {
+        return NextResponse.json({ success: false, error: 'Missing order id or review_decision' }, { status: 400 })
+      }
+
+      const allowedDecisions = new Set(['APPROVE_VARIANCE', 'CONFIRM_TOAST_MATCH', 'KEEP_BLOCKED'])
+      if (!allowedDecisions.has(String(review_decision))) {
+        return NextResponse.json({ success: false, error: 'Invalid review_decision' }, { status: 400 })
+      }
+
+      const trimmedNotes = String(review_notes || '').trim().slice(0, 1000)
+      if (review_decision === 'APPROVE_VARIANCE' && trimmedNotes.length < 5) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: 'Para aprobar una varianza se requiere un motivo obligatorio documentado (mínimo 5 caracteres).',
+          },
+          { status: 400 }
+        )
+      }
+
+      const { data: existingOrd, error: fetchErr } = await supabaseAdmin
+        .from('delivery_platform_orders')
+        .select('*')
+        .eq('id', id)
+        .single()
+
+      if (fetchErr || !existingOrd) {
+        return NextResponse.json({ success: false, error: 'Order not found' }, { status: 404 })
+      }
+
+      const auth = await authorizeDeliveryReconciliationRequest(req, supabaseAdmin, {
+        permission: 'dispute_review',
+        allowCron: false,
+        targetStoreIds: [Number(existingOrd.store_id)],
+      })
+      if (!auth.authorized) {
+        return NextResponse.json({ success: false, error: auth.error || 'No autorizado' }, { status: auth.status || 401 })
+      }
+
+      const nowIso = new Date().toISOString()
+      const grossVar = round2(Number(existingOrd.gross_diff ?? existingOrd.gross_variance ?? 0))
+      const evidenceStr = `Toast #${existingOrd.toast_display_number || 'N/A'} ($${Number(existingOrd.toast_expected_gross || 0).toFixed(2)}) vs ${existingOrd.platform} #${existingOrd.platform_order_id} ($${Number(existingOrd.platform_gross_receivable || 0).toFixed(2)})`
+
+      const updatedRaw: Record<string, any> = {
+        ...(existingOrd.raw_payload || {}),
+        explicit_review_decision: review_decision,
+        explicit_review_notes: trimmedNotes,
+        explicit_reviewed_by_id: auth.user?.id || null,
+        explicit_reviewed_by: auth.user?.email || 'staff',
+        explicit_reviewed_by_role: auth.user?.role || null,
+        explicit_reviewed_at: nowIso,
+      }
+
+      if (review_decision === 'APPROVE_VARIANCE') {
+        updatedRaw.variance_approval = {
+          approved: true,
+          approved_by_user_id: auth.user?.id || null,
+          approved_by_email: auth.user?.email || 'staff',
+          approved_by_role: auth.user?.role || null,
+          approved_at: nowIso,
+          reason: trimmedNotes,
+          approved_amount: grossVar,
+          payout_reference_id: existingOrd.payout_reference_id || null,
+          evidence: evidenceStr,
+        }
+      } else if (review_decision === 'KEEP_BLOCKED') {
+        updatedRaw.variance_approval = null
+      }
+
+      const updateFields: Record<string, any> = {
+        raw_payload: updatedRaw,
+        updated_at: nowIso,
+      }
+
+      if (review_decision === 'CONFIRM_TOAST_MATCH' && selected_toast_guid) {
+        const candidates = Array.isArray(existingOrd.raw_payload?.ambiguous_toast_candidates)
+          ? existingOrd.raw_payload.ambiguous_toast_candidates
+          : existingOrd.raw_payload?.suggested_toast_candidate
+            ? [existingOrd.raw_payload.suggested_toast_candidate]
+            : []
+        const chosen = candidates.find(
+          (c: any) => (c.toastOrderGuid || c.toastGuid) === selected_toast_guid
+        )
+        if (chosen) {
+          const plat = existingOrd.platform as DeliveryPlatformCode
+          const expectedGross =
+            plat === 'UBER_EATS'
+              ? round2(Number(chosen.netSales || 0))
+              : round2(Number(chosen.netSales || 0) + Number(chosen.taxAmount || 0))
+          const pGross = Number(existingOrd.platform_gross_receivable || 0)
+          const newGrossVar = round2(pGross - expectedGross)
+          updateFields.toast_order_guid = chosen.toastOrderGuid || chosen.toastGuid
+          updateFields.toast_display_number = chosen.toastDisplayNumber || chosen.displayNumber
+          updateFields.toast_net_sales = round2(Number(chosen.netSales || 0))
+          updateFields.toast_tax = round2(Number(chosen.taxAmount || 0))
+          updateFields.toast_expected_gross = expectedGross
+          updateFields.subtotal_diff = round2(Number(existingOrd.platform_subtotal || 0) - Number(chosen.netSales || 0))
+          updateFields.gross_diff = newGrossVar
+          updateFields.match_confidence = 'EXACT_ID'
+          updateFields.reconciliation_status = Math.abs(newGrossVar) <= 0.05 ? 'MATCHED' : 'AMOUNT_MISMATCH'
+          updatedRaw.ambiguous_toast_candidates = null
+          updatedRaw.suggested_toast_candidate = null
+        }
+      }
+
+      const { data, error } = await supabaseAdmin
+        .from('delivery_platform_orders')
+        .update(updateFields)
+        .eq('id', id)
+        .select()
+        .single()
+
+      if (error) throw new Error(error.message)
+      return NextResponse.json({ success: true, order: data })
+    }
+
+    if (action === 'approve_payout_variance') {
+      const payoutId = String(body.payout_id || '').trim()
+      const reason = String(body.reason || body.review_notes || '').trim().slice(0, 1000)
+      if (!payoutId) {
+        return NextResponse.json({ success: false, error: 'Se requiere payout_id.' }, { status: 400 })
+      }
+      if (reason.length < 5) {
+        return NextResponse.json(
+          { success: false, error: 'Se requiere un motivo obligatorio documentado (mínimo 5 caracteres) para aprobar la varianza del corte.' },
+          { status: 400 }
+        )
+      }
+
+      const { data: payoutRow, error: payErr } = await supabaseAdmin
+        .from('delivery_platform_payouts')
+        .select('*')
+        .eq('id', payoutId)
+        .single()
+
+      if (payErr || !payoutRow) {
+        return NextResponse.json({ success: false, error: 'Payout no encontrado.' }, { status: 404 })
+      }
+
+      const auth = await authorizeDeliveryReconciliationRequest(req, supabaseAdmin, {
+        permission: 'dispute_review',
+        allowCron: false,
+        targetStoreIds: [Number(payoutRow.store_id)],
+      })
+      if (!auth.authorized) {
+        return NextResponse.json({ success: false, error: auth.error || 'No autorizado' }, { status: auth.status || 401 })
+      }
+
+      const nowIso = new Date().toISOString()
+      const approvedAmount = round2(Number(payoutRow.gross_variance || 0))
+      const evidence =
+        String(body.evidence || '').trim() ||
+        `Corte ${payoutRow.platform} #${payoutRow.payout_reference_id} | Bruto Plataforma: $${Number(payoutRow.platform_gross_receivable || 0).toFixed(2)} vs Esperado Toast: $${Number(payoutRow.toast_expected_gross || 0).toFixed(2)} (Dif: $${approvedAmount.toFixed(2)})`
+
+      const updatedRaw = {
+        ...(payoutRow.raw_payload || {}),
+        variance_approval: {
+          approved: true,
+          approved_by_user_id: auth.user?.id || null,
+          approved_by_email: auth.user?.email || 'staff',
+          approved_by_role: auth.user?.role || null,
+          approved_at: nowIso,
+          reason,
+          approved_amount: approvedAmount,
+          payout_reference_id: payoutRow.payout_reference_id,
+          evidence,
+        },
+      }
+
+      const { data: updatedPayout, error: updErr } = await supabaseAdmin
+        .from('delivery_platform_payouts')
+        .update({
+          raw_payload: updatedRaw,
+          updated_at: nowIso,
+        })
+        .eq('id', payoutRow.id)
+        .select()
+        .single()
+
+      if (updErr) throw new Error(updErr.message)
+      return NextResponse.json({ success: true, payout: updatedPayout })
+    }
+
+    if (action === 'batch_resolve_review') {
+      const rawOrderIds: string[] = Array.isArray(body.order_ids)
+        ? body.order_ids.map((v: any) => String(v || '').trim()).filter(Boolean)
+        : []
+      const reviewDecision = String(body.review_decision || 'APPROVE_VARIANCE').trim()
+      const reviewNotes = String(body.review_notes || '').trim().slice(0, 1000)
+
+      const allowedDecisions = new Set(['APPROVE_VARIANCE', 'KEEP_BLOCKED'])
+      if (rawOrderIds.length === 0 || !allowedDecisions.has(reviewDecision)) {
+        return NextResponse.json(
+          { success: false, error: 'Se requiere al menos un order_id válido y un review_decision permitido.' },
+          { status: 400 }
+        )
+      }
+
+      if (rawOrderIds.some((id) => id.startsWith('UNASSIGNED-'))) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: 'Acción masiva rechazada: las órdenes con tienda desconocida (UNASSIGNED_STORE) están bloqueadas y no pueden entrar en aprobación de varianzas.',
+          },
+          { status: 400 }
+        )
+      }
+
+      if (reviewDecision === 'APPROVE_VARIANCE' && reviewNotes.length < 5) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: 'Para aprobar varianzas masivamente se requiere un motivo obligatorio documentado (mínimo 5 caracteres).',
+          },
+          { status: 400 }
+        )
+      }
+
+      const { data: existingRows, error: fetchErr } = await supabaseAdmin
+        .from('delivery_platform_orders')
+        .select('*')
+        .in('id', rawOrderIds)
+
+      if (fetchErr) throw new Error(fetchErr.message)
+
+      if (!existingRows || existingRows.length !== rawOrderIds.length) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: `Acción masiva rechazada: se solicitaron ${rawOrderIds.length} órdenes pero solo se encontraron ${existingRows?.length || 0} en la base de datos.`,
+          },
+          { status: 400 }
+        )
+      }
+
+      const involvedStoreIds = Array.from(new Set(existingRows.map((r: any) => Number(r.store_id))))
+      const auth = await authorizeDeliveryReconciliationRequest(req, supabaseAdmin, {
+        permission: 'dispute_review',
+        allowCron: false,
+        targetStoreIds: involvedStoreIds,
+      })
+      if (!auth.authorized) {
+        return NextResponse.json({ success: false, error: auth.error || 'No autorizado' }, { status: auth.status || 401 })
+      }
+
+      // P0-7: Validar que TODAS las órdenes pertenezcan exclusivamente a VARIANCE_INVESTIGATE
+      const incompatibleOrders = existingRows.filter((row: any) => {
+        const classified = classifyOrderActionGroupAndExplanation(row)
+        return classified.action_group !== 'VARIANCE_INVESTIGATE'
+      })
+      if (incompatibleOrders.length > 0) {
+        const badIds = incompatibleOrders.map((r: any) => `#${r.platform_order_id}`).join(', ')
+        return NextResponse.json(
+          {
+            success: false,
+            error: `Acción masiva rechazada: "Aprobar varianza" solo permite órdenes en estado "Diferencias por investigar" (VARIANCE_INVESTIGATE). Órdenes incompatibles: ${badIds}.`,
+          },
+          { status: 400 }
+        )
+      }
+
+      let updatedCount = 0
+      const nowIso = new Date().toISOString()
+      const reviewer = auth.user?.email || 'staff'
+
+      for (const row of existingRows) {
+        const grossVar = round2(Number(row.gross_diff ?? row.gross_variance ?? 0))
+        const evidenceStr = `Toast #${row.toast_display_number || 'N/A'} ($${Number(row.toast_expected_gross || 0).toFixed(2)}) vs ${row.platform} #${row.platform_order_id} ($${Number(row.platform_gross_receivable || 0).toFixed(2)})`
+        const mergedRaw: Record<string, any> = {
+          ...(row.raw_payload || {}),
+          explicit_review_decision: reviewDecision,
+          explicit_review_notes: reviewNotes,
+          explicit_reviewed_by_id: auth.user?.id || null,
+          explicit_reviewed_by: reviewer,
+          explicit_reviewed_by_role: auth.user?.role || null,
+          explicit_reviewed_at: nowIso,
+        }
+        if (reviewDecision === 'APPROVE_VARIANCE') {
+          mergedRaw.variance_approval = {
+            approved: true,
+            approved_by_user_id: auth.user?.id || null,
+            approved_by_email: reviewer,
+            approved_by_role: auth.user?.role || null,
+            approved_at: nowIso,
+            reason: reviewNotes,
+            approved_amount: grossVar,
+            payout_reference_id: row.payout_reference_id || null,
+            evidence: evidenceStr,
+          }
+        } else {
+          mergedRaw.variance_approval = null
+        }
+
+        const { error: updErr } = await supabaseAdmin
+          .from('delivery_platform_orders')
+          .update({
+            raw_payload: mergedRaw,
+            updated_at: nowIso,
+          })
+          .eq('id', row.id)
+        if (!updErr) updatedCount++
+      }
+
+      return NextResponse.json({
+        success: true,
+        updatedCount,
+      })
+    }
+
+    if (action === 'batch_update_disputes') {
+      const rawOrderIds: string[] = Array.isArray(body.order_ids)
+        ? body.order_ids.map((v: any) => String(v || '').trim()).filter(Boolean)
+        : []
+      const normalizedStatus = String(body.dispute_status || 'SUBMITTED').toUpperCase()
+      const disputeNotes = body.dispute_notes !== undefined ? String(body.dispute_notes || '').slice(0, 1000) : undefined
+
+      if (rawOrderIds.length === 0 || !VALID_DISPUTE_STATUSES.has(normalizedStatus)) {
+        return NextResponse.json(
+          { success: false, error: 'Se requiere al menos un order_id válido y un dispute_status permitido.' },
+          { status: 400 }
+        )
+      }
+
+      if (normalizedStatus === 'REIMBURSED') {
+        return NextResponse.json(
+          {
+            success: false,
+            error: 'El estado REIMBURSED requiere verificar individualmente el payout de recuperación, monto, fecha de depósito y evidencia por cada orden.',
+          },
+          { status: 400 }
+        )
+      }
+
+      if (rawOrderIds.some((id) => id.startsWith('UNASSIGNED-'))) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: 'Acción masiva rechazada: las órdenes con tienda desconocida (UNASSIGNED_STORE) están bloqueadas.',
+          },
+          { status: 400 }
+        )
+      }
+
+      const { data: existingRows, error: fetchErr } = await supabaseAdmin
+        .from('delivery_platform_orders')
+        .select('*')
+        .in('id', rawOrderIds)
+
+      if (fetchErr) throw new Error(fetchErr.message)
+
+      if (!existingRows || existingRows.length !== rawOrderIds.length) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: `Acción masiva rechazada: se solicitaron ${rawOrderIds.length} órdenes pero solo se encontraron ${existingRows?.length || 0} en la base de datos.`,
+          },
+          { status: 400 }
+        )
+      }
+
+      const involvedStoreIds = Array.from(new Set(existingRows.map((r: any) => Number(r.store_id))))
+      const auth = await authorizeDeliveryReconciliationRequest(req, supabaseAdmin, {
+        permission: 'dispute_review',
+        allowCron: false,
+        targetStoreIds: involvedStoreIds,
+      })
+      if (!auth.authorized) {
+        return NextResponse.json({ success: false, error: auth.error || 'No autorizado' }, { status: auth.status || 401 })
+      }
+
+      // P0-7: Validar que TODAS las órdenes pertenezcan exclusivamente a DISPUTE_RECOVERY
+      const incompatibleOrders = existingRows.filter((row: any) => {
+        const classified = classifyOrderActionGroupAndExplanation(row)
+        return classified.action_group !== 'DISPUTE_RECOVERY'
+      })
+      if (incompatibleOrders.length > 0) {
+        const badIds = incompatibleOrders.map((r: any) => `#${r.platform_order_id}`).join(', ')
+        return NextResponse.json(
+          {
+            success: false,
+            error: `Acción masiva rechazada: "Marcar disputa presentada" solo permite órdenes en estado "Disputas / recuperaciones" (DISPUTE_RECOVERY). Órdenes incompatibles: ${badIds}.`,
+          },
+          { status: 400 }
+        )
+      }
+
+      let updatedCount = 0
+      const nowIso = new Date().toISOString()
+      const reviewer = auth.user?.email || 'staff'
+      const isDisputed = normalizedStatus !== 'NONE'
+
+      for (const row of existingRows) {
+        const mergedRaw = {
+          ...(row.raw_payload || {}),
+          last_dispute_updated_by_id: auth.user?.id || null,
+          last_dispute_updated_by: reviewer,
+          last_dispute_updated_by_role: auth.user?.role || null,
+          last_dispute_updated_at: nowIso,
+        }
+        const { error: updErr } = await supabaseAdmin
+          .from('delivery_platform_orders')
+          .update({
+            is_disputed: isDisputed,
+            dispute_status: normalizedStatus,
+            dispute_notes: disputeNotes !== undefined && disputeNotes.trim() ? disputeNotes : row.dispute_notes,
+            raw_payload: mergedRaw,
+            updated_at: nowIso,
+          })
+          .eq('id', row.id)
+        if (!updErr) updatedCount++
+      }
+
+      return NextResponse.json({
+        success: true,
+        updatedCount,
+      })
+    }
+
+    if (action === 'assign_unassigned_store') {
+      const targetStoreId = Number(body.target_store_id)
+      const platform = String(body.platform || '')
+      const referenceId = String(body.reference_id || '').trim()
+      const confirmStoreAssignment = body.confirm_store_assignment === true
+      if (!Number.isFinite(targetStoreId) || targetStoreId <= 0 || !VALID_PLATFORMS.has(platform) || !referenceId) {
+        return NextResponse.json(
+          { success: false, error: 'Se requiere target_store_id válido (> 0), platform y reference_id.' },
+          { status: 400 }
+        )
+      }
+      if (!confirmStoreAssignment) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: 'Se requiere confirmación explícita (confirm_store_assignment = true) para asignar una tienda a un registro UNASSIGNED_STORE.',
+          },
+          { status: 400 }
+        )
+      }
+
+      const auth = await authorizeDeliveryReconciliationRequest(req, supabaseAdmin, {
+        permission: 'manage_mappings',
+        allowCron: false,
+        targetStoreIds: [targetStoreId],
+      })
+      if (!auth.authorized) {
+        return NextResponse.json({ success: false, error: auth.error || 'No autorizado' }, { status: auth.status || 401 })
+      }
+
+      const nowIso = new Date().toISOString()
+      const auditMeta = {
+        assigned_to_store_id: targetStoreId,
+        assigned_by_user_id: auth.user?.id || null,
+        assigned_by_email: auth.user?.email || 'staff',
+        assigned_by_role: auth.user?.role || null,
+        assigned_at: nowIso,
+        reference_id: referenceId,
+        platform,
+      }
+
+      const quarantined = await getQuarantinedUnassignedRecords()
+      const matchedOrders: any[] = quarantined.orders
+        .filter((o: any) => o.platform === platform && (o.platformOrderId === referenceId || o.payoutReferenceId === referenceId))
+        .map((o: any) => ({
+          ...o,
+          storeId: targetStoreId,
+          rawPayload: {
+            ...(o.rawPayload || {}),
+            unassigned_store: false,
+            unassigned_store_resolution_audit: auditMeta,
+          },
+        }))
+      const matchedPayouts: any[] = quarantined.payouts
+        .filter((p: any) => p.platform === platform && p.payout_reference_id === referenceId)
+        .map((p: any) => ({
+          ...p,
+          store_id: targetStoreId,
+          raw_payload: {
+            ...(p.raw_payload || {}),
+            unassigned_store: false,
+            unassigned_store_resolution_audit: auditMeta,
+          },
+        }))
+
+      if (matchedOrders.length === 0 && matchedPayouts.length === 0) {
+        return NextResponse.json(
+          { success: false, error: 'No se encontró el registro en cuarentena UNASSIGNED_STORE.' },
+          { status: 404 }
+        )
+      }
+
+      const remainingOrders = quarantined.orders.filter(
+        (o: any) => !(o.platform === platform && (o.platformOrderId === referenceId || o.payoutReferenceId === referenceId))
+      )
+      const remainingPayouts = quarantined.payouts.filter(
+        (p: any) => !(p.platform === platform && p.payout_reference_id === referenceId)
+      )
+
+      const dates = matchedOrders.map((o: any) => String(o.businessDate || '')).filter(Boolean)
+      const minDate = dates.length > 0 ? dates.sort()[0] : new Date().toISOString().slice(0, 10)
+      const maxDate = dates.length > 0 ? dates.sort()[dates.length - 1] : minDate
+
+      const result = await reconcileAndPersistDeliveryData({
+        storeIds: [targetStoreId],
+        startDate: minDate,
+        endDate: maxDate,
+        syncToast: false,
+        syncGrubhubLive: false,
+        importedPlatformOrders: matchedOrders,
+        importedPayouts: matchedPayouts,
+      })
+
+      await supabaseAdmin
+        .from('integrations')
+        .update({
+          access_token: JSON.stringify({
+            updatedAt: nowIso,
+            orders: remainingOrders,
+            payouts: remainingPayouts,
+          }),
+          updated_at: nowIso,
+        })
+        .eq('service_name', 'delivery_unassigned_quarantine')
+
+      return NextResponse.json({
+        success: true,
+        assignedStoreId: targetStoreId,
+        audit: auditMeta,
+        ...result,
+      })
+    }
+
     if (action === 'update_mapping') {
-      const { store_id, updates } = body
-      if (!store_id || !updates) {
-        return NextResponse.json({ success: false, error: 'Missing store_id or updates' }, { status: 400 })
+      const storeId = Number(body.store_id)
+      const updates = body.updates
+      if (!Number.isFinite(storeId) || storeId <= 0 || !updates || typeof updates !== 'object') {
+        return NextResponse.json({ success: false, error: 'Missing valid store_id or updates' }, { status: 400 })
+      }
+
+      const auth = await authorizeDeliveryReconciliationRequest(req, supabaseAdmin, {
+        permission: 'manage_mappings',
+        allowCron: false,
+        targetStoreIds: [storeId],
+      })
+      if (!auth.authorized) {
+        return NextResponse.json({ success: false, error: auth.error || 'No autorizado' }, { status: auth.status || 401 })
+      }
+
+      const sanitizedUpdates: Record<string, any> = {}
+      for (const [key, val] of Object.entries(updates)) {
+        if (ALLOWED_MAPPING_COLUMNS.has(key)) {
+          sanitizedUpdates[key] = typeof val === 'string' ? val.trim() : val
+        }
+      }
+
+      if (Object.keys(sanitizedUpdates).length === 0) {
+        return NextResponse.json({ success: false, error: 'No permitted mapping fields provided' }, { status: 400 })
       }
 
       const { data, error } = await supabaseAdmin
         .from('delivery_platform_store_mappings')
         .update({
-          ...updates,
+          ...sanitizedUpdates,
           updated_at: new Date().toISOString(),
         })
-        .eq('store_id', Number(store_id))
+        .eq('store_id', storeId)
         .select()
         .single()
 

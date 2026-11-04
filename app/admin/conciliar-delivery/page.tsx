@@ -1,28 +1,40 @@
 /**
  * @module app/admin/conciliar-delivery/page
- * @description Interfaz ejecutiva del Módulo Conciliar Delivery Plataformas (Toast POS vs. DoorDash, Uber Eats y Grubhub).
+ * @description Interfaz ejecutiva rediseñada del Módulo Delivery Platform Order Reconciliation de Tacos Gavilan
+ *              (Toast POS → Orden de Plataforma → Payout/Settlement → Disputa/Reembolso/Recuperación → Journal Entry de QuickBooks).
  *
  * @businessRules
- * 1. Regla Fiscal de Impuestos sobre Ventas (Marketplace Sales Tax Rule):
- *    - **DoorDash y Grubhub**: Entregan el Sales Tax a Tacos Gavilan para declararlo al estado (Cuenta QuickBooks `24001`).
- *      Por lo tanto, `Total Bruto Esperado = Venta Neta Toast + Tax`.
- *    - **Uber Eats**: Retiene y paga el Sales Tax directamente al estado como Marketplace Facilitator (Cuenta `12050`).
- *      Por lo tanto, `Total Bruto Esperado = Venta Neta Toast (Subtotal sin Tax)`.
- * 2. Día Operativo: 6:00 AM a 5:59 AM del día siguiente (`America/Los_Angeles`).
- * 3. Conciliación en 5 vistas: Orden por Orden, Cortes Bancarios (`Deposits`), Disputas/Cargos por Error, Mapeo de las 15 Sucursales y **Pólizas QuickBooks (`Journal Entry`)**.
- * 4. Automatización de `Settlement Journal Entry` en QuickBooks Online (`/api/delivery-reconciliation/quickbooks-journal`), replicando la sesión OAuth 2.0 y creación individual/en lote de `Crear Bills`, con desglose de órdenes descontadas/reembolsadas (ej. `#650DD`) y recuperación opcional de `Sales Tax (Cuenta 24001)` en reembolsos de DoorDash y Grubhub.
- * 5. Soporte 100% bilingüe (ES/EN) mediante `useLanguage()` (`deliveryReconciliation.*`).
+ * 1. Pregunta Principal de Auditoría:
+ *    - La pantalla responde primero: "¿Hay dinero faltante o una diferencia que requiere acción?"
+ *    - Siempre muestra el alcance activo: sucursal(es), plataforma(s), periodo operativo (6:00 AM–5:59 AM PT), última sincronización y cobertura de las 15 tiendas.
+ * 2. Cuatro Grupos Operativos Mutuamente Claros:
+ *    - Grupo 1 (`CONCILIATED_READY`): Conciliado y listo para contabilizar (match exacto por ID, payout comprobado y diferencia $0.00).
+ *    - Grupo 2 (`VARIANCE_INVESTIGATE`): Diferencia por investigar ("Con payout, pendiente de revisión" por diferencia de monto o Sales Tax).
+ *    - Grupo 3 (`DISPUTE_RECOVERY`): Disputa / recuperación (deducción en payout, disputa abierta o recuperación en corte posterior).
+ *    - Grupo 4 (`BLOCKED_MISSING_INFO`): Bloqueado por falta de información o sincronización (match ambiguo, sin ID verificable, falta tax real, tienda desconocida `UNASSIGNED_STORE`, o en Toast pendiente de corte).
+ * 3. Reglas Fiscales Obligatorias:
+ *    - **DoorDash y Grubhub**: Tacos Gavilan recibe y reporta el Sales Tax (`Cuenta 24001`). `Expected Gross = Toast Net Sales + Tax Real`.
+ *    - **Uber Eats**: Marketplace Facilitator; Uber retiene y remite el Sales Tax (`Cuenta 12050`). `Expected Gross = Toast Net Sales (sin tax)` y `Tax paid to merchant = $0.00`.
+ *    - Prohibido estimar impuestos (10.25%) o comisiones (20%).
+ * 4. Seguridad en Selección, Resolución por Lote y Conciliación Bancaria en QuickBooks Online:
+ *    - Limpia la selección de payouts (`selectedQbPayoutIds`) y órdenes (`selectedOrderIds`) al cambiar tienda, plataforma, fechas, filtros o recargar datos.
+ *    - Resolución masiva por lote (`batch_resolve_review`, `batch_update_disputes`) y exportación de Paquete de Evidencia de Disputas.
+ *    - Verificación de Depósito Bancario en QuickBooks Online (`bankVerification`) comparando `net_payout_amount` contra la cuenta bancaria `100XX` de cada sucursal.
+ *    - Prohibido publicar ítems ocultos por filtros o con bloqueos (`!canPublish`).
+ *    - Modal de confirmación final antes de publicación masiva mostrando: cantidad, tiendas, plataformas, `payout_reference_id`s y total neto.
+ *    - Al abrir un payout para auditar sus órdenes, filtra estrictamente por `payout_reference_id` sin mezclar otros settlements.
  *
  * @dataFlow
- * - Consume `GET /api/delivery-reconciliation` y ejecuta mutaciones mediante `POST /api/delivery-reconciliation`.
+ * - Consume `GET /api/delivery-reconciliation` y `GET /api/delivery-reconciliation/quickbooks-journal` (con `credentials: 'include'`).
+ * - Ejecuta mutaciones autenticadas vía `POST /api/delivery-reconciliation` y `POST /api/delivery-reconciliation/quickbooks-journal`.
  *
  * @notes
- * - Incluye sincronización directa en vivo con Toast POS API + Grubhub Merchant Accounting API, e importador universal CSV/JSON para DoorDash y Uber Eats.
+ * - Soporte 100% bilingüe (ES/EN) mediante `useLanguage()` (`deliveryReconciliation.*`).
  */
 
 'use client'
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react'
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useLanguage } from '@/lib/i18n'
 import {
   ShieldCheck,
@@ -33,21 +45,33 @@ import {
   CheckCircle2,
   AlertTriangle,
   XCircle,
-  DollarSign,
   Landmark,
   FileSpreadsheet,
   Store,
   Eye,
-  Filter,
   Scale,
   Receipt,
-  ArrowUpRight,
   Info,
   X,
   Calendar,
+  Lock,
+  ArrowRight,
 } from 'lucide-react'
 
 type DeliveryPlatform = 'DOORDASH' | 'UBER_EATS' | 'GRUBHUB'
+type ActionGroup = 'CONCILIATED_READY' | 'VARIANCE_INVESTIGATE' | 'DISPUTE_RECOVERY' | 'BLOCKED_MISSING_INFO'
+
+interface LifecycleStage {
+  step: number
+  stage: string
+  title_es: string
+  title_en: string
+  date: string | null
+  amount: number
+  detail_es: string
+  detail_en: string
+  completed: boolean
+}
 
 interface ReconciledOrder {
   id: string
@@ -58,11 +82,11 @@ interface ReconciledOrder {
   business_date: string
   placed_at: string | null
   platform_order_id: string
-  platform_transaction_id: string
+  platform_transaction_id?: string
   payout_reference_id: string | null
   payout_date: string | null
-  fulfillment_type: 'DELIVERY' | 'PICKUP'
-  transaction_type: string
+  fulfillment_type?: 'DELIVERY' | 'PICKUP'
+  transaction_type?: string
   platform_subtotal: number
   platform_tax: number
   platform_tax_withheld: number
@@ -74,29 +98,45 @@ interface ReconciledOrder {
   marketing_fee: number
   error_charge: number
   adjustment_amount: number
-  tip_amount: number
+  tip_amount?: number
   net_payout: number
   toast_order_guid: string | null
   toast_display_number: string | null
   toast_tab_name: string | null
   toast_opened_at: string | null
-  toast_dining_option: string | null
+  toast_dining_option?: string | null
   toast_net_sales: number
   toast_tax: number
   toast_expected_gross: number
-  subtotal_diff: number
-  tax_diff: number
-  gross_diff: number
+  subtotal_variance?: number
+  tax_variance?: number
+  gross_variance?: number
+  subtotal_diff?: number
+  tax_diff?: number
+  gross_diff?: number
   reconciliation_status: string
   match_confidence: string
   is_disputed: boolean
   dispute_status: string
   dispute_reason: string | null
-  dispute_amount: number
+  dispute_amount?: number
   dispute_notes: string | null
-  packing_audit_id: string | null
-  items_summary: Array<{ name: string; quantity: number; price: number }>
+  items_summary?: Array<{ name: string; quantity: number; price: number }>
   raw_payload?: Record<string, any>
+  // Enriched audit explanation fields from server
+  action_group?: ActionGroup
+  status_code?: string
+  status_label_es?: string
+  status_label_en?: string
+  what_happened_es?: string
+  what_happened_en?: string
+  cause_es?: string
+  cause_en?: string
+  evidence_es?: string
+  evidence_en?: string
+  next_action_es?: string
+  next_action_en?: string
+  lifecycle_trace?: LifecycleStage[]
 }
 
 interface PlatformPayout {
@@ -110,6 +150,9 @@ interface PlatformPayout {
   period_end: string | null
   payout_date: string | null
   orders_count: number
+  linked_orders_count?: number
+  coverage_complete?: boolean
+  coverage_warning?: string | null
   subtotal_sales: number
   tax_collected: number
   tax_remitted_by_platform: number
@@ -139,15 +182,11 @@ interface StoreMapping {
   store_code: string
   store_name: string
   toast_restaurant_guid: string
-  doordash_store_id: string | null
-  doordash_delivery_comm_pct: number
-  doordash_pickup_comm_pct: number
-  grubhub_cust_id: string | null
-  grubhub_delivery_comm_pct: number
-  grubhub_pickup_comm_pct: number
+  doordash_store_id?: string | null
+  doordash_merchant_store_id?: string | null
+  grubhub_cust_id?: string | null
+  grubhub_merchant_id?: string | null
   ubereats_store_uuid: string | null
-  ubereats_delivery_comm_pct: number
-  ubereats_pickup_comm_pct: number
 }
 
 const fmtMoney = (val: number | null | undefined) => {
@@ -195,22 +234,60 @@ const fmtLaTimestamp = (iso: string | null | undefined): string => {
   )
 }
 
-export default function ConciliarDeliveryPage() {
-  const { t } = useLanguage()
+const getLaCurrentWeekBounds = (): { start: string; end: string } => {
+  const nowLa = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
+  const dayOfWeek = nowLa.getDay() // 0 = Sun, 1 = Mon ...
+  const diffToMonday = dayOfWeek === 0 ? -6 : 1 - dayOfWeek
+  const monday = new Date(nowLa)
+  monday.setDate(nowLa.getDate() + diffToMonday)
+  const sunday = new Date(monday)
+  sunday.setDate(monday.getDate() + 6)
+  const toYmd = (d: Date) => {
+    const y = d.getFullYear()
+    const m = String(d.getMonth() + 1).padStart(2, '0')
+    const day = String(d.getDate()).padStart(2, '0')
+    return `${y}-${m}-${day}`
+  }
+  return { start: toYmd(monday), end: toYmd(sunday) }
+}
 
-  // Default range: Latest closed full week (Corte Oct 19 - Oct 25) so payouts & orders load cleanly from the first second
-  const [startDate, setStartDate] = useState<string>('2026-10-19')
-  const [endDate, setEndDate] = useState<string>('2026-10-25')
-  const [selectedStore, setSelectedStore] = useState<string>('14') // Default Lynwood #14 for fast initial load, or ALL
+export default function ConciliarDeliveryPage() {
+  const { t, language } = useLanguage()
+  const isEn = language === 'en'
+
+  // P1 #14: Inicializar dinámicamente en la semana actual de America/Los_Angeles (prohibido hardcodear octubre 2026)
+  const initialWeek = useMemo(() => getLaCurrentWeekBounds(), [])
+  const [startDate, setStartDate] = useState<string>(initialWeek.start)
+  const [endDate, setEndDate] = useState<string>(initialWeek.end)
+  const [activePreset, setActivePreset] = useState<'THIS_WEEK' | 'PREV_WEEK' | 'CURRENT_MONTH' | 'CUSTOM'>('THIS_WEEK')
+  const [selectedStore, setSelectedStore] = useState<string>('ALL')
   const [selectedPlatform, setSelectedPlatform] = useState<string>('ALL')
   const [selectedStatus, setSelectedStatus] = useState<string>('ALL')
-  const [quickFilter, setQuickFilter] = useState<'SETTLED' | 'DISPUTES' | 'MATCHED' | 'PENDING_TOAST' | 'ALL'>('SETTLED')
+  const [activePayoutRef, setActivePayoutRef] = useState<string>('')
+  // P1 #13: Abrir por defecto en "Atención requerida" (orders), NO en QuickBooks
+  const [selectedActionGroup, setSelectedActionGroup] = useState<'ALL' | ActionGroup>('ALL')
+  const [selectedOrderSubFilter, setSelectedOrderSubFilter] = useState<
+    'NONE' | 'WITH_PAYOUT_PENDING_REVIEW' | 'TOAST_ONLY'
+  >('NONE')
+  const [searchInput, setSearchInput] = useState<string>('')
   const [searchQuery, setSearchQuery] = useState<string>('')
-  const [activeTab, setActiveTab] = useState<'qb_journals' | 'disputes' | 'orders' | 'mappings' | 'payouts'>('qb_journals')
+  const [activeTab, setActiveTab] = useState<'orders' | 'qb_journals' | 'disputes' | 'payouts' | 'mappings'>('orders')
   const [cutsSubView, setCutsSubView] = useState<'qb' | 'bank'>('qb')
+  const [ordersPage, setOrdersPage] = useState<number>(1)
+  const [ordersPageSize, setOrdersPageSize] = useState<number>(100)
+  const [showTaxRulesPopover, setShowTaxRulesPopover] = useState<boolean>(false)
+  const [showAdvancedSupport, setShowAdvancedSupport] = useState<boolean>(false)
+  const [currentUserLabel, setCurrentUserLabel] = useState<string>('Admin / Contador')
+
+  // P1 #15: Control de secuencias y AbortController para evitar condiciones de carrera (race conditions)
+  const fetchSeqRef = useRef<number>(0)
+  const qbFetchSeqRef = useRef<number>(0)
+  const fetchAbortRef = useRef<AbortController | null>(null)
+  const qbAbortRef = useRef<AbortController | null>(null)
 
   const [loading, setLoading] = useState<boolean>(true)
   const [syncing, setSyncing] = useState<boolean>(false)
+  const [fetchError, setFetchError] = useState<string | null>(null)
   const [bannerMessage, setBannerMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
   const [mappings, setMappings] = useState<StoreMapping[]>([])
@@ -218,23 +295,25 @@ export default function ConciliarDeliveryPage() {
   const [payouts, setPayouts] = useState<PlatformPayout[]>([])
   const [summary, setSummary] = useState<any>(null)
   const [syncStatus, setSyncStatus] = useState<any>(null)
+  const [coverageReport, setCoverageReport] = useState<any>(null)
 
-  // Estado para Pestaña 5: Pólizas QuickBooks (Settlement Journal Entries)
+  // Estado Pólizas QuickBooks (Settlement Journal Entries)
   const [qbRecords, setQbRecords] = useState<any[]>([])
   const [qbSummary, setQbSummary] = useState<any>(null)
   const [qbLoading, setQbLoading] = useState<boolean>(false)
   const [qbAuthError, setQbAuthError] = useState<boolean>(false)
   const [qbReauthUrl, setQbReauthUrl] = useState<string>('/api/integrations/quickbooks/auth')
-  const [qbNextDocNumber, setQbNextDocNumber] = useState<string>('20261053')
-  const [qbQuickFilter, setQbQuickFilter] = useState<'ALL' | 'PENDING' | 'CREATED'>('ALL')
+  const [qbNextDocNumber, setQbNextDocNumber] = useState<string>('20261060')
+  const [qbQuickFilter, setQbQuickFilter] = useState<'ALL' | 'PENDING' | 'CREATED' | 'BLOCKED'>('ALL')
   const [selectedQbPayoutIds, setSelectedQbPayoutIds] = useState<Set<string>>(new Set())
+  const [showBatchConfirmModal, setShowBatchConfirmModal] = useState<boolean>(false)
   const [publishingQb, setPublishingQb] = useState<boolean>(false)
   const [selectedQbRecord, setSelectedQbRecord] = useState<any | null>(null)
   const [jeModalDate, setJeModalDate] = useState<string>('')
   const [jeModalDocNumber, setJeModalDocNumber] = useState<string>('')
   const [jeModalSplitTax, setJeModalSplitTax] = useState<boolean>(false)
 
-  // Modal de detalle de orden y disputa
+  // Modal de detalle de orden, trazabilidad de 4 etapas, disputa y resolución de revisión
   const [selectedOrder, setSelectedOrder] = useState<ReconciledOrder | null>(null)
   const [disputeStatusInput, setDisputeStatusInput] = useState<string>('NONE')
   const [disputeNotesInput, setDisputeNotesInput] = useState<string>('')
@@ -243,6 +322,18 @@ export default function ConciliarDeliveryPage() {
   const [reimbursementDateInput, setReimbursementDateInput] = useState<string>('')
   const [reimbursementDescInput, setReimbursementDescInput] = useState<string>('')
   const [savingDispute, setSavingDispute] = useState<boolean>(false)
+  // P0 #5: UNASSIGNED_STORE inicia SIN tienda elegida (nunca preseleccionar Lynwood #14 ni otra)
+  const [assignTargetStoreId, setAssignTargetStoreId] = useState<string>('')
+  const [showAssignStoreConfirmModal, setShowAssignStoreConfirmModal] = useState<boolean>(false)
+
+  // P0 #7: Estado de selección masiva por lote con separación estricta y modal de confirmación
+  const [selectedOrderIds, setSelectedOrderIds] = useState<Set<string>>(new Set())
+  const [batchNotes, setBatchNotes] = useState<string>('')
+  const [savingBatch, setSavingBatch] = useState<boolean>(false)
+  const [batchOrderConfirmModal, setBatchOrderConfirmModal] = useState<{
+    open: boolean
+    actionType: 'APPROVE_VARIANCE' | 'MARK_DISPUTE_SUBMITTED'
+  } | null>(null)
 
   // Modal de importación CSV / JSON
   const [showImportModal, setShowImportModal] = useState<boolean>(false)
@@ -250,9 +341,68 @@ export default function ConciliarDeliveryPage() {
   const [importText, setImportText] = useState<string>('')
   const [importFileName, setImportFileName] = useState<string>('')
   const [importing, setImporting] = useState<boolean>(false)
+  const [confirmImportStoreAssignment, setConfirmImportStoreAssignment] = useState<boolean>(false)
+
+  useEffect(() => {
+    try {
+      const rawUser = typeof window !== 'undefined' ? localStorage.getItem('teg_user') : null
+      if (rawUser) {
+        const parsed = JSON.parse(rawUser)
+        const label = parsed?.name || parsed?.email || parsed?.username
+        if (label) setCurrentUserLabel(`${label} (${parsed?.role || 'admin'})`)
+      }
+    } catch {}
+  }, [])
+
+  // P1 #15: Debounce de 300ms en búsqueda
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setSearchQuery(searchInput.trim())
+    }, 300)
+    return () => clearTimeout(timer)
+  }, [searchInput])
+
+  // P1 #15: Limpiar selección de payouts y órdenes siempre que cambien filtros, tienda, plataforma, fechas o búsqueda
+  useEffect(() => {
+    setSelectedQbPayoutIds(new Set())
+    setSelectedOrderIds(new Set())
+    setShowBatchConfirmModal(false)
+    setBatchOrderConfirmModal(null)
+    setOrdersPage(1)
+  }, [selectedStore, selectedPlatform, selectedStatus, startDate, endDate, searchQuery, qbQuickFilter, activePayoutRef, selectedActionGroup])
+
+  const authFetch = useCallback((url: string, init?: RequestInit) => {
+    const token = typeof window !== 'undefined' ? localStorage.getItem('teg_token') : null
+    const headers = new Headers(init?.headers || {})
+    if (token && !headers.has('Authorization')) {
+      headers.set('Authorization', `Bearer ${token}`)
+    }
+    return fetch(url, {
+      ...init,
+      credentials: 'include',
+      headers,
+    })
+  }, [])
+
+  const isDateRangeValid = useMemo(() => {
+    if (!startDate || !endDate) return false
+    return endDate >= startDate
+  }, [startDate, endDate])
 
   const fetchData = useCallback(async () => {
+    if (!isDateRangeValid) {
+      setFetchError(t('deliveryReconciliation.date_range_invalid_error'))
+      return
+    }
+    fetchAbortRef.current?.abort()
+    const controller = new AbortController()
+    fetchAbortRef.current = controller
+    const seq = ++fetchSeqRef.current
+
     setLoading(true)
+    setFetchError(null)
+    setSelectedQbPayoutIds(new Set())
+    setSelectedOrderIds(new Set())
     try {
       const qs = new URLSearchParams({
         store_id: selectedStore,
@@ -262,28 +412,47 @@ export default function ConciliarDeliveryPage() {
         end_date: endDate,
         search: searchQuery,
       })
-      const res = await fetch(`/api/delivery-reconciliation?${qs.toString()}`)
-      const data = await res.json()
-      if (data.success) {
-        setMappings(data.mappings || [])
-        setOrders(data.orders || [])
-        setPayouts(data.payouts || [])
-        setSummary(data.summary || null)
-        setSyncStatus(data.syncStatus || null)
+      if (activePayoutRef) {
+        qs.set('payout_reference_id', activePayoutRef)
       }
+      const res = await authFetch(`/api/delivery-reconciliation?${qs.toString()}`, {
+        signal: controller.signal,
+      })
+      const data = await res.json()
+      if (seq !== fetchSeqRef.current) return
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || `HTTP ${res.status}`)
+      }
+      setMappings(data.mappings || [])
+      setOrders(data.orders || [])
+      setPayouts(data.payouts || [])
+      setSummary(data.summary || null)
+      setSyncStatus(data.syncStatus || null)
+      setCoverageReport(data.coverageReport || null)
     } catch (err: any) {
+      if (err?.name === 'AbortError' || seq !== fetchSeqRef.current) return
       console.error('Error loading delivery reconciliation:', err)
+      setFetchError(err.message || 'Error de conexión al cargar conciliación')
     } finally {
-      setLoading(false)
+      if (seq === fetchSeqRef.current) {
+        setLoading(false)
+      }
     }
-  }, [selectedStore, selectedPlatform, selectedStatus, startDate, endDate, searchQuery])
+  }, [selectedStore, selectedPlatform, selectedStatus, startDate, endDate, searchQuery, activePayoutRef, authFetch, isDateRangeValid, t])
 
   useEffect(() => {
     fetchData()
   }, [fetchData])
 
   const fetchQbJournalRecords = useCallback(async () => {
+    if (!isDateRangeValid) return
+    qbAbortRef.current?.abort()
+    const controller = new AbortController()
+    qbAbortRef.current = controller
+    const seq = ++qbFetchSeqRef.current
+
     setQbLoading(true)
+    setSelectedQbPayoutIds(new Set())
     try {
       const qs = new URLSearchParams({
         store_id: selectedStore,
@@ -293,21 +462,29 @@ export default function ConciliarDeliveryPage() {
         end_date: endDate,
       })
       if (searchQuery.trim()) qs.set('search', searchQuery.trim())
-      const res = await fetch(`/api/delivery-reconciliation/quickbooks-journal?${qs.toString()}`)
+      const res = await authFetch(`/api/delivery-reconciliation/quickbooks-journal?${qs.toString()}`, {
+        signal: controller.signal,
+      })
       const data = await res.json()
-      if (data.success) {
-        setQbRecords(data.records || [])
-        setQbSummary(data.summary || null)
-        setQbAuthError(Boolean(data.isAuthError))
-        if (data.reauthUrl) setQbReauthUrl(data.reauthUrl)
-        if (data.nextSuggestedDocNumber) setQbNextDocNumber(data.nextSuggestedDocNumber)
+      if (seq !== qbFetchSeqRef.current) return
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || `HTTP ${res.status}`)
       }
+      setQbRecords(data.records || [])
+      setQbSummary(data.summary || null)
+      setQbAuthError(Boolean(data.isAuthError))
+      if (data.reauthUrl) setQbReauthUrl(data.reauthUrl)
+      if (data.nextSuggestedDocNumber) setQbNextDocNumber(data.nextSuggestedDocNumber)
     } catch (err: any) {
+      if (err?.name === 'AbortError' || seq !== qbFetchSeqRef.current) return
       console.error('Error loading QB Journal Entries:', err)
+      setFetchError((prev) => prev || err.message || 'Error al cargar pólizas de QuickBooks')
     } finally {
-      setQbLoading(false)
+      if (seq === qbFetchSeqRef.current) {
+        setQbLoading(false)
+      }
     }
-  }, [selectedStore, selectedPlatform, selectedStatus, startDate, endDate, searchQuery])
+  }, [selectedStore, selectedPlatform, selectedStatus, startDate, endDate, searchQuery, authFetch, isDateRangeValid])
 
   useEffect(() => {
     fetchQbJournalRecords()
@@ -339,6 +516,20 @@ export default function ConciliarDeliveryPage() {
     setJeModalSplitTax(false)
   }
 
+  const displayedQbRecords = useMemo(() => {
+    if (qbQuickFilter === 'PENDING') return qbRecords.filter((r) => !r.hasJournalEntry && r.canPublish)
+    if (qbQuickFilter === 'BLOCKED') return qbRecords.filter((r) => !r.hasJournalEntry && !r.canPublish)
+    if (qbQuickFilter === 'CREATED') return qbRecords.filter((r) => r.hasJournalEntry)
+    return qbRecords
+  }, [qbRecords, qbQuickFilter])
+
+  // P1 #15: Prohibido publicar ítems ocultos por filtros o bloqueados
+  const selectedVisiblePublishableRecords = useMemo(() => {
+    return displayedQbRecords.filter(
+      (r) => selectedQbPayoutIds.has(r.id) && !r.hasJournalEntry && r.canPublish
+    )
+  }, [displayedQbRecords, selectedQbPayoutIds])
+
   const handlePublishQbJournalEntries = async (
     payoutIdsToCreate: string[],
     options?: { txnDate?: string; docNumber?: string; splitTaxOnRefunds?: boolean }
@@ -347,7 +538,7 @@ export default function ConciliarDeliveryPage() {
     setPublishingQb(true)
     setBannerMessage(null)
     try {
-      const res = await fetch('/api/delivery-reconciliation/quickbooks-journal', {
+      const res = await authFetch('/api/delivery-reconciliation/quickbooks-journal', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -363,19 +554,30 @@ export default function ConciliarDeliveryPage() {
         if (data.reauthUrl) setQbReauthUrl(data.reauthUrl)
         throw new Error(data.error || 'Sesión de QuickBooks expirada.')
       }
+      if (data.recoveryRequired) {
+        const recErr = data.results?.find((r: any) => r.recoveryRequired)?.error
+        setBannerMessage({
+          type: 'error',
+          text: recErr || 'Estado de recuperación requerido: verifica en QuickBooks antes de reintentar.',
+        })
+        setShowBatchConfirmModal(false)
+        await fetchQbJournalRecords()
+        return
+      }
       if (!data.success) {
         const firstErr = data.results?.find((r: any) => !r.success)?.error
         throw new Error(firstErr || data.error || 'Error al publicar Journal Entry en QuickBooks Online')
       }
       const createdList = (data.results || [])
         .filter((r: any) => r.success)
-        .map((r: any) => `#${r.journalEntry?.docNumber} (${r.storeName} - ${r.platform})`)
+        .map((r: any) => `#${r.journalEntry?.docNumber} (${r.storeName} - ${r.platform} #${r.payoutRef})`)
         .join(', ')
       setBannerMessage({
         type: 'success',
         text: t('deliveryReconciliation.qb_published_toast', { list: createdList }),
       })
       setSelectedQbPayoutIds(new Set())
+      setShowBatchConfirmModal(false)
       setSelectedQbRecord(null)
       await fetchQbJournalRecords()
     } catch (err: any) {
@@ -394,47 +596,70 @@ export default function ConciliarDeliveryPage() {
     openOrdersTab?: boolean
   }) => {
     const targetStore = override?.storeId || selectedStore
+    const targetPlatform = override?.platform || selectedPlatform
     const targetStart = override?.startDate || startDate
     const targetEnd = override?.endDate || endDate
+    const targetPayoutRef = override?.payoutRef !== undefined ? override.payoutRef : activePayoutRef
+
+    if (!targetStart || !targetEnd || targetEnd < targetStart) {
+      const msg = t('deliveryReconciliation.date_range_invalid_error')
+      setFetchError(msg)
+      setBannerMessage({ type: 'error', text: msg })
+      return
+    }
+
     if (override?.storeId) setSelectedStore(override.storeId)
     if (override?.platform) setSelectedPlatform(override.platform)
     if (override?.startDate) setStartDate(override.startDate)
     if (override?.endDate) setEndDate(override.endDate)
-    if (override?.payoutRef !== undefined) setSearchQuery('')
+    if (override?.payoutRef !== undefined) {
+      setActivePayoutRef(override.payoutRef)
+      setSearchInput('')
+      setSearchQuery('')
+    }
     if (override?.openOrdersTab) {
-      setQuickFilter('ALL')
+      setSelectedActionGroup('ALL')
       setActiveTab('orders')
     }
 
     setSyncing(true)
     setBannerMessage(null)
+    setFetchError(null)
     try {
-      const res = await fetch('/api/delivery-reconciliation', {
+      const res = await authFetch('/api/delivery-reconciliation', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           action: 'sync_live',
           store_id: targetStore,
+          platform: targetPlatform,
+          payout_reference_id: targetPayoutRef || undefined,
           start_date: targetStart,
           end_date: targetEnd,
           sync_toast: true,
-          sync_grubhub: true,
+          sync_grubhub: targetPlatform === 'ALL' || targetPlatform === 'GRUBHUB',
         }),
       })
       const data = await res.json()
-      if (!data.success) {
+      if (!res.ok || !data.success) {
         throw new Error(data.error || 'Sync failed')
       }
+      const syncErrors: string[] = Array.isArray(data.syncErrors) ? data.syncErrors : []
+      const baseMsg = t('deliveryReconciliation.sync_success_msg', {
+        toastCount: data.toastOrdersSynced || 0,
+        ghOrders: data.platformOrdersSynced || 0,
+        ghPayouts: data.payoutsSynced || 0,
+      })
       setBannerMessage({
-        type: 'success',
-        text: t('deliveryReconciliation.sync_success_msg', {
-          toastCount: data.toastOrdersSynced || 0,
-          ghOrders: data.platformOrdersSynced || 0,
-          ghPayouts: data.payoutsSynced || 0,
-        }),
+        type: syncErrors.length > 0 ? 'error' : 'success',
+        text:
+          syncErrors.length > 0
+            ? `${baseMsg} ⚠️ (${syncErrors.length} advertencia(s)/fallo(s): ${syncErrors.slice(0, 2).join(' | ')})`
+            : baseMsg,
       })
       await Promise.all([fetchData(), fetchQbJournalRecords()])
     } catch (err: any) {
+      setFetchError(err.message)
       setBannerMessage({ type: 'error', text: err.message })
     } finally {
       setSyncing(false)
@@ -459,7 +684,7 @@ export default function ConciliarDeliveryPage() {
     setImporting(true)
     setBannerMessage(null)
     try {
-      const res = await fetch('/api/delivery-reconciliation', {
+      const res = await authFetch('/api/delivery-reconciliation', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -467,13 +692,14 @@ export default function ConciliarDeliveryPage() {
           raw_content: importText,
           platform: importPlatform,
           store_id: selectedStore,
+          confirm_store_assignment: confirmImportStoreAssignment,
           start_date: startDate,
           end_date: endDate,
           sync_toast: true,
         }),
       })
       const data = await res.json()
-      if (!data.success) {
+      if (!res.ok || !data.success) {
         throw new Error(data.error || 'Import failed')
       }
       setBannerMessage({
@@ -486,6 +712,7 @@ export default function ConciliarDeliveryPage() {
       setShowImportModal(false)
       setImportText('')
       setImportFileName('')
+      setConfirmImportStoreAssignment(false)
       await Promise.all([fetchData(), fetchQbJournalRecords()])
     } catch (err: any) {
       setBannerMessage({ type: 'error', text: err.message })
@@ -496,8 +723,11 @@ export default function ConciliarDeliveryPage() {
 
   const handleOpenOrderModal = (ord: ReconciledOrder) => {
     setSelectedOrder(ord)
+    // P0 #5: Siempre iniciar sin tienda destino seleccionada (jamás preseleccionar Lynwood #14)
+    setAssignTargetStoreId('')
+    setShowAssignStoreConfirmModal(false)
     setDisputeStatusInput(ord.dispute_status || 'NONE')
-    setDisputeNotesInput(ord.dispute_notes || '')
+    setDisputeNotesInput(ord.dispute_notes || ord.raw_payload?.variance_approval?.reason || '')
     setReimbursementRefInput(ord.raw_payload?.reimbursement_payout_ref || '')
     setReimbursementAmountInput(
       ord.raw_payload?.reimbursement_amount !== undefined && ord.raw_payload?.reimbursement_amount !== null
@@ -508,17 +738,45 @@ export default function ConciliarDeliveryPage() {
     setReimbursementDescInput(ord.raw_payload?.reimbursement_description || '')
   }
 
+  const isReimbursedFormValid = useMemo(() => {
+    if (disputeStatusInput !== 'REIMBURSED') return true
+    const hasRef = reimbursementRefInput.trim().length > 0
+    const amt = Number(reimbursementAmountInput)
+    const hasAmt = Number.isFinite(amt) && amt > 0
+    const hasDate = /^\d{4}-\d{2}-\d{2}$/.test(reimbursementDateInput.trim())
+    const hasNote = (reimbursementDescInput.trim() || disputeNotesInput.trim()).length >= 5
+    return hasRef && hasAmt && hasDate && hasNote
+  }, [disputeStatusInput, reimbursementRefInput, reimbursementAmountInput, reimbursementDateInput, reimbursementDescInput, disputeNotesInput])
+
   const handleSaveDispute = async () => {
     if (!selectedOrder) return
+    if (!isReimbursedFormValid) {
+      setBannerMessage({
+        type: 'error',
+        text: t('deliveryReconciliation.reimbursed_validation_error'),
+      })
+      return
+    }
     setSavingDispute(true)
     try {
-      const res = await fetch('/api/delivery-reconciliation', {
+      const statusMap: Record<string, string> = {
+        NONE: 'NONE',
+        NEEDS_DISPUTE: 'OPEN',
+        OPEN: 'OPEN',
+        SUBMITTED: 'SUBMITTED',
+        APPROVED: 'APPROVED',
+        REIMBURSED: 'REIMBURSED',
+        DENIED: 'REJECTED',
+        REJECTED: 'REJECTED',
+      }
+      const normalizedStatus = statusMap[disputeStatusInput] || 'OPEN'
+      const res = await authFetch('/api/delivery-reconciliation', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           action: 'update_dispute',
           id: selectedOrder.id,
-          dispute_status: disputeStatusInput,
+          dispute_status: normalizedStatus,
           dispute_notes: disputeNotesInput,
           dispute_reason: selectedOrder.dispute_reason,
           reimbursement_payout_ref: reimbursementRefInput.trim() || undefined,
@@ -530,13 +788,223 @@ export default function ConciliarDeliveryPage() {
         }),
       })
       const data = await res.json()
-      if (data.success) {
-        setSelectedOrder(null)
-        await fetchData()
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Error guardando disputa')
       }
+      setSelectedOrder(null)
+      await Promise.all([fetchData(), fetchQbJournalRecords()])
+    } catch (err: any) {
+      setBannerMessage({ type: 'error', text: err.message })
     } finally {
       setSavingDispute(false)
     }
+  }
+
+  const handleApproveReviewOrder = async (ord: ReconciledOrder, candidateToastGuid?: string) => {
+    if (!candidateToastGuid && disputeNotesInput.trim().length < 5) {
+      setBannerMessage({
+        type: 'error',
+        text: t('deliveryReconciliation.variance_reason_required_error'),
+      })
+      return
+    }
+    setSavingDispute(true)
+    try {
+      const res = await authFetch('/api/delivery-reconciliation', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'resolve_review_order',
+          id: ord.id,
+          review_decision: candidateToastGuid ? 'CONFIRM_TOAST_MATCH' : 'APPROVE_VARIANCE',
+          selected_toast_guid: candidateToastGuid,
+          review_notes: disputeNotesInput.trim(),
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'No se pudo aprobar la revisión')
+      }
+      setSelectedOrder(null)
+      await Promise.all([fetchData(), fetchQbJournalRecords()])
+    } catch (err: any) {
+      setBannerMessage({ type: 'error', text: err.message })
+    } finally {
+      setSavingDispute(false)
+    }
+  }
+
+  const handleAssignUnassignedStore = async (ord: ReconciledOrder) => {
+    if (!assignTargetStoreId) return
+    setSavingDispute(true)
+    try {
+      const res = await authFetch('/api/delivery-reconciliation', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'assign_unassigned_store',
+          target_store_id: Number(assignTargetStoreId),
+          platform: ord.platform,
+          reference_id: ord.payout_reference_id || ord.platform_order_id,
+          confirm_store_assignment: true,
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'No se pudo asignar la sucursal')
+      }
+      setShowAssignStoreConfirmModal(false)
+      setSelectedOrder(null)
+      await Promise.all([fetchData(), fetchQbJournalRecords()])
+    } catch (err: any) {
+      setBannerMessage({ type: 'error', text: err.message })
+    } finally {
+      setSavingDispute(false)
+    }
+  }
+
+  const handleBatchApproveVariance = async (orderIds: string[]) => {
+    const validIds = orderIds.filter((id) => !id.startsWith('UNASSIGNED-'))
+    if (validIds.length === 0) return
+    if (batchNotes.trim().length < 5) {
+      setBannerMessage({
+        type: 'error',
+        text: t('deliveryReconciliation.variance_reason_required_error'),
+      })
+      return
+    }
+    setSavingBatch(true)
+    setBannerMessage(null)
+    try {
+      const res = await authFetch('/api/delivery-reconciliation', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'batch_resolve_review',
+          order_ids: validIds,
+          review_decision: 'APPROVE_VARIANCE',
+          review_notes: batchNotes.trim(),
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Error al aprobar varianzas en lote')
+      }
+      setBannerMessage({
+        type: 'success',
+        text: t('deliveryReconciliation.batch_success_msg', { count: data.updatedCount || validIds.length }),
+      })
+      setSelectedOrderIds(new Set())
+      setBatchNotes('')
+      setBatchOrderConfirmModal(null)
+      await Promise.all([fetchData(), fetchQbJournalRecords()])
+    } catch (err: any) {
+      setBannerMessage({ type: 'error', text: err.message })
+    } finally {
+      setSavingBatch(false)
+    }
+  }
+
+  const handleBatchMarkDisputeSubmitted = async (orderIds: string[]) => {
+    const validIds = orderIds.filter((id) => !id.startsWith('UNASSIGNED-'))
+    if (validIds.length === 0) return
+    setSavingBatch(true)
+    setBannerMessage(null)
+    try {
+      const res = await authFetch('/api/delivery-reconciliation', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'batch_update_disputes',
+          order_ids: validIds,
+          dispute_status: 'SUBMITTED',
+          dispute_notes: batchNotes.trim() || 'Disputa presentada en portal de plataforma (actualización en lote)',
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Error al actualizar estado de disputas en lote')
+      }
+      setBannerMessage({
+        type: 'success',
+        text: t('deliveryReconciliation.batch_success_msg', { count: data.updatedCount || validIds.length }),
+      })
+      setSelectedOrderIds(new Set())
+      setBatchNotes('')
+      setBatchOrderConfirmModal(null)
+      await Promise.all([fetchData(), fetchQbJournalRecords()])
+    } catch (err: any) {
+      setBannerMessage({ type: 'error', text: err.message })
+    } finally {
+      setSavingBatch(false)
+    }
+  }
+
+  const handleExportBatchEvidencePackage = (targetOrders: ReconciledOrder[]) => {
+    if (targetOrders.length === 0) return
+    const headers = [
+      'Business Date',
+      'Store',
+      'Platform',
+      'Platform Order ID',
+      'Toast Check #',
+      'Toast Tab Name',
+      'Toast Net Sales',
+      'Toast Tax',
+      'Toast Expected Gross',
+      'Platform Subtotal',
+      'Platform Tax to Merchant (24001)',
+      'Platform Tax Withheld (12050)',
+      'Platform Gross Receivable',
+      'Error Charge / Deduction',
+      'Net Payout',
+      'Original Deduction Payout Ref',
+      'Dispute Status',
+      'Dispute Reason',
+      'Recovery Payout Ref',
+      'Recovery Amount',
+      'Items Summary (Toast POS)',
+      'Audit Evidence',
+    ]
+    const csvLines = [
+      headers.join(','),
+      ...targetOrders.map((o) => {
+        const itemsText = Array.isArray(o.items_summary)
+          ? o.items_summary.map((it: any) => `${it.quantity || 1}x ${it.name} ($${Number(it.price || 0).toFixed(2)})`).join(' | ')
+          : ''
+        return [
+          fmtDateMDY(o.business_date),
+          `"${o.store_name}"`,
+          o.platform,
+          `"${o.platform_order_id}"`,
+          `"${o.toast_display_number || ''}"`,
+          `"${(o.toast_tab_name || '').replace(/"/g, '""')}"`,
+          Number(o.toast_net_sales || 0).toFixed(2),
+          Number(o.toast_tax || 0).toFixed(2),
+          Number(o.toast_expected_gross || 0).toFixed(2),
+          Number(o.platform_subtotal || 0).toFixed(2),
+          Number(o.platform_tax_paid_to_merchant || 0).toFixed(2),
+          Number(o.platform_tax_withheld || 0).toFixed(2),
+          Number(o.platform_gross_receivable || 0).toFixed(2),
+          Number(o.error_charge || 0).toFixed(2),
+          Number(o.net_payout || 0).toFixed(2),
+          `"${o.payout_reference_id || ''}"`,
+          `"${o.dispute_status || 'NONE'}"`,
+          `"${(o.dispute_reason || '').replace(/"/g, '""')}"`,
+          `"${o.raw_payload?.reimbursement_payout_ref || ''}"`,
+          Number(o.raw_payload?.reimbursement_amount || 0).toFixed(2),
+          `"${itemsText.replace(/"/g, '""')}"`,
+          `"${((isEn ? o.evidence_en : o.evidence_es) || '').replace(/"/g, '""')}"`,
+        ].join(',')
+      }),
+    ]
+    const blob = new Blob([csvLines.join('\n')], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `TacosGavilan_Dispute_Evidence_Package_${startDate}_${endDate}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
   }
 
   const handleExportCsv = () => {
@@ -545,64 +1013,64 @@ export default function ConciliarDeliveryPage() {
       'Business Date',
       'Store',
       'Platform',
-      'Fulfillment',
+      'Action Group',
+      'Status Label',
       'Platform Order ID',
       'Toast Order #',
-      'Toast Tab Name',
       'Toast Net Sales',
       'Toast Tax',
       'Toast Expected Gross',
       'Platform Subtotal',
-      'Platform Tax Total',
-      'Platform Tax Passed to TEG',
-      'Platform Tax Withheld (Uber)',
+      'Platform Tax Passed to TEG (24001)',
+      'Platform Tax Withheld (12050)',
       'Platform Gross Receivable',
-      'Commission Fee',
-      'Delivery Fee',
-      'Processing Fee',
-      'Marketing Fee',
-      'Error Charge',
-      'Adjustment',
+      'Total Fees',
+      'Error Charge / Adj',
       'Net Payout',
       'Gross Variance',
-      'Reconciliation Status',
-      'Dispute Status',
+      'What Happened',
+      'Cause',
+      'Evidence',
+      'Next Action',
       'Payout Reference ID',
-      'Payout Date',
+      'Reimbursement Payout Ref',
     ]
     const csvLines = [
       headers.join(','),
-      ...orders.map((o) =>
-        [
+      ...orders.map((o) => {
+        const varVal = Number(o.gross_variance ?? o.gross_diff ?? 0)
+        const feesVal =
+          Number(o.commission_fee || 0) +
+          Number(o.delivery_fee || 0) +
+          Number(o.processing_fee || 0) +
+          Number(o.marketing_fee || 0)
+        return [
           fmtDateMDY(o.business_date),
           `"${o.store_name}"`,
           o.platform,
-          o.fulfillment_type,
+          o.action_group || '',
+          `"${(isEn ? o.status_label_en : o.status_label_es) || o.reconciliation_status}"`,
           `"${o.platform_order_id}"`,
           `"${o.toast_display_number || ''}"`,
-          `"${(o.toast_tab_name || '').replace(/"/g, '""')}"`,
           Number(o.toast_net_sales || 0).toFixed(2),
           Number(o.toast_tax || 0).toFixed(2),
           Number(o.toast_expected_gross || 0).toFixed(2),
           Number(o.platform_subtotal || 0).toFixed(2),
-          Number(o.platform_tax || 0).toFixed(2),
           Number(o.platform_tax_paid_to_merchant || 0).toFixed(2),
           Number(o.platform_tax_withheld || 0).toFixed(2),
           Number(o.platform_gross_receivable || 0).toFixed(2),
-          Number(o.commission_fee || 0).toFixed(2),
-          Number(o.delivery_fee || 0).toFixed(2),
-          Number(o.processing_fee || 0).toFixed(2),
-          Number(o.marketing_fee || 0).toFixed(2),
-          Number(o.error_charge || 0).toFixed(2),
-          Number(o.adjustment_amount || 0).toFixed(2),
+          feesVal.toFixed(2),
+          (Number(o.error_charge || 0) + Number(o.adjustment_amount || 0)).toFixed(2),
           Number(o.net_payout || 0).toFixed(2),
-          Number(o.gross_diff || 0).toFixed(2),
-          o.reconciliation_status,
-          o.dispute_status,
+          varVal.toFixed(2),
+          `"${((isEn ? o.what_happened_en : o.what_happened_es) || '').replace(/"/g, '""')}"`,
+          `"${((isEn ? o.cause_en : o.cause_es) || '').replace(/"/g, '""')}"`,
+          `"${((isEn ? o.evidence_en : o.evidence_es) || '').replace(/"/g, '""')}"`,
+          `"${((isEn ? o.next_action_en : o.next_action_es) || '').replace(/"/g, '""')}"`,
           `"${o.payout_reference_id || ''}"`,
-          o.payout_date ? fmtDateMDY(o.payout_date) : '',
+          `"${o.raw_payload?.reimbursement_payout_ref || ''}"`,
         ].join(',')
-      ),
+      }),
     ]
     const blob = new Blob([csvLines.join('\n')], { type: 'text/csv;charset=utf-8;' })
     const url = URL.createObjectURL(blob)
@@ -613,33 +1081,34 @@ export default function ConciliarDeliveryPage() {
     URL.revokeObjectURL(url)
   }
 
-  const disputedOrders = useMemo(
+  // Agrupación de órdenes en los 4 grupos mutuamente claros
+  const group1Conciliated = useMemo(
+    () => orders.filter((o) => o.action_group === 'CONCILIATED_READY'),
+    [orders]
+  )
+  const group2Variance = useMemo(
+    () => orders.filter((o) => o.action_group === 'VARIANCE_INVESTIGATE'),
+    [orders]
+  )
+  const group3Disputes = useMemo(
+    () => orders.filter((o) => o.action_group === 'DISPUTE_RECOVERY'),
+    [orders]
+  )
+  const group4Blocked = useMemo(
+    () => orders.filter((o) => o.action_group === 'BLOCKED_MISSING_INFO'),
+    [orders]
+  )
+  const withPayoutPendingReviewOrders = useMemo(
     () =>
       orders.filter(
         (o) =>
-          o.is_disputed ||
-          o.reconciliation_status === 'REFUNDED_OR_DISPUTED' ||
-          o.reconciliation_status === 'AMOUNT_MISMATCH' ||
-          o.reconciliation_status === 'TAX_MISMATCH' ||
-          Number(o.error_charge || 0) < -0.01
+          o.match_confidence !== 'TOAST_ONLY' &&
+          o.reconciliation_status !== 'MISSING_IN_PLATFORM' &&
+          o.action_group !== 'CONCILIATED_READY'
       ),
     [orders]
   )
-
-  const settledOrders = useMemo(
-    () =>
-      orders.filter(
-        (o) => o.match_confidence !== 'TOAST_ONLY' && o.reconciliation_status !== 'MISSING_IN_PLATFORM'
-      ),
-    [orders]
-  )
-
-  const matchedOrdersList = useMemo(
-    () => orders.filter((o) => o.reconciliation_status === 'MATCHED'),
-    [orders]
-  )
-
-  const pendingToastOrders = useMemo(
+  const toastOnlyOrders = useMemo(
     () =>
       orders.filter(
         (o) => o.match_confidence === 'TOAST_ONLY' || o.reconciliation_status === 'MISSING_IN_PLATFORM'
@@ -648,18 +1117,160 @@ export default function ConciliarDeliveryPage() {
   )
 
   const displayedOrders = useMemo(() => {
-    if (quickFilter === 'SETTLED') return settledOrders
-    if (quickFilter === 'DISPUTES') return disputedOrders
-    if (quickFilter === 'MATCHED') return matchedOrdersList
-    if (quickFilter === 'PENDING_TOAST') return pendingToastOrders
+    if (selectedOrderSubFilter === 'WITH_PAYOUT_PENDING_REVIEW') return withPayoutPendingReviewOrders
+    if (selectedOrderSubFilter === 'TOAST_ONLY') return toastOnlyOrders
+    if (selectedActionGroup === 'CONCILIATED_READY') return group1Conciliated
+    if (selectedActionGroup === 'VARIANCE_INVESTIGATE') return group2Variance
+    if (selectedActionGroup === 'DISPUTE_RECOVERY') return group3Disputes
+    if (selectedActionGroup === 'BLOCKED_MISSING_INFO') return group4Blocked
     return orders
-  }, [orders, quickFilter, settledOrders, disputedOrders, matchedOrdersList, pendingToastOrders])
+  }, [
+    orders,
+    selectedOrderSubFilter,
+    withPayoutPendingReviewOrders,
+    toastOnlyOrders,
+    selectedActionGroup,
+    group1Conciliated,
+    group2Variance,
+    group3Disputes,
+    group4Blocked,
+  ])
 
-  const displayedQbRecords = useMemo(() => {
-    if (qbQuickFilter === 'PENDING') return qbRecords.filter((r) => !r.hasJournalEntry)
-    if (qbQuickFilter === 'CREATED') return qbRecords.filter((r) => r.hasJournalEntry)
-    return qbRecords
-  }, [qbRecords, qbQuickFilter])
+  const totalOrderPages = useMemo(
+    () => Math.max(1, Math.ceil(displayedOrders.length / ordersPageSize)),
+    [displayedOrders.length, ordersPageSize]
+  )
+
+  const safeOrdersPage = Math.min(ordersPage, totalOrderPages)
+
+  const paginatedOrders = useMemo(() => {
+    const startIdx = (safeOrdersPage - 1) * ordersPageSize
+    return displayedOrders.slice(startIdx, startIdx + ordersPageSize)
+  }, [displayedOrders, safeOrdersPage, ordersPageSize])
+
+  const selectedVisibleOrders = useMemo(() => {
+    return displayedOrders.filter((o) => selectedOrderIds.has(o.id))
+  }, [displayedOrders, selectedOrderIds])
+
+  const applyDynamicDatePreset = (preset: 'THIS_WEEK' | 'PREV_WEEK' | 'CURRENT_MONTH' | 'CUSTOM') => {
+    setActivePayoutRef('')
+    setActivePreset(preset)
+    if (preset === 'CUSTOM') return
+    const nowLa = new Date(
+      new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles' })
+    )
+    const toYmd = (d: Date) => {
+      const y = d.getFullYear()
+      const m = String(d.getMonth() + 1).padStart(2, '0')
+      const day = String(d.getDate()).padStart(2, '0')
+      return `${y}-${m}-${day}`
+    }
+    const dayOfWeek = nowLa.getDay()
+    const diffToMonday = dayOfWeek === 0 ? -6 : 1 - dayOfWeek
+    if (preset === 'THIS_WEEK') {
+      const monday = new Date(nowLa)
+      monday.setDate(nowLa.getDate() + diffToMonday)
+      const sunday = new Date(monday)
+      sunday.setDate(monday.getDate() + 6)
+      setStartDate(toYmd(monday))
+      setEndDate(toYmd(sunday))
+    } else if (preset === 'PREV_WEEK') {
+      const monday = new Date(nowLa)
+      monday.setDate(nowLa.getDate() + diffToMonday - 7)
+      const sunday = new Date(monday)
+      sunday.setDate(monday.getDate() + 6)
+      setStartDate(toYmd(monday))
+      setEndDate(toYmd(sunday))
+    } else if (preset === 'CURRENT_MONTH') {
+      const start = new Date(nowLa.getFullYear(), nowLa.getMonth(), 1)
+      const end = new Date(nowLa.getFullYear(), nowLa.getMonth() + 1, 0)
+      setStartDate(toYmd(start))
+      setEndDate(toYmd(end))
+    }
+  }
+
+  // P0 #7: Separar selección según acción: solo VARIANCE_INVESTIGATE o DISPUTE_RECOVERY, sin mezclar
+  const activeSelectedBatchGroup = useMemo<'VARIANCE_INVESTIGATE' | 'DISPUTE_RECOVERY' | null>(() => {
+    if (selectedVisibleOrders.length === 0) return null
+    const groups = new Set(selectedVisibleOrders.map((o) => o.action_group))
+    if (groups.size === 1 && groups.has('VARIANCE_INVESTIGATE')) return 'VARIANCE_INVESTIGATE'
+    if (groups.size === 1 && groups.has('DISPUTE_RECOVERY')) return 'DISPUTE_RECOVERY'
+    return null
+  }, [selectedVisibleOrders])
+
+  const canSelectOrderForBatch = useCallback(
+    (ord: ReconciledOrder): boolean => {
+      if (ord.id.startsWith('UNASSIGNED-') || ord.store_id <= 0) return false
+      if (ord.action_group !== 'VARIANCE_INVESTIGATE' && ord.action_group !== 'DISPUTE_RECOVERY') {
+        return false
+      }
+      if (activeSelectedBatchGroup && ord.action_group !== activeSelectedBatchGroup) {
+        return false
+      }
+      return true
+    },
+    [activeSelectedBatchGroup]
+  )
+
+  const activeStoreLabel = useMemo(() => {
+    if (selectedStore === 'ALL') return t('deliveryReconciliation.all_stores')
+    if (selectedStore === '0') return t('deliveryReconciliation.unassigned_store_option')
+    const found = mappings.find((m) => String(m.store_id) === String(selectedStore))
+    return found ? `${found.store_name} (${found.store_code})` : `#${selectedStore}`
+  }, [selectedStore, mappings, t])
+
+  const getStorePlatformCoverageEntry = useCallback(
+    (storeId: number, platform: DeliveryPlatform) => {
+      const matrix = coverageReport?.storePlatformMatrix || syncStatus?.storePlatformCoverage || []
+      if (Array.isArray(matrix)) {
+        const match = matrix.find(
+          (item: any) => Number(item.store_id ?? item.storeId) === Number(storeId) && item.platform === platform
+        )
+        if (match) {
+          return {
+            status: match.status || 'NOT_CONNECTED',
+            orders_count: match.orders_count ?? match.ordersCount ?? 0,
+            payouts_count: match.payouts_count ?? match.payoutsCount ?? 0,
+            last_sync_at: match.last_sync_at ?? match.lastSyncAt ?? null,
+            cause_es: match.cause_es ?? match.causeEs ?? '',
+            cause_en: match.cause_en ?? match.causeEn ?? '',
+            next_action_es: match.next_action_es ?? match.nextActionEs ?? '',
+            next_action_en: match.next_action_en ?? match.nextActionEn ?? '',
+          }
+        }
+      }
+      const stSync = syncStatus?.byStore?.[storeId]
+      const ordersCount =
+        platform === 'DOORDASH'
+          ? stSync?.ddOrders || 0
+          : platform === 'GRUBHUB'
+          ? stSync?.ghOrders || 0
+          : stSync?.ueOrders || 0
+      const payoutsCount =
+        platform === 'DOORDASH'
+          ? stSync?.ddPayouts || 0
+          : platform === 'GRUBHUB'
+          ? stSync?.ghPayouts || 0
+          : stSync?.uePayouts || 0
+      const lastSyncAt =
+        platform === 'DOORDASH'
+          ? stSync?.ddLastSync || null
+          : platform === 'GRUBHUB'
+          ? stSync?.ghLastSync || null
+          : stSync?.ueLastSync || null
+      return {
+        status: ordersCount > 0 || payoutsCount > 0 ? 'COMPLETE' : 'NOT_CONNECTED',
+        orders_count: ordersCount,
+        payouts_count: payoutsCount,
+        last_sync_at: lastSyncAt,
+        cause_es: '',
+        cause_en: '',
+        next_action_es: '',
+        next_action_en: '',
+      }
+    },
+    [coverageReport, syncStatus]
+  )
 
   const renderPlatformBadge = (platform: DeliveryPlatform) => {
     if (platform === 'DOORDASH') {
@@ -683,43 +1294,87 @@ export default function ConciliarDeliveryPage() {
     )
   }
 
-  const renderStatusBadge = (status: string) => {
-    const label = t(`deliveryReconciliation.status_${status}`) || status
-    if (status === 'MATCHED') {
+  const renderOrderGroupBadge = (ord: ReconciledOrder) => {
+    const label = (isEn ? ord.status_label_en : ord.status_label_es) || ord.reconciliation_status
+    if (ord.action_group === 'CONCILIATED_READY') {
       return (
-        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">
-          <CheckCircle2 className="w-3.5 h-3.5" />
+        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30">
+          <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
           {label}
         </span>
       )
     }
-    if (status === 'REFUNDED_OR_DISPUTED' || status === 'CANCELLED_UNPAID') {
+    if (ord.action_group === 'DISPUTE_RECOVERY') {
+      const isRecovered = ord.status_code === 'DISPUTE_RECOVERED'
       return (
-        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-rose-500/15 text-rose-600 dark:text-rose-400 border border-rose-500/30">
-          <XCircle className="w-3.5 h-3.5" />
+        <span
+          className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold border ${
+            isRecovered
+              ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30'
+              : 'bg-rose-500/15 text-rose-700 dark:text-rose-300 border-rose-500/30'
+          }`}
+        >
+          {isRecovered ? <CheckCircle2 className="w-3.5 h-3.5 shrink-0" /> : <XCircle className="w-3.5 h-3.5 shrink-0" />}
           {label}
         </span>
       )
     }
-    if (status === 'AMOUNT_MISMATCH' || status === 'TAX_MISMATCH') {
+    if (ord.action_group === 'VARIANCE_INVESTIGATE') {
       return (
-        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30">
-          <AlertTriangle className="w-3.5 h-3.5" />
+        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30">
+          <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
           {label}
         </span>
       )
     }
     return (
-      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-slate-500/15 text-slate-600 dark:text-slate-300 border border-slate-500/30">
-        <Info className="w-3.5 h-3.5" />
+      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-slate-500/15 text-slate-700 dark:text-slate-300 border border-slate-500/30">
+        <Lock className="w-3.5 h-3.5 shrink-0" />
         {label}
       </span>
     )
   }
 
+  const latestSyncTimestamp = useMemo(() => {
+    const candidates = [
+      syncStatus?.TOAST?.lastSyncedAt,
+      syncStatus?.DOORDASH?.lastSyncedAt,
+      syncStatus?.UBER_EATS?.lastSyncedAt,
+      syncStatus?.GRUBHUB?.lastSyncedAt,
+      syncStatus?.TOAST?.globalLastSyncedAt,
+    ].filter(Boolean)
+    if (candidates.length === 0) return null
+    return candidates.sort().reverse()[0]
+  }, [syncStatus])
+
+  const hasActionNeeded =
+    group2Variance.length > 0 ||
+    group3Disputes.some((o) => o.status_code !== 'DISPUTE_RECOVERED') ||
+    group4Blocked.length > 0 ||
+    !coverageReport?.isCoverageComplete
+
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 p-3 md:p-5 space-y-4">
-      {/* 1. CABECERA LIMPIA + BARRA DE FILTROS INTEGRADA */}
+      {/* BANNER DE ADVERTENCIA VISIBLE SI FALLA FETCH O SYNC (NUNCA OCULTAR DATOS ANTIGUOS SIN ADVERTENCIA) */}
+      {fetchError && (
+        <div className="p-3.5 rounded-2xl bg-rose-500/15 border-2 border-rose-500/40 text-rose-800 dark:text-rose-200 flex items-center justify-between gap-3 shadow-sm">
+          <div className="flex items-center gap-2.5 text-xs md:text-sm font-bold">
+            <AlertTriangle className="w-5 h-5 text-rose-600 shrink-0" />
+            <span>{t('deliveryReconciliation.stale_data_warning_banner', { error: fetchError })}</span>
+          </div>
+          <button
+            onClick={() => {
+              fetchData()
+              fetchQbJournalRecords()
+            }}
+            className="px-3 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-extrabold shrink-0"
+          >
+            {isEn ? 'Retry' : 'Reintentar'}
+          </button>
+        </div>
+      )}
+
+      {/* 1. CABECERA SIMPLIFICADA: ALCANCE, COBERTURA, ÚLTIMA SINCRONIZACIÓN Y ACCIÓN REQUERIDA (P1 #14) */}
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm space-y-4">
         <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 pb-3 border-b border-slate-100 dark:border-slate-800">
           <div>
@@ -728,23 +1383,39 @@ export default function ConciliarDeliveryPage() {
                 <Scale className="w-3 h-3" />
                 {t('deliveryReconciliation.badge')}
               </span>
-              <span className="text-[11px] text-slate-500 dark:text-slate-400 font-semibold">
-                {t('deliveryReconciliation.header_formula_desc')}
-              </span>
+              <button
+                type="button"
+                onClick={() => setShowTaxRulesPopover((v) => !v)}
+                className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-[11px] font-bold border border-slate-200 dark:border-slate-700 transition"
+              >
+                <Info className="w-3 h-3 text-indigo-500" />
+                <span>{t('deliveryReconciliation.tax_rules_tooltip_btn')}</span>
+              </button>
             </div>
             <h1 className="text-xl md:text-2xl font-extrabold tracking-tight">
               {t('deliveryReconciliation.title')}
             </h1>
+            <p className="text-xs font-semibold text-indigo-600 dark:text-indigo-400 mt-0.5">
+              {t('deliveryReconciliation.workflow_route_banner')}
+            </p>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
             <button
               onClick={handleLiveSync}
-              disabled={syncing}
+              disabled={syncing || !isDateRangeValid}
               className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 text-white font-bold text-xs md:text-sm shadow-sm transition"
             >
               <RefreshCw className={`w-4 h-4 ${syncing ? 'animate-spin' : ''}`} />
               {syncing ? t('deliveryReconciliation.syncing_short') : t('deliveryReconciliation.sync_store_period_btn')}
+            </button>
+
+            <button
+              onClick={() => setShowImportModal(true)}
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-semibold text-xs md:text-sm border border-slate-200 dark:border-slate-700 transition"
+            >
+              <Upload className="w-4 h-4" />
+              CSV / JSON
             </button>
 
             <button
@@ -757,7 +1428,101 @@ export default function ConciliarDeliveryPage() {
           </div>
         </div>
 
-        {/* FILTROS: SUCURSAL, PLATAFORMA, SEMANA DE CORTE Y BUSCADOR */}
+        {/* TOOLTIP / DETALLE CONTEXTUAL DE REGLAS FISCALES Y CUENTAS CONTABLES QBO (24001 / 12050) */}
+        {showTaxRulesPopover && (
+          <div className="p-3.5 rounded-xl bg-indigo-500/5 border border-indigo-500/20 text-xs space-y-1.5 relative">
+            <div className="flex items-center justify-between font-extrabold text-indigo-800 dark:text-indigo-300">
+              <span>{t('deliveryReconciliation.tax_rule_banner_title')}</span>
+              <button
+                onClick={() => setShowTaxRulesPopover(false)}
+                className="p-1 rounded hover:bg-indigo-500/10"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+            <p className="text-slate-700 dark:text-slate-300">• {t('deliveryReconciliation.tax_rule_dd_gh')}</p>
+            <p className="text-slate-700 dark:text-slate-300">• {t('deliveryReconciliation.tax_rule_uber')}</p>
+          </div>
+        )}
+
+        {/* BARRA DE ALCANCE VISIBLE SIEMPRE: ALCANCE, COBERTURA (CON BLOQUEO EXPLÍCITO), ÚLTIMA SINCRONIZACIÓN */}
+        <div className="flex flex-wrap items-center justify-between gap-2 px-3.5 py-2.5 rounded-xl bg-slate-100/80 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700 text-xs">
+          <div className="flex flex-wrap items-center gap-3">
+            <span>
+              <strong className="text-slate-500">{t('deliveryReconciliation.scope_bar_stores')}</strong>{' '}
+              <span className="font-extrabold text-slate-900 dark:text-white">
+                {selectedStore === 'ALL'
+                  ? t('deliveryReconciliation.all_stores')
+                  : selectedStore === '0'
+                  ? t('deliveryReconciliation.unassigned_store_option')
+                  : mappings.find((m) => String(m.store_id) === String(selectedStore))?.store_name || `#${selectedStore}`}
+              </span>
+            </span>
+            <span>•</span>
+            <span>
+              <strong className="text-slate-500">{t('deliveryReconciliation.scope_bar_platforms')}</strong>{' '}
+              <span className="font-extrabold text-slate-900 dark:text-white">
+                {selectedPlatform === 'ALL' ? t('deliveryReconciliation.all_platforms') : selectedPlatform}
+              </span>
+            </span>
+            <span>•</span>
+            <span>
+              <strong className="text-slate-500">{t('deliveryReconciliation.scope_bar_period')}</strong>{' '}
+              <span className="font-mono font-extrabold text-indigo-600 dark:text-indigo-400">
+                {fmtDateMDY(startDate)} → {fmtDateMDY(endDate)}
+              </span>
+            </span>
+            <span>•</span>
+            <span>
+              <strong className="text-slate-500">{t('deliveryReconciliation.scope_bar_last_sync')}</strong>{' '}
+              <span className="font-mono font-semibold">{fmtLaTimestamp(latestSyncTimestamp)}</span>
+            </span>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            {activePayoutRef && (
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-indigo-600 text-white font-mono text-xs font-extrabold">
+                {t('deliveryReconciliation.scope_active_payout_filter', { ref: activePayoutRef })}
+                <button
+                  onClick={() => setActivePayoutRef('')}
+                  title={t('deliveryReconciliation.scope_clear_payout_filter', { ref: activePayoutRef })}
+                  className="hover:opacity-80"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </span>
+            )}
+            {coverageReport && (
+              <button
+                type="button"
+                onClick={() => setActiveTab('mappings')}
+                className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full font-extrabold transition ${
+                  coverageReport.isCoverageComplete
+                    ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30'
+                    : 'bg-amber-500/15 text-amber-800 dark:text-amber-200 border border-amber-500/40'
+                }`}
+              >
+                {coverageReport.isCoverageComplete ? (
+                  <>
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    <span>{t('deliveryReconciliation.coverage_publishable_badge')}</span>
+                  </>
+                ) : (
+                  <>
+                    <AlertTriangle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                    <span>
+                      {isEn
+                        ? coverageReport.statusLabelEn || t('deliveryReconciliation.coverage_not_publishable_badge')
+                        : coverageReport.statusLabelEs || t('deliveryReconciliation.coverage_not_publishable_badge')}
+                    </span>
+                  </>
+                )}
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* FILTROS */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
           <div>
             <label className="block text-[11px] font-bold text-slate-500 dark:text-slate-400 mb-1">
@@ -765,10 +1530,14 @@ export default function ConciliarDeliveryPage() {
             </label>
             <select
               value={selectedStore}
-              onChange={(e) => setSelectedStore(e.target.value)}
+              onChange={(e) => {
+                setSelectedStore(e.target.value)
+                setActivePayoutRef('')
+              }}
               className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 text-xs md:text-sm font-bold"
             >
               <option value="ALL">{t('deliveryReconciliation.all_stores')}</option>
+              <option value="0">{t('deliveryReconciliation.unassigned_store_option')}</option>
               {[...mappings]
                 .sort((a, b) => a.store_name.localeCompare(b.store_name, 'es'))
                 .map((m) => (
@@ -785,13 +1554,16 @@ export default function ConciliarDeliveryPage() {
             </label>
             <select
               value={selectedPlatform}
-              onChange={(e) => setSelectedPlatform(e.target.value)}
+              onChange={(e) => {
+                setSelectedPlatform(e.target.value)
+                setActivePayoutRef('')
+              }}
               className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 text-xs md:text-sm font-bold"
             >
               <option value="ALL">{t('deliveryReconciliation.filter_all_platforms_combo')}</option>
-              <option value="DOORDASH">{t('deliveryReconciliation.filter_dd_cycle')}</option>
-              <option value="UBER_EATS">{t('deliveryReconciliation.filter_ue_cycle')}</option>
-              <option value="GRUBHUB">{t('deliveryReconciliation.filter_gh_cycle')}</option>
+              <option value="DOORDASH">DoorDash</option>
+              <option value="UBER_EATS">Uber Eats</option>
+              <option value="GRUBHUB">Grubhub</option>
             </select>
           </div>
 
@@ -807,7 +1579,11 @@ export default function ConciliarDeliveryPage() {
               <input
                 type="date"
                 value={startDate}
-                onChange={(e) => setStartDate(e.target.value)}
+                onChange={(e) => {
+                  setStartDate(e.target.value)
+                  setActivePreset('CUSTOM')
+                  setActivePayoutRef('')
+                }}
                 onClick={(e) => {
                   try {
                     ;(e.currentTarget as HTMLInputElement).showPicker?.()
@@ -823,14 +1599,25 @@ export default function ConciliarDeliveryPage() {
               {t('deliveryReconciliation.filter_4_end_date')}
             </label>
             <div className="relative">
-              <div className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 text-xs md:text-sm font-semibold flex items-center justify-between pointer-events-none">
+              <div
+                className={`w-full rounded-xl border px-3 py-2 text-xs md:text-sm font-semibold flex items-center justify-between pointer-events-none ${
+                  !isDateRangeValid
+                    ? 'border-rose-500 bg-rose-500/10 text-rose-700'
+                    : 'border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800'
+                }`}
+              >
                 <span>{fmtDateMDY(endDate)}</span>
                 <Calendar className="w-4 h-4 text-slate-400" />
               </div>
               <input
                 type="date"
                 value={endDate}
-                onChange={(e) => setEndDate(e.target.value)}
+                min={startDate}
+                onChange={(e) => {
+                  setEndDate(e.target.value)
+                  setActivePreset('CUSTOM')
+                  setActivePayoutRef('')
+                }}
                 onClick={(e) => {
                   try {
                     ;(e.currentTarget as HTMLInputElement).showPicker?.()
@@ -849,14 +1636,17 @@ export default function ConciliarDeliveryPage() {
               <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
               <input
                 type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
+                value={searchInput}
+                onChange={(e) => setSearchInput(e.target.value)}
                 placeholder={t('deliveryReconciliation.filter_5_placeholder')}
                 className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 pl-9 pr-7 py-2 text-xs md:text-sm"
               />
-              {searchQuery && (
+              {searchInput && (
                 <button
-                  onClick={() => setSearchQuery('')}
+                  onClick={() => {
+                    setSearchInput('')
+                    setSearchQuery('')
+                  }}
                   className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600"
                 >
                   <X className="w-3.5 h-3.5" />
@@ -866,62 +1656,50 @@ export default function ConciliarDeliveryPage() {
           </div>
         </div>
 
-        {/* BOTONES DE SEMANAS RÁPIDAS */}
+        {/* P1 #14: REDUCIR PRESETS EXACTAMENTE A 4: ESTA SEMANA, SEMANA ANTERIOR, MES ACTUAL, PERSONALIZADO */}
         <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-100 dark:border-slate-800 text-xs">
           <span className="text-[11px] font-extrabold text-slate-400 uppercase">
             {t('deliveryReconciliation.quick_weeks_label')}
           </span>
           <button
-            onClick={() => {
-              setStartDate('2026-10-19')
-              setEndDate('2026-10-25')
-            }}
+            onClick={() => applyDynamicDatePreset('THIS_WEEK')}
             className={`px-3 py-1.5 rounded-lg font-bold transition border ${
-              startDate === '2026-10-19' && endDate === '2026-10-25'
+              activePreset === 'THIS_WEEK' && !activePayoutRef
                 ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
                 : 'bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-100'
             }`}
           >
-            {t('deliveryReconciliation.preset_week_oct_19_25')}
+            {t('deliveryReconciliation.preset_this_week')}
           </button>
           <button
-            onClick={() => {
-              setStartDate('2026-10-12')
-              setEndDate('2026-10-18')
-            }}
+            onClick={() => applyDynamicDatePreset('PREV_WEEK')}
             className={`px-3 py-1.5 rounded-lg font-bold transition border ${
-              startDate === '2026-10-12' && endDate === '2026-10-18'
+              activePreset === 'PREV_WEEK' && !activePayoutRef
                 ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
                 : 'bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-100'
             }`}
           >
-            {t('deliveryReconciliation.preset_week_oct_12_18')}
+            {t('deliveryReconciliation.preset_prev_week')}
           </button>
           <button
-            onClick={() => {
-              setStartDate('2026-10-05')
-              setEndDate('2026-10-11')
-            }}
+            onClick={() => applyDynamicDatePreset('CURRENT_MONTH')}
             className={`px-3 py-1.5 rounded-lg font-bold transition border ${
-              startDate === '2026-10-05' && endDate === '2026-10-11'
+              activePreset === 'CURRENT_MONTH' && !activePayoutRef
                 ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
                 : 'bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-100'
             }`}
           >
-            {t('deliveryReconciliation.preset_week_oct_05_11')}
+            {t('deliveryReconciliation.preset_current_month')}
           </button>
           <button
-            onClick={() => {
-              setStartDate('2026-09-28')
-              setEndDate('2026-10-29')
-            }}
+            onClick={() => applyDynamicDatePreset('CUSTOM')}
             className={`px-3 py-1.5 rounded-lg font-bold transition border ${
-              startDate === '2026-09-28' && endDate === '2026-10-29'
+              activePreset === 'CUSTOM'
                 ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
                 : 'bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-100'
             }`}
           >
-            {t('deliveryReconciliation.preset_month_oct_all')}
+            {t('deliveryReconciliation.preset_custom')}
           </button>
         </div>
       </div>
@@ -941,14 +1719,182 @@ export default function ConciliarDeliveryPage() {
         </div>
       )}
 
-      {/* 2. LAS 3 TARJETAS DE PLATAFORMA: MUESTRAN LA FÓRMULA DE PAGO DE LA SEMANA SIN MEZCLAR CONCEPTOS */}
+      {/* 2. PREGUNTA PRINCIPAL + LOS 4 GRUPOS EN ORDEN DE PRIORIDAD VISUAL (P1 #13: 1. BLOQUEADOS -> 2. DIFERENCIAS -> 3. DISPUTAS -> 4. LISTOS) */}
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm space-y-3.5">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-2 pb-2 border-b border-slate-100 dark:border-slate-800">
+          <div>
+            <h2 className="text-base md:text-lg font-extrabold flex items-center gap-2">
+              {hasActionNeeded ? (
+                <AlertTriangle className="w-5 h-5 text-amber-500 shrink-0" />
+              ) : (
+                <ShieldCheck className="w-5 h-5 text-emerald-600 shrink-0" />
+              )}
+              <span>{t('deliveryReconciliation.primary_question_title')}</span>
+            </h2>
+            <p className="text-xs text-slate-600 dark:text-slate-300 mt-0.5">
+              {hasActionNeeded
+                ? t('deliveryReconciliation.primary_question_action_needed', {
+                    variances: group2Variance.length,
+                    varAmt: Number(summary?.varianceInvestigateAmount || 0).toFixed(2),
+                    disputes: group3Disputes.length,
+                    dispAmt: Number(summary?.disputeRecoveryAmount || 0).toFixed(2),
+                    blocked: group4Blocked.length,
+                  })
+                : t('deliveryReconciliation.primary_question_ok')}
+            </p>
+          </div>
+          {(selectedActionGroup !== 'ALL' || selectedOrderSubFilter !== 'NONE') && (
+            <button
+              onClick={() => {
+                setSelectedActionGroup('ALL')
+                setSelectedOrderSubFilter('NONE')
+              }}
+              className="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-xs font-bold"
+            >
+              {t('deliveryReconciliation.group_all_title')} ({orders.length})
+            </button>
+          )}
+        </div>
+
+        {/* TARJETAS DE LOS 4 GRUPOS EN ORDEN DE PRIORIDAD: 1. BLOQUEADOS -> 2. DIFERENCIAS -> 3. DISPUTAS -> 4. LISTOS */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          {/* PRIORIDAD 1: BLOQUEADOS (BLOCKED_MISSING_INFO) */}
+          <div
+            onClick={() => {
+              setSelectedOrderSubFilter('NONE')
+              setSelectedActionGroup(selectedActionGroup === 'BLOCKED_MISSING_INFO' ? 'ALL' : 'BLOCKED_MISSING_INFO')
+              setActiveTab('orders')
+            }}
+            className={`cursor-pointer rounded-2xl border p-3.5 transition ${
+              selectedActionGroup === 'BLOCKED_MISSING_INFO' && selectedOrderSubFilter === 'NONE'
+                ? 'ring-2 ring-slate-600 border-slate-600 bg-slate-500/15'
+                : 'border-slate-300 dark:border-slate-700 bg-slate-100/70 dark:bg-slate-800/50 hover:border-slate-400'
+            }`}
+          >
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-xs font-extrabold text-slate-800 dark:text-slate-200">
+                {t('deliveryReconciliation.group_4_title')}
+              </span>
+              <Lock className="w-4 h-4 text-slate-600 dark:text-slate-400 shrink-0" />
+            </div>
+            <div className="flex items-baseline justify-between mt-2">
+              <span className="text-2xl font-extrabold font-mono text-slate-800 dark:text-slate-200">
+                {group4Blocked.length}
+              </span>
+              <span className="text-xs font-mono font-bold text-slate-600 dark:text-slate-400">
+                {fmtMoney(summary?.blockedMissingInfoAmount || 0)}
+              </span>
+            </div>
+            <p className="text-[11px] text-slate-600 dark:text-slate-400 mt-1">
+              {t('deliveryReconciliation.group_4_desc')}
+            </p>
+          </div>
+
+          {/* PRIORIDAD 2: DIFERENCIAS POR INVESTIGAR (VARIANCE_INVESTIGATE) */}
+          <div
+            onClick={() => {
+              setSelectedOrderSubFilter('NONE')
+              setSelectedActionGroup(selectedActionGroup === 'VARIANCE_INVESTIGATE' ? 'ALL' : 'VARIANCE_INVESTIGATE')
+              setActiveTab('orders')
+            }}
+            className={`cursor-pointer rounded-2xl border p-3.5 transition ${
+              selectedActionGroup === 'VARIANCE_INVESTIGATE' && selectedOrderSubFilter === 'NONE'
+                ? 'ring-2 ring-amber-500 border-amber-500 bg-amber-500/10'
+                : 'border-amber-500/30 bg-amber-500/5 hover:border-amber-500/60'
+            }`}
+          >
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-xs font-extrabold text-amber-800 dark:text-amber-300">
+                {t('deliveryReconciliation.group_2_title')}
+              </span>
+              <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+            </div>
+            <div className="flex items-baseline justify-between mt-2">
+              <span className="text-2xl font-extrabold font-mono text-amber-700 dark:text-amber-300">
+                {group2Variance.length}
+              </span>
+              <span className="text-xs font-mono font-bold text-amber-700 dark:text-amber-400">
+                {isEn ? 'Var:' : 'Dif:'} {fmtMoney(summary?.varianceInvestigateAmount || 0)}
+              </span>
+            </div>
+            <p className="text-[11px] text-slate-600 dark:text-slate-400 mt-1">
+              {t('deliveryReconciliation.group_2_desc')}
+            </p>
+          </div>
+
+          {/* PRIORIDAD 3: DISPUTAS / RECUPERACIONES (DISPUTE_RECOVERY) */}
+          <div
+            onClick={() => {
+              setSelectedOrderSubFilter('NONE')
+              setSelectedActionGroup(selectedActionGroup === 'DISPUTE_RECOVERY' ? 'ALL' : 'DISPUTE_RECOVERY')
+              setActiveTab('orders')
+            }}
+            className={`cursor-pointer rounded-2xl border p-3.5 transition ${
+              selectedActionGroup === 'DISPUTE_RECOVERY' && selectedOrderSubFilter === 'NONE'
+                ? 'ring-2 ring-rose-500 border-rose-500 bg-rose-500/10'
+                : 'border-rose-500/30 bg-rose-500/5 hover:border-rose-500/60'
+            }`}
+          >
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-xs font-extrabold text-rose-800 dark:text-rose-300">
+                {t('deliveryReconciliation.group_3_title')}
+              </span>
+              <XCircle className="w-4 h-4 text-rose-600 shrink-0" />
+            </div>
+            <div className="flex items-baseline justify-between mt-2">
+              <span className="text-2xl font-extrabold font-mono text-rose-700 dark:text-rose-300">
+                {group3Disputes.length}
+              </span>
+              <span className="text-xs font-mono font-bold text-rose-700 dark:text-rose-400">
+                {fmtMoney(summary?.disputeRecoveryAmount || 0)}
+              </span>
+            </div>
+            <p className="text-[11px] text-slate-600 dark:text-slate-400 mt-1">
+              {t('deliveryReconciliation.group_3_desc')}
+            </p>
+          </div>
+
+          {/* PRIORIDAD 4: LISTOS PARA CONTABILIZAR (CONCILIATED_READY) */}
+          <div
+            onClick={() => {
+              setSelectedOrderSubFilter('NONE')
+              setSelectedActionGroup(selectedActionGroup === 'CONCILIATED_READY' ? 'ALL' : 'CONCILIATED_READY')
+              setActiveTab('orders')
+            }}
+            className={`cursor-pointer rounded-2xl border p-3.5 transition ${
+              selectedActionGroup === 'CONCILIATED_READY' && selectedOrderSubFilter === 'NONE'
+                ? 'ring-2 ring-emerald-500 border-emerald-500 bg-emerald-500/10'
+                : 'border-emerald-500/30 bg-emerald-500/5 hover:border-emerald-500/60'
+            }`}
+          >
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-xs font-extrabold text-emerald-800 dark:text-emerald-300">
+                {t('deliveryReconciliation.group_1_title')}
+              </span>
+              <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+            </div>
+            <div className="flex items-baseline justify-between mt-2">
+              <span className="text-2xl font-extrabold font-mono text-emerald-700 dark:text-emerald-300">
+                {group1Conciliated.length}
+              </span>
+              <span className="text-xs font-mono font-bold text-emerald-700 dark:text-emerald-400">
+                {fmtMoney(summary?.conciliatedReadyGross || 0)}
+              </span>
+            </div>
+            <p className="text-[11px] text-slate-600 dark:text-slate-400 mt-1">
+              {t('deliveryReconciliation.group_1_desc')}
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* 3. RESUMEN POR PLATAFORMA EN EL CONTEXTO SELECCIONADO */}
       {summary?.byPlatform && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-3.5">
           {(['DOORDASH', 'UBER_EATS', 'GRUBHUB'] as DeliveryPlatform[]).map((plat) => {
             const pData = summary.byPlatform[plat] || {}
             const isSelected = selectedPlatform === plat
             const isUber = plat === 'UBER_EATS'
-            const isGrubhub = plat === 'GRUBHUB'
             const borderClass =
               plat === 'DOORDASH'
                 ? 'border-red-500/30 bg-white dark:bg-slate-900'
@@ -960,13 +1906,30 @@ export default function ConciliarDeliveryPage() {
             const feesCut = pData.payoutsFeesTotal || pData.totalFees || 0
             const errorsCut = pData.payoutsErrorTotal || pData.errorCharges || 0
             const netBankCut = pData.payoutsNetTotal || pData.netPayout || 0
-            const toastAuditedGross = pData.settledToastExpected || pData.toastExpectedGross || 0
-            const settledCount = pData.settledOrdersCount || 0
+            const conciliatedCount = pData.conciliatedReadyCount || 0
+            const pendingReviewCount = pData.withPayoutPendingReviewCount || 0
 
             return (
               <div
                 key={plat}
-                onClick={() => setSelectedPlatform(isSelected ? 'ALL' : plat)}
+                onClick={() => {
+                  const nextPlat = isSelected ? 'ALL' : plat
+                  setSelectedPlatform(nextPlat)
+                  setActivePayoutRef('')
+                  setSelectedOrderSubFilter('NONE')
+                  if (
+                    nextPlat !== 'ALL' &&
+                    (activeTab === 'qb_journals' || activeTab === 'payouts') &&
+                    (pData.payoutsCount || 0) === 0 &&
+                    (pData.ordersCount || 0) > 0
+                  ) {
+                    setActiveTab('orders')
+                    if (pendingReviewCount > 0) {
+                      setSelectedActionGroup('ALL')
+                      setSelectedOrderSubFilter('WITH_PAYOUT_PENDING_REVIEW')
+                    }
+                  }
+                }}
                 className={`cursor-pointer rounded-2xl border p-4 transition shadow-sm ${borderClass} ${
                   isSelected ? 'ring-2 ring-indigo-500' : 'hover:border-slate-400'
                 }`}
@@ -974,9 +1937,6 @@ export default function ConciliarDeliveryPage() {
                 <div className="flex items-center justify-between gap-2 mb-3">
                   <div className="flex items-center gap-2">
                     {renderPlatformBadge(plat)}
-                    <span className="text-[11px] font-bold text-slate-500">
-                      {isGrubhub ? t('deliveryReconciliation.cycle_tue_mon') : t('deliveryReconciliation.cycle_mon_sun')}
-                    </span>
                   </div>
                   <span className="px-2.5 py-0.5 rounded-full text-xs font-extrabold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
                     {pData.payoutsCount || 0}{' '}
@@ -986,7 +1946,6 @@ export default function ConciliarDeliveryPage() {
                   </span>
                 </div>
 
-                {/* Fórmula clara de 3 renglones: Venta Bruta - Comisiones/Reembolsos = Depósito Neto en Banco */}
                 <div className="space-y-1.5 bg-slate-50 dark:bg-slate-800/60 rounded-xl p-3 border border-slate-200/80 dark:border-slate-800 text-xs">
                   <div className="flex items-center justify-between">
                     <span className="text-slate-500 font-semibold">
@@ -1034,26 +1993,63 @@ export default function ConciliarDeliveryPage() {
                   </div>
                 </div>
 
-                {/* Pie de tarjeta: Estatus de Auditoría Orden por Orden contra Toast POS */}
-                <div className="mt-2.5 pt-2 flex items-center justify-between text-[11px]">
-                  <span className="text-slate-500 font-semibold">
-                    {t('deliveryReconciliation.card_audited_tickets_label')}
-                  </span>
-                  {settledCount > 0 ? (
-                    <span className="font-mono font-bold text-indigo-600 dark:text-indigo-400">
-                      {t('deliveryReconciliation.card_audited_summary', {
-                        count: settledCount,
-                        amount: fmtMoney(toastAuditedGross),
-                        matched: pData.matchedCount || 0,
-                      })}
-                      {(pData.disputedCount || 0) > 0
-                        ? ` • 🚨 ${pData.disputedCount} ${t('deliveryReconciliation.card_disputes_short')}`
-                        : ''}
-                    </span>
-                  ) : (
-                    <span className="text-amber-600 dark:text-amber-400 font-semibold">
-                      {t('deliveryReconciliation.card_click_audit_below')}
-                    </span>
+                <div className="mt-2.5 pt-2 flex flex-wrap items-center justify-between gap-1 text-[11px]">
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      setSelectedPlatform(plat)
+                      setActivePayoutRef('')
+                      setSelectedOrderSubFilter('NONE')
+                      setSelectedActionGroup('CONCILIATED_READY')
+                      setOrdersPage(1)
+                      setActiveTab('orders')
+                    }}
+                    className="px-2 py-0.5 rounded-lg hover:bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 font-bold transition"
+                  >
+                    ✓ {conciliatedCount} {isEn ? 'reconciled' : 'conciliadas'}
+                  </button>
+                  {pendingReviewCount > 0 && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        setSelectedPlatform(plat)
+                        setActivePayoutRef('')
+                        setSelectedActionGroup('ALL')
+                        setSelectedOrderSubFilter('WITH_PAYOUT_PENDING_REVIEW')
+                        setOrdersPage(1)
+                        setActiveTab('orders')
+                      }}
+                      className={`px-2 py-0.5 rounded-lg font-bold transition ${
+                        isSelected && selectedOrderSubFilter === 'WITH_PAYOUT_PENDING_REVIEW'
+                          ? 'bg-amber-600 text-white shadow-sm'
+                          : 'bg-amber-500/10 hover:bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-500/30'
+                      }`}
+                    >
+                      ⚠ {pendingReviewCount} {t('deliveryReconciliation.status_WITH_PAYOUT_PENDING_REVIEW')}
+                    </button>
+                  )}
+                  {(pData.pendingToastCount || 0) > 0 && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        setSelectedPlatform(plat)
+                        setActivePayoutRef('')
+                        setSelectedActionGroup('ALL')
+                        setSelectedOrderSubFilter('TOAST_ONLY')
+                        setOrdersPage(1)
+                        setActiveTab('orders')
+                      }}
+                      className={`px-2 py-0.5 rounded-lg font-semibold transition ${
+                        isSelected && selectedOrderSubFilter === 'TOAST_ONLY'
+                          ? 'bg-slate-700 text-white'
+                          : 'hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500'
+                      }`}
+                    >
+                      ⏳ {pData.pendingToastCount} Toast
+                    </button>
                   )}
                 </div>
               </div>
@@ -1062,30 +2058,9 @@ export default function ConciliarDeliveryPage() {
         </div>
       )}
 
-      {/* 3. NAVEGACIÓN PRINCIPAL EN 3 PASOS CLAROS */}
+      {/* 4. PESTAÑAS DE NAVEGACIÓN REORDENADAS (P1 #13: ATENCIÓN REQUERIDA PRIMERO, QUICKBOOKS PASO FINAL) */}
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-1.5 shadow-sm">
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-1.5">
-          <button
-            onClick={() => setActiveTab('qb_journals')}
-            className={`flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs md:text-sm font-extrabold transition ${
-              activeTab === 'qb_journals' || activeTab === 'payouts'
-                ? 'bg-emerald-600 text-white shadow-sm'
-                : 'text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800'
-            }`}
-          >
-            <Landmark className="w-4 h-4 shrink-0" />
-            <span className="truncate">{t('deliveryReconciliation.nav_step_1')}</span>
-            <span
-              className={`px-2 py-0.5 rounded-full text-xs font-extrabold ${
-                activeTab === 'qb_journals' || activeTab === 'payouts'
-                  ? 'bg-white/20 text-white'
-                  : 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
-              }`}
-            >
-              {qbRecords.length}
-            </span>
-          </button>
-
           <button
             onClick={() => setActiveTab('orders')}
             className={`flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs md:text-sm font-extrabold transition ${
@@ -1095,7 +2070,7 @@ export default function ConciliarDeliveryPage() {
             }`}
           >
             <Receipt className="w-4 h-4 shrink-0" />
-            <span className="truncate">{t('deliveryReconciliation.nav_step_2')}</span>
+            <span className="truncate">{t('deliveryReconciliation.nav_step_attention')}</span>
             <span
               className={`px-2 py-0.5 rounded-full text-xs font-extrabold ${
                 activeTab === 'orders'
@@ -1116,7 +2091,7 @@ export default function ConciliarDeliveryPage() {
             }`}
           >
             <AlertTriangle className="w-4 h-4 shrink-0" />
-            <span className="truncate">{t('deliveryReconciliation.nav_step_3')}</span>
+            <span className="truncate">{t('deliveryReconciliation.nav_step_disputes')}</span>
             <span
               className={`px-2 py-0.5 rounded-full text-xs font-extrabold ${
                 activeTab === 'disputes'
@@ -1124,7 +2099,7 @@ export default function ConciliarDeliveryPage() {
                   : 'bg-rose-500/15 text-rose-600 dark:text-rose-400'
               }`}
             >
-              {disputedOrders.length}
+              {group3Disputes.length}
             </span>
           </button>
 
@@ -1137,201 +2112,191 @@ export default function ConciliarDeliveryPage() {
             }`}
           >
             <Store className="w-4 h-4 shrink-0" />
-            <span className="truncate">{t('deliveryReconciliation.nav_step_4')}</span>
+            <span className="truncate">{t('deliveryReconciliation.nav_step_coverage')}</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('qb_journals')}
+            className={`flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs md:text-sm font-extrabold transition ${
+              activeTab === 'qb_journals' || activeTab === 'payouts'
+                ? 'bg-emerald-600 text-white shadow-sm'
+                : 'text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800'
+            }`}
+          >
+            <Landmark className="w-4 h-4 shrink-0" />
+            <span className="truncate">{t('deliveryReconciliation.nav_step_qbo_final')}</span>
+            <span
+              className={`px-2 py-0.5 rounded-full text-xs font-extrabold ${
+                activeTab === 'qb_journals' || activeTab === 'payouts'
+                  ? 'bg-white/20 text-white'
+                  : 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
+              }`}
+            >
+              {qbRecords.length}
+            </span>
           </button>
         </div>
       </div>
 
-      {/* TAB 3: AUDITORÍA ORDEN POR ORDEN (CON FILTRO RÁPIDO INTEGRADO Y 10 COLUMNAS APILADAS LIMPIAS) */}
+      {/* TAB: AUDITORÍA ORDEN POR ORDEN CON EXPLICACIÓN EN LENGUAJE SIMPLE (QUÉ PASÓ, CAUSA, EVIDENCIA, SIGUIENTE ACCIÓN) */}
       {activeTab === 'orders' && (
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm overflow-hidden">
-          {/* BANNER DE ECUACIÓN DE AUDITORÍA: 1. TOAST POS ⟷ 2. ÓRDENES PLATAFORMA ⟷ 3. CORTE BANCARIO */}
-          <div className="p-4 bg-gradient-to-r from-slate-50 via-indigo-50/40 to-emerald-50/40 dark:from-slate-800/60 dark:via-indigo-950/20 dark:to-emerald-950/20 border-b border-slate-200 dark:border-slate-800">
-            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 mb-3">
-              <div>
-                <h3 className="text-xs md:text-sm font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
-                  <span>{t('deliveryReconciliation.eq_banner_title')}</span>
-                  <span className="px-2 py-0.5 rounded-full text-[11px] bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 font-bold">
-                    {selectedStore === 'ALL'
-                      ? t('deliveryReconciliation.all_stores')
-                      : mappings.find((m) => String(m.store_id) === String(selectedStore))?.store_name || `#${selectedStore}`}
-                  </span>
-                </h3>
-                <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-                  {t('deliveryReconciliation.eq_banner_desc', {
-                    start: fmtDateMDY(startDate),
-                    end: fmtDateMDY(endDate),
-                  })}
-                </p>
-              </div>
-
-              {selectedStore !== 'ALL' ? (
-                <button
-                  onClick={() =>
-                    handleLiveSyncForStore({
-                      storeId: String(selectedStore),
-                      platform: selectedPlatform !== 'ALL' ? (selectedPlatform as DeliveryPlatform) : undefined,
-                      startDate,
-                      endDate,
-                      openOrdersTab: true,
-                    })
-                  }
-                  disabled={syncing}
-                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-extrabold bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm transition disabled:opacity-50"
-                >
-                  <RefreshCw className={`w-3.5 h-3.5 ${syncing ? 'animate-spin' : ''}`} />
-                  {syncing
-                    ? t('deliveryReconciliation.eq_syncing_week_btn')
-                    : t('deliveryReconciliation.eq_sync_week_btn')}
-                </button>
-              ) : (
-                <div className="text-[11px] font-bold text-amber-700 dark:text-amber-300 bg-amber-500/10 border border-amber-500/25 px-3 py-1.5 rounded-xl">
-                  {t('deliveryReconciliation.eq_select_store_tip')}
-                </div>
-              )}
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
-              <div className="rounded-xl bg-white dark:bg-slate-900 p-3 border border-slate-200/80 dark:border-slate-800">
-                <div className="text-[10px] font-extrabold uppercase text-slate-400">
-                  {t('deliveryReconciliation.eq_step1_title')}
-                </div>
-                <div className="text-base font-extrabold font-mono text-slate-900 dark:text-white mt-0.5">
-                  {fmtMoney(
-                    settledOrders.reduce((acc, o) => acc + Number(o.toast_expected_gross || 0), 0)
-                  )}
-                </div>
-                <div className="text-[11px] text-slate-500 mt-0.5">
-                  <strong className="text-slate-700 dark:text-slate-200">{settledOrders.length}</strong>{' '}
-                  {t('deliveryReconciliation.eq_step1_matched_sub')}
-                  {pendingToastOrders.length > 0 && (
-                    <span className="text-amber-600 dark:text-amber-400 font-bold">
-                      {' '}• {pendingToastOrders.length} {t('deliveryReconciliation.eq_step1_pending_sub')}
-                    </span>
-                  )}
-                </div>
-              </div>
-
-              <div className="rounded-xl bg-white dark:bg-slate-900 p-3 border border-indigo-500/25">
-                <div className="text-[10px] font-extrabold uppercase text-indigo-600 dark:text-indigo-400">
-                  {t('deliveryReconciliation.eq_step2_title')}
-                </div>
-                <div className="text-base font-extrabold font-mono text-indigo-600 dark:text-indigo-400 mt-0.5">
-                  {fmtMoney(
-                    settledOrders.reduce((acc, o) => acc + Number(o.platform_gross_receivable || 0), 0)
-                  )}
-                </div>
-                <div className="text-[11px] text-slate-500 mt-0.5">
-                  <span className="text-emerald-600 font-bold">
-                    {t('deliveryReconciliation.eq_step2_matched', { count: matchedOrdersList.length })}
-                  </span>
-                  {' • '}
-                  <span className="text-rose-600 font-bold">
-                    {t('deliveryReconciliation.eq_step2_disputed', { count: disputedOrders.length })}
-                  </span>
-                </div>
-              </div>
-
-              <div className="rounded-xl bg-white dark:bg-slate-900 p-3 border border-emerald-500/25">
-                <div className="text-[10px] font-extrabold uppercase text-emerald-700 dark:text-emerald-400">
-                  {t('deliveryReconciliation.eq_step3_title', { count: payouts.length })}
-                </div>
-                <div className="text-base font-extrabold font-mono text-emerald-600 dark:text-emerald-400 mt-0.5">
-                  {fmtMoney(
-                    payouts.reduce((acc, p) => acc + Number(p.net_payout_amount || 0), 0)
-                  )}{' '}
-                  <span className="text-xs font-normal text-slate-400">
-                    ({t('deliveryReconciliation.eq_step3_gross_label')}:{' '}
-                    {fmtMoney(payouts.reduce((acc, p) => acc + Number(p.platform_gross_receivable || 0), 0))})
-                  </span>
-                </div>
-                <div className="text-[11px] text-slate-500 mt-0.5">
-                  {t('deliveryReconciliation.eq_step3_fees_label')}:{' '}
-                  {fmtMoney(
-                    payouts.reduce(
-                      (acc, p) =>
-                        acc +
-                        Number(p.commission_fees || 0) +
-                        Number(p.delivery_fees || 0) +
-                        Number(p.processing_fees || 0) +
-                        Number(p.marketing_fees || 0),
-                      0
-                    )
-                  )}{' '}
-                  • {t('deliveryReconciliation.eq_step3_errors_label')}:{' '}
-                  {fmtMoney(
-                    payouts.reduce(
-                      (acc, p) => acc + Number(p.error_charges || 0) + Number(p.adjustments_amount || 0),
-                      0
-                    )
-                  )}
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Sub-barra integrada de filtro de órdenes */}
           <div className="p-3.5 bg-slate-50/70 dark:bg-slate-800/40 border-b border-slate-200 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2">
             <div className="flex flex-wrap items-center gap-1.5">
               <span className="text-xs font-extrabold text-slate-500 mr-1">
                 {t('deliveryReconciliation.filter_inside_orders_label')}
               </span>
               <button
-                onClick={() => setQuickFilter('SETTLED')}
+                onClick={() => {
+                  setSelectedActionGroup('ALL')
+                  setSelectedOrderSubFilter('NONE')
+                }}
                 className={`px-3 py-1.5 rounded-xl text-xs font-bold transition border ${
-                  quickFilter === 'SETTLED'
-                    ? 'bg-indigo-600 text-white border-indigo-600'
-                    : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700'
-                }`}
-              >
-                🔍 {t('deliveryReconciliation.quick_filter_settled')} ({settledOrders.length})
-              </button>
-
-              <button
-                onClick={() => setQuickFilter('MATCHED')}
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition border ${
-                  quickFilter === 'MATCHED'
-                    ? 'bg-emerald-600 text-white border-emerald-600'
-                    : 'bg-white dark:bg-slate-900 text-emerald-600 dark:text-emerald-400 border-emerald-500/30'
-                }`}
-              >
-                ✅ {t('deliveryReconciliation.quick_filter_matched')} ({matchedOrdersList.length})
-              </button>
-
-              <button
-                onClick={() => setQuickFilter('DISPUTES')}
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition border ${
-                  quickFilter === 'DISPUTES'
-                    ? 'bg-rose-600 text-white border-rose-600'
-                    : 'bg-white dark:bg-slate-900 text-rose-600 dark:text-rose-400 border-rose-500/30'
-                }`}
-              >
-                🚨 {t('deliveryReconciliation.quick_filter_disputes')} ({disputedOrders.length})
-              </button>
-
-              <button
-                onClick={() => setQuickFilter('PENDING_TOAST')}
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition border ${
-                  quickFilter === 'PENDING_TOAST'
-                    ? 'bg-amber-600 text-white border-amber-600'
-                    : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700'
-                }`}
-              >
-                ⏳ {t('deliveryReconciliation.quick_filter_pending_toast')} ({pendingToastOrders.length})
-              </button>
-
-              <button
-                onClick={() => setQuickFilter('ALL')}
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition border ${
-                  quickFilter === 'ALL'
+                  selectedActionGroup === 'ALL' && selectedOrderSubFilter === 'NONE'
                     ? 'bg-slate-800 text-white border-slate-800 dark:bg-slate-200 dark:text-slate-900'
                     : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700'
                 }`}
               >
                 📋 {t('deliveryReconciliation.quick_filter_all')} ({orders.length})
               </button>
+              {withPayoutPendingReviewOrders.length > 0 && (
+                <button
+                  onClick={() => {
+                    setSelectedActionGroup('ALL')
+                    setSelectedOrderSubFilter(
+                      selectedOrderSubFilter === 'WITH_PAYOUT_PENDING_REVIEW' ? 'NONE' : 'WITH_PAYOUT_PENDING_REVIEW'
+                    )
+                  }}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition border ${
+                    selectedOrderSubFilter === 'WITH_PAYOUT_PENDING_REVIEW'
+                      ? 'bg-amber-600 text-white border-amber-600'
+                      : 'bg-white dark:bg-slate-900 text-amber-700 dark:text-amber-400 border-amber-500/30'
+                  }`}
+                >
+                  ⚠ {t('deliveryReconciliation.status_WITH_PAYOUT_PENDING_REVIEW')} ({withPayoutPendingReviewOrders.length})
+                </button>
+              )}
+              <button
+                onClick={() => {
+                  setSelectedOrderSubFilter('NONE')
+                  setSelectedActionGroup('BLOCKED_MISSING_INFO')
+                }}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition border ${
+                  selectedActionGroup === 'BLOCKED_MISSING_INFO' && selectedOrderSubFilter === 'NONE'
+                    ? 'bg-slate-700 text-white border-slate-700'
+                    : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-300 dark:border-slate-700'
+                }`}
+              >
+                🛑 {t('deliveryReconciliation.group_4_title')} ({group4Blocked.length})
+              </button>
+              <button
+                onClick={() => {
+                  setSelectedOrderSubFilter('NONE')
+                  setSelectedActionGroup('VARIANCE_INVESTIGATE')
+                }}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition border ${
+                  selectedActionGroup === 'VARIANCE_INVESTIGATE' && selectedOrderSubFilter === 'NONE'
+                    ? 'bg-amber-600 text-white border-amber-600'
+                    : 'bg-white dark:bg-slate-900 text-amber-700 dark:text-amber-400 border-amber-500/30'
+                }`}
+              >
+                ⚠️ {t('deliveryReconciliation.group_2_title')} ({group2Variance.length})
+              </button>
+              <button
+                onClick={() => {
+                  setSelectedOrderSubFilter('NONE')
+                  setSelectedActionGroup('DISPUTE_RECOVERY')
+                }}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition border ${
+                  selectedActionGroup === 'DISPUTE_RECOVERY' && selectedOrderSubFilter === 'NONE'
+                    ? 'bg-rose-600 text-white border-rose-600'
+                    : 'bg-white dark:bg-slate-900 text-rose-700 dark:text-rose-400 border-rose-500/30'
+                }`}
+              >
+                🚨 {t('deliveryReconciliation.group_3_title')} ({group3Disputes.length})
+              </button>
+              <button
+                onClick={() => {
+                  setSelectedOrderSubFilter('NONE')
+                  setSelectedActionGroup('CONCILIATED_READY')
+                }}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition border ${
+                  selectedActionGroup === 'CONCILIATED_READY' && selectedOrderSubFilter === 'NONE'
+                    ? 'bg-emerald-600 text-white border-emerald-600'
+                    : 'bg-white dark:bg-slate-900 text-emerald-700 dark:text-emerald-400 border-emerald-500/30'
+                }`}
+              >
+                ✅ {t('deliveryReconciliation.group_1_title')} ({group1Conciliated.length})
+              </button>
             </div>
           </div>
+
+          {/* P0 #7: BARRA DE RESOLUCIÓN MASIVA POR LOTE SEPARADA ESTRICTAMENTE SEGÚN ACCIÓN */}
+          {selectedVisibleOrders.length > 0 && (
+            <div className="p-3 bg-indigo-500/10 border-b border-indigo-500/30 flex flex-wrap items-center justify-between gap-2.5 text-xs">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="px-2.5 py-1 rounded-full bg-indigo-600 text-white font-extrabold">
+                  {t('deliveryReconciliation.batch_selected_count', { count: selectedVisibleOrders.length })}
+                </span>
+                <input
+                  type="text"
+                  value={batchNotes}
+                  onChange={(e) => setBatchNotes(e.target.value)}
+                  placeholder={t('deliveryReconciliation.batch_notes_placeholder')}
+                  className="rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs min-w-[260px]"
+                />
+              </div>
+              <div className="flex flex-wrap items-center gap-1.5">
+                {activeSelectedBatchGroup === 'VARIANCE_INVESTIGATE' && (
+                  <button
+                    onClick={() => {
+                      if (batchNotes.trim().length < 5) {
+                        setBannerMessage({
+                          type: 'error',
+                          text: t('deliveryReconciliation.variance_reason_required_error'),
+                        })
+                        return
+                      }
+                      setBatchOrderConfirmModal({ open: true, actionType: 'APPROVE_VARIANCE' })
+                    }}
+                    disabled={savingBatch}
+                    className="px-3 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white font-extrabold transition"
+                  >
+                    {t('deliveryReconciliation.batch_approve_variance_btn', {
+                      count: selectedVisibleOrders.length,
+                    })}
+                  </button>
+                )}
+                {activeSelectedBatchGroup === 'DISPUTE_RECOVERY' && (
+                  <button
+                    onClick={() =>
+                      setBatchOrderConfirmModal({ open: true, actionType: 'MARK_DISPUTE_SUBMITTED' })
+                    }
+                    disabled={savingBatch}
+                    className="px-3 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white font-extrabold transition"
+                  >
+                    {t('deliveryReconciliation.batch_mark_dispute_submitted_btn', {
+                      count: selectedVisibleOrders.length,
+                    })}
+                  </button>
+                )}
+                <button
+                  onClick={() => handleExportBatchEvidencePackage(selectedVisibleOrders)}
+                  className="px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold transition"
+                >
+                  {t('deliveryReconciliation.batch_export_evidence_btn', {
+                    count: selectedVisibleOrders.length,
+                  })}
+                </button>
+                <button
+                  onClick={() => setSelectedOrderIds(new Set())}
+                  className="px-2.5 py-1.5 rounded-xl border border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300 font-semibold"
+                >
+                  {t('deliveryReconciliation.batch_clear_selection')}
+                </button>
+              </div>
+            </div>
+          )}
 
           {loading ? (
             <div className="p-12 text-center text-slate-500">{t('deliveryReconciliation.syncing_btn')}</div>
@@ -1339,9 +2304,114 @@ export default function ConciliarDeliveryPage() {
             <div className="p-12 text-center text-slate-500">{t('deliveryReconciliation.empty_orders')}</div>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse text-xs md:text-sm">
+              {/* BARRA DE PAGINACIÓN SUPERIOR PARA ALTO VOLUMEN DE ÓRDENES (9,400+ ÓRDENES SIN LAG EN DOM) */}
+              <div className="px-4 py-2.5 bg-slate-50 dark:bg-slate-900/80 border-b border-slate-200 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2 text-xs">
+                <div className="text-slate-600 dark:text-slate-300 font-semibold">
+                  {isEn ? (
+                    <>
+                      Showing{' '}
+                      <strong className="font-mono text-slate-900 dark:text-white">
+                        {(safeOrdersPage - 1) * ordersPageSize + 1}–
+                        {Math.min(safeOrdersPage * ordersPageSize, displayedOrders.length)}
+                      </strong>{' '}
+                      of <strong className="font-mono text-slate-900 dark:text-white">{displayedOrders.length}</strong>{' '}
+                      orders
+                    </>
+                  ) : (
+                    <>
+                      Mostrando{' '}
+                      <strong className="font-mono text-slate-900 dark:text-white">
+                        {(safeOrdersPage - 1) * ordersPageSize + 1}–
+                        {Math.min(safeOrdersPage * ordersPageSize, displayedOrders.length)}
+                      </strong>{' '}
+                      de <strong className="font-mono text-slate-900 dark:text-white">{displayedOrders.length}</strong>{' '}
+                      órdenes
+                    </>
+                  )}
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <label className="flex items-center gap-1.5 text-slate-500 font-semibold">
+                    <span>{isEn ? 'Rows per page:' : 'Filas por página:'}</span>
+                    <select
+                      value={ordersPageSize}
+                      onChange={(e) => {
+                        setOrdersPageSize(Number(e.target.value))
+                        setOrdersPage(1)
+                      }}
+                      className="rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-2 py-1 text-xs font-bold"
+                    >
+                      <option value={50}>50</option>
+                      <option value={100}>100</option>
+                      <option value={250}>250</option>
+                      <option value={500}>500</option>
+                    </select>
+                  </label>
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => setOrdersPage(1)}
+                      disabled={safeOrdersPage <= 1}
+                      className="px-2 py-1 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 disabled:opacity-40 font-bold hover:bg-slate-100 dark:hover:bg-slate-700"
+                    >
+                      «
+                    </button>
+                    <button
+                      onClick={() => setOrdersPage((p) => Math.max(1, p - 1))}
+                      disabled={safeOrdersPage <= 1}
+                      className="px-2.5 py-1 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 disabled:opacity-40 font-bold hover:bg-slate-100 dark:hover:bg-slate-700"
+                    >
+                      {isEn ? 'Prev' : 'Ant.'}
+                    </button>
+                    <span className="px-2.5 py-1 font-mono font-extrabold text-slate-800 dark:text-slate-200">
+                      {isEn
+                        ? `Page ${safeOrdersPage} of ${totalOrderPages}`
+                        : `Pág. ${safeOrdersPage} de ${totalOrderPages}`}
+                    </span>
+                    <button
+                      onClick={() => setOrdersPage((p) => Math.min(totalOrderPages, p + 1))}
+                      disabled={safeOrdersPage >= totalOrderPages}
+                      className="px-2.5 py-1 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 disabled:opacity-40 font-bold hover:bg-slate-100 dark:hover:bg-slate-700"
+                    >
+                      {isEn ? 'Next' : 'Sig.'}
+                    </button>
+                    <button
+                      onClick={() => setOrdersPage(totalOrderPages)}
+                      disabled={safeOrdersPage >= totalOrderPages}
+                      className="px-2 py-1 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 disabled:opacity-40 font-bold hover:bg-slate-100 dark:hover:bg-slate-700"
+                    >
+                      »
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <table className="w-full text-left border-collapse text-xs">
                 <thead>
                   <tr className="bg-slate-100 dark:bg-slate-800/70 text-slate-600 dark:text-slate-300 border-b border-slate-200 dark:border-slate-800 font-bold">
+                    <th className="p-3 w-10 text-center">
+                      <input
+                        type="checkbox"
+                        checked={
+                          paginatedOrders.filter((o) => canSelectOrderForBatch(o)).length > 0 &&
+                          paginatedOrders
+                            .filter((o) => canSelectOrderForBatch(o))
+                            .every((o) => selectedOrderIds.has(o.id))
+                        }
+                        onChange={(e) => {
+                          const next = new Set(selectedOrderIds)
+                          if (e.target.checked) {
+                            const eligible = paginatedOrders.filter((o) => canSelectOrderForBatch(o))
+                            const targetGroup = activeSelectedBatchGroup || eligible[0]?.action_group
+                            eligible
+                              .filter((o) => o.action_group === targetGroup)
+                              .forEach((o) => next.add(o.id))
+                          } else {
+                            paginatedOrders.forEach((o) => next.delete(o.id))
+                          }
+                          setSelectedOrderIds(next)
+                        }}
+                        className="rounded border-slate-300"
+                      />
+                    </th>
                     <th className="p-3">{t('deliveryReconciliation.col_date_store')}</th>
                     <th className="p-3">{t('deliveryReconciliation.col_platform')}</th>
                     <th className="p-3">{t('deliveryReconciliation.col_order_id')}</th>
@@ -1352,42 +2422,65 @@ export default function ConciliarDeliveryPage() {
                       {t('deliveryReconciliation.col_plat_stack')}
                     </th>
                     <th className="p-3 text-right">{t('deliveryReconciliation.col_variance')}</th>
-                    <th className="p-3 text-right">{t('deliveryReconciliation.col_fees_stack')}</th>
                     <th className="p-3 text-right">{t('deliveryReconciliation.col_error_adj')}</th>
                     <th className="p-3 text-right font-extrabold text-emerald-700 dark:text-emerald-400">
                       {t('deliveryReconciliation.col_net_payout')}
                     </th>
                     <th className="p-3">{t('deliveryReconciliation.col_status')}</th>
+                    <th className="p-3 min-w-[290px]">{t('deliveryReconciliation.col_explanation')}</th>
                     <th className="p-3 text-center">{t('deliveryReconciliation.col_actions')}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
-                  {displayedOrders.map((ord) => {
-                    const commDel = Number(ord.commission_fee || 0) + Number(ord.delivery_fee || 0)
-                    const procMkt = Number(ord.processing_fee || 0) + Number(ord.marketing_fee || 0)
-                    const totalOrderFees = commDel + procMkt
+                  {paginatedOrders.map((ord) => {
                     const errAdj = Number(ord.error_charge || 0) + Number(ord.adjustment_amount || 0)
-                    const varAmt = Number(ord.gross_diff || 0)
+                    const varAmt = Number(ord.gross_variance ?? ord.gross_diff ?? 0)
+                    const whatHappened = isEn ? ord.what_happened_en : ord.what_happened_es
+                    const causeText = isEn ? ord.cause_en : ord.cause_es
+                    const evidenceText = isEn ? ord.evidence_en : ord.evidence_es
+                    const nextActionText = isEn ? ord.next_action_en : ord.next_action_es
+                    const isOrderSelected = selectedOrderIds.has(ord.id)
+                    const isSelectable = canSelectOrderForBatch(ord)
 
                     return (
-                      <tr
-                        key={ord.id}
-                        className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition"
-                      >
+                      <tr key={ord.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition align-top">
+                        <td className="p-3 text-center">
+                          <input
+                            type="checkbox"
+                            disabled={!isSelectable}
+                            title={
+                              !isSelectable
+                                ? isEn
+                                  ? 'Only Variance or Dispute orders of the same group can be selected for batch actions'
+                                  : 'Solo órdenes con Diferencia o Disputa del mismo grupo pueden seleccionarse en lote'
+                                : undefined
+                            }
+                            checked={isOrderSelected}
+                            onChange={(e) => {
+                              if (!isSelectable) return
+                              const next = new Set(selectedOrderIds)
+                              if (e.target.checked) next.add(ord.id)
+                              else next.delete(ord.id)
+                              setSelectedOrderIds(next)
+                            }}
+                            className="rounded border-slate-300 disabled:opacity-30"
+                          />
+                        </td>
                         <td className="p-3 whitespace-nowrap">
                           <div className="font-bold text-slate-900 dark:text-white">
                             {fmtDateMDY(ord.business_date)}
                           </div>
-                          <div className="text-xs font-semibold text-slate-500">{ord.store_name}</div>
+                          <div
+                            className={`text-xs font-semibold ${
+                              ord.store_id === 0 ? 'text-rose-600 font-extrabold' : 'text-slate-500'
+                            }`}
+                          >
+                            {ord.store_name}
+                          </div>
                         </td>
                         <td className="p-3 whitespace-nowrap">
                           <div className="flex flex-col gap-1 items-start">
                             {renderPlatformBadge(ord.platform)}
-                            <span className="text-[11px] text-slate-400">
-                              {ord.fulfillment_type === 'PICKUP'
-                                ? t('deliveryReconciliation.fulfillment_pickup')
-                                : t('deliveryReconciliation.fulfillment_delivery')}
-                            </span>
                           </div>
                         </td>
                         <td className="p-3">
@@ -1395,8 +2488,15 @@ export default function ConciliarDeliveryPage() {
                             {ord.platform_order_id}
                           </div>
                           {ord.toast_display_number && (
-                            <div className="text-xs text-slate-500">
-                              Toast #{ord.toast_display_number} • {ord.toast_tab_name}
+                            <div className="text-xs text-slate-500 flex flex-wrap items-center gap-1">
+                              <span>
+                                Toast #{ord.toast_display_number} • {ord.toast_tab_name}
+                              </span>
+                              {(ord.raw_payload as any)?.toast_voided && (
+                                <span className="px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30 text-[10px] font-extrabold">
+                                  {isEn ? 'VOIDED IN POS' : 'ANULADO EN POS'}
+                                </span>
+                              )}
                             </div>
                           )}
                           {ord.payout_reference_id && (
@@ -1405,7 +2505,7 @@ export default function ConciliarDeliveryPage() {
                             </div>
                           )}
                         </td>
-                        <td className="p-3 text-right font-mono bg-slate-100/50 dark:bg-slate-800/30">
+                        <td className="p-3 text-right font-mono bg-slate-100/50 dark:bg-slate-800/30 whitespace-nowrap">
                           <div className="font-extrabold text-slate-900 dark:text-white">
                             {fmtMoney(ord.toast_expected_gross)}
                           </div>
@@ -1414,19 +2514,25 @@ export default function ConciliarDeliveryPage() {
                             {t('deliveryReconciliation.tax_prefix')}: {fmtMoney(ord.toast_tax)}
                             {ord.platform === 'UBER_EATS' && ord.toast_tax > 0 ? ' (Uber)' : ''}
                           </div>
+                          {(ord.raw_payload as any)?.toast_voided &&
+                            Number((ord.raw_payload as any)?.toast_voided_original_subtotal || 0) > 0 && (
+                              <div className="text-[10px] font-bold text-amber-700 dark:text-amber-400">
+                                {isEn ? 'VOID orig:' : 'Orig. antes de VOID:'}{' '}
+                                {fmtMoney(Number((ord.raw_payload as any)?.toast_voided_original_subtotal || 0))}
+                              </div>
+                            )}
                         </td>
-                        <td className="p-3 text-right font-mono bg-indigo-500/5">
+                        <td className="p-3 text-right font-mono bg-indigo-500/5 whitespace-nowrap">
                           <div className="font-extrabold text-indigo-700 dark:text-indigo-300">
                             {fmtMoney(ord.platform_gross_receivable)}
                           </div>
                           <div className="text-[11px] text-slate-500">
                             {t('deliveryReconciliation.sub_prefix')}: {fmtMoney(ord.platform_subtotal)} •{' '}
-                            {t('deliveryReconciliation.tax_prefix')}:{' '}
-                            {fmtMoney(ord.platform_tax_paid_to_merchant)}
+                            {t('deliveryReconciliation.tax_prefix')}: {fmtMoney(ord.platform_tax_paid_to_merchant)}
                           </div>
                         </td>
                         <td
-                          className={`p-3 text-right font-mono font-extrabold ${
+                          className={`p-3 text-right font-mono font-extrabold whitespace-nowrap ${
                             Math.abs(varAmt) <= 0.05
                               ? 'text-emerald-600 dark:text-emerald-400'
                               : 'text-rose-600 dark:text-rose-400'
@@ -1434,19 +2540,8 @@ export default function ConciliarDeliveryPage() {
                         >
                           {fmtMoney(varAmt)}
                         </td>
-                        <td className="p-3 text-right font-mono">
-                          <div className="font-bold text-amber-600 dark:text-amber-400">
-                            {fmtMoney(totalOrderFees)}
-                          </div>
-                          {Math.abs(procMkt) > 0.01 && (
-                            <div className="text-[10px] text-slate-400">
-                              {t('deliveryReconciliation.comm_prefix')}: {fmtMoney(commDel)} •{' '}
-                              {t('deliveryReconciliation.fees_prefix')}: {fmtMoney(procMkt)}
-                            </div>
-                          )}
-                        </td>
                         <td
-                          className={`p-3 text-right font-mono font-semibold ${
+                          className={`p-3 text-right font-mono font-semibold whitespace-nowrap ${
                             errAdj < -0.01 ? 'text-rose-600 dark:text-rose-400' : 'text-slate-400'
                           }`}
                         >
@@ -1457,29 +2552,52 @@ export default function ConciliarDeliveryPage() {
                                 ✅{' '}
                                 {t('deliveryReconciliation.reimbursed_in_payout_badge', {
                                   ref: ord.raw_payload.reimbursement_payout_ref,
-                                  amount: fmtMoney(ord.raw_payload.reimbursement_amount || ord.dispute_amount),
+                                  amount: fmtMoney(
+                                    ord.raw_payload.reimbursement_amount ||
+                                      ord.dispute_amount ||
+                                      Math.abs(ord.error_charge)
+                                  ),
                                 })}
                               </span>
                             </div>
                           )}
                         </td>
-                        <td className="p-3 text-right font-mono font-extrabold text-emerald-600 dark:text-emerald-400">
+                        <td className="p-3 text-right font-mono font-extrabold text-emerald-600 dark:text-emerald-400 whitespace-nowrap">
                           {fmtMoney(ord.net_payout)}
                         </td>
-                        <td className="p-3 whitespace-nowrap">
-                          <div className="flex flex-col gap-1 items-start">
-                            {renderStatusBadge(ord.reconciliation_status)}
-                            {ord.raw_payload?.reimbursement_payout_ref && (
-                              <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold">
-                                {t('deliveryReconciliation.reimbursed_in_payout_sub', {
-                                  date: fmtDateMDY(ord.raw_payload.reimbursement_deposit_date),
-                                  desc: ord.raw_payload.reimbursement_description || 'Goodwill Refund',
-                                })}
-                              </span>
-                            )}
-                          </div>
+                        <td className="p-3 whitespace-nowrap">{renderOrderGroupBadge(ord)}</td>
+                        <td className="p-3 text-[11px] space-y-1 max-w-md">
+                          {whatHappened && (
+                            <div>
+                              <strong className="text-slate-700 dark:text-slate-200">
+                                {t('deliveryReconciliation.label_what_happened')}
+                              </strong>{' '}
+                              <span className="text-slate-600 dark:text-slate-300">{whatHappened}</span>
+                            </div>
+                          )}
+                          {causeText && (
+                            <div>
+                              <strong className="text-slate-700 dark:text-slate-200">
+                                {t('deliveryReconciliation.label_cause')}
+                              </strong>{' '}
+                              <span className="text-slate-500 dark:text-slate-400">{causeText}</span>
+                            </div>
+                          )}
+                          {evidenceText && (
+                            <div>
+                              <strong className="text-slate-700 dark:text-slate-200">
+                                {t('deliveryReconciliation.label_evidence')}
+                              </strong>{' '}
+                              <span className="font-mono text-indigo-600 dark:text-indigo-400">{evidenceText}</span>
+                            </div>
+                          )}
+                          {nextActionText && (
+                            <div className="pt-0.5 text-emerald-700 dark:text-emerald-400 font-bold">
+                              → {nextActionText}
+                            </div>
+                          )}
                         </td>
-                        <td className="p-3 text-center">
+                        <td className="p-3 text-center whitespace-nowrap">
                           <button
                             onClick={() => handleOpenOrderModal(ord)}
                             className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-xs font-semibold transition"
@@ -1493,12 +2611,74 @@ export default function ConciliarDeliveryPage() {
                   })}
                 </tbody>
               </table>
+
+              {/* BARRA DE PAGINACIÓN INFERIOR */}
+              <div className="px-4 py-2.5 bg-slate-50 dark:bg-slate-900/80 border-t border-slate-200 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2 text-xs">
+                <div className="text-slate-600 dark:text-slate-300 font-semibold">
+                  {isEn ? (
+                    <>
+                      Showing{' '}
+                      <strong className="font-mono text-slate-900 dark:text-white">
+                        {(safeOrdersPage - 1) * ordersPageSize + 1}–
+                        {Math.min(safeOrdersPage * ordersPageSize, displayedOrders.length)}
+                      </strong>{' '}
+                      of <strong className="font-mono text-slate-900 dark:text-white">{displayedOrders.length}</strong>{' '}
+                      orders
+                    </>
+                  ) : (
+                    <>
+                      Mostrando{' '}
+                      <strong className="font-mono text-slate-900 dark:text-white">
+                        {(safeOrdersPage - 1) * ordersPageSize + 1}–
+                        {Math.min(safeOrdersPage * ordersPageSize, displayedOrders.length)}
+                      </strong>{' '}
+                      de <strong className="font-mono text-slate-900 dark:text-white">{displayedOrders.length}</strong>{' '}
+                      órdenes
+                    </>
+                  )}
+                </div>
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={() => setOrdersPage(1)}
+                    disabled={safeOrdersPage <= 1}
+                    className="px-2 py-1 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 disabled:opacity-40 font-bold hover:bg-slate-100 dark:hover:bg-slate-700"
+                  >
+                    «
+                  </button>
+                  <button
+                    onClick={() => setOrdersPage((p) => Math.max(1, p - 1))}
+                    disabled={safeOrdersPage <= 1}
+                    className="px-2.5 py-1 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 disabled:opacity-40 font-bold hover:bg-slate-100 dark:hover:bg-slate-700"
+                  >
+                    {isEn ? 'Prev' : 'Ant.'}
+                  </button>
+                  <span className="px-2.5 py-1 font-mono font-extrabold text-slate-800 dark:text-slate-200">
+                    {isEn
+                      ? `Page ${safeOrdersPage} of ${totalOrderPages}`
+                      : `Pág. ${safeOrdersPage} de ${totalOrderPages}`}
+                  </span>
+                  <button
+                    onClick={() => setOrdersPage((p) => Math.min(totalOrderPages, p + 1))}
+                    disabled={safeOrdersPage >= totalOrderPages}
+                    className="px-2.5 py-1 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 disabled:opacity-40 font-bold hover:bg-slate-100 dark:hover:bg-slate-700"
+                  >
+                    {isEn ? 'Next' : 'Sig.'}
+                  </button>
+                  <button
+                    onClick={() => setOrdersPage(totalOrderPages)}
+                    disabled={safeOrdersPage >= totalOrderPages}
+                    className="px-2 py-1 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 disabled:opacity-40 font-bold hover:bg-slate-100 dark:hover:bg-slate-700"
+                  >
+                    »
+                  </button>
+                </div>
+              </div>
             </div>
           )}
         </div>
       )}
 
-      {/* TAB 2: CORTES Y DEPÓSITOS BANCARIOS */}
+      {/* TAB: CORTES BANCARIOS */}
       {activeTab === 'payouts' && (
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm overflow-hidden">
           <div className="p-3.5 bg-slate-50/70 dark:bg-slate-800/40 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between gap-2">
@@ -1538,7 +2718,6 @@ export default function ConciliarDeliveryPage() {
                     <th className="p-3">{t('deliveryReconciliation.col_platform')}</th>
                     <th className="p-3">{t('deliveryReconciliation.payout_ref')}</th>
                     <th className="p-3">{t('deliveryReconciliation.payout_period')}</th>
-                    <th className="p-3">{t('deliveryReconciliation.payout_bank')}</th>
                     <th className="p-3 text-right">{t('deliveryReconciliation.payout_orders')}</th>
                     <th className="p-3 text-right">{t('deliveryReconciliation.payout_gross')}</th>
                     <th className="p-3 text-right">{t('deliveryReconciliation.payout_fees_total')}</th>
@@ -1546,8 +2725,6 @@ export default function ConciliarDeliveryPage() {
                     <th className="p-3 text-right font-extrabold text-emerald-700 dark:text-emerald-400">
                       {t('deliveryReconciliation.payout_net_deposited')}
                     </th>
-                    <th className="p-3 text-right">{t('deliveryReconciliation.payout_toast_expected')}</th>
-                    <th className="p-3 text-right">{t('deliveryReconciliation.payout_variance')}</th>
                     <th className="p-3 text-center">{t('deliveryReconciliation.col_actions')}</th>
                   </tr>
                 </thead>
@@ -1559,17 +2736,18 @@ export default function ConciliarDeliveryPage() {
                       Number(p.processing_fees || 0) +
                       Number(p.marketing_fees || 0)
                     const errTotal = Number(p.error_charges || 0) + Number(p.adjustments_amount || 0)
-                    const hasToastAudit = Number(p.toast_expected_gross || 0) > 0
                     return (
                       <tr
                         key={p.id}
                         onClick={() => {
+                          // P1 #15: Al abrir un payout, conservar y usar payout_reference_id sin mezclar otros settlements
                           setSelectedStore(String(p.store_id))
                           setSelectedPlatform(p.platform)
                           if (p.period_start) setStartDate(p.period_start)
                           if (p.period_end) setEndDate(p.period_end)
+                          setActivePayoutRef(p.payout_reference_id)
                           setSearchQuery('')
-                          setQuickFilter('ALL')
+                          setSelectedActionGroup('ALL')
                           setActiveTab('orders')
                         }}
                         className="hover:bg-slate-50 dark:hover:bg-slate-800/40 cursor-pointer transition"
@@ -1578,15 +2756,19 @@ export default function ConciliarDeliveryPage() {
                         <td className="p-3 font-semibold">{p.store_name}</td>
                         <td className="p-3">{renderPlatformBadge(p.platform)}</td>
                         <td className="p-3 font-mono text-xs font-bold text-indigo-600 dark:text-indigo-400">
-                          {p.payout_reference_id}
+                          #{p.payout_reference_id}
                         </td>
                         <td className="p-3 text-xs text-slate-500">
                           {fmtDateMDY(p.period_start)} → {fmtDateMDY(p.period_end)}
                         </td>
-                        <td className="p-3 font-mono text-xs">
-                          {p.bank_account_last4 ? `•••• ${p.bank_account_last4}` : '-'}
+                        <td className="p-3 text-right font-bold">
+                          {p.linked_orders_count ?? p.orders_count}
+                          {!p.coverage_complete && (
+                            <span className="block text-[10px] text-amber-600 font-semibold">
+                              {isEn ? 'Incomplete coverage' : 'Cobertura incompleta'}
+                            </span>
+                          )}
                         </td>
-                        <td className="p-3 text-right font-bold">{p.orders_count}</td>
                         <td className="p-3 text-right font-mono font-bold">
                           {fmtMoney(p.platform_gross_receivable)}
                         </td>
@@ -1602,76 +2784,26 @@ export default function ConciliarDeliveryPage() {
                               : 'text-slate-400'
                           }`}
                         >
-                          <div>{fmtMoney(errTotal)}</div>
-                          {Array.isArray(p.raw_payload?.cross_payout_refunds) &&
-                            p.raw_payload.cross_payout_refunds.map((cr: any, idx: number) => (
-                              <div
-                                key={idx}
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  setSearchQuery(cr.orderCode || '')
-                                  setQuickFilter('ALL')
-                                  setActiveTab('orders')
-                                }}
-                                className="mt-1 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30 hover:bg-emerald-500/25 cursor-pointer"
-                                title={cr.description || ''}
-                              >
-                                🔄{' '}
-                                {t('deliveryReconciliation.payout_includes_refund_badge', {
-                                  order: cr.orderCode,
-                                  amount: fmtMoney(cr.amount),
-                                })}
-                              </div>
-                            ))}
+                          {fmtMoney(errTotal)}
                         </td>
                         <td className="p-3 text-right font-mono font-extrabold text-emerald-600 dark:text-emerald-400">
                           {fmtMoney(p.net_payout_amount)}
-                        </td>
-                        <td className="p-3 text-right font-mono">
-                          {hasToastAudit ? (
-                            <div>
-                              <span className="font-bold">{fmtMoney(p.toast_expected_gross)}</span>
-                              <span className="block text-[10px] text-slate-400">
-                                {t('deliveryReconciliation.toast_ord_short', {
-                                  count: p.toast_matched_orders_count || 0,
-                                })}
-                              </span>
-                            </div>
-                          ) : (
-                            <span className="text-[11px] text-amber-600 dark:text-amber-400 font-semibold">
-                              {t('deliveryReconciliation.pending_audit_badge')}
-                            </span>
-                          )}
-                        </td>
-                        <td
-                          className={`p-3 text-right font-mono font-bold ${
-                            !hasToastAudit
-                              ? 'text-slate-400'
-                              : Math.abs(Number(p.gross_variance || 0)) <= 0.1
-                              ? 'text-emerald-600 dark:text-emerald-400'
-                              : 'text-rose-600 dark:text-rose-400'
-                          }`}
-                        >
-                          {hasToastAudit ? fmtMoney(p.gross_variance) : '—'}
                         </td>
                         <td className="p-3 text-center whitespace-nowrap">
                           <button
                             onClick={(e) => {
                               e.stopPropagation()
-                              handleLiveSyncForStore({
-                                storeId: String(p.store_id),
-                                platform: p.platform,
-                                startDate: p.period_start || startDate,
-                                endDate: p.period_end || endDate,
-                                payoutRef: p.payout_reference_id,
-                                openOrdersTab: true,
-                              })
+                              setSelectedStore(String(p.store_id))
+                              setSelectedPlatform(p.platform)
+                              if (p.period_start) setStartDate(p.period_start)
+                              if (p.period_end) setEndDate(p.period_end)
+                              setActivePayoutRef(p.payout_reference_id)
+                              setSelectedActionGroup('ALL')
+                              setActiveTab('orders')
                             }}
-                            disabled={syncing}
-                            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-xs font-extrabold shadow-sm transition"
+                            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-extrabold shadow-sm transition"
                           >
-                            <RefreshCw className={`w-3 h-3 ${syncing ? 'animate-spin' : ''}`} />
-                            {t('deliveryReconciliation.audit_vs_toast_btn')}
+                            {t('deliveryReconciliation.qb_audit_orders_btn')}
                           </button>
                         </td>
                       </tr>
@@ -1684,126 +2816,108 @@ export default function ConciliarDeliveryPage() {
         </div>
       )}
 
-      {/* TAB 3: DISPUTAS Y CARGOS POR ERROR */}
+      {/* TAB: DISPUTAS Y RECUPERACIONES (CON TRAZABILIDAD DE 4 ETAPAS ENTRE CORTES) */}
       {activeTab === 'disputes' && (
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm overflow-hidden">
-          {disputedOrders.length === 0 ? (
+          {group3Disputes.length > 0 && (
+            <div className="p-3.5 bg-rose-500/5 border-b border-slate-200 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2">
+              <span className="text-xs font-extrabold text-rose-700 dark:text-rose-300">
+                🚨 {t('deliveryReconciliation.group_3_title')} ({group3Disputes.length})
+              </span>
+              <button
+                onClick={() => handleExportBatchEvidencePackage(group3Disputes)}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-extrabold shadow-sm transition"
+              >
+                <Download className="w-3.5 h-3.5" />
+                {t('deliveryReconciliation.batch_export_evidence_btn')} ({group3Disputes.length})
+              </button>
+            </div>
+          )}
+          {group3Disputes.length === 0 ? (
             <div className="p-12 text-center text-emerald-600 dark:text-emerald-400 font-semibold">
               {t('deliveryReconciliation.empty_disputes')}
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse text-xs md:text-sm">
-                <thead>
-                  <tr className="bg-rose-500/10 text-slate-700 dark:text-slate-200 border-b border-slate-200 dark:border-slate-800 font-bold">
-                    <th className="p-3">{t('deliveryReconciliation.col_date')}</th>
-                    <th className="p-3">{t('deliveryReconciliation.col_store')}</th>
-                    <th className="p-3">{t('deliveryReconciliation.col_platform')}</th>
-                    <th className="p-3">{t('deliveryReconciliation.col_order_id')}</th>
-                    <th className="p-3 text-right">{t('deliveryReconciliation.col_toast_expected')}</th>
-                    <th className="p-3 text-right">{t('deliveryReconciliation.col_plat_gross')}</th>
-                    <th className="p-3 text-right">{t('deliveryReconciliation.col_error_adj')}</th>
-                    <th className="p-3 text-right">{t('deliveryReconciliation.col_net_payout')}</th>
-                    <th className="p-3">{t('deliveryReconciliation.col_status')}</th>
-                    <th className="p-3">{t('deliveryReconciliation.modal_update_dispute')}</th>
-                    <th className="p-3 text-center">{t('deliveryReconciliation.col_actions')}</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
-                  {disputedOrders.map((ord) => (
-                    <tr key={ord.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
-                      <td className="p-3 font-medium">{fmtDateMDY(ord.business_date)}</td>
-                      <td className="p-3 font-semibold">{ord.store_name}</td>
-                      <td className="p-3">{renderPlatformBadge(ord.platform)}</td>
-                      <td className="p-3 font-mono font-bold">
-                        {ord.platform_order_id}
-                        {ord.toast_display_number && (
-                          <span className="block text-xs font-normal text-slate-500">
-                            Toast #{ord.toast_display_number} ({ord.toast_tab_name})
-                          </span>
-                        )}
-                        {ord.payout_reference_id && (
-                          <span className="block text-[11px] font-mono font-semibold text-indigo-600 dark:text-indigo-400">
-                            {t('deliveryReconciliation.deduction_cut_prefix')} #{ord.payout_reference_id}
-                          </span>
-                        )}
-                      </td>
-                      <td className="p-3 text-right font-mono font-bold">{fmtMoney(ord.toast_expected_gross)}</td>
-                      <td className="p-3 text-right font-mono">{fmtMoney(ord.platform_gross_receivable)}</td>
-                      <td className="p-3 text-right font-mono font-bold text-rose-600 dark:text-rose-400">
-                        <div>{fmtMoney(Number(ord.error_charge || 0) + Number(ord.adjustment_amount || 0))}</div>
-                        {ord.raw_payload?.reimbursement_payout_ref && (
-                          <span className="inline-block mt-1 px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30">
-                            {t('deliveryReconciliation.reimbursed_in_short', {
-                              amount: fmtMoney(ord.raw_payload.reimbursement_amount || ord.dispute_amount),
-                              ref: ord.raw_payload.reimbursement_payout_ref,
-                            })}
-                          </span>
-                        )}
-                      </td>
-                      <td className="p-3 text-right font-mono font-bold">{fmtMoney(ord.net_payout)}</td>
-                      <td className="p-3">{renderStatusBadge(ord.reconciliation_status)}</td>
-                      <td className="p-3">
-                        <div className="flex flex-col gap-1 items-start">
-                          <span
-                            className={`px-2.5 py-1 rounded-full text-xs font-bold ${
-                              ord.dispute_status === 'APPROVED'
-                                ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30'
-                                : ord.dispute_status === 'DENIED'
-                                ? 'bg-rose-500/15 text-rose-600 dark:text-rose-400 border border-rose-500/30'
-                                : 'bg-amber-500/15 text-amber-600 dark:text-amber-400'
-                            }`}
-                          >
-                            {t(`deliveryReconciliation.dispute_${ord.dispute_status}`) || ord.dispute_status}
-                          </span>
-                          {ord.raw_payload?.reimbursement_payout_ref && (
-                            <span className="text-[11px] font-bold text-emerald-700 dark:text-emerald-300">
-                              ✅{' '}
-                              {t('deliveryReconciliation.reimbursed_in_payout_badge', {
-                                ref: ord.raw_payload.reimbursement_payout_ref,
-                                amount: fmtMoney(ord.raw_payload.reimbursement_amount || ord.dispute_amount),
-                              })}
-                              <span className="block text-[10px] font-normal text-slate-500">
-                                {t('deliveryReconciliation.reimbursed_in_payout_sub', {
-                                  date: fmtDateMDY(ord.raw_payload.reimbursement_deposit_date),
-                                  desc: ord.raw_payload.reimbursement_description || '',
-                                })}
-                              </span>
-                            </span>
-                          )}
-                        </div>
-                      </td>
-                      <td className="p-3 text-center">
-                        <button
-                          onClick={() => handleOpenOrderModal(ord)}
-                          className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold transition"
+            <div className="divide-y divide-slate-200 dark:divide-slate-800">
+              {group3Disputes.map((ord) => (
+                <div key={ord.id} className="p-4 space-y-3 hover:bg-slate-50/70 dark:hover:bg-slate-800/30 transition">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      {renderPlatformBadge(ord.platform)}
+                      <span className="font-mono font-extrabold text-sm">#{ord.platform_order_id}</span>
+                      <span className="text-xs font-bold text-slate-500">
+                        {ord.store_name} • {fmtDateMDY(ord.business_date)}
+                      </span>
+                      {renderOrderGroupBadge(ord)}
+                    </div>
+                    <button
+                      onClick={() => handleOpenOrderModal(ord)}
+                      className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-extrabold transition"
+                    >
+                      <Eye className="w-3.5 h-3.5" />
+                      {t('deliveryReconciliation.view_items_btn')}
+                    </button>
+                  </div>
+
+                  {/* LÍNEA DE TIEMPO DE 4 ETAPAS (ORDEN ORIGINAL -> ORDEN PLATAFORMA -> DEDUCCIÓN EN PAYOUT -> DISPUTA Y RECUPERACIÓN) */}
+                  {Array.isArray(ord.lifecycle_trace) && (
+                    <div className="grid grid-cols-1 md:grid-cols-4 gap-2.5 pt-1">
+                      {ord.lifecycle_trace.map((st) => (
+                        <div
+                          key={st.step}
+                          className={`rounded-xl p-3 border text-xs ${
+                            st.step === 4 && ord.raw_payload?.reimbursement_payout_ref
+                              ? 'bg-emerald-500/10 border-emerald-500/30'
+                              : st.step === 3 && Number(ord.error_charge || 0) < -0.01
+                              ? 'bg-rose-500/10 border-rose-500/30'
+                              : 'bg-slate-50 dark:bg-slate-800/60 border-slate-200 dark:border-slate-700'
+                          }`}
                         >
-                          <Eye className="w-3.5 h-3.5" />
-                          {t('deliveryReconciliation.view_items_btn')}
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+                          <div className="flex items-center justify-between font-extrabold text-slate-800 dark:text-slate-100 mb-1">
+                            <span>
+                              {st.step}. {isEn ? st.title_en : st.title_es}
+                            </span>
+                            <span className="font-mono">{fmtMoney(st.amount)}</span>
+                          </div>
+                          <p className="text-[11px] text-slate-600 dark:text-slate-300">
+                            {isEn ? st.detail_en : st.detail_es}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))}
             </div>
           )}
         </div>
       )}
 
-      {/* TAB 4: MAPEO DE LAS 15 SUCURSALES */}
+      {/* TAB: CONEXIÓN Y COBERTURA DE LAS 15 SUCURSALES (P1 #9 & #16: OCULTA GUIDs TÉCNICOS POR DEFECTO) */}
       {activeTab === 'mappings' && (
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm overflow-hidden">
+          <div className="p-3.5 bg-slate-50/70 dark:bg-slate-800/40 border-b border-slate-200 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2">
+            <span className="text-xs font-extrabold text-slate-700 dark:text-slate-200">
+              {t('deliveryReconciliation.step_4_mappings')} ({mappings.length})
+            </span>
+            <button
+              onClick={() => setShowAdvancedSupport((prev) => !prev)}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-bold text-slate-600 dark:text-slate-300 transition"
+            >
+              🔧 {t('deliveryReconciliation.advanced_support_toggle')}{' '}
+              <span>{showAdvancedSupport ? '▲' : '▼'}</span>
+            </button>
+          </div>
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse text-xs md:text-sm">
               <thead>
                 <tr className="bg-slate-100 dark:bg-slate-800/70 text-slate-600 dark:text-slate-300 border-b border-slate-200 dark:border-slate-800 font-bold">
                   <th className="p-3">{t('deliveryReconciliation.col_store')}</th>
-                  <th className="p-3">Toast Restaurant GUID</th>
-                  <th className="p-3">DoorDash Store ID</th>
-                  <th className="p-3">Grubhub Cust ID</th>
-                  <th className="p-3">Uber Eats Store UUID</th>
-                  <th className="p-3">{t('deliveryReconciliation.col_last_sync')}</th>
+                  <th className="p-3">Toast POS</th>
+                  <th className="p-3">DoorDash</th>
+                  <th className="p-3">Grubhub</th>
+                  <th className="p-3">Uber Eats</th>
+                  <th className="p-3">{t('deliveryReconciliation.col_actions')}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
@@ -1811,66 +2925,99 @@ export default function ConciliarDeliveryPage() {
                   .sort((a, b) => a.store_name.localeCompare(b.store_name, 'es'))
                   .map((m) => {
                     const stSync = syncStatus?.byStore?.[m.store_id]
-                    const hasOrdersSynced =
-                      (stSync?.toastOrders || 0) > 0 &&
-                      ((stSync?.ddOrders || 0) > 0 || (stSync?.ghOrders || 0) > 0 || (stSync?.ueOrders || 0) > 0)
-                    return (
-                      <tr key={m.store_id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
-                        <td className="p-3 font-bold">
-                          {m.store_name}{' '}
-                          <span className="text-xs text-slate-400 font-normal">({m.store_code})</span>
-                        </td>
-                      <td className="p-3 font-mono text-xs text-slate-500">
-                        <div>{m.toast_restaurant_guid}</div>
-                        {stSync?.toastLastSync && (
-                          <div className="text-[11px] text-emerald-600 dark:text-emerald-400 font-semibold mt-0.5">
-                            Toast: {fmtLaTimestamp(stSync.toastLastSync)} ({stSync.toastOrders}{' '}
-                            {t('deliveryReconciliation.ord_short')})
+                    const renderPlatCell = (plat: 'DOORDASH' | 'GRUBHUB' | 'UBER_EATS', techId: string) => {
+                      const cov = getStorePlatformCoverageEntry(m.store_id, plat)
+                      const status = cov?.status || 'NOT_CONNECTED'
+                      const ordersCnt = Number(cov?.orders_count ?? 0)
+                      const payoutsCnt = Number(cov?.payouts_count ?? 0)
+                      const lastSyncTs = cov?.last_sync_at || null
+                      const cause = isEn ? cov?.cause_en : cov?.cause_es
+                      const nextAct = isEn ? cov?.next_action_en : cov?.next_action_es
+
+                      const badgeClass =
+                        status === 'COMPLETE'
+                          ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30'
+                          : status === 'PARTIAL'
+                          ? 'bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/30'
+                          : status === 'FAILED'
+                          ? 'bg-rose-500/15 text-rose-700 dark:text-rose-300 border-rose-500/30'
+                          : 'bg-slate-200/70 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-300 dark:border-slate-700'
+
+                      const badgeLabel =
+                        status === 'COMPLETE'
+                          ? t('deliveryReconciliation.coverage_status_COMPLETE')
+                          : status === 'PARTIAL'
+                          ? t('deliveryReconciliation.coverage_status_PARTIAL')
+                          : status === 'FAILED'
+                          ? t('deliveryReconciliation.coverage_status_FAILED')
+                          : t('deliveryReconciliation.coverage_status_NOT_CONNECTED')
+
+                      return (
+                        <div className="space-y-1 text-xs">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-extrabold border ${badgeClass}`}>
+                              {badgeLabel}
+                            </span>
+                            <span className="font-mono text-[11px] font-bold text-slate-700 dark:text-slate-300">
+                              {ordersCnt} {t('deliveryReconciliation.ord_short')} / {payoutsCnt}{' '}
+                              {t('deliveryReconciliation.cuts_short')}
+                            </span>
                           </div>
-                        )}
-                      </td>
-                      <td className="p-3 font-mono text-xs">
-                        <div className="font-bold text-red-600 dark:text-red-400">
-                          {m.doordash_store_id || '-'}
-                        </div>
-                        <div className="text-[11px] text-slate-500">
-                          {stSync?.ddLastSync
-                            ? `${fmtLaTimestamp(stSync.ddLastSync)} (${stSync.ddOrders} ${t('deliveryReconciliation.ord_short')} / ${stSync.ddPayouts} ${t('deliveryReconciliation.cuts_short')})`
-                            : '—'}
-                        </div>
-                      </td>
-                      <td className="p-3 font-mono text-xs">
-                        <div className="font-bold text-orange-600 dark:text-orange-400">
-                          {m.grubhub_cust_id || '-'}
-                        </div>
-                        <div className="text-[11px] text-slate-500">
-                          {stSync?.ghLastSync
-                            ? `${fmtLaTimestamp(stSync.ghLastSync)} (${stSync.ghOrders} ${t('deliveryReconciliation.ord_short')} / ${stSync.ghPayouts} ${t('deliveryReconciliation.cuts_short')})`
-                            : '—'}
-                        </div>
-                      </td>
-                      <td className="p-3 font-mono text-xs">
-                        <div className="font-bold text-emerald-600 dark:text-emerald-400">
-                          {m.ubereats_store_uuid || '-'}
-                        </div>
-                        <div className="text-[11px] text-slate-500">
-                          {stSync?.ueLastSync
-                            ? `${fmtLaTimestamp(stSync.ueLastSync)} (${stSync.ueOrders} ${t('deliveryReconciliation.ord_short')} / ${stSync.uePayouts} ${t('deliveryReconciliation.cuts_short')})`
-                            : '—'}
-                        </div>
-                      </td>
-                      <td className="p-3 text-xs">
-                        <div className="flex items-center gap-2">
-                          {hasOrdersSynced ? (
-                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">
-                              <CheckCircle2 className="w-3.5 h-3.5" />
-                              {t('deliveryReconciliation.store_sync_active')}
-                            </span>
-                          ) : (
-                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30">
-                              {t('deliveryReconciliation.store_sync_pending')}
-                            </span>
+                          {lastSyncTs && (
+                            <div className="text-[10px] text-slate-500 font-mono">
+                              {fmtLaTimestamp(lastSyncTs)}
+                            </div>
                           )}
+                          {status !== 'COMPLETE' && cause && (
+                            <div className="text-[10px] text-rose-600 dark:text-rose-400">
+                              {cause}
+                            </div>
+                          )}
+                          {status !== 'COMPLETE' && nextAct && (
+                            <div className="text-[10px] text-amber-700 dark:text-amber-300 font-semibold">
+                              → {nextAct}
+                            </div>
+                          )}
+                          {showAdvancedSupport && (
+                            <div className="pt-1 border-t border-slate-200/70 dark:border-slate-800 font-mono text-[10px] text-slate-400">
+                              ID: {techId || '-'}
+                            </div>
+                          )}
+                        </div>
+                      )
+                    }
+
+                    return (
+                      <tr key={m.store_id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 align-top">
+                        <td className="p-3 font-bold whitespace-nowrap">
+                          <div>{m.store_name}</div>
+                          <span className="text-xs text-slate-400 font-normal">{m.store_code}</span>
+                        </td>
+                        <td className="p-3 text-xs">
+                          <div className="font-bold text-emerald-700 dark:text-emerald-400">
+                            {stSync?.toastOrders || 0} {t('deliveryReconciliation.ord_short')}
+                          </div>
+                          {stSync?.toastLastSync && (
+                            <div className="text-[10px] text-slate-500 font-mono mt-0.5">
+                              {fmtLaTimestamp(stSync.toastLastSync)}
+                            </div>
+                          )}
+                          {showAdvancedSupport && (
+                            <div className="pt-1 mt-1 border-t border-slate-200/70 dark:border-slate-800 font-mono text-[10px] text-slate-400">
+                              GUID: {m.toast_restaurant_guid}
+                            </div>
+                          )}
+                        </td>
+                        <td className="p-3">
+                          {renderPlatCell('DOORDASH', m.doordash_store_id || m.doordash_merchant_store_id || '-')}
+                        </td>
+                        <td className="p-3">
+                          {renderPlatCell('GRUBHUB', m.grubhub_cust_id || m.grubhub_merchant_id || '-')}
+                        </td>
+                        <td className="p-3">
+                          {renderPlatCell('UBER_EATS', m.ubereats_store_uuid || '-')}
+                        </td>
+                        <td className="p-3 text-xs whitespace-nowrap">
                           <button
                             onClick={() => {
                               handleLiveSyncForStore({
@@ -1879,26 +3026,24 @@ export default function ConciliarDeliveryPage() {
                               })
                             }}
                             disabled={syncing}
-                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-xs font-bold transition"
+                            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-xs font-bold transition"
                           >
                             <RefreshCw className={`w-3 h-3 ${syncing ? 'animate-spin' : ''}`} />
                             {t('deliveryReconciliation.sync_this_store_btn')}
                           </button>
-                        </div>
-                      </td>
-                    </tr>
-                  )
-                })}
+                        </td>
+                      </tr>
+                    )
+                  })}
               </tbody>
             </table>
           </div>
         </div>
       )}
 
-      {/* TAB 1: CORTES SEMANALES Y PÓLIZAS QUICKBOOKS (VISTA SIMPLE SIN RUIDO) */}
+      {/* TAB: CORTES SEMANALES Y PÓLIZAS QUICKBOOKS (CON VALIDACIÓN DE BLOQUEOS Y CONFIRMACIÓN DE LOTE) */}
       {activeTab === 'qb_journals' && (
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm overflow-hidden">
-          {/* Sub-barra única: Estado QuickBooks + Filtro Rápido + Selector de Vista */}
           <div className="p-3.5 bg-slate-50/70 dark:bg-slate-800/40 border-b border-slate-200 dark:border-slate-800 flex flex-col lg:flex-row lg:items-center justify-between gap-2.5">
             <div className="flex flex-wrap items-center gap-1.5">
               <button
@@ -1919,7 +3064,19 @@ export default function ConciliarDeliveryPage() {
                     : 'bg-white dark:bg-slate-900 text-amber-600 dark:text-amber-400 border-amber-500/30'
                 }`}
               >
-                {t('deliveryReconciliation.qb_filter_pending', { count: qbSummary?.pendingCount || 0 })}
+                {t('deliveryReconciliation.qb_filter_pending', {
+                  count: qbSummary?.readyToPublishCount ?? qbSummary?.pendingCount ?? 0,
+                })}
+              </button>
+              <button
+                onClick={() => setQbQuickFilter('BLOCKED')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition border ${
+                  qbQuickFilter === 'BLOCKED'
+                    ? 'bg-rose-600 text-white border-rose-600'
+                    : 'bg-white dark:bg-slate-900 text-rose-600 dark:text-rose-400 border-rose-500/30'
+                }`}
+              >
+                {t('deliveryReconciliation.qb_badge_blocked')} ({qbSummary?.blockedCount || 0})
               </button>
               <button
                 onClick={() => setQbQuickFilter('CREATED')}
@@ -1932,9 +3089,9 @@ export default function ConciliarDeliveryPage() {
                 {t('deliveryReconciliation.qb_filter_created', { count: qbSummary?.createdCount || 0 })}
               </button>
 
-              {selectedQbPayoutIds.size > 0 && (
+              {selectedVisiblePublishableRecords.length > 0 && (
                 <button
-                  onClick={() => handlePublishQbJournalEntries(Array.from(selectedQbPayoutIds))}
+                  onClick={() => setShowBatchConfirmModal(true)}
                   disabled={publishingQb}
                   className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-extrabold shadow-sm transition"
                 >
@@ -1942,7 +3099,7 @@ export default function ConciliarDeliveryPage() {
                   {publishingQb
                     ? t('deliveryReconciliation.qb_publishing_short')
                     : t('deliveryReconciliation.qb_publish_selected_btn', {
-                        count: selectedQbPayoutIds.size,
+                        count: selectedVisiblePublishableRecords.length,
                       })}
                 </button>
               )}
@@ -2007,16 +3164,16 @@ export default function ConciliarDeliveryPage() {
                       <input
                         type="checkbox"
                         checked={
-                          displayedQbRecords.filter((r) => !r.hasJournalEntry).length > 0 &&
+                          displayedQbRecords.filter((r) => !r.hasJournalEntry && r.canPublish).length > 0 &&
                           displayedQbRecords
-                            .filter((r) => !r.hasJournalEntry)
+                            .filter((r) => !r.hasJournalEntry && r.canPublish)
                             .every((r) => selectedQbPayoutIds.has(r.id))
                         }
                         onChange={(e) => {
                           if (e.target.checked) {
                             const next = new Set<string>()
                             displayedQbRecords
-                              .filter((r) => !r.hasJournalEntry)
+                              .filter((r) => !r.hasJournalEntry && r.canPublish)
                               .forEach((r) => next.add(r.id))
                             setSelectedQbPayoutIds(next)
                           } else {
@@ -2048,13 +3205,15 @@ export default function ConciliarDeliveryPage() {
                     const line3 = prev.lines?.[2]
                     const line4 = prev.lines?.[3]
                     const isChecked = selectedQbPayoutIds.has(r.id)
+                    const blockers: any[] = r.publishBlockers || []
+                    const warnings: any[] = r.auditWarnings || prev.auditWarnings || []
 
                     return (
                       <tr key={r.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition">
                         <td className="p-3 text-center">
                           <input
                             type="checkbox"
-                            disabled={r.hasJournalEntry}
+                            disabled={r.hasJournalEntry || !r.canPublish}
                             checked={isChecked}
                             onChange={(e) => {
                               const next = new Set(selectedQbPayoutIds)
@@ -2123,9 +3282,27 @@ export default function ConciliarDeliveryPage() {
                             {fmtMoney(line1?.amount || r.net_payout_amount)}
                           </div>
                           <div className="text-[10px] text-slate-400">{line1?.accountName}</div>
+                          {r.bankVerification?.status === 'VERIFIED_IN_BANK' && (
+                            <div className="mt-1">
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30">
+                                🏦 {t('deliveryReconciliation.bank_verified_badge')}
+                              </span>
+                            </div>
+                          )}
+                          {r.bankVerification?.status === 'JE_POSTED_IN_TRANSIT' && (
+                            <div className="mt-1">
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 border border-indigo-500/30">
+                                🧾 {t('deliveryReconciliation.bank_je_posted_badge')}
+                              </span>
+                            </div>
+                          )}
                         </td>
-                        <td className="p-3 whitespace-nowrap">
-                          {r.hasJournalEntry ? (
+                        <td className="p-3">
+                          {r.recoveryRequired ? (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-extrabold bg-rose-500/15 text-rose-700 border border-rose-500/30">
+                              {t('deliveryReconciliation.qb_badge_recovery')}
+                            </span>
+                          ) : r.hasJournalEntry ? (
                             <div className="flex flex-col gap-0.5 items-start">
                               <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-extrabold bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30">
                                 <CheckCircle2 className="w-3.5 h-3.5" />
@@ -2137,23 +3314,43 @@ export default function ConciliarDeliveryPage() {
                                 </span>
                               )}
                             </div>
+                          ) : !r.canPublish ? (
+                            <div className="flex flex-col gap-1 items-start">
+                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-rose-500/15 text-rose-700 dark:text-rose-300 border border-rose-500/30">
+                                {t('deliveryReconciliation.qb_badge_blocked')}
+                              </span>
+                              {blockers[0] && (
+                                <span className="text-[10px] text-rose-600 dark:text-rose-400 max-w-[220px]">
+                                  {isEn ? blockers[0].message_en : blockers[0].message_es}
+                                </span>
+                              )}
+                            </div>
                           ) : (
-                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30">
-                              {t('deliveryReconciliation.qb_badge_pending')}
-                            </span>
+                            <div className="flex flex-col gap-1 items-start">
+                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30">
+                                {t('deliveryReconciliation.qb_badge_pending')}
+                              </span>
+                              {warnings[0] && (
+                                <span className="text-[10px] text-amber-700 dark:text-amber-400 max-w-[230px] leading-tight">
+                                  ⚠ {isEn ? warnings[0].message_en : warnings[0].message_es}
+                                </span>
+                              )}
+                            </div>
                           )}
                         </td>
                         <td className="p-3 text-center whitespace-nowrap">
                           <div className="flex items-center justify-center gap-1.5">
                             <button
                               onClick={() => {
+                                // P1 #15: Filtrar estrictamente por payout_reference_id al auditar órdenes de un corte
                                 setSelectedStore(String(r.store_id))
                                 setSelectedPlatform(r.platform)
                                 if (r.period_start && r.period_end) {
                                   setStartDate(r.period_start)
                                   setEndDate(r.period_end)
                                 }
-                                setQuickFilter('ALL')
+                                setActivePayoutRef(r.payout_reference_id)
+                                setSelectedActionGroup('ALL')
                                 setActiveTab('orders')
                               }}
                               title={t('deliveryReconciliation.qb_audit_orders_tooltip')}
@@ -2164,13 +3361,13 @@ export default function ConciliarDeliveryPage() {
                             <button
                               onClick={() => handleOpenQbModal(r)}
                               className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-extrabold transition ${
-                                r.hasJournalEntry
+                                r.hasJournalEntry || !r.canPublish
                                   ? 'bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200'
                                   : 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm'
                               }`}
                             >
                               <Eye className="w-3.5 h-3.5" />
-                              {r.hasJournalEntry
+                              {r.hasJournalEntry || !r.canPublish
                                 ? t('deliveryReconciliation.qb_view_policy_btn')
                                 : t('deliveryReconciliation.qb_create_policy_btn')}
                             </button>
@@ -2186,14 +3383,98 @@ export default function ConciliarDeliveryPage() {
         </div>
       )}
 
-      {/* MODAL DE PÓLIZA QUICKBOOKS (JOURNAL ENTRY) Y RADIOGRAFÍA DE ÓRDENES E IMPUESTOS */}
+      {/* MODAL DE CONFIRMACIÓN FINAL PARA PUBLICACIÓN MASIVA EN QUICKBOOKS (P1 #15) */}
+      {showBatchConfirmModal && selectedVisiblePublishableRecords.length > 0 && (() => {
+        const uniqueStores = Array.from(new Set(selectedVisiblePublishableRecords.map((r) => r.store_name)))
+        const uniquePlatforms = Array.from(new Set(selectedVisiblePublishableRecords.map((r) => r.platform)))
+        const payoutRefs = selectedVisiblePublishableRecords.map((r) => `#${r.payout_reference_id}`)
+        const totalNet = selectedVisiblePublishableRecords.reduce(
+          (acc, r) => acc + Number(r.net_payout_amount || 0),
+          0
+        )
+
+        return (
+          <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-xl w-full p-6 space-y-4 shadow-2xl">
+              <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3">
+                <h3 className="text-lg font-extrabold">{t('deliveryReconciliation.batch_confirm_modal_title')}</h3>
+                <button
+                  onClick={() => setShowBatchConfirmModal(false)}
+                  className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <p className="text-xs text-slate-600 dark:text-slate-300">
+                {t('deliveryReconciliation.batch_confirm_modal_desc')}
+              </p>
+
+              <div className="bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-xl p-4 space-y-2.5 text-xs">
+                <div className="flex justify-between">
+                  <span className="font-bold text-slate-500">{t('deliveryReconciliation.batch_confirm_count')}</span>
+                  <span className="font-mono font-extrabold text-sm">{selectedVisiblePublishableRecords.length}</span>
+                </div>
+                <div className="flex justify-between gap-4">
+                  <span className="font-bold text-slate-500 shrink-0">{t('deliveryReconciliation.batch_confirm_stores')}</span>
+                  <span className="font-semibold text-right">{uniqueStores.join(', ')}</span>
+                </div>
+                <div className="flex justify-between gap-4">
+                  <span className="font-bold text-slate-500 shrink-0">{t('deliveryReconciliation.batch_confirm_platforms')}</span>
+                  <span className="font-semibold text-right">{uniquePlatforms.join(', ')}</span>
+                </div>
+                <div>
+                  <span className="font-bold text-slate-500 block mb-1">
+                    {t('deliveryReconciliation.batch_confirm_payout_refs')}
+                  </span>
+                  <div className="font-mono text-[11px] bg-white dark:bg-slate-900 p-2 rounded-lg border border-slate-200 dark:border-slate-700 max-h-28 overflow-y-auto">
+                    {payoutRefs.join(', ')}
+                  </div>
+                </div>
+                <div className="flex justify-between pt-2 border-t border-slate-200 dark:border-slate-700 text-sm">
+                  <span className="font-extrabold text-emerald-700 dark:text-emerald-400">
+                    {t('deliveryReconciliation.batch_confirm_net_total')}
+                  </span>
+                  <span className="font-mono font-extrabold text-emerald-600 dark:text-emerald-400">
+                    {fmtMoney(totalNet)}
+                  </span>
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-3 border-t border-slate-200 dark:border-slate-800">
+                <button
+                  onClick={() => setShowBatchConfirmModal(false)}
+                  className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-sm font-semibold"
+                >
+                  {t('deliveryReconciliation.modal_close')}
+                </button>
+                <button
+                  onClick={() =>
+                    handlePublishQbJournalEntries(selectedVisiblePublishableRecords.map((r) => r.id))
+                  }
+                  disabled={publishingQb}
+                  className="inline-flex items-center gap-2 px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-sm font-extrabold shadow-sm"
+                >
+                  <FileSpreadsheet className="w-4 h-4" />
+                  {publishingQb
+                    ? t('deliveryReconciliation.qb_creating_btn')
+                    : t('deliveryReconciliation.batch_confirm_btn')}
+                </button>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
+
+      {/* MODAL INDIVIDUAL DE PÓLIZA QUICKBOOKS (JOURNAL ENTRY) */}
       {selectedQbRecord && (() => {
         const prev = selectedQbRecord.journalPreview || {}
         const audit = prev.auditBreakdown || {}
         const embeddedTax = Number(prev.embeddedRefundTax || 0)
         const rawErrAdj = Number(prev.rawErrAdj || 0)
+        const blockers: any[] = selectedQbRecord.publishBlockers || []
+        const warnings: any[] = selectedQbRecord.auditWarnings || prev.auditWarnings || []
 
-        // Si el usuario activa el checkbox `jeModalSplitTax` en DoorDash/Grubhub, separar la línea 4 en Subtotal (4006X) + Tax (24001)
         const modalLines = (() => {
           const baseLines: any[] = prev.lines || []
           if (!jeModalSplitTax || selectedQbRecord.platform === 'UBER_EATS' || embeddedTax <= 0.01 || rawErrAdj >= 0) {
@@ -2209,7 +3490,7 @@ export default function ConciliarDeliveryPage() {
               ...line4Orig,
               lineNumber: 4,
               amount: subPortion,
-              description: `${line4Orig.description} (Subtotal sin Tax)`,
+              description: `${line4Orig.description} (Subtotal excl. Real Tax)`,
             },
             {
               lineNumber: 5,
@@ -2218,7 +3499,7 @@ export default function ConciliarDeliveryPage() {
               accountName: '24001 Sales tax payable',
               postingType: 'Debit',
               amount: embeddedTax,
-              description: `${line4Orig.description} (Recuperación Sales Tax 24001)`,
+              description: `${line4Orig.description} (Reversión Sales Tax Real 24001)`,
               locationName: line4Orig.locationName,
               className: line4Orig.className,
             },
@@ -2228,7 +3509,6 @@ export default function ConciliarDeliveryPage() {
         return (
           <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
             <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-5xl w-full p-6 space-y-5 shadow-2xl max-h-[92vh] overflow-y-auto">
-              {/* CABECERA DEL MODAL */}
               <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3">
                 <div>
                   <div className="flex items-center gap-2">
@@ -2252,7 +3532,6 @@ export default function ConciliarDeliveryPage() {
                 </button>
               </div>
 
-              {/* BANNER SI YA ESTÁ CREADO EN QUICKBOOKS */}
               {selectedQbRecord.hasJournalEntry && selectedQbRecord.qbJournalEntry && (
                 <div className="p-3.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-between text-emerald-800 dark:text-emerald-200 text-xs md:text-sm font-bold">
                   <div className="flex items-center gap-2">
@@ -2268,7 +3547,66 @@ export default function ConciliarDeliveryPage() {
                 </div>
               )}
 
-              {/* CONTROLES DE FECHA, FOLIO Y OPCIÓN DE RECUPERAR SALES TAX (24001) */}
+              {selectedQbRecord.bankVerification && (
+                <div
+                  className={`p-3.5 rounded-xl border text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-2 ${
+                    selectedQbRecord.bankVerification.status === 'VERIFIED_IN_BANK'
+                      ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-800 dark:text-emerald-200'
+                      : selectedQbRecord.bankVerification.status === 'JE_POSTED_IN_TRANSIT'
+                      ? 'bg-indigo-500/10 border-indigo-500/30 text-indigo-800 dark:text-indigo-200'
+                      : 'bg-slate-100 dark:bg-slate-800/70 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300'
+                  }`}
+                >
+                  <div className="space-y-0.5">
+                    <div className="font-extrabold flex items-center gap-1.5">
+                      <Landmark className="w-4 h-4 shrink-0" />
+                      <span>{t('deliveryReconciliation.bank_modal_title')}</span>
+                    </div>
+                    <p className="text-[11px] opacity-90">
+                      {isEn
+                        ? selectedQbRecord.bankVerification.detail_en
+                        : selectedQbRecord.bankVerification.detail_es}
+                    </p>
+                  </div>
+                  <div className="font-mono font-extrabold text-right shrink-0">
+                    <div>{fmtMoney(selectedQbRecord.bankVerification.expectedAmount)}</div>
+                    <div className="text-[10px] opacity-80">
+                      {isEn ? 'Acct' : 'Cta'} {selectedQbRecord.bankVerification.bankAccountNumber}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {blockers.length > 0 && !selectedQbRecord.hasJournalEntry && (
+                <div className="p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/30 space-y-1 text-rose-800 dark:text-rose-200 text-xs">
+                  <div className="font-extrabold flex items-center gap-1.5">
+                    <Lock className="w-4 h-4 text-rose-600" />
+                    {isEn ? 'Publication blocked by accounting safety rules:' : 'Publicación bloqueada por seguridad contable:'}
+                  </div>
+                  {blockers.map((b, idx) => (
+                    <div key={idx} className="pl-5">
+                      • {isEn ? b.message_en : b.message_es}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {warnings.length > 0 && !selectedQbRecord.hasJournalEntry && (
+                <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/30 space-y-1 text-amber-800 dark:text-amber-200 text-xs">
+                  <div className="font-extrabold flex items-center gap-1.5">
+                    <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                    {isEn
+                      ? 'Informative order-by-order audit alert (does not block creating the Journal Entry):'
+                      : 'Alerta informativa de auditoría orden por orden (no bloquea crear la póliza):'}
+                  </div>
+                  {warnings.map((w, idx) => (
+                    <div key={idx} className="pl-5">
+                      • {isEn ? w.message_en : w.message_es}
+                    </div>
+                  ))}
+                </div>
+              )}
+
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3 bg-slate-50 dark:bg-slate-800/50 p-4 rounded-xl border border-slate-200 dark:border-slate-700">
                 <div>
                   <label className="block text-xs font-bold text-slate-500 mb-1">
@@ -2330,14 +3668,20 @@ export default function ConciliarDeliveryPage() {
                 </div>
               </div>
 
-              {/* TABLA DE LÍNEAS DEL JOURNAL ENTRY EN QUICKBOOKS ONLINE */}
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
                   <h4 className="text-xs md:text-sm font-extrabold uppercase text-slate-600 dark:text-slate-300">
                     {t('deliveryReconciliation.qb_modal_lines_title')}
                   </h4>
-                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-extrabold bg-emerald-500/15 text-emerald-700 dark:text-emerald-300">
-                    ✓ Total Debits = Total Credits ({fmtMoney(prev.totalDebits)})
+                  <span
+                    className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-extrabold ${
+                      prev.isBalanced
+                        ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
+                        : 'bg-rose-500/15 text-rose-700'
+                    }`}
+                  >
+                    {prev.isBalanced ? '✓' : '✗'} Total Debits ({fmtMoney(prev.totalDebits)}) = Total Credits (
+                    {fmtMoney(prev.totalCredits)})
                   </span>
                 </div>
 
@@ -2370,186 +3714,11 @@ export default function ConciliarDeliveryPage() {
                           <td className="p-2.5 font-semibold">{l.className}</td>
                         </tr>
                       ))}
-                      <tr className="bg-slate-100/80 dark:bg-slate-800/90 font-extrabold border-t-2 border-slate-300 dark:border-slate-700">
-                        <td colSpan={2} className="p-2.5 text-right">
-                          Total
-                        </td>
-                        <td className="p-2.5 text-right font-mono text-emerald-700 dark:text-emerald-400">
-                          {fmtMoney(prev.totalDebits)}
-                        </td>
-                        <td className="p-2.5 text-right font-mono text-indigo-700 dark:text-indigo-400">
-                          {fmtMoney(prev.totalCredits)}
-                        </td>
-                        <td colSpan={3} />
-                      </tr>
                     </tbody>
                   </table>
                 </div>
               </div>
 
-              {/* SECCIÓN 1: ÓRDENES INVOLUCRADAS EN DESCUENTOS / REEMBOLSOS DE ESTE CORTE (LÍNEA 4) */}
-              <div className="bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 rounded-xl p-4 space-y-3">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                  <h4 className="text-xs md:text-sm font-extrabold uppercase text-slate-700 dark:text-slate-200">
-                    {t('deliveryReconciliation.qb_modal_deducted_orders_title')}
-                  </h4>
-                  <div className="text-xs font-mono">
-                    {t('deliveryReconciliation.qb_modal_chargebacks_summary')}{' '}
-                    <span className="font-bold text-rose-600 dark:text-rose-400">
-                      {fmtMoney(prev.chargebacksInCut || 0)}
-                    </span>{' '}
-                    | {t('deliveryReconciliation.qb_modal_other_payments')}{' '}
-                    <span className="font-bold text-emerald-600 dark:text-emerald-400">
-                      +{fmtMoney(prev.adjustmentsInCut || 0)}
-                    </span>{' '}
-                    ={' '}
-                    <span className="font-extrabold">
-                      {fmtMoney(prev.rawErrAdj || 0)} ({(prev.rawErrAdj || 0) < 0 ? 'DEBIT' : 'CREDIT'})
-                    </span>
-                  </div>
-                </div>
-
-                {/* REEMBOLSOS DE OTROS CORTES (EJ. #650DD +$240.99) */}
-                {Array.isArray(audit.crossPayoutRefunds) && audit.crossPayoutRefunds.length > 0 && (
-                  <div className="space-y-1.5">
-                    {audit.crossPayoutRefunds.map((cr: any, idx: number) => (
-                      <div
-                        key={idx}
-                        className="flex flex-wrap items-center justify-between gap-2 p-2.5 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-xs"
-                      >
-                        <div className="font-bold text-emerald-800 dark:text-emerald-200">
-                          {t('deliveryReconciliation.qb_modal_cross_refund_banner', {
-                            order: cr.orderCode,
-                          })}{' '}
-                          {cr.orderDate
-                            ? t('deliveryReconciliation.qb_modal_orig_date', { date: fmtDateMDY(cr.orderDate) })
-                            : ''}{' '}
-                          — <span className="font-mono">&ldquo;{cr.description}&rdquo;</span>
-                        </div>
-                        <span className="font-mono font-extrabold text-emerald-700 dark:text-emerald-300">
-                          +{fmtMoney(cr.amount)} {t('deliveryReconciliation.qb_modal_credit_line4')}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {/* TABLA DE ÓRDENES CON DESCUENTO / CARGO POR ERROR EN ESTE CORTE */}
-                {Array.isArray(audit.deductedOrders) && audit.deductedOrders.length > 0 ? (
-                  <div className="overflow-x-auto border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-900">
-                    <table className="w-full text-left border-collapse text-xs">
-                      <thead>
-                        <tr className="bg-rose-500/10 text-slate-700 dark:text-slate-200 font-bold border-b border-slate-200 dark:border-slate-700">
-                          <th className="p-2">{t('deliveryReconciliation.qb_modal_col_date')}</th>
-                          <th className="p-2">{t('deliveryReconciliation.qb_modal_col_order')}</th>
-                          <th className="p-2">{t('deliveryReconciliation.qb_modal_col_toast_cust')}</th>
-                          <th className="p-2 text-right">{t('deliveryReconciliation.col_toast_net')}</th>
-                          <th className="p-2 text-right">{t('deliveryReconciliation.col_toast_tax')}</th>
-                          <th className="p-2 text-right">{t('deliveryReconciliation.qb_modal_col_error_adj')}</th>
-                          <th className="p-2 text-right">{t('deliveryReconciliation.col_net_payout')}</th>
-                          <th className="p-2">{t('deliveryReconciliation.qb_modal_col_dispute_status')}</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
-                        {audit.deductedOrders.map((o: any) => (
-                          <tr key={o.id}>
-                            <td className="p-2 font-mono">{fmtDateMDY(o.business_date)}</td>
-                            <td className="p-2 font-mono font-bold">{o.platform_order_id}</td>
-                            <td className="p-2">
-                              {o.toast_display_number ? `#${o.toast_display_number} • ${o.toast_tab_name || ''}` : '-'}
-                            </td>
-                            <td className="p-2 text-right font-mono">{fmtMoney(o.toast_net_sales)}</td>
-                            <td className="p-2 text-right font-mono">{fmtMoney(o.toast_tax)}</td>
-                            <td className="p-2 text-right font-mono font-bold text-rose-600 dark:text-rose-400">
-                              {fmtMoney(Number(o.error_charge || 0) + Number(o.adjustment_amount || 0))}
-                            </td>
-                            <td className="p-2 text-right font-mono font-bold">{fmtMoney(o.net_payout)}</td>
-                            <td className="p-2">
-                              <span className="font-semibold">
-                                {t(`deliveryReconciliation.dispute_${o.dispute_status}`) || o.dispute_status}
-                              </span>
-                              {o.reimbursement_payout_ref && (
-                                <span className="block text-[10px] font-bold text-emerald-600">
-                                  {t('deliveryReconciliation.qb_modal_reimbursed_in', {
-                                    ref: o.reimbursement_payout_ref,
-                                    amount: fmtMoney(o.reimbursement_amount),
-                                  })}
-                                </span>
-                              )}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                ) : (
-                  <div className="text-xs text-slate-500">
-                    {Math.abs(prev.chargebacksInCut || 0) > 0.01
-                      ? t('deliveryReconciliation.qb_modal_global_chargebacks_msg', {
-                          amount: fmtMoney(prev.chargebacksInCut),
-                        })
-                      : t('deliveryReconciliation.qb_modal_no_deducted_orders')}
-                  </div>
-                )}
-              </div>
-
-              {/* SECCIÓN 2: ÓRDENES EN TOAST POS NO PAGADAS EN EL CORTE + ALERTA DE IMPUESTOS (CUENTA 24001) */}
-              <div className="bg-amber-500/5 border border-amber-500/25 rounded-xl p-4 space-y-3">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                  <h4 className="text-xs md:text-sm font-extrabold uppercase text-amber-800 dark:text-amber-300">
-                    {t('deliveryReconciliation.qb_modal_unpaid_toast_title')}
-                  </h4>
-                  <div className="text-xs font-mono">
-                    {t('deliveryReconciliation.qb_modal_unpaid_count')}{' '}
-                    <span className="font-extrabold">{audit.unpaidToastOrdersCount || 0}</span> |{' '}
-                    {t('deliveryReconciliation.col_toast_net')}:{' '}
-                    <span className="font-bold">{fmtMoney(audit.unpaidToastSubtotal || 0)}</span> |{' '}
-                    {t('deliveryReconciliation.qb_modal_tax_24001')}{' '}
-                    <span className="font-extrabold text-rose-600 dark:text-rose-400">
-                      {fmtMoney(audit.unpaidToastTax || 0)}
-                    </span>
-                  </div>
-                </div>
-
-                <p className="text-xs text-slate-600 dark:text-slate-300">
-                  {t('deliveryReconciliation.qb_modal_split_tax_desc')}
-                </p>
-
-                {Array.isArray(audit.unpaidToastOrdersSample) && audit.unpaidToastOrdersSample.length > 0 && (
-                  <div className="overflow-x-auto border border-amber-500/20 rounded-lg bg-white dark:bg-slate-900 max-h-48">
-                    <table className="w-full text-left border-collapse text-xs">
-                      <thead>
-                        <tr className="bg-amber-500/10 font-bold border-b border-slate-200 dark:border-slate-700">
-                          <th className="p-2">{t('deliveryReconciliation.col_date')}</th>
-                          <th className="p-2">{t('deliveryReconciliation.col_order_id')}</th>
-                          <th className="p-2">Tab Name</th>
-                          <th className="p-2 text-right">{t('deliveryReconciliation.col_toast_net')}</th>
-                          <th className="p-2 text-right">{t('deliveryReconciliation.qb_modal_col_tax_24001')}</th>
-                          <th className="p-2 text-right">{t('deliveryReconciliation.col_toast_expected')}</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
-                        {audit.unpaidToastOrdersSample.map((uo: any) => (
-                          <tr key={uo.id}>
-                            <td className="p-2 font-mono">{fmtDateMDY(uo.business_date)}</td>
-                            <td className="p-2 font-mono font-bold">
-                              {uo.platform_order_id} (Toast #{uo.toast_display_number || '-'})
-                            </td>
-                            <td className="p-2">{uo.toast_tab_name || '-'}</td>
-                            <td className="p-2 text-right font-mono">{fmtMoney(uo.toast_net_sales)}</td>
-                            <td className="p-2 text-right font-mono font-bold text-rose-600 dark:text-rose-400">
-                              {fmtMoney(uo.toast_tax)}
-                            </td>
-                            <td className="p-2 text-right font-mono font-bold">{fmtMoney(uo.toast_expected_gross)}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </div>
-
-              {/* BOTONES DE ACCIÓN DEL MODAL */}
               <div className="flex justify-end gap-2.5 pt-3 border-t border-slate-200 dark:border-slate-800">
                 <button
                   onClick={() => setSelectedQbRecord(null)}
@@ -2557,7 +3726,7 @@ export default function ConciliarDeliveryPage() {
                 >
                   {t('deliveryReconciliation.modal_close')}
                 </button>
-                {!selectedQbRecord.hasJournalEntry && (
+                {!selectedQbRecord.hasJournalEntry && selectedQbRecord.canPublish && (
                   <button
                     onClick={() =>
                       handlePublishQbJournalEntries([selectedQbRecord.id], {
@@ -2581,14 +3750,139 @@ export default function ConciliarDeliveryPage() {
         )
       })()}
 
-      {/* MODAL DETALLE DE ORDEN Y DISPUTA */}
+      {/* MODAL DE CONFIRMACIÓN PARA ACCIONES MASIVAS DE ÓRDENES (P0 #7: VARIANZA O DISPUTA) */}
+      {batchOrderConfirmModal && selectedVisibleOrders.length > 0 && (() => {
+        const isVarianceBatch = batchOrderConfirmModal.actionType === 'APPROVE_VARIANCE'
+        const uniqueStores = Array.from(new Set(selectedVisibleOrders.map((o) => o.store_name)))
+        const uniquePlatforms = Array.from(new Set(selectedVisibleOrders.map((o) => o.platform)))
+        const uniquePayoutRefs = Array.from(
+          new Set(
+            selectedVisibleOrders
+              .map((o) => (o.payout_reference_id ? `#${o.payout_reference_id}` : ''))
+              .filter(Boolean)
+          )
+        )
+        const totalAmount = selectedVisibleOrders.reduce((acc, o) => {
+          if (isVarianceBatch) {
+            return acc + Math.abs(Number(o.gross_variance ?? o.gross_diff ?? 0))
+          }
+          return acc + Math.abs(Number(o.dispute_amount || o.error_charge || o.adjustment_amount || 0))
+        }, 0)
+
+        return (
+          <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-xl w-full p-6 space-y-4 shadow-2xl">
+              <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3">
+                <h3 className="text-lg font-extrabold">
+                  {t('deliveryReconciliation.batch_action_confirm_title')}
+                </h3>
+                <button
+                  onClick={() => setBatchOrderConfirmModal(null)}
+                  className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <p className="text-xs text-slate-600 dark:text-slate-300 font-semibold">
+                {isVarianceBatch
+                  ? t('deliveryReconciliation.batch_action_effect_variance')
+                  : t('deliveryReconciliation.batch_action_effect_dispute')}
+              </p>
+
+              <div className="bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-xl p-4 space-y-2 text-xs">
+                <div className="flex justify-between">
+                  <span className="font-bold text-slate-500">
+                    {t('deliveryReconciliation.batch_selected_count', { count: selectedVisibleOrders.length })}
+                  </span>
+                  <span className="font-mono font-extrabold text-sm">{fmtMoney(totalAmount)}</span>
+                </div>
+                <div className="flex justify-between gap-4">
+                  <span className="font-bold text-slate-500 shrink-0">
+                    {t('deliveryReconciliation.batch_confirm_stores')}
+                  </span>
+                  <span className="font-semibold text-right">{uniqueStores.join(', ')}</span>
+                </div>
+                <div className="flex justify-between gap-4">
+                  <span className="font-bold text-slate-500 shrink-0">
+                    {t('deliveryReconciliation.batch_confirm_platforms')}
+                  </span>
+                  <span className="font-semibold text-right">{uniquePlatforms.join(', ')}</span>
+                </div>
+                <div className="flex justify-between gap-4">
+                  <span className="font-bold text-slate-500 shrink-0">
+                    {t('deliveryReconciliation.batch_confirm_payout_refs')}
+                  </span>
+                  <span className="font-mono text-right">
+                    {uniquePayoutRefs.length > 0 ? uniquePayoutRefs.join(', ') : '—'}
+                  </span>
+                </div>
+                <div className="pt-2 border-t border-slate-200 dark:border-slate-700">
+                  <div className="font-bold text-slate-500 mb-1">
+                    {isEn ? 'Selected orders:' : 'Órdenes seleccionadas:'}
+                  </div>
+                  <div className="max-h-36 overflow-y-auto space-y-1 font-mono text-[11px] bg-white dark:bg-slate-900 p-2 rounded-lg border border-slate-200 dark:border-slate-700">
+                    {selectedVisibleOrders.map((o) => (
+                      <div key={o.id} className="flex justify-between">
+                        <span>
+                          #{o.platform_order_id} • {o.store_name}
+                        </span>
+                        <span className="font-bold">
+                          {fmtMoney(
+                            isVarianceBatch
+                              ? Number(o.gross_variance ?? o.gross_diff ?? 0)
+                              : Number(o.dispute_amount || o.error_charge || 0)
+                          )}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-3 border-t border-slate-200 dark:border-slate-800">
+                <button
+                  onClick={() => setBatchOrderConfirmModal(null)}
+                  className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-sm font-semibold"
+                >
+                  {t('deliveryReconciliation.modal_close')}
+                </button>
+                <button
+                  onClick={async () => {
+                    const targetOrderIds = selectedVisibleOrders.map((o) => o.id)
+                    setBatchOrderConfirmModal(null)
+                    if (isVarianceBatch) {
+                      await handleBatchApproveVariance(targetOrderIds)
+                    } else {
+                      await handleBatchMarkDisputeSubmitted(targetOrderIds)
+                    }
+                  }}
+                  disabled={savingDispute}
+                  className={`px-5 py-2 rounded-xl text-white text-sm font-extrabold shadow-sm ${
+                    isVarianceBatch ? 'bg-amber-600 hover:bg-amber-700' : 'bg-rose-600 hover:bg-rose-700'
+                  }`}
+                >
+                  {isVarianceBatch
+                    ? t('deliveryReconciliation.batch_approve_variance_btn')
+                    : t('deliveryReconciliation.batch_mark_submitted_btn')}
+                </button>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
+
+      {/* MODAL DETALLE DE ORDEN, TRAZABILIDAD DE 4 ETAPAS Y RESOLUCIÓN */}
       {selectedOrder && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-2xl w-full p-6 space-y-5 shadow-2xl max-h-[90vh] overflow-y-auto">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-3xl w-full p-6 space-y-5 shadow-2xl max-h-[92vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3">
               <div>
-                <h3 className="text-lg font-extrabold">{t('deliveryReconciliation.modal_order_detail_title')}</h3>
-                <p className="text-xs text-slate-500">
+                <div className="flex items-center gap-2">
+                  {renderPlatformBadge(selectedOrder.platform)}
+                  <h3 className="text-lg font-extrabold">{t('deliveryReconciliation.modal_order_detail_title')}</h3>
+                </div>
+                <p className="text-xs text-slate-500 mt-0.5">
                   {selectedOrder.store_name} • {fmtDateMDY(selectedOrder.business_date)} • #{selectedOrder.platform_order_id}
                 </p>
               </div>
@@ -2600,187 +3894,209 @@ export default function ConciliarDeliveryPage() {
               </button>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="bg-slate-50 dark:bg-slate-800/60 rounded-xl p-4 border border-slate-200 dark:border-slate-700 space-y-2">
-                <div className="text-xs font-extrabold uppercase text-slate-500">Toast POS</div>
-                <div className="flex justify-between text-sm">
-                  <span>Ticket / Tab:</span>
-                  <span className="font-mono font-bold">
-                    #{selectedOrder.toast_display_number || '-'} ({selectedOrder.toast_tab_name || '-'})
-                  </span>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span>{t('deliveryReconciliation.col_toast_net')}:</span>
-                  <span className="font-mono font-semibold">{fmtMoney(selectedOrder.toast_net_sales)}</span>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span>{t('deliveryReconciliation.col_toast_tax')}:</span>
-                  <span className="font-mono font-semibold">{fmtMoney(selectedOrder.toast_tax)}</span>
-                </div>
-                <div className="flex justify-between text-sm font-extrabold border-t border-slate-200 dark:border-slate-700 pt-2">
-                  <span>{t('deliveryReconciliation.col_toast_expected')}:</span>
-                  <span className="font-mono">{fmtMoney(selectedOrder.toast_expected_gross)}</span>
-                </div>
-              </div>
-
-              <div className="bg-indigo-500/5 rounded-xl p-4 border border-indigo-500/20 space-y-2">
+            {/* TRAZABILIDAD COMPLETA DE 4 ETAPAS (ORDEN ORIGINAL -> ORDEN PLATAFORMA -> PAYOUT -> DISPUTA/RECUPERACIÓN) */}
+            {Array.isArray(selectedOrder.lifecycle_trace) && (
+              <div className="space-y-2">
                 <div className="text-xs font-extrabold uppercase text-indigo-600 dark:text-indigo-400">
-                  {selectedOrder.platform}
+                  {t('deliveryReconciliation.trace_title')}
                 </div>
-                <div className="flex justify-between text-sm">
-                  <span>{t('deliveryReconciliation.col_plat_subtotal')}:</span>
-                  <span className="font-mono font-semibold">{fmtMoney(selectedOrder.platform_subtotal)}</span>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span>{t('deliveryReconciliation.col_plat_tax_merchant')}:</span>
-                  <span className="font-mono font-semibold">
-                    {fmtMoney(selectedOrder.platform_tax_paid_to_merchant)}
-                  </span>
-                </div>
-                <div className="flex justify-between text-sm font-bold">
-                  <span>{t('deliveryReconciliation.col_plat_gross')}:</span>
-                  <span className="font-mono">{fmtMoney(selectedOrder.platform_gross_receivable)}</span>
-                </div>
-                <div className="flex justify-between text-xs text-amber-600 dark:text-amber-400">
-                  <span>{t('deliveryReconciliation.col_commission')}:</span>
-                  <span className="font-mono">
-                    {fmtMoney(Number(selectedOrder.commission_fee || 0) + Number(selectedOrder.delivery_fee || 0))}
-                  </span>
-                </div>
-                <div className="flex justify-between text-xs text-amber-600 dark:text-amber-400">
-                  <span>{t('deliveryReconciliation.col_fees')}:</span>
-                  <span className="font-mono">
-                    {fmtMoney(Number(selectedOrder.processing_fee || 0) + Number(selectedOrder.marketing_fee || 0))}
-                  </span>
-                </div>
-                <div className="flex justify-between text-xs text-rose-600 dark:text-rose-400">
-                  <span>{t('deliveryReconciliation.col_error_adj')}:</span>
-                  <span className="font-mono">
-                    {fmtMoney(Number(selectedOrder.error_charge || 0) + Number(selectedOrder.adjustment_amount || 0))}
-                  </span>
-                </div>
-                <div className="flex justify-between text-sm font-extrabold text-emerald-600 dark:text-emerald-400 border-t border-indigo-500/20 pt-2">
-                  <span>{t('deliveryReconciliation.col_net_payout')}:</span>
-                  <span className="font-mono">{fmtMoney(selectedOrder.net_payout)}</span>
-                </div>
-              </div>
-            </div>
-
-            {selectedOrder.payout_reference_id && (
-              <div className="flex items-center justify-between px-3.5 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700 text-xs">
-                <span className="font-bold text-slate-600 dark:text-slate-300">
-                  {t('deliveryReconciliation.original_deduction_cut_label')}
-                </span>
-                <span className="font-mono font-extrabold text-indigo-600 dark:text-indigo-400">
-                  #{selectedOrder.payout_reference_id}{' '}
-                  {selectedOrder.payout_date ? `(${fmtDateMDY(selectedOrder.payout_date)})` : ''}
-                </span>
-              </div>
-            )}
-
-            {selectedOrder.raw_payload?.reimbursement_payout_ref && (
-              <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-xl p-4 space-y-1.5">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-extrabold uppercase text-emerald-700 dark:text-emerald-300 flex items-center gap-1.5">
-                    <CheckCircle2 className="w-4 h-4" />
-                    {t('deliveryReconciliation.cross_payout_section_title')}
-                  </span>
-                  <span className="font-mono font-extrabold text-sm text-emerald-700 dark:text-emerald-300">
-                    +{fmtMoney(selectedOrder.raw_payload.reimbursement_amount || selectedOrder.dispute_amount)}
-                  </span>
-                </div>
-                <div className="text-xs font-semibold text-emerald-800 dark:text-emerald-200">
-                  {t('deliveryReconciliation.modal_reimb_cut_label')}{' '}
-                  <span className="font-mono font-extrabold">
-                    #{selectedOrder.raw_payload.reimbursement_payout_ref}
-                  </span>{' '}
-                  {selectedOrder.raw_payload.reimbursement_period
-                    ? `(${selectedOrder.raw_payload.reimbursement_period})`
-                    : ''}{' '}
-                  • {t('deliveryReconciliation.modal_deposited_label')}{' '}
-                  <span className="font-mono">{fmtDateMDY(selectedOrder.raw_payload.reimbursement_deposit_date)}</span>
-                </div>
-                {selectedOrder.raw_payload.reimbursement_description && (
-                  <div className="text-xs font-mono text-emerald-700 dark:text-emerald-300">
-                    {t('deliveryReconciliation.modal_official_concept')} &ldquo;
-                    {selectedOrder.raw_payload.reimbursement_description}&rdquo;
-                  </div>
-                )}
-              </div>
-            )}
-
-            {Array.isArray(selectedOrder.raw_payload?.orderDetails?.issueDetails) &&
-              selectedOrder.raw_payload.orderDetails.issueDetails.map((iss: any, iIdx: number) => {
-                const disp = iss?.disputeDetails
-                if (!disp) return null
-                return (
-                  <div
-                    key={iIdx}
-                    className="bg-slate-50 dark:bg-slate-800/50 rounded-xl p-3.5 border border-slate-200 dark:border-slate-700 space-y-2"
-                  >
-                    <div className="text-xs font-extrabold uppercase text-slate-600 dark:text-slate-300">
-                      {t('deliveryReconciliation.evidence_photos_title')}
-                    </div>
-                    {disp.additionalNotes && (
-                      <p className="text-xs italic text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-900 p-2.5 rounded-lg border border-slate-200 dark:border-slate-800">
-                        &ldquo;{disp.additionalNotes}&rdquo;
-                      </p>
-                    )}
-                    {Array.isArray(disp.evidenceUrls) && disp.evidenceUrls.length > 0 && (
-                      <div className="grid grid-cols-3 gap-2 pt-1">
-                        {disp.evidenceUrls.map((url: string, uIdx: number) => (
-                          <a
-                            key={uIdx}
-                            href={url}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="block rounded-lg overflow-hidden border border-slate-200 dark:border-slate-700 hover:opacity-90 transition"
-                          >
-                            <img
-                              src={url}
-                              alt={`Evidence ${uIdx + 1}`}
-                              className="w-full h-24 object-cover"
-                            />
-                          </a>
-                        ))}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  {selectedOrder.lifecycle_trace.map((st) => (
+                    <div
+                      key={st.step}
+                      className={`rounded-xl p-3 border text-xs ${
+                        st.step === 4 && selectedOrder.raw_payload?.reimbursement_payout_ref
+                          ? 'bg-emerald-500/10 border-emerald-500/30'
+                          : st.step === 3 && Number(selectedOrder.error_charge || 0) < -0.01
+                          ? 'bg-rose-500/10 border-rose-500/30'
+                          : 'bg-slate-50 dark:bg-slate-800/60 border-slate-200 dark:border-slate-700'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between font-extrabold mb-1">
+                        <span>
+                          {st.step}. {isEn ? st.title_en : st.title_es}
+                        </span>
+                        <span className="font-mono">{fmtMoney(st.amount)}</span>
                       </div>
-                    )}
-                  </div>
-                )
-              })}
-
-            {selectedOrder.items_summary && selectedOrder.items_summary.length > 0 && (
-              <div className="bg-slate-50 dark:bg-slate-800/40 rounded-xl p-3 border border-slate-200 dark:border-slate-800">
-                <div className="text-xs font-bold text-slate-500 mb-2">
-                  {t('deliveryReconciliation.modal_toast_items_title')}
-                </div>
-                <div className="space-y-1">
-                  {selectedOrder.items_summary.map((it, idx) => (
-                    <div key={idx} className="flex justify-between text-xs">
-                      <span>
-                        {it.quantity}x {it.name}
-                      </span>
-                      <span className="font-mono">{fmtMoney(it.price)}</span>
+                      <p className="text-[11px] text-slate-600 dark:text-slate-300">
+                        {isEn ? st.detail_en : st.detail_es}
+                      </p>
                     </div>
                   ))}
                 </div>
               </div>
             )}
 
+            {/* P0 #5: SI ES TIENDA DESCONOCIDA (UNASSIGNED_STORE), INICIAR SIN PRE-SELECCIÓN Y EXIGIR CONFIRMACIÓN */}
+            {(selectedOrder.store_id === 0 || selectedOrder.store_code === 'UNASSIGNED_STORE') && (
+              <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/30 space-y-2.5 text-xs">
+                <div className="font-extrabold text-amber-800 dark:text-amber-200">
+                  {isEn
+                    ? 'Manually assign this transaction to a Tacos Gavilan store:'
+                    : 'Asignar manualmente esta transacción a una sucursal de Tacos Gavilan:'}
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <select
+                    value={assignTargetStoreId}
+                    onChange={(e) => {
+                      setAssignTargetStoreId(e.target.value)
+                      setShowAssignStoreConfirmModal(false)
+                    }}
+                    className="rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-xs font-bold"
+                  >
+                    <option value="">{t('deliveryReconciliation.unassigned_select_store_placeholder')}</option>
+                    {[...mappings]
+                      .sort((a, b) => a.store_name.localeCompare(b.store_name, 'es'))
+                      .map((m) => (
+                        <option key={m.store_id} value={String(m.store_id)}>
+                          {m.store_name} ({m.store_code})
+                        </option>
+                      ))}
+                  </select>
+                  <button
+                    onClick={() => setShowAssignStoreConfirmModal(true)}
+                    disabled={savingDispute || !assignTargetStoreId}
+                    className="px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 disabled:opacity-40 text-white font-extrabold"
+                  >
+                    {isEn ? 'Assign Store & Reconcile' : 'Asignar Sucursal y Conciliar'}
+                  </button>
+                </div>
+
+                {/* MODAL / PANEL DE CONFIRMACIÓN DE ASIGNACIÓN DE TIENDA DESCONOCIDA */}
+                {showAssignStoreConfirmModal && assignTargetStoreId && (() => {
+                  const destStore = mappings.find((m) => String(m.store_id) === assignTargetStoreId)
+                  return (
+                    <div className="mt-3 p-3.5 rounded-xl bg-white dark:bg-slate-900 border-2 border-amber-500 space-y-2.5 shadow-md">
+                      <div className="font-extrabold text-amber-800 dark:text-amber-300">
+                        ⚠️ {t('deliveryReconciliation.unassigned_confirm_title')}
+                      </div>
+                      <p className="text-[11px] text-slate-600 dark:text-slate-300">
+                        {t('deliveryReconciliation.unassigned_confirm_desc')}
+                      </p>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 text-[11px] bg-slate-50 dark:bg-slate-800/60 p-2.5 rounded-lg border border-slate-200 dark:border-slate-700">
+                        <div>
+                          <span className="font-bold text-slate-500">
+                            {t('deliveryReconciliation.unassigned_confirm_ref')}:{' '}
+                          </span>
+                          <span className="font-mono font-extrabold">
+                            #{selectedOrder.platform_order_id}
+                            {selectedOrder.payout_reference_id ? ` (Payout #${selectedOrder.payout_reference_id})` : ''}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="font-bold text-slate-500">
+                            {t('deliveryReconciliation.unassigned_confirm_platform')}:{' '}
+                          </span>
+                          <span className="font-extrabold">{selectedOrder.platform}</span>
+                        </div>
+                        <div>
+                          <span className="font-bold text-slate-500">
+                            {t('deliveryReconciliation.unassigned_confirm_dest_store')}:{' '}
+                          </span>
+                          <span className="font-extrabold text-emerald-700 dark:text-emerald-400">
+                            {destStore ? `${destStore.store_name} (${destStore.store_code})` : assignTargetStoreId}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="font-bold text-slate-500">
+                            {t('deliveryReconciliation.unassigned_confirm_amount')}:{' '}
+                          </span>
+                          <span className="font-mono font-extrabold">
+                            {fmtMoney(selectedOrder.platform_gross_receivable)}
+                          </span>
+                        </div>
+                        <div className="sm:col-span-2">
+                          <span className="font-bold text-slate-500">
+                            {t('deliveryReconciliation.unassigned_confirm_user')}:{' '}
+                          </span>
+                          <span className="font-mono font-bold">{currentUserLabel}</span>
+                        </div>
+                      </div>
+                      <div className="flex justify-end gap-2">
+                        <button
+                          onClick={() => setShowAssignStoreConfirmModal(false)}
+                          className="px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 text-xs font-semibold"
+                        >
+                          {t('deliveryReconciliation.modal_close')}
+                        </button>
+                        <button
+                          onClick={() => handleAssignUnassignedStore(selectedOrder)}
+                          disabled={savingDispute}
+                          className="px-4 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-extrabold"
+                        >
+                          {t('deliveryReconciliation.unassigned_confirm_btn')}
+                        </button>
+                      </div>
+                    </div>
+                  )
+                })()}
+              </div>
+            )}
+
+            {/* SI HAY CANDIDATOS AMBIGUOS DE TOAST POS, MOSTRAR SELECTOR EXPLÍCITO */}
+            {Array.isArray(selectedOrder.raw_payload?.ambiguous_toast_candidates) &&
+              selectedOrder.raw_payload.ambiguous_toast_candidates.length > 0 && (
+                <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/30 space-y-2 text-xs">
+                  <div className="font-extrabold text-amber-800 dark:text-amber-200">
+                    {isEn
+                      ? 'Ambiguous Toast POS candidates (select the correct check):'
+                      : 'Candidatos ambiguos en Toast POS (selecciona el ticket correcto):'}
+                  </div>
+                  <div className="space-y-1.5">
+                    {selectedOrder.raw_payload.ambiguous_toast_candidates.map((cand: any) => {
+                      const candGuid = cand.toastOrderGuid || cand.toastGuid
+                      return (
+                        <div
+                          key={candGuid}
+                          className="flex items-center justify-between p-2 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700"
+                        >
+                          <span className="font-mono">
+                            Toast #{cand.displayNumber} • Net: {fmtMoney(cand.netSales)} • Tax: {fmtMoney(cand.taxAmount)}
+                          </span>
+                          <button
+                            onClick={() => handleApproveReviewOrder(selectedOrder, candGuid)}
+                            disabled={savingDispute}
+                            className="px-3 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-bold"
+                          >
+                            {isEn ? 'Confirm this Check' : 'Confirmar este Ticket'}
+                          </button>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
+
+            {/* SEGUIMIENTO DE DISPUTA Y REEMBOLSO EN CORTE POSTERIOR */}
             <div className="space-y-3 border-t border-slate-200 dark:border-slate-800 pt-4">
-              <label className="block text-xs font-bold uppercase text-slate-500">
-                {t('deliveryReconciliation.modal_update_dispute')}
-              </label>
+              <div className="flex items-center justify-between">
+                <label className="block text-xs font-bold uppercase text-slate-500">
+                  {t('deliveryReconciliation.modal_update_dispute')}
+                </label>
+                {/* P0 #2 & #7: Solo órdenes con VARIANCE_INVESTIGATE permiten aprobar varianza */}
+                {selectedOrder.action_group === 'VARIANCE_INVESTIGATE' && selectedOrder.store_id > 0 && (
+                  <button
+                    onClick={() => handleApproveReviewOrder(selectedOrder)}
+                    disabled={savingDispute}
+                    className="px-3 py-1 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold"
+                  >
+                    {t('deliveryReconciliation.approve_variance_btn')}
+                  </button>
+                )}
+              </div>
               <select
                 value={disputeStatusInput}
                 onChange={(e) => setDisputeStatusInput(e.target.value)}
                 className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 text-sm font-semibold"
               >
                 <option value="NONE">{t('deliveryReconciliation.dispute_NONE')}</option>
-                <option value="NEEDS_DISPUTE">{t('deliveryReconciliation.dispute_NEEDS_DISPUTE')}</option>
+                <option value="OPEN">{t('deliveryReconciliation.dispute_NEEDS_DISPUTE')}</option>
                 <option value="SUBMITTED">{t('deliveryReconciliation.dispute_SUBMITTED')}</option>
                 <option value="APPROVED">{t('deliveryReconciliation.dispute_APPROVED')}</option>
-                <option value="DENIED">{t('deliveryReconciliation.dispute_DENIED')}</option>
+                <option value="REIMBURSED">
+                  {isEn ? 'Reimbursed in Subsequent Payout' : 'Reembolsada en Payout Posterior'}
+                </option>
+                <option value="REJECTED">{t('deliveryReconciliation.dispute_DENIED')}</option>
               </select>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 bg-emerald-500/5 border border-emerald-500/20 rounded-xl p-3">
@@ -2795,7 +4111,7 @@ export default function ConciliarDeliveryPage() {
                     type="text"
                     value={reimbursementRefInput}
                     onChange={(e) => setReimbursementRefInput(e.target.value)}
-                    placeholder="Z7OUBJC8LJSSGWM"
+                    placeholder={isEn ? 'e.g. Payout reference ID' : 'Ej. ID de referencia del payout'}
                     className="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-2.5 py-1.5 text-xs font-mono"
                   />
                 </div>
@@ -2808,7 +4124,7 @@ export default function ConciliarDeliveryPage() {
                     step="0.01"
                     value={reimbursementAmountInput}
                     onChange={(e) => setReimbursementAmountInput(e.target.value)}
-                    placeholder="240.99"
+                    placeholder="0.00"
                     className="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-2.5 py-1.5 text-xs font-mono"
                   />
                 </div>
@@ -2831,14 +4147,24 @@ export default function ConciliarDeliveryPage() {
                     type="text"
                     value={reimbursementDescInput}
                     onChange={(e) => setReimbursementDescInput(e.target.value)}
-                    placeholder="Goodwill OE Refund #650DD 20260928"
+                    placeholder={
+                      isEn
+                        ? 'e.g. Approved dispute reimbursement in subsequent settlement'
+                        : 'Ej. Reembolso de disputa aprobado en liquidación posterior'
+                    }
                     className="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-2.5 py-1.5 text-xs"
                   />
                 </div>
               </div>
 
+              {disputeStatusInput === 'REIMBURSED' && !isReimbursedFormValid && (
+                <div className="p-2.5 rounded-xl bg-rose-500/10 border border-rose-500/30 text-xs text-rose-700 dark:text-rose-300 font-semibold">
+                  ⚠️ {t('deliveryReconciliation.reimbursed_validation_error')}
+                </div>
+              )}
+
               <textarea
-                rows={3}
+                rows={2}
                 value={disputeNotesInput}
                 onChange={(e) => setDisputeNotesInput(e.target.value)}
                 placeholder={t('deliveryReconciliation.modal_dispute_notes_placeholder')}
@@ -2854,8 +4180,8 @@ export default function ConciliarDeliveryPage() {
                 </button>
                 <button
                   onClick={handleSaveDispute}
-                  disabled={savingDispute}
-                  className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold"
+                  disabled={savingDispute || !isReimbursedFormValid}
+                  className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 text-white text-sm font-bold"
                 >
                   {t('deliveryReconciliation.modal_save_dispute')}
                 </button>
@@ -2865,7 +4191,7 @@ export default function ConciliarDeliveryPage() {
         </div>
       )}
 
-      {/* MODAL IMPORTAR REPORTE CSV / JSON */}
+      {/* MODAL IMPORTAR REPORTE CSV / JSON (P1 #10: CONFIRMACIÓN EXPLÍCITA DE SUCURSAL) */}
       {showImportModal && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-xl w-full p-6 space-y-4 shadow-2xl">
@@ -2919,6 +4245,20 @@ export default function ConciliarDeliveryPage() {
               )}
             </div>
 
+            {selectedStore !== 'ALL' && selectedStore !== '0' && (
+              <label className="flex items-start gap-2.5 p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-xs cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={confirmImportStoreAssignment}
+                  onChange={(e) => setConfirmImportStoreAssignment(e.target.checked)}
+                  className="mt-0.5 rounded border-slate-300"
+                />
+                <span className="font-semibold text-amber-800 dark:text-amber-200">
+                  {t('deliveryReconciliation.import_confirm_store_checkbox', { store: activeStoreLabel })}
+                </span>
+              </label>
+            )}
+
             <div className="flex justify-end gap-2 pt-3 border-t border-slate-200 dark:border-slate-800">
               <button
                 onClick={() => setShowImportModal(false)}
@@ -2928,7 +4268,11 @@ export default function ConciliarDeliveryPage() {
               </button>
               <button
                 onClick={handleProcessImport}
-                disabled={importing || !importText.trim()}
+                disabled={
+                  importing ||
+                  !importText.trim() ||
+                  (selectedStore !== 'ALL' && selectedStore !== '0' && !confirmImportStoreAssignment)
+                }
                 className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-sm font-bold"
               >
                 {importing

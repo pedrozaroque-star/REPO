@@ -666,3 +666,358 @@ export function verifyAdminAuth(request: Request, options?: { allowCron?: boolea
 
   return { authorized: true, user }
 }
+
+export type DeliveryReconciliationPermission =
+  | 'read'
+  | 'sync'
+  | 'dispute_review'
+  | 'manage_mappings'
+  | 'publish_journal'
+
+export interface DeliveryReconciliationAuthUser {
+  id: string
+  email: string
+  name: string
+  role: string
+  storeId: number | null
+  store_id: number | null
+  storeScope: string | null
+  canAccessAllStores: boolean
+}
+
+export interface DeliveryReconciliationAuthResult {
+  authorized: boolean
+  status: number
+  code?: string
+  error?: string
+  isCron?: boolean
+  isGlobalScope?: boolean
+  user?: DeliveryReconciliationAuthUser
+}
+
+export function signDeliveryReconciliationTestJwt(
+  payload: Record<string, any>,
+  options?: { secretOverride?: string; expiresIn?: string | number }
+): string {
+  const secret = options?.secretOverride || getJwtSecret()
+  if (!secret) throw new Error('JWT_SECRET not configured')
+  const signOpts: jwt.SignOptions = { algorithm: 'HS256' }
+  if (options?.expiresIn !== undefined) {
+    signOpts.expiresIn = options.expiresIn as any
+  }
+  return jwt.sign(payload, secret, signOpts)
+}
+
+const DELIVERY_RECONCILIATION_ROLE_MATRIX: Record<DeliveryReconciliationPermission, readonly string[]> = {
+  read: [
+    'admin',
+    'administrador',
+    'supervisor',
+    'accounting',
+    'contador',
+    'general_manager',
+    'manager',
+    'asistente',
+    'assistant',
+  ],
+  sync: [
+    'admin',
+    'administrador',
+    'supervisor',
+    'accounting',
+    'contador',
+    'general_manager',
+    'manager',
+  ],
+  dispute_review: [
+    'admin',
+    'administrador',
+    'supervisor',
+    'accounting',
+    'contador',
+    'general_manager',
+    'manager',
+  ],
+  manage_mappings: [
+    'admin',
+    'administrador',
+    'supervisor',
+    'accounting',
+    'contador',
+  ],
+  publish_journal: [
+    'admin',
+    'administrador',
+    'supervisor',
+    'accounting',
+    'contador',
+  ],
+}
+
+const GLOBAL_DELIVERY_ROLES = new Set([
+  'admin',
+  'administrador',
+  'supervisor',
+  'accounting',
+  'contador',
+])
+
+/**
+ * Guardián estricto de autenticación y autorización de servidor (Fail-Closed) para el módulo
+ * Delivery Platform Order Reconciliation y QuickBooks Journal Entries:
+ * 1. Valida firma criptográfica HS256 y expiración estricta (`ignoreExpiration: false`) del JWT (`teg_token`).
+ * 2. Permite `CRON_SECRET` única y exclusivamente cuando `allowCron === true` (sincronización programada).
+ * 3. Consulta en tiempo real `public.users` en Supabase para confirmar que el usuario existe, tiene `is_active = true`
+ *    y obtiene su `role` y `store_id` autoritativos desde la base de datos (sin confiar en banderas del cliente).
+ * 4. Aplica matriz de permisos por operación (`read`, `sync`, `dispute_review`, `manage_mappings`, `publish_journal`)
+ *    y aislamiento por sucursal (`targetStoreIds` / `requireAllStores`).
+ */
+export async function authorizeDeliveryReconciliationRequest(
+  req: Request,
+  supabaseClient: any,
+  options: {
+    permission: DeliveryReconciliationPermission
+    allowCron?: boolean
+    targetStoreIds?: number[]
+    requireAllStores?: boolean
+  }
+): Promise<DeliveryReconciliationAuthResult> {
+  const allowCron = options.allowCron === true
+  const cronSecret = getCronSecret()
+  const authHeader = req.headers.get('authorization') || req.headers.get('Authorization') || ''
+  const cronHeader = req.headers.get('x-cron-auth') || authHeader
+
+  if (allowCron && cronSecret) {
+    const isCronAuthorized = cronHeader === `Bearer ${cronSecret}` || cronHeader === cronSecret
+    if (isCronAuthorized) {
+      return {
+        authorized: true,
+        status: 200,
+        code: 'AUTHORIZED_CRON',
+        isCron: true,
+        isGlobalScope: true,
+        user: {
+          id: 'cron',
+          email: 'cron@tacosgavilan.com',
+          name: 'System Cron',
+          role: 'admin',
+          storeId: null,
+          store_id: null,
+          storeScope: 'all',
+          canAccessAllStores: true,
+        },
+      }
+    }
+  }
+
+  const secret = getJwtSecret()
+  if (!secret) {
+    console.error('❌ [authorizeDeliveryReconciliationRequest] Fail-closed: JWT secret no configurado')
+    return {
+      authorized: false,
+      status: 401,
+      code: 'SERVER_CONFIG_ERROR',
+      error: 'No autorizado: Configuración de seguridad del servidor no disponible.',
+    }
+  }
+
+  const candidateTokens: string[] = []
+  if (authHeader.startsWith('Bearer ')) {
+    const bearer = authHeader.substring(7).trim()
+    if (bearer && bearer !== 'null' && bearer !== 'undefined') {
+      candidateTokens.push(bearer)
+    }
+  }
+
+  try {
+    const cookieStore = await cookies()
+    const cookieVal = cookieStore.get('teg_token')?.value?.trim()
+    if (cookieVal && !candidateTokens.includes(cookieVal)) {
+      candidateTokens.push(cookieVal)
+    }
+  } catch {
+    // Contextos fuera de Next.js request store (ej. pruebas automatizadas) usan headers directamente
+  }
+
+  const cookieHeader = req.headers.get('cookie') || req.headers.get('Cookie') || ''
+  const cookieMatch = cookieHeader.match(/(?:^|;\s*)teg_token=([^;]+)/)
+  if (cookieMatch?.[1]) {
+    const headerCookieVal = decodeURIComponent(cookieMatch[1].trim())
+    if (headerCookieVal && !candidateTokens.includes(headerCookieVal)) {
+      candidateTokens.push(headerCookieVal)
+    }
+  }
+
+  if (candidateTokens.length === 0) {
+    return {
+      authorized: false,
+      status: 401,
+      code: 'MISSING_AUTH_TOKEN',
+      error: 'No autenticado: Se requiere sesión activa (token de autenticación no proporcionado).',
+    }
+  }
+
+  let verifiedPayload: any = null
+  let hadExpiredToken = false
+  for (const candidate of candidateTokens) {
+    try {
+      const decoded = jwt.verify(candidate, secret, {
+        algorithms: ['HS256'],
+        ignoreExpiration: false,
+      }) as any
+      const uid = decoded?.sub ?? decoded?.id
+      if (decoded && uid && decoded.email) {
+        verifiedPayload = decoded
+        break
+      }
+    } catch (err: any) {
+      if (err?.name === 'TokenExpiredError') {
+        hadExpiredToken = true
+      }
+    }
+  }
+
+  if (!verifiedPayload) {
+    return {
+      authorized: false,
+      status: 401,
+      code: 'INVALID_OR_EXPIRED_TOKEN',
+      error: hadExpiredToken
+        ? 'No autenticado: Tu sesión ha expirado. Por favor inicia sesión nuevamente.'
+        : 'No autenticado: Token de sesión inválido.',
+    }
+  }
+
+  const tokenRole = String(
+    verifiedPayload.user_role ||
+      verifiedPayload.user_metadata?.role ||
+      (verifiedPayload.role !== 'authenticated' ? verifiedPayload.role : '') ||
+      ''
+  )
+    .trim()
+    .toLowerCase()
+
+  if (verifiedPayload.user_type === 'employee' || tokenRole === 'employee') {
+    return {
+      authorized: false,
+      status: 403,
+      code: 'ROLE_FORBIDDEN',
+      error: 'Acceso denegado: Las cuentas de empleado no tienen acceso al módulo de conciliación financiera.',
+    }
+  }
+
+  // Verificación obligatoria en tiempo real contra public.users en Supabase
+  const rawUserId = String(verifiedPayload.sub ?? verifiedPayload.id ?? '').trim()
+  const rawEmail = String(verifiedPayload.email || '').trim().toLowerCase()
+  let dbUser: any = null
+
+  if (supabaseClient) {
+    const numericId = Number(rawUserId)
+    if (Number.isFinite(numericId) && numericId > 0) {
+      const { data } = await supabaseClient
+        .from('users')
+        .select('id, email, full_name, role, store_id, store_scope, is_active')
+        .eq('id', numericId)
+        .maybeSingle()
+      dbUser = data
+    }
+    if (!dbUser && rawEmail) {
+      const { data } = await supabaseClient
+        .from('users')
+        .select('id, email, full_name, role, store_id, store_scope, is_active')
+        .ilike('email', rawEmail)
+        .maybeSingle()
+      dbUser = data
+    }
+  }
+
+  if (!dbUser) {
+    return {
+      authorized: false,
+      status: 401,
+      code: 'USER_NOT_FOUND',
+      error: 'No autenticado: Usuario no registrado en el padrón administrativo de Tacos Gavilan.',
+    }
+  }
+
+  if (dbUser.is_active === false) {
+    return {
+      authorized: false,
+      status: 403,
+      code: 'USER_INACTIVE',
+      error: 'Acceso denegado: Usuario inactivo en el padrón administrativo de Tacos Gavilan.',
+    }
+  }
+
+  const authoritativeRole = String(dbUser.role || tokenRole || '')
+    .trim()
+    .toLowerCase()
+  const allowedRoles = DELIVERY_RECONCILIATION_ROLE_MATRIX[options.permission] || []
+
+  if (!allowedRoles.includes(authoritativeRole)) {
+    return {
+      authorized: false,
+      status: 403,
+      code: 'ROLE_FORBIDDEN',
+      error: `Acceso denegado: Tu rol ('${authoritativeRole}') no tiene permiso para ejecutar la operación '${options.permission}'.`,
+    }
+  }
+
+  const rawDbStoreId = dbUser.store_id !== null && dbUser.store_id !== undefined ? Number(dbUser.store_id) : null
+  const assignedStoreId = Number.isFinite(rawDbStoreId) && rawDbStoreId! > 0 ? rawDbStoreId : null
+  const storeScopeStr = dbUser.store_scope ? String(dbUser.store_scope).trim().toLowerCase() : null
+
+  const isGlobalScope =
+    GLOBAL_DELIVERY_ROLES.has(authoritativeRole) ||
+    (authoritativeRole === 'general_manager' && (!assignedStoreId || storeScopeStr === 'all'))
+
+  if (!isGlobalScope) {
+    if (!assignedStoreId) {
+      return {
+        authorized: false,
+        status: 403,
+        code: 'STORE_FORBIDDEN',
+        error: 'Acceso denegado: Tu cuenta no tiene una sucursal asignada para operar.',
+      }
+    }
+
+    if (options.requireAllStores) {
+      return {
+        authorized: false,
+        status: 403,
+        code: 'STORE_FORBIDDEN',
+        error: `Acceso denegado: Tu rol ('${authoritativeRole}') está restringido a la sucursal #${assignedStoreId} y no puede operar sobre todas las sucursales.`,
+      }
+    }
+
+    if (Array.isArray(options.targetStoreIds) && options.targetStoreIds.length > 0) {
+      const unauthorizedStore = options.targetStoreIds.find((sid) => Number(sid) !== assignedStoreId)
+      if (unauthorizedStore !== undefined) {
+        return {
+          authorized: false,
+          status: 403,
+          code: 'STORE_FORBIDDEN',
+          error: `Acceso denegado: No tienes autorización para operar sobre la sucursal #${unauthorizedStore} (tu sucursal asignada es #${assignedStoreId}).`,
+        }
+      }
+    }
+  }
+
+  return {
+    authorized: true,
+    status: 200,
+    code: 'AUTHORIZED',
+    isCron: false,
+    isGlobalScope,
+    user: {
+      id: String(dbUser.id),
+      email: String(dbUser.email || rawEmail),
+      name: String(dbUser.full_name || dbUser.email || rawEmail),
+      role: authoritativeRole,
+      storeId: assignedStoreId,
+      store_id: assignedStoreId,
+      storeScope: storeScopeStr,
+      canAccessAllStores: isGlobalScope,
+    },
+  }
+}
