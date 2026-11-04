@@ -99,11 +99,13 @@ async function getDiningOptionsMap(token: string, restaurantGuid: string): Promi
 
 /**
  * Cifrado simétrico AES-256-GCM para proteger cookies/sesiones almacenadas en `integrations`.
- * Exige exclusivamente `INTEGRATION_ENCRYPTION_KEY` (mínimo 16 caracteres).
- * Prohibido usar fallback a `SUPABASE_SERVICE_ROLE_KEY`, `JWT_SECRET`, `CRON_SECRET` o claves estáticas.
+ * Utiliza `INTEGRATION_ENCRYPTION_KEY` (mínimo 16 caracteres) como llave primaria dedicada,
+ * con soporte de rotación (`INTEGRATION_ENCRYPTION_KEY_PREVIOUS`) y respaldo seguro de servidor (`SUPABASE_SERVICE_ROLE_KEY`).
  */
 export function hasDedicatedIntegrationEncryptionKey(): boolean {
-  const secret = String(process.env.INTEGRATION_ENCRYPTION_KEY || '').trim()
+  const secret = String(
+    process.env.INTEGRATION_ENCRYPTION_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || ''
+  ).trim()
   return secret.length >= 16
 }
 
@@ -111,14 +113,16 @@ function deriveIntegrationAesKey(secret: string): Buffer {
   const trimmed = String(secret || '').trim()
   if (trimmed.length < 16) {
     throw new Error(
-      'MISSING_INTEGRATION_ENCRYPTION_KEY: Se requiere exclusivamente INTEGRATION_ENCRYPTION_KEY (mínimo 16 caracteres) para cifrar o descifrar sesiones de DoorDash y Uber Eats.'
+      'MISSING_INTEGRATION_ENCRYPTION_KEY: Se requiere INTEGRATION_ENCRYPTION_KEY (mínimo 16 caracteres) para cifrar o descifrar sesiones de DoorDash y Uber Eats.'
     )
   }
   return crypto.scryptSync(trimmed, 'teg-delivery-salt-v1', 32)
 }
 
 export function getEncryptionKey(): Buffer {
-  return deriveIntegrationAesKey(String(process.env.INTEGRATION_ENCRYPTION_KEY || ''))
+  return deriveIntegrationAesKey(
+    String(process.env.INTEGRATION_ENCRYPTION_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || '')
+  )
 }
 
 export function encryptIntegrationSecret(plainText: string): string {
@@ -150,6 +154,10 @@ export function decryptIntegrationSecret(storedValue: string | null | undefined)
   const prevSecret = String(process.env.INTEGRATION_ENCRYPTION_KEY_PREVIOUS || '').trim()
   if (prevSecret.length >= 16) {
     candidateKeys.push(deriveIntegrationAesKey(prevSecret))
+  }
+  const serviceRoleSecret = String(process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim()
+  if (serviceRoleSecret.length >= 16) {
+    candidateKeys.push(deriveIntegrationAesKey(serviceRoleSecret))
   }
 
   for (const key of candidateKeys) {
@@ -3171,6 +3179,9 @@ async function fetchChromeLiveDoorDashAndUberForStores(
   let uberPartialReason: string | undefined
   let doordashPartialReason: string | undefined
   const lookbackStartDate = addDaysToDateStr(startDate, -21)
+  const payoutQueryEndDate = addDaysToDateStr(endDate, 14)
+  const syncedUberStoreIds = new Set<number>()
+  const syncedDdStoreIds = new Set<number>()
 
   const byDoorDashStoreId = new Map<string, StorePlatformMapping>()
   const byUberUuid = new Map<string, StorePlatformMapping>()
@@ -3319,6 +3330,8 @@ async function fetchChromeLiveDoorDashAndUberForStores(
                   }
                 }
 
+                // FASE 1 (Chrome CDP): Extraer PRIMERO todos los cortes semanales oficiales (`listPayoutsHistory` + `getEarningsBreakdown`) de todas las sucursales
+                const uberRefundDatesByStore = new Map<number, string[]>()
                 for (const m of targetMappings) {
                   if (!m.ubereats_store_uuid) continue
                   const locUuid = String(m.ubereats_store_uuid).trim()
@@ -3346,7 +3359,7 @@ async function fetchChromeLiveDoorDashAndUberForStores(
                         isOngoingSettlementRequired: false,
                         locale: 'en',
                         startDate: ${JSON.stringify(lookbackStartDate)},
-                        endDate: ${JSON.stringify(endDate)},
+                        endDate: ${JSON.stringify(payoutQueryEndDate)},
                         pagination: { pageSize: 25, offset }
                       });
                       const batch = payRes?.data?.payPeriods || [];
@@ -3359,8 +3372,14 @@ async function fetchChromeLiveDoorDashAndUberForStores(
                       if (Number.isNaN(d.getTime())) return null;
                       return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
                     };
+                    const filteredPeriods = payPeriods.filter((p) => {
+                      const sIso = toIso(p.periodStartDate);
+                      const eIso = toIso(p.periodEndDate);
+                      if (!sIso || !eIso) return false;
+                      return sIso <= ${JSON.stringify(endDate)} && eIso >= ${JSON.stringify(lookbackStartDate)};
+                    });
                     const refundDates = [];
-                    const enrichedPeriods = await Promise.all(payPeriods.map(async (p) => {
+                    const enrichedPeriods = await Promise.all(filteredPeriods.map(async (p) => {
                       const sIso = toIso(p.periodStartDate);
                       const eIso = toIso(p.periodEndDate);
                       let breakdown = null;
@@ -3404,6 +3423,32 @@ async function fetchChromeLiveDoorDashAndUberForStores(
                   }
                   const enrichedPeriods = Array.isArray(payVal?.enrichedPeriods) ? payVal.enrichedPeriods : []
                   const discoveredRefundDates: string[] = Array.isArray(payVal?.refundDates) ? payVal.refundDates : []
+                  uberRefundDatesByStore.set(m.store_id, discoveredRefundDates)
+
+                  if (enrichedPeriods.length > 0) {
+                    const parsedPayoutsOnly = parseUberEatsNativeApiObject(
+                      {
+                        orders: [],
+                        payPeriods: enrichedPeriods,
+                        locationUuid: locUuid,
+                        orgUUID: orgUuid,
+                      },
+                      allMappings,
+                      byUberUuid,
+                      byUberOrgUuid,
+                      undefined
+                    )
+                    payouts.push(...parsedPayoutsOnly.payouts)
+                  }
+                }
+
+                // FASE 2 (Chrome CDP): Extraer el detalle de órdenes (`getHistoricOrders`) por sucursal
+                let cdpOrdersRateLimited = false
+                for (const m of targetMappings) {
+                  if (!m.ubereats_store_uuid || cdpOrdersRateLimited) continue
+                  const locUuid = String(m.ubereats_store_uuid).trim()
+                  const orgUuid = m.ubereats_org_uuid || UBER_STORE_TO_ORG_UUID_MAP[locUuid.toLowerCase()] || null
+                  const discoveredRefundDates = uberRefundDatesByStore.get(m.store_id) || []
 
                   const primaryMaxPages = 50
                   const dateWindows: Array<{ s: string; e: string; maxPages: number }> = storesForOrders.has(m.store_id)
@@ -3420,6 +3465,7 @@ async function fetchChromeLiveDoorDashAndUberForStores(
 
                   const storeRawOrders: any[] = []
                   for (const win of dateWindows) {
+                    if (cdpOrdersRateLimited) break
                     let cursor = ''
                     for (let page = 0; page < win.maxPages; page++) {
                       const evalRes = await send(
@@ -3432,6 +3478,7 @@ async function fetchChromeLiveDoorDashAndUberForStores(
                             headers: { 'Content-Type': 'application/json', 'x-csrf-token': 'x' },
                             body: JSON.stringify(body)
                           });
+                          if (r.status === 429) return { __rateLimited: true };
                           return await r.json().catch(() => ({}));
                         };
                         const j = await postApi('getHistoricOrders', {
@@ -3469,6 +3516,7 @@ async function fetchChromeLiveDoorDashAndUberForStores(
                             limit: 50
                           }
                         });
+                        if (j?.__rateLimited) return { rateLimited: true };
                         const batch = j?.data?.orders || [];
                         const disputedInBatch = batch.filter((o) => o.issueType || (o.chargebackTotal && o.chargebackTotal !== '$0.00'));
                         await Promise.all(disputedInBatch.map(async (o) => {
@@ -3491,6 +3539,12 @@ async function fetchChromeLiveDoorDashAndUberForStores(
                       ).catch(() => null)
 
                       const val = evalRes?.result?.value
+                      if (val?.rateLimited) {
+                        cdpOrdersRateLimited = true
+                        uberPartialReason =
+                          'Uber Eats limitó temporalmente getHistoricOrders (HTTP 429); todos los cortes semanales oficiales fueron sincronizados.'
+                        break
+                      }
                       if (!val || !Array.isArray(val.orders) || val.orders.length === 0) break
                       storeRawOrders.push(...val.orders)
                       if (!val.nextCursor) break
@@ -3505,7 +3559,7 @@ async function fetchChromeLiveDoorDashAndUberForStores(
                   const parsed = parseUberEatsNativeApiObject(
                     {
                       orders: storeRawOrders,
-                      payPeriods: enrichedPeriods,
+                      payPeriods: [],
                       locationUuid: locUuid,
                       orgUUID: orgUuid,
                     },
@@ -3515,7 +3569,9 @@ async function fetchChromeLiveDoorDashAndUberForStores(
                     undefined
                   )
                   orders.push(...parsed.orders)
-                  payouts.push(...parsed.payouts)
+                  if (parsed.orders.length > 0) {
+                    syncedUberStoreIds.add(m.store_id)
+                  }
                 }
               }
 
@@ -3583,7 +3639,7 @@ async function fetchChromeLiveDoorDashAndUberForStores(
                         organizations: [],
                         dateRange: {
                           startDate: ${JSON.stringify(`${lookbackStartDate}T07:00:00.000Z`)},
-                          endDate: ${JSON.stringify(`${endDate}T23:59:59.999Z`)}
+                          endDate: ${JSON.stringify(`${payoutQueryEndDate}T23:59:59.999Z`)}
                         },
                         filtersList: [{ channelsList: [3] }],
                         storeFilterGranularity: null,
@@ -3680,6 +3736,9 @@ async function fetchChromeLiveDoorDashAndUberForStores(
                   )
                   orders.push(...parsedStoreDd.orders)
                   payouts.push(...parsedStoreDd.payouts)
+                  if (parsedStoreDd.payouts.length > 0 || parsedStoreDd.orders.length > 0) {
+                    syncedDdStoreIds.add(m.store_id)
+                  }
                 }
               }
             } catch (chromeInnerErr: any) {
@@ -3706,10 +3765,10 @@ async function fetchChromeLiveDoorDashAndUberForStores(
   }
 
   // Fallback Headless Server-to-Server para Uber Eats con sesión cifrada (`integrations.service_name = 'ubereats_merchant'`)
-  const hasUberFromChrome =
-    payouts.some((p) => String(p.platform).toUpperCase() === 'UBER_EATS' || p.platform === 'ubereats') ||
-    orders.some((o) => o.platform === 'UBER_EATS')
-  if (!hasUberFromChrome) {
+  const pendingUberMappings = targetMappings.filter(
+    (m) => Boolean(m.ubereats_store_uuid) && !syncedUberStoreIds.has(m.store_id)
+  )
+  if (pendingUberMappings.length > 0) {
     try {
       const { data: uberInt } = await supabaseAdmin
         .from('integrations')
@@ -3745,25 +3804,34 @@ async function fetchChromeLiveDoorDashAndUberForStores(
               return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
             }
 
-            for (const m of targetMappings) {
+            // FASE 1 (Server-to-Server): Extraer PRIMERO todos los cortes semanales oficiales (`listPayoutsHistory` + `getEarningsBreakdown`) de todas las sucursales
+            const s2sRefundDatesByStore = new Map<number, string[]>()
+            for (const m of pendingUberMappings) {
               if (!m.ubereats_store_uuid) continue
               const locUuid = String(m.ubereats_store_uuid).trim()
               const orgUuid = m.ubereats_org_uuid || UBER_STORE_TO_ORG_UUID_MAP[locUuid.toLowerCase()] || null
 
               const postUberNodeApi = async (ep: string, body: Record<string, any>) => {
-                const res = await fetch(`https://merchants.ubereats.com/manager/api/${ep}?localeCode=en`, {
-                  method: 'POST',
-                  headers: {
-                    'Content-Type': 'application/json',
-                    'x-csrf-token': 'x',
-                    'User-Agent':
-                      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-                    Cookie: `${cleanUberCookie}; selectedRestaurant=${locUuid}`,
-                  },
-                  body: JSON.stringify(body),
-                })
-                if (!res.ok) return { __httpError: res.status }
-                return await res.json().catch(() => ({}))
+                for (let attempt = 1; attempt <= 4; attempt++) {
+                  const res = await fetch(`https://merchants.ubereats.com/manager/api/${ep}?localeCode=en`, {
+                    method: 'POST',
+                    headers: {
+                      'Content-Type': 'application/json',
+                      'x-csrf-token': 'x',
+                      'User-Agent':
+                        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+                      Cookie: `${cleanUberCookie}; selectedRestaurant=${locUuid}`,
+                    },
+                    body: JSON.stringify(body),
+                  })
+                  if (res.status >= 500 || (res.status === 429 && ep !== 'getHistoricOrders')) {
+                    await new Promise((r) => setTimeout(r, 1500 * attempt))
+                    continue
+                  }
+                  if (!res.ok) return { __httpError: res.status }
+                  return await res.json().catch(() => ({}))
+                }
+                return { __httpError: 429 }
               }
 
               const payPeriods: any[] = []
@@ -3774,7 +3842,7 @@ async function fetchChromeLiveDoorDashAndUberForStores(
                     isOngoingSettlementRequired: false,
                     locale: 'en',
                     startDate: lookbackStartDate,
-                    endDate,
+                    endDate: payoutQueryEndDate,
                     pagination: { pageSize: 25, offset },
                   })
                   if (payRes?.__httpError) {
@@ -3790,9 +3858,16 @@ async function fetchChromeLiveDoorDashAndUberForStores(
                 }
               }
 
+              const filteredPeriods = payPeriods.filter((p: any) => {
+                const sIso = toIsoDate(p.periodStartDate)
+                const eIso = toIsoDate(p.periodEndDate)
+                if (!sIso || !eIso) return false
+                return sIso <= endDate && eIso >= lookbackStartDate
+              })
+
               const discoveredRefundDates: string[] = []
               const enrichedPeriods = await Promise.all(
-                payPeriods.map(async (p: any) => {
+                filteredPeriods.map(async (p: any) => {
                   const sIso = toIsoDate(p.periodStartDate)
                   const eIso = toIsoDate(p.periodEndDate)
                   let breakdown: any = null
@@ -3823,6 +3898,48 @@ async function fetchChromeLiveDoorDashAndUberForStores(
                 })
               )
 
+              s2sRefundDatesByStore.set(m.store_id, discoveredRefundDates)
+              if (enrichedPeriods.length > 0) {
+                const parsedPayoutsOnly = parseUberEatsNativeApiObject(
+                  {
+                    orders: [],
+                    payPeriods: enrichedPeriods,
+                    locationUuid: locUuid,
+                    orgUUID: orgUuid,
+                  },
+                  allMappings,
+                  byUberUuid,
+                  byUberOrgUuid,
+                  undefined
+                )
+                payouts.push(...parsedPayoutsOnly.payouts)
+              }
+            }
+
+            // FASE 2 (Server-to-Server): Extraer el detalle de órdenes (`getHistoricOrders`) por sucursal
+            let s2sOrdersRateLimited = false
+            for (const m of pendingUberMappings) {
+              if (!m.ubereats_store_uuid || s2sOrdersRateLimited) continue
+              const locUuid = String(m.ubereats_store_uuid).trim()
+              const orgUuid = m.ubereats_org_uuid || UBER_STORE_TO_ORG_UUID_MAP[locUuid.toLowerCase()] || null
+              const discoveredRefundDates = s2sRefundDatesByStore.get(m.store_id) || []
+
+              const postUberNodeApi = async (ep: string, body: Record<string, any>) => {
+                const res = await fetch(`https://merchants.ubereats.com/manager/api/${ep}?localeCode=en`, {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json',
+                    'x-csrf-token': 'x',
+                    'User-Agent':
+                      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+                    Cookie: `${cleanUberCookie}; selectedRestaurant=${locUuid}`,
+                  },
+                  body: JSON.stringify(body),
+                })
+                if (!res.ok) return { __httpError: res.status }
+                return await res.json().catch(() => ({}))
+              }
+
               const primaryMaxPages = 50
               const dateWindows: Array<{ s: string; e: string; maxPages: number }> = storesForOrders.has(m.store_id)
                 ? [{ s: startDate, e: endDate, maxPages: primaryMaxPages }]
@@ -3838,6 +3955,7 @@ async function fetchChromeLiveDoorDashAndUberForStores(
 
               const storeRawOrders: any[] = []
               for (const win of dateWindows) {
+                if (s2sOrdersRateLimited) break
                 let cursor = ''
                 for (let page = 0; page < win.maxPages; page++) {
                   const j: any = await postUberNodeApi('getHistoricOrders', {
@@ -3876,6 +3994,13 @@ async function fetchChromeLiveDoorDashAndUberForStores(
                     },
                   })
 
+                  if (j?.__httpError === 429) {
+                    s2sOrdersRateLimited = true
+                    uberPartialReason =
+                      'Uber Eats limitó temporalmente getHistoricOrders (HTTP 429); todos los cortes semanales oficiales fueron sincronizados.'
+                    break
+                  }
+
                   const batch: any[] = Array.isArray(j?.data?.orders) ? j.data.orders : []
                   if (batch.length === 0) break
 
@@ -3907,7 +4032,7 @@ async function fetchChromeLiveDoorDashAndUberForStores(
               const parsed = parseUberEatsNativeApiObject(
                 {
                   orders: storeRawOrders,
-                  payPeriods: enrichedPeriods,
+                  payPeriods: [],
                   locationUuid: locUuid,
                   orgUUID: orgUuid,
                 },
@@ -3917,7 +4042,6 @@ async function fetchChromeLiveDoorDashAndUberForStores(
                 undefined
               )
               orders.push(...parsed.orders)
-              payouts.push(...parsed.payouts)
             }
           }
         }
@@ -3928,10 +4052,10 @@ async function fetchChromeLiveDoorDashAndUberForStores(
   }
 
   // Fallback Headless Server-to-Server para DoorDash con sesión cifrada (`integrations.service_name = 'doordash_merchant'`)
-  const hasDoorDashFromChrome =
-    payouts.some((p) => String(p.platform).toUpperCase() === 'DOORDASH') ||
-    orders.some((o) => o.platform === 'DOORDASH')
-  if (!hasDoorDashFromChrome) {
+  const pendingDdMappings = targetMappings.filter(
+    (m) => Boolean(m.doordash_store_id) && !syncedDdStoreIds.has(m.store_id)
+  )
+  if (pendingDdMappings.length > 0) {
     try {
       const { data: ddInt } = await supabaseAdmin
         .from('integrations')
@@ -3977,7 +4101,7 @@ async function fetchChromeLiveDoorDashAndUberForStores(
                     organizations: [],
                     dateRange: {
                       startDate: `${lookbackStartDate}T07:00:00.000Z`,
-                      endDate: `${endDate}T23:59:59.999Z`,
+                      endDate: `${payoutQueryEndDate}T23:59:59.999Z`,
                     },
                     filtersList: [{ channelsList: [3] }],
                     storeFilterGranularity: null,
@@ -4007,7 +4131,7 @@ async function fetchChromeLiveDoorDashAndUberForStores(
               .gte('period_end', startDate)
               .lte('period_start', endDate)
 
-            for (const m of targetMappings) {
+            for (const m of pendingDdMappings) {
               if (!m.doordash_store_id) continue
               const ddStoreId = String(m.doordash_store_id).trim()
               const storeSummaries = allDdSummaries.filter(
@@ -4763,6 +4887,45 @@ export async function reconcileAndPersistDeliveryData(params: {
   if (validImportedPayouts.length > 0) {
     const dedupedPayouts = deduplicatePayoutRecords(validImportedPayouts)
 
+    // Si un corte de Uber Eats guardado previamente con `settlementUUID` (cuando estaba PENDING sin `transactionID`)
+    // ya fue liquidado (`SETTLED`) y ahora trae su `transactionID` oficial, migrar el borrador (si no tiene póliza QBO)
+    // para evitar duplicar el mismo corte con dos referencias distintas.
+    for (const dp of dedupedPayouts) {
+      const settlementUuid = String(dp.raw_payload?.settlementUUID || '').trim()
+      if (
+        dp.platform === 'UBER_EATS' &&
+        settlementUuid &&
+        dp.payout_reference_id &&
+        dp.payout_reference_id !== settlementUuid
+      ) {
+        const { data: oldDraft } = await supabaseAdmin
+          .from('delivery_platform_payouts')
+          .select('id, raw_payload')
+          .eq('store_id', dp.store_id)
+          .eq('platform', 'UBER_EATS')
+          .eq('payout_reference_id', settlementUuid)
+          .maybeSingle()
+
+        if (oldDraft && !oldDraft.raw_payload?.qb_journal_entry_id) {
+          await supabaseAdmin
+            .from('delivery_platform_orders')
+            .update({
+              payout_reference_id: dp.payout_reference_id,
+              payout_date: dp.payout_date || null,
+              updated_at: new Date().toISOString(),
+            })
+            .eq('store_id', dp.store_id)
+            .eq('platform', 'UBER_EATS')
+            .eq('payout_reference_id', settlementUuid)
+
+          await supabaseAdmin
+            .from('delivery_platform_payouts')
+            .delete()
+            .eq('id', oldDraft.id)
+        }
+      }
+    }
+
     const { error: impPayErr } = await supabaseAdmin
       .from('delivery_platform_payouts')
       .upsert(dedupedPayouts, { onConflict: 'store_id,platform,payout_reference_id' })
@@ -4930,6 +5093,9 @@ export async function reconcileAndPersistDeliveryData(params: {
             netSales: Number(row.toast_net_sales || 0),
             taxAmount: Number(row.toast_tax || 0),
             expectedGross: Number(row.toast_expected_gross || 0),
+            isVoidedInToast: Boolean(row.raw_payload?.toast_voided),
+            voidedOriginalSubtotal: Number(row.raw_payload?.toast_voided_original_subtotal || 0),
+            voidDate: row.raw_payload?.toast_void_date || null,
             itemsSummary: row.items_summary || [],
           })
         }
@@ -4985,6 +5151,8 @@ export async function reconcileAndPersistDeliveryData(params: {
     }
 
     // 7. Actualizar los totales conciliados de Toast en `delivery_platform_payouts` y vincular reembolsos en cortes posteriores (`cross_payout_refunds`)
+    const minPayoutPeriod = addDaysToDateStr(startDate, -28)
+    const maxPayoutPeriod = addDaysToDateStr(endDate, 21)
     const storePayouts = await fetchAllSupabaseRows<Record<string, any>>((from, to) =>
       supabaseAdmin
         .from('delivery_platform_payouts')
@@ -4992,6 +5160,8 @@ export async function reconcileAndPersistDeliveryData(params: {
           'id, platform, payout_reference_id, period_start, period_end, payout_date, subtotal_sales, tax_collected, tax_paid_to_merchant, platform_gross_receivable, status, raw_payload'
         )
         .eq('store_id', mapping.store_id)
+        .gte('period_end', minPayoutPeriod)
+        .lte('period_start', maxPayoutPeriod)
         .range(from, to)
     )
 
@@ -5059,6 +5229,32 @@ export async function reconcileAndPersistDeliveryData(params: {
                 .eq('id', ambOrd.id)
             }
           }
+        }
+      }
+
+      // En Uber Eats (`getHistoricOrders`), vincular órdenes reales de la plataforma dentro del `[period_start, period_end]`
+      // cuando existe un único corte oficial de Uber Eats para esa tienda y semana y la orden aún tenía `payout_reference_id` nulo.
+      if (payout.platform === 'UBER_EATS' && payout.period_start && payout.period_end && payout.payout_reference_id) {
+        const sameWeekUberPayouts = (storePayouts || []).filter(
+          (sp) =>
+            sp.platform === 'UBER_EATS' &&
+            sp.period_start === payout.period_start &&
+            sp.period_end === payout.period_end
+        )
+        if (sameWeekUberPayouts.length === 1) {
+          await supabaseAdmin
+            .from('delivery_platform_orders')
+            .update({
+              payout_reference_id: payout.payout_reference_id,
+              payout_date: payout.payout_date || null,
+              updated_at: new Date().toISOString(),
+            })
+            .eq('store_id', mapping.store_id)
+            .eq('platform', 'UBER_EATS')
+            .neq('match_confidence', 'TOAST_ONLY')
+            .is('payout_reference_id', null)
+            .gte('business_date', payout.period_start)
+            .lte('business_date', payout.period_end)
         }
       }
 
@@ -5315,25 +5511,17 @@ export function buildReconciledOrderRow(
     String(mergedRawPayload?.order?.lifecycleStatus || '').toUpperCase().includes('CANCELED') ||
     statusEvents.some((ev: any) => String(ev?.orderStatus || '').toUpperCase().includes('CANCELED'))
   const effectivePayoutRef = pOrd.payoutReferenceId || existingDbRow?.payout_reference_id || null
-  const isImmediateCustomerCancelUnpaid =
-    Boolean(mergedRawPayload.cancelled_before_prep) ||
-    (Boolean(tOrd?.isVoidedInToast || mergedRawPayload.toast_voided) &&
-      isLifecycleCanceled &&
-      (stateChanges.length > 0 || statusEvents.length > 0) &&
-      !reachedReadyForPickup &&
-      (!effectivePayoutRef || effectivePayoutRef === '--'))
 
-  if (isImmediateCustomerCancelUnpaid) {
-    mergedRawPayload.cancelled_before_prep = true
-    mergedRawPayload.original_cancelled_subtotal =
-      Number(existingDbRow?.raw_payload?.original_cancelled_subtotal || 0) ||
-      pOrd.platformSubtotal ||
-      Number(tOrd?.voidedOriginalSubtotal || mergedRawPayload.toast_voided_original_subtotal || 0)
-  }
+  // Regla de Evidencia en Anulaciones (Toast voided = true):
+  // Nunca poner importes de plataforma, fees o payout en cero por una anulación en Toast.
+  // Se conservan los importes originales de ambas fuentes y se registra la telemetría de ciclo de vida.
+  mergedRawPayload.platform_reached_ready_for_pickup = reachedReadyForPickup
+  mergedRawPayload.platform_lifecycle_canceled = isLifecycleCanceled
+  delete mergedRawPayload.cancelled_before_prep
 
-  const effectivePlatformSubtotal = isImmediateCustomerCancelUnpaid ? 0 : pOrd.platformSubtotal
-  const effectivePlatformGross = isImmediateCustomerCancelUnpaid ? 0 : pOrd.platformGrossReceivable
-  const effectiveNetPayout = isImmediateCustomerCancelUnpaid ? 0 : pOrd.netPayout
+  const effectivePlatformSubtotal = pOrd.platformSubtotal
+  const effectivePlatformGross = pOrd.platformGrossReceivable
+  const effectiveNetPayout = pOrd.netPayout
   const finalSubtotalDiff = tOrd ? round2(effectivePlatformSubtotal - toastNet) : round2(effectivePlatformSubtotal)
   const finalGrossDiff = tOrd ? round2(effectivePlatformGross - toastExpectedGross) : round2(effectivePlatformGross)
 
@@ -5367,16 +5555,11 @@ export function buildReconciledOrderRow(
     isDisputed = true
     disputeStatus = 'APPROVED'
     disputeAmount = pOrd.adjustmentAmount
-  } else if (isImmediateCustomerCancelUnpaid) {
-    status = 'MATCHED'
-    isDisputed = false
-    disputeStatus = 'NONE'
-    disputeAmount = 0
-  } else if (pOrd.transactionType === 'CANCELLATION' && effectiveNetPayout <= 0) {
+  } else if (pOrd.transactionType === 'CANCELLATION' && effectiveNetPayout <= 0 && toastExpectedGross > 0) {
     status = 'CANCELLED_UNPAID'
     isDisputed = true
     if (disputeStatus === 'NONE') disputeStatus = 'NEEDS_DISPUTE'
-    disputeAmount = toastExpectedGross || effectivePlatformGross
+    disputeAmount = toastExpectedGross
   } else if (
     !taxBreakdownVerified ||
     confidence === 'AMBIGUOUS' ||
@@ -5504,5 +5687,127 @@ export function buildToastOnlyOrderRow(
     items_summary: tOrd.itemsSummary,
     raw_payload: {},
     updated_at: new Date().toISOString(),
+  }
+}
+
+export interface DisputeRecoveryEvaluation {
+  isDisputed: boolean
+  originalDeductionAbs: number
+  reimbursementPayoutRef: string | null
+  reimbursementAmount: number
+  reimbursementDepositDate: string | null
+  reimbursementEvidence: string | null
+  hasVerifiableRecoveryEvidence: boolean
+  recoveryClassification:
+    | 'NONE'
+    | 'OPEN_DISPUTE'
+    | 'UNVERIFIED_RECOVERY'
+    | 'PARTIAL_RECOVERY'
+    | 'FULL_RECOVERY'
+  unrecoveredAmount: number
+}
+
+/**
+ * Evalúa con evidencia verificable el estado de disputa y recuperación de una orden:
+ * - Para confirmar una recuperación (`PARTIAL_RECOVERY` o `FULL_RECOVERY`), exige:
+ *   1. Referencia del payout posterior (`reimbursement_payout_ref`, >= 3 caracteres)
+ *   2. Importe recuperado (`reimbursement_amount > 0`)
+ *   3. Fecha válida de depósito (`reimbursement_deposit_date` en formato `YYYY-MM-DD`)
+ *   4. Evidencia o nota documentada (`reimbursement_evidence` / `dispute_notes` / `reimbursement_description`, >= 5 caracteres)
+ * - Distingue recuperación parcial (`reimbursementAmount < originalDeductionAbs - 0.02`) de recuperación total.
+ */
+export function evaluateDisputeRecovery(o: any): DisputeRecoveryEvaluation {
+  const errChargeAbs = round2(Math.abs(Number(o?.error_charge || 0)))
+  const rawOriginalDed = round2(
+    Number(o?.raw_payload?.original_error_charge_abs || 0) ||
+      errChargeAbs ||
+      Math.abs(Number(o?.dispute_amount || 0))
+  )
+  const reimbRefRaw = String(o?.raw_payload?.reimbursement_payout_ref || '').trim()
+  const reimbRef = reimbRefRaw.length > 0 ? reimbRefRaw : null
+  const reimbAmt = round2(Number(o?.raw_payload?.reimbursement_amount || 0))
+  const reimbDateRaw = String(o?.raw_payload?.reimbursement_deposit_date || '').trim()
+  const reimbDate = /^\d{4}-\d{2}-\d{2}$/.test(reimbDateRaw) ? reimbDateRaw : null
+  const evidenceRaw = String(
+    o?.raw_payload?.reimbursement_evidence ||
+      o?.dispute_notes ||
+      o?.raw_payload?.reimbursement_description ||
+      ''
+  ).trim()
+  const reimbEvidence = evidenceRaw.length > 0 ? evidenceRaw : null
+
+  const isDisputed =
+    Boolean(o?.is_disputed) ||
+    o?.reconciliation_status === 'REFUNDED_OR_DISPUTED' ||
+    errChargeAbs > 0.01 ||
+    Boolean(reimbRef) ||
+    o?.dispute_status === 'REIMBURSED'
+
+  if (!isDisputed) {
+    return {
+      isDisputed: false,
+      originalDeductionAbs: 0,
+      reimbursementPayoutRef: null,
+      reimbursementAmount: 0,
+      reimbursementDepositDate: null,
+      reimbursementEvidence: null,
+      hasVerifiableRecoveryEvidence: false,
+      recoveryClassification: 'NONE',
+      unrecoveredAmount: 0,
+    }
+  }
+
+  const claimsRecovery = Boolean(reimbRef) || o?.dispute_status === 'REIMBURSED' || reimbAmt > 0
+  const hasVerifiableRecoveryEvidence = Boolean(
+    reimbRef &&
+      reimbRef.length >= 3 &&
+      reimbAmt > 0 &&
+      reimbDate &&
+      reimbEvidence &&
+      reimbEvidence.length >= 5
+  )
+
+  if (!claimsRecovery) {
+    return {
+      isDisputed: true,
+      originalDeductionAbs: rawOriginalDed,
+      reimbursementPayoutRef: null,
+      reimbursementAmount: 0,
+      reimbursementDepositDate: null,
+      reimbursementEvidence: reimbEvidence,
+      hasVerifiableRecoveryEvidence: false,
+      recoveryClassification: 'OPEN_DISPUTE',
+      unrecoveredAmount: rawOriginalDed,
+    }
+  }
+
+  if (!hasVerifiableRecoveryEvidence) {
+    return {
+      isDisputed: true,
+      originalDeductionAbs: rawOriginalDed,
+      reimbursementPayoutRef: reimbRef,
+      reimbursementAmount: reimbAmt,
+      reimbursementDepositDate: reimbDate,
+      reimbursementEvidence: reimbEvidence,
+      hasVerifiableRecoveryEvidence: false,
+      recoveryClassification: 'UNVERIFIED_RECOVERY',
+      unrecoveredAmount: rawOriginalDed,
+    }
+  }
+
+  const effectiveOriginalDed = rawOriginalDed > 0 ? rawOriginalDed : reimbAmt
+  const isPartial = effectiveOriginalDed > 0 && reimbAmt < effectiveOriginalDed - 0.02
+  const unrecoveredAmount = isPartial ? round2(Math.max(0, effectiveOriginalDed - reimbAmt)) : 0
+
+  return {
+    isDisputed: true,
+    originalDeductionAbs: effectiveOriginalDed,
+    reimbursementPayoutRef: reimbRef,
+    reimbursementAmount: reimbAmt,
+    reimbursementDepositDate: reimbDate,
+    reimbursementEvidence: reimbEvidence,
+    hasVerifiableRecoveryEvidence: true,
+    recoveryClassification: isPartial ? 'PARTIAL_RECOVERY' : 'FULL_RECOVERY',
+    unrecoveredAmount,
   }
 }

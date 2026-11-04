@@ -29,6 +29,7 @@ import { authorizeDeliveryReconciliationRequest } from '@/lib/auth-server'
 import {
   DeliveryPlatformCode,
   buildStorePlatformCoverageMatrix,
+  evaluateDisputeRecovery,
   fetchAllSupabaseRows,
   getQuarantinedUnassignedRecords,
   getStorePlatformMappings,
@@ -98,7 +99,7 @@ export function hasValidPersistedOrderVarianceApproval(o: any): boolean {
   return Math.abs(grossVar - approvedAmt) <= 0.02
 }
 
-function classifyOrderActionGroupAndExplanation(o: any) {
+export function classifyOrderActionGroupAndExplanation(o: any) {
   const plat = (o.platform as DeliveryPlatformCode) || 'DOORDASH'
   const isUnassignedStore = !o.store_id || Number(o.store_id) <= 0 || o.store_code === 'UNASSIGNED_STORE'
   const isToastOnly = o.match_confidence === 'TOAST_ONLY' || o.reconciliation_status === 'MISSING_IN_PLATFORM'
@@ -299,36 +300,67 @@ function classifyOrderActionGroupAndExplanation(o: any) {
 
   // 2) Check Group 3: DISPUTE_RECOVERY
   if (isDisputeOrRecovery) {
-    const isRecovered = Boolean(reimbRef) || o.dispute_status === 'REIMBURSED'
+    const recEval = evaluateDisputeRecovery(o)
+    const isFullRecovery = recEval.recoveryClassification === 'FULL_RECOVERY'
+    const isPartialRecovery = recEval.recoveryClassification === 'PARTIAL_RECOVERY'
+    const isUnverifiedRecovery = recEval.recoveryClassification === 'UNVERIFIED_RECOVERY'
+    const isConfirmedRecovery = isFullRecovery || isPartialRecovery
+
+    let statusCode = 'DISPUTE_DEDUCTED'
+    let statusLabelEs = `Con Payout, en Disputa / Cargo por Error ($${errCharge.toFixed(2)})`
+    let statusLabelEn = `In Payout, Disputed / Error Charge ($${errCharge.toFixed(2)})`
+    let whatHappenedEs = `La plataforma descontó $${errCharge.toFixed(2)} por reembolso/error en la orden #${o.platform_order_id}.`
+    let whatHappenedEn = `Platform deducted $${errCharge.toFixed(2)} for refund/error on order #${o.platform_order_id}.`
+    let nextActionEs = 'Presentar disputa en el portal de la plataforma y registrar el corte de reembolso.'
+    let nextActionEn = 'Submit dispute in platform portal and record reimbursement payout reference.'
+
+    if (isFullRecovery) {
+      statusCode = 'DISPUTE_RECOVERED'
+      statusLabelEs = `Recuperación Total Confirmada (+$${recEval.reimbursementAmount.toFixed(2)})`
+      statusLabelEn = `Full Recovery Confirmed (+$${recEval.reimbursementAmount.toFixed(2)})`
+      whatHappenedEs = `Orden #${o.platform_order_id} sufrió deducción de -$${recEval.originalDeductionAbs.toFixed(2)} en corte #${o.payout_reference_id || 'N/A'} y fue recuperada en su totalidad (+$${recEval.reimbursementAmount.toFixed(2)}) en el corte posterior #${recEval.reimbursementPayoutRef}.`
+      whatHappenedEn = `Order #${o.platform_order_id} had a -$${recEval.originalDeductionAbs.toFixed(2)} deduction in payout #${o.payout_reference_id || 'N/A'} and was recovered in full (+$${recEval.reimbursementAmount.toFixed(2)}) in subsequent payout #${recEval.reimbursementPayoutRef}.`
+      nextActionEs = 'Evidencia completa verificada. Recuperación total conciliada.'
+      nextActionEn = 'Full lifecycle evidence verified. Full recovery reconciled.'
+    } else if (isPartialRecovery) {
+      statusCode = 'DISPUTE_PARTIALLY_RECOVERED'
+      statusLabelEs = `Recuperación Parcial (+$${recEval.reimbursementAmount.toFixed(2)} de -$${recEval.originalDeductionAbs.toFixed(2)} • Pendiente -$${recEval.unrecoveredAmount.toFixed(2)})`
+      statusLabelEn = `Partial Recovery (+$${recEval.reimbursementAmount.toFixed(2)} of -$${recEval.originalDeductionAbs.toFixed(2)} • Remaining -$${recEval.unrecoveredAmount.toFixed(2)})`
+      whatHappenedEs = `Orden #${o.platform_order_id} sufrió deducción de -$${recEval.originalDeductionAbs.toFixed(2)} en corte #${o.payout_reference_id || 'N/A'}; se recuperaron +$${recEval.reimbursementAmount.toFixed(2)} en el corte posterior #${recEval.reimbursementPayoutRef}, quedando -$${recEval.unrecoveredAmount.toFixed(2)} sin recuperar.`
+      whatHappenedEn = `Order #${o.platform_order_id} had a -$${recEval.originalDeductionAbs.toFixed(2)} deduction in payout #${o.payout_reference_id || 'N/A'}; +$${recEval.reimbursementAmount.toFixed(2)} was recovered in payout #${recEval.reimbursementPayoutRef}, leaving -$${recEval.unrecoveredAmount.toFixed(2)} unrecovered.`
+      nextActionEs = `Reclamar el saldo restante de -$${recEval.unrecoveredAmount.toFixed(2)} o documentar el cierre parcial de la disputa.`
+      nextActionEn = `Claim the remaining -$${recEval.unrecoveredAmount.toFixed(2)} balance or document partial dispute closure.`
+    } else if (isUnverifiedRecovery) {
+      statusCode = 'DISPUTE_RECOVERY_MISSING_EVIDENCE'
+      statusLabelEs = `Recuperación sin evidencia completa ($${errCharge.toFixed(2)})`
+      statusLabelEn = `Recovery missing complete evidence ($${errCharge.toFixed(2)})`
+      whatHappenedEs = `Se marcó intento de recuperación en la orden #${o.platform_order_id}, pero falta vínculo verificable al corte posterior, importe, fecha de depósito o evidencia documentada.`
+      whatHappenedEn = `Recovery attempt marked on order #${o.platform_order_id}, but missing verifiable link to subsequent payout, amount, deposit date, or documented evidence.`
+      nextActionEs = 'Completar referencia de corte posterior, importe recuperado, fecha YYYY-MM-DD y evidencia (mín. 5 caracteres).'
+      nextActionEn = 'Complete subsequent payout reference, recovered amount, YYYY-MM-DD date, and evidence (min 5 chars).'
+    }
+
     return {
       action_group: 'DISPUTE_RECOVERY' as ReconciliationActionGroup,
-      status_code: isRecovered ? 'DISPUTE_RECOVERED' : 'DISPUTE_DEDUCTED',
-      status_label_es: isRecovered
-        ? `Disputa Recuperada (+$${(reimbAmt || Math.abs(errCharge)).toFixed(2)})`
-        : `Con Payout, en Disputa / Cargo por Error ($${errCharge.toFixed(2)})`,
-      status_label_en: isRecovered
-        ? `Dispute Recovered (+$${(reimbAmt || Math.abs(errCharge)).toFixed(2)})`
-        : `In Payout, Disputed / Error Charge ($${errCharge.toFixed(2)})`,
-      what_happened_es: isRecovered
-        ? `Orden #${o.platform_order_id} sufrió deducción de $${errCharge.toFixed(2)} en corte #${o.payout_reference_id || 'N/A'} y fue recuperada (+$${(reimbAmt || Math.abs(errCharge)).toFixed(2)}) en el corte posterior #${reimbRef}.`
-        : `La plataforma descontó $${errCharge.toFixed(2)} por reembolso/error en la orden #${o.platform_order_id}.`,
-      what_happened_en: isRecovered
-        ? `Order #${o.platform_order_id} had a $${errCharge.toFixed(2)} deduction in payout #${o.payout_reference_id || 'N/A'} and was recovered (+$${(reimbAmt || Math.abs(errCharge)).toFixed(2)}) in subsequent payout #${reimbRef}.`
-        : `Platform deducted $${errCharge.toFixed(2)} for refund/error on order #${o.platform_order_id}.`,
+      status_code: statusCode,
+      recovery_classification: recEval.recoveryClassification,
+      original_deduction_abs: recEval.originalDeductionAbs,
+      recovered_amount: recEval.reimbursementAmount,
+      unrecovered_amount: recEval.unrecoveredAmount,
+      status_label_es: statusLabelEs,
+      status_label_en: statusLabelEn,
+      what_happened_es: whatHappenedEs,
+      what_happened_en: whatHappenedEn,
       cause_es: o.dispute_reason || 'Reembolso de cliente o ajuste de orden aplicado por la plataforma.',
       cause_en: o.dispute_reason || 'Customer refund or order adjustment applied by the platform.',
-      evidence_es: isRecovered
-        ? `Corte deducción: #${o.payout_reference_id || 'N/A'} → Corte recuperación: #${reimbRef} (${reimbDate || ''})`
+      evidence_es: isConfirmedRecovery
+        ? `Corte deducción: #${o.payout_reference_id || 'N/A'} (-$${recEval.originalDeductionAbs.toFixed(2)}) → Corte recuperación: #${recEval.reimbursementPayoutRef} (+$${recEval.reimbursementAmount.toFixed(2)} el ${recEval.reimbursementDepositDate || ''})`
         : `Corte: #${o.payout_reference_id || 'Sin corte'} | Estado disputa: ${o.dispute_status || 'OPEN'}`,
-      evidence_en: isRecovered
-        ? `Deduction payout: #${o.payout_reference_id || 'N/A'} → Recovery payout: #${reimbRef} (${reimbDate || ''})`
+      evidence_en: isConfirmedRecovery
+        ? `Deduction payout: #${o.payout_reference_id || 'N/A'} (-$${recEval.originalDeductionAbs.toFixed(2)}) → Recovery payout: #${recEval.reimbursementPayoutRef} (+$${recEval.reimbursementAmount.toFixed(2)} on ${recEval.reimbursementDepositDate || ''})`
         : `Payout: #${o.payout_reference_id || 'No payout'} | Dispute status: ${o.dispute_status || 'OPEN'}`,
-      next_action_es: isRecovered
-        ? 'Evidencia completa verificada. Lista para auditoría contable.'
-        : 'Presentar disputa en el portal de la plataforma y registrar el corte de reembolso.',
-      next_action_en: isRecovered
-        ? 'Full lifecycle evidence verified. Ready for accounting audit.'
-        : 'Submit dispute in platform portal and record reimbursement payout reference.',
+      next_action_es: nextActionEs,
+      next_action_en: nextActionEn,
       lifecycle_trace: lifecycleTrace,
     }
   }
@@ -371,52 +403,135 @@ function classifyOrderActionGroupAndExplanation(o: any) {
       const pNetVal = Number(o.net_payout || 0)
       const orderStatusRaw = String(o.raw_payload?.orderStatus || '').toUpperCase()
       const isDeliveryFailed = orderStatusRaw.includes('DELIVERY_FAILED')
+      const stateChanges: any[] = Array.isArray(o.raw_payload?.orderDetails?.orderStateChanges)
+        ? o.raw_payload.orderDetails.orderStateChanges
+        : []
+      const statusEvents: any[] = Array.isArray(o.raw_payload?.order?.statusHistory?.orderStatusEvents)
+        ? o.raw_payload.order.statusHistory.orderStatusEvents
+        : []
+      const reachedReady =
+        Boolean(o.raw_payload?.platform_reached_ready_for_pickup) ||
+        stateChanges.some((sc: any) => String(sc?.type || '').toUpperCase().includes('READY')) ||
+        statusEvents.some((ev: any) => String(ev?.orderStatus || '').toUpperCase().includes('READY_FOR_PICKUP'))
+      const isLifecycleCanceled =
+        Boolean(o.raw_payload?.platform_lifecycle_canceled) ||
+        orderStatusRaw.includes('CANCELED') ||
+        String(o.raw_payload?.order?.lifecycleStatus || '').toUpperCase().includes('CANCELED')
       const courierName = o.raw_payload?.courierName ? ` (${o.raw_payload.courierName})` : ''
+
+      if (!reachedReady && !isDeliveryFailed && isLifecycleCanceled) {
+        return {
+          action_group: 'VARIANCE_INVESTIGATE' as ReconciliationActionGroup,
+          status_code: 'VOIDED_CANCELED_PLATFORM_AMOUNT_INCONSISTENCY',
+          status_label_es: `Anulada en Toast ($0.00) y Cancelada en ${plat} • Payload reporta $${pGrossVal.toFixed(
+            2
+          )} (Neto $${pNetVal.toFixed(2)})`,
+          status_label_en: `Voided in Toast ($0.00) & Canceled in ${plat} • Payload reports $${pGrossVal.toFixed(
+            2
+          )} (Net $${pNetVal.toFixed(2)})`,
+          what_happened_es: `El Ticket #${o.toast_display_number || 'S/N'} (${
+            o.toast_tab_name || o.platform_order_id
+          }, orig. $${voidOrig.toFixed(
+            2
+          )}) fue anulado (VOID → $0.00) en Toast POS y ${plat} reporta estado CANCELED sin evento READY_FOR_PICKUP${
+            courierName ? `, aunque asignó repartidor${courierName}` : ''
+          }. Sin embargo, el payload de ${plat} conserva importes positivos ($${pGrossVal.toFixed(
+            2
+          )} venta / $${pNetVal.toFixed(2)} neto)${
+            hasPayoutRef ? ` en corte #${o.payout_reference_id}` : ' sin referencia de corte vinculada'
+          }.`,
+          what_happened_en: `Check #${o.toast_display_number || 'N/A'} (${
+            o.toast_tab_name || o.platform_order_id
+          }, orig. $${voidOrig.toFixed(
+            2
+          )}) was VOIDED ($0.00) in Toast POS and ${plat} reports CANCELED status without READY_FOR_PICKUP${
+            courierName ? `, although courier${courierName} was assigned` : ''
+          }. Yet ${plat} payload retains positive amounts ($${pGrossVal.toFixed(2)} gross / $${pNetVal.toFixed(
+            2
+          )} net)${hasPayoutRef ? ` in payout #${o.payout_reference_id}` : ' without a linked payout reference'}.`,
+          cause_es: `Regla de Evidencia: voided = true en Toast no demuestra por sí solo que la plataforma no pagó. Se conservan los importes originales de ${plat} para verificar contra el estado de cuenta oficial del corte.`,
+          cause_en: `Evidence Rule: voided = true in Toast does not by itself prove the platform did not pay. Original ${plat} amounts are preserved to verify against the official settlement statement.`,
+          evidence_es: `Toast Ticket #${o.toast_display_number || 'S/N'} (VOID orig. $${voidOrig.toFixed(
+            2
+          )} → $0.00) ↔ ${plat} #${o.platform_order_id} (Estado: CANCELED | Venta: $${pGrossVal.toFixed(
+            2
+          )} / Neto: $${pNetVal.toFixed(2)}) | Corte: #${o.payout_reference_id || 'Sin vínculo'}`,
+          evidence_en: `Toast Check #${o.toast_display_number || 'N/A'} (VOID orig. $${voidOrig.toFixed(
+            2
+          )} → $0.00) ↔ ${plat} #${o.platform_order_id} (Status: CANCELED | Gross: $${pGrossVal.toFixed(
+            2
+          )} / Net: $${pNetVal.toFixed(2)}) | Payout: #${o.payout_reference_id || 'Unlinked'}`,
+          next_action_es: `Verificar en el detalle del corte semanal de ${plat} si la orden #${o.platform_order_id} fue efectivamente pagada o excluida antes de resolver la diferencia.`,
+          next_action_en: `Verify in the ${plat} weekly settlement detail whether order #${o.platform_order_id} was actually paid or excluded before resolving the variance.`,
+          lifecycle_trace: lifecycleTrace,
+        }
+      }
+
       return {
         action_group: 'VARIANCE_INVESTIGATE' as ReconciliationActionGroup,
         status_code: 'PAID_BY_PLATFORM_VOIDED_IN_TOAST',
-        status_label_es: `Pagada por ${plat} (+$${pNetVal.toFixed(2)} neto) • Ticket #${
-          o.toast_display_number || 'S/N'
-        } anulado (VOID) en Toast`,
-        status_label_en: `Paid by ${plat} (+$${pNetVal.toFixed(2)} net) • Check #${
-          o.toast_display_number || 'N/A'
-        } VOIDED in Toast`,
+        status_label_es: `Preparada (${isDeliveryFailed ? 'Fallo entrega' : 'READY_FOR_PICKUP'}) • ${plat} reporta +$${pNetVal.toFixed(
+          2
+        )} neto vs VOID en Toast #${o.toast_display_number || 'S/N'}`,
+        status_label_en: `Prepared (${isDeliveryFailed ? 'Delivery failed' : 'READY_FOR_PICKUP'}) • ${plat} reports +$${pNetVal.toFixed(
+          2
+        )} net vs VOID in Toast #${o.toast_display_number || 'N/A'}`,
         what_happened_es: `El Ticket #${o.toast_display_number || 'S/N'} (${
           o.toast_tab_name || o.platform_order_id
-        }, orig. $${voidOrig.toFixed(2)}) SÍ existió en Toast POS y se cocinó, pero fue anulado (VOID → $0.00) cuando ${
+        }, orig. $${voidOrig.toFixed(
+          2
+        )}) ingresó a Toast POS y alcanzó preparación (READY_FOR_PICKUP), pero fue anulado (VOID → $0.00) cuando ${
           isDeliveryFailed
             ? `falló la entrega del repartidor${courierName}`
-            : 'el cliente canceló después de prepararse'
-        }. ${plat} SÍ pagó la orden a Tacos Gavilan ($${pGrossVal.toFixed(
-          2
-        )} venta / +$${pNetVal.toFixed(2)} neto).`,
+            : `se canceló después de prepararse${courierName}`
+        }. ${plat} reporta pago a Tacos Gavilan ($${pGrossVal.toFixed(2)} venta / +$${pNetVal.toFixed(2)} neto)${
+          hasPayoutRef
+            ? ` en el corte #${o.payout_reference_id}.`
+            : ' (pendiente de vincular payout_reference_id del corte semanal).'
+        }`,
         what_happened_en: `Check #${o.toast_display_number || 'N/A'} (${
           o.toast_tab_name || o.platform_order_id
-        }, orig. $${voidOrig.toFixed(2)}) DID enter Toast POS and was cooked, but was VOIDED ($0.00) when ${
+        }, orig. $${voidOrig.toFixed(
+          2
+        )}) entered Toast POS and reached READY_FOR_PICKUP, but was VOIDED ($0.00) when ${
           isDeliveryFailed
             ? `courier delivery failed${courierName}`
-            : 'customer canceled after preparation'
-        }. ${plat} PAID Tacos Gavilan in full ($${pGrossVal.toFixed(2)} gross / +$${pNetVal.toFixed(
-          2
-        )} net).`,
-        cause_es: `Al fallar la entrega o cancelarse tarde, la integración envía un VOID automático a Toast POS ($0.00), pero ${plat} protege y paga la comida ya preparada al restaurante.`,
-        cause_en: `Upon delivery failure or late cancellation, POS integration automatically VOIDS the Toast check ($0.00), while ${plat} protects and pays the restaurant for cooked food.`,
+            : `canceled after preparation${courierName}`
+        }. ${plat} reports payment to Tacos Gavilan ($${pGrossVal.toFixed(2)} gross / +$${pNetVal.toFixed(2)} net)${
+          hasPayoutRef
+            ? ` in payout #${o.payout_reference_id}.`
+            : ' (pending weekly settlement payout_reference_id link).'
+        }`,
+        cause_es: `Al fallar la entrega o cancelarse tras READY_FOR_PICKUP, la integración envía un VOID automático a Toast POS ($0.00), mientras ${plat} reconoce la comida preparada.`,
+        cause_en: `Upon delivery failure or cancellation after READY_FOR_PICKUP, POS integration VOIDS the Toast check ($0.00), while ${plat} recognizes the prepared food.`,
         evidence_es: `Toast Ticket #${o.toast_display_number || 'S/N'} (VOID orig. $${voidOrig.toFixed(
           2
-        )} → $0.00) ↔ ${plat} #${o.platform_order_id} (Pagado: $${pGrossVal.toFixed(
-          2
-        )} / Neto: +$${pNetVal.toFixed(2)}) | Corte: #${o.payout_reference_id || 'Pendiente'}`,
+        )} → $0.00) ↔ ${plat} #${o.platform_order_id} (${
+          isDeliveryFailed ? 'DELIVERY_FAILED' : 'READY_FOR_PICKUP → CANCELED'
+        } | Venta: $${pGrossVal.toFixed(2)} / Neto: +$${pNetVal.toFixed(2)}) | Corte: #${
+          o.payout_reference_id || 'Pendiente'
+        }`,
         evidence_en: `Toast Check #${o.toast_display_number || 'N/A'} (VOID orig. $${voidOrig.toFixed(
           2
-        )} → $0.00) ↔ ${plat} #${o.platform_order_id} (Paid: $${pGrossVal.toFixed(
-          2
-        )} / Net: +$${pNetVal.toFixed(2)}) | Payout: #${o.payout_reference_id || 'Pending'}`,
-        next_action_es: `Saldo a favor de Tacos Gavilan (+$${pNetVal.toFixed(
-          2
-        )}). Puedes aprobar la varianza para marcarla como revisada.`,
-        next_action_en: `Balance in favor of Tacos Gavilan (+$${pNetVal.toFixed(
-          2
-        )}). You may approve the variance to mark as reviewed.`,
+        )} → $0.00) ↔ ${plat} #${o.platform_order_id} (${
+          isDeliveryFailed ? 'DELIVERY_FAILED' : 'READY_FOR_PICKUP → CANCELED'
+        } | Gross: $${pGrossVal.toFixed(2)} / Net: +$${pNetVal.toFixed(2)}) | Payout: #${
+          o.payout_reference_id || 'Pending'
+        }`,
+        next_action_es: hasPayoutRef
+          ? `Pago verificado en corte #${o.payout_reference_id} (+$${pNetVal.toFixed(
+              2
+            )}). Puedes aprobar la varianza con evidencia.`
+          : `Confirmar la inclusión en el corte semanal de ${plat} (+$${pNetVal.toFixed(
+              2
+            )}) o aprobar la varianza tras validar el depósito.`,
+        next_action_en: hasPayoutRef
+          ? `Payment verified in payout #${o.payout_reference_id} (+$${pNetVal.toFixed(
+              2
+            )}). You may approve the variance with evidence.`
+          : `Confirm inclusion in ${plat} weekly settlement (+$${pNetVal.toFixed(
+              2
+            )}) or approve variance after verifying deposit.`,
         lifecycle_trace: lifecycleTrace,
       }
     }
@@ -451,45 +566,6 @@ function classifyOrderActionGroupAndExplanation(o: any) {
       evidence_en: `Toast #${o.toast_display_number || 'N/A'} vs ${plat} #${o.platform_order_id} | Payout: #${o.payout_reference_id || 'Pending'}`,
       next_action_es: 'Investigar diferencia de precio/impuesto o documentar aprobación de revisión.',
       next_action_en: 'Investigate price/tax variance or document review approval.',
-      lifecycle_trace: lifecycleTrace,
-    }
-  }
-
-  if (o.raw_payload?.cancelled_before_prep === true) {
-    const origSub = Number(
-      o.raw_payload?.original_cancelled_subtotal ||
-        o.raw_payload?.toast_voided_original_subtotal ||
-        0
-    )
-    return {
-      action_group: 'CONCILIATED_READY' as ReconciliationActionGroup,
-      status_code: 'CANCELLED_IMMEDIATELY_VOIDED_ZERO',
-      status_label_es: `Cancelada al instante por cliente (VOID en Toast #${
-        o.toast_display_number || 'S/N'
-      } — $0.00)`,
-      status_label_en: `Canceled immediately by customer (VOID in Toast #${
-        o.toast_display_number || 'N/A'
-      } — $0.00)`,
-      what_happened_es: `El cliente canceló la orden #${o.platform_order_id} (orig. $${origSub.toFixed(
-        2
-      )}) ~1 minuto después de pedirla, antes de cocinarse. Se anuló automáticamente en Toast POS (Ticket #${
-        o.toast_display_number || 'S/N'
-      }) sin cargo ni pago ($0.00).`,
-      what_happened_en: `Customer canceled order #${o.platform_order_id} (orig. $${origSub.toFixed(
-        2
-      )}) ~1 minute after placing it, before cooking. Automatically voided in Toast POS (Check #${
-        o.toast_display_number || 'N/A'
-      }) with zero charge/payout ($0.00).`,
-      cause_es: 'Cancelación inmediata del cliente antes de preparación (READY_FOR_PICKUP) con anulación (VOID) en Toast POS.',
-      cause_en: 'Immediate customer cancellation before preparation (READY_FOR_PICKUP) with automatic VOID in Toast POS.',
-      evidence_es: `Toast Ticket #${o.toast_display_number || 'S/N'} (VOID orig. $${origSub.toFixed(
-        2
-      )} → $0.00) ↔ ${plat} #${o.platform_order_id} (Cancelada sin cobro: $0.00)`,
-      evidence_en: `Toast Check #${o.toast_display_number || 'N/A'} (VOID orig. $${origSub.toFixed(
-        2
-      )} → $0.00) ↔ ${plat} #${o.platform_order_id} (Canceled with $0.00 settlement)`,
-      next_action_es: 'Sin impacto financiero ($0.00). No requiere acción.',
-      next_action_en: 'Zero financial impact ($0.00). No action required.',
       lifecycle_trace: lifecycleTrace,
     }
   }
@@ -1822,10 +1898,25 @@ export async function POST(req: NextRequest) {
         ...(reimbursement_description !== undefined
           ? { reimbursement_description: String(reimbursement_description || '').trim() || null }
           : {}),
+        reimbursement_evidence: effectiveNotes || null,
         last_dispute_updated_by_id: auth.user?.id || null,
         last_dispute_updated_by: auth.user?.email || 'staff',
         last_dispute_updated_by_role: auth.user?.role || null,
         last_dispute_updated_at: new Date().toISOString(),
+      }
+
+      const recoveryEval = evaluateDisputeRecovery({
+        ...existingOrd,
+        dispute_status: normalizedStatus,
+        dispute_notes: effectiveNotes,
+        dispute_amount: effectiveReimbAmt > 0 ? effectiveReimbAmt : existingOrd.dispute_amount,
+        raw_payload: updatedRaw,
+      })
+
+      const finalRaw = {
+        ...updatedRaw,
+        recovery_classification: recoveryEval.recoveryClassification,
+        unrecovered_amount: recoveryEval.unrecoveredAmount,
       }
 
       const isDisputed = normalizedStatus !== 'NONE'
@@ -1834,7 +1925,7 @@ export async function POST(req: NextRequest) {
         dispute_status: normalizedStatus,
         dispute_notes: dispute_notes !== undefined ? String(dispute_notes || '').slice(0, 1000) : null,
         dispute_reason: dispute_reason !== undefined ? String(dispute_reason || '').slice(0, 500) : null,
-        raw_payload: updatedRaw,
+        raw_payload: finalRaw,
         updated_at: new Date().toISOString(),
       }
       if (reimbursement_amount !== undefined && Number(reimbursement_amount) > 0) {
@@ -1849,7 +1940,11 @@ export async function POST(req: NextRequest) {
         .single()
 
       if (error) throw new Error(error.message)
-      return NextResponse.json({ success: true, order: data })
+      return NextResponse.json({
+        success: true,
+        order: data,
+        recovery_evaluation: recoveryEval,
+      })
     }
 
     if (action === 'resolve_review_order') {

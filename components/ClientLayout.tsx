@@ -153,7 +153,7 @@ export default function ClientLayout({
     const isDedicatedWorkspace = dedicatedWorkspaceRoutes.some(r => pathname === r || pathname.startsWith(r + '/'))
 
     // Full-width routes (large tables, schedules, etc.)
-    const fullWidthRoutes = ['/horarios', '/admin/plantillas', '/order-ready-board', '/admin/blindaje-delivery/empaque', '/app', '/training', '/admin/contabilidad-externa']
+    const fullWidthRoutes = ['/horarios', '/admin/plantillas', '/order-ready-board', '/admin/blindaje-delivery/empaque', '/app', '/training', '/admin/contabilidad-externa', '/admin/conciliar-delivery']
 
     const isFullWidth = fullWidthRoutes.some(route => pathname.startsWith(route))
 
@@ -205,7 +205,7 @@ export default function ClientLayout({
                                     pathname === '/inicio'
                                         ? 'max-w-[1720px] px-4 sm:px-6 lg:px-8 pt-2 pb-6'
                                         : isFullWidth
-                                            ? 'max-w-full px-4 md:px-8 py-4 lg:py-6'
+                                            ? 'max-w-full px-2 sm:px-4 lg:px-5 py-3 lg:py-4'
                                             : 'max-w-[1600px] p-4 sm:p-6 lg:p-8'
                                 }`}
                             >

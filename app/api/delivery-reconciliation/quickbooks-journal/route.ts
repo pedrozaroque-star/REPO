@@ -39,6 +39,7 @@ import { getAuthClient } from '@/lib/quickbooks'
 import { getQBStoreRefs } from '@/lib/qb-classes-locations'
 import {
   DeliveryPlatformCode,
+  evaluateDisputeRecovery,
   fetchAllSupabaseRows,
   getStorePlatformMappings,
   round2,
@@ -126,14 +127,51 @@ export function buildPayoutIdempotencyKey(
   return `TEG-JE-${cleanPlat}-S${Number(storeId || 0)}-${cleanRef}`
 }
 
-export function matchExistingJournalEntryStrict(params: {
+export type HistoricalQboMatchClassification =
+  | 'FIRM_ID_OR_REF'
+  | 'FIRM_ACCOUNTING_MATCH'
+  | 'USER_CONFIRMED'
+  | 'HISTORICAL_CANDIDATE_PENDING_REVIEW'
+  | 'AMBIGUOUS_CANDIDATES'
+  | 'CONFLICT_DUPLICATE_JE'
+  | 'DISCARDED_BY_USER'
+  | 'NONE'
+
+export interface HistoricalQboCandidateSummary {
+  id: string
+  docNumber: string
+  txnDate: string
+  privateNote: string
+  bankDebitAmount: number
+  receivableCreditAmount: number
+  matchBasis: 'IDEMPOTENCY_OR_REF' | 'SAVED_QB_ID' | 'ACCOUNTING_CRITERIA'
+}
+
+export interface HistoricalQboEvaluationResult {
+  classification: HistoricalQboMatchClassification
+  matchedJe: any | null
+  candidates: HistoricalQboCandidateSummary[]
+  conflictWithPayoutId?: string | null
+}
+
+/**
+ * Evalúa coincidencias con pólizas históricas de QuickBooks Online:
+ * 1. Prioriza ID QBO persistido (`qb_journal_entry_id`) y referencia oficial (`idempotencyKey` o `#payout_reference_id`).
+ * 2. Cuando no existen, comprueba sucursal (`DepartmentRef`), cuenta CxC de plataforma (`12050`/`12053`/`12054`) en sentido `Credit`,
+ *    cuenta bancaria de la sucursal (`100XX`) en sentido `Debit`, importe exacto (±$0.05) y fecha compatible ([-14d, +25d]).
+ * 3. No vincula automáticamente si hay ambigüedad (>1 candidato) ni cuando la póliza no tiene referencia oficial y aún no ha sido confirmada.
+ * 4. Impide que una misma póliza se asigne a payouts diferentes (`alreadyAssignedJeIds`), salvo agrupación explícitamente aprobada (`qbo_shared_je_approved`).
+ */
+export function evaluateHistoricalQboJournalMatch(params: {
   payout: any
   storeLocationId: string
   bankAccountQbId?: string
   receivableQbId: string
   expectedReceivableAmount?: number
   qbJournalEntries: any[]
-}): any | null {
+  alreadyAssignedJeIds?: Map<string, string>
+  autoLinkAccountingSingleCandidate?: boolean
+}): HistoricalQboEvaluationResult {
   const {
     payout,
     storeLocationId,
@@ -141,55 +179,146 @@ export function matchExistingJournalEntryStrict(params: {
     receivableQbId,
     expectedReceivableAmount,
     qbJournalEntries,
+    alreadyAssignedJeIds,
+    autoLinkAccountingSingleCandidate = false,
   } = params
-  if (!Array.isArray(qbJournalEntries) || qbJournalEntries.length === 0) return null
 
-  const savedQbId = payout.raw_payload?.qb_journal_entry_id
-  if (savedQbId) {
-    const byId = qbJournalEntries.find((je) => String(je.Id) === String(savedQbId))
-    if (byId) return byId
+  const discardedList: any[] = Array.isArray(payout?.raw_payload?.qbo_discarded_candidates)
+    ? payout.raw_payload.qbo_discarded_candidates
+    : []
+  const discardedIds = new Set<string>(
+    discardedList.map((d: any) => String(d?.je_id ?? d ?? '').trim()).filter(Boolean)
+  )
+
+  const payoutIdStr = String(payout?.id || '').trim()
+  const savedQbId = String(payout?.raw_payload?.qb_journal_entry_id || '').trim()
+  const sharedJeApproved = payout?.raw_payload?.qbo_shared_je_approved === true
+  const netPayoutSigned = round2(Number(payout?.net_payout_amount || 0))
+  const netPayoutAbs = round2(Math.abs(netPayoutSigned))
+  const expectedBankPostingType = netPayoutSigned >= 0 ? 'Debit' : 'Credit'
+  const expectedRecPostingType = (expectedReceivableAmount ?? 1) >= 0 ? 'Credit' : 'Debit'
+
+  const extractCandidateSummary = (
+    je: any,
+    matchBasis: HistoricalQboCandidateSummary['matchBasis']
+  ): HistoricalQboCandidateSummary => {
+    const lines: any[] = Array.isArray(je?.Line) ? je.Line : []
+    const bankLine = lines.find(
+      (l) => String(l?.JournalEntryLineDetail?.AccountRef?.value || '') === String(bankAccountQbId || '')
+    )
+    const recLine = lines.find(
+      (l) => String(l?.JournalEntryLineDetail?.AccountRef?.value || '') === String(receivableQbId || '')
+    )
+    return {
+      id: String(je.Id),
+      docNumber: String(je.DocNumber || ''),
+      txnDate: String(je.TxnDate || ''),
+      privateNote: String(je.PrivateNote || ''),
+      bankDebitAmount: round2(Number(bankLine?.Amount || netPayoutAbs)),
+      receivableCreditAmount: round2(Number(recLine?.Amount || expectedReceivableAmount || 0)),
+      matchBasis,
+    }
   }
 
-  const payoutRef = String(payout.payout_reference_id || '').trim()
+  // Verificar conflicto de duplicidad en ID guardado
+  if (savedQbId && !discardedIds.has(savedQbId)) {
+    const ownerPayoutId = alreadyAssignedJeIds?.get(savedQbId)
+    if (ownerPayoutId && payoutIdStr && ownerPayoutId !== payoutIdStr && !sharedJeApproved) {
+      const conflictJe = Array.isArray(qbJournalEntries)
+        ? qbJournalEntries.find((je) => String(je.Id) === savedQbId)
+        : null
+      return {
+        classification: 'CONFLICT_DUPLICATE_JE',
+        matchedJe: null,
+        candidates: conflictJe
+          ? [extractCandidateSummary(conflictJe, 'SAVED_QB_ID')]
+          : [
+              {
+                id: savedQbId,
+                docNumber: String(payout?.raw_payload?.qb_doc_number || ''),
+                txnDate: String(payout?.raw_payload?.qb_txn_date || ''),
+                privateNote: '',
+                bankDebitAmount: netPayoutAbs,
+                receivableCreditAmount: round2(Number(expectedReceivableAmount || 0)),
+                matchBasis: 'SAVED_QB_ID',
+              },
+            ],
+        conflictWithPayoutId: ownerPayoutId,
+      }
+    }
+
+    const byId = Array.isArray(qbJournalEntries)
+      ? qbJournalEntries.find((je) => String(je.Id) === savedQbId)
+      : null
+    if (byId) {
+      const pNote = String(byId.PrivateNote || '')
+      const payoutRef = String(payout?.payout_reference_id || '').trim()
+      const idempKey = payoutRef
+        ? buildPayoutIdempotencyKey(payout.platform, Number(payout.store_id), payoutRef)
+        : ''
+      const hasExplicitRef =
+        (idempKey && pNote.includes(idempKey)) || (payoutRef.length >= 4 && pNote.includes(`#${payoutRef}`))
+      const isUserConfirmed = Boolean(payout?.raw_payload?.qbo_candidate_confirmation?.confirmed)
+      return {
+        classification: isUserConfirmed
+          ? 'USER_CONFIRMED'
+          : hasExplicitRef
+          ? 'FIRM_ID_OR_REF'
+          : 'FIRM_ACCOUNTING_MATCH',
+        matchedJe: byId,
+        candidates: [extractCandidateSummary(byId, hasExplicitRef ? 'IDEMPOTENCY_OR_REF' : 'SAVED_QB_ID')],
+      }
+    }
+  }
+
+  if (!Array.isArray(qbJournalEntries) || qbJournalEntries.length === 0) {
+    return {
+      classification: discardedIds.size > 0 ? 'DISCARDED_BY_USER' : 'NONE',
+      matchedJe: null,
+      candidates: [],
+    }
+  }
+
+  const payoutRef = String(payout?.payout_reference_id || '').trim()
   const idempotencyKey = payoutRef
     ? buildPayoutIdempotencyKey(payout.platform, Number(payout.store_id), payoutRef)
     : ''
-  const savedDocNumber = String(payout.raw_payload?.qb_doc_number || '').trim()
-  const netPayoutAbs = round2(Math.abs(Number(payout.net_payout_amount || 0)))
-  const refDateStr = String(payout.period_end || payout.payout_date || payout.period_start || '').slice(0, 10)
+  const refDateStr = String(payout?.period_end || payout?.payout_date || payout?.period_start || '').slice(0, 10)
   const refDateMs = refDateStr ? new Date(`${refDateStr}T12:00:00Z`).getTime() : NaN
 
+  const explicitRefMatches: any[] = []
+  const accountingMatches: any[] = []
+
   for (const je of qbJournalEntries) {
+    const jeId = String(je?.Id || '').trim()
+    if (!jeId || discardedIds.has(jeId)) continue
+
     const privateNote = String(je.PrivateNote || '')
-    const docNum = String(je.DocNumber || '').trim()
     const lines: any[] = Array.isArray(je.Line) ? je.Line : []
 
     // 1. Match por llave de idempotencia exacta en PrivateNote
     if (idempotencyKey && privateNote.includes(idempotencyKey)) {
-      return je
+      explicitRefMatches.push(je)
+      continue
     }
 
-    // Verificar que la póliza corresponda exactamente a la sucursal (DepartmentRef) y cuenta CxC de la plataforma (12050/12053/12054)
-    const hasExactStoreAndPlatformAccount = lines.some(
+    // Verificar sucursal (DepartmentRef), cuenta CxC de plataforma (12050/12053/12054) y sentido Credit/Debit
+    const hasExactStoreAndPlatformRec = lines.some(
       (l) =>
         String(l?.JournalEntryLineDetail?.DepartmentRef?.value) === String(storeLocationId) &&
-        String(l?.JournalEntryLineDetail?.AccountRef?.value) === String(receivableQbId)
+        String(l?.JournalEntryLineDetail?.AccountRef?.value) === String(receivableQbId) &&
+        (!l?.JournalEntryLineDetail?.PostingType ||
+          String(l?.JournalEntryLineDetail?.PostingType) === expectedRecPostingType)
     )
-    if (!hasExactStoreAndPlatformAccount) continue
+    if (!hasExactStoreAndPlatformRec) continue
 
-    // 2. Match por referencia exacta del payout en PrivateNote (ej. "#U6KV2P7BG77XLAW")
+    // 2. Match por referencia oficial exacta del payout en PrivateNote (ej. "#U6KV2P7BG77XLAW")
     if (payoutRef.length >= 4 && privateNote.includes(`#${payoutRef}`)) {
-      return je
+      explicitRefMatches.push(je)
+      continue
     }
 
-    // 3. Match por DocNumber previamente registrado en el payout + sucursal + cuenta CxC
-    if (savedDocNumber && docNum === savedDocNumber) {
-      return je
-    }
-
-    // 4. Match contable exacto para pólizas creadas directamente en QuickBooks Online por Contabilidad:
-    //    Misma sucursal (DepartmentRef) + misma cuenta CxC de plataforma (12050/12053/12054) +
-    //    línea de banco de la sucursal (100XX) con el mismo depósito neto (±$0.05) dentro de la ventana temporal del corte ([-14d, +25d]).
+    // 3. Match contable por sucursal + CxC (Credit) + Banco (Debit) + importe + fecha compatible
     if (bankAccountQbId && netPayoutAbs > 0) {
       const jeDateStr = String(je.TxnDate || '').slice(0, 10)
       const jeDateMs = jeDateStr ? new Date(`${jeDateStr}T12:00:00Z`).getTime() : NaN
@@ -202,30 +331,117 @@ export function matchExistingJournalEntryStrict(params: {
         const hasExactBankLine = lines.some(
           (l) =>
             String(l?.JournalEntryLineDetail?.AccountRef?.value) === String(bankAccountQbId) &&
+            String(l?.JournalEntryLineDetail?.DepartmentRef?.value) === String(storeLocationId) &&
+            (!l?.JournalEntryLineDetail?.PostingType ||
+              String(l?.JournalEntryLineDetail?.PostingType) === expectedBankPostingType) &&
             Math.abs(round2(Number(l?.Amount || 0)) - netPayoutAbs) <= 0.05
         )
-        if (hasExactBankLine) {
-          return je
-        }
-        if (expectedReceivableAmount && expectedReceivableAmount > 0) {
-          const hasExactReceivableLine = lines.some(
-            (l) =>
-              String(l?.JournalEntryLineDetail?.AccountRef?.value) === String(receivableQbId) &&
-              String(l?.JournalEntryLineDetail?.DepartmentRef?.value) === String(storeLocationId) &&
-              Math.abs(round2(Number(l?.Amount || 0)) - round2(expectedReceivableAmount)) <= 0.05
-          )
-          const hasFeeLine = lines.some((l) =>
-            ['353', '375', '374'].includes(String(l?.JournalEntryLineDetail?.AccountRef?.value || ''))
-          )
-          if (hasExactReceivableLine && hasFeeLine) {
-            return je
-          }
+        const hasExactReceivableLine =
+          expectedReceivableAmount && expectedReceivableAmount > 0
+            ? lines.some(
+                (l) =>
+                  String(l?.JournalEntryLineDetail?.AccountRef?.value) === String(receivableQbId) &&
+                  String(l?.JournalEntryLineDetail?.DepartmentRef?.value) === String(storeLocationId) &&
+                  (!l?.JournalEntryLineDetail?.PostingType ||
+                    String(l?.JournalEntryLineDetail?.PostingType) === expectedRecPostingType) &&
+                  Math.abs(round2(Number(l?.Amount || 0)) - round2(expectedReceivableAmount)) <= 0.05
+              )
+            : false
+        const hasFeeLine = lines.some((l) =>
+          ['353', '375', '374'].includes(String(l?.JournalEntryLineDetail?.AccountRef?.value || ''))
+        )
+
+        if (hasExactBankLine || (hasExactReceivableLine && hasFeeLine)) {
+          accountingMatches.push(je)
         }
       }
     }
   }
 
-  return null
+  // Evaluar coincidencias explícitas por referencia oficial / llave de idempotencia
+  if (explicitRefMatches.length === 1) {
+    const je = explicitRefMatches[0]
+    const jeId = String(je.Id)
+    const ownerPayoutId = alreadyAssignedJeIds?.get(jeId)
+    if (ownerPayoutId && payoutIdStr && ownerPayoutId !== payoutIdStr && !sharedJeApproved) {
+      return {
+        classification: 'CONFLICT_DUPLICATE_JE',
+        matchedJe: null,
+        candidates: [extractCandidateSummary(je, 'IDEMPOTENCY_OR_REF')],
+        conflictWithPayoutId: ownerPayoutId,
+      }
+    }
+    return {
+      classification: 'FIRM_ID_OR_REF',
+      matchedJe: je,
+      candidates: [extractCandidateSummary(je, 'IDEMPOTENCY_OR_REF')],
+    }
+  }
+
+  if (explicitRefMatches.length > 1) {
+    return {
+      classification: 'AMBIGUOUS_CANDIDATES',
+      matchedJe: null,
+      candidates: explicitRefMatches.map((je) => extractCandidateSummary(je, 'IDEMPOTENCY_OR_REF')),
+    }
+  }
+
+  // Evaluar candidatos contables históricos cuando no existe ID QBO ni referencia oficial en PrivateNote
+  if (accountingMatches.length > 1) {
+    return {
+      classification: 'AMBIGUOUS_CANDIDATES',
+      matchedJe: null,
+      candidates: accountingMatches.map((je) => extractCandidateSummary(je, 'ACCOUNTING_CRITERIA')),
+    }
+  }
+
+  if (accountingMatches.length === 1) {
+    const je = accountingMatches[0]
+    const jeId = String(je.Id)
+    const ownerPayoutId = alreadyAssignedJeIds?.get(jeId)
+    if (ownerPayoutId && payoutIdStr && ownerPayoutId !== payoutIdStr && !sharedJeApproved) {
+      return {
+        classification: 'CONFLICT_DUPLICATE_JE',
+        matchedJe: null,
+        candidates: [extractCandidateSummary(je, 'ACCOUNTING_CRITERIA')],
+        conflictWithPayoutId: ownerPayoutId,
+      }
+    }
+    if (autoLinkAccountingSingleCandidate) {
+      return {
+        classification: 'FIRM_ACCOUNTING_MATCH',
+        matchedJe: je,
+        candidates: [extractCandidateSummary(je, 'ACCOUNTING_CRITERIA')],
+      }
+    }
+    return {
+      classification: 'HISTORICAL_CANDIDATE_PENDING_REVIEW',
+      matchedJe: null,
+      candidates: [extractCandidateSummary(je, 'ACCOUNTING_CRITERIA')],
+    }
+  }
+
+  return {
+    classification: discardedIds.size > 0 ? 'DISCARDED_BY_USER' : 'NONE',
+    matchedJe: null,
+    candidates: [],
+  }
+}
+
+export function matchExistingJournalEntryStrict(params: {
+  payout: any
+  storeLocationId: string
+  bankAccountQbId?: string
+  receivableQbId: string
+  expectedReceivableAmount?: number
+  qbJournalEntries: any[]
+  alreadyAssignedJeIds?: Map<string, string>
+}): any | null {
+  const res = evaluateHistoricalQboJournalMatch({
+    ...params,
+    autoLinkAccountingSingleCandidate: true,
+  })
+  return res.matchedJe
 }
 
 async function getValidQuickBooksToken(): Promise<{ token: string; realmId: string }> {
@@ -280,6 +496,10 @@ export interface PublishBlocker {
   code: string
   message_es: string
   message_en: string
+  cause_es?: string
+  cause_en?: string
+  next_action_es?: string
+  next_action_en?: string
 }
 
 /**
@@ -325,7 +545,7 @@ export function hasValidPayoutVarianceApproval(payout: any): boolean {
  * Adquiere un lock de publicación QBO verdaderamente atómico en PostgreSQL/Supabase mediante
  * `UPDATE ... WHERE` condicional.
  * Solo tiene éxito cuando:
- * 1. El payout sigue pendiente (`status` en `PENDING`, `POSTED`, `RECONCILED`);
+ * 1. El payout sigue pendiente (`status` en `PENDING`, `POSTED`, `RECONCILED`, `REQUIRES_REVIEW`);
  * 2. No existe `raw_payload->>qb_journal_entry_id`;
  * 3. No existe lock activo (`raw_payload->>qb_publish_status` nulo/PENDING/FAILED, o lock expirado >120s con CAS exacto);
  * 4. La llave idempotente coincide (o es nula).
@@ -336,15 +556,24 @@ export async function acquireAtomicPayoutPublishLock(params: {
   currentRawPayload: Record<string, any>
   idempotencyKey: string
   userEmail: string
-  userId: string | number | null
-  userRole: string | null
+  userId?: string | number | null
+  userRole?: string | null
+  allowRecoveryRetry?: boolean
 }): Promise<{
   acquired: boolean
   affectedRows: number
   lockedRow?: Record<string, any>
   reason?: string
 }> {
-  const { payoutId, currentRawPayload, idempotencyKey, userEmail, userId, userRole } = params
+  const {
+    payoutId,
+    currentRawPayload,
+    idempotencyKey,
+    userEmail,
+    userId,
+    userRole,
+    allowRecoveryRetry = false,
+  } = params
   const lockTimestamp = new Date().toISOString()
 
   const curStatus = currentRawPayload?.qb_publish_status
@@ -359,6 +588,15 @@ export async function acquireAtomicPayoutPublishLock(params: {
       acquired: false,
       affectedRows: 0,
       reason: 'Publicación en curso para este corte (lock idempotente activo). Evitando duplicado.',
+    }
+  }
+
+  if (curStatus === 'RECOVERY_REQUIRED' && !allowRecoveryRetry) {
+    return {
+      acquired: false,
+      affectedRows: 0,
+      reason:
+        'El corte está en estado RECOVERY_REQUIRED. Debe verificarse en QuickBooks antes de reintentar la publicación.',
     }
   }
 
@@ -388,7 +626,6 @@ export async function acquireAtomicPayoutPublishLock(params: {
       updated_at: lockTimestamp,
     })
     .eq('id', payoutId)
-    .in('status', ['PENDING', 'POSTED', 'RECONCILED', 'REQUIRES_REVIEW'])
     .filter('raw_payload->>qb_journal_entry_id', 'is', null)
 
   if (!curIdempKey) {
@@ -403,7 +640,11 @@ export async function acquireAtomicPayoutPublishLock(params: {
       .eq('raw_payload->>qb_publish_lock_at', String(curLockAt))
   } else if (!curStatus) {
     query = query.filter('raw_payload->>qb_publish_status', 'is', null)
-  } else if (curStatus === 'PENDING' || curStatus === 'FAILED') {
+  } else if (
+    curStatus === 'PENDING' ||
+    curStatus === 'FAILED' ||
+    (curStatus === 'RECOVERY_REQUIRED' && allowRecoveryRetry)
+  ) {
     query = query.eq('raw_payload->>qb_publish_status', String(curStatus))
   } else {
     return {
@@ -454,11 +695,13 @@ export function buildPayoutJournalPreview(params: {
     platformSyncStatus,
     platformSyncCause,
   } = params
-  const plat = (payout.platform as DeliveryPlatformCode) || 'UBER_EATS'
+  const rawPlat = String(payout?.platform || '').trim().toUpperCase()
+  const isSupportedPlatform = ['UBER_EATS', 'DOORDASH', 'GRUBHUB'].includes(rawPlat)
+  const plat = (isSupportedPlatform ? rawPlat : 'UBER_EATS') as DeliveryPlatformCode
   const cfg = PLATFORM_QB_CONFIG[plat] || PLATFORM_QB_CONFIG.UBER_EATS
   const storeRefs = getQBStoreRefs(storeName)
-  const payoutRef = String(payout.payout_reference_id || '').trim()
-  const storeIdNum = Number(payout.store_id || 0)
+  const payoutRef = String(payout?.payout_reference_id || '').trim()
+  const storeIdNum = Number(payout?.store_id || 0)
   const idempotencyKey = buildPayoutIdempotencyKey(plat, storeIdNum, payoutRef)
 
   const parseRawMoney = (val: any): number | null => {
@@ -471,17 +714,38 @@ export function buildPayoutJournalPreview(params: {
     return null
   }
 
-  const netPayout = round2(Number(payout.net_payout_amount || 0))
+  const rawNumericFields = [
+    payout?.net_payout_amount,
+    payout?.commission_fees,
+    payout?.delivery_fees,
+    payout?.processing_fees,
+    payout?.marketing_fees,
+    payout?.error_charges,
+    payout?.adjustments_amount,
+    payout?.platform_gross_receivable,
+    payout?.subtotal_sales,
+  ]
+  const hasInvalidNumericValue = rawNumericFields.some(
+    (v) => v !== null && v !== undefined && !Number.isFinite(Number(v))
+  )
+
+  const hasNetPayoutField =
+    payout?.net_payout_amount !== null &&
+    payout?.net_payout_amount !== undefined &&
+    String(payout?.net_payout_amount).trim() !== '' &&
+    Number.isFinite(Number(payout.net_payout_amount))
+
+  const netPayout = hasNetPayoutField ? round2(Number(payout.net_payout_amount)) : 0
 
   let totalFees = round2(
     Math.abs(
-      Number(payout.commission_fees || 0) +
-        Number(payout.delivery_fees || 0) +
-        Number(payout.processing_fees || 0) +
-        Number(payout.marketing_fees || 0)
+      Number(payout?.commission_fees || 0) +
+        Number(payout?.delivery_fees || 0) +
+        Number(payout?.processing_fees || 0) +
+        Number(payout?.marketing_fees || 0)
     )
   )
-  if (plat === 'UBER_EATS' && payout.raw_payload?.uberFees !== undefined) {
+  if (plat === 'UBER_EATS' && payout?.raw_payload?.uberFees !== undefined) {
     const uFees = Math.abs(parseRawMoney(payout.raw_payload.uberFees) ?? 0)
     const uMkt = Math.abs(parseRawMoney(payout.raw_payload.marketing) ?? 0)
     if (uFees + uMkt > 0) {
@@ -489,22 +753,56 @@ export function buildPayoutJournalPreview(params: {
     }
   }
 
-  let receivableCredit = 0
-  let rawErrAdj = 0
+  const grossEarnings = plat === 'UBER_EATS' ? parseRawMoney(payout?.raw_payload?.earnings) : null
+  const facTax = Number(payout?.tax_remitted_by_platform || 0)
+  const declaredGrossVal = round2(Number(payout?.platform_gross_receivable || 0))
+  const declaredSubVal = round2(Number(payout?.subtotal_sales || 0))
+  const declaredTipsVal = round2(Number(payout?.tips_amount || 0))
+  const hasOfficialGrossOrEarnings =
+    (grossEarnings !== null && grossEarnings > 0) ||
+    declaredGrossVal > 0.005 ||
+    declaredSubVal > 0.005
 
-  if (plat === 'UBER_EATS') {
-    const grossEarnings = parseRawMoney(payout.raw_payload?.earnings)
-    const facTax = Number(payout.tax_remitted_by_platform || 0)
+  let receivableCredit = 0
+  let rawErrAdj = round2(Number(payout?.error_charges || 0) + Number(payout?.adjustments_amount || 0))
+
+  if (payout?.raw_payload?.official_receivable_credit !== undefined) {
+    // Cuando se proporciona un crédito CxC explícito, jamás inventar línea de compensación (plug)
+    receivableCredit = round2(Number(payout.raw_payload.official_receivable_credit || 0))
+  } else if (plat === 'UBER_EATS') {
     if (grossEarnings !== null && grossEarnings > 0 && facTax > 0) {
       receivableCredit = round2(grossEarnings - facTax)
       rawErrAdj = round2(netPayout + totalFees - receivableCredit)
+    } else if (hasOfficialGrossOrEarnings) {
+      // Sin `earnings` en raw_payload, usar el importe oficial de CxC sin inventar plug
+      receivableCredit = round2((declaredGrossVal > 0 ? declaredGrossVal : declaredSubVal) + declaredTipsVal)
     } else {
-      rawErrAdj = round2(Number(payout.error_charges || 0) + Number(payout.adjustments_amount || 0))
+      receivableCredit = 0
+    }
+  } else if (plat === 'GRUBHUB') {
+    if (payout?.raw_payload?.totals !== undefined && hasOfficialGrossOrEarnings) {
       receivableCredit = round2(netPayout + totalFees - rawErrAdj)
+    } else if (hasOfficialGrossOrEarnings) {
+      receivableCredit = round2((declaredGrossVal > 0 ? declaredGrossVal : declaredSubVal) + declaredTipsVal)
+    } else {
+      receivableCredit = 0
     }
   } else {
-    rawErrAdj = round2(Number(payout.error_charges || 0) + Number(payout.adjustments_amount || 0))
-    receivableCredit = round2(netPayout + totalFees - rawErrAdj)
+    // DOORDASH
+    if (hasOfficialGrossOrEarnings) {
+      const expectedFromComponents = round2(netPayout + totalFees - rawErrAdj)
+      const officialGrossWithTips = round2(
+        (declaredGrossVal > 0 ? declaredGrossVal : declaredSubVal + Number(payout?.tax_paid_to_merchant || 0)) +
+          declaredTipsVal
+      )
+      // Si el bruto oficial coincide con los componentes (±$0.05), usar el valor oficial; si difiere, conservar el bruto oficial para que el desbalance se detecte sin inventar líneas
+      receivableCredit =
+        Math.abs(officialGrossWithTips - expectedFromComponents) <= 0.05
+          ? expectedFromComponents
+          : officialGrossWithTips
+    } else {
+      receivableCredit = 0
+    }
   }
 
   // Órdenes vinculadas estrictamente por payout_reference_id (o reembolsadas en este payout_reference_id)
@@ -528,40 +826,54 @@ export function buildPayoutJournalPreview(params: {
         o.is_disputed)
   )
 
-  // Impuesto REAL de órdenes descontadas en este corte (CERO tasa fija 1.1025)
-  // Para Uber Eats siempre es $0.00 porque Uber es Marketplace Facilitator.
-  const deductedOrdersRealTax =
-    plat === 'UBER_EATS'
-      ? 0
-      : round2(
-          deductedOrders
-            .filter((o) => Number(o.error_charge || 0) < -0.01)
-            .reduce(
-              (acc, o) =>
-                acc +
-                Number(
-                  o.platform_tax_paid_to_merchant > 0
-                    ? o.platform_tax_paid_to_merchant
-                    : o.toast_tax || 0
-                ),
-              0
-            )
+  // Regla Fiscal de Reembolsos (Sección 2):
+  // Los ajustes fiscales por reembolsos requieren evidencia del impuesto efectivamente involucrado.
+  // Prohibido revertir automáticamente el tax completo de una orden cuando el reembolso sea parcial.
+  let deductedOrdersRealTax = 0
+  let hasPartialRefundWithoutExplicitTax = false
+
+  if (plat !== 'UBER_EATS') {
+    for (const o of deductedOrders) {
+      const errChargeVal = Number(o.error_charge || 0)
+      if (errChargeVal >= -0.01) continue
+      const errAbs = round2(Math.abs(errChargeVal))
+      const explicitOrderRefundTax = round2(Number(o.raw_payload?.refund_tax_actual || 0))
+      const orderSub = round2(Number(o.platform_subtotal || o.toast_net_sales || 0))
+      const orderTax = round2(
+        Number(
+          o.platform_tax_paid_to_merchant > 0 ? o.platform_tax_paid_to_merchant : o.toast_tax || 0
         )
+      )
+      const orderGross = round2(
+        Number(o.platform_gross_receivable || o.toast_expected_gross || orderSub + orderTax)
+      )
+
+      if (explicitOrderRefundTax > 0) {
+        deductedOrdersRealTax = round2(deductedOrdersRealTax + explicitOrderRefundTax)
+      } else if (orderGross > 0 && orderTax > 0 && Math.abs(errAbs - orderGross) <= 0.05) {
+        // Reembolso total del importe bruto (Subtotal + Tax): el impuesto completo de la orden sí está involucrado
+        deductedOrdersRealTax = round2(deductedOrdersRealTax + orderTax)
+      } else {
+        // Reembolso parcial (o solo de subtotal sin tax): prohibido revertir el tax completo de la orden sin evidencia explícita
+        hasPartialRefundWithoutExplicitTax = true
+      }
+    }
+  }
 
   const explicitStatementRefundTax =
-    plat === 'UBER_EATS' ? 0 : round2(Number(payout.raw_payload?.refund_tax_actual || 0))
+    plat === 'UBER_EATS' ? 0 : round2(Number(payout?.raw_payload?.refund_tax_actual || 0))
 
   const embeddedRefundTax =
     plat === 'UBER_EATS'
       ? 0
-      : deductedOrdersRealTax > 0
-      ? deductedOrdersRealTax
       : explicitStatementRefundTax > 0
       ? explicitStatementRefundTax
+      : !hasPartialRefundWithoutExplicitTax && deductedOrdersRealTax > 0
+      ? deductedOrdersRealTax
       : 0
 
-  const pStartDot = fmtShortPeriodDot(payout.period_start || payout.payout_date)
-  const pEndDot = fmtShortPeriodDot(payout.period_end || payout.payout_date)
+  const pStartDot = fmtShortPeriodDot(payout?.period_start || payout?.payout_date)
+  const pEndDot = fmtShortPeriodDot(payout?.period_end || payout?.payout_date)
   const periodPrefix = pStartDot && pEndDot ? `${pStartDot}-${pEndDot} ` : ''
 
   const lines: SettlementJournalLinePreview[] = [
@@ -664,11 +976,15 @@ export function buildPayoutJournalPreview(params: {
   const totalCredits = round2(
     lines.filter((l) => l.postingType === 'Credit').reduce((acc, l) => acc + l.amount, 0)
   )
-  const isBalanced = Math.abs(totalDebits - totalCredits) < 0.005
+  const isBalanced =
+    !hasInvalidNumericValue &&
+    totalDebits > 0 &&
+    totalCredits > 0 &&
+    Math.abs(totalDebits - totalCredits) < 0.005
 
   // Órdenes de Toast pendientes en la ventana de fechas (solo informativo para saber si faltan órdenes en plataforma)
-  const pStart = payout.period_start || payout.payout_date || ''
-  const pEnd = payout.period_end || payout.payout_date || ''
+  const pStart = payout?.period_start || payout?.payout_date || ''
+  const pEnd = payout?.period_end || payout?.payout_date || ''
   const unpaidToastOrders = storeOrders.filter(
     (o) =>
       o.platform === plat &&
@@ -684,7 +1000,7 @@ export function buildPayoutJournalPreview(params: {
     orderDate: string | null
     amount: number
     description: string
-  }> = Array.isArray(payout.raw_payload?.cross_payout_refunds)
+  }> = Array.isArray(payout?.raw_payload?.cross_payout_refunds)
     ? payout.raw_payload.cross_payout_refunds
     : []
 
@@ -695,78 +1011,140 @@ export function buildPayoutJournalPreview(params: {
     unpaidToastOrders.reduce((acc, o) => acc + Number(o.toast_tax || 0), 0)
   )
 
-  const adjustmentsInCut = round2(Number(payout.adjustments_amount || 0))
+  const adjustmentsInCut = round2(Number(payout?.adjustments_amount || 0))
   const chargebacksInCut = round2(rawErrAdj - adjustmentsInCut)
 
   // Evaluar bloqueos contables reales de la póliza de 4 líneas (publishBlockers) vs alertas informativas de auditoría orden por orden (auditWarnings)
   const publishBlockers: PublishBlocker[] = []
   const auditWarnings: PublishBlocker[] = []
 
-  if (!isBalanced) {
-    publishBlockers.push({
-      code: 'UNBALANCED_JOURNAL',
-      message_es: `La póliza no está cuadrada al centavo (Débitos: $${totalDebits.toFixed(2)} vs Créditos: $${totalCredits.toFixed(2)}).`,
-      message_en: `Journal Entry is not balanced to the cent (Debits: $${totalDebits.toFixed(2)} vs Credits: $${totalCredits.toFixed(2)}).`,
-    })
-  }
-
-  if (storeIdNum <= 0 || !storeRefs.locationId || !storeRefs.bankAccountQbId) {
+  if (storeIdNum <= 0 || !isSupportedPlatform || !storeRefs.locationId || !storeRefs.bankAccountQbId) {
     publishBlockers.push({
       code: 'MISSING_STORE_OR_MAPPING',
-      message_es: 'Falta sucursal asignada o mapeo de cuenta bancaria/ubicación en QuickBooks.',
-      message_en: 'Missing assigned store or QuickBooks bank account/location mapping.',
+      message_es: 'Falta sucursal asignada, plataforma válida o mapeo contable (cuenta bancaria/ubicación) en QuickBooks.',
+      message_en: 'Missing assigned store, valid platform, or QuickBooks accounting mapping (bank account/location).',
+      cause_es: 'El corte no tiene una sucursal de Tacos Gavilan vinculada o carece de LocationRef/AccountRef en QuickBooks.',
+      cause_en: 'Payout has no linked Tacos Gavilan store or lacks QuickBooks LocationRef/AccountRef.',
+      next_action_es: 'Asignar la sucursal en configuración avanzada de mapeos antes de publicar.',
+      next_action_en: 'Assign the store in advanced mapping settings before publishing.',
     })
   }
 
   if (!payoutRef || payoutRef === '--' || payoutRef.startsWith('SYNTH')) {
     publishBlockers.push({
       code: 'MISSING_PAYOUT_REFERENCE',
-      message_es: 'Falta payout_reference_id oficial del settlement de la plataforma.',
-      message_en: 'Missing official platform settlement payout_reference_id.',
+      message_es: 'Falta referencia oficial (payout_reference_id) del settlement de la plataforma.',
+      message_en: 'Missing official platform settlement reference (payout_reference_id).',
+      cause_es: 'No se permite registrar una Journal Entry sin el identificador oficial del corte de la plataforma.',
+      cause_en: 'Posting a Journal Entry without the official platform settlement identifier is prohibited.',
+      next_action_es: 'Sincronizar o importar el estado de cuenta oficial de la plataforma con su ID de pago.',
+      next_action_en: 'Sync or import the official platform statement with its payout ID.',
     })
   }
 
-  if (splitTaxOnRefunds && plat !== 'UBER_EATS' && rawErrAdj < -0.01 && embeddedRefundTax <= 0) {
+  if (hasInvalidNumericValue) {
     publishBlockers.push({
+      code: 'INVALID_SETTLEMENT_VALUES',
+      message_es: 'El corte contiene valores numéricos inválidos (NaN o infinitos) en sus importes.',
+      message_en: 'Payout contains invalid numeric values (NaN or non-finite) in its amounts.',
+      cause_es: 'Uno o más importes del corte están corruptos o mal formateados.',
+      cause_en: 'One or more settlement amounts are corrupted or malformed.',
+      next_action_es: 'Volver a sincronizar o reimportar el reporte oficial del corte.',
+      next_action_en: 'Re-sync or re-import the official settlement report.',
+    })
+  }
+
+  if (
+    !hasNetPayoutField ||
+    !hasOfficialGrossOrEarnings ||
+    payout?.raw_payload?.missing_official_amounts === true
+  ) {
+    publishBlockers.push({
+      code: 'MISSING_OFFICIAL_SETTLEMENT_AMOUNTS',
+      message_es: 'Faltan importes oficiales del settlement (venta bruta/CxC o depósito neto) necesarios para construir el asiento.',
+      message_en: 'Missing official settlement amounts (gross receivable or net payout) required to build the Journal Entry.',
+      cause_es: 'Prohibido inventar líneas de compensación o estimar importes faltantes para forzar el cuadre del asiento.',
+      cause_en: 'Inventing compensating lines or estimating missing amounts to force balance is prohibited.',
+      next_action_es: 'Importar o sincronizar el estado de cuenta oficial completo del settlement.',
+      next_action_en: 'Import or sync the complete official settlement statement.',
+    })
+  }
+
+  if (!isBalanced) {
+    publishBlockers.push({
+      code: 'UNBALANCED_JOURNAL',
+      message_es: `La póliza no está cuadrada al centavo (Débitos: $${totalDebits.toFixed(2)} vs Créditos: $${totalCredits.toFixed(2)}).`,
+      message_en: `Journal Entry is not balanced to the cent (Debits: $${totalDebits.toFixed(2)} vs Credits: $${totalCredits.toFixed(2)}).`,
+      cause_es: 'Los importes oficiales de depósito neto, comisiones, reembolsos y CxC no cuadran entre sí.',
+      cause_en: 'Official net payout, fees, refunds, and receivable amounts do not balance.',
+      next_action_es: 'Verificar el desglose oficial del estado de cuenta de la plataforma sin inventar líneas de ajuste.',
+      next_action_en: 'Verify the official platform statement breakdown without inventing adjustment lines.',
+    })
+  }
+
+  if (
+    splitTaxOnRefunds &&
+    plat !== 'UBER_EATS' &&
+    rawErrAdj < -0.01 &&
+    embeddedRefundTax <= 0 &&
+    !hasPartialRefundWithoutExplicitTax
+  ) {
+    auditWarnings.push({
       code: 'MISSING_REAL_REFUND_TAX_BREAKDOWN',
-      message_es: 'No hay impuesto real por orden vinculada para separar el Sales Tax del reembolso (prohibido estimar 10.25%).',
-      message_en: 'No real order-level tax found to split Sales Tax on refund (estimating 10.25% is prohibited).',
+      message_es:
+        'Alerta informativa: No hay evidencia del impuesto real involucrado en el reembolso; se registra el asiento oficial de 4 líneas sin fabricar reversión fiscal (24001) y se deja la investigación pendiente.',
+      message_en:
+        'Informative alert: No verified real tax found for the refund; the official 4-line Journal Entry is prepared without fabricating a Sales Tax (24001) reversal, leaving the investigation pending.',
+      cause_es: 'Falta evidencia del impuesto real efectivamente involucrado en el reembolso.',
+      cause_en: 'Missing evidence of the actual tax involved in the refund.',
+      next_action_es:
+        'Registrar el settlement oficial de 4 líneas sin reversión fiscal fabricada o aportar refund_tax_actual si se confirma el impuesto del reembolso.',
+      next_action_en:
+        'Post the official 4-line settlement without fabricated tax reversal or provide refund_tax_actual if the refunded tax is confirmed.',
     })
   }
 
   // Alertas informativas de auditoría orden por orden (NO bloquean la creación de la póliza semanal de 4 líneas)
-  const declaredOrdersCount = Number(payout.orders_count || 0)
-  const declaredSubtotal = Math.abs(Number(payout.subtotal_sales || 0))
-  const declaredGross = Math.abs(Number(payout.platform_gross_receivable || 0))
+  const declaredOrdersCount = Number(payout?.orders_count || 0)
+  const declaredSubtotal = Math.abs(Number(payout?.subtotal_sales || 0))
+  const declaredGross = Math.abs(Number(payout?.platform_gross_receivable || 0))
   if ((declaredOrdersCount > 0 || declaredSubtotal > 0.01 || declaredGross > 0.01) && settledOrdersInCut.length === 0) {
     auditWarnings.push({
       code: 'INCOMPLETE_ORDER_COVERAGE',
       message_es: `Alerta informativa: El corte declara ${declaredOrdersCount || 'múltiples'} orden(es), pero existen 0 órdenes vinculadas por payout_reference_id (#${payoutRef}).`,
       message_en: `Informative alert: Payout declares ${declaredOrdersCount || 'multiple'} order(s), but has 0 linked orders by payout_reference_id (#${payoutRef}).`,
+      cause_es: 'El resumen semanal del settlement está disponible, pero aún no se ha sincronizado el detalle de órdenes individuales con este payout_reference_id.',
+      cause_en: 'Weekly settlement summary is available, but individual order detail has not yet been linked to this payout_reference_id.',
+      next_action_es: 'Puedes publicar la póliza con los importes oficiales del corte e investigar/sincronizar el detalle de órdenes por separado.',
+      next_action_en: 'You may publish the Journal Entry using official settlement amounts and sync/investigate order details separately.',
     })
   }
 
-  const effectiveSyncStatus = platformSyncStatus || payout.raw_payload?.sync_status
+  const effectiveSyncStatus = platformSyncStatus || payout?.raw_payload?.sync_status
   if (effectiveSyncStatus === 'PARTIAL' || effectiveSyncStatus === 'FAILED') {
     auditWarnings.push({
       code: 'PLATFORM_SYNC_INCOMPLETE',
-      message_es: `Alerta informativa (${effectiveSyncStatus}): ${platformSyncCause || payout.raw_payload?.sync_cause || 'La sincronización de órdenes de esta plataforma/sucursal está parcial o pendiente.'}`,
-      message_en: `Informative alert (${effectiveSyncStatus}): ${platformSyncCause || payout.raw_payload?.sync_cause || 'Order synchronization for this platform/store is partial or pending.'}`,
+      message_es: `Alerta informativa (${effectiveSyncStatus}): ${platformSyncCause || payout?.raw_payload?.sync_cause || 'La sincronización de órdenes de esta plataforma/sucursal está parcial o pendiente.'}`,
+      message_en: `Informative alert (${effectiveSyncStatus}): ${platformSyncCause || payout?.raw_payload?.sync_cause || 'Order synchronization for this platform/store is partial or pending.'}`,
+      cause_es: 'La última sincronización de órdenes de la plataforma reportó cobertura parcial o error de conexión.',
+      cause_en: 'The latest platform order sync reported partial coverage or connection error.',
+      next_action_es: 'Revisar la pestaña de Cobertura por Sucursal/Plataforma o reintentar sincronización de órdenes.',
+      next_action_en: 'Check the Store/Platform Coverage tab or retry order synchronization.',
     })
   }
 
   const hasMissingTaxFlag =
-    Boolean(payout.raw_payload?.missing_tax_breakdown) ||
-    payout.raw_payload?.tax_breakdown_verified === false ||
+    Boolean(payout?.raw_payload?.missing_tax_breakdown) ||
+    payout?.raw_payload?.tax_breakdown_verified === false ||
     settledOrdersInCut.some(
       (o) => Boolean(o.raw_payload?.missing_tax_breakdown) || o.raw_payload?.tax_breakdown_verified === false
     )
 
   const isDdOrGhMissingTax =
     (plat === 'DOORDASH' || plat === 'GRUBHUB') &&
-    ((Number(payout.subtotal_sales || 0) > 0 &&
-      Number(payout.tax_paid_to_merchant || 0) <= 0 &&
-      Number(payout.tax_collected || 0) <= 0 &&
+    ((Number(payout?.subtotal_sales || 0) > 0 &&
+      Number(payout?.tax_paid_to_merchant || 0) <= 0 &&
+      Number(payout?.tax_collected || 0) <= 0 &&
       settledOrdersInCut.every((o) => Number(o.platform_tax_paid_to_merchant || 0) <= 0)) ||
       settledOrdersInCut.some(
         (o) =>
@@ -780,6 +1158,22 @@ export function buildPayoutJournalPreview(params: {
       code: 'MISSING_REAL_TAX_BREAKDOWN',
       message_es: `Alerta informativa: Falta desglose de Sales Tax orden por orden en ${plat} (la póliza usa los totales oficiales del estado de cuenta).`,
       message_en: `Informative alert: Missing order-by-order Sales Tax breakdown for ${plat} (Journal Entry uses official statement totals).`,
+      cause_es: 'Algunas órdenes carecen de desglose fiscal individual, aunque los importes contables oficiales del settlement están completos.',
+      cause_en: 'Some orders lack individual tax breakdown, although official settlement accounting amounts are complete.',
+      next_action_es: 'Dejar la investigación fiscal por orden pendiente sin fabricar reversiones fiscales.',
+      next_action_en: 'Keep order-level tax investigation pending without fabricating tax reversals.',
+    })
+  }
+
+  if (hasPartialRefundWithoutExplicitTax && plat !== 'UBER_EATS') {
+    auditWarnings.push({
+      code: 'PARTIAL_REFUND_TAX_PENDING_INVESTIGATION',
+      message_es: `Alerta informativa: Existen reembolsos parciales en ${plat} sin desglose explícito del impuesto involucrado; no se revierte automáticamente el Sales Tax completo de la orden.`,
+      message_en: `Informative alert: Partial refunds exist in ${plat} without explicit refunded tax breakdown; full order Sales Tax is not automatically reversed.`,
+      cause_es: 'El reembolso es menor al total bruto de la orden y no incluye evidencia del impuesto exacto reembolsado.',
+      cause_en: 'Refund is smaller than the full order gross and lacks evidence of the exact refunded tax.',
+      next_action_es: 'Registrar el settlement oficial sin reversión fiscal fabricada e investigar el detalle del reembolso si se requiere ajuste de Sales Tax (24001).',
+      next_action_en: 'Post the official settlement without fabricated tax reversal and investigate the refund detail if a Sales Tax (24001) adjustment is needed.',
     })
   }
 
@@ -796,6 +1190,10 @@ export function buildPayoutJournalPreview(params: {
       code: 'AMBIGUOUS_OR_UNVERIFIED_MATCH',
       message_es: `Alerta informativa: ${ambiguousOrUnverifiedOrders.length} orden(es) con coincidencia ambigua o sin ID verificable pendientes de revisión en Toast.`,
       message_en: `Informative alert: ${ambiguousOrUnverifiedOrders.length} order(s) with ambiguous or unverified Toast ID matching pending review.`,
+      cause_es: 'Existen órdenes en el corte cuyo vínculo con Toast POS requiere confirmación manual.',
+      cause_en: 'Orders exist in this payout whose Toast POS link requires manual confirmation.',
+      next_action_es: 'Usar el botón "Auditar Órdenes" para confirmar el ticket de Toast correspondiente.',
+      next_action_en: 'Use the "Audit Orders" button to confirm the matching Toast check.',
     })
   }
 
@@ -809,7 +1207,7 @@ export function buildPayoutJournalPreview(params: {
       !hasValidOrderVarianceApproval(o) &&
       !payoutVarianceApprovedInDb
   )
-  const payoutGrossVar = round2(Number(payout.gross_variance || 0))
+  const payoutGrossVar = round2(Number(payout?.gross_variance || 0))
   const hasUnapprovedPayoutLevelVariance =
     Math.abs(payoutGrossVar) > 0.05 &&
     !payoutVarianceApprovedInDb &&
@@ -826,6 +1224,47 @@ export function buildPayoutJournalPreview(params: {
         unreviewedVarianceOrders.length > 0
           ? `Informative alert: ${unreviewedVarianceOrders.length} order(s) in this payout have an unreviewed amount/tax variance vs Toast.`
           : `Informative alert: Payout has a gross variance vs Toast of $${payoutGrossVar.toFixed(2)} pending review.`,
+      cause_es: 'Diferencia entre lo esperado en Toast POS y lo reportado por la plataforma en una o más órdenes.',
+      cause_en: 'Variance between Toast POS expected amounts and platform reported amounts on one or more orders.',
+      next_action_es: 'Investigar las órdenes con diferencia en el paso de Auditoría de Órdenes (no impide registrar la póliza del corte oficial).',
+      next_action_en: 'Investigate orders with variances in the Order Audit step (does not block posting the official settlement Journal Entry).',
+    })
+  }
+
+  if (unpaidToastOrders.length > 0) {
+    auditWarnings.push({
+      code: 'UNMATCHED_TOAST_ORDERS',
+      message_es: `Alerta informativa: ${unpaidToastOrders.length} orden(es) en Toast POS ($${unpaidToastSubtotal.toFixed(2)}) dentro del periodo aún no tienen match con la plataforma.`,
+      message_en: `Informative alert: ${unpaidToastOrders.length} Toast POS order(s) ($${unpaidToastSubtotal.toFixed(2)}) in the period remain unmatched with the platform.`,
+      cause_es: 'Tickets registrados en Toast POS como delivery de esta plataforma que no aparecen en este corte.',
+      cause_en: 'Checks recorded in Toast POS for this delivery platform that do not appear in this settlement.',
+      next_action_es: 'Verificar en Atención Requerida si fueron pagados en otro corte o anulados.',
+      next_action_en: 'Check in Attention Required whether they were settled in another payout or voided.',
+    })
+  }
+
+  const disputeEvaluations = deductedOrders.map((o) => evaluateDisputeRecovery(o))
+  const openOrPartialDisputesCount = disputeEvaluations.filter(
+    (d) =>
+      d.recoveryClassification === 'OPEN_DISPUTE' ||
+      d.recoveryClassification === 'UNVERIFIED_RECOVERY' ||
+      d.recoveryClassification === 'PARTIAL_RECOVERY'
+  ).length
+  if (openOrPartialDisputesCount > 0 || (rawErrAdj < -0.01 && deductedOrders.length === 0)) {
+    auditWarnings.push({
+      code: 'OPEN_DISPUTES_OR_RECOVERIES_PENDING',
+      message_es:
+        openOrPartialDisputesCount > 0
+          ? `Alerta informativa: ${openOrPartialDisputesCount} orden(es) con cargo/disputa abierta o recuperación parcial pendiente de seguimiento.`
+          : `Alerta informativa: El corte incluye cargos/reembolsos por $${rawErrAdj.toFixed(2)} pendientes de seguimiento por orden.`,
+      message_en:
+        openOrPartialDisputesCount > 0
+          ? `Informative alert: ${openOrPartialDisputesCount} order(s) with open dispute/error charge or partial recovery pending follow-up.`
+          : `Informative alert: Payout includes $${rawErrAdj.toFixed(2)} in error charges/refunds pending order-level follow-up.`,
+      cause_es: 'Existen deducciones por reembolsos o errores de orden cuyo reclamo o recuperación total sigue abierto.',
+      cause_en: 'Order refund or error deductions exist whose claim or full recovery remains open.',
+      next_action_es: 'Dar seguimiento en la pestaña Disputas y Recuperaciones y vincular el payout posterior cuando se recupere.',
+      next_action_en: 'Follow up in the Disputes & Recoveries tab and link the subsequent payout once recovered.',
     })
   }
 
@@ -1108,6 +1547,15 @@ export async function GET(req: NextRequest) {
       ordersByStore.set(sId, arr)
     }
 
+    // Mapa global de pólizas QBO ya asignadas a algún payout en DB para impedir vínculos duplicados
+    const alreadyAssignedJeIds = new Map<string, string>()
+    for (const row of rawPayoutsAll || []) {
+      const existingJeId = String(row?.raw_payload?.qb_journal_entry_id || '').trim()
+      if (existingJeId && row?.id) {
+        alreadyAssignedJeIds.set(existingJeId, String(row.id))
+      }
+    }
+
     const payoutsToBackfillQbId: Array<{ id: string; raw_payload: Record<string, any> }> = []
 
     let enrichedRecords = (rawPayouts || []).map((p: any) => {
@@ -1124,18 +1572,26 @@ export async function GET(req: NextRequest) {
         splitTaxOnRefunds: false,
       })
 
-      // Detección estricta en QBO usando ID guardado, llave idempotente o referencia exacta del payout + tienda + cuenta CxC
-      const savedQbId = p.raw_payload?.qb_journal_entry_id
-      const matchedJe = matchExistingJournalEntryStrict({
+      const savedQbId = String(p.raw_payload?.qb_journal_entry_id || '').trim()
+      const qboMatch = evaluateHistoricalQboJournalMatch({
         payout: p,
         storeLocationId: storeRefs.locationId,
         bankAccountQbId: storeRefs.bankAccountQbId,
         receivableQbId: cfg.receivableQbId,
         expectedReceivableAmount: preview.receivableCredit,
         qbJournalEntries,
+        alreadyAssignedJeIds,
+        // Para payouts sin vínculo en DB, NO vincular silenciosamente por coincidencia contable sin referencia en PrivateNote
+        autoLinkAccountingSingleCandidate: false,
       })
 
-      if (matchedJe && !savedQbId && p.id) {
+      const matchedJe = qboMatch.matchedJe
+      if (matchedJe && p.id) {
+        alreadyAssignedJeIds.set(String(matchedJe.Id), String(p.id))
+      }
+
+      // Solo auto-reparar en DB si la coincidencia es FIRME por ID o Referencia Oficial en PrivateNote (Prioridad 1)
+      if (matchedJe && !savedQbId && p.id && qboMatch.classification === 'FIRM_ID_OR_REF') {
         payoutsToBackfillQbId.push({
           id: p.id,
           raw_payload: {
@@ -1148,18 +1604,20 @@ export async function GET(req: NextRequest) {
         })
       }
 
-      const hasJournalEntry = Boolean(matchedJe || savedQbId)
+      const hasJournalEntry = Boolean(
+        (matchedJe || savedQbId) && qboMatch.classification !== 'CONFLICT_DUPLICATE_JE'
+      )
       const publishStatus = p.raw_payload?.qb_publish_status || (hasJournalEntry ? 'PUBLISHED' : 'PENDING')
       const recoveryRequired = publishStatus === 'RECOVERY_REQUIRED'
 
-      const qbJournalEntry = matchedJe
+      const qbJournalEntry = matchedJe && hasJournalEntry
         ? {
             id: String(matchedJe.Id),
             docNumber: String(matchedJe.DocNumber || p.raw_payload?.qb_doc_number || ''),
             txnDate: String(matchedJe.TxnDate || preview.txnDate),
             totalAmount: preview.totalDebits,
           }
-        : savedQbId
+        : savedQbId && hasJournalEntry
         ? {
             id: String(savedQbId),
             docNumber: String(p.raw_payload?.qb_doc_number || ''),
@@ -1168,6 +1626,82 @@ export async function GET(req: NextRequest) {
           }
         : null
 
+      // Construir lista final de bloqueos contables (incluyendo estado de póliza e historial QBO)
+      const effectiveBlockers: PublishBlocker[] = [...preview.publishBlockers]
+
+      if (hasJournalEntry) {
+        effectiveBlockers.push({
+          code: 'ALREADY_PUBLISHED_IN_QBO',
+          message_es: `La póliza contable ya está registrada en QuickBooks Online (Doc #${qbJournalEntry?.docNumber || qbJournalEntry?.id}).`,
+          message_en: `Journal Entry is already posted in QuickBooks Online (Doc #${qbJournalEntry?.docNumber || qbJournalEntry?.id}).`,
+          cause_es: `El corte ya cuenta con el Journal Entry ID #${qbJournalEntry?.id} vinculado en QuickBooks Online.`,
+          cause_en: `Settlement is already linked to QuickBooks Journal Entry ID #${qbJournalEntry?.id}.`,
+          next_action_es: 'No vuelva a publicar este corte. Puede consultar la póliza existente o revisar las alertas de auditoría de órdenes.',
+          next_action_en: 'Do not re-publish this settlement. You may view the existing entry or review order audit alerts.',
+        })
+      } else if (publishStatus === 'IN_PROGRESS') {
+        effectiveBlockers.push({
+          code: 'PUBLISH_IN_PROGRESS',
+          message_es: 'El corte tiene una solicitud de publicación en curso en este momento.',
+          message_en: 'This settlement currently has a publish request in progress.',
+          cause_es: 'Existe un lock atómico activo en la base de datos para evitar creación duplicada.',
+          cause_en: 'An active atomic lock exists in the database to prevent duplicate creation.',
+          next_action_es: 'Espere a que finalice la solicitud actual y actualice la vista.',
+          next_action_en: 'Wait for the current request to finish and refresh the view.',
+        })
+      } else if (recoveryRequired) {
+        effectiveBlockers.push({
+          code: 'RECOVERY_REQUIRED_CHECK_QBO',
+          message_es: 'Publicación previa en estado de recuperación (RECOVERY_REQUIRED): se debe consultar QuickBooks antes de reintentar.',
+          message_en: 'Previous publish in recovery state (RECOVERY_REQUIRED): QuickBooks must be checked before retrying.',
+          cause_es: 'Una solicitud previa a QuickBooks Online sufrió un error de red o de persistencia post-creación.',
+          cause_en: 'A previous request to QuickBooks Online experienced a network or post-creation persistence failure.',
+          next_action_es: 'Use la acción "Verificar estado en QBO" para comprobar si la póliza se creó o liberar el corte de forma segura.',
+          next_action_en: 'Use the "Verify status in QBO" action to check if the entry was created or safely unlock the settlement.',
+        })
+      }
+
+      if (qboMatch.classification === 'HISTORICAL_CANDIDATE_PENDING_REVIEW' && qboMatch.candidates.length > 0) {
+        const cand = qboMatch.candidates[0]
+        effectiveBlockers.push({
+          code: 'HISTORICAL_QBO_CANDIDATE_PENDING',
+          message_es: `Posible póliza histórica detectada en QuickBooks (Doc #${cand.docNumber || cand.id} del ${cand.txnDate} por $${cand.bankDebitAmount.toFixed(2)}) pendiente de resolver.`,
+          message_en: `Possible historical Journal Entry detected in QuickBooks (Doc #${cand.docNumber || cand.id} dated ${cand.txnDate} for $${cand.bankDebitAmount.toFixed(2)}) pending resolution.`,
+          cause_es: `La póliza QBO #${cand.id} coincide en sucursal, cuenta CxC, cuenta bancaria e importe ($${cand.bankDebitAmount.toFixed(2)}), pero no contiene la referencia oficial en PrivateNote.`,
+          cause_en: `QBO Journal Entry #${cand.id} matches store, receivable account, bank account, and amount ($${cand.bankDebitAmount.toFixed(2)}), but lacks the official reference in PrivateNote.`,
+          next_action_es: 'Revise la póliza candidata en el detalle del corte y confírmela (vincular) o descártela con motivo y evidencia antes de publicar.',
+          next_action_en: 'Review the candidate entry in the settlement detail and confirm (link) or discard it with reason and evidence before publishing.',
+        })
+      } else if (qboMatch.classification === 'AMBIGUOUS_CANDIDATES') {
+        effectiveBlockers.push({
+          code: 'AMBIGUOUS_HISTORICAL_QBO_CANDIDATE',
+          message_es: `Ambigüedad en QuickBooks: existen ${qboMatch.candidates.length} pólizas históricas candidatas con el mismo importe y banco.`,
+          message_en: `Ambiguity in QuickBooks: ${qboMatch.candidates.length} candidate historical entries match the same amount and bank.`,
+          cause_es: `Múltiples pólizas en QBO (${qboMatch.candidates.map((c) => `#${c.docNumber || c.id}`).join(', ')}) coinciden en sucursal, banco e importe dentro de la ventana de fechas.`,
+          cause_en: `Multiple QBO entries (${qboMatch.candidates.map((c) => `#${c.docNumber || c.id}`).join(', ')}) match store, bank, and amount within the date window.`,
+          next_action_es: 'Inspeccione las pólizas candidatas y seleccione explícitamente cuál vincular (o descarte las que no correspondan) con motivo y evidencia.',
+          next_action_en: 'Inspect the candidate entries and explicitly select which one to link (or discard non-matching ones) with reason and evidence.',
+        })
+      } else if (qboMatch.classification === 'CONFLICT_DUPLICATE_JE') {
+        effectiveBlockers.push({
+          code: 'CONFLICTING_HISTORICAL_QBO_LINK',
+          message_es: `Conflicto de vínculo QBO: la póliza ya está asignada a otro payout (${qboMatch.conflictWithPayoutId}).`,
+          message_en: `QBO link conflict: the Journal Entry is already assigned to another payout (${qboMatch.conflictWithPayoutId}).`,
+          cause_es: 'Una misma póliza de QuickBooks no puede asignarse a dos payouts distintos salvo agrupación explícitamente documentada.',
+          cause_en: 'A single QuickBooks Journal Entry cannot be assigned to two different payouts unless explicitly documented as a grouped entry.',
+          next_action_es: 'Descarte la póliza en conflicto o documente la aprobación explícita de póliza agrupada.',
+          next_action_en: 'Discard the conflicting entry or document explicit grouped-entry approval.',
+        })
+      }
+
+      const canPublish =
+        !hasJournalEntry &&
+        publishStatus !== 'IN_PROGRESS' &&
+        !recoveryRequired &&
+        effectiveBlockers.length === 0
+
+      // 3. Distinguir estrictamente "Póliza registrada en QBO" de "Depósito confirmado en banco"
+      // Una línea bancaria dentro del propio Journal Entry NO demuestra recepción ni conciliación bancaria real.
       const netPayoutAbs = round2(Math.abs(Number(p.net_payout_amount || 0)))
       const matchedQbDeposit = (qbDeposits || []).find((dep: any) => {
         const depAcctId = String(dep?.DepositToAccountRef?.value || '')
@@ -1179,12 +1713,16 @@ export async function GET(req: NextRequest) {
         ? (Array.isArray(matchedJe.Line) ? matchedJe.Line : []).some(
             (l: any) =>
               String(l?.JournalEntryLineDetail?.AccountRef?.value || '') === String(storeRefs.bankAccountQbId) &&
+              String(l?.JournalEntryLineDetail?.PostingType || '') === 'Debit' &&
               Math.abs(round2(Number(l?.Amount || 0)) - netPayoutAbs) <= 0.05
           )
         : false
 
+      const isBankDepositConfirmed =
+        Boolean(matchedQbDeposit) || p.raw_payload?.bank_feed_confirmed === true
+
       const bankStatus: 'VERIFIED_IN_BANK' | 'JE_POSTED_IN_TRANSIT' | 'NOT_POSTED' =
-        matchedQbDeposit || jeBankDebitVerified
+        isBankDepositConfirmed
           ? 'VERIFIED_IN_BANK'
           : hasJournalEntry
           ? 'JE_POSTED_IN_TRANSIT'
@@ -1192,24 +1730,173 @@ export async function GET(req: NextRequest) {
 
       const bankVerification = {
         status: bankStatus,
+        jeBankDebitVerified,
+        label_es:
+          bankStatus === 'VERIFIED_IN_BANK'
+            ? 'Depósito confirmado en banco'
+            : bankStatus === 'JE_POSTED_IN_TRANSIT'
+            ? 'Póliza registrada en QBO (Depósito bancario pendiente de confirmar)'
+            : 'Sin póliza registrada en QBO',
+        label_en:
+          bankStatus === 'VERIFIED_IN_BANK'
+            ? 'Deposit confirmed in bank'
+            : bankStatus === 'JE_POSTED_IN_TRANSIT'
+            ? 'Journal Entry posted in QBO (Bank deposit pending confirmation)'
+            : 'No Journal Entry posted in QBO',
         bankAccountNum: storeRefs.bankAccount,
         bankAccountName: `${storeRefs.bankAccount} ${storeRefs.bankAccountName.replace(/^\d+\s*-\s*/, '')}`,
         expectedDepositAmount: round2(Number(p.net_payout_amount || 0)),
         matchedDepositId: matchedQbDeposit
           ? String(matchedQbDeposit.Id)
-          : jeBankDebitVerified && matchedJe
-          ? String(matchedJe.DocNumber || matchedJe.Id)
+          : p.raw_payload?.bank_feed_deposit_id
+          ? String(p.raw_payload.bank_feed_deposit_id)
           : null,
         matchedDepositDate: matchedQbDeposit
           ? String(matchedQbDeposit.TxnDate || '')
-          : jeBankDebitVerified && matchedJe
-          ? String(matchedJe.TxnDate || preview.txnDate)
+          : p.raw_payload?.bank_feed_confirmed_date
+          ? String(p.raw_payload.bank_feed_confirmed_date)
           : null,
         matchedDepositAmount: matchedQbDeposit
           ? round2(Number(matchedQbDeposit.TotalAmt || 0))
-          : jeBankDebitVerified
+          : isBankDepositConfirmed
           ? round2(Number(p.net_payout_amount || 0))
           : null,
+      }
+
+      // 5. Tres estados independientes para la UI: (1) Payout/Póliza, (2) Auditoría de Órdenes, (3) Disputa/Recuperación
+      const payoutPolicyStatus = {
+        code: hasJournalEntry
+          ? isBankDepositConfirmed
+            ? 'PUBLISHED_AND_BANK_CONFIRMED'
+            : 'PUBLISHED_IN_QBO'
+          : recoveryRequired
+          ? 'RECOVERY_REQUIRED'
+          : publishStatus === 'IN_PROGRESS'
+          ? 'PUBLISH_IN_PROGRESS'
+          : qboMatch.classification === 'HISTORICAL_CANDIDATE_PENDING_REVIEW' ||
+            qboMatch.classification === 'AMBIGUOUS_CANDIDATES' ||
+            qboMatch.classification === 'CONFLICT_DUPLICATE_JE'
+          ? 'HISTORICAL_CANDIDATE_PENDING'
+          : canPublish
+          ? 'READY_TO_PUBLISH'
+          : 'BLOCKED',
+        label_es: hasJournalEntry
+          ? `Póliza registrada en QBO (#${qbJournalEntry?.docNumber || qbJournalEntry?.id})`
+          : recoveryRequired
+          ? 'Recuperación QBO requerida'
+          : publishStatus === 'IN_PROGRESS'
+          ? 'Publicando en QBO...'
+          : qboMatch.classification === 'HISTORICAL_CANDIDATE_PENDING_REVIEW'
+          ? 'Posible póliza histórica por confirmar'
+          : qboMatch.classification === 'AMBIGUOUS_CANDIDATES'
+          ? 'Candidatos QBO ambiguos'
+          : qboMatch.classification === 'CONFLICT_DUPLICATE_JE'
+          ? 'Conflicto de póliza QBO'
+          : canPublish
+          ? 'Listo para publicar en QBO'
+          : 'Bloqueado para publicar',
+        label_en: hasJournalEntry
+          ? `Journal Entry posted in QBO (#${qbJournalEntry?.docNumber || qbJournalEntry?.id})`
+          : recoveryRequired
+          ? 'QBO Recovery Required'
+          : publishStatus === 'IN_PROGRESS'
+          ? 'Publishing to QBO...'
+          : qboMatch.classification === 'HISTORICAL_CANDIDATE_PENDING_REVIEW'
+          ? 'Historical QBO candidate pending confirmation'
+          : qboMatch.classification === 'AMBIGUOUS_CANDIDATES'
+          ? 'Ambiguous QBO candidates'
+          : qboMatch.classification === 'CONFLICT_DUPLICATE_JE'
+          ? 'QBO entry link conflict'
+          : canPublish
+          ? 'Ready to publish to QBO'
+          : 'Blocked from publishing',
+        bank_status: bankStatus,
+        bank_label_es: bankVerification.label_es,
+        bank_label_en: bankVerification.label_en,
+      }
+
+      const auditStatus = {
+        code: preview.auditWarnings.length === 0 ? 'AUDIT_CLEAN' : 'AUDIT_PENDING_ALERTS',
+        warningsCount: preview.auditWarnings.length,
+        label_es:
+          preview.auditWarnings.length === 0
+            ? 'Auditoría de órdenes sin alertas'
+            : `Auditoría con ${preview.auditWarnings.length} alerta(s) pendiente(s)`,
+        label_en:
+          preview.auditWarnings.length === 0
+            ? 'Order audit clean (no alerts)'
+            : `Order audit has ${preview.auditWarnings.length} pending alert(s)`,
+      }
+
+      const deductedOrdersList = preview.auditBreakdown?.deductedOrders || []
+      let openDisputesCount = 0
+      let partialRecoveryCount = 0
+      let fullRecoveryCount = 0
+      let unverifiedRecoveryCount = 0
+      for (const dOrd of deductedOrdersList) {
+        const dStat = String(dOrd.dispute_status || 'PENDING')
+        const recAmt = round2(Math.abs(Number(dOrd.reimbursement_amount || 0)))
+        const dedAmt = round2(Math.abs(Number(dOrd.error_charge || 0)))
+        const hasRef = Boolean(String(dOrd.reimbursement_payout_ref || '').trim())
+        if (dStat === 'REIMBURSED') {
+          if (hasRef && recAmt > 0 && recAmt >= dedAmt - 0.05) {
+            fullRecoveryCount++
+          } else if (hasRef && recAmt > 0) {
+            partialRecoveryCount++
+          } else {
+            unverifiedRecoveryCount++
+          }
+        } else if (dStat !== 'ACCEPTED_LOSS') {
+          openDisputesCount++
+        }
+      }
+
+      const disputeRecoveryStatus = {
+        code:
+          unverifiedRecoveryCount > 0
+            ? 'UNVERIFIED_RECOVERY'
+            : partialRecoveryCount > 0
+            ? 'PARTIAL_RECOVERY'
+            : openDisputesCount > 0 || (preview.rawErrAdj < -0.01 && fullRecoveryCount === 0)
+            ? 'OPEN_DISPUTES'
+            : fullRecoveryCount > 0
+            ? 'FULL_RECOVERY'
+            : preview.rawErrAdj > 0.01
+            ? 'POSITIVE_REIMBURSEMENT'
+            : 'NO_DISPUTES',
+        openDisputesCount,
+        partialRecoveryCount,
+        fullRecoveryCount,
+        unverifiedRecoveryCount,
+        netRefundsAdjustments: preview.rawErrAdj,
+        label_es:
+          unverifiedRecoveryCount > 0
+            ? `${unverifiedRecoveryCount} recuperación(es) sin evidencia completa`
+            : partialRecoveryCount > 0
+            ? `${partialRecoveryCount} recuperación(es) parcial(es) (${openDisputesCount} abierta(s))`
+            : openDisputesCount > 0
+            ? `${openDisputesCount} disputa(s) / descuento(s) pendiente(s)`
+            : preview.rawErrAdj < -0.01 && fullRecoveryCount === 0
+            ? `Cargo por error / reembolso ($${preview.rawErrAdj.toFixed(2)}) por investigar`
+            : fullRecoveryCount > 0
+            ? `${fullRecoveryCount} disputa(s) recuperada(s) totalmente`
+            : preview.rawErrAdj > 0.01
+            ? `Reembolso a favor recibido (+$${preview.rawErrAdj.toFixed(2)})`
+            : 'Sin disputas ni cargos por error',
+        label_en:
+          unverifiedRecoveryCount > 0
+            ? `${unverifiedRecoveryCount} recovery(ies) missing verifiable evidence`
+            : partialRecoveryCount > 0
+            ? `${partialRecoveryCount} partial recovery(ies) (${openDisputesCount} open)`
+            : openDisputesCount > 0
+            ? `${openDisputesCount} open dispute(s) / deduction(s)`
+            : preview.rawErrAdj < -0.01 && fullRecoveryCount === 0
+            ? `Error charge / refund ($${preview.rawErrAdj.toFixed(2)}) to investigate`
+            : fullRecoveryCount > 0
+            ? `${fullRecoveryCount} dispute(s) fully recovered`
+            : preview.rawErrAdj > 0.01
+            ? `Positive reimbursement received (+$${preview.rawErrAdj.toFixed(2)})`
+            : 'No disputes or error charges',
       }
 
       return {
@@ -1236,12 +1923,24 @@ export async function GET(req: NextRequest) {
         hasJournalEntry,
         publishStatus,
         recoveryRequired,
-        canPublish: !hasJournalEntry && preview.canPublish,
-        publishBlockers: preview.publishBlockers,
+        canPublish,
+        publishBlockers: effectiveBlockers,
         auditWarnings: preview.auditWarnings,
+        payoutPolicyStatus,
+        auditStatus,
+        disputeRecoveryStatus,
+        qboMatchEvaluation: {
+          classification: qboMatch.classification,
+          candidates: qboMatch.candidates,
+          conflictWithPayoutId: qboMatch.conflictWithPayoutId,
+        },
         qbJournalEntry,
         bankVerification,
-        journalPreview: preview,
+        journalPreview: {
+          ...preview,
+          canPublish,
+          publishBlockers: effectiveBlockers,
+        },
       }
     })
 
@@ -1366,6 +2065,335 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: false, error: 'Payload inválido' }, { status: 400 })
     }
 
+    const action = typeof body.action === 'string' ? body.action.trim() : 'publish'
+
+    // =========================================================================
+    // ACCIONES DE RESOLUCIÓN DE CANDIDATOS QBO HISTÓRICOS Y RECUPERACIÓN
+    // =========================================================================
+    if (
+      action === 'confirm_qbo_candidate' ||
+      action === 'discard_qbo_candidate' ||
+      action === 'verify_recovery_status'
+    ) {
+      const targetPayoutId = String(body.payoutId || body.payout_id || '').trim()
+      if (!targetPayoutId) {
+        return NextResponse.json(
+          { success: false, error: 'Se requiere payoutId para ejecutar esta acción.' },
+          { status: 400 }
+        )
+      }
+
+      const { data: targetPayout, error: tpErr } = await supabaseAdmin
+        .from('delivery_platform_payouts')
+        .select('*')
+        .eq('id', targetPayoutId)
+        .single()
+
+      if (tpErr || !targetPayout) {
+        return NextResponse.json(
+          { success: false, error: 'No se encontró el corte indicado en la base de datos.' },
+          { status: 404 }
+        )
+      }
+
+      const scopeAuth = await authorizeDeliveryReconciliationRequest(req, supabaseAdmin, {
+        permission: 'publish_journal',
+        allowCron: false,
+        targetStoreIds: [Number(targetPayout.store_id)],
+      })
+      if (!scopeAuth.authorized) {
+        return NextResponse.json(
+          { success: false, error: scopeAuth.error || 'No autorizado para esta sucursal.' },
+          { status: scopeAuth.status || 403 }
+        )
+      }
+
+      if (action === 'confirm_qbo_candidate' || action === 'discard_qbo_candidate') {
+        const candidateJeId = String(body.jeId || body.je_id || '').trim()
+        const reason = String(body.reason || '').trim()
+        const evidence = String(body.evidence || '').trim()
+        const allowSharedJe = Boolean(body.allowSharedJe || body.allow_shared_je)
+
+        if (!candidateJeId) {
+          return NextResponse.json(
+            { success: false, error: 'Se requiere el ID de la póliza candidata de QuickBooks (jeId).' },
+            { status: 400 }
+          )
+        }
+        if (reason.length < 5) {
+          return NextResponse.json(
+            {
+              success: false,
+              error: 'Debe registrar un motivo explícito (mínimo 5 caracteres) para confirmar o descartar una póliza candidata.',
+            },
+            { status: 400 }
+          )
+        }
+        if (evidence.length < 3) {
+          return NextResponse.json(
+            {
+              success: false,
+              error: 'Debe registrar evidencia verificable (ej. DocNumber, fecha o referencia de estado de cuenta) para confirmar o descartar.',
+            },
+            { status: 400 }
+          )
+        }
+
+        if (action === 'confirm_qbo_candidate') {
+          // Verificar que ninguna otra fila tenga ya asignada esta misma póliza QBO (salvo agrupación explícitamente aprobada)
+          const allPayoutRows = await fetchAllSupabaseRows<any>((from, to) =>
+            supabaseAdmin
+              .from('delivery_platform_payouts')
+              .select('id, payout_reference_id, store_id, platform, raw_payload')
+              .range(from, to)
+          )
+          const conflictingRow = (allPayoutRows || []).find(
+            (r: any) =>
+              String(r?.id) !== String(targetPayout.id) &&
+              String(r?.raw_payload?.qb_journal_entry_id || '').trim() === candidateJeId
+          )
+          if (conflictingRow && !allowSharedJe) {
+            return NextResponse.json(
+              {
+                success: false,
+                error: `La póliza QBO #${candidateJeId} ya está asignada al corte ${conflictingRow.payout_reference_id} (ID ${conflictingRow.id}). No se permite asignar la misma póliza a dos payouts distintos salvo agrupación explícitamente documentada (allowSharedJe=true).`,
+              },
+              { status: 409 }
+            )
+          }
+
+          let verifiedDocNumber = String(body.docNumber || body.doc_number || '').trim()
+          let verifiedTxnDate = String(body.txnDate || body.txn_date || targetPayout.payout_date || targetPayout.period_end || '').trim()
+          try {
+            const { token, realmId } = await getValidQuickBooksToken()
+            const q = encodeURIComponent(`select * from JournalEntry where Id = '${candidateJeId.replace(/'/g, '')}'`)
+            const r = await fetch(
+              `https://quickbooks.api.intuit.com/v3/company/${realmId}/query?query=${q}&minorversion=75`,
+              { headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' } }
+            )
+            if (r.ok) {
+              const j = await r.json()
+              const jeObj = j?.QueryResponse?.JournalEntry?.[0]
+              if (jeObj) {
+                verifiedDocNumber = String(jeObj.DocNumber || verifiedDocNumber)
+                verifiedTxnDate = String(jeObj.TxnDate || verifiedTxnDate)
+              }
+            }
+          } catch {}
+
+          const currentRaw = targetPayout.raw_payload || {}
+          const resolutionEntry = {
+            action: 'CONFIRMED',
+            je_id: candidateJeId,
+            doc_number: verifiedDocNumber,
+            txn_date: verifiedTxnDate,
+            reason,
+            evidence,
+            allow_shared_je: allowSharedJe,
+            resolved_by: auth.user.email || 'staff',
+            resolved_by_user_id: auth.user.id || null,
+            resolved_by_role: auth.user.role || null,
+            resolved_at: new Date().toISOString(),
+          }
+          const updatedRaw = {
+            ...currentRaw,
+            qb_journal_entry_id: candidateJeId,
+            qb_doc_number: verifiedDocNumber,
+            qb_txn_date: verifiedTxnDate,
+            qb_publish_status: 'PUBLISHED',
+            qbo_shared_je_approved: allowSharedJe ? true : currentRaw.qbo_shared_je_approved,
+            qbo_candidate_resolution: resolutionEntry,
+            qbo_candidate_audit_log: [
+              ...(Array.isArray(currentRaw.qbo_candidate_audit_log) ? currentRaw.qbo_candidate_audit_log : []),
+              resolutionEntry,
+            ],
+          }
+
+          const { error: updErr } = await supabaseAdmin
+            .from('delivery_platform_payouts')
+            .update({
+              raw_payload: updatedRaw,
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', targetPayout.id)
+
+          if (updErr) {
+            return NextResponse.json(
+              { success: false, error: `Error al guardar confirmación de póliza: ${updErr.message}` },
+              { status: 500 }
+            )
+          }
+
+          return NextResponse.json({
+            success: true,
+            action: 'confirm_qbo_candidate',
+            payoutId: targetPayout.id,
+            journalEntry: {
+              id: candidateJeId,
+              docNumber: verifiedDocNumber,
+              txnDate: verifiedTxnDate,
+            },
+            resolution: resolutionEntry,
+          })
+        } else {
+          // discard_qbo_candidate
+          const currentRaw = targetPayout.raw_payload || {}
+          const existingDiscarded: string[] = Array.isArray(currentRaw.discarded_qbo_je_ids)
+            ? currentRaw.discarded_qbo_je_ids.map((x: any) => String(x))
+            : []
+          const nextDiscarded = Array.from(new Set([...existingDiscarded, candidateJeId]))
+          const discardEntry = {
+            action: 'DISCARDED',
+            je_id: candidateJeId,
+            reason,
+            evidence,
+            resolved_by: auth.user.email || 'staff',
+            resolved_by_user_id: auth.user.id || null,
+            resolved_by_role: auth.user.role || null,
+            resolved_at: new Date().toISOString(),
+          }
+          const updatedRaw = {
+            ...currentRaw,
+            discarded_qbo_je_ids: nextDiscarded,
+            qbo_candidate_resolution: discardEntry,
+            qbo_candidate_audit_log: [
+              ...(Array.isArray(currentRaw.qbo_candidate_audit_log) ? currentRaw.qbo_candidate_audit_log : []),
+              discardEntry,
+            ],
+          }
+
+          const { error: updErr } = await supabaseAdmin
+            .from('delivery_platform_payouts')
+            .update({
+              raw_payload: updatedRaw,
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', targetPayout.id)
+
+          if (updErr) {
+            return NextResponse.json(
+              { success: false, error: `Error al descartar candidato QBO: ${updErr.message}` },
+              { status: 500 }
+            )
+          }
+
+          return NextResponse.json({
+            success: true,
+            action: 'discard_qbo_candidate',
+            payoutId: targetPayout.id,
+            discardedJeId: candidateJeId,
+            discardedJeIds: nextDiscarded,
+            resolution: discardEntry,
+          })
+        }
+      }
+
+      if (action === 'verify_recovery_status') {
+        const { token, realmId } = await getValidQuickBooksToken()
+        const mappings = await getStorePlatformMappings()
+        const storeMeta = mappings.find((m) => m.store_id === Number(targetPayout.store_id))
+        const storeName = storeMeta?.store_name || `Store #${targetPayout.store_id}`
+        const storeRefs = getQBStoreRefs(storeName)
+        const plat = (targetPayout.platform as DeliveryPlatformCode) || 'UBER_EATS'
+        const cfg = PLATFORM_QB_CONFIG[plat] || PLATFORM_QB_CONFIG.UBER_EATS
+        const idempotencyKey = buildPayoutIdempotencyKey(
+          plat,
+          Number(targetPayout.store_id),
+          targetPayout.payout_reference_id
+        )
+
+        const q = encodeURIComponent(`select * from JournalEntry orderby TxnDate desc maxresults 500`)
+        const r = await fetch(
+          `https://quickbooks.api.intuit.com/v3/company/${realmId}/query?query=${q}&minorversion=75`,
+          { headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' } }
+        )
+        if (!r.ok) {
+          return NextResponse.json(
+            { success: false, error: `No se pudo consultar QuickBooks Online (${r.status}).` },
+            { status: 502 }
+          )
+        }
+        const j = await r.json()
+        const recentJournals: any[] = j?.QueryResponse?.JournalEntry || []
+        const preview = buildPayoutJournalPreview({
+          payout: targetPayout,
+          storeName,
+          storeOrders: [],
+        })
+        const evalRes = evaluateHistoricalQboJournalMatch({
+          payout: targetPayout,
+          storeLocationId: storeRefs.locationId,
+          bankAccountQbId: storeRefs.bankAccountQbId,
+          receivableQbId: cfg.receivableQbId,
+          expectedReceivableAmount: preview.receivableCredit,
+          qbJournalEntries: recentJournals,
+          autoLinkAccountingSingleCandidate: false,
+        })
+
+        if (evalRes.matchedJe && evalRes.classification === 'FIRM_ID_OR_REF') {
+          const jeId = String(evalRes.matchedJe.Id)
+          const docNum = String(evalRes.matchedJe.DocNumber || '')
+          const txnDt = String(evalRes.matchedJe.TxnDate || preview.txnDate)
+          await supabaseAdmin
+            .from('delivery_platform_payouts')
+            .update({
+              raw_payload: {
+                ...(targetPayout.raw_payload || {}),
+                qb_journal_entry_id: jeId,
+                qb_doc_number: docNum,
+                qb_txn_date: txnDt,
+                qb_idempotency_key: idempotencyKey,
+                qb_publish_status: 'PUBLISHED',
+                qb_recovered_at: new Date().toISOString(),
+                qb_recovered_by: auth.user.email || 'staff',
+              },
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', targetPayout.id)
+
+          return NextResponse.json({
+            success: true,
+            action: 'verify_recovery_status',
+            outcome: 'RECOVERED_EXISTING_IN_QBO',
+            payoutId: targetPayout.id,
+            journalEntry: { id: jeId, docNumber: docNum, txnDate: txnDt },
+          })
+        }
+
+        if (evalRes.candidates.length > 0) {
+          return NextResponse.json({
+            success: true,
+            action: 'verify_recovery_status',
+            outcome: 'CANDIDATES_FOUND_REQUIRE_CONFIRMATION',
+            payoutId: targetPayout.id,
+            candidates: evalRes.candidates,
+          })
+        }
+
+        // Confirmado que NO se creó en QBO: liberar estado RECOVERY_REQUIRED a PENDING para permitir reintento seguro
+        const cleanedRaw = { ...(targetPayout.raw_payload || {}) }
+        cleanedRaw.qb_publish_status = 'PENDING'
+        delete cleanedRaw.qb_lock_expires_at
+        cleanedRaw.qb_recovery_verified_absent_at = new Date().toISOString()
+        cleanedRaw.qb_recovery_verified_by = auth.user.email || 'staff'
+
+        await supabaseAdmin
+          .from('delivery_platform_payouts')
+          .update({
+            raw_payload: cleanedRaw,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', targetPayout.id)
+
+        return NextResponse.json({
+          success: true,
+          action: 'verify_recovery_status',
+          outcome: 'CONFIRMED_ABSENT_IN_QBO_UNLOCKED',
+          payoutId: targetPayout.id,
+        })
+      }
+    }
+
     const payoutIds: string[] = Array.isArray(body.payoutIds)
       ? Array.from(new Set(body.payoutIds.map((id: any) => String(id).trim()).filter(Boolean)))
       : body.payoutId
@@ -1407,6 +2435,21 @@ export async function POST(req: NextRequest) {
         { success: false, error: 'No se encontraron los cortes seleccionados en la base de datos.' },
         { status: 404 }
       )
+    }
+
+    // Cargar todos los vínculos QBO existentes para evitar duplicidad de póliza entre payouts
+    const allPayoutLinksRows = await fetchAllSupabaseRows<any>((from, to) =>
+      supabaseAdmin
+        .from('delivery_platform_payouts')
+        .select('id, raw_payload')
+        .range(from, to)
+    )
+    const alreadyAssignedJeIds = new Map<string, string>()
+    for (const row of allPayoutLinksRows || []) {
+      const existingJeId = String(row?.raw_payload?.qb_journal_entry_id || '').trim()
+      if (existingJeId && row?.id) {
+        alreadyAssignedJeIds.set(existingJeId, String(row.id))
+      }
     }
 
     // Cargar órdenes reales de las sucursales involucradas para validar bloqueos e impuestos reales
@@ -1503,23 +2546,27 @@ export async function POST(req: NextRequest) {
         splitTaxOnRefunds,
       })
 
-      // 2. Verificar idempotencia en DB o en QuickBooks Online antes de publicar
-      const alreadyInQbo = matchExistingJournalEntryStrict({
+      // 2. Evaluar existencia en DB o en QuickBooks Online antes de publicar
+      const qboMatch = evaluateHistoricalQboJournalMatch({
         payout: p,
         storeLocationId: storeRefs.locationId,
         bankAccountQbId: storeRefs.bankAccountQbId,
         receivableQbId: cfg.receivableQbId,
         expectedReceivableAmount: preview.receivableCredit,
         qbJournalEntries: existingQbJournals,
+        alreadyAssignedJeIds,
+        autoLinkAccountingSingleCandidate: false,
       })
+
+      const alreadyInQbo = qboMatch.matchedJe
 
       if (p.raw_payload?.qb_journal_entry_id || alreadyInQbo) {
         const existingId = String(alreadyInQbo?.Id || p.raw_payload?.qb_journal_entry_id)
         const existingDoc = String(alreadyInQbo?.DocNumber || p.raw_payload?.qb_doc_number || '')
         const existingTxn = String(alreadyInQbo?.TxnDate || p.raw_payload?.qb_txn_date || preview.txnDate)
 
-        // Si estaba en QBO pero no en DB (ej. reintento tras fallo previo de red), reparar vínculo en DB
-        if (!p.raw_payload?.qb_journal_entry_id && alreadyInQbo) {
+        // Si estaba en QBO por referencia firme (FIRM_ID_OR_REF) pero no en DB, reparar vínculo en DB
+        if (!p.raw_payload?.qb_journal_entry_id && alreadyInQbo && qboMatch.classification === 'FIRM_ID_OR_REF') {
           await supabaseAdmin
             .from('delivery_platform_payouts')
             .update({
@@ -1555,8 +2602,69 @@ export async function POST(req: NextRequest) {
         continue
       }
 
-      // 3. Bloquear si existen publishBlockers (desbalanceado, falta tax real, cobertura incompleta, varianza sin aprobar en servidor, etc.)
-      if (!preview.canPublish || preview.publishBlockers.length > 0) {
+      // 2b. Si el corte está en RECOVERY_REQUIRED y no se encontró por referencia firme en QBO, exigir verificación explícita
+      if (p.raw_payload?.qb_publish_status === 'RECOVERY_REQUIRED') {
+        const recBlocker: PublishBlocker = {
+          code: 'RECOVERY_REQUIRED_CHECK_QBO',
+          message_es: 'El corte está en estado RECOVERY_REQUIRED tras un fallo previo. Ejecute primero la verificación contra QuickBooks antes de reintentar.',
+          message_en: 'Settlement is in RECOVERY_REQUIRED state after a prior failure. Run QuickBooks verification first before retrying.',
+          cause_es: 'Una solicitud previa a QuickBooks Online pudo haber creado la póliza antes de fallar la respuesta o persistencia.',
+          cause_en: 'A previous request to QuickBooks Online may have created the entry before the response or persistence failed.',
+          next_action_es: 'Haga clic en "Verificar estado en QBO" para vincular la póliza existente o desbloquear el reintento.',
+          next_action_en: 'Click "Verify status in QBO" to link the existing entry or unlock retry.',
+        }
+        results.push({
+          payoutId: p.id,
+          payoutRef: p.payout_reference_id,
+          storeName,
+          platform: p.platform,
+          idempotencyKey,
+          success: false,
+          recoveryRequired: true,
+          status: 'RECOVERY_REQUIRED',
+          blockers: [recBlocker],
+          error: recBlocker.message_es,
+        })
+        continue
+      }
+
+      // 2c. Bloquear si existe una posible póliza histórica pendiente de confirmar/descartar o ambigua
+      const candidateBlockers: PublishBlocker[] = [...preview.publishBlockers]
+      if (qboMatch.classification === 'HISTORICAL_CANDIDATE_PENDING_REVIEW' && qboMatch.candidates.length > 0) {
+        const cand = qboMatch.candidates[0]
+        candidateBlockers.push({
+          code: 'HISTORICAL_QBO_CANDIDATE_PENDING',
+          message_es: `Existe una posible póliza histórica en QuickBooks (Doc #${cand.docNumber || cand.id} del ${cand.txnDate} por $${cand.bankDebitAmount.toFixed(2)}) pendiente de confirmar o descartar.`,
+          message_en: `Possible historical Journal Entry in QuickBooks (Doc #${cand.docNumber || cand.id} dated ${cand.txnDate} for $${cand.bankDebitAmount.toFixed(2)}) pending confirmation or discard.`,
+          cause_es: `La póliza QBO #${cand.id} coincide en sucursal, cuenta CxC, banco e importe, pero requiere confirmación explícita del usuario.`,
+          cause_en: `QBO entry #${cand.id} matches store, receivable, bank, and amount, requiring explicit user confirmation.`,
+          next_action_es: 'Confirme el vínculo con la póliza histórica o descártela con motivo y evidencia antes de crear una nueva.',
+          next_action_en: 'Confirm the link to the historical entry or discard it with reason and evidence before creating a new one.',
+        })
+      } else if (qboMatch.classification === 'AMBIGUOUS_CANDIDATES') {
+        candidateBlockers.push({
+          code: 'AMBIGUOUS_HISTORICAL_QBO_CANDIDATE',
+          message_es: `Se detectaron ${qboMatch.candidates.length} posibles pólizas históricas en QuickBooks con el mismo importe y banco. No se puede publicar sin resolver la ambigüedad.`,
+          message_en: `Detected ${qboMatch.candidates.length} candidate historical entries in QuickBooks with the same amount and bank. Cannot publish without resolving ambiguity.`,
+          cause_es: 'Múltiples pólizas en QuickBooks coinciden con los parámetros contables del corte.',
+          cause_en: 'Multiple entries in QuickBooks match the settlement accounting parameters.',
+          next_action_es: 'Confirme cuál póliza corresponde a este corte o descarte los candidatos con motivo y evidencia.',
+          next_action_en: 'Confirm which entry belongs to this settlement or discard candidates with reason and evidence.',
+        })
+      } else if (qboMatch.classification === 'CONFLICT_DUPLICATE_JE') {
+        candidateBlockers.push({
+          code: 'CONFLICTING_HISTORICAL_QBO_LINK',
+          message_es: `Conflicto de póliza QBO con otro payout (${qboMatch.conflictWithPayoutId}).`,
+          message_en: `QBO entry conflict with another payout (${qboMatch.conflictWithPayoutId}).`,
+          cause_es: 'La póliza QBO ya está asignada a otro payout.',
+          cause_en: 'The QBO Journal Entry is already assigned to another payout.',
+          next_action_es: 'Resuelva el conflicto descartando o documentando la agrupación.',
+          next_action_en: 'Resolve the conflict by discarding or documenting grouping.',
+        })
+      }
+
+      // 3. Bloquear si existen publishBlockers contables o de candidatos QBO
+      if (!preview.canPublish || candidateBlockers.length > 0) {
         results.push({
           payoutId: p.id,
           payoutRef: p.payout_reference_id,
@@ -1565,14 +2673,13 @@ export async function POST(req: NextRequest) {
           idempotencyKey,
           success: false,
           status: 'BLOCKED',
-          blockers: preview.publishBlockers,
-          error: preview.publishBlockers.map((b) => b.message_es).join(' | '),
+          blockers: candidateBlockers,
+          error: candidateBlockers.map((b) => b.message_es).join(' | '),
         })
         continue
       }
 
       // 4. P0-1: Adquirir lock verdaderamente atómico en Supabase ANTES de llamar a QuickBooks Online
-      // Verifica que exactamente 1 fila sea actualizada bajo las condiciones de estado, ausencia de qb_journal_entry_id y ausencia de lock activo.
       const lockRes = await acquireAtomicPayoutPublishLock({
         payoutId: p.id,
         currentRawPayload: p.raw_payload || {},
@@ -1634,6 +2741,7 @@ export async function POST(req: NextRequest) {
         Line: qbLines,
       }
 
+      let qbDeterministicValidationReject = false
       try {
         const qbRes = await fetch(
           `https://quickbooks.api.intuit.com/v3/company/${realmId}/journalentry?minorversion=75`,
@@ -1650,12 +2758,18 @@ export async function POST(req: NextRequest) {
 
         if (!qbRes.ok) {
           const errTxt = await qbRes.text()
+          if (qbRes.status === 400 && errTxt.includes('Fault')) {
+            qbDeterministicValidationReject = true
+          }
           throw new Error(`QuickBooks API Error (${qbRes.status}): ${errTxt}`)
         }
 
         const qbData = await qbRes.json()
         const jeCreated = qbData.JournalEntry || qbData
         const jeId = String(jeCreated.Id || '')
+        if (!jeId) {
+          throw new Error('QuickBooks respondió HTTP 200 pero sin Id de JournalEntry en el cuerpo.')
+        }
         const finalDocNumber = String(jeCreated.DocNumber || docNumber)
         const finalTxnDate = String(jeCreated.TxnDate || txnDate)
 
@@ -1690,6 +2804,22 @@ export async function POST(req: NextRequest) {
         const persistedId = String(verifyRow?.raw_payload?.qb_journal_entry_id || '')
 
         if (persistErr || verifyErr || persistedId !== jeId) {
+          // Intentar dejar marcado explícitamente RECOVERY_REQUIRED
+          await supabaseAdmin
+            .from('delivery_platform_payouts')
+            .update({
+              raw_payload: {
+                ...(p.raw_payload || {}),
+                qb_idempotency_key: idempotencyKey,
+                qb_publish_status: 'RECOVERY_REQUIRED',
+                qb_pending_recovery_je_id: jeId,
+                qb_pending_recovery_doc_number: finalDocNumber,
+                qb_last_error: 'Persistencia post-creación QBO incompleta; requiere sincronización de recuperación.',
+              },
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', p.id)
+
           results.push({
             payoutId: p.id,
             payoutRef: p.payout_reference_id,
@@ -1704,10 +2834,12 @@ export async function POST(req: NextRequest) {
               docNumber: finalDocNumber,
               txnDate: finalTxnDate,
             },
-            error: `Creado en QuickBooks (ID #${jeId}, Doc #${finalDocNumber}), pero falló la confirmación de persistencia en Supabase. Estado: RECOVERY_REQUIRED (no reintentar manualmente; el próximo GET/POST sincronizará el ID por llave idempotente).`,
+            error: `Creado en QuickBooks (ID #${jeId}, Doc #${finalDocNumber}), pero falló la confirmación de persistencia en Supabase. Estado: RECOVERY_REQUIRED (consultar QBO antes de reintentar).`,
           })
           continue
         }
+
+        alreadyAssignedJeIds.set(jeId, String(p.id))
 
         results.push({
           payoutId: p.id,
@@ -1724,14 +2856,15 @@ export async function POST(req: NextRequest) {
           },
         })
       } catch (err: any) {
-        // Liberar lock de publicación fallida para permitir reintento seguro
+        // Si QBO pudo haber creado la póliza pero falló la red/respuesta/5xx, usar RECOVERY_REQUIRED y consultar QBO antes de reintentar
+        const nextStatus = qbDeterministicValidationReject ? 'FAILED' : 'RECOVERY_REQUIRED'
         await supabaseAdmin
           .from('delivery_platform_payouts')
           .update({
             raw_payload: {
               ...(p.raw_payload || {}),
               qb_idempotency_key: idempotencyKey,
-              qb_publish_status: 'FAILED',
+              qb_publish_status: nextStatus,
               qb_last_error: String(err?.message || 'Error').slice(0, 500),
             },
             updated_at: new Date().toISOString(),
@@ -1745,8 +2878,12 @@ export async function POST(req: NextRequest) {
           platform: p.platform,
           idempotencyKey,
           success: false,
-          status: 'ERROR',
-          error: err.message || 'Error al publicar Journal Entry en QuickBooks Online',
+          recoveryRequired: nextStatus === 'RECOVERY_REQUIRED',
+          status: nextStatus === 'RECOVERY_REQUIRED' ? 'RECOVERY_REQUIRED' : 'ERROR',
+          error:
+            nextStatus === 'RECOVERY_REQUIRED'
+              ? `Respuesta de QBO incierta (${err.message || 'Error de comunicación'}). Estado puesto en RECOVERY_REQUIRED: verifique en QuickBooks Online antes de reintentar.`
+              : err.message || 'Error al publicar Journal Entry en QuickBooks Online',
         })
       }
     }

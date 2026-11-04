@@ -312,6 +312,9 @@ export default function ConciliarDeliveryPage() {
   const [jeModalDate, setJeModalDate] = useState<string>('')
   const [jeModalDocNumber, setJeModalDocNumber] = useState<string>('')
   const [jeModalSplitTax, setJeModalSplitTax] = useState<boolean>(false)
+  const [qboCandidateReason, setQboCandidateReason] = useState<string>('')
+  const [qboCandidateEvidence, setQboCandidateEvidence] = useState<string>('')
+  const [resolvingQboCandidate, setResolvingQboCandidate] = useState<boolean>(false)
 
   // Modal de detalle de orden, trazabilidad de 4 etapas, disputa y resolución de revisión
   const [selectedOrder, setSelectedOrder] = useState<ReconciledOrder | null>(null)
@@ -514,6 +517,118 @@ export default function ConciliarDeliveryPage() {
     setJeModalDate(rec.qbJournalEntry?.txnDate || rec.journalPreview?.txnDate || rec.period_end || rec.payout_date || '')
     setJeModalDocNumber(rec.qbJournalEntry?.docNumber || qbNextDocNumber || '')
     setJeModalSplitTax(false)
+    const firstCand = rec.qboMatchEvaluation?.candidates?.[0]
+    setQboCandidateReason('')
+    setQboCandidateEvidence(
+      firstCand
+        ? `QBO JE #${firstCand.docNumber || firstCand.id} (${firstCand.txnDate}) • $${Number(firstCand.bankDebitAmount || 0).toFixed(2)}`
+        : ''
+    )
+  }
+
+  const handleResolveHistoricalQboCandidate = async (params: {
+    payoutId: string
+    jeId: string
+    docNumber?: string
+    txnDate?: string
+    decision: 'confirm_qbo_candidate' | 'discard_qbo_candidate'
+  }) => {
+    if (qboCandidateReason.trim().length < 5) {
+      setBannerMessage({
+        type: 'error',
+        text: isEn
+          ? 'Please enter an explicit reason (at least 5 characters) to confirm or discard the historical QBO entry.'
+          : 'Debe ingresar un motivo explícito (mínimo 5 caracteres) para confirmar o descartar la póliza histórica de QBO.',
+      })
+      return
+    }
+    if (qboCandidateEvidence.trim().length < 3) {
+      setBannerMessage({
+        type: 'error',
+        text: isEn
+          ? 'Please enter verifiable evidence (e.g. DocNumber, date, or bank reference).'
+          : 'Debe ingresar evidencia verificable (ej. DocNumber, fecha o referencia bancaria).',
+      })
+      return
+    }
+    setResolvingQboCandidate(true)
+    setBannerMessage(null)
+    try {
+      const res = await authFetch('/api/delivery-reconciliation/quickbooks-journal', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: params.decision,
+          payoutId: params.payoutId,
+          jeId: params.jeId,
+          docNumber: params.docNumber,
+          txnDate: params.txnDate,
+          reason: qboCandidateReason.trim(),
+          evidence: qboCandidateEvidence.trim(),
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Error al resolver candidato de póliza QBO')
+      }
+      setBannerMessage({
+        type: 'success',
+        text:
+          params.decision === 'confirm_qbo_candidate'
+            ? isEn
+              ? `Historical QBO Journal Entry #${params.docNumber || params.jeId} confirmed and linked.`
+              : `Póliza histórica QBO #${params.docNumber || params.jeId} confirmada y vinculada al corte.`
+            : isEn
+            ? `Candidate QBO entry #${params.docNumber || params.jeId} discarded with audit log.`
+            : `Candidato QBO #${params.docNumber || params.jeId} descartado con registro de auditoría.`,
+      })
+      setSelectedQbRecord(null)
+      await Promise.all([fetchData(), fetchQbJournalRecords()])
+    } catch (err: any) {
+      setBannerMessage({ type: 'error', text: err.message })
+    } finally {
+      setResolvingQboCandidate(false)
+    }
+  }
+
+  const handleVerifyQboRecoveryStatus = async (payoutId: string) => {
+    setResolvingQboCandidate(true)
+    setBannerMessage(null)
+    try {
+      const res = await authFetch('/api/delivery-reconciliation/quickbooks-journal', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'verify_recovery_status',
+          payoutId,
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Error al verificar estado de recuperación en QuickBooks Online')
+      }
+      setBannerMessage({
+        type: 'success',
+        text:
+          data.outcome === 'RECOVERED_EXISTING_IN_QBO'
+            ? isEn
+              ? `Recovered existing QBO Journal Entry #${data.journalEntry?.docNumber || data.journalEntry?.id}.`
+              : `Se recuperó y vinculó la póliza existente en QBO #${data.journalEntry?.docNumber || data.journalEntry?.id}.`
+            : data.outcome === 'CANDIDATES_FOUND_REQUIRE_CONFIRMATION'
+            ? isEn
+              ? 'Candidate QBO entries found; please confirm or discard in the settlement detail.'
+              : 'Se encontraron pólizas candidatas en QBO; confirme o descarte en el detalle del corte.'
+            : isEn
+            ? 'Verified absent in QBO: settlement unlocked for safe retry.'
+            : 'Verificado ausente en QBO: corte desbloqueado para reintento seguro.',
+      })
+      setSelectedQbRecord(null)
+      await Promise.all([fetchData(), fetchQbJournalRecords()])
+    } catch (err: any) {
+      setBannerMessage({ type: 'error', text: err.message })
+    } finally {
+      setResolvingQboCandidate(false)
+    }
   }
 
   const displayedQbRecords = useMemo(() => {
@@ -1298,9 +1413,9 @@ export default function ConciliarDeliveryPage() {
     const label = (isEn ? ord.status_label_en : ord.status_label_es) || ord.reconciliation_status
     if (ord.action_group === 'CONCILIATED_READY') {
       return (
-        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30">
-          <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
-          {label}
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-xl text-[10px] leading-tight font-bold bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30">
+          <CheckCircle2 className="w-3 h-3 shrink-0" />
+          <span>{label}</span>
         </span>
       )
     }
@@ -1308,29 +1423,29 @@ export default function ConciliarDeliveryPage() {
       const isRecovered = ord.status_code === 'DISPUTE_RECOVERED'
       return (
         <span
-          className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold border ${
+          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-xl text-[10px] leading-tight font-bold border ${
             isRecovered
               ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30'
-              : 'bg-rose-500/15 text-rose-700 dark:text-rose-300 border-rose-500/30'
+              : 'bg-rose-500/15 text-rose-700 dark:text-rose-300 border border-rose-500/30'
           }`}
         >
-          {isRecovered ? <CheckCircle2 className="w-3.5 h-3.5 shrink-0" /> : <XCircle className="w-3.5 h-3.5 shrink-0" />}
-          {label}
+          {isRecovered ? <CheckCircle2 className="w-3 h-3 shrink-0" /> : <XCircle className="w-3 h-3 shrink-0" />}
+          <span>{label}</span>
         </span>
       )
     }
     if (ord.action_group === 'VARIANCE_INVESTIGATE') {
       return (
-        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30">
-          <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
-          {label}
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-xl text-[10px] leading-tight font-bold bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30">
+          <AlertTriangle className="w-3 h-3 shrink-0" />
+          <span>{label}</span>
         </span>
       )
     }
     return (
-      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-slate-500/15 text-slate-700 dark:text-slate-300 border border-slate-500/30">
-        <Lock className="w-3.5 h-3.5 shrink-0" />
-        {label}
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-xl text-[10px] leading-tight font-bold bg-slate-500/15 text-slate-700 dark:text-slate-300 border border-slate-500/30">
+        <Lock className="w-3 h-3 shrink-0" />
+        <span>{label}</span>
       </span>
     )
   }
@@ -1354,7 +1469,7 @@ export default function ConciliarDeliveryPage() {
     !coverageReport?.isCoverageComplete
 
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 p-3 md:p-5 space-y-4">
+    <div className="w-full text-slate-900 dark:text-slate-100 space-y-3.5">
       {/* BANNER DE ADVERTENCIA VISIBLE SI FALLA FETCH O SYNC (NUNCA OCULTAR DATOS ANTIGUOS SIN ADVERTENCIA) */}
       {fetchError && (
         <div className="p-3.5 rounded-2xl bg-rose-500/15 border-2 border-rose-500/40 text-rose-800 dark:text-rose-200 flex items-center justify-between gap-3 shadow-sm">
@@ -2384,10 +2499,10 @@ export default function ConciliarDeliveryPage() {
                 </div>
               </div>
 
-              <table className="w-full text-left border-collapse text-xs">
+              <table className="w-full text-left border-collapse text-[11px] xl:text-xs">
                 <thead>
                   <tr className="bg-slate-100 dark:bg-slate-800/70 text-slate-600 dark:text-slate-300 border-b border-slate-200 dark:border-slate-800 font-bold">
-                    <th className="p-3 w-10 text-center">
+                    <th className="px-2 py-2.5 w-8 text-center">
                       <input
                         type="checkbox"
                         checked={
@@ -2412,23 +2527,22 @@ export default function ConciliarDeliveryPage() {
                         className="rounded border-slate-300"
                       />
                     </th>
-                    <th className="p-3">{t('deliveryReconciliation.col_date_store')}</th>
-                    <th className="p-3">{t('deliveryReconciliation.col_platform')}</th>
-                    <th className="p-3">{t('deliveryReconciliation.col_order_id')}</th>
-                    <th className="p-3 text-right bg-slate-200/40 dark:bg-slate-800/60">
+                    <th className="px-1.5 py-2">{t('deliveryReconciliation.col_date_store')}</th>
+                    <th className="px-1.5 py-2">{t('deliveryReconciliation.col_order_id')}</th>
+                    <th className="px-1.5 py-2 text-right bg-slate-200/40 dark:bg-slate-800/60">
                       {t('deliveryReconciliation.col_toast_stack')}
                     </th>
-                    <th className="p-3 text-right bg-indigo-500/10">
+                    <th className="px-1.5 py-2 text-right bg-indigo-500/10">
                       {t('deliveryReconciliation.col_plat_stack')}
                     </th>
-                    <th className="p-3 text-right">{t('deliveryReconciliation.col_variance')}</th>
-                    <th className="p-3 text-right">{t('deliveryReconciliation.col_error_adj')}</th>
-                    <th className="p-3 text-right font-extrabold text-emerald-700 dark:text-emerald-400">
+                    <th className="px-1.5 py-2 text-right">{t('deliveryReconciliation.col_variance')}</th>
+                    <th className="px-1.5 py-2 text-right">{t('deliveryReconciliation.col_error_adj')}</th>
+                    <th className="px-1.5 py-2 text-right font-extrabold text-emerald-700 dark:text-emerald-400">
                       {t('deliveryReconciliation.col_net_payout')}
                     </th>
-                    <th className="p-3">{t('deliveryReconciliation.col_status')}</th>
-                    <th className="p-3 min-w-[290px]">{t('deliveryReconciliation.col_explanation')}</th>
-                    <th className="p-3 text-center">{t('deliveryReconciliation.col_actions')}</th>
+                    <th className="px-1.5 py-2 max-w-[155px]">{t('deliveryReconciliation.col_status')}</th>
+                    <th className="px-1.5 py-2 min-w-[170px] max-w-[235px]">{t('deliveryReconciliation.col_explanation')}</th>
+                    <th className="px-1.5 py-2 text-center">{t('deliveryReconciliation.col_actions')}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
@@ -2444,7 +2558,7 @@ export default function ConciliarDeliveryPage() {
 
                     return (
                       <tr key={ord.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition align-top">
-                        <td className="p-3 text-center">
+                        <td className="px-1.5 py-2 text-center">
                           <input
                             type="checkbox"
                             disabled={!isSelectable}
@@ -2466,73 +2580,71 @@ export default function ConciliarDeliveryPage() {
                             className="rounded border-slate-300 disabled:opacity-30"
                           />
                         </td>
-                        <td className="p-3 whitespace-nowrap">
+                        <td className="px-1.5 py-2 whitespace-nowrap">
                           <div className="font-bold text-slate-900 dark:text-white">
                             {fmtDateMDY(ord.business_date)}
                           </div>
                           <div
-                            className={`text-xs font-semibold ${
+                            className={`text-[11px] font-semibold mb-0.5 ${
                               ord.store_id === 0 ? 'text-rose-600 font-extrabold' : 'text-slate-500'
                             }`}
                           >
                             {ord.store_name}
                           </div>
+                          <div>{renderPlatformBadge(ord.platform)}</div>
                         </td>
-                        <td className="p-3 whitespace-nowrap">
-                          <div className="flex flex-col gap-1 items-start">
-                            {renderPlatformBadge(ord.platform)}
-                          </div>
-                        </td>
-                        <td className="p-3">
-                          <div className="font-mono font-bold text-slate-900 dark:text-white">
+                        <td className="px-1.5 py-2 max-w-[140px]">
+                          <div className="font-mono font-bold text-slate-900 dark:text-white truncate" title={ord.platform_order_id}>
                             {ord.platform_order_id}
                           </div>
                           {ord.toast_display_number && (
-                            <div className="text-xs text-slate-500 flex flex-wrap items-center gap-1">
-                              <span>
+                            <div className="text-[10px] text-slate-500 leading-tight">
+                              <div className="truncate" title={`Toast #${ord.toast_display_number} • ${ord.toast_tab_name}`}>
                                 Toast #{ord.toast_display_number} • {ord.toast_tab_name}
-                              </span>
+                              </div>
                               {(ord.raw_payload as any)?.toast_voided && (
-                                <span className="px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30 text-[10px] font-extrabold">
+                                <span className="inline-block mt-0.5 px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30 text-[9px] font-extrabold">
                                   {isEn ? 'VOIDED IN POS' : 'ANULADO EN POS'}
                                 </span>
                               )}
                             </div>
                           )}
                           {ord.payout_reference_id && (
-                            <div className="text-[11px] font-mono text-indigo-600 dark:text-indigo-400">
+                            <div className="text-[10px] font-mono text-indigo-600 dark:text-indigo-400 truncate" title={ord.payout_reference_id}>
                               {t('deliveryReconciliation.cut_prefix')}: #{ord.payout_reference_id}
                             </div>
                           )}
                         </td>
-                        <td className="p-3 text-right font-mono bg-slate-100/50 dark:bg-slate-800/30 whitespace-nowrap">
+                        <td className="px-1.5 py-2 text-right font-mono bg-slate-100/50 dark:bg-slate-800/30 whitespace-nowrap">
                           <div className="font-extrabold text-slate-900 dark:text-white">
                             {fmtMoney(ord.toast_expected_gross)}
                           </div>
-                          <div className="text-[11px] text-slate-500">
-                            {t('deliveryReconciliation.sub_prefix')}: {fmtMoney(ord.toast_net_sales)} •{' '}
-                            {t('deliveryReconciliation.tax_prefix')}: {fmtMoney(ord.toast_tax)}
-                            {ord.platform === 'UBER_EATS' && ord.toast_tax > 0 ? ' (Uber)' : ''}
+                          <div className="text-[10px] text-slate-500 leading-tight">
+                            <div>{t('deliveryReconciliation.sub_prefix')}: {fmtMoney(ord.toast_net_sales)}</div>
+                            <div>
+                              {t('deliveryReconciliation.tax_prefix')}: {fmtMoney(ord.toast_tax)}
+                              {ord.platform === 'UBER_EATS' && ord.toast_tax > 0 ? ' (Uber)' : ''}
+                            </div>
                           </div>
                           {(ord.raw_payload as any)?.toast_voided &&
                             Number((ord.raw_payload as any)?.toast_voided_original_subtotal || 0) > 0 && (
                               <div className="text-[10px] font-bold text-amber-700 dark:text-amber-400">
-                                {isEn ? 'VOID orig:' : 'Orig. antes de VOID:'}{' '}
+                                {isEn ? 'VOID orig:' : 'Orig. VOID:'}{' '}
                                 {fmtMoney(Number((ord.raw_payload as any)?.toast_voided_original_subtotal || 0))}
                               </div>
                             )}
                         </td>
-                        <td className="p-3 text-right font-mono bg-indigo-500/5 whitespace-nowrap">
+                        <td className="px-1.5 py-2 text-right font-mono bg-indigo-500/5 whitespace-nowrap">
                           <div className="font-extrabold text-indigo-700 dark:text-indigo-300">
                             {fmtMoney(ord.platform_gross_receivable)}
                           </div>
-                          <div className="text-[11px] text-slate-500">
-                            {t('deliveryReconciliation.sub_prefix')}: {fmtMoney(ord.platform_subtotal)} •{' '}
-                            {t('deliveryReconciliation.tax_prefix')}: {fmtMoney(ord.platform_tax_paid_to_merchant)}
+                          <div className="text-[10px] text-slate-500 leading-tight">
+                            <div>{t('deliveryReconciliation.sub_prefix')}: {fmtMoney(ord.platform_subtotal)}</div>
+                            <div>{t('deliveryReconciliation.tax_prefix')}: {fmtMoney(ord.platform_tax_paid_to_merchant)}</div>
                           </div>
                         </td>
                         <td
-                          className={`p-3 text-right font-mono font-extrabold whitespace-nowrap ${
+                          className={`px-1.5 py-2 text-right font-mono font-extrabold whitespace-nowrap ${
                             Math.abs(varAmt) <= 0.05
                               ? 'text-emerald-600 dark:text-emerald-400'
                               : 'text-rose-600 dark:text-rose-400'
@@ -2541,34 +2653,51 @@ export default function ConciliarDeliveryPage() {
                           {fmtMoney(varAmt)}
                         </td>
                         <td
-                          className={`p-3 text-right font-mono font-semibold whitespace-nowrap ${
+                          className={`px-1.5 py-2 text-right font-mono font-semibold max-w-[125px] ${
                             errAdj < -0.01 ? 'text-rose-600 dark:text-rose-400' : 'text-slate-400'
                           }`}
                         >
                           <div>{fmtMoney(errAdj)}</div>
-                          {ord.raw_payload?.reimbursement_payout_ref && (
-                            <div className="mt-1">
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30">
-                                ✅{' '}
-                                {t('deliveryReconciliation.reimbursed_in_payout_badge', {
-                                  ref: ord.raw_payload.reimbursement_payout_ref,
-                                  amount: fmtMoney(
-                                    ord.raw_payload.reimbursement_amount ||
-                                      ord.dispute_amount ||
-                                      Math.abs(ord.error_charge)
-                                  ),
-                                })}
-                              </span>
-                            </div>
-                          )}
+                          {ord.raw_payload?.reimbursement_payout_ref && (() => {
+                            const recAmt = Number(
+                              ord.raw_payload.reimbursement_amount ||
+                                ord.dispute_amount ||
+                                Math.abs(ord.error_charge)
+                            )
+                            const dedAmt = Math.abs(Number(ord.error_charge || 0))
+                            const isPartialRec =
+                              ord.status_code === 'DISPUTE_PARTIALLY_RECOVERED' ||
+                              (dedAmt > 0.05 && recAmt > 0 && recAmt < dedAmt - 0.05)
+                            return (
+                              <div className="mt-1">
+                                <span
+                                  className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-lg text-[9px] leading-tight font-extrabold border ${
+                                    isPartialRec
+                                      ? 'bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/30'
+                                      : 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30'
+                                  }`}
+                                >
+                                  {isPartialRec ? '⚠️ ' : '✅ '}
+                                  {isPartialRec
+                                    ? isEn
+                                      ? `Partial #${ord.raw_payload.reimbursement_payout_ref} (${fmtMoney(recAmt)}/${fmtMoney(dedAmt)})`
+                                      : `Parcial #${ord.raw_payload.reimbursement_payout_ref} (${fmtMoney(recAmt)}/${fmtMoney(dedAmt)})`
+                                    : t('deliveryReconciliation.reimbursed_in_payout_badge', {
+                                        ref: ord.raw_payload.reimbursement_payout_ref,
+                                        amount: fmtMoney(recAmt),
+                                      })}
+                                </span>
+                              </div>
+                            )
+                          })()}
                         </td>
-                        <td className="p-3 text-right font-mono font-extrabold text-emerald-600 dark:text-emerald-400 whitespace-nowrap">
+                        <td className="px-1.5 py-2 text-right font-mono font-extrabold text-emerald-600 dark:text-emerald-400 whitespace-nowrap">
                           {fmtMoney(ord.net_payout)}
                         </td>
-                        <td className="p-3 whitespace-nowrap">{renderOrderGroupBadge(ord)}</td>
-                        <td className="p-3 text-[11px] space-y-1 max-w-md">
+                        <td className="px-1.5 py-2 max-w-[155px]">{renderOrderGroupBadge(ord)}</td>
+                        <td className="px-2 py-2.5 text-[11px] space-y-0.5 max-w-[260px]">
                           {whatHappened && (
-                            <div>
+                            <div className="line-clamp-2" title={whatHappened}>
                               <strong className="text-slate-700 dark:text-slate-200">
                                 {t('deliveryReconciliation.label_what_happened')}
                               </strong>{' '}
@@ -2576,7 +2705,7 @@ export default function ConciliarDeliveryPage() {
                             </div>
                           )}
                           {causeText && (
-                            <div>
+                            <div className="line-clamp-2" title={causeText}>
                               <strong className="text-slate-700 dark:text-slate-200">
                                 {t('deliveryReconciliation.label_cause')}
                               </strong>{' '}
@@ -2584,7 +2713,7 @@ export default function ConciliarDeliveryPage() {
                             </div>
                           )}
                           {evidenceText && (
-                            <div>
+                            <div className="line-clamp-1" title={evidenceText}>
                               <strong className="text-slate-700 dark:text-slate-200">
                                 {t('deliveryReconciliation.label_evidence')}
                               </strong>{' '}
@@ -2592,12 +2721,12 @@ export default function ConciliarDeliveryPage() {
                             </div>
                           )}
                           {nextActionText && (
-                            <div className="pt-0.5 text-emerald-700 dark:text-emerald-400 font-bold">
+                            <div className="pt-0.5 text-emerald-700 dark:text-emerald-400 font-bold line-clamp-2" title={nextActionText}>
                               → {nextActionText}
                             </div>
                           )}
                         </td>
-                        <td className="p-3 text-center whitespace-nowrap">
+                        <td className="px-2 py-2.5 text-center whitespace-nowrap">
                           <button
                             onClick={() => handleOpenOrderModal(ord)}
                             className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-xs font-semibold transition"
@@ -3157,10 +3286,10 @@ export default function ConciliarDeliveryPage() {
             <div className="p-12 text-center text-slate-500">{t('deliveryReconciliation.empty_payouts')}</div>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse text-xs md:text-sm">
+              <table className="w-full text-left border-collapse text-[11px] xl:text-xs">
                 <thead>
                   <tr className="bg-slate-100 dark:bg-slate-800/70 text-slate-600 dark:text-slate-300 border-b border-slate-200 dark:border-slate-800 font-bold">
-                    <th className="p-3 w-10 text-center">
+                    <th className="px-2 py-2.5 w-7 text-center">
                       <input
                         type="checkbox"
                         checked={
@@ -3183,17 +3312,20 @@ export default function ConciliarDeliveryPage() {
                         className="rounded border-slate-300"
                       />
                     </th>
-                    <th className="p-3">{t('deliveryReconciliation.qb_col_cut_week')}</th>
-                    <th className="p-3">{t('deliveryReconciliation.col_store')}</th>
-                    <th className="p-3">{t('deliveryReconciliation.col_platform')}</th>
-                    <th className="p-3 text-right">{t('deliveryReconciliation.qb_col_gross_recognized')}</th>
-                    <th className="p-3 text-right">{t('deliveryReconciliation.qb_col_platform_fees')}</th>
-                    <th className="p-3 text-right">{t('deliveryReconciliation.qb_col_refunds_errors')}</th>
-                    <th className="p-3 text-right font-extrabold text-emerald-700 dark:text-emerald-400">
+                    <th className="px-1.5 py-2">{t('deliveryReconciliation.qb_col_cut_week')}</th>
+                    <th className="px-1.5 py-2">
+                      {t('deliveryReconciliation.col_store')} / {t('deliveryReconciliation.col_platform')}
+                    </th>
+                    <th className="px-1.5 py-2 text-right max-w-[95px]">{t('deliveryReconciliation.qb_col_gross_recognized')}</th>
+                    <th className="px-1.5 py-2 text-right max-w-[95px]">{t('deliveryReconciliation.qb_col_platform_fees')}</th>
+                    <th className="px-1.5 py-2 text-right max-w-[95px]">{t('deliveryReconciliation.qb_col_refunds_errors')}</th>
+                    <th className="px-1.5 py-2 text-right max-w-[95px] font-extrabold text-emerald-700 dark:text-emerald-400">
                       {t('deliveryReconciliation.qb_col_bank_deposit')}
                     </th>
-                    <th className="p-3">{t('deliveryReconciliation.qb_col_policy_status')}</th>
-                    <th className="p-3 text-center">{t('deliveryReconciliation.qb_col_actions')}</th>
+                    <th className="px-1.5 py-2">{t('deliveryReconciliation.qb_col_policy_status')}</th>
+                    <th className="px-1.5 py-2">{isEn ? 'Order Audit Status' : 'Estado de Auditoría'}</th>
+                    <th className="px-1.5 py-2">{isEn ? 'Dispute / Recovery' : 'Disputa / Recuperación'}</th>
+                    <th className="px-1.5 py-2 text-center">{t('deliveryReconciliation.qb_col_actions')}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
@@ -3205,12 +3337,15 @@ export default function ConciliarDeliveryPage() {
                     const line3 = prev.lines?.[2]
                     const line4 = prev.lines?.[3]
                     const isChecked = selectedQbPayoutIds.has(r.id)
-                    const blockers: any[] = r.publishBlockers || []
+                    const blockers: any[] = (r.publishBlockers || []).filter(
+                      (b: any) => b.code !== 'ALREADY_PUBLISHED_IN_QBO'
+                    )
                     const warnings: any[] = r.auditWarnings || prev.auditWarnings || []
+                    const dispStat = r.disputeRecoveryStatus || {}
 
                     return (
-                      <tr key={r.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition">
-                        <td className="p-3 text-center">
+                      <tr key={r.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition align-top">
+                        <td className="px-2 py-2.5 text-center">
                           <input
                             type="checkbox"
                             disabled={r.hasJournalEntry || !r.canPublish}
@@ -3224,29 +3359,35 @@ export default function ConciliarDeliveryPage() {
                             className="rounded border-slate-300 disabled:opacity-40"
                           />
                         </td>
-                        <td className="p-3 whitespace-nowrap">
-                          <div className="font-bold text-slate-900 dark:text-white">
+                        <td className="px-1.5 py-2 whitespace-nowrap">
+                          <div className="font-bold text-slate-900 dark:text-white text-[11px]">
                             {fmtDateMDY(r.period_start)} → {fmtDateMDY(r.period_end)}
                           </div>
-                          <div className="text-[11px] font-mono text-indigo-600 dark:text-indigo-400">
+                          <div className="text-[10px] font-mono text-indigo-600 dark:text-indigo-400">
                             Ref: #{r.payout_reference_id}
                           </div>
                         </td>
-                        <td className="p-3 font-bold whitespace-nowrap">{r.store_name}</td>
-                        <td className="p-3 whitespace-nowrap">{renderPlatformBadge(r.platform)}</td>
-                        <td className="p-3 text-right font-mono">
+                        <td className="px-1.5 py-2 whitespace-nowrap">
+                          <div className="font-bold text-slate-900 dark:text-white mb-0.5">{r.store_name}</div>
+                          <div>{renderPlatformBadge(r.platform)}</div>
+                        </td>
+                        <td className="px-1.5 py-2 text-right font-mono whitespace-nowrap">
                           <div className="font-bold text-indigo-600 dark:text-indigo-400">
                             {fmtMoney(line3?.amount || r.platform_gross_receivable)}
                           </div>
-                          <div className="text-[10px] text-slate-400">{line3?.accountName}</div>
+                          <div className="text-[10px] text-slate-400 max-w-[85px] 2xl:max-w-[125px] ml-auto truncate" title={line3?.accountName}>
+                            {line3?.accountName}
+                          </div>
                         </td>
-                        <td className="p-3 text-right font-mono">
+                        <td className="px-1.5 py-2 text-right font-mono whitespace-nowrap">
                           <div className="font-bold text-amber-600 dark:text-amber-400">
                             -{fmtMoney(line2?.amount || r.total_fees)}
                           </div>
-                          <div className="text-[10px] text-slate-400">{line2?.accountName}</div>
+                          <div className="text-[10px] text-slate-400 max-w-[85px] 2xl:max-w-[125px] ml-auto truncate" title={line2?.accountName}>
+                            {line2?.accountName}
+                          </div>
                         </td>
-                        <td className="p-3 text-right font-mono">
+                        <td className="px-1.5 py-2 text-right font-mono max-w-[95px] 2xl:max-w-[135px]">
                           {line4 ? (
                             <div>
                               <span
@@ -3259,7 +3400,9 @@ export default function ConciliarDeliveryPage() {
                                 {line4.postingType === 'Credit' ? '+' : '-'}
                                 {fmtMoney(line4.amount)}
                               </span>
-                              <div className="text-[10px] text-slate-400">{line4.accountName}</div>
+                              <div className="text-[10px] text-slate-400 max-w-[85px] 2xl:max-w-[125px] ml-auto truncate" title={line4.accountName}>
+                                {line4.accountName}
+                              </div>
                             </div>
                           ) : (
                             <span className="text-slate-400">$0.00</span>
@@ -3268,7 +3411,7 @@ export default function ConciliarDeliveryPage() {
                             audit.crossPayoutRefunds.map((cr: any, idx: number) => (
                               <div
                                 key={idx}
-                                className="mt-0.5 text-[10px] font-extrabold text-emerald-600 dark:text-emerald-400"
+                                className="mt-0.5 text-[10px] leading-tight font-extrabold text-emerald-600 dark:text-emerald-400"
                               >
                                 {t('deliveryReconciliation.qb_reimb_short', {
                                   order: cr.orderCode,
@@ -3277,11 +3420,13 @@ export default function ConciliarDeliveryPage() {
                               </div>
                             ))}
                         </td>
-                        <td className="p-3 text-right font-mono">
+                        <td className="px-1.5 py-2 text-right font-mono whitespace-nowrap">
                           <div className="font-extrabold text-emerald-600 dark:text-emerald-400">
                             {fmtMoney(line1?.amount || r.net_payout_amount)}
                           </div>
-                          <div className="text-[10px] text-slate-400">{line1?.accountName}</div>
+                          <div className="text-[10px] text-slate-400 max-w-[85px] 2xl:max-w-[125px] ml-auto truncate" title={line1?.accountName}>
+                            {line1?.accountName}
+                          </div>
                           {r.bankVerification?.status === 'VERIFIED_IN_BANK' && (
                             <div className="mt-1">
                               <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30">
@@ -3291,55 +3436,132 @@ export default function ConciliarDeliveryPage() {
                           )}
                           {r.bankVerification?.status === 'JE_POSTED_IN_TRANSIT' && (
                             <div className="mt-1">
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 border border-indigo-500/30">
+                              <span
+                                title={
+                                  isEn
+                                    ? 'Journal Entry posted in QBO; bank feed deposit confirmation is independent.'
+                                    : 'Póliza registrada en QBO; la confirmación del depósito en banco es independiente.'
+                                }
+                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 border border-indigo-500/30"
+                              >
                                 🧾 {t('deliveryReconciliation.bank_je_posted_badge')}
                               </span>
                             </div>
                           )}
                         </td>
-                        <td className="p-3">
+
+                        {/* 1. ESTADO DEL PAYOUT / PÓLIZA QBO (INDEPENDIENTE DE AUDITORÍA) */}
+                        <td className="px-2 py-2.5 max-w-[165px]">
                           {r.recoveryRequired ? (
-                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-extrabold bg-rose-500/15 text-rose-700 border border-rose-500/30">
-                              {t('deliveryReconciliation.qb_badge_recovery')}
-                            </span>
+                            <div className="flex flex-col gap-1 items-start">
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-rose-500/15 text-rose-700 border border-rose-500/30">
+                                {t('deliveryReconciliation.qb_badge_recovery')}
+                              </span>
+                              <span className="text-[10px] text-rose-600 dark:text-rose-400">
+                                {isEn
+                                  ? 'Check QBO before retrying.'
+                                  : 'Consultar QBO antes de reintentar.'}
+                              </span>
+                            </div>
                           ) : r.hasJournalEntry ? (
                             <div className="flex flex-col gap-0.5 items-start">
-                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-extrabold bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30">
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30">
                                 <CheckCircle2 className="w-3.5 h-3.5" />
                                 {t('deliveryReconciliation.qb_badge_created')}
                               </span>
                               {r.qbJournalEntry?.docNumber && (
-                                <span className="text-[11px] font-mono font-bold text-slate-500">
-                                  JE #{r.qbJournalEntry.docNumber}
+                                <span className="text-[10px] font-mono font-bold text-slate-500">
+                                  JE #{r.qbJournalEntry.docNumber} (ID {r.qbJournalEntry.id})
                                 </span>
                               )}
                             </div>
                           ) : !r.canPublish ? (
                             <div className="flex flex-col gap-1 items-start">
-                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-rose-500/15 text-rose-700 dark:text-rose-300 border border-rose-500/30">
-                                {t('deliveryReconciliation.qb_badge_blocked')}
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-500/15 text-rose-700 dark:text-rose-300 border border-rose-500/30">
+                                {r.qboMatchEvaluation?.classification === 'HISTORICAL_CANDIDATE_PENDING_REVIEW'
+                                  ? isEn
+                                    ? 'Historical Candidate'
+                                    : 'Candidato Histórico QBO'
+                                  : t('deliveryReconciliation.qb_badge_blocked')}
                               </span>
                               {blockers[0] && (
-                                <span className="text-[10px] text-rose-600 dark:text-rose-400 max-w-[220px]">
-                                  {isEn ? blockers[0].message_en : blockers[0].message_es}
-                                </span>
+                                <div className="text-[10px] text-rose-600 dark:text-rose-400 max-w-[160px] leading-tight space-y-0.5">
+                                  <div className="line-clamp-2">{isEn ? blockers[0].message_en : blockers[0].message_es}</div>
+                                  {(blockers[0].next_action_es || blockers[0].next_action_en) && (
+                                    <div className="font-bold text-rose-700 dark:text-rose-300 line-clamp-2">
+                                      → {isEn ? blockers[0].next_action_en : blockers[0].next_action_es}
+                                    </div>
+                                  )}
+                                </div>
                               )}
                             </div>
                           ) : (
                             <div className="flex flex-col gap-1 items-start">
-                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30">
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30">
                                 {t('deliveryReconciliation.qb_badge_pending')}
                               </span>
-                              {warnings[0] && (
-                                <span className="text-[10px] text-amber-700 dark:text-amber-400 max-w-[230px] leading-tight">
-                                  ⚠ {isEn ? warnings[0].message_en : warnings[0].message_es}
-                                </span>
-                              )}
+                              <span className="text-[10px] text-emerald-700 dark:text-emerald-400 font-semibold">
+                                {isEn ? 'Ready to post 4-line JE' : 'Listo para crear póliza'}
+                              </span>
                             </div>
                           )}
                         </td>
-                        <td className="p-3 text-center whitespace-nowrap">
-                          <div className="flex items-center justify-center gap-1.5">
+
+                        {/* 2. ESTADO DE AUDITORÍA DE ÓRDENES (SIEMPRE VISIBLE AUNQUE LA PÓLIZA ESTÉ CREADA) */}
+                        <td className="px-2 py-2.5 max-w-[175px]">
+                          {warnings.length === 0 ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/25">
+                              ✓ {isEn ? 'Order audit clean' : 'Auditoría sin alertas'}
+                            </span>
+                          ) : (
+                            <div
+                              className="flex flex-col gap-1 items-start"
+                              title={`${isEn ? warnings[0].message_en : warnings[0].message_es}${
+                                warnings[0].next_action_es || warnings[0].next_action_en
+                                  ? ` → ${isEn ? warnings[0].next_action_en : warnings[0].next_action_es}`
+                                  : ''
+                              }`}
+                            >
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30">
+                                ⚠{' '}
+                                {isEn
+                                  ? `${warnings.length} audit alert(s) pending`
+                                  : `${warnings.length} alerta(s) de auditoría`}
+                              </span>
+                              <div className="text-[10px] text-amber-800 dark:text-amber-300 max-w-[170px] leading-tight space-y-0.5">
+                                <div className="line-clamp-2">{isEn ? warnings[0].message_en : warnings[0].message_es}</div>
+                                {(warnings[0].next_action_es || warnings[0].next_action_en) && (
+                                  <div className="font-bold text-indigo-600 dark:text-indigo-400 line-clamp-2">
+                                    → {isEn ? warnings[0].next_action_en : warnings[0].next_action_es}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          )}
+                        </td>
+
+                        {/* 3. ESTADO DE DISPUTA / RECUPERACIÓN (SEPARADO) */}
+                        <td className="px-2 py-2.5 max-w-[135px]">
+                          {dispStat.code === 'PARTIAL_RECOVERY' ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30">
+                              ⚠️ {isEn ? dispStat.label_en : dispStat.label_es}
+                            </span>
+                          ) : dispStat.code === 'FULL_RECOVERY' || dispStat.code === 'POSITIVE_REIMBURSEMENT' ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30">
+                              ✅ {isEn ? dispStat.label_en : dispStat.label_es}
+                            </span>
+                          ) : dispStat.code === 'OPEN_DISPUTES' || dispStat.code === 'UNVERIFIED_RECOVERY' ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-rose-500/15 text-rose-700 dark:text-rose-300 border border-rose-500/30">
+                              🚨 {isEn ? dispStat.label_en : dispStat.label_es}
+                            </span>
+                          ) : (
+                            <span className="text-[11px] text-slate-400">
+                              {isEn ? 'No disputes' : 'Sin disputas'}
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-2 py-2.5 text-center whitespace-nowrap">
+                          <div className="flex flex-col items-stretch justify-center gap-1">
                             <button
                               onClick={() => {
                                 // P1 #15: Filtrar estrictamente por payout_reference_id al auditar órdenes de un corte
@@ -3354,13 +3576,13 @@ export default function ConciliarDeliveryPage() {
                                 setActiveTab('orders')
                               }}
                               title={t('deliveryReconciliation.qb_audit_orders_tooltip')}
-                              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-extrabold bg-indigo-50 hover:bg-indigo-600 hover:text-white dark:bg-indigo-950/50 dark:hover:bg-indigo-600 text-indigo-700 dark:text-indigo-300 transition border border-indigo-200 dark:border-indigo-800"
+                              className="inline-flex items-center justify-center gap-1 px-2 py-1 rounded-lg text-[11px] font-extrabold bg-indigo-50 hover:bg-indigo-600 hover:text-white dark:bg-indigo-950/50 dark:hover:bg-indigo-600 text-indigo-700 dark:text-indigo-300 transition border border-indigo-200 dark:border-indigo-800"
                             >
                               {t('deliveryReconciliation.qb_audit_orders_btn')}
                             </button>
                             <button
                               onClick={() => handleOpenQbModal(r)}
-                              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-extrabold transition ${
+                              className={`inline-flex items-center justify-center gap-1 px-2 py-1 rounded-lg text-[11px] font-extrabold transition ${
                                 r.hasJournalEntry || !r.canPublish
                                   ? 'bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200'
                                   : 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm'
@@ -3469,11 +3691,14 @@ export default function ConciliarDeliveryPage() {
       {/* MODAL INDIVIDUAL DE PÓLIZA QUICKBOOKS (JOURNAL ENTRY) */}
       {selectedQbRecord && (() => {
         const prev = selectedQbRecord.journalPreview || {}
-        const audit = prev.auditBreakdown || {}
         const embeddedTax = Number(prev.embeddedRefundTax || 0)
         const rawErrAdj = Number(prev.rawErrAdj || 0)
-        const blockers: any[] = selectedQbRecord.publishBlockers || []
+        const blockers: any[] = (selectedQbRecord.publishBlockers || []).filter(
+          (b: any) => b.code !== 'ALREADY_PUBLISHED_IN_QBO'
+        )
         const warnings: any[] = selectedQbRecord.auditWarnings || prev.auditWarnings || []
+        const qboCandidates: any[] = selectedQbRecord.qboMatchEvaluation?.candidates || []
+        const dispStat = selectedQbRecord.disputeRecoveryStatus || {}
 
         const modalLines = (() => {
           const baseLines: any[] = prev.lines || []
@@ -3532,6 +3757,72 @@ export default function ConciliarDeliveryPage() {
                 </button>
               </div>
 
+              {/* TRES ESTADOS INDEPENDIENTES DEL CORTE: (1) PÓLIZA QBO Y BANCO, (2) AUDITORÍA DE ÓRDENES, (3) DISPUTAS Y RECUPERACIÓN */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
+                <div className="p-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/70 dark:bg-slate-800/50 space-y-1">
+                  <div className="text-[10px] font-extrabold uppercase text-slate-500">
+                    {isEn ? '1. Payout / QBO Entry Status' : '1. Estado del Payout / Póliza QBO'}
+                  </div>
+                  <div className="font-extrabold text-slate-900 dark:text-white">
+                    {isEn
+                      ? selectedQbRecord.payoutPolicyStatus?.label_en ||
+                        (selectedQbRecord.hasJournalEntry ? 'Posted in QBO' : 'Pending QBO Entry')
+                      : selectedQbRecord.payoutPolicyStatus?.label_es ||
+                        (selectedQbRecord.hasJournalEntry ? 'Póliza registrada en QBO' : 'Pendiente de Póliza')}
+                  </div>
+                  <div className="text-[11px] text-indigo-700 dark:text-indigo-300 font-semibold">
+                    {isEn
+                      ? selectedQbRecord.bankVerification?.label_en
+                      : selectedQbRecord.bankVerification?.label_es}
+                  </div>
+                </div>
+
+                <div className="p-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/70 dark:bg-slate-800/50 space-y-1">
+                  <div className="text-[10px] font-extrabold uppercase text-slate-500">
+                    {isEn ? '2. Order Audit Status (Independent)' : '2. Estado de Auditoría de Órdenes'}
+                  </div>
+                  <div
+                    className={`font-extrabold ${
+                      warnings.length === 0
+                        ? 'text-emerald-700 dark:text-emerald-400'
+                        : 'text-amber-700 dark:text-amber-300'
+                    }`}
+                  >
+                    {isEn
+                      ? selectedQbRecord.auditStatus?.label_en ||
+                        (warnings.length === 0 ? 'Order audit clean' : `${warnings.length} audit alert(s)`)
+                      : selectedQbRecord.auditStatus?.label_es ||
+                        (warnings.length === 0 ? 'Auditoría sin alertas' : `${warnings.length} alerta(s) pendiente(s)`)}
+                  </div>
+                  <div className="text-[11px] text-slate-500">
+                    {isEn
+                      ? 'Publishing a QBO entry does not erase pending order alerts.'
+                      : 'Publicar la póliza no borra ni da por conciliadas las alertas de órdenes.'}
+                  </div>
+                </div>
+
+                <div className="p-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/70 dark:bg-slate-800/50 space-y-1">
+                  <div className="text-[10px] font-extrabold uppercase text-slate-500">
+                    {isEn ? '3. Dispute / Recovery Status' : '3. Estado de Disputa / Recuperación'}
+                  </div>
+                  <div
+                    className={`font-extrabold ${
+                      dispStat.code === 'OPEN_DISPUTES' || dispStat.code === 'UNVERIFIED_RECOVERY'
+                        ? 'text-rose-700 dark:text-rose-400'
+                        : dispStat.code === 'PARTIAL_RECOVERY'
+                        ? 'text-amber-700 dark:text-amber-300'
+                        : 'text-emerald-700 dark:text-emerald-400'
+                    }`}
+                  >
+                    {isEn ? dispStat.label_en || 'No disputes' : dispStat.label_es || 'Sin disputas'}
+                  </div>
+                  <div className="text-[11px] text-slate-500 font-mono">
+                    {isEn ? 'Net Refunds / Error Charges:' : 'Reembolsos / Cargos por Error:'}{' '}
+                    {fmtMoney(rawErrAdj)}
+                  </div>
+                </div>
+              </div>
+
               {selectedQbRecord.hasJournalEntry && selectedQbRecord.qbJournalEntry && (
                 <div className="p-3.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-between text-emerald-800 dark:text-emerald-200 text-xs md:text-sm font-bold">
                   <div className="flex items-center gap-2">
@@ -3564,44 +3855,191 @@ export default function ConciliarDeliveryPage() {
                     </div>
                     <p className="text-[11px] opacity-90">
                       {isEn
-                        ? selectedQbRecord.bankVerification.detail_en
-                        : selectedQbRecord.bankVerification.detail_es}
+                        ? selectedQbRecord.bankVerification.label_en
+                        : selectedQbRecord.bankVerification.label_es}
                     </p>
                   </div>
                   <div className="font-mono font-extrabold text-right shrink-0">
-                    <div>{fmtMoney(selectedQbRecord.bankVerification.expectedAmount)}</div>
+                    <div>{fmtMoney(selectedQbRecord.bankVerification.expectedDepositAmount)}</div>
                     <div className="text-[10px] opacity-80">
-                      {isEn ? 'Acct' : 'Cta'} {selectedQbRecord.bankVerification.bankAccountNumber}
+                      {isEn ? 'Acct' : 'Cta'} {selectedQbRecord.bankVerification.bankAccountNum}
                     </div>
+                  </div>
+                </div>
+              )}
+
+              {/* PANEL DE VERIFICACIÓN DE ESTADO DE RECUPERACIÓN (RECOVERY_REQUIRED) */}
+              {selectedQbRecord.recoveryRequired && (
+                <div className="p-4 rounded-xl bg-rose-500/10 border-2 border-rose-500/40 space-y-2.5 text-xs">
+                  <div className="font-extrabold text-rose-800 dark:text-rose-200 flex items-center justify-between gap-2">
+                    <span>
+                      ⚠️{' '}
+                      {isEn
+                        ? 'Recovery State Required (RECOVERY_REQUIRED): Verify QuickBooks Online before retrying'
+                        : 'Estado de Recuperación (RECOVERY_REQUIRED): Consultar QuickBooks Online antes de reintentar'}
+                    </span>
+                    <button
+                      onClick={() => handleVerifyQboRecoveryStatus(selectedQbRecord.id)}
+                      disabled={resolvingQboCandidate}
+                      className="px-3.5 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white font-extrabold shadow-sm"
+                    >
+                      {resolvingQboCandidate
+                        ? isEn
+                          ? 'Checking QBO...'
+                          : 'Consultando QBO...'
+                        : isEn
+                        ? 'Verify Status in QBO Now'
+                        : 'Verificar Estado en QBO Ahora'}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* PANEL DE CANDIDATOS DE PÓLIZAS HISTÓRICAS EN QBO PARA CONFIRMAR O DESCARTAR CON AUDITORÍA */}
+              {!selectedQbRecord.hasJournalEntry && qboCandidates.length > 0 && (
+                <div className="p-4 rounded-xl bg-amber-500/10 border-2 border-amber-500/40 space-y-3 text-xs">
+                  <div className="font-extrabold text-amber-900 dark:text-amber-200">
+                    🔍{' '}
+                    {isEn
+                      ? `Historical QuickBooks Journal Entry Candidate(s) Found (${qboCandidates.length}) — Confirm Link or Discard:`
+                      : `Posible(s) Póliza(s) Histórica(s) en QuickBooks Detectada(s) (${qboCandidates.length}) — Confirmar Vínculo o Descartar:`}
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300 mb-1">
+                        {isEn ? 'Reason (Mandatory, min 5 chars):' : 'Motivo (Obligatorio, mín. 5 caracteres):'}
+                      </label>
+                      <input
+                        type="text"
+                        value={qboCandidateReason}
+                        onChange={(e) => setQboCandidateReason(e.target.value)}
+                        placeholder={
+                          isEn
+                            ? 'e.g. Verified historical settlement entry posted by accounting'
+                            : 'Ej. Póliza histórica verificada por contabilidad para este corte'
+                        }
+                        className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300 mb-1">
+                        {isEn ? 'Verifiable Evidence (DocNumber / Date / Bank):' : 'Evidencia Verificable (DocNumber / Fecha / Banco):'}
+                      </label>
+                      <input
+                        type="text"
+                        value={qboCandidateEvidence}
+                        onChange={(e) => setQboCandidateEvidence(e.target.value)}
+                        placeholder="QBO DocNumber / TxnDate / Bank Deposit"
+                        className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs font-mono"
+                      />
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    {qboCandidates.map((cand: any) => (
+                      <div
+                        key={cand.id}
+                        className="p-3 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 flex flex-col sm:flex-row sm:items-center justify-between gap-2"
+                      >
+                        <div className="space-y-0.5">
+                          <div className="font-mono font-extrabold text-slate-900 dark:text-white">
+                            QBO ID #{cand.id} • Doc #{cand.docNumber || '—'} • {fmtDateMDY(cand.txnDate)}
+                          </div>
+                          <div className="text-[11px] text-slate-600 dark:text-slate-300 font-mono">
+                            Bank Debit: {fmtMoney(cand.bankDebitAmount)} | Receivable Credit:{' '}
+                            {fmtMoney(cand.receivableCreditAmount)}
+                          </div>
+                          {cand.privateNote && (
+                            <div className="text-[10px] text-slate-400 truncate max-w-xl">
+                              Note: {cand.privateNote}
+                            </div>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <button
+                            onClick={() =>
+                              handleResolveHistoricalQboCandidate({
+                                payoutId: selectedQbRecord.id,
+                                jeId: cand.id,
+                                docNumber: cand.docNumber,
+                                txnDate: cand.txnDate,
+                                decision: 'confirm_qbo_candidate',
+                              })
+                            }
+                            disabled={resolvingQboCandidate}
+                            className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-extrabold"
+                          >
+                            {isEn ? 'Confirm & Link' : 'Confirmar y Vincular'}
+                          </button>
+                          <button
+                            onClick={() =>
+                              handleResolveHistoricalQboCandidate({
+                                payoutId: selectedQbRecord.id,
+                                jeId: cand.id,
+                                docNumber: cand.docNumber,
+                                txnDate: cand.txnDate,
+                                decision: 'discard_qbo_candidate',
+                              })
+                            }
+                            disabled={resolvingQboCandidate}
+                            className="px-3 py-1.5 rounded-lg border border-rose-500/40 bg-rose-500/10 hover:bg-rose-500/20 disabled:opacity-50 text-rose-700 dark:text-rose-300 font-bold"
+                          >
+                            {isEn ? 'Discard Candidate' : 'Descartar Candidato'}
+                          </button>
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 </div>
               )}
 
               {blockers.length > 0 && !selectedQbRecord.hasJournalEntry && (
-                <div className="p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/30 space-y-1 text-rose-800 dark:text-rose-200 text-xs">
+                <div className="p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/30 space-y-2 text-rose-800 dark:text-rose-200 text-xs">
                   <div className="font-extrabold flex items-center gap-1.5">
                     <Lock className="w-4 h-4 text-rose-600" />
                     {isEn ? 'Publication blocked by accounting safety rules:' : 'Publicación bloqueada por seguridad contable:'}
                   </div>
                   {blockers.map((b, idx) => (
-                    <div key={idx} className="pl-5">
-                      • {isEn ? b.message_en : b.message_es}
+                    <div key={idx} className="pl-5 space-y-0.5">
+                      <div className="font-bold">• {isEn ? b.message_en : b.message_es}</div>
+                      {(b.cause_es || b.cause_en) && (
+                        <div className="text-[11px] opacity-90">
+                          <strong>{isEn ? 'Cause:' : 'Causa:'}</strong> {isEn ? b.cause_en : b.cause_es}
+                        </div>
+                      )}
+                      {(b.next_action_es || b.next_action_en) && (
+                        <div className="text-[11px] font-bold text-rose-700 dark:text-rose-300">
+                          → <strong>{isEn ? 'Next action:' : 'Siguiente acción:'}</strong>{' '}
+                          {isEn ? b.next_action_en : b.next_action_es}
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
               )}
 
-              {warnings.length > 0 && !selectedQbRecord.hasJournalEntry && (
-                <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/30 space-y-1 text-amber-800 dark:text-amber-200 text-xs">
+              {/* ALERTAS DE AUDITORÍA SIEMPRE VISIBLES INCLUSO SI LA PÓLIZA QBO YA FUE PUBLICADA */}
+              {warnings.length > 0 && (
+                <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/30 space-y-2 text-amber-800 dark:text-amber-200 text-xs">
                   <div className="font-extrabold flex items-center gap-1.5">
                     <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
                     {isEn
-                      ? 'Informative order-by-order audit alert (does not block creating the Journal Entry):'
-                      : 'Alerta informativa de auditoría orden por orden (no bloquea crear la póliza):'}
+                      ? 'Informative order-by-order audit alerts (independent from QBO Journal Entry status):'
+                      : 'Alertas informativas de auditoría de órdenes (independientes del estado de la póliza QBO):'}
                   </div>
                   {warnings.map((w, idx) => (
-                    <div key={idx} className="pl-5">
-                      • {isEn ? w.message_en : w.message_es}
+                    <div key={idx} className="pl-5 space-y-0.5">
+                      <div className="font-bold">• {isEn ? w.message_en : w.message_es}</div>
+                      {(w.cause_es || w.cause_en) && (
+                        <div className="text-[11px] opacity-90">
+                          <strong>{isEn ? 'Cause:' : 'Causa:'}</strong> {isEn ? w.cause_en : w.cause_es}
+                        </div>
+                      )}
+                      {(w.next_action_es || w.next_action_en) && (
+                        <div className="text-[11px] font-bold text-indigo-700 dark:text-indigo-300">
+                          → <strong>{isEn ? 'Next action:' : 'Siguiente acción:'}</strong>{' '}
+                          {isEn ? w.next_action_en : w.next_action_es}
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
