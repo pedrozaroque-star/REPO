@@ -129,10 +129,19 @@ export function buildPayoutIdempotencyKey(
 export function matchExistingJournalEntryStrict(params: {
   payout: any
   storeLocationId: string
+  bankAccountQbId?: string
   receivableQbId: string
+  expectedReceivableAmount?: number
   qbJournalEntries: any[]
 }): any | null {
-  const { payout, storeLocationId, receivableQbId, qbJournalEntries } = params
+  const {
+    payout,
+    storeLocationId,
+    bankAccountQbId,
+    receivableQbId,
+    expectedReceivableAmount,
+    qbJournalEntries,
+  } = params
   if (!Array.isArray(qbJournalEntries) || qbJournalEntries.length === 0) return null
 
   const savedQbId = payout.raw_payload?.qb_journal_entry_id
@@ -142,10 +151,13 @@ export function matchExistingJournalEntryStrict(params: {
   }
 
   const payoutRef = String(payout.payout_reference_id || '').trim()
-  if (!payoutRef) return null
-
-  const idempotencyKey = buildPayoutIdempotencyKey(payout.platform, Number(payout.store_id), payoutRef)
+  const idempotencyKey = payoutRef
+    ? buildPayoutIdempotencyKey(payout.platform, Number(payout.store_id), payoutRef)
+    : ''
   const savedDocNumber = String(payout.raw_payload?.qb_doc_number || '').trim()
+  const netPayoutAbs = round2(Math.abs(Number(payout.net_payout_amount || 0)))
+  const refDateStr = String(payout.period_end || payout.payout_date || payout.period_start || '').slice(0, 10)
+  const refDateMs = refDateStr ? new Date(`${refDateStr}T12:00:00Z`).getTime() : NaN
 
   for (const je of qbJournalEntries) {
     const privateNote = String(je.PrivateNote || '')
@@ -153,11 +165,11 @@ export function matchExistingJournalEntryStrict(params: {
     const lines: any[] = Array.isArray(je.Line) ? je.Line : []
 
     // 1. Match por llave de idempotencia exacta en PrivateNote
-    if (privateNote.includes(idempotencyKey)) {
+    if (idempotencyKey && privateNote.includes(idempotencyKey)) {
       return je
     }
 
-    // Verificar que la póliza corresponda exactamente a la sucursal (DepartmentRef) y cuenta CxC de la plataforma
+    // Verificar que la póliza corresponda exactamente a la sucursal (DepartmentRef) y cuenta CxC de la plataforma (12050/12053/12054)
     const hasExactStoreAndPlatformAccount = lines.some(
       (l) =>
         String(l?.JournalEntryLineDetail?.DepartmentRef?.value) === String(storeLocationId) &&
@@ -173,6 +185,43 @@ export function matchExistingJournalEntryStrict(params: {
     // 3. Match por DocNumber previamente registrado en el payout + sucursal + cuenta CxC
     if (savedDocNumber && docNum === savedDocNumber) {
       return je
+    }
+
+    // 4. Match contable exacto para pólizas creadas directamente en QuickBooks Online por Contabilidad:
+    //    Misma sucursal (DepartmentRef) + misma cuenta CxC de plataforma (12050/12053/12054) +
+    //    línea de banco de la sucursal (100XX) con el mismo depósito neto (±$0.05) dentro de la ventana temporal del corte ([-14d, +25d]).
+    if (bankAccountQbId && netPayoutAbs > 0) {
+      const jeDateStr = String(je.TxnDate || '').slice(0, 10)
+      const jeDateMs = jeDateStr ? new Date(`${jeDateStr}T12:00:00Z`).getTime() : NaN
+      const withinDateWindow =
+        Number.isNaN(refDateMs) ||
+        Number.isNaN(jeDateMs) ||
+        (jeDateMs >= refDateMs - 14 * 86400000 && jeDateMs <= refDateMs + 25 * 86400000)
+
+      if (withinDateWindow) {
+        const hasExactBankLine = lines.some(
+          (l) =>
+            String(l?.JournalEntryLineDetail?.AccountRef?.value) === String(bankAccountQbId) &&
+            Math.abs(round2(Number(l?.Amount || 0)) - netPayoutAbs) <= 0.05
+        )
+        if (hasExactBankLine) {
+          return je
+        }
+        if (expectedReceivableAmount && expectedReceivableAmount > 0) {
+          const hasExactReceivableLine = lines.some(
+            (l) =>
+              String(l?.JournalEntryLineDetail?.AccountRef?.value) === String(receivableQbId) &&
+              String(l?.JournalEntryLineDetail?.DepartmentRef?.value) === String(storeLocationId) &&
+              Math.abs(round2(Number(l?.Amount || 0)) - round2(expectedReceivableAmount)) <= 0.05
+          )
+          const hasFeeLine = lines.some((l) =>
+            ['353', '375', '374'].includes(String(l?.JournalEntryLineDetail?.AccountRef?.value || ''))
+          )
+          if (hasExactReceivableLine && hasFeeLine) {
+            return je
+          }
+        }
+      }
     }
   }
 
@@ -990,7 +1039,7 @@ export async function GET(req: NextRequest) {
 
     try {
       const { token, realmId } = await getValidQuickBooksToken()
-      for (const startPos of [1, 1001]) {
+      for (let startPos = 1; startPos <= 6001; startPos += 1000) {
         const q = encodeURIComponent(
           `select * from JournalEntry where TxnDate >= '${minQbDateBuffered}' and TxnDate <= '${maxQbDateBuffered}' orderby TxnDate desc startposition ${startPos} maxresults 1000`
         )
@@ -1059,6 +1108,8 @@ export async function GET(req: NextRequest) {
       ordersByStore.set(sId, arr)
     }
 
+    const payoutsToBackfillQbId: Array<{ id: string; raw_payload: Record<string, any> }> = []
+
     let enrichedRecords = (rawPayouts || []).map((p: any) => {
       const storeMeta = storeNameMap.get(p.store_id) || { name: `Store #${p.store_id}`, code: '' }
       const storeRefs = getQBStoreRefs(storeMeta.name)
@@ -1078,9 +1129,24 @@ export async function GET(req: NextRequest) {
       const matchedJe = matchExistingJournalEntryStrict({
         payout: p,
         storeLocationId: storeRefs.locationId,
+        bankAccountQbId: storeRefs.bankAccountQbId,
         receivableQbId: cfg.receivableQbId,
+        expectedReceivableAmount: preview.receivableCredit,
         qbJournalEntries,
       })
+
+      if (matchedJe && !savedQbId && p.id) {
+        payoutsToBackfillQbId.push({
+          id: p.id,
+          raw_payload: {
+            ...(p.raw_payload || {}),
+            qb_journal_entry_id: String(matchedJe.Id),
+            qb_doc_number: String(matchedJe.DocNumber || ''),
+            qb_txn_date: String(matchedJe.TxnDate || preview.txnDate),
+            qb_publish_status: 'PUBLISHED',
+          },
+        })
+      }
 
       const hasJournalEntry = Boolean(matchedJe || savedQbId)
       const publishStatus = p.raw_payload?.qb_publish_status || (hasJournalEntry ? 'PUBLISHED' : 'PENDING')
@@ -1178,6 +1244,20 @@ export async function GET(req: NextRequest) {
         journalPreview: preview,
       }
     })
+
+    if (payoutsToBackfillQbId.length > 0) {
+      Promise.allSettled(
+        payoutsToBackfillQbId.map((item) =>
+          supabaseAdmin
+            .from('delivery_platform_payouts')
+            .update({
+              raw_payload: item.raw_payload,
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', item.id)
+        )
+      ).catch(() => {})
+    }
 
     if (search) {
       enrichedRecords = enrichedRecords.filter((r) => {
@@ -1427,7 +1507,9 @@ export async function POST(req: NextRequest) {
       const alreadyInQbo = matchExistingJournalEntryStrict({
         payout: p,
         storeLocationId: storeRefs.locationId,
+        bankAccountQbId: storeRefs.bankAccountQbId,
         receivableQbId: cfg.receivableQbId,
+        expectedReceivableAmount: preview.receivableCredit,
         qbJournalEntries: existingQbJournals,
       })
 
