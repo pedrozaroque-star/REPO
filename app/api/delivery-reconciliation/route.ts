@@ -1121,6 +1121,10 @@ export async function GET(req: NextRequest) {
           qb_published_at: prp.qb_published_at ?? undefined,
           cross_payout_refunds: prp.cross_payout_refunds ?? undefined,
           variance_approval: prp.variance_approval ?? undefined,
+          portal_deposit_date: prp.portal_deposit_date ?? undefined,
+          is_month_end_cutoff: prp.is_month_end_cutoff ?? undefined,
+          is_new_month_remainder: prp.is_new_month_remainder ?? undefined,
+          created_date: prp.created_date ?? undefined,
         }
         return {
           ...p,
@@ -1166,7 +1170,7 @@ export async function GET(req: NextRequest) {
         const pPay = p.payout_date || ''
         if (pStart && pEnd) {
           if (pStart < pEnd && startDate < endDate) {
-            return pStart < endDate && pEnd > startDate
+            return pStart <= endDate && pEnd > startDate
           }
           return pStart <= endDate && pEnd >= startDate
         }

@@ -1038,6 +1038,113 @@ export async function getGrubhubMerchantToken(): Promise<string> {
 }
 
 /**
+ * Determina el periodo exacto (`period_start` y `period_end`) de un corte de Grubhub (`short_distribution_id`).
+ *
+ * Regla oficial de Grubhub:
+ * 1. El ciclo semanal regular corre de Martes (`effectiveDate - 10 días`) a Lunes (`effectiveDate - 4 días`).
+ * 2. Sin embargo, cuando una semana (Martes → Lunes) cruza el cierre de un mes calendario (ej. `Oct 31` o `Sep 30`),
+ *    Grubhub divide la semana en DOS depósitos separados por sucursal:
+ *    a) **Corte de Cierre de Mes (`^\d{6}01`, creado el último día del mes a las 9:59:59 PM PT / día 01 UTC a las 03:59:59Z o 04:59:59Z)**:
+ *       - `periodEnd` = último día del mes que cierra (fecha calendario de `created_date` en `America/Los_Angeles`).
+ *       - `periodStart` = el Martes igual o inmediatamente anterior a `periodEnd`.
+ *       - Ejemplos:
+ *         * `26110601...` (`created_date: 2026-11-01T04:59:59Z` = `2026-10-31 21:59:59 PT`) -> `2026-10-27` a `2026-10-31`.
+ *         * `26100201...` (`created_date: 2026-10-01T04:59:59Z` = `2026-09-30 21:59:59 PT`) -> `2026-09-29` a `2026-09-30`.
+ *         * `26090401...` (`created_date: 2026-09-01T04:59:59Z` = `2026-08-31 21:59:59 PT`) -> `2026-08-25` a `2026-08-31`.
+ *    b) **Corte Regular de Nuevo Mes (creado el Miércoles siguiente, `Cc !== '01'`)**:
+ *       - Si el Martes estándar (`effectiveDate - 10`) y el Lunes estándar (`effectiveDate - 4`) pertenecen a meses distintos,
+ *         los días del mes anterior ya fueron liquidados en el corte `01`, por lo que este segundo corte cubre únicamente
+ *         desde el día `01` del nuevo mes (`${stdEnd.slice(0, 7)}-01`) hasta el Lunes (`stdEnd`).
+ *       - Ejemplos:
+ *         * `26110604...` (`effectiveDate: 2026-11-06`, ciclo `10/27..11/02`) -> `2026-11-01` a `2026-11-02`.
+ *         * `26100907...` (`effectiveDate: 2026-10-09`, ciclo `09/29..10/05`) -> `2026-10-01` a `2026-10-05`.
+ */
+export function resolveGrubhubDistributionPeriod(params: {
+  shortDistributionId?: string | null
+  effectiveDate?: string | null
+  createdDateRaw?: string | null
+  minTxDate?: string | null
+  maxTxDate?: string | null
+}): {
+  periodStart: string
+  periodEnd: string
+  isMonthEndCutoff: boolean
+  isNewMonthRemainder: boolean
+  portalDepositDate: string | null
+} {
+  const shortId = String(params.shortDistributionId || '').trim()
+  const effDate = params.effectiveDate ? String(params.effectiveDate).slice(0, 10) : null
+  const createdRaw = params.createdDateRaw ? String(params.createdDateRaw).trim() : null
+
+  let portalDepositDate: string | null = null
+  if (createdRaw) {
+    const parsedCreated = new Date(createdRaw)
+    if (!Number.isNaN(parsedCreated.getTime())) {
+      const la = extractLaPartsFromInstant(parsedCreated)
+      portalDepositDate = `${la.year}-${String(la.month).padStart(2, '0')}-${String(la.day).padStart(2, '0')}`
+    }
+  }
+
+  const isMonthEndById = /^\d{6}01/.test(shortId)
+  const isMonthEndByCreated = Boolean(
+    createdRaw && /^\d{4}-\d{2}-01T0[345]:59:59/.test(createdRaw)
+  )
+  const isMonthEndCutoff = isMonthEndById || isMonthEndByCreated
+
+  if (isMonthEndCutoff) {
+    let monthEndDay = portalDepositDate
+    if (!monthEndDay && effDate) {
+      const firstOfEffMonth = `${effDate.slice(0, 7)}-01`
+      monthEndDay = addDaysToDateStr(firstOfEffMonth, -1)
+    }
+    if (monthEndDay) {
+      const dow = new Date(`${monthEndDay}T12:00:00Z`).getUTCDay()
+      const daysSinceTuesday = (dow - 2 + 7) % 7
+      const tuesdayStart = addDaysToDateStr(monthEndDay, -daysSinceTuesday)
+      return {
+        periodStart: tuesdayStart,
+        periodEnd: monthEndDay,
+        isMonthEndCutoff: true,
+        isNewMonthRemainder: false,
+        portalDepositDate: portalDepositDate || monthEndDay,
+      }
+    }
+  }
+
+  if (effDate) {
+    const stdStart = addDaysToDateStr(effDate, -10)
+    const stdEnd = addDaysToDateStr(effDate, -4)
+    if (stdStart.slice(0, 7) !== stdEnd.slice(0, 7)) {
+      const firstOfNewMonth = `${stdEnd.slice(0, 7)}-01`
+      return {
+        periodStart: firstOfNewMonth,
+        periodEnd: stdEnd,
+        isMonthEndCutoff: false,
+        isNewMonthRemainder: true,
+        portalDepositDate: portalDepositDate || effDate,
+      }
+    }
+    return {
+      periodStart: stdStart,
+      periodEnd: stdEnd,
+      isMonthEndCutoff: false,
+      isNewMonthRemainder: false,
+      portalDepositDate: portalDepositDate || effDate,
+    }
+  }
+
+  const fallbackStart = params.minTxDate || portalDepositDate || new Date().toISOString().slice(0, 10)
+  const fallbackEnd = params.maxTxDate || fallbackStart
+  return {
+    periodStart: fallbackStart,
+    periodEnd: fallbackEnd,
+    isMonthEndCutoff: false,
+    isNewMonthRemainder: false,
+    portalDepositDate,
+  }
+}
+
+/**
  * Extrae en vivo los depósitos (cortes) y las transacciones orden por orden desde Grubhub Accounting API
  * para una sucursal y rango de fechas.
  */
@@ -1169,6 +1276,15 @@ export async function fetchGrubhubLiveAccountingForStore(
     let sumTipCents = 0
     let sumErrorCents = 0
     let sumAdjCents = 0
+    const crossPayoutRefunds: Array<{
+      orderCode: string
+      payoutRef: string
+      periodStart: string
+      periodEnd: string
+      depositDate: string
+      amount: number
+      description: string
+    }> = []
 
     for (const atx of assocTxs) {
       const ordNum = String(atx.order_number || '').trim()
@@ -1178,7 +1294,17 @@ export async function fetchGrubhubLiveAccountingForStore(
       } else if (!txId && ordNum && !rawTransactions.some((rt: any) => String(rt.order_number || '').trim() === ordNum)) {
         rawTransactions.push(atx)
       }
-      if (ordNum) {
+
+      const atxTypeUpper = String(atx.transaction_type || '').toUpperCase()
+      const atxChanUpper = String(atx.order_channel || '').toUpperCase()
+      const atxOrderTypeUpper = String(atx.order_type || '').toUpperCase()
+      const isCreditAdjustment =
+        atxChanUpper === 'MISCELLANEOUS' ||
+        atxTypeUpper.includes('CREDIT') ||
+        atxOrderTypeUpper.includes('ADJUSTMENT') ||
+        (Number(atx.subtotal || 0) === 0 && Number(atx.net_amount || 0) > 0 && !atx.is_refund)
+
+      if (ordNum && ((!isCreditAdjustment && !atx.is_refund) || !orderToDepositMap.has(ordNum))) {
         orderToDepositMap.set(ordNum, {
           payoutRef: payoutRefId,
           payoutDate: effectiveDate || '',
@@ -1197,15 +1323,6 @@ export async function fetchGrubhubLiveAccountingForStore(
         if (!minDate || bDate < minDate) minDate = bDate
         if (!maxDate || bDate > maxDate) maxDate = bDate
       }
-
-      const atxTypeUpper = String(atx.transaction_type || '').toUpperCase()
-      const atxChanUpper = String(atx.order_channel || '').toUpperCase()
-      const atxOrderTypeUpper = String(atx.order_type || '').toUpperCase()
-      const isCreditAdjustment =
-        atxChanUpper === 'MISCELLANEOUS' ||
-        atxTypeUpper.includes('CREDIT') ||
-        atxOrderTypeUpper.includes('ADJUSTMENT') ||
-        (Number(atx.subtotal || 0) === 0 && Number(atx.net_amount || 0) > 0 && !atx.is_refund)
 
       if (atx.is_refund || atxChanUpper === 'ADJUSTMENT') {
         sumErrorCents += Number(atx.net_amount || 0)
@@ -1241,16 +1358,50 @@ export async function fetchGrubhubLiveAccountingForStore(
     const adjustmentsAmount = round2(sumAdjCents / 100)
     const netPayoutAmount = round2(Number(detailData?.total ?? dep.total ?? dep.net_amount ?? 0) / 100)
 
-    // El ciclo semanal oficial de Grubhub corre de Martes (effectiveDate - 10 días) a Lunes (effectiveDate - 4 días)
-    const officialGhStart = effectiveDate ? addDaysToDateStr(effectiveDate, -10) : minDate
-    const officialGhEnd = effectiveDate ? addDaysToDateStr(effectiveDate, -4) : maxDate
+    // Determinar el periodo oficial del corte de Grubhub respetando los cortes de cierre de mes (ej. 10/27..10/31 y 11/01..11/02)
+    const rawCreatedDate = dep.created_date || detailData?.created_date || null
+    const ghPeriod = resolveGrubhubDistributionPeriod({
+      shortDistributionId: dep.short_distribution_id || distId,
+      effectiveDate,
+      createdDateRaw: rawCreatedDate,
+      minTxDate: minDate,
+      maxTxDate: maxDate,
+    })
 
+    for (const atx of assocTxs) {
+      const ordNum = String(atx.order_number || '').trim()
+      const atxTypeUpper = String(atx.transaction_type || '').toUpperCase()
+      const atxChanUpper = String(atx.order_channel || '').toUpperCase()
+      const atxOrderTypeUpper = String(atx.order_type || '').toUpperCase()
+      const isCreditAdjustment =
+        atxChanUpper === 'MISCELLANEOUS' ||
+        atxTypeUpper.includes('CREDIT') ||
+        atxOrderTypeUpper.includes('ADJUSTMENT') ||
+        (Number(atx.subtotal || 0) === 0 && Number(atx.net_amount || 0) > 0 && !atx.is_refund)
+      if (isCreditAdjustment && ordNum && Number(atx.net_amount || 0) > 0) {
+        crossPayoutRefunds.push({
+          orderCode: ordNum,
+          payoutRef: payoutRefId,
+          periodStart: ghPeriod.periodStart,
+          periodEnd: ghPeriod.periodEnd,
+          depositDate: effectiveDate || '',
+          amount: round2(Number(atx.net_amount || 0) / 100),
+          description: String(
+            atx.transaction_type_description ||
+              atx.transaction_type ||
+              'Crédito / Recuperación de Disputa Grubhub'
+          ),
+        })
+      }
+    }
+
+    const baseRawPayload = detailData || dep || {}
     payouts.push({
       store_id: mapping.store_id,
       platform: 'GRUBHUB',
       payout_reference_id: dep.short_distribution_id || distId,
-      period_start: officialGhStart || minDate || effectiveDate,
-      period_end: officialGhEnd || maxDate || effectiveDate,
+      period_start: ghPeriod.periodStart,
+      period_end: ghPeriod.periodEnd,
       payout_date: effectiveDate,
       orders_count: assocTxs.length,
       subtotal_sales: subtotalSales,
@@ -1269,7 +1420,13 @@ export async function fetchGrubhubLiveAccountingForStore(
       bank_account_last4: bankLast4,
       status: 'POSTED',
       source_type: 'API',
-      raw_payload: detailData || dep,
+      raw_payload: {
+        ...baseRawPayload,
+        portal_deposit_date: ghPeriod.portalDepositDate,
+        is_month_end_cutoff: ghPeriod.isMonthEndCutoff,
+        is_new_month_remainder: ghPeriod.isNewMonthRemainder,
+        ...(crossPayoutRefunds.length > 0 ? { cross_payout_refunds: crossPayoutRefunds } : {}),
+      },
     })
   }
 
@@ -1295,15 +1452,27 @@ export async function fetchGrubhubLiveAccountingForStore(
   const orders: PlatformOrderInput[] = []
 
   for (const [ordKey, txList] of groupedByOrderNum.entries()) {
-    const primaryTx = txList.find((t) => !t.is_refund && t.order_channel !== 'ADJUSTMENT') || txList[0]
-    const refundTxs = txList.filter((t) => t !== primaryTx && (t.is_refund || t.order_channel === 'ADJUSTMENT'))
+    const primaryTx =
+      txList.find((t) => !t.is_refund && Number(t.subtotal || 0) > 0) ||
+      txList.find((t) => !t.is_refund && t.order_channel !== 'ADJUSTMENT') ||
+      txList[0]
+    const refundTxs = txList.filter(
+      (t) => t !== primaryTx && (t.is_refund || t.order_channel === 'ADJUSTMENT' || Number(t.net_amount || 0) < 0)
+    )
+    const recoveryTxs = txList.filter(
+      (t) =>
+        t !== primaryTx &&
+        !t.is_refund &&
+        Number(t.subtotal || 0) === 0 &&
+        Number(t.net_amount || 0) > 0
+    )
 
     const placedAt = primaryTx.placed_at_time || primaryTx.transaction_time || null
     const businessDate = toOperationalBusinessDate(placedAt, primaryTx.business_date || startDate)
 
     const depInfo =
-      orderToDepositMap.get(String(primaryTx.order_number || '')) ||
-      orderToDepositMap.get(String(primaryTx.transaction_id || ''))
+      orderToDepositMap.get(String(primaryTx.transaction_id || '')) ||
+      orderToDepositMap.get(String(primaryTx.order_number || ''))
 
     // Filtrar solo órdenes dentro del rango operativo solicitado [startDate, endDate],
     // EXCEPTO cuando la orden pertenece oficialmente a uno de los depósitos/cortes extraídos (`depInfo.payoutRef`),
@@ -1360,6 +1529,12 @@ export async function fetchGrubhubLiveAccountingForStore(
         : 'DELIVERY'
 
     const hasRefund = primaryTx.is_refund || refundTxs.length > 0 || errorCharge < -0.01
+    const recTx = recoveryTxs[0]
+    const recDep = recTx ? orderToDepositMap.get(String(recTx.transaction_id || '')) : undefined
+    const recAmount =
+      recoveryTxs.length > 0
+        ? round2(recoveryTxs.reduce((s, r) => s + Number(r.net_amount || 0) / 100, 0))
+        : 0
 
     orders.push({
       storeId: mapping.store_id,
@@ -1392,7 +1567,22 @@ export async function fetchGrubhubLiveAccountingForStore(
         : isCreditOrAdjustment
         ? primaryTx.transaction_type_description || 'Crédito / Recuperación de Disputa Grubhub'
         : null,
-      rawPayload: { primary: primaryTx, refunds: refundTxs },
+      rawPayload: {
+        primary: primaryTx,
+        refunds: refundTxs,
+        ...(recTx && recDep && recAmount > 0
+          ? {
+              reimbursement_payout_ref: recDep.payoutRef,
+              reimbursement_deposit_date: recDep.payoutDate,
+              reimbursement_amount: recAmount,
+              reimbursement_description: String(
+                recTx.transaction_type_description ||
+                  recTx.transaction_type ||
+                  'Crédito / Recuperación de Disputa Grubhub'
+              ),
+            }
+          : {}),
+      },
     })
   }
 
@@ -4882,10 +5072,61 @@ export async function reconcileAndPersistDeliveryData(params: {
 
   const validImportedPayouts = allImportedPayouts.filter((p) => Number(p.store_id) > 0)
 
+  const mergeExistingPayoutMetadata = async (payoutRows: Array<Record<string, any>>) => {
+    if (payoutRows.length === 0) return payoutRows
+    const refs = Array.from(
+      new Set(payoutRows.map((p) => String(p.payout_reference_id || '').trim()).filter(Boolean))
+    )
+    if (refs.length === 0) return payoutRows
+    const { data: existingPayouts } = await supabaseAdmin
+      .from('delivery_platform_payouts')
+      .select('store_id, platform, payout_reference_id, status, raw_payload')
+      .in('payout_reference_id', refs)
+    const existingByKey = new Map<string, Record<string, any>>()
+    for (const ep of existingPayouts || []) {
+      existingByKey.set(`${ep.platform}:${ep.store_id}:${ep.payout_reference_id}`, ep)
+    }
+    const preservedKeys = [
+      'qb_journal_entry_id',
+      'qb_doc_number',
+      'qb_txn_date',
+      'qb_published_at',
+      'qb_idempotency_key',
+      'qb_publish_status',
+      'qb_publish_lock_at',
+      'qbo_candidate_confirmation',
+      'qbo_discarded_candidates',
+      'qbo_shared_je_approved',
+      'variance_approval',
+      'cross_payout_refunds',
+      'bank_feed_confirmed',
+      'bank_feed_deposit_id',
+      'bank_feed_confirmed_date',
+    ]
+    return payoutRows.map((p) => {
+      const ex = existingByKey.get(`${p.platform}:${p.store_id}:${p.payout_reference_id}`)
+      if (!ex) return p
+      const exRp = ex.raw_payload || {}
+      const mergedRp: Record<string, any> = { ...(p.raw_payload || {}) }
+      for (const k of preservedKeys) {
+        if (exRp[k] !== undefined && mergedRp[k] === undefined) {
+          mergedRp[k] = exRp[k]
+        }
+      }
+      return {
+        ...p,
+        status: exRp.qb_journal_entry_id ? 'RECONCILED' : p.status,
+        raw_payload: mergedRp,
+      }
+    })
+  }
+
   // 1. Si hay cortes importados o extraídos en vivo con tienda válida, deduplicar por `platform + store_id + payout_reference_id`
   // NUNCA borrar cortes de otra sucursal por compartir `payout_reference_id`.
   if (validImportedPayouts.length > 0) {
-    const dedupedPayouts = deduplicatePayoutRecords(validImportedPayouts)
+    const dedupedPayouts = await mergeExistingPayoutMetadata(
+      deduplicatePayoutRecords(validImportedPayouts)
+    )
 
     // Si un corte de Uber Eats guardado previamente con `settlementUUID` (cuando estaba PENDING sin `transactionID`)
     // ya fue liquidado (`SETTLED`) y ahora trae su `transactionID` oficial, migrar el borrador (si no tiene póliza QBO)
@@ -4945,7 +5186,9 @@ export async function reconcileAndPersistDeliveryData(params: {
         const ghData = await fetchGrubhubLiveAccountingForStore(mapping, startDate, endDate)
         liveGhOrders = ghData.orders
         if (ghData.payouts.length > 0) {
-          const dedupGhPayouts = deduplicatePayoutRecords(ghData.payouts)
+          const dedupGhPayouts = await mergeExistingPayoutMetadata(
+            deduplicatePayoutRecords(ghData.payouts)
+          )
           const { error: ghPayErr } = await supabaseAdmin
             .from('delivery_platform_payouts')
             .upsert(dedupGhPayouts, { onConflict: 'store_id,platform,payout_reference_id' })
@@ -5035,6 +5278,7 @@ export async function reconcileAndPersistDeliveryData(params: {
       }
     }
 
+    const obsoleteStandaloneRefundTxIds: string[] = []
     for (const inp of combinedPlatformInputs) {
       const txKey = `${inp.platform}:${inp.platformTransactionId}`
       const prev = platformMap.get(txKey)
@@ -5054,7 +5298,32 @@ export async function reconcileAndPersistDeliveryData(params: {
           }
         }
       }
+      if (inp.platform === 'GRUBHUB' && Array.isArray(inp.rawPayload?.refunds)) {
+        for (const rtx of inp.rawPayload.refunds) {
+          const rTxId = String(rtx?.transaction_id || '').trim()
+          if (rTxId && rTxId !== inp.platformTransactionId) {
+            const orphanKey = `GRUBHUB:${rTxId}`
+            if (platformMap.has(orphanKey)) {
+              platformMap.delete(orphanKey)
+            }
+            const orphanManual = existingManualByTxKey.get(orphanKey)
+            if (orphanManual && !existingManualByTxKey.get(txKey)?.toast_order_guid && orphanManual.toast_order_guid) {
+              existingManualByTxKey.set(txKey, orphanManual)
+            }
+            obsoleteStandaloneRefundTxIds.push(rTxId)
+          }
+        }
+      }
       platformMap.set(txKey, inp)
+    }
+
+    if (obsoleteStandaloneRefundTxIds.length > 0) {
+      await supabaseAdmin
+        .from('delivery_platform_orders')
+        .delete()
+        .eq('store_id', mapping.store_id)
+        .eq('platform', 'GRUBHUB')
+        .in('platform_transaction_id', obsoleteStandaloneRefundTxIds)
     }
 
     const storePlatformOrders = Array.from(platformMap.values())

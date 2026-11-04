@@ -1390,7 +1390,7 @@ export async function GET(req: NextRequest) {
       const effEnd = endDate || '2099-12-31'
       if (pStart && pEnd) {
         if (pStart < pEnd && effStart < effEnd) {
-          return pStart < effEnd && pEnd > effStart
+          return pStart <= effEnd && pEnd > effStart
         }
         return pStart <= effEnd && pEnd >= effStart
       }
@@ -1909,6 +1909,19 @@ export async function GET(req: NextRequest) {
         period_start: p.period_start,
         period_end: p.period_end,
         payout_date: p.payout_date,
+        portal_deposit_date: p.raw_payload?.portal_deposit_date || null,
+        is_month_end_cutoff:
+          p.raw_payload?.is_month_end_cutoff === true ||
+          (plat === 'GRUBHUB' && /^\d{6}01/.test(String(p.payout_reference_id || ''))),
+        is_new_month_remainder:
+          p.raw_payload?.is_new_month_remainder === true ||
+          (plat === 'GRUBHUB' &&
+            !/^\d{6}01/.test(String(p.payout_reference_id || '')) &&
+            typeof p.period_start === 'string' &&
+            p.period_start.endsWith('-01') &&
+            typeof p.period_end === 'string' &&
+            p.period_end !== p.period_start &&
+            Number(p.period_end.slice(-2)) <= 6),
         net_payout_amount: Number(p.net_payout_amount || 0),
         platform_gross_receivable: preview.receivableCredit,
         total_fees: round2(

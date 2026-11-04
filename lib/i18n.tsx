@@ -7408,6 +7408,8 @@ export const dictionaries: Record<Language, Dictionary> = {
             bank_verification_matched_desc: 'Depósito bancario conciliado en {account} por {amount} con fecha {date} (Ref QBO #{id}).',
             bank_verification_pending_desc: 'Póliza registrada en QBO; el depósito bancario en la cuenta {account} está en tránsito o pendiente de conciliar en el Bank Feed.',
             bank_verification_unposted_desc: 'Aún no se ha publicado la póliza (Journal Entry) en QuickBooks Online para la cuenta {account}.',
+            gh_month_end_cut_badge: '📅 Corte Cierre de Mes',
+            gh_new_month_cut_badge: '📅 Corte Inicio de Mes',
         },
         external_accounting_phase7: {
             report_sales_tax_liability: 'Pasivo de Impuesto sobre Ventas (Sales Tax Liability)',
@@ -14833,6 +14835,8 @@ export const dictionaries: Record<Language, Dictionary> = {
             bank_verification_matched_desc: 'Bank deposit matched in {account} for {amount} on {date} (QBO Ref #{id}).',
             bank_verification_pending_desc: 'Journal Entry posted in QBO; bank deposit in account {account} is in transit or pending match in Bank Feed.',
             bank_verification_unposted_desc: 'Journal Entry has not yet been published in QuickBooks Online for account {account}.',
+            gh_month_end_cut_badge: '📅 Month-End Cutoff',
+            gh_new_month_cut_badge: '📅 New-Month Remainder',
         },
         external_accounting_phase7: {
             report_sales_tax_liability: 'Sales Tax Liability Report',

@@ -2888,7 +2888,25 @@ export default function ConciliarDeliveryPage() {
                           #{p.payout_reference_id}
                         </td>
                         <td className="p-3 text-xs text-slate-500">
-                          {fmtDateMDY(p.period_start)} → {fmtDateMDY(p.period_end)}
+                          <div>{fmtDateMDY(p.period_start)} → {fmtDateMDY(p.period_end)}</div>
+                          {(p.raw_payload?.is_month_end_cutoff ||
+                            (p.platform === 'GRUBHUB' && /^\d{6}01/.test(String(p.payout_reference_id || '')))) && (
+                            <span className="inline-block mt-0.5 px-1.5 py-0.5 rounded bg-orange-500/15 text-orange-700 dark:text-orange-300 border border-orange-500/30 text-[9px] font-extrabold">
+                              {t('deliveryReconciliation.gh_month_end_cut_badge')}
+                            </span>
+                          )}
+                          {!p.raw_payload?.is_month_end_cutoff &&
+                            !(p.platform === 'GRUBHUB' && /^\d{6}01/.test(String(p.payout_reference_id || ''))) &&
+                            (p.raw_payload?.is_new_month_remainder ||
+                              (p.platform === 'GRUBHUB' &&
+                                typeof p.period_start === 'string' &&
+                                p.period_start.endsWith('-01') &&
+                                p.period_end !== p.period_start &&
+                                Number(String(p.period_end || '').slice(-2)) <= 6)) && (
+                              <span className="inline-block mt-0.5 px-1.5 py-0.5 rounded bg-sky-500/15 text-sky-700 dark:text-sky-300 border border-sky-500/30 text-[9px] font-extrabold">
+                                {t('deliveryReconciliation.gh_new_month_cut_badge')}
+                              </span>
+                            )}
                         </td>
                         <td className="p-3 text-right font-bold">
                           {p.linked_orders_count ?? p.orders_count}
@@ -3366,6 +3384,16 @@ export default function ConciliarDeliveryPage() {
                           <div className="text-[10px] font-mono text-indigo-600 dark:text-indigo-400">
                             Ref: #{r.payout_reference_id}
                           </div>
+                          {r.is_month_end_cutoff && (
+                            <span className="inline-block mt-0.5 px-1.5 py-0.5 rounded bg-orange-500/15 text-orange-700 dark:text-orange-300 border border-orange-500/30 text-[9px] font-extrabold">
+                              {t('deliveryReconciliation.gh_month_end_cut_badge')}
+                            </span>
+                          )}
+                          {!r.is_month_end_cutoff && r.is_new_month_remainder && (
+                            <span className="inline-block mt-0.5 px-1.5 py-0.5 rounded bg-sky-500/15 text-sky-700 dark:text-sky-300 border border-sky-500/30 text-[9px] font-extrabold">
+                              {t('deliveryReconciliation.gh_new_month_cut_badge')}
+                            </span>
+                          )}
                         </td>
                         <td className="px-1.5 py-2 whitespace-nowrap">
                           <div className="font-bold text-slate-900 dark:text-white mb-0.5">{r.store_name}</div>
