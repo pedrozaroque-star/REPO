@@ -114,6 +114,7 @@ import { getCaliforniaBusinessDate, getCaliforniaShift } from '@/lib/business-da
 import { STORE_GUID_BY_CODE } from '@/lib/toast-stores'
 import { isDrinkOrDessertOnlyOrder } from '@/lib/order-ready-filter'
 import { purgeTabletStaleCaches, getTabletNoCacheHeaders } from '@/lib/tablet-cache-cleaner'
+import PhoneCallbackAlertBanner from '@/components/PhoneCallbackAlertBanner'
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
@@ -1182,17 +1183,19 @@ function OrderReadyBoardContent() {
           return
         }
 
-        // Anuncios especiales de bebidas pendientes listas desde tableta de Preparador (Café / Champurrado)
+        // Anuncios especiales de pendientes listas desde tableta de Preparador (Café / Champurrado / Orden Pendiente)
         const bevKey = String(num || '').toUpperCase()
         const bevSpeech =
           bevKey === 'CAFE'
             ? 'Café pendiente, ¡ya está!'
             : bevKey === 'CHAMPURRADO'
             ? 'Champurrado pendiente, ¡ya está!'
+            : bevKey === 'ORDEN_PENDIENTE'
+            ? 'Orden pendiente, ¡ya está!'
             : null
 
         if (bevSpeech) {
-          setActiveSpeech(`☕ ${bevSpeech}`)
+          setActiveSpeech(`${bevKey === 'ORDEN_PENDIENTE' ? '🔔' : '☕'} ${bevSpeech}`)
           const uttBev = new SpeechSynthesisUtterance(bevSpeech)
           uttBev.rate = voiceSpeed
           uttBev.volume = isMuted ? 0 : voiceVolume
@@ -1399,7 +1402,7 @@ function OrderReadyBoardContent() {
     [isMuted, voiceVolume, unlockAudio]
   )
 
-  // Obtener y cachear en memoria (Blob URL) el clip neuronal de Café / Champurrado pendiente, ¡ya está!
+  // Obtener y cachear en memoria (Blob URL) el clip neuronal de Café / Champurrado / Orden pendiente, ¡ya está!
   // Prioriza los archivos WAV estáticos pre-generados en /audio/order-ready/ para latencia de 0ms sin depender de red/compilación.
   const getBeverageClipUrl = useCallback((bevKey: string, phrase: string, voiceOverride?: VoiceId): Promise<string | null> => {
     const voice = voiceOverride || selectedVoice
@@ -1408,6 +1411,8 @@ function OrderReadyBoardContent() {
         ? '/audio/order-ready/cafe-listo.wav?v=3'
         : bevKey === 'CHAMPURRADO'
         ? '/audio/order-ready/champurrado-listo.wav?v=3'
+        : bevKey === 'ORDEN_PENDIENTE'
+        ? '/audio/order-ready/orden-pendiente-listo.wav?v=3'
         : null
 
     const key = `bev:v3:${voice}:es:${bevKey}`
@@ -1473,6 +1478,8 @@ function OrderReadyBoardContent() {
           ? 'Café pendiente, ¡ya está!'
           : bevKey === 'CHAMPURRADO'
           ? 'Champurrado pendiente, ¡ya está!'
+          : bevKey === 'ORDEN_PENDIENTE'
+          ? 'Orden pendiente, ¡ya está!'
           : null
 
       if (bevSpeech) {
@@ -1480,7 +1487,7 @@ function OrderReadyBoardContent() {
         if (!clipUrl) return speakOrderBrowser(order, voice, 'es')
 
         for (let rep = 0; rep < repeats; rep++) {
-          setActiveSpeech(`☕ ${bevSpeech}`)
+          setActiveSpeech(`${bevKey === 'ORDEN_PENDIENTE' ? '🔔' : '☕'} ${bevSpeech}`)
           let ok = clipUrl ? await playClip(clipUrl) : false
           if (!ok) {
             clipCacheRef.current.delete(`bev:v3:${voice}:es:${bevKey}`)
@@ -1562,8 +1569,13 @@ function OrderReadyBoardContent() {
         try {
           // Descargar los clips mientras suena la campanilla (si ya están precargados es inmediato)
           const bevKey = String(nextOrder.order_number || '').toUpperCase()
-          if (bevKey === 'CAFE' || bevKey === 'CHAMPURRADO') {
-            const bevPhrase = bevKey === 'CAFE' ? 'Café pendiente, ¡ya está!' : 'Champurrado pendiente, ¡ya está!'
+          if (bevKey === 'CAFE' || bevKey === 'CHAMPURRADO' || bevKey === 'ORDEN_PENDIENTE') {
+            const bevPhrase =
+              bevKey === 'CAFE'
+                ? 'Café pendiente, ¡ya está!'
+                : bevKey === 'CHAMPURRADO'
+                ? 'Champurrado pendiente, ¡ya está!'
+                : 'Orden pendiente, ¡ya está!'
             void getBeverageClipUrl(bevKey, bevPhrase, selectedVoice)
           } else if (/^\d{1,6}$/.test(nextOrder.order_number)) {
             const num = String(parseInt(nextOrder.order_number, 10))
@@ -2105,10 +2117,11 @@ function OrderReadyBoardContent() {
     })()
   }, [inProgressOrders, clipLangs, getClipUrl, selectedVoice])
 
-  // Precargar los clips de Café y Champurrado al montar o cambiar de voz para reproducción en 0ms
+  // Precargar los clips de Café, Champurrado y Orden Pendiente al montar o cambiar de voz para reproducción en 0ms
   useEffect(() => {
     void getBeverageClipUrl('CAFE', 'Café pendiente, ¡ya está!', selectedVoice)
     void getBeverageClipUrl('CHAMPURRADO', 'Champurrado pendiente, ¡ya está!', selectedVoice)
+    void getBeverageClipUrl('ORDEN_PENDIENTE', 'Orden pendiente, ¡ya está!', selectedVoice)
   }, [getBeverageClipUrl, selectedVoice])
 
   // Suscripción a Supabase Realtime aislada por tienda con filtro server-side, debounce 500ms y sin reconexión en CLOSED intencional
@@ -2632,6 +2645,9 @@ function OrderReadyBoardContent() {
           </span>
         </div>
       )}
+
+      {/* Banner de Recados Telefónicos Prioritarios (Contestadora IA) */}
+      <PhoneCallbackAlertBanner storeCode={selectedStore} />
 
       {/* Top Header / Barra Superior */}
       <header className={`px-4 sm:px-6 py-3.5 flex flex-wrap items-center justify-between gap-3 border-b transition-colors ${

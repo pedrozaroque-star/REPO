@@ -1044,6 +1044,14 @@ export default function PreparadorPage() {
                     label: t('prep.callChampurradoBtn'),
                     speech: t('prep.champurradoReadySpeech')
                 }), 350)
+            } else if (tapId === 'bev:bev-orden-pendiente') {
+                triggerPrepDedupedAction(tapId, () => handleCallOrderImpulse({
+                    id: 'bev-orden-pendiente',
+                    order_number: 'ORDEN_PENDIENTE',
+                    dining_option: 'TOGO',
+                    label: t('prep.callOrdenPendienteBtn'),
+                    speech: t('prep.ordenPendienteReadySpeech')
+                }), 350)
             }
         }
     }
@@ -2681,8 +2689,8 @@ export default function PreparadorPage() {
                                 </div>
                             </div>
 
-                            {/* Botones de Anuncio por Voz de Bebidas Calientes (Café y Champurrado) junto a las órdenes */}
-                            <div className="grid grid-cols-2 gap-2.5 sm:gap-3.5 pb-2.5 mb-2.5 border-b border-slate-200 dark:border-slate-800 shrink-0">
+                            {/* Botones de Anuncio por Voz (Café, Champurrado y Orden Pendiente) junto a las órdenes */}
+                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 sm:gap-3 pb-3 mb-3 border-b border-slate-200 dark:border-slate-800 shrink-0">
                                 {[
                                     {
                                         id: 'bev-cafe',
@@ -2690,6 +2698,7 @@ export default function PreparadorPage() {
                                         dining_option: 'TOGO',
                                         label: t('prep.callCafeBtn'),
                                         speech: t('prep.cafeReadySpeech'),
+                                        iconType: 'coffee' as const,
                                         idleBg: 'border-amber-300 dark:border-amber-700/80 bg-gradient-to-br from-amber-50 to-orange-50/70 dark:from-amber-950/40 dark:to-slate-900 hover:border-amber-500 active:bg-emerald-100 active:border-emerald-500',
                                         badgeBg: 'bg-amber-100 text-amber-900 dark:bg-amber-900/60 dark:text-amber-200',
                                         btnBg: 'bg-amber-700 group-hover:bg-amber-800 text-white'
@@ -2700,9 +2709,21 @@ export default function PreparadorPage() {
                                         dining_option: 'TOGO',
                                         label: t('prep.callChampurradoBtn'),
                                         speech: t('prep.champurradoReadySpeech'),
+                                        iconType: 'coffee' as const,
                                         idleBg: 'border-orange-300 dark:border-orange-700/80 bg-gradient-to-br from-orange-50 to-amber-50/70 dark:from-orange-950/40 dark:to-slate-900 hover:border-orange-500 active:bg-emerald-100 active:border-emerald-500',
                                         badgeBg: 'bg-orange-100 text-orange-900 dark:bg-orange-900/60 dark:text-orange-200',
                                         btnBg: 'bg-orange-700 group-hover:bg-orange-800 text-white'
+                                    },
+                                    {
+                                        id: 'bev-orden-pendiente',
+                                        order_number: 'ORDEN_PENDIENTE',
+                                        dining_option: 'TOGO',
+                                        label: t('prep.callOrdenPendienteBtn'),
+                                        speech: t('prep.ordenPendienteReadySpeech'),
+                                        iconType: 'order' as const,
+                                        idleBg: 'border-teal-300 dark:border-teal-700/80 bg-gradient-to-br from-teal-50 to-emerald-50/70 dark:from-teal-950/40 dark:to-slate-900 hover:border-teal-500 active:bg-emerald-100 active:border-emerald-500',
+                                        badgeBg: 'bg-teal-100 text-teal-900 dark:bg-teal-900/60 dark:text-teal-200',
+                                        btnBg: 'bg-teal-700 group-hover:bg-teal-800 text-white'
                                     }
                                 ].map((bev) => {
                                     const isCalling = callingOrderIds.has(bev.id)
@@ -2720,7 +2741,7 @@ export default function PreparadorPage() {
                                                 userSelect: 'none'
                                             }}
                                             {...bindOrderCardUltraTap(`bev:${bev.id}`, () => handleCallOrderImpulse(bev))}
-                                            className={`group relative rounded-2xl px-3 sm:px-4 py-2.5 sm:py-3 text-left transition-all active:scale-[0.97] cursor-pointer flex flex-col justify-between select-none touch-none shadow-sm hover:shadow-md border-2 [&_*]:pointer-events-none before:content-[''] before:absolute before:-inset-2.5 before:rounded-3xl ${
+                                            className={`group relative rounded-2xl px-3.5 sm:px-4 py-3 sm:py-3.5 text-left transition-all active:scale-[0.97] cursor-pointer flex flex-col justify-between select-none touch-none shadow-sm hover:shadow-md border-2 [&_*]:pointer-events-none before:content-[''] before:absolute before:-inset-2.5 before:rounded-3xl ${
                                                 isCalling
                                                     ? 'ring-4 ring-emerald-500 scale-[0.98] border-emerald-500 bg-emerald-50 dark:bg-emerald-950/80 shadow-lg'
                                                     : isSuccess
@@ -2728,26 +2749,27 @@ export default function PreparadorPage() {
                                                     : bev.idleBg
                                             }`}
                                         >
-                                            <div className="flex items-center justify-between gap-2 w-full mb-1">
-                                                <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] sm:text-xs font-black uppercase tracking-wider truncate ${bev.badgeBg}`}>
-                                                    <Coffee size={12} className="shrink-0" />
+                                            <div className="flex items-center justify-between gap-2 w-full mb-1.5">
+                                                <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] sm:text-xs font-black uppercase tracking-wider truncate ${bev.badgeBg}`}>
+                                                    {bev.iconType === 'order' ? (
+                                                        <BellRing size={13} className="shrink-0" />
+                                                    ) : (
+                                                        <Coffee size={13} className="shrink-0" />
+                                                    )}
                                                     <span className="truncate">{t('prep.beverageVoiceCallBadge')}</span>
                                                 </span>
                                             </div>
-                                            <div className="my-1 flex items-center gap-2">
-                                                <Coffee size={22} className={isCalling ? 'text-emerald-600 dark:text-emerald-400 animate-bounce shrink-0' : 'text-amber-800 dark:text-amber-300 shrink-0'} />
-                                                <div className="min-w-0 flex-1">
-                                                    <div className={`text-base sm:text-xl font-black tracking-tight truncate leading-tight ${
-                                                        isCalling ? 'text-emerald-700 dark:text-emerald-300' : 'text-slate-900 dark:text-white'
-                                                    }`}>
-                                                        {bev.label}
-                                                    </div>
-                                                    <p className="text-[10px] sm:text-xs font-semibold text-slate-500 dark:text-slate-400 truncate">
-                                                        &ldquo;{bev.speech}&rdquo;
-                                                    </p>
+                                            <div className="my-1.5 w-full min-w-0">
+                                                <div className={`text-2xl sm:text-2xl xl:text-3xl font-black tracking-tight leading-tight ${
+                                                    isCalling ? 'text-emerald-700 dark:text-emerald-300' : 'text-slate-900 dark:text-white'
+                                                }`}>
+                                                    {bev.label}
                                                 </div>
+                                                <p className="text-xs sm:text-sm font-bold text-slate-600 dark:text-slate-300 truncate mt-0.5">
+                                                    &ldquo;{bev.speech}&rdquo;
+                                                </p>
                                             </div>
-                                            <div className={`mt-1.5 w-full py-2 sm:py-2.5 px-2.5 rounded-xl flex items-center justify-center gap-1.5 font-black text-xs sm:text-sm tracking-wide transition-all shadow-sm ${
+                                            <div className={`mt-2 w-full py-2.5 sm:py-3 px-3 rounded-xl flex items-center justify-center gap-2 font-black text-base sm:text-lg tracking-wide transition-all shadow-sm ${
                                                 isCalling
                                                     ? 'bg-emerald-600 text-white animate-pulse shadow-md'
                                                     : isSuccess
@@ -2756,17 +2778,17 @@ export default function PreparadorPage() {
                                             }`}>
                                                 {isCalling ? (
                                                     <>
-                                                        <Megaphone size={15} className="animate-bounce shrink-0" />
+                                                        <Megaphone size={18} className="animate-bounce shrink-0" />
                                                         <span className="truncate">{t('prep.callingOrder')}</span>
                                                     </>
                                                 ) : isSuccess ? (
                                                     <>
-                                                        <CheckCircle2 size={15} className="shrink-0" />
+                                                        <CheckCircle2 size={18} className="shrink-0" />
                                                         <span className="truncate">{t('prep.orderCallSent')}</span>
                                                     </>
                                                 ) : (
                                                     <>
-                                                        <Volume2 size={15} className="shrink-0" />
+                                                        <Volume2 size={18} className="shrink-0" />
                                                         <span className="truncate">{bev.label}</span>
                                                     </>
                                                 )}

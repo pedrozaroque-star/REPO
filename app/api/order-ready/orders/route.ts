@@ -95,11 +95,12 @@ export async function GET(request: Request) {
     }
 
     // Regla de Negocio Tacos Gavilan: El Order Ready Board es exclusivo para comedor (FOR_HERE) y para llevar (TOGO).
-    // Se descartan por completo órdenes de Drive-Thru y Delivery de plataformas, así como registros centinela de bebidas (CAFE/CHAMPURRADO).
+    // Se descartan por completo órdenes de Drive-Thru y Delivery de plataformas, así como registros centinela (CAFE/CHAMPURRADO/ORDEN_PENDIENTE).
     const isAllowedDining = (o: any) =>
       (o.dining_option === 'FOR_HERE' || o.dining_option === 'TOGO') &&
       o.order_number !== 'CAFE' &&
-      o.order_number !== 'CHAMPURRADO'
+      o.order_number !== 'CHAMPURRADO' &&
+      o.order_number !== 'ORDEN_PENDIENTE'
     const filteredOrders = (orders || []).filter(isAllowedDining)
 
     // Consultar TODOS los impulsos recientes (órdenes o Café/Champurrado de los últimos 45s) para Capa 4 de Redundancia (Polling Fallback),

@@ -103,7 +103,7 @@ export async function POST(request: Request) {
             .maybeSingle()
           if (updErr) console.warn('Advertencia actualizando announced_at por order_number:', updErr.message)
           if (updRow?.id) persistedRowId = updRow.id
-        } else if (orderNumber === 'CAFE' || orderNumber === 'CHAMPURRADO') {
+        } else if (orderNumber === 'CAFE' || orderNumber === 'CHAMPURRADO' || orderNumber === 'ORDEN_PENDIENTE') {
           const { data: insRow, error: insErr } = await supabaseAdmin
             .from('order_ready_announcements')
             .insert({
@@ -119,7 +119,7 @@ export async function POST(request: Request) {
             })
             .select('id')
             .maybeSingle()
-          if (insErr) console.warn('Advertencia insertando registro centinela de bebida:', insErr.message)
+          if (insErr) console.warn('Advertencia insertando registro centinela de bebida/orden pendiente:', insErr.message)
           if (insRow?.id) persistedRowId = insRow.id
         }
       }
