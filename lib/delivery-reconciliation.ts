@@ -1620,6 +1620,7 @@ export async function fetchGrubhubLiveAccountingForStore(
         primary: primaryTx,
         refunds: refundTxs,
         recoveries: recoveryTxs,
+        ...(!depInfo?.payoutRef ? { pending_next_payout: true } : {}),
         ...(recoveryCredits.length > 0
           ? {
               recovery_credits: recoveryCredits,
@@ -2795,6 +2796,7 @@ export function parseUberEatsNativeApiObject(
           tax_breakdown_verified: hasSalesTotal,
           non_existent_dst_local_time: nonExistentDst,
           candidate_payout_ref: candidateByDatePayout?.payout_reference_id || null,
+          ...(!resolvedUberPayoutRef ? { pending_next_payout: true } : {}),
           unassigned_store: storeId === 0,
           ...(usedManualOverride ? { manual_store_override_audit: buildOverrideAudit() } : {}),
         },
@@ -4732,16 +4734,26 @@ export function matchPlatformAndToastOrdersForStore(
         if (normTxId && normTxId.length >= 6 && (normTId === normTxId || normTxId.endsWith(normTId))) {
           return true
         }
-        // Grubhub 15-digit order root (primeros 13 dígitos idénticos + misma fecha operativa y subtotal exacto)
+        // Grubhub 15-digit order root (primeros 13 dígitos idénticos, o epoch de 4 dígitos pos 4..8 idéntico con apertura dentro de 90s y subtotal/tax exactos)
         if (
           pOrd.platform === 'GRUBHUB' &&
           normPId.length >= 14 &&
           normTId.length >= 14 &&
-          normPId.slice(0, 13) === normTId.slice(0, 13) &&
           t.businessDate === pOrd.businessDate &&
           Math.abs(t.netSales - pOrd.platformSubtotal) <= 0.02
         ) {
-          return true
+          if (normPId.slice(0, 13) === normTId.slice(0, 13)) {
+            return true
+          }
+          if (
+            normPId.slice(4, 8) === normTId.slice(4, 8) &&
+            Math.abs(t.taxAmount - pOrd.platformTax) <= 0.02 &&
+            pOrd.placedAt &&
+            t.openedAt &&
+            Math.abs(new Date(pOrd.placedAt).getTime() - new Date(t.openedAt).getTime()) <= 90000
+          ) {
+            return true
+          }
         }
       }
       if (normPId.length >= 5 && normTab.includes(normPId)) {
@@ -5532,31 +5544,31 @@ export async function reconcileAndPersistDeliveryData(params: {
     const storePlatformOrders = Array.from(platformMap.values())
     platformOrdersSynced += combinedPlatformInputs.length
 
-    // 3. Obtener órdenes de Toast POS para esta tienda y fechas
+    // 3. Obtener órdenes de Toast POS para esta tienda y fechas (reutilizando caché en DB para días pasados ya sincronizados)
     let toastOrders: ToastDeliveryOrderRecord[] = []
-    if (syncToast) {
-      try {
-        toastOrders = await fetchToastDeliveryOrdersForStoreAndDates(mapping, storeBusinessDates)
-        toastOrdersSynced += toastOrders.length
-      } catch (tErr: any) {
-        storeErrorMsg = storeErrorMsg
-          ? `${storeErrorMsg}; Toast error: ${tErr.message}`
-          : `Toast error: ${tErr.message}`
-      }
-    } else {
+    const reconstructCachedToastOrdersForDates = (targetDatesSet: Set<string>): ToastDeliveryOrderRecord[] => {
+      const cachedList: ToastDeliveryOrderRecord[] = []
       const seenGuids = new Set<string>()
       for (const row of existingDbOrders || []) {
-        if (row.toast_order_guid && !seenGuids.has(row.toast_order_guid)) {
+        if (
+          row.toast_order_guid &&
+          !seenGuids.has(row.toast_order_guid) &&
+          row.business_date &&
+          targetDatesSet.has(String(row.business_date))
+        ) {
           seenGuids.add(row.toast_order_guid)
-          toastOrders.push({
+          const parsedTabId = parseToastTabPlatformOrderId(
+            row.platform as DeliveryPlatformCode,
+            row.toast_tab_name || ''
+          )
+          cachedList.push({
             storeId: row.store_id,
             toastOrderGuid: row.toast_order_guid,
             toastDisplayNumber: String(row.toast_display_number || ''),
             toastTabName: row.toast_tab_name || '',
             extractedPlatformId:
-              row.match_confidence === 'EXACT_ID'
-                ? row.platform_order_id || null
-                : parseToastTabPlatformOrderId(row.platform as DeliveryPlatformCode, row.toast_tab_name || ''),
+              parsedTabId ||
+              (row.match_confidence === 'EXACT_ID' ? row.platform_order_id || null : null),
             platform: row.platform as DeliveryPlatformCode,
             fulfillmentType: row.fulfillment_type || 'DELIVERY',
             businessDate: row.business_date,
@@ -5572,6 +5584,43 @@ export async function reconcileAndPersistDeliveryData(params: {
           })
         }
       }
+      return cachedList
+    }
+
+    if (syncToast) {
+      try {
+        const todayLa = toOperationalBusinessDate(new Date().toISOString())
+        const existingToastCountByDate = new Map<string, number>()
+        for (const row of existingDbOrders || []) {
+          if (row.toast_order_guid && row.business_date) {
+            const dStr = String(row.business_date)
+            existingToastCountByDate.set(dStr, (existingToastCountByDate.get(dStr) || 0) + 1)
+          }
+        }
+        const reusableDatesSet = new Set<string>()
+        const liveToastDates: string[] = []
+        for (const bDate of storeBusinessDates) {
+          // Días pasados (< todayLa) que ya tienen órdenes de Toast en DB se reutilizan al instante sin re-consultar Toast API
+          if (bDate < todayLa && (existingToastCountByDate.get(bDate) || 0) > 0) {
+            reusableDatesSet.add(bDate)
+          } else {
+            liveToastDates.push(bDate)
+          }
+        }
+        const cachedToastOrders = reconstructCachedToastOrdersForDates(reusableDatesSet)
+        const liveFetchedToastOrders =
+          liveToastDates.length > 0
+            ? await fetchToastDeliveryOrdersForStoreAndDates(mapping, liveToastDates)
+            : []
+        toastOrders = [...cachedToastOrders, ...liveFetchedToastOrders]
+        toastOrdersSynced += toastOrders.length
+      } catch (tErr: any) {
+        storeErrorMsg = storeErrorMsg
+          ? `${storeErrorMsg}; Toast error: ${tErr.message}`
+          : `Toast error: ${tErr.message}`
+      }
+    } else {
+      toastOrders = reconstructCachedToastOrdersForDates(new Set(storeBusinessDates))
     }
 
     // Consultar evidencia de empaque (delivery_packing_audits) con paginación
