@@ -64,7 +64,7 @@ import {
     Store
 } from 'lucide-react';
 
-type MonthKey = 'octubre' | 'septiembre' | 'agosto' | 'julio' | 'junio';
+type MonthKey = 'noviembre' | 'octubre' | 'septiembre' | 'agosto' | 'julio' | 'junio';
 type TabKey = 'actividades' | 'tareas' | 'analitica';
 type TaskFilter = 'todas' | 'completado' | 'progreso' | 'pendiente';
 
@@ -200,12 +200,13 @@ function getStoreShiftForDate(dateStr: string, monthNum: number, year = 2026): {
 
 function getMonthNumber(monthId: MonthKey): number {
     switch (monthId) {
+        case 'noviembre': return 11;
         case 'octubre': return 10;
         case 'septiembre': return 9;
         case 'agosto': return 8;
         case 'julio': return 7;
         case 'junio': return 6;
-        default: return 10;
+        default: return 11;
     }
 }
 
@@ -223,7 +224,7 @@ function cleanText(text?: string | null): string {
 
 function ExecutiveReportDashboard() {
     const { t, language } = useLanguage();
-    const [selectedMonth, setSelectedMonth] = useState<MonthKey>('octubre');
+    const [selectedMonth, setSelectedMonth] = useState<MonthKey>('noviembre');
     const [changelogOpen, setChangelogOpen] = useState(false);
     const [activeTab, setActiveTab] = useState<TabKey>('actividades');
     const [searchQuery, setSearchQuery] = useState('');
@@ -232,7 +233,7 @@ function ExecutiveReportDashboard() {
     const [selectedTaskCategory, setSelectedTaskCategory] = useState<string>('todas');
     const [expandedDays, setExpandedDays] = useState<Record<string, boolean>>({});
 
-    const reportData: MonthlyReportData = MONTHLY_REPORTS[selectedMonth] || MONTHLY_REPORTS.octubre;
+    const reportData: MonthlyReportData = MONTHLY_REPORTS[selectedMonth] || MONTHLY_REPORTS.noviembre;
     const monthNum = getMonthNumber(selectedMonth);
 
     // Calculate Lynwood Store Shifts summary for the month
@@ -392,7 +393,7 @@ function ExecutiveReportDashboard() {
 
                     {/* Month Switcher Bar */}
                     <div className="mt-3 pt-3 border-t border-slate-100 dark:border-slate-800/80 flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none">
-                        {(['octubre', 'septiembre', 'agosto', 'julio', 'junio'] as MonthKey[]).map(key => {
+                        {(['noviembre', 'octubre', 'septiembre', 'agosto', 'julio', 'junio'] as MonthKey[]).map(key => {
                             const data = MONTHLY_REPORTS[key];
                             const isActive = selectedMonth === key;
                             return (
@@ -461,13 +462,13 @@ function ExecutiveReportDashboard() {
                     <div className="bg-white dark:bg-[#111827] border border-slate-200 dark:border-slate-800/80 rounded-2xl p-5 shadow-sm space-y-3 relative overflow-hidden">
                         <div className="flex items-center justify-between">
                             <span className="text-[11px] font-black uppercase tracking-wider text-slate-400 dark:text-slate-500">
-                                {selectedMonth === 'octubre' ? 'Rol & Sede Operativa' : 'Jornada Tienda Lynwood #14'}
+                                {(selectedMonth === 'noviembre' || selectedMonth === 'octubre') ? 'Rol & Sede Operativa' : 'Jornada Tienda Lynwood #14'}
                             </span>
                             <div className="w-8 h-8 rounded-lg bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 flex items-center justify-center">
-                                {selectedMonth === 'octubre' ? <Building2 className="w-4 h-4" /> : <Store className="w-4 h-4" />}
+                                {(selectedMonth === 'noviembre' || selectedMonth === 'octubre') ? <Building2 className="w-4 h-4" /> : <Store className="w-4 h-4" />}
                             </div>
                         </div>
-                        {selectedMonth === 'octubre' ? (
+                        {(selectedMonth === 'noviembre' || selectedMonth === 'octubre') ? (
                             <>
                                 <div className="flex items-baseline gap-2">
                                     <span className="text-2xl font-black tracking-tight text-blue-600 dark:text-blue-400">
@@ -552,6 +553,7 @@ function ExecutiveReportDashboard() {
                         </div>
                         <div className="space-y-0.5">
                             <div className="text-base font-black text-slate-900 dark:text-white truncate">
+                                {selectedMonth === 'noviembre' && `Contestadora IA, Conciliar Delivery, QBO Reconcile & ${SYSTEM_VERSION.version}`}
                                 {selectedMonth === 'octubre' && `Blindaje Delivery, Actividades, KDS & ${SYSTEM_VERSION.version}`}
                                 {selectedMonth === 'septiembre' && `Cohesion, Viele, RONOS & ${SYSTEM_VERSION.version}`}
                                 {selectedMonth === 'agosto' && 'RONOS HR, MilesIQ & Viele v3'}
@@ -559,6 +561,7 @@ function ExecutiveReportDashboard() {
                                 {selectedMonth === 'junio' && 'Telemetría Drive-Thru Nitro'}
                             </div>
                             <div className="text-xs text-slate-400 font-medium truncate">
+                                {selectedMonth === 'noviembre' && 'IT La Bodega, 15 Sucursales, Voz Kore y Cruce Bidireccional'}
                                 {selectedMonth === 'octubre' && 'IT La Bodega, Mantenimiento CCTV, Motor V29 y 15 Sucursales'}
                                 {selectedMonth === 'septiembre' && 'Compras V&S, ausencias RONOS, QBO y centinela'}
                                 {selectedMonth === 'agosto' && 'Auditoría Cingular, nóminas y geofencing'}
@@ -642,7 +645,7 @@ function ExecutiveReportDashboard() {
                                         </span>
                                     </div>
                                     <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                                        {selectedMonth === 'octubre'
+                                        {(selectedMonth === 'noviembre' || selectedMonth === 'octubre')
                                             ? 'Cronograma diario de Desarrollo del Sistema SM TEG e Ingeniería IT desde La Bodega Central.'
                                             : 'Horarios oficiales de Tienda Lynwood cruzados de forma sincronizada con las sesiones de programación TEG.'}
                                     </p>
@@ -650,11 +653,11 @@ function ExecutiveReportDashboard() {
                                 <div className="flex items-center gap-2 flex-wrap text-xs">
                                     <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg font-bold bg-blue-50 dark:bg-blue-950/80 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
                                         <span className="w-2 h-2 rounded-full bg-blue-600 dark:bg-blue-400" />
-                                        <span>{selectedMonth === 'octubre' ? 'IT en La Bodega • Infraestructura & Soporte' : 'Turno Presencial Lynwood #14'}</span>
+                                        <span>{(selectedMonth === 'noviembre' || selectedMonth === 'octubre') ? 'IT en La Bodega • Infraestructura & Soporte' : 'Turno Presencial Lynwood #14'}</span>
                                     </span>
                                     <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg font-bold bg-orange-50 dark:bg-orange-950/80 text-orange-700 dark:text-orange-300 border border-orange-200 dark:border-orange-800">
                                         <span className="w-2 h-2 rounded-full bg-orange-500" />
-                                        <span>{selectedMonth === 'octubre' ? 'Desarrollador del Sistema SM TEG' : 'Desarrollo de Software TEG'}</span>
+                                        <span>{(selectedMonth === 'noviembre' || selectedMonth === 'octubre') ? 'Desarrollador del Sistema SM TEG' : 'Desarrollo de Software TEG'}</span>
                                     </span>
                                 </div>
                             </div>
@@ -729,12 +732,12 @@ function ExecutiveReportDashboard() {
                                             <div className="flex items-center gap-2 flex-wrap">
                                                 <span
                                                     className={`px-3 py-1 rounded-lg text-xs font-bold border ${
-                                                        selectedMonth === 'octubre' || shiftInfo.hasShift
+                                                        (selectedMonth === 'noviembre' || selectedMonth === 'octubre') || shiftInfo.hasShift
                                                             ? 'bg-blue-50 dark:bg-blue-950/80 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800'
                                                             : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-700'
                                                     }`}
                                                 >
-                                                    {selectedMonth === 'octubre' ? 'IT en La Bodega • Desarrollador del Sistema' : shiftInfo.badgeText}
+                                                    {(selectedMonth === 'noviembre' || selectedMonth === 'octubre') ? 'IT en La Bodega • Desarrollador del Sistema' : shiftInfo.badgeText}
                                                 </span>
 
                                                 <span className="bg-orange-50 dark:bg-orange-950/80 text-orange-700 dark:text-orange-300 border border-orange-200 dark:border-orange-900/60 px-3 py-1 rounded-lg text-xs font-mono font-black">
@@ -756,10 +759,10 @@ function ExecutiveReportDashboard() {
                                             {/* Track 1: IT La Bodega (Oct+) or Store Shift (Jun-Sep) */}
                                             <div className="flex items-center gap-2">
                                                 <span className="text-[10px] font-black tracking-wider text-blue-600 dark:text-blue-400 w-16 uppercase shrink-0">
-                                                    {selectedMonth === 'octubre' ? 'IT Bodega' : 'Tienda'}
+                                                    {(selectedMonth === 'noviembre' || selectedMonth === 'octubre') ? 'IT Bodega' : 'Tienda'}
                                                 </span>
                                                 <div className="flex-1 h-6 bg-slate-200/60 dark:bg-slate-800 rounded-md relative overflow-hidden flex items-center justify-center">
-                                                    {selectedMonth === 'octubre' ? (
+                                                    {(selectedMonth === 'noviembre' || selectedMonth === 'octubre') ? (
                                                         <span className="text-[10px] font-bold text-blue-700 dark:text-blue-300 tracking-wide">
                                                             Sede Central La Bodega • IT & Desarrollador del Sistema SM TEG (15 Sucursales)
                                                         </span>

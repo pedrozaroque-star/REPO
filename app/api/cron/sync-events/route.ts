@@ -20,12 +20,14 @@
 
 import { NextResponse } from 'next/server'
 import { getSupabaseAdminClient } from '@/lib/supabase'
+import { getGeminiKeyPoolWithRemote } from '@/lib/order-ready-tts'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
 
-const GEMINI_MODEL = 'gemini-2.5-flash'
 const GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta/models'
+const MODERN_MODELS = ['gemini-3.5-flash', 'gemini-3.6-flash', 'gemini-3.5-flash-lite', 'gemini-3-flash-preview']
+const LEGACY_MODELS = ['gemini-2.5-flash', 'gemini-3.5-flash', 'gemini-3.5-flash-lite']
 
 export async function GET(request: Request) {
     // Verify cron secret
@@ -35,9 +37,9 @@ export async function GET(request: Request) {
     }
 
     try {
-        const apiKey = process.env.GEMINI_API_KEY
-        if (!apiKey) {
-            return NextResponse.json({ error: 'GEMINI_API_KEY not configured' }, { status: 500 })
+        const keyPool = await getGeminiKeyPoolWithRemote()
+        if (keyPool.length === 0) {
+            return NextResponse.json({ error: 'No Gemini API keys configured' }, { status: 500 })
         }
 
         // Build today's date in PST for the prompt
@@ -90,29 +92,66 @@ Responde ÚNICAMENTE con un array JSON válido. Cada objeto debe tener:
 
 Si no encuentras eventos nuevos programados para el rango, devuelve un array vacío [].`
 
-        // Call Gemini API with Google Search Grounding (REST, same pattern as support-chat)
-        const response = await fetch(
-            `${GEMINI_BASE}/${GEMINI_MODEL}:generateContent?key=${apiKey}`,
-            {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    contents: [{ parts: [{ text: PROMPT_TEXT }] }],
-                    tools: [{ googleSearch: {} }],
-                    generationConfig: {
-                        temperature: 0.1,
-                    }
-                })
-            }
-        )
+        // Call Gemini API with multi-key + multi-model failover
+        let geminiResult: any = null
+        let lastStatus = 500
+        let lastErrText = ''
 
-        if (!response.ok) {
-            const errText = await response.text()
-            console.error('[sync-events] Gemini API error:', response.status, errText.substring(0, 300))
-            return NextResponse.json({ error: 'Gemini API error', status: response.status }, { status: 500 })
+        for (const apiKey of keyPool) {
+            const models = apiKey.startsWith('AQ.') ? MODERN_MODELS : LEGACY_MODELS
+            let moveToNextKey = false
+
+            for (const model of models) {
+                for (const useSearchTool of [true, false]) {
+                    const response = await fetch(
+                        `${GEMINI_BASE}/${model}:generateContent?key=${apiKey}`,
+                        {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                contents: [{ parts: [{ text: PROMPT_TEXT }] }],
+                                ...(useSearchTool ? { tools: [{ googleSearch: {} }] } : {}),
+                                generationConfig: {
+                                    temperature: 0.1,
+                                }
+                            })
+                        }
+                    )
+
+                    if (response.ok) {
+                        geminiResult = await response.json()
+                        break
+                    }
+
+                    lastStatus = response.status
+                    lastErrText = await response.text()
+
+                    // 402 (prepayment depleted), 401/403 (invalid key): switch to next key immediately
+                    if (response.status === 402 || response.status === 401 || response.status === 403) {
+                        moveToNextKey = true
+                        break
+                    }
+
+                    // 429 on googleSearch tool: retry once without googleSearch tool on same model/key
+                    if (response.status === 429 && useSearchTool) {
+                        continue
+                    }
+
+                    // 404 (model unavailable) or 503 (high demand): try next model
+                    break
+                }
+
+                if (geminiResult || moveToNextKey) break
+            }
+
+            if (geminiResult) break
         }
 
-        const geminiResult = await response.json()
+        if (!geminiResult) {
+            console.error('[sync-events] All Gemini keys/models failed:', lastStatus, lastErrText.substring(0, 300))
+            return NextResponse.json({ error: 'Gemini API error', status: lastStatus }, { status: 500 })
+        }
+
         const rawText = geminiResult?.candidates?.[0]?.content?.parts?.[0]?.text || '[]'
         
         let events: any[] = []

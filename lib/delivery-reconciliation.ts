@@ -28,6 +28,17 @@
  *    - Identidad de payout: `platform + store_id + payout_reference_id` (nunca borrar payouts de otra sucursal).
  *    - Sucursal desconocida -> `UNASSIGNED_STORE` (`storeId = 0`), nunca asignar por defecto a Lynwood #14.
  *    - Extracción completa para las 15 sucursales con paginación en Supabase (`fetchAllSupabaseRows`).
+ * 5. Disputas y Recuperaciones (libro `raw_payload.recovery_credits`):
+ *    - Se conservan por separado: importe ORIGINAL descontado/disputado (`dispute_amount` + `original_disputed_amount`),
+ *      créditos recuperados (uno por transacción/payout, `credit_id` estable) y saldo pendiente (original − recuperado verificado).
+ *    - Una recuperación solo cuenta como dinero recuperado si el settlement posterior contiene un crédito identificable de la
+ *      orden (transaction ID o importe exacto), en un payout distinto y con fecha >= a la deducción. Nota escrita, existencia
+ *      del payout o estado `APPROVED`/`REIMBURSED` no lo prueban ("Recuperación pendiente de verificar").
+ *    - Sincronizaciones repetidas fusionan créditos por `credit_id` (sin duplicar ni cambiar el saldo).
+ * 6. Periodos de payout: solapamiento INCLUSIVO `period_start <= endDate && period_end >= startDate` (`payoutPeriodOverlapsRange`).
+ * 7. Consolidación Grubhub: las filas individuales de reembolso/crédito absorbidas por una orden consolidada se eliminan solo
+ *    después de confirmar en DB el reemplazo (`persistReconciledOrdersWithSafeConsolidation`), preservando notas, aprobaciones,
+ *    vínculos Toast, disputas, evidencia y una instantánea en `raw_payload.consolidated_from_rows`.
  *
  * @dataFlow
  * - Toast POS (`ordersBulk` + `diningOptions`) -> `fetchToastDeliveryOrdersForStoreAndDates`
@@ -42,6 +53,10 @@
  *   sin ningún fallback a `SUPABASE_SERVICE_ROLE_KEY`, `JWT_SECRET` ni claves por defecto.
  * - Detección explícita de horas locales inexistentes en `America/Los_Angeles` durante el salto de horario de verano
  *   (Spring Forward 02:00–02:59 AM PT) marcándolas como `NONEXISTENT_DST_LOCAL_TIME` (`REQUIRES_REVIEW`).
+ * - Fix 2026-11-04 (5 defectos): (1) guardar una recuperación sobrescribía `dispute_amount` con el importe recuperado y podía
+ *   cerrar una recuperación parcial como total; (2) bastaba que existiera el payout + nota para confirmar dinero recuperado;
+ *   (3) el filtro `period_end > startDate` excluía cortes que terminan el primer día consultado; (4) Grubhub sumaba todos los
+ *   créditos bajo el primer payout (`recoveryTxs[0]`); (5) las filas Grubhub se borraban ANTES de guardar la orden consolidada.
  */
 
 import crypto from 'crypto'
@@ -681,7 +696,7 @@ export function parseToastTabPlatformOrderId(
   }
 
   if (platform === 'DOORDASH') {
-    const ddHex = cleanTab.match(/\b(?:DD|DOORDASH)\s*#?([A-Za-z0-9]{5,16})\b/i)
+    const ddHex = cleanTab.match(/\b(?:DD|DOORDASH|SF|STOREFRONT)\s*#?([A-Za-z0-9]{5,16})\b/i)
     if (ddHex) return ddHex[1].toUpperCase()
     const ddDigits = cleanTab.match(/#(\d{6,20})/) || cleanExt.match(/(\d{6,20})/)
     if (ddDigits) return ddDigits[1]
@@ -758,7 +773,8 @@ export async function fetchToastDeliveryOrdersForStoreAndDates(
 
   const results: ToastDeliveryOrderRecord[] = []
 
-  for (const bDate of businessDates) {
+  const fetchSingleDateOrders = async (bDate: string): Promise<ToastDeliveryOrderRecord[]> => {
+    const dateResults: ToastDeliveryOrderRecord[] = []
     const formattedDate = bDate.replace(/-/g, '')
     let page = 1
     let hasMore = true
@@ -924,7 +940,7 @@ export async function fetchToastDeliveryOrdersForStoreAndDates(
         if (isOrderVoided) {
           // Solo conservar órdenes anuladas (VOID) en Toast si tienen ID de plataforma para vincular y explicar casos como DELIVERY_FAILED pagados por Uber/DD/GH
           if (!extractedPlatformId) continue
-          results.push({
+          dateResults.push({
             storeId: mapping.store_id,
             platform,
             fulfillmentType,
@@ -950,7 +966,7 @@ export async function fetchToastDeliveryOrdersForStoreAndDates(
 
         const expectedGross = calculateToastExpectedGross(platform, orderNetSales, orderTaxAmount)
 
-        results.push({
+        dateResults.push({
           storeId: mapping.store_id,
           platform,
           fulfillmentType,
@@ -974,6 +990,16 @@ export async function fetchToastDeliveryOrdersForStoreAndDates(
       } else {
         page++
       }
+    }
+    return dateResults
+  }
+
+  // Consultar las fechas operativas en lotes paralelos de hasta 4 días simultáneos
+  for (let i = 0; i < businessDates.length; i += 4) {
+    const batchDates = businessDates.slice(i, i + 4)
+    const batchChunks = await Promise.all(batchDates.map((d) => fetchSingleDateOrders(d)))
+    for (const chunk of batchChunks) {
+      results.push(...chunk)
     }
   }
 
@@ -1228,26 +1254,36 @@ export async function fetchGrubhubLiveAccountingForStore(
   }
   const rawDeposits = Array.from(rawDepositsMap.values())
 
-  // Mapear qué transacción/orden fue pagada en qué depósito (corte)
-  const orderToDepositMap = new Map<string, { payoutRef: string; payoutDate: string; bankLast4: string }>()
+  // Mapear qué transacción/orden fue pagada en qué depósito (corte) descargando los detalles en paralelo
+  const orderToDepositMap = new Map<
+    string,
+    { payoutRef: string; payoutDate: string; bankLast4: string; periodStart?: string | null; periodEnd?: string | null }
+  >()
   const payouts: Array<Record<string, any>> = []
 
-  for (const dep of rawDeposits) {
-    const distId = String(dep.restaurant_distribution_id || '')
-    if (!distId) continue
-
-    let detailData: any = null
-    try {
-      const detRes = await fetch(
-        `${GRUBHUB_ACCOUNTING_HOST}/merchant/accounting/customers/${custId}/deposits/${distId}`,
-        { headers: ghHeaders }
-      )
-      if (detRes.ok) {
-        detailData = await detRes.json()
+  const depositsWithDetails = await Promise.all(
+    rawDeposits.map(async (dep) => {
+      const distId = String(dep.restaurant_distribution_id || '')
+      if (!distId) return null
+      let detailData: any = null
+      try {
+        const detRes = await fetch(
+          `${GRUBHUB_ACCOUNTING_HOST}/merchant/accounting/customers/${custId}/deposits/${distId}`,
+          { headers: ghHeaders }
+        )
+        if (detRes.ok) {
+          detailData = await detRes.json()
+        }
+      } catch {
+        // Fallback a resumen si falla detalle
       }
-    } catch {
-      // Fallback a resumen si falla detalle
-    }
+      return { dep, distId, detailData }
+    })
+  )
+
+  for (const item of depositsWithDetails) {
+    if (!item) continue
+    const { dep, distId, detailData } = item
 
     const assocTxs: any[] = Array.isArray(detailData?.associated_transactions)
       ? detailData.associated_transactions
@@ -1278,6 +1314,7 @@ export async function fetchGrubhubLiveAccountingForStore(
     let sumAdjCents = 0
     const crossPayoutRefunds: Array<{
       orderCode: string
+      transactionId: string | null
       payoutRef: string
       periodStart: string
       periodEnd: string
@@ -1370,6 +1407,14 @@ export async function fetchGrubhubLiveAccountingForStore(
 
     for (const atx of assocTxs) {
       const ordNum = String(atx.order_number || '').trim()
+      const atxTxId = String(atx.transaction_id || '').trim()
+      if (atxTxId) {
+        const depEntry = orderToDepositMap.get(atxTxId)
+        if (depEntry && depEntry.payoutRef === payoutRefId) {
+          depEntry.periodStart = ghPeriod.periodStart
+          depEntry.periodEnd = ghPeriod.periodEnd
+        }
+      }
       const atxTypeUpper = String(atx.transaction_type || '').toUpperCase()
       const atxChanUpper = String(atx.order_channel || '').toUpperCase()
       const atxOrderTypeUpper = String(atx.order_type || '').toUpperCase()
@@ -1381,6 +1426,7 @@ export async function fetchGrubhubLiveAccountingForStore(
       if (isCreditAdjustment && ordNum && Number(atx.net_amount || 0) > 0) {
         crossPayoutRefunds.push({
           orderCode: ordNum,
+          transactionId: atxTxId || null,
           payoutRef: payoutRefId,
           periodStart: ghPeriod.periodStart,
           periodEnd: ghPeriod.periodEnd,
@@ -1529,12 +1575,15 @@ export async function fetchGrubhubLiveAccountingForStore(
         : 'DELIVERY'
 
     const hasRefund = primaryTx.is_refund || refundTxs.length > 0 || errorCharge < -0.01
-    const recTx = recoveryTxs[0]
-    const recDep = recTx ? orderToDepositMap.get(String(recTx.transaction_id || '')) : undefined
-    const recAmount =
-      recoveryTxs.length > 0
-        ? round2(recoveryTxs.reduce((s, r) => s + Number(r.net_amount || 0) / 100, 0))
-        : 0
+    // Defecto 4: cada crédito de recuperación conserva su propio transaction ID, payout, importe y fecha
+    const recoveryCredits = buildGrubhubRecoveryCredits(
+      recoveryTxs,
+      orderToDepositMap,
+      String(primaryTx.order_number || ordKey)
+    )
+    const latestRecovery = [...recoveryCredits].sort((a, b) =>
+      String(b.deposit_date || '').localeCompare(String(a.deposit_date || ''))
+    )[0]
 
     orders.push({
       storeId: mapping.store_id,
@@ -1570,16 +1619,16 @@ export async function fetchGrubhubLiveAccountingForStore(
       rawPayload: {
         primary: primaryTx,
         refunds: refundTxs,
-        ...(recTx && recDep && recAmount > 0
+        recoveries: recoveryTxs,
+        ...(recoveryCredits.length > 0
           ? {
-              reimbursement_payout_ref: recDep.payoutRef,
-              reimbursement_deposit_date: recDep.payoutDate,
-              reimbursement_amount: recAmount,
-              reimbursement_description: String(
-                recTx.transaction_type_description ||
-                  recTx.transaction_type ||
-                  'Crédito / Recuperación de Disputa Grubhub'
-              ),
+              recovery_credits: recoveryCredits,
+              // Campos históricos de compatibilidad: describen el crédito más reciente (NO el total de todos los créditos)
+              reimbursement_payout_ref: latestRecovery.payout_reference_id,
+              reimbursement_deposit_date: latestRecovery.deposit_date,
+              reimbursement_amount: latestRecovery.amount,
+              reimbursement_transaction_id: latestRecovery.transaction_id,
+              reimbursement_description: latestRecovery.description,
             }
           : {}),
       },
@@ -1806,13 +1855,14 @@ export function parseDoorDashNativeApiObject(
       const explicitStart = s.periodStartDate || s.payoutStartDate || s.startDate || null
       const explicitEnd = s.periodEndDate || s.payoutEndDate || s.endDate || null
       const periodVerified = Boolean(explicitStart && explicitEnd)
+      const fallbackDdCycle = resolveDoorDashCycleFromPayoutDate(payoutDate)
 
       payoutsMap.set(`${storeId}:${payoutRef}`, {
         store_id: storeId,
         platform: 'DOORDASH',
         payout_reference_id: payoutRef,
-        period_start: explicitStart ? toOperationalBusinessDate(explicitStart) : payoutDate,
-        period_end: explicitEnd ? toOperationalBusinessDate(explicitEnd) : payoutDate,
+        period_start: explicitStart ? toOperationalBusinessDate(explicitStart) : fallbackDdCycle.periodStart,
+        period_end: explicitEnd ? toOperationalBusinessDate(explicitEnd) : fallbackDdCycle.periodEnd,
         payout_date: payoutDate,
         orders_count: Number(s.ordersCount || 0),
         subtotal_sales: atomicSubtotal,
@@ -1871,6 +1921,14 @@ export function parseDoorDashNativeApiObject(
       adjustment: number
       tips: number
       netTotal: number
+      crossPayoutRefunds: Array<{
+        orderCode: string
+        transactionId: string | null
+        payoutRef: string
+        depositDate: string
+        amount: number
+        description: string
+      }>
     }
   >()
 
@@ -1893,7 +1951,10 @@ export function parseDoorDashNativeApiObject(
       const actionData = orderCell?.action?.payload?.data || {}
       const deliveryUuid = String(actionData.deliveryUuid || '').trim()
       const ddStoreId = actionData.storeId || payload.storeId
-      const payoutId = String(actionData.payoutId || payload.payoutId || '').trim() || null
+      const cellPayoutId = getVal(23)
+      const payoutId = String(actionData.payoutId || cellPayoutId || payload.payoutId || '').trim() || null
+      const isDateRangeTx = Boolean((txCells as any)._fromDateRangeTransactions)
+      const isPendingNextPayout = !payoutId && (isDateRangeTx || cellById.has(23))
       const channelStr = getVal(5)
       const storeName = getVal(6)
       const txTypeStr = getVal(7).toUpperCase()
@@ -1915,6 +1976,15 @@ export function parseDoorDashNativeApiObject(
       const { storeId, usedManualOverride } = resolveDdStore(ddStoreId, storeName)
       // Parseo único en America/Los_Angeles (05:59 AM -> día anterior; 06:00 AM -> mismo día, sin doble resta)
       const { businessDate, placedIso, nonExistentDstLocalTime } = parseLocalLaDateTime(dateStr, timeStr)
+      if (
+        isDateRangeTx &&
+        !payoutId &&
+        payload.startDate &&
+        payload.endDate &&
+        (businessDate < String(payload.startDate) || businessDate > String(payload.endDate))
+      ) {
+        continue
+      }
 
       // DoorDash entrega el Sales Tax al restaurante (MERCHANT_TAX_REMIT)
       const taxWithheld = 0
@@ -1978,6 +2048,7 @@ export function parseDoorDashNativeApiObject(
           cells: txCells,
           deliveryUuid,
           payoutId,
+          ...(isPendingNextPayout ? { pending_next_payout: true } : {}),
           tax_breakdown_verified: taxVerified,
           non_existent_dst_local_time: Boolean(nonExistentDstLocalTime),
           unassigned_store: storeId === 0,
@@ -2038,7 +2109,7 @@ export function parseDoorDashNativeApiObject(
         orders.push(candidateOrder)
       }
 
-      if (payoutId) {
+      if (payoutId && !isDateRangeTx) {
         const aggKey = `${storeId}:${payoutId}`
         const cur = txPayoutAgg.get(aggKey) || {
           storeId,
@@ -2057,6 +2128,7 @@ export function parseDoorDashNativeApiObject(
           adjustment: 0,
           tips: 0,
           netTotal: 0,
+          crossPayoutRefunds: [],
         }
         if (businessDate < cur.minDate) cur.minDate = businessDate
         if (businessDate > cur.maxDate) cur.maxDate = businessDate
@@ -2072,6 +2144,23 @@ export function parseDoorDashNativeApiObject(
         cur.adjustment = round2(cur.adjustment + adjustmentAmount)
         cur.tips = round2(cur.tips + tips)
         cur.netTotal = round2(cur.netTotal + netTotal)
+        // Capturar créditos/ajustes positivos identificables por orden en el settlement DoorDash
+        const creditAmt = round2(adjustmentAmount > 0 ? adjustmentAmount : subtotal === 0 && netTotal > 0 ? netTotal : 0)
+        if (
+          orderShortCode &&
+          Math.abs(subtotal) < 0.005 &&
+          errorCharge >= -0.005 &&
+          creditAmt > 0
+        ) {
+          cur.crossPayoutRefunds.push({
+            orderCode: orderShortCode,
+            transactionId: resolvedTxId || null,
+            payoutRef: payoutId,
+            depositDate: businessDate,
+            amount: creditAmt,
+            description: description || txTypeStr || 'DoorDash Credit / Dispute Recovery',
+          })
+        }
         txPayoutAgg.set(aggKey, cur)
       }
     }
@@ -2103,6 +2192,7 @@ export function parseDoorDashNativeApiObject(
           : agg.storeId === 0
           ? 'UNASSIGNED_STORE'
           : null,
+        ...(agg.crossPayoutRefunds.length > 0 ? { cross_payout_refunds: agg.crossPayoutRefunds } : {}),
       }
     }
   }
@@ -3913,12 +4003,60 @@ async function fetchChromeLiveDoorDashAndUberForStores(
                     }
                   }
 
+                  // Extraer también `/api/v1/transactions` por rango de fechas para capturar órdenes nocturnas (ej. domingo > 10:45 PM PT)
+                  // o de la semana en curso que ya fueron cobradas en DoorDash pero entran en el siguiente corte semanal (`payoutId === ''`)
+                  const seenDdTxIds = new Set<string>()
+                  for (const txCells of storeCombinedTransactions) {
+                    if (!Array.isArray(txCells)) continue
+                    const idCell = txCells.find((c: any) => c && c.name === 1)
+                    const txIdVal = String(idCell?.value || '').trim()
+                    if (txIdVal) seenDdTxIds.add(txIdVal)
+                  }
+                  const rangeStartIso = `${startDate}T06:00:00.000Z`
+                  const rangeEndIso = `${addDaysToDateStr(endDate, 1)}T15:00:00.000Z`
+                  const rangeEvalRes = await send(
+                    'Runtime.evaluate',
+                    {
+                      expression: `(async () => {
+                    const transactions = [];
+                    for (let offset = 0; offset < 2000; offset += 100) {
+                      const txRes = await fetch('https://merchant-portal.doordash.com/merchant-analytics-service/api/v1/transactions?entityType=store&storeId=' + encodeURIComponent(${JSON.stringify(ddStoreId)}) + '&startTime=' + encodeURIComponent(${JSON.stringify(rangeStartIso)}) + '&endTime=' + encodeURIComponent(${JSON.stringify(rangeEndIso)}) + '&businessId=137616&limit=100&offset=' + offset, {
+                        credentials: 'include'
+                      });
+                      if (!txRes.ok) break;
+                      const txJson = await txRes.json().catch(() => ({}));
+                      const batch = txJson?.transactions || [];
+                      for (const r of batch) transactions.push(r);
+                      if (batch.length < 100) break;
+                    }
+                    return { transactions };
+                  })()`,
+                      awaitPromise: true,
+                      returnByValue: true,
+                    },
+                    ddSession
+                  ).catch(() => null)
+                  const rangeTxs = rangeEvalRes?.result?.value?.transactions
+                  if (Array.isArray(rangeTxs)) {
+                    for (const r of rangeTxs) {
+                      if (!Array.isArray(r)) continue
+                      const idCell = r.find((c: any) => c && c.name === 1)
+                      const txIdVal = String(idCell?.value || '').trim()
+                      if (txIdVal && seenDdTxIds.has(txIdVal)) continue
+                      if (txIdVal) seenDdTxIds.add(txIdVal)
+                      ;(r as any)._fromDateRangeTransactions = true
+                      storeCombinedTransactions.push(r)
+                    }
+                  }
+
                   // P1-10: Prohibido pasar defaultStoreId en sincronización automática
                   const parsedStoreDd = parseDoorDashNativeApiObject(
                     {
                       summariesList: storeSummaries,
                       transactions: storeCombinedTransactions,
                       storeId: ddStoreId,
+                      startDate,
+                      endDate,
                     },
                     allMappings,
                     byDoorDashStoreId,
@@ -4367,6 +4505,41 @@ async function fetchChromeLiveDoorDashAndUberForStores(
                 }
               }
 
+              // Extraer también `/api/v1/transactions` por rango de fechas para capturar órdenes nocturnas (ej. domingo > 10:45 PM PT)
+              // o de la semana en curso que ya fueron cobradas en DoorDash pero entran en el siguiente corte semanal (`payoutId === ''`)
+              const seenDdTxIds = new Set<string>()
+              for (const txCells of storeCombinedTransactions) {
+                if (!Array.isArray(txCells)) continue
+                const idCell = txCells.find((c: any) => c && c.name === 1)
+                const txIdVal = String(idCell?.value || '').trim()
+                if (txIdVal) seenDdTxIds.add(txIdVal)
+              }
+              const rangeStartIso = `${startDate}T06:00:00.000Z`
+              const rangeEndIso = `${addDaysToDateStr(endDate, 1)}T15:00:00.000Z`
+              for (let offset = 0; offset < 2000; offset += 100) {
+                const txRes = await fetch(
+                  `https://merchant-portal.doordash.com/merchant-analytics-service/api/v1/transactions?entityType=store&storeId=${encodeURIComponent(
+                    ddStoreId
+                  )}&startTime=${encodeURIComponent(rangeStartIso)}&endTime=${encodeURIComponent(
+                    rangeEndIso
+                  )}&businessId=137616&limit=100&offset=${offset}`,
+                  { headers: ddHeaders }
+                ).catch(() => null)
+                if (!txRes || !txRes.ok) break
+                const txJson: any = await txRes.json().catch(() => ({}))
+                const batch: any[] = Array.isArray(txJson?.transactions) ? txJson.transactions : []
+                for (const r of batch) {
+                  if (!Array.isArray(r)) continue
+                  const idCell = r.find((c: any) => c && c.name === 1)
+                  const txIdVal = String(idCell?.value || '').trim()
+                  if (txIdVal && seenDdTxIds.has(txIdVal)) continue
+                  if (txIdVal) seenDdTxIds.add(txIdVal)
+                  ;(r as any)._fromDateRangeTransactions = true
+                  storeCombinedTransactions.push(r)
+                }
+                if (batch.length < 100) break
+              }
+
               if (storeSummaries.length > 0 || storeCombinedTransactions.length > 0) {
                 // P1-10: Prohibido pasar defaultStoreId en sincronización automática
                 const parsedStoreDd = parseDoorDashNativeApiObject(
@@ -4374,6 +4547,8 @@ async function fetchChromeLiveDoorDashAndUberForStores(
                     summariesList: storeSummaries,
                     transactions: storeCombinedTransactions,
                     storeId: ddStoreId,
+                    startDate,
+                    endDate,
                   },
                   allMappings,
                   byDoorDashStoreId,
@@ -5278,7 +5453,11 @@ export async function reconcileAndPersistDeliveryData(params: {
       }
     }
 
-    const obsoleteStandaloneRefundTxIds: string[] = []
+    // Defecto 5: las filas individuales de Grubhub (reembolsos / créditos) absorbidas por una orden consolidada
+    // NO se eliminan aquí. Se fusionan sus campos manuales en la fila consolidada y solo se borran DESPUÉS de
+    // confirmar en DB que el reemplazo se guardó (`persistReconciledOrdersWithSafeConsolidation`).
+    const supersededByConsolidatedTxId = new Map<string, string[]>()
+    const pendingSupersededLookups: string[] = []
     for (const inp of combinedPlatformInputs) {
       const txKey = `${inp.platform}:${inp.platformTransactionId}`
       const prev = platformMap.get(txKey)
@@ -5287,7 +5466,8 @@ export async function reconcileAndPersistDeliveryData(params: {
           inp.payoutReferenceId = prev.payoutReferenceId
           inp.payoutDate = prev.payoutDate
         }
-        if (prev.rawPayload?.reimbursement_payout_ref) {
+        // Conservar campos históricos de recuperación solo si la sincronización actual no trae un crédito nuevo
+        if (prev.rawPayload?.reimbursement_payout_ref && !inp.rawPayload?.reimbursement_payout_ref) {
           inp.rawPayload = {
             ...(inp.rawPayload || {}),
             reimbursement_payout_ref: prev.rawPayload.reimbursement_payout_ref,
@@ -5298,32 +5478,55 @@ export async function reconcileAndPersistDeliveryData(params: {
           }
         }
       }
-      if (inp.platform === 'GRUBHUB' && Array.isArray(inp.rawPayload?.refunds)) {
-        for (const rtx of inp.rawPayload.refunds) {
-          const rTxId = String(rtx?.transaction_id || '').trim()
-          if (rTxId && rTxId !== inp.platformTransactionId) {
+      if (inp.platform === 'GRUBHUB') {
+        const absorbedTxIds = collectGrubhubSupersededTxIds(inp)
+        if (absorbedTxIds.length > 0) {
+          supersededByConsolidatedTxId.set(inp.platformTransactionId, absorbedTxIds)
+          for (const rTxId of absorbedTxIds) {
             const orphanKey = `GRUBHUB:${rTxId}`
-            if (platformMap.has(orphanKey)) {
-              platformMap.delete(orphanKey)
-            }
-            const orphanManual = existingManualByTxKey.get(orphanKey)
-            if (orphanManual && !existingManualByTxKey.get(txKey)?.toast_order_guid && orphanManual.toast_order_guid) {
-              existingManualByTxKey.set(txKey, orphanManual)
-            }
-            obsoleteStandaloneRefundTxIds.push(rTxId)
+            platformMap.delete(orphanKey)
+            if (!existingManualByTxKey.has(orphanKey)) pendingSupersededLookups.push(rTxId)
           }
         }
       }
       platformMap.set(txKey, inp)
     }
 
-    if (obsoleteStandaloneRefundTxIds.length > 0) {
-      await supabaseAdmin
-        .from('delivery_platform_orders')
-        .delete()
-        .eq('store_id', mapping.store_id)
-        .eq('platform', 'GRUBHUB')
-        .in('platform_transaction_id', obsoleteStandaloneRefundTxIds)
+    // Filas absorbidas fuera del rango de fechas cargado: leerlas por ID para preservar su información antes de limpiar
+    if (pendingSupersededLookups.length > 0) {
+      for (let i = 0; i < pendingSupersededLookups.length; i += 100) {
+        const chunk = pendingSupersededLookups.slice(i, i + 100)
+        const { data: extraRows, error: extraErr } = await supabaseAdmin
+          .from('delivery_platform_orders')
+          .select('*')
+          .eq('store_id', mapping.store_id)
+          .eq('platform', 'GRUBHUB')
+          .in('platform_transaction_id', chunk)
+        if (extraErr) {
+          throw new Error(`Error leyendo filas Grubhub a consolidar: ${extraErr.message}`)
+        }
+        for (const er of extraRows || []) {
+          existingManualByTxKey.set(`GRUBHUB:${er.platform_transaction_id}`, er)
+        }
+      }
+    }
+
+    // Fusionar notas, aprobaciones, vínculos Toast, disputas, evidencia y créditos de las filas absorbidas
+    const supersededExistingByConsolidated = new Map<string, string[]>()
+    for (const [consolidatedTxId, absorbedTxIds] of supersededByConsolidatedTxId.entries()) {
+      const consolidatedKey = `GRUBHUB:${consolidatedTxId}`
+      const absorbedRows = absorbedTxIds
+        .map((id) => existingManualByTxKey.get(`GRUBHUB:${id}`))
+        .filter((r): r is Record<string, any> => Boolean(r))
+      if (absorbedRows.length === 0) continue
+      existingManualByTxKey.set(
+        consolidatedKey,
+        mergeSupersededOrderRows(existingManualByTxKey.get(consolidatedKey), absorbedRows)
+      )
+      supersededExistingByConsolidated.set(
+        consolidatedTxId,
+        absorbedRows.map((r) => String(r.platform_transaction_id))
+      )
     }
 
     const storePlatformOrders = Array.from(platformMap.values())
@@ -5394,29 +5597,17 @@ export async function reconcileAndPersistDeliveryData(params: {
       existingManualByTxKey
     )
 
-    // Limpiar registros sintéticos TOAST-<guid> que ahora sí hicieron match con una orden real de plataforma
-    if (matchedToastGuids.size > 0) {
-      const synthTxIdsToDelete = Array.from(matchedToastGuids).map((g) => `TOAST-${g}`)
-      for (let i = 0; i < synthTxIdsToDelete.length; i += 100) {
-        const batch = synthTxIdsToDelete.slice(i, i + 100)
-        await supabaseAdmin
-          .from('delivery_platform_orders')
-          .delete()
-          .eq('store_id', mapping.store_id)
-          .in('platform_transaction_id', batch)
-      }
-    }
-
-    if (rowsToUpsert.length > 0) {
-      for (let i = 0; i < rowsToUpsert.length; i += 100) {
-        const batch = rowsToUpsert.slice(i, i + 100)
-        const { error: upErr } = await supabaseAdmin
-          .from('delivery_platform_orders')
-          .upsert(batch, { onConflict: 'store_id,platform,platform_transaction_id' })
-        if (upErr) {
-          throw new Error(`Error upserting delivery_platform_orders: ${upErr.message}`)
-        }
-      }
+    // Defecto 5: guardar primero; limpiar filas absorbidas y sintéticas TOAST-<guid> solo tras confirmar el reemplazo en DB
+    const persistResult = await persistReconciledOrdersWithSafeConsolidation({
+      db: supabaseAdmin,
+      storeId: mapping.store_id,
+      rowsToUpsert,
+      supersededByConsolidatedTxId: supersededExistingByConsolidated,
+      synthToastTxIdsToDelete: Array.from(matchedToastGuids).map((g) => `TOAST-${g}`),
+    })
+    if (persistResult.warnings.length > 0) {
+      const warnMsg = `Consolidación Grubhub parcial: ${persistResult.warnings.join(' | ')}`
+      storeErrorMsg = storeErrorMsg ? `${storeErrorMsg}; ${warnMsg}` : warnMsg
     }
 
     // 7. Actualizar los totales conciliados de Toast en `delivery_platform_payouts` y vincular reembolsos en cortes posteriores (`cross_payout_refunds`)
@@ -5434,96 +5625,49 @@ export async function reconcileAndPersistDeliveryData(params: {
         .range(from, to)
     )
 
+    // Defectos 1, 2 y 4: vincular créditos de recuperación de cortes posteriores al libro `recovery_credits`
+    // (idempotente por credit_id, verificado contra el settlement, sin sobrescribir el importe original disputado)
+    await linkCrossPayoutRecoveryCreditsForStore({
+      db: supabaseAdmin,
+      storeId: mapping.store_id,
+      storePayouts: storePayouts || [],
+    })
+
     for (const payout of storePayouts || []) {
-      const crossRefunds = payout.raw_payload?.cross_payout_refunds
-      if (Array.isArray(crossRefunds) && crossRefunds.length > 0) {
-        for (const cr of crossRefunds) {
-          if (!cr?.orderCode) continue
-          const normOrderCode = String(cr.orderCode).trim().replace(/^#/, '')
-          const { data: candidateOrders } = await supabaseAdmin
+      // Vincular órdenes reales de la plataforma (`UBER_EATS`, `DOORDASH`, `GRUBHUB`) dentro del `[period_start, period_end]`
+      // cuando existe un único corte oficial de esa plataforma para esa tienda y periodo y la orden aún tenía `payout_reference_id` nulo.
+      if (payout.platform && payout.period_start && payout.period_end && payout.payout_reference_id) {
+        const overlappingSamePlatformPayouts = (storePayouts || []).filter(
+          (sp) =>
+            sp.platform === payout.platform &&
+            sp.period_start &&
+            sp.period_end &&
+            sp.period_start <= payout.period_end &&
+            sp.period_end >= payout.period_start
+        )
+        if (overlappingSamePlatformPayouts.length === 1) {
+          const { data: unlinkedCandidates } = await supabaseAdmin
             .from('delivery_platform_orders')
-            .select('id, platform_order_id, raw_payload, dispute_notes')
+            .select('id, raw_payload')
             .eq('store_id', mapping.store_id)
             .eq('platform', payout.platform)
-            .in('platform_order_id', [normOrderCode, `#${normOrderCode}`, normOrderCode.toUpperCase(), normOrderCode.toLowerCase()])
-
-          // P0-6: Match exacto y único para reembolsos posteriores; si hay >1 coincidencia, dejar en REQUIRES_REVIEW
-          const matchResult = resolveCrossPayoutRecoveryMatch(normOrderCode, candidateOrders || [])
-          if (matchResult.status === 'UNIQUE_MATCH' && matchResult.matchedOrder) {
-            const tOrdRow = matchResult.matchedOrder
-            const mergedRaw = {
-              ...(tOrdRow.raw_payload || {}),
-              reimbursement_payout_ref: cr.payoutRef,
-              reimbursement_period: `${cr.periodStart} al ${cr.periodEnd}`,
-              reimbursement_deposit_date: cr.depositDate,
-              reimbursement_amount: cr.amount,
-              reimbursement_description: cr.description,
-            }
-            const autoNote = `Disputa negada inicialmente en portal, peleada por correo y REEMBOLSADA (+$${Number(
-              cr.amount || 0
-            ).toFixed(2)}) en Corte Posterior #${cr.payoutRef} (${cr.periodStart} al ${
-              cr.periodEnd
-            }, dep. ${cr.depositDate}) — Concepto: "${cr.description}".`
-
-            await supabaseAdmin
-              .from('delivery_platform_orders')
-              .update({
-                is_disputed: true,
-                dispute_status: 'APPROVED',
-                dispute_amount: round2(Number(cr.amount || 0)),
-                dispute_notes: tOrdRow.dispute_notes || autoNote,
-                raw_payload: mergedRaw,
-                updated_at: new Date().toISOString(),
-              })
-              .eq('id', tOrdRow.id)
-          } else if (matchResult.status === 'AMBIGUOUS_MATCH') {
-            for (const ambOrd of matchResult.ambiguousOrders) {
-              await supabaseAdmin
-                .from('delivery_platform_orders')
-                .update({
-                  reconciliation_status: 'REQUIRES_REVIEW',
-                  dispute_reason: `Múltiples órdenes (${matchResult.ambiguousOrders.length}) coinciden con el código #${normOrderCode} del reembolso en corte posterior #${cr.payoutRef}; requiere asignación manual única.`,
-                  raw_payload: {
-                    ...(ambOrd.raw_payload || {}),
-                    unverified_reason: 'AMBIGUOUS_RECOVERY_ORDER_MATCH',
-                    ambiguous_recovery_candidate: {
-                      payoutRef: cr.payoutRef,
-                      amount: cr.amount,
-                      depositDate: cr.depositDate,
-                      description: cr.description,
-                    },
-                  },
-                  updated_at: new Date().toISOString(),
-                })
-                .eq('id', ambOrd.id)
-            }
-          }
-        }
-      }
-
-      // En Uber Eats (`getHistoricOrders`), vincular órdenes reales de la plataforma dentro del `[period_start, period_end]`
-      // cuando existe un único corte oficial de Uber Eats para esa tienda y semana y la orden aún tenía `payout_reference_id` nulo.
-      if (payout.platform === 'UBER_EATS' && payout.period_start && payout.period_end && payout.payout_reference_id) {
-        const sameWeekUberPayouts = (storePayouts || []).filter(
-          (sp) =>
-            sp.platform === 'UBER_EATS' &&
-            sp.period_start === payout.period_start &&
-            sp.period_end === payout.period_end
-        )
-        if (sameWeekUberPayouts.length === 1) {
-          await supabaseAdmin
-            .from('delivery_platform_orders')
-            .update({
-              payout_reference_id: payout.payout_reference_id,
-              payout_date: payout.payout_date || null,
-              updated_at: new Date().toISOString(),
-            })
-            .eq('store_id', mapping.store_id)
-            .eq('platform', 'UBER_EATS')
             .neq('match_confidence', 'TOAST_ONLY')
             .is('payout_reference_id', null)
             .gte('business_date', payout.period_start)
             .lte('business_date', payout.period_end)
+          const linkableIds = (unlinkedCandidates || [])
+            .filter((row: any) => !row?.raw_payload?.pending_next_payout)
+            .map((row: any) => row.id)
+          if (linkableIds.length > 0) {
+            await supabaseAdmin
+              .from('delivery_platform_orders')
+              .update({
+                payout_reference_id: payout.payout_reference_id,
+                payout_date: payout.payout_date || null,
+                updated_at: new Date().toISOString(),
+              })
+              .in('id', linkableIds)
+          }
         }
       }
 
@@ -5765,6 +5909,14 @@ export function buildReconciledOrderRow(
         }
       : {}),
   }
+  // Defecto 4: el libro de créditos se fusiona por `credit_id` (una re-sincronización nunca borra ni duplica créditos)
+  const mergedRecoveryCredits = mergeRecoveryCredits(
+    existingDbRow?.raw_payload?.recovery_credits,
+    pOrd.rawPayload?.recovery_credits
+  )
+  if (mergedRecoveryCredits.length > 0) {
+    mergedRawPayload.recovery_credits = mergedRecoveryCredits
+  }
 
   const stateChanges: any[] = Array.isArray(mergedRawPayload?.orderDetails?.orderStateChanges)
     ? mergedRawPayload.orderDetails.orderStateChanges
@@ -5802,7 +5954,10 @@ export function buildReconciledOrderRow(
     status = 'REFUNDED_OR_DISPUTED'
     isDisputed = true
     const orderTag = String(mergedRawPayload.orderTag || '').toUpperCase()
-    if (mergedRawPayload.reimbursement_payout_ref) {
+    const hasVerifiedSettlementCredit = mergedRecoveryCredits.some(
+      (c) => c.verified === true && c.verification_method === 'SETTLEMENT_CREDIT_MATCH'
+    )
+    if (hasVerifiedSettlementCredit) {
       disputeStatus = 'APPROVED'
     } else if (existingDbRow?.dispute_status && existingDbRow.dispute_status !== 'NONE') {
       disputeStatus = existingDbRow.dispute_status
@@ -5815,9 +5970,15 @@ export function buildReconciledOrderRow(
     } else {
       disputeStatus = 'NEEDS_DISPUTE'
     }
+    // Defecto 1: `dispute_amount` representa SIEMPRE el importe original descontado/disputado (nunca el recuperado).
+    const errAbs = round2(Math.abs(pOrd.errorCharge))
+    if (errAbs > 0.01) {
+      mergedRawPayload.original_disputed_amount = errAbs
+      mergedRawPayload.original_disputed_amount_source = 'PLATFORM_SETTLEMENT_DEDUCTION'
+    }
     disputeAmount =
-      Number(mergedRawPayload.reimbursement_amount || 0) ||
-      Math.abs(pOrd.errorCharge) ||
+      errAbs ||
+      Number(mergedRawPayload.original_disputed_amount || 0) ||
       Math.abs(grossDiff)
   } else if (pOrd.transactionType === 'ADJUSTMENT' && pOrd.platformSubtotal === 0 && pOrd.adjustmentAmount > 0) {
     status = 'REFUNDED_OR_DISPUTED'
@@ -5829,6 +5990,10 @@ export function buildReconciledOrderRow(
     isDisputed = true
     if (disputeStatus === 'NONE') disputeStatus = 'NEEDS_DISPUTE'
     disputeAmount = toastExpectedGross
+    if (!(Number(mergedRawPayload.original_disputed_amount || 0) > 0)) {
+      mergedRawPayload.original_disputed_amount = round2(toastExpectedGross)
+      mergedRawPayload.original_disputed_amount_source = 'TOAST_EXPECTED_GROSS_UNPAID_BY_PLATFORM'
+    }
   } else if (
     !taxBreakdownVerified ||
     confidence === 'AMBIGUOUS' ||
@@ -5844,6 +6009,10 @@ export function buildReconciledOrderRow(
       isDisputed = true
       if (disputeStatus === 'NONE') disputeStatus = 'NEEDS_DISPUTE'
       disputeAmount = Math.abs(finalGrossDiff)
+      if (!(Number(mergedRawPayload.original_disputed_amount || 0) > 0)) {
+        mergedRawPayload.original_disputed_amount = round2(Math.abs(finalGrossDiff))
+        mergedRawPayload.original_disputed_amount_source = 'TOAST_VS_PLATFORM_GROSS_VARIANCE'
+      }
     }
   } else if (Math.abs(finalGrossDiff) > 0.05 || Math.abs(taxDiff) > 0.05) {
     status = 'TAX_MISMATCH'
@@ -5959,13 +6128,364 @@ export function buildToastOnlyOrderRow(
   }
 }
 
+// =============================================================================
+// LIBRO DE CRÉDITOS DE RECUPERACIÓN (recovery_credits) — Disputas y Recuperaciones
+// =============================================================================
+
+/**
+ * Crédito individual de recuperación de una orden disputada.
+ * - Se persiste en `delivery_platform_orders.raw_payload.recovery_credits[]` (un elemento por crédito real).
+ * - `credit_id` es estable y deduplica sincronizaciones repetidas:
+ *   `TX:<transaction_id>` cuando la plataforma entrega un ID de transacción (Grubhub `AwE...`),
+ *   `XPR:<payout>:<orden>:<importe>:<n>` para líneas MISC_ITEM de Uber Eats sin ID, y
+ *   `MANUAL:<payout>` para capturas manuales aún no comprobadas contra el settlement.
+ * - `verified = true` solo cuando el crédito fue localizado en los datos del settlement (payout) posterior
+ *   con orden, importe y cronología coherentes (`verification_method = 'SETTLEMENT_CREDIT_MATCH'`).
+ *   La existencia del payout o una nota escrita NUNCA bastan para marcarlo verificado.
+ */
+export interface RecoveryCredit {
+  credit_id: string
+  source: 'PLATFORM_SETTLEMENT_CREDIT' | 'MANUAL_ENTRY' | 'LEGACY_FIELDS'
+  transaction_id: string | null
+  payout_reference_id: string
+  amount: number
+  deposit_date: string | null
+  period_start?: string | null
+  period_end?: string | null
+  description: string | null
+  order_code: string | null
+  verified: boolean
+  verification_method: 'SETTLEMENT_CREDIT_MATCH' | null
+  verification_issue: string | null
+  settlement_entry_key: string | null
+  evidence?: string | null
+  recorded_by?: string | null
+  recorded_at?: string | null
+}
+
+export interface RecoverySettlementPayoutLike {
+  store_id: number | string
+  platform: string
+  payout_reference_id: string
+  payout_date?: string | null
+  period_start?: string | null
+  period_end?: string | null
+  raw_payload?: Record<string, any> | null
+}
+
+export interface SettlementRecoveryCreditEntry {
+  entry_key: string
+  transaction_id: string | null
+  amount: number
+  description: string | null
+  order_code: string
+}
+
+export interface DisputeRecoveryContext {
+  /** Índice `store_id:platform:payout_reference_id` -> payout con `raw_payload` del settlement (ver `buildRecoverySettlementIndex`). */
+  settlementPayouts?: Map<string, RecoverySettlementPayoutLike>
+}
+
+const normalizeRecoveryOrderCode = (v: unknown): string =>
+  String(v ?? '')
+    .trim()
+    .replace(/^#/, '')
+    .toUpperCase()
+
+const isIsoDateStr = (v: unknown): v is string => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v.trim())
+
+export function recoverySettlementKey(storeId: unknown, platform: unknown, payoutRef: unknown): string {
+  return `${Number(storeId || 0)}:${String(platform || '').toUpperCase()}:${String(payoutRef || '').trim()}`
+}
+
+/** Construye el índice de settlements (payouts) usado para verificar créditos de recuperación en lectura. */
+export function buildRecoverySettlementIndex(
+  payoutRows: Array<RecoverySettlementPayoutLike | Record<string, any>>
+): Map<string, RecoverySettlementPayoutLike> {
+  const idx = new Map<string, RecoverySettlementPayoutLike>()
+  for (const p of payoutRows || []) {
+    const ref = String((p as any)?.payout_reference_id || '').trim()
+    if (!ref) continue
+    idx.set(recoverySettlementKey((p as any).store_id, (p as any).platform, ref), p as RecoverySettlementPayoutLike)
+  }
+  return idx
+}
+
+/**
+ * Extrae del settlement los créditos identificables que corresponden a una orden:
+ * - Grubhub: `raw_payload.associated_transactions` con `order_number` igual, `is_refund = false`,
+ *   `subtotal = 0` y `net_amount > 0` (crédito `CS_CREDIT` / `AwE...`, importe en centavos).
+ * - Cualquier plataforma: `raw_payload.cross_payout_refunds` con `orderCode` igual (Uber MISC_ITEM / Grubhub).
+ * Deduplica por `transaction_id` cuando ambas fuentes describen el mismo crédito.
+ */
+export function extractSettlementRecoveryCreditsForOrder(
+  payout: RecoverySettlementPayoutLike | null | undefined,
+  orderCode: unknown
+): SettlementRecoveryCreditEntry[] {
+  const target = normalizeRecoveryOrderCode(orderCode)
+  if (!payout || !target) return []
+  const ref = String(payout.payout_reference_id || '').trim()
+  const out: SettlementRecoveryCreditEntry[] = []
+  const seen = new Set<string>()
+
+  const assoc: any[] = Array.isArray(payout.raw_payload?.associated_transactions)
+    ? payout.raw_payload!.associated_transactions
+    : []
+  for (const tx of assoc) {
+    if (normalizeRecoveryOrderCode(tx?.order_number) !== target) continue
+    const netCents = Number(tx?.net_amount || 0)
+    if (tx?.is_refund || Number(tx?.subtotal || 0) !== 0 || !(netCents > 0)) continue
+    const txId = String(tx?.transaction_id || '').trim() || null
+    const key = txId ? `TX:${txId}` : `GHTX:${ref}:${target}:${(netCents / 100).toFixed(2)}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push({
+      entry_key: key,
+      transaction_id: txId,
+      amount: round2(netCents / 100),
+      description: String(tx?.transaction_type_description || tx?.transaction_type || '') || null,
+      order_code: target,
+    })
+  }
+
+  const xpr: any[] = Array.isArray(payout.raw_payload?.cross_payout_refunds)
+    ? payout.raw_payload!.cross_payout_refunds
+    : []
+  const occurrence = new Map<string, number>()
+  for (const cr of xpr) {
+    if (normalizeRecoveryOrderCode(cr?.orderCode) !== target) continue
+    const amt = round2(Number(cr?.amount || 0))
+    if (!(amt > 0)) continue
+    const txId = String(cr?.transactionId || '').trim() || null
+    let key: string
+    if (txId) {
+      key = `TX:${txId}`
+    } else {
+      const base = `XPR:${ref}:${target}:${amt.toFixed(2)}`
+      const n = (occurrence.get(base) || 0) + 1
+      occurrence.set(base, n)
+      key = `${base}:${n}`
+    }
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push({
+      entry_key: key,
+      transaction_id: txId,
+      amount: amt,
+      description: String(cr?.description || '') || null,
+      order_code: target,
+    })
+  }
+  return out
+}
+
+/** Fecha en que la plataforma aplicó la deducción original (payout de la orden) o, en su defecto, la fecha operativa. */
+function getOrderDeductionDate(order: any): string | null {
+  if (isCreditOnlyRecoveryRow(order)) return null
+  const pd = String(order?.payout_date || '').slice(0, 10)
+  if (isIsoDateStr(pd)) return pd
+  const bd = String(order?.business_date || '').slice(0, 10)
+  return isIsoDateStr(bd) ? bd : null
+}
+
+/**
+ * Fila que ES el propio crédito de recuperación (p. ej. Grubhub `AwE...` / `ADJUSTMENT` con subtotal $0 y ajuste positivo),
+ * sin la deducción original en la misma fila. Su `payout_reference_id` es el payout del crédito, no el de la deducción,
+ * por lo que no aplica la regla "mismo payout que la deducción"; el importe original queda sin comprobar.
+ */
+function isCreditOnlyRecoveryRow(order: any): boolean {
+  return (
+    String(order?.transaction_type || '').toUpperCase() === 'ADJUSTMENT' &&
+    Math.abs(Number(order?.platform_subtotal || 0)) < 0.005 &&
+    Number(order?.error_charge || 0) >= -0.005 &&
+    Number(order?.adjustment_amount || 0) > 0
+  )
+}
+
+/**
+ * Verifica un crédito de recuperación contra el settlement posterior:
+ * 1. El payout existe y pertenece a la misma sucursal y plataforma de la orden.
+ * 2. Es un payout distinto (posterior) al payout donde se aplicó la deducción.
+ * 3. Cronología coherente: fecha del depósito de recuperación >= fecha de la deducción original.
+ * 4. El settlement contiene un crédito identificable para la orden (por `transaction_id` o, si no hay ID,
+ *    por importe exacto ±$0.02) que no haya sido consumido ya por otro crédito.
+ */
+export function verifyRecoveryCreditAgainstSettlement(params: {
+  order: any
+  credit: Pick<RecoveryCredit, 'transaction_id' | 'payout_reference_id' | 'amount' | 'deposit_date'>
+  payout: RecoverySettlementPayoutLike | null | undefined
+  consumedEntryKeys?: Set<string>
+}): { verified: boolean; issue: string | null; matchedEntry: SettlementRecoveryCreditEntry | null } {
+  const { order, credit, payout, consumedEntryKeys } = params
+  if (!payout) return { verified: false, issue: 'RECOVERY_PAYOUT_NOT_FOUND', matchedEntry: null }
+  if (
+    Number(payout.store_id) !== Number(order?.store_id) ||
+    String(payout.platform || '').toUpperCase() !== String(order?.platform || '').toUpperCase()
+  ) {
+    return { verified: false, issue: 'RECOVERY_PAYOUT_STORE_PLATFORM_MISMATCH', matchedEntry: null }
+  }
+  const recRef = String(payout.payout_reference_id || '').trim()
+  const deductionRef = isCreditOnlyRecoveryRow(order) ? '' : String(order?.payout_reference_id || '').trim()
+  if (deductionRef && recRef === deductionRef) {
+    return { verified: false, issue: 'RECOVERY_IN_SAME_PAYOUT_AS_DEDUCTION', matchedEntry: null }
+  }
+  const recDate =
+    (isIsoDateStr(credit.deposit_date) ? credit.deposit_date : null) ||
+    (isIsoDateStr(String(payout.payout_date || '').slice(0, 10)) ? String(payout.payout_date).slice(0, 10) : null) ||
+    (isIsoDateStr(String(payout.period_end || '').slice(0, 10)) ? String(payout.period_end).slice(0, 10) : null)
+  const dedDate = getOrderDeductionDate(order)
+  if (!recDate) return { verified: false, issue: 'RECOVERY_DATE_MISSING', matchedEntry: null }
+  if (dedDate && recDate < dedDate) {
+    return { verified: false, issue: 'RECOVERY_BEFORE_DEDUCTION', matchedEntry: null }
+  }
+
+  const entries = extractSettlementRecoveryCreditsForOrder(payout, order?.platform_order_id).filter(
+    (e) => !consumedEntryKeys?.has(e.entry_key)
+  )
+  if (entries.length === 0) {
+    return { verified: false, issue: 'NO_IDENTIFIABLE_CREDIT_IN_SETTLEMENT', matchedEntry: null }
+  }
+  const creditTx = String(credit.transaction_id || '').trim()
+  const creditAmt = round2(Number(credit.amount || 0))
+  const match = creditTx
+    ? entries.find((e) => e.transaction_id === creditTx)
+    : entries.find((e) => Math.abs(e.amount - creditAmt) <= 0.02)
+  if (!match) {
+    return {
+      verified: false,
+      issue: creditTx ? 'CREDIT_TRANSACTION_NOT_IN_SETTLEMENT' : 'CREDIT_AMOUNT_MISMATCH',
+      matchedEntry: null,
+    }
+  }
+  if (Math.abs(match.amount - creditAmt) > 0.02) {
+    return { verified: false, issue: 'CREDIT_AMOUNT_MISMATCH', matchedEntry: match }
+  }
+  return { verified: true, issue: null, matchedEntry: match }
+}
+
+/**
+ * Fusiona créditos por `credit_id` (idempotente ante sincronizaciones repetidas: nunca suma dos veces el mismo crédito).
+ * Conserva `recorded_by`/`recorded_at`/`evidence` del registro existente cuando el entrante no los trae.
+ */
+export function mergeRecoveryCredits(existing: unknown, incoming: unknown): RecoveryCredit[] {
+  const byId = new Map<string, RecoveryCredit>()
+  const add = (c: any, isIncoming: boolean) => {
+    const id = String(c?.credit_id || '').trim()
+    if (!id) return
+    const prev = byId.get(id)
+    if (!prev) {
+      byId.set(id, { ...c, amount: round2(Number(c.amount || 0)) })
+      return
+    }
+    const keepPrevVerification =
+      isIncoming && prev.verified === true && prev.verification_method === 'SETTLEMENT_CREDIT_MATCH' && c.verified !== true
+    byId.set(id, {
+      ...prev,
+      ...(isIncoming ? c : {}),
+      amount: round2(Number((isIncoming ? c.amount : prev.amount) || 0)),
+      ...(keepPrevVerification
+        ? {
+            verified: true,
+            verification_method: prev.verification_method,
+            verification_issue: null,
+            settlement_entry_key: prev.settlement_entry_key,
+          }
+        : {}),
+      recorded_by: prev.recorded_by || c.recorded_by || null,
+      recorded_at: prev.recorded_at || c.recorded_at || null,
+      evidence: (isIncoming ? c.evidence : null) || prev.evidence || null,
+    })
+  }
+  for (const c of Array.isArray(existing) ? existing : []) add(c, false)
+  for (const c of Array.isArray(incoming) ? incoming : []) add(c, true)
+  return Array.from(byId.values())
+}
+
+/**
+ * Créditos de recuperación de la orden. Si la orden aún no tiene libro (`recovery_credits`), deriva un crédito
+ * `LEGACY_FIELDS` no verificado a partir de los campos históricos `reimbursement_*` para que se evalúe con la misma regla.
+ */
+export function getOrderRecoveryCredits(o: any): RecoveryCredit[] {
+  const ledger = o?.raw_payload?.recovery_credits
+  if (Array.isArray(ledger) && ledger.length > 0) return mergeRecoveryCredits([], ledger)
+  const ref = String(o?.raw_payload?.reimbursement_payout_ref || '').trim()
+  const amt = round2(Number(o?.raw_payload?.reimbursement_amount || 0))
+  if (!ref && !(amt > 0)) return []
+  const dateRaw = String(o?.raw_payload?.reimbursement_deposit_date || '').trim()
+  return [
+    {
+      credit_id: `LEGACY:${ref || 'NO_REF'}`,
+      source: 'LEGACY_FIELDS',
+      transaction_id: String(o?.raw_payload?.reimbursement_transaction_id || '').trim() || null,
+      payout_reference_id: ref,
+      amount: amt,
+      deposit_date: isIsoDateStr(dateRaw) ? dateRaw : null,
+      description: o?.raw_payload?.reimbursement_description || null,
+      order_code: normalizeRecoveryOrderCode(o?.platform_order_id) || null,
+      verified: false,
+      verification_method: null,
+      verification_issue: 'LEGACY_FIELDS_NOT_VERIFIED',
+      settlement_entry_key: null,
+      evidence: o?.raw_payload?.reimbursement_evidence || null,
+    },
+  ]
+}
+
+/** Todas las referencias de payout donde la orden tiene créditos de recuperación (libro + campos históricos). */
+export function getOrderRecoveryPayoutRefs(o: any): string[] {
+  const refs = new Set<string>()
+  for (const c of getOrderRecoveryCredits(o)) {
+    const r = String(c.payout_reference_id || '').trim()
+    if (r) refs.add(r)
+  }
+  const legacy = String(o?.raw_payload?.reimbursement_payout_ref || '').trim()
+  if (legacy) refs.add(legacy)
+  return Array.from(refs)
+}
+
+/**
+ * Importe ORIGINAL descontado/disputado, independiente de las recuperaciones.
+ * Prioridad: `raw_payload.original_disputed_amount` -> `raw_payload.original_error_charge_abs` -> `|error_charge|`
+ * -> `dispute_amount` solo si la orden no tiene recuperaciones registradas (históricamente `dispute_amount`
+ * pudo ser sobrescrito con el importe recuperado, por lo que deja de ser confiable en cuanto hay una recuperación).
+ * Devuelve `amount = null` cuando el importe original no está comprobado.
+ */
+export function resolveOriginalDisputedAmount(o: any): { amount: number | null; source: string | null } {
+  const stored = round2(Number(o?.raw_payload?.original_disputed_amount || 0))
+  if (stored > 0) return { amount: stored, source: String(o?.raw_payload?.original_disputed_amount_source || 'STORED') }
+  const legacyStored = round2(Number(o?.raw_payload?.original_error_charge_abs || 0))
+  if (legacyStored > 0) return { amount: legacyStored, source: 'ORIGINAL_ERROR_CHARGE_ABS' }
+  const err = round2(Math.abs(Number(o?.error_charge || 0)))
+  if (err > 0.01) return { amount: err, source: 'PLATFORM_SETTLEMENT_DEDUCTION' }
+  const hasRecoveryData =
+    getOrderRecoveryCredits(o).length > 0 || String(o?.dispute_status || '').toUpperCase() === 'REIMBURSED'
+  const da = round2(Math.abs(Number(o?.dispute_amount || 0)))
+  if (da > 0 && !hasRecoveryData) return { amount: da, source: 'DISPUTE_AMOUNT_PRE_RECOVERY' }
+  return { amount: null, source: null }
+}
+
+export interface EvaluatedRecoveryCredit extends RecoveryCredit {
+  counted: boolean
+}
+
 export interface DisputeRecoveryEvaluation {
   isDisputed: boolean
+  /** Importe original descontado/disputado (0 si no está comprobado; ver `originalAmountVerified`). */
   originalDeductionAbs: number
+  originalAmountVerified: boolean
+  originalAmountSource: string | null
+  /** Referencia del crédito más reciente (compatibilidad). Usar `recoveryCredits` para el desglose completo. */
   reimbursementPayoutRef: string | null
+  /** Total recuperado verificado; si no hay ninguno verificado, total reclamado sin verificar (compatibilidad). */
   reimbursementAmount: number
   reimbursementDepositDate: string | null
   reimbursementEvidence: string | null
+  verifiedRecoveredAmount: number
+  claimedUnverifiedAmount: number
+  recoveryCredits: EvaluatedRecoveryCredit[]
+  verificationIssues: string[]
+  /** La plataforma aprobó la disputa (estado de flujo) — NO implica dinero recuperado. */
+  isDisputeApproved: boolean
   hasVerifiableRecoveryEvidence: boolean
   recoveryClassification:
     | 'NONE'
@@ -5973,35 +6493,32 @@ export interface DisputeRecoveryEvaluation {
     | 'UNVERIFIED_RECOVERY'
     | 'PARTIAL_RECOVERY'
     | 'FULL_RECOVERY'
+  /** Saldo pendiente = original − recuperado verificado (0 si el original no está comprobado). */
   unrecoveredAmount: number
 }
 
 /**
- * Evalúa con evidencia verificable el estado de disputa y recuperación de una orden:
- * - Para confirmar una recuperación (`PARTIAL_RECOVERY` o `FULL_RECOVERY`), exige:
- *   1. Referencia del payout posterior (`reimbursement_payout_ref`, >= 3 caracteres)
- *   2. Importe recuperado (`reimbursement_amount > 0`)
- *   3. Fecha válida de depósito (`reimbursement_deposit_date` en formato `YYYY-MM-DD`)
- *   4. Evidencia o nota documentada (`reimbursement_evidence` / `dispute_notes` / `reimbursement_description`, >= 5 caracteres)
- * - Distingue recuperación parcial (`reimbursementAmount < originalDeductionAbs - 0.02`) de recuperación total.
+ * Evalúa el estado de disputa y recuperación de una orden separando:
+ * (a) importe original descontado/disputado, (b) créditos recuperados y (c) saldo pendiente.
+ *
+ * Reglas:
+ * - Un crédito cuenta como dinero recuperado solo si está verificado contra el settlement posterior
+ *   (`verifyRecoveryCreditAgainstSettlement`): con `ctx.settlementPayouts` se re-verifica en lectura contra los datos
+ *   del payout; sin contexto se acepta únicamente la verificación persistida por el servidor
+ *   (`verification_method = 'SETTLEMENT_CREDIT_MATCH'` + `settlement_entry_key`) con cronología coherente.
+ * - Nota escrita + existencia del payout NO prueban el cobro -> `UNVERIFIED_RECOVERY` ("Recuperación pendiente de verificar").
+ * - `APPROVED` / `REIMBURSED` son estados de flujo; no confirman dinero sin crédito verificado.
+ * - Si el importe original no está comprobado, cualquier recuperación queda `UNVERIFIED_RECOVERY`.
+ * - `FULL_RECOVERY` cuando recuperado verificado >= original − $0.02; si es menor, `PARTIAL_RECOVERY` con saldo pendiente.
  */
-export function evaluateDisputeRecovery(o: any): DisputeRecoveryEvaluation {
+export function evaluateDisputeRecovery(o: any, ctx?: DisputeRecoveryContext): DisputeRecoveryEvaluation {
   const errChargeAbs = round2(Math.abs(Number(o?.error_charge || 0)))
-  const rawOriginalDed = round2(
-    Number(o?.raw_payload?.original_error_charge_abs || 0) ||
-      errChargeAbs ||
-      Math.abs(Number(o?.dispute_amount || 0))
-  )
-  const reimbRefRaw = String(o?.raw_payload?.reimbursement_payout_ref || '').trim()
-  const reimbRef = reimbRefRaw.length > 0 ? reimbRefRaw : null
-  const reimbAmt = round2(Number(o?.raw_payload?.reimbursement_amount || 0))
-  const reimbDateRaw = String(o?.raw_payload?.reimbursement_deposit_date || '').trim()
-  const reimbDate = /^\d{4}-\d{2}-\d{2}$/.test(reimbDateRaw) ? reimbDateRaw : null
+  const original = resolveOriginalDisputedAmount(o)
+  const credits = getOrderRecoveryCredits(o)
+  const status = String(o?.dispute_status || '').toUpperCase()
+  const isDisputeApproved = status === 'APPROVED' || status === 'REIMBURSED'
   const evidenceRaw = String(
-    o?.raw_payload?.reimbursement_evidence ||
-      o?.dispute_notes ||
-      o?.raw_payload?.reimbursement_description ||
-      ''
+    o?.raw_payload?.reimbursement_evidence || o?.dispute_notes || o?.raw_payload?.reimbursement_description || ''
   ).trim()
   const reimbEvidence = evidenceRaw.length > 0 ? evidenceRaw : null
 
@@ -6009,74 +6526,755 @@ export function evaluateDisputeRecovery(o: any): DisputeRecoveryEvaluation {
     Boolean(o?.is_disputed) ||
     o?.reconciliation_status === 'REFUNDED_OR_DISPUTED' ||
     errChargeAbs > 0.01 ||
-    Boolean(reimbRef) ||
-    o?.dispute_status === 'REIMBURSED'
+    credits.length > 0 ||
+    status === 'REIMBURSED'
 
-  if (!isDisputed) {
-    return {
-      isDisputed: false,
-      originalDeductionAbs: 0,
-      reimbursementPayoutRef: null,
-      reimbursementAmount: 0,
-      reimbursementDepositDate: null,
-      reimbursementEvidence: null,
-      hasVerifiableRecoveryEvidence: false,
-      recoveryClassification: 'NONE',
-      unrecoveredAmount: 0,
+  const empty: DisputeRecoveryEvaluation = {
+    isDisputed: false,
+    originalDeductionAbs: 0,
+    originalAmountVerified: false,
+    originalAmountSource: null,
+    reimbursementPayoutRef: null,
+    reimbursementAmount: 0,
+    reimbursementDepositDate: null,
+    reimbursementEvidence: null,
+    verifiedRecoveredAmount: 0,
+    claimedUnverifiedAmount: 0,
+    recoveryCredits: [],
+    verificationIssues: [],
+    isDisputeApproved: false,
+    hasVerifiableRecoveryEvidence: false,
+    recoveryClassification: 'NONE',
+    unrecoveredAmount: 0,
+  }
+  if (!isDisputed) return empty
+
+  const dedDate = getOrderDeductionDate(o)
+  const deductionRef = isCreditOnlyRecoveryRow(o) ? '' : String(o?.payout_reference_id || '').trim()
+  const consumed = new Set<string>()
+  const evaluated: EvaluatedRecoveryCredit[] = []
+  // Verificar primero créditos con transaction_id (match exacto), luego por importe
+  const ordered = [...credits].sort((a, b) => Number(Boolean(b.transaction_id)) - Number(Boolean(a.transaction_id)))
+  for (const c of ordered) {
+    const amt = round2(Number(c.amount || 0))
+    const ref = String(c.payout_reference_id || '').trim()
+    let verified = false
+    let issue: string | null = null
+    let entryKey: string | null = c.settlement_entry_key || null
+    if (!ref) {
+      issue = 'MISSING_RECOVERY_PAYOUT_REFERENCE'
+    } else if (!(amt > 0)) {
+      issue = 'NON_POSITIVE_RECOVERY_AMOUNT'
+    } else {
+      const payout = ctx?.settlementPayouts?.get(recoverySettlementKey(o?.store_id, o?.platform, ref))
+      if (payout) {
+        const res = verifyRecoveryCreditAgainstSettlement({ order: o, credit: c, payout, consumedEntryKeys: consumed })
+        verified = res.verified
+        issue = res.issue
+        if (res.matchedEntry) entryKey = res.matchedEntry.entry_key
+      } else if (
+        c.verified === true &&
+        c.verification_method === 'SETTLEMENT_CREDIT_MATCH' &&
+        Boolean(c.settlement_entry_key) &&
+        !consumed.has(String(c.settlement_entry_key))
+      ) {
+        if (deductionRef && ref === deductionRef) issue = 'RECOVERY_IN_SAME_PAYOUT_AS_DEDUCTION'
+        else if (!isIsoDateStr(c.deposit_date)) issue = 'RECOVERY_DATE_MISSING'
+        else if (dedDate && c.deposit_date < dedDate) issue = 'RECOVERY_BEFORE_DEDUCTION'
+        else verified = true
+      } else {
+        issue = c.verification_issue || 'NO_IDENTIFIABLE_CREDIT_IN_SETTLEMENT'
+      }
     }
+    if (verified && entryKey) consumed.add(entryKey)
+    evaluated.push({
+      ...c,
+      amount: amt,
+      verified,
+      verification_issue: verified ? null : issue,
+      settlement_entry_key: verified ? entryKey : c.settlement_entry_key || null,
+      counted: verified,
+    })
   }
 
-  const claimsRecovery = Boolean(reimbRef) || o?.dispute_status === 'REIMBURSED' || reimbAmt > 0
-  const hasVerifiableRecoveryEvidence = Boolean(
-    reimbRef &&
-      reimbRef.length >= 3 &&
-      reimbAmt > 0 &&
-      reimbDate &&
-      reimbEvidence &&
-      reimbEvidence.length >= 5
-  )
+  // Un reclamo sin verificar que describe el mismo dinero que un crédito verificado (mismo payout e importe) queda absorbido
+  for (const e of evaluated) {
+    if (e.verified) continue
+    const absorbed = evaluated.some(
+      (v) => v.verified && v.payout_reference_id === e.payout_reference_id && Math.abs(v.amount - e.amount) <= 0.02
+    )
+    if (absorbed) e.verification_issue = 'SUPERSEDED_BY_VERIFIED_SETTLEMENT_CREDIT'
+  }
 
+  const verifiedTotal = round2(evaluated.filter((e) => e.verified).reduce((s, e) => s + e.amount, 0))
+  const claimedUnverified = round2(
+    evaluated
+      .filter((e) => !e.verified && e.verification_issue !== 'SUPERSEDED_BY_VERIFIED_SETTLEMENT_CREDIT')
+      .reduce((s, e) => s + e.amount, 0)
+  )
+  const byDateDesc = [...evaluated].sort((a, b) => String(b.deposit_date || '').localeCompare(String(a.deposit_date || '')))
+  const latest = byDateDesc.find((e) => e.verified) || byDateDesc[0] || null
+  const issues = Array.from(
+    new Set(
+      evaluated
+        .filter((e) => !e.verified && e.verification_issue && e.verification_issue !== 'SUPERSEDED_BY_VERIFIED_SETTLEMENT_CREDIT')
+        .map((e) => String(e.verification_issue))
+    )
+  )
+  const originalAbs = original.amount ?? 0
+  if (original.amount === null && (credits.length > 0 || status === 'REIMBURSED')) {
+    issues.push('ORIGINAL_DISPUTED_AMOUNT_UNVERIFIED')
+  }
+  if (status === 'REIMBURSED' && credits.length === 0) issues.push('REIMBURSED_STATUS_WITHOUT_RECOVERY_CREDIT')
+
+  const base = {
+    isDisputed: true,
+    originalDeductionAbs: originalAbs,
+    originalAmountVerified: original.amount !== null,
+    originalAmountSource: original.source,
+    reimbursementPayoutRef: latest ? latest.payout_reference_id || null : null,
+    reimbursementAmount: verifiedTotal > 0 ? verifiedTotal : claimedUnverified,
+    reimbursementDepositDate: latest ? latest.deposit_date || null : null,
+    reimbursementEvidence: reimbEvidence,
+    verifiedRecoveredAmount: verifiedTotal,
+    claimedUnverifiedAmount: claimedUnverified,
+    recoveryCredits: evaluated,
+    verificationIssues: issues,
+    isDisputeApproved,
+  }
+
+  const claimsRecovery = credits.length > 0 || status === 'REIMBURSED'
   if (!claimsRecovery) {
     return {
-      isDisputed: true,
-      originalDeductionAbs: rawOriginalDed,
-      reimbursementPayoutRef: null,
-      reimbursementAmount: 0,
-      reimbursementDepositDate: null,
-      reimbursementEvidence: reimbEvidence,
+      ...base,
       hasVerifiableRecoveryEvidence: false,
       recoveryClassification: 'OPEN_DISPUTE',
-      unrecoveredAmount: rawOriginalDed,
+      unrecoveredAmount: originalAbs,
     }
   }
 
-  if (!hasVerifiableRecoveryEvidence) {
+  if (original.amount === null || verifiedTotal <= 0) {
     return {
-      isDisputed: true,
-      originalDeductionAbs: rawOriginalDed,
-      reimbursementPayoutRef: reimbRef,
-      reimbursementAmount: reimbAmt,
-      reimbursementDepositDate: reimbDate,
-      reimbursementEvidence: reimbEvidence,
+      ...base,
       hasVerifiableRecoveryEvidence: false,
       recoveryClassification: 'UNVERIFIED_RECOVERY',
-      unrecoveredAmount: rawOriginalDed,
+      unrecoveredAmount: original.amount === null ? 0 : originalAbs,
     }
   }
 
-  const effectiveOriginalDed = rawOriginalDed > 0 ? rawOriginalDed : reimbAmt
-  const isPartial = effectiveOriginalDed > 0 && reimbAmt < effectiveOriginalDed - 0.02
-  const unrecoveredAmount = isPartial ? round2(Math.max(0, effectiveOriginalDed - reimbAmt)) : 0
-
+  const isPartial = verifiedTotal < originalAbs - 0.02
   return {
-    isDisputed: true,
-    originalDeductionAbs: effectiveOriginalDed,
-    reimbursementPayoutRef: reimbRef,
-    reimbursementAmount: reimbAmt,
-    reimbursementDepositDate: reimbDate,
-    reimbursementEvidence: reimbEvidence,
+    ...base,
     hasVerifiableRecoveryEvidence: true,
     recoveryClassification: isPartial ? 'PARTIAL_RECOVERY' : 'FULL_RECOVERY',
-    unrecoveredAmount,
+    unrecoveredAmount: isPartial ? round2(Math.max(0, originalAbs - verifiedTotal)) : 0,
   }
+}
+
+/**
+ * Construye la actualización de una recuperación capturada manualmente (acción `update_dispute`) SIN sobrescribir
+ * el importe original disputado:
+ * - `dispute_amount` y `raw_payload.original_disputed_amount` conservan el importe original (si estaba comprobado).
+ * - La captura se agrega como crédito al libro `recovery_credits`; se verifica contra el settlement del payout indicado.
+ *   Si el settlement contiene el crédito identificable de la orden, el crédito queda `verified` con su `transaction_id`;
+ *   si no, queda como `MANUAL:<payout>` sin verificar ("Recuperación pendiente de verificar").
+ * - Reemplaza solo capturas manuales no verificadas previas (corrección de captura); nunca elimina créditos verificados.
+ */
+export function buildManualRecoveryUpdate(params: {
+  existingOrder: Record<string, any>
+  recoveryPayout: RecoverySettlementPayoutLike | null
+  input: {
+    payoutRef: string
+    amount: number
+    depositDate: string | null
+    description: string | null
+    evidence: string | null
+  }
+  actorEmail: string | null
+  nowIso: string
+}): { rawPayload: Record<string, any>; credit: RecoveryCredit; verification: ReturnType<typeof verifyRecoveryCreditAgainstSettlement> } {
+  const { existingOrder, recoveryPayout, input, actorEmail, nowIso } = params
+  const prevRaw = existingOrder?.raw_payload || {}
+  const original = resolveOriginalDisputedAmount(existingOrder)
+  const priorCredits = getOrderRecoveryCredits(existingOrder).filter((c) => c.source !== 'LEGACY_FIELDS')
+  const legacyCredits = getOrderRecoveryCredits(existingOrder).filter((c) => c.source === 'LEGACY_FIELDS')
+
+  const draft = {
+    transaction_id: null as string | null,
+    payout_reference_id: String(input.payoutRef || '').trim(),
+    amount: round2(Number(input.amount || 0)),
+    deposit_date: isIsoDateStr(input.depositDate) ? input.depositDate : null,
+  }
+  // Excluir del cómputo las entradas del settlement ya verificadas por otros créditos (evita contar dos veces)
+  const consumed = new Set<string>(
+    priorCredits.filter((c) => c.verified && c.settlement_entry_key).map((c) => String(c.settlement_entry_key))
+  )
+  let verification = verifyRecoveryCreditAgainstSettlement({
+    order: existingOrder,
+    credit: draft,
+    payout: recoveryPayout,
+    consumedEntryKeys: consumed,
+  })
+  // Si el crédito capturado ya existe verificado en el libro (mismo payout e importe), se reutiliza sin duplicar
+  const alreadyVerified = priorCredits.find(
+    (c) =>
+      c.verified &&
+      c.payout_reference_id === draft.payout_reference_id &&
+      Math.abs(Number(c.amount || 0) - draft.amount) <= 0.02
+  )
+  if (!verification.verified && alreadyVerified) {
+    verification = { verified: true, issue: null, matchedEntry: null }
+  }
+
+  const matched = verification.matchedEntry
+  const credit: RecoveryCredit = alreadyVerified && !matched
+    ? { ...alreadyVerified, evidence: input.evidence || alreadyVerified.evidence || null }
+    : {
+        credit_id: verification.verified && matched ? matched.entry_key : `MANUAL:${draft.payout_reference_id}`,
+        source: verification.verified ? 'PLATFORM_SETTLEMENT_CREDIT' : 'MANUAL_ENTRY',
+        transaction_id: matched?.transaction_id || null,
+        payout_reference_id: draft.payout_reference_id,
+        amount: draft.amount,
+        deposit_date: draft.deposit_date,
+        period_start: recoveryPayout?.period_start || null,
+        period_end: recoveryPayout?.period_end || null,
+        description: input.description || matched?.description || null,
+        order_code: normalizeRecoveryOrderCode(existingOrder?.platform_order_id) || null,
+        verified: verification.verified,
+        verification_method: verification.verified ? 'SETTLEMENT_CREDIT_MATCH' : null,
+        verification_issue: verification.verified ? null : verification.issue,
+        settlement_entry_key: verification.verified && matched ? matched.entry_key : null,
+        evidence: input.evidence || null,
+        recorded_by: actorEmail,
+        recorded_at: nowIso,
+      }
+
+  // Conservar créditos previos (verificados y de otras referencias); reemplazar capturas manuales no verificadas
+  const keptPrior = priorCredits.filter((c) => !(c.source === 'MANUAL_ENTRY' && !c.verified))
+  // Los campos históricos se migran al libro como crédito LEGACY no verificado si describen otra referencia
+  const keptLegacy = legacyCredits.filter(
+    (lc) => lc.payout_reference_id && lc.payout_reference_id !== draft.payout_reference_id
+  )
+  const ledger = mergeRecoveryCredits([...keptLegacy, ...keptPrior], [credit])
+
+  const rawPayload: Record<string, any> = {
+    ...prevRaw,
+    recovery_credits: ledger,
+    ...(original.amount !== null
+      ? {
+          original_disputed_amount: original.amount,
+          original_disputed_amount_source: prevRaw.original_disputed_amount_source || original.source,
+        }
+      : {}),
+    // Campos históricos de compatibilidad: describen la captura más reciente (no el total)
+    reimbursement_payout_ref: draft.payout_reference_id || null,
+    reimbursement_amount: draft.amount,
+    reimbursement_deposit_date: draft.deposit_date,
+    reimbursement_description: input.description ?? prevRaw.reimbursement_description ?? null,
+    reimbursement_transaction_id: credit.transaction_id || null,
+  }
+  return { rawPayload, credit, verification }
+}
+
+/**
+ * Crea créditos de recuperación de Grubhub conservando CADA transacción con su propio payout:
+ * un `recoveryTx` (`!is_refund && subtotal = 0 && net_amount > 0`) -> un `RecoveryCredit` con `transaction_id`,
+ * `payout_reference_id`, importe y fecha del depósito donde se pagó. Nunca agrega importes bajo una sola referencia.
+ */
+export function buildGrubhubRecoveryCredits(
+  recoveryTxs: any[],
+  depositByTxId: Map<string, { payoutRef: string; payoutDate: string; periodStart?: string | null; periodEnd?: string | null }>,
+  orderCode: string
+): RecoveryCredit[] {
+  const out: RecoveryCredit[] = []
+  for (const r of recoveryTxs || []) {
+    const txId = String(r?.transaction_id || '').trim()
+    const netCents = Number(r?.net_amount || 0)
+    if (!txId || !(netCents > 0)) continue
+    const dep = depositByTxId.get(txId)
+    if (!dep?.payoutRef) continue
+    out.push({
+      credit_id: `TX:${txId}`,
+      source: 'PLATFORM_SETTLEMENT_CREDIT',
+      transaction_id: txId,
+      payout_reference_id: dep.payoutRef,
+      amount: round2(netCents / 100),
+      deposit_date: isIsoDateStr(dep.payoutDate) ? dep.payoutDate : null,
+      period_start: dep.periodStart || null,
+      period_end: dep.periodEnd || null,
+      description: String(r?.transaction_type_description || r?.transaction_type || 'Crédito / Recuperación de Disputa Grubhub'),
+      order_code: normalizeRecoveryOrderCode(orderCode) || null,
+      // Proviene de `associated_transactions` del depósito: se verifica en el motor contra el settlement persistido
+      verified: false,
+      verification_method: null,
+      verification_issue: 'PENDING_SETTLEMENT_VERIFICATION',
+      settlement_entry_key: null,
+    })
+  }
+  return mergeRecoveryCredits([], out)
+}
+
+/**
+ * Cuando un corte semanal de DoorDash proviene de `payout_summaries` sin `payout_transactions` aún
+ * (`period_start === payout_date && period_end === payout_date`), deriva su ciclo semanal real
+ * (Lunes a Domingo inmediatamente anterior a la fecha de depósito).
+ */
+export function resolveDoorDashCycleFromPayoutDate(payoutDateStr: string): { periodStart: string; periodEnd: string } {
+  const clean = String(payoutDateStr || '').slice(0, 10)
+  const d = new Date(`${clean}T12:00:00Z`)
+  if (Number.isNaN(d.getTime())) return { periodStart: clean, periodEnd: clean }
+  const dow = d.getUTCDay()
+  const daysToPrevSunday = dow === 0 ? 7 : dow
+  const sun = new Date(d.getTime() - daysToPrevSunday * 86400000)
+  const mon = new Date(sun.getTime() - 6 * 86400000)
+  return {
+    periodStart: mon.toISOString().slice(0, 10),
+    periodEnd: sun.toISOString().slice(0, 10),
+  }
+}
+
+export function resolveEffectivePayoutPeriod(payout: {
+  platform?: string | null
+  period_start?: string | null
+  period_end?: string | null
+  payout_date?: string | null
+  raw_payload?: Record<string, any> | null
+}): { period_start: string; period_end: string } {
+  const pPay = String(payout?.payout_date || '').slice(0, 10)
+  const pStart = String(payout?.period_start || '').slice(0, 10)
+  const pEnd = String(payout?.period_end || '').slice(0, 10)
+  if (
+    String(payout?.platform || '').toUpperCase() === 'DOORDASH' &&
+    pPay &&
+    (!pStart ||
+      !pEnd ||
+      (pStart === pPay &&
+        pEnd === pPay &&
+        (payout?.raw_payload?.period_verified === false ||
+          [2, 3, 4, 5].includes(new Date(`${pPay}T12:00:00Z`).getUTCDay()))))
+  ) {
+    const cycle = resolveDoorDashCycleFromPayoutDate(pPay)
+    return { period_start: cycle.periodStart, period_end: cycle.periodEnd }
+  }
+  return { period_start: pStart || pEnd || pPay, period_end: pEnd || pStart || pPay }
+}
+
+/**
+ * Solapamiento INCLUSIVO entre el periodo de un payout y el rango consultado por el usuario.
+ * Ambos rangos son inclusivos (`YYYY-MM-DD`): `period_start <= endDate && period_end >= startDate`.
+ * Sin periodo, usa `payout_date` dentro del rango. Ejemplo: corte 10/27–10/31 aparece en 10/31–10/31 y en 10/31–11/02.
+ */
+export function payoutPeriodOverlapsRange(
+  payout: {
+    platform?: string | null
+    period_start?: string | null
+    period_end?: string | null
+    payout_date?: string | null
+    raw_payload?: Record<string, any> | null
+  },
+  startDate: string,
+  endDate: string
+): boolean {
+  const effStart = startDate || '2000-01-01'
+  const effEnd = endDate || '2099-12-31'
+  const resolved = resolveEffectivePayoutPeriod(payout)
+  const pEnd = resolved.period_end
+  const pStart = resolved.period_start || pEnd
+  if (pStart && pEnd) return pStart <= effEnd && pEnd >= effStart
+  const pPay = String(payout?.payout_date || '').slice(0, 10)
+  if (pPay) return pPay >= effStart && pPay <= effEnd
+  return true
+}
+
+// =============================================================================
+// CONSOLIDACIÓN SEGURA DE FILAS GRUBHUB Y VÍNCULO IDEMPOTENTE DE CRÉDITOS
+// =============================================================================
+
+/** IDs de transacciones Grubhub (reembolsos y créditos) absorbidas por la orden consolidada `inp`. */
+export function collectGrubhubSupersededTxIds(inp: PlatformOrderInput): string[] {
+  const ids = new Set<string>()
+  const own = String(inp.platformTransactionId || '').trim()
+  for (const list of [inp.rawPayload?.refunds, inp.rawPayload?.recoveries]) {
+    if (!Array.isArray(list)) continue
+    for (const tx of list) {
+      const id = String(tx?.transaction_id || '').trim()
+      if (id && id !== own) ids.add(id)
+    }
+  }
+  return Array.from(ids)
+}
+
+const CONSOLIDATION_SOURCE_RAW_KEYS = new Set([
+  'primary',
+  'refunds',
+  'recoveries',
+  'tax_breakdown_verified',
+  'unverified_reason',
+  'recovery_credits',
+  'consolidated_from_rows',
+])
+
+/**
+ * Fusiona en la fila consolidada la información de las filas individuales que reemplaza:
+ * notas (concatenadas sin duplicar), estado/razón de disputa, vínculo de empaque y Toast, aprobaciones y
+ * cualquier dato manual de `raw_payload` ausente en la base, créditos de recuperación (por `credit_id`)
+ * y una instantánea completa de cada fila absorbida en `raw_payload.consolidated_from_rows` (trazabilidad).
+ */
+export function mergeSupersededOrderRows(
+  base: Record<string, any> | undefined,
+  absorbedRows: Array<Record<string, any>>
+): Record<string, any> {
+  const merged: Record<string, any> = base
+    ? { ...base, raw_payload: { ...(base.raw_payload || {}) } }
+    : { is_disputed: false, dispute_status: 'NONE', raw_payload: {} }
+  const snapshots: any[] = Array.isArray(merged.raw_payload.consolidated_from_rows)
+    ? [...merged.raw_payload.consolidated_from_rows]
+    : []
+  const nowIso = new Date().toISOString()
+
+  for (const r of absorbedRows || []) {
+    const rp = r?.raw_payload || {}
+    const rTx = String(r?.platform_transaction_id || '')
+    if (r?.is_disputed) merged.is_disputed = true
+    const mStatus = String(merged.dispute_status || 'NONE')
+    const rStatus = String(r?.dispute_status || 'NONE')
+    if ((mStatus === 'NONE' || mStatus === 'NEEDS_DISPUTE') && rStatus !== 'NONE' && rStatus !== 'NEEDS_DISPUTE') {
+      merged.dispute_status = rStatus
+    }
+    const rNotes = String(r?.dispute_notes || '').trim()
+    if (rNotes) {
+      const mNotes = String(merged.dispute_notes || '').trim()
+      if (!mNotes) merged.dispute_notes = rNotes
+      else if (!mNotes.includes(rNotes)) merged.dispute_notes = `${mNotes}\n[Consolidado de ${rTx}] ${rNotes}`.slice(0, 1000)
+    }
+    if (!merged.dispute_reason && r?.dispute_reason) merged.dispute_reason = r.dispute_reason
+    if (!merged.packing_audit_id && r?.packing_audit_id) merged.packing_audit_id = r.packing_audit_id
+    if (!merged.toast_order_guid && r?.toast_order_guid) {
+      merged.toast_order_guid = r.toast_order_guid
+      merged.toast_display_number = r.toast_display_number || null
+      merged.toast_tab_name = r.toast_tab_name || null
+    }
+    for (const k of Object.keys(rp)) {
+      if (CONSOLIDATION_SOURCE_RAW_KEYS.has(k)) continue
+      if (merged.raw_payload[k] === undefined) merged.raw_payload[k] = rp[k]
+    }
+    const absorbedLedger = getOrderRecoveryCredits(r).filter((c) => c.source !== 'LEGACY_FIELDS')
+    if (absorbedLedger.length > 0) {
+      merged.raw_payload.recovery_credits = mergeRecoveryCredits(merged.raw_payload.recovery_credits, absorbedLedger)
+    }
+    if (!snapshots.some((s) => String(s?.platform_transaction_id || '') === rTx)) {
+      const { primary: _p, refunds: _r, recoveries: _rc, ...rpLite } = rp
+      snapshots.push({
+        id: r?.id ?? null,
+        platform_transaction_id: rTx,
+        platform_order_id: r?.platform_order_id ?? null,
+        payout_reference_id: r?.payout_reference_id ?? null,
+        payout_date: r?.payout_date ?? null,
+        business_date: r?.business_date ?? null,
+        transaction_type: r?.transaction_type ?? null,
+        error_charge: r?.error_charge ?? null,
+        adjustment_amount: r?.adjustment_amount ?? null,
+        net_payout: r?.net_payout ?? null,
+        reconciliation_status: r?.reconciliation_status ?? null,
+        match_confidence: r?.match_confidence ?? null,
+        is_disputed: r?.is_disputed ?? null,
+        dispute_status: r?.dispute_status ?? null,
+        dispute_reason: r?.dispute_reason ?? null,
+        dispute_notes: r?.dispute_notes ?? null,
+        dispute_amount: r?.dispute_amount ?? null,
+        toast_order_guid: r?.toast_order_guid ?? null,
+        toast_display_number: r?.toast_display_number ?? null,
+        toast_tab_name: r?.toast_tab_name ?? null,
+        packing_audit_id: r?.packing_audit_id ?? null,
+        raw_payload: rpLite,
+        consolidated_at: nowIso,
+      })
+    }
+  }
+  merged.raw_payload.consolidated_from_rows = snapshots
+  return merged
+}
+
+/**
+ * Persistencia segura de la conciliación de una tienda (Defecto 5):
+ * 1. `upsert` de todas las filas; si falla, lanza el error SIN haber eliminado nada (las filas originales siguen intactas).
+ * 2. Lee de DB cada fila consolidada y confirma que existe y que su `raw_payload.consolidated_from_rows`
+ *    contiene TODAS las filas que reemplaza; solo entonces elimina esas filas individuales.
+ * 3. Elimina las filas sintéticas `TOAST-<guid>` ya conciliadas únicamente después del `upsert` exitoso.
+ * 4. Cada mutación valida su error: un fallo de limpieza deja las filas originales (duplicado temporal visible),
+ *    nunca registros eliminados sin reemplazo válido.
+ */
+export async function persistReconciledOrdersWithSafeConsolidation(params: {
+  db: any
+  storeId: number
+  rowsToUpsert: Array<Record<string, any>>
+  supersededByConsolidatedTxId: Map<string, string[]>
+  synthToastTxIdsToDelete: string[]
+}): Promise<{ upserted: number; supersededDeleted: number; synthDeleted: number; warnings: string[] }> {
+  const { db, storeId, rowsToUpsert, supersededByConsolidatedTxId, synthToastTxIdsToDelete } = params
+  const warnings: string[] = []
+
+  for (let i = 0; i < rowsToUpsert.length; i += 100) {
+    const batch = rowsToUpsert.slice(i, i + 100)
+    const { error: upErr } = await db
+      .from('delivery_platform_orders')
+      .upsert(batch, { onConflict: 'store_id,platform,platform_transaction_id' })
+    if (upErr) {
+      throw new Error(`Error upserting delivery_platform_orders: ${upErr.message}`)
+    }
+  }
+
+  const upsertedTxIds = new Set(rowsToUpsert.map((r) => String(r.platform_transaction_id || '')))
+  const consolidatedIds = Array.from(supersededByConsolidatedTxId.keys())
+  const persistedById = new Map<string, Record<string, any>>()
+  for (let i = 0; i < consolidatedIds.length; i += 100) {
+    const chunk = consolidatedIds.slice(i, i + 100)
+    const { data, error } = await db
+      .from('delivery_platform_orders')
+      .select('platform_transaction_id, raw_payload')
+      .eq('store_id', storeId)
+      .eq('platform', 'GRUBHUB')
+      .in('platform_transaction_id', chunk)
+    if (error) {
+      warnings.push(`No se pudo confirmar el reemplazo consolidado (${error.message}); se conservan las filas originales.`)
+      return { upserted: rowsToUpsert.length, supersededDeleted: 0, synthDeleted: 0, warnings }
+    }
+    for (const row of data || []) persistedById.set(String(row.platform_transaction_id), row)
+  }
+
+  const toDelete: string[] = []
+  for (const [consolidatedId, absorbedIds] of supersededByConsolidatedTxId.entries()) {
+    const persisted = persistedById.get(consolidatedId)
+    const snapshotIds = new Set(
+      (Array.isArray(persisted?.raw_payload?.consolidated_from_rows) ? persisted!.raw_payload.consolidated_from_rows : []).map(
+        (s: any) => String(s?.platform_transaction_id || '')
+      )
+    )
+    const confirmed = Boolean(persisted) && absorbedIds.every((id) => snapshotIds.has(id))
+    if (!confirmed) {
+      warnings.push(`#${consolidatedId}: reemplazo no confirmado en DB; se conservan ${absorbedIds.length} fila(s) original(es).`)
+      continue
+    }
+    for (const id of absorbedIds) {
+      if (!upsertedTxIds.has(id)) toDelete.push(id)
+    }
+  }
+
+  let supersededDeleted = 0
+  for (let i = 0; i < toDelete.length; i += 100) {
+    const chunk = toDelete.slice(i, i + 100)
+    const { error, count } = await db
+      .from('delivery_platform_orders')
+      .delete({ count: 'exact' })
+      .eq('store_id', storeId)
+      .eq('platform', 'GRUBHUB')
+      .in('platform_transaction_id', chunk)
+    if (error) warnings.push(`Limpieza de filas consolidadas falló (${error.message}); se conservan como duplicado temporal.`)
+    else supersededDeleted += Number(count || 0)
+  }
+
+  let synthDeleted = 0
+  const synthIds = (synthToastTxIdsToDelete || []).filter((id) => id && !upsertedTxIds.has(id))
+  for (let i = 0; i < synthIds.length; i += 100) {
+    const chunk = synthIds.slice(i, i + 100)
+    const { error, count } = await db
+      .from('delivery_platform_orders')
+      .delete({ count: 'exact' })
+      .eq('store_id', storeId)
+      .in('platform_transaction_id', chunk)
+    if (error) warnings.push(`Limpieza de filas sintéticas TOAST- falló (${error.message}).`)
+    else synthDeleted += Number(count || 0)
+  }
+
+  return { upserted: rowsToUpsert.length, supersededDeleted, synthDeleted, warnings }
+}
+
+/**
+ * Vincula los créditos de recuperación presentes en los settlements de una tienda con su orden original:
+ * - Fuente: `raw_payload.cross_payout_refunds` (Uber MISC_ITEM / Grubhub) y `associated_transactions` de Grubhub.
+ * - Coincidencia exacta y única por código de orden (excluye la propia fila del crédito y filas TOAST_ONLY);
+ *   si hay >1 orden candidata, marca `REQUIRES_REVIEW` sin asignar.
+ * - Cada crédito se verifica (`verifyRecoveryCreditAgainstSettlement`) y se fusiona por `credit_id`
+ *   (idempotente: repetir la sincronización no duplica créditos ni cambia el saldo pendiente).
+ * - NUNCA sobrescribe `dispute_amount` ni el importe original disputado.
+ */
+export async function linkCrossPayoutRecoveryCreditsForStore(params: {
+  db: any
+  storeId: number
+  storePayouts: Array<Record<string, any>>
+}): Promise<{ linkedOrders: number; unchangedOrders: number; ambiguousOrders: number; creditsSeen: number }> {
+  const { db, storeId, storePayouts } = params
+  const payoutsWithStore = (storePayouts || []).map((p) => ({ ...p, store_id: storeId })) as RecoverySettlementPayoutLike[]
+  const grouped = new Map<string, Array<{ payout: RecoverySettlementPayoutLike; entry: SettlementRecoveryCreditEntry }>>()
+
+  for (const payout of payoutsWithStore) {
+    const codes = new Set<string>()
+    for (const cr of Array.isArray(payout.raw_payload?.cross_payout_refunds) ? payout.raw_payload!.cross_payout_refunds : []) {
+      const c = normalizeRecoveryOrderCode(cr?.orderCode)
+      if (c) codes.add(c)
+    }
+    for (const tx of Array.isArray(payout.raw_payload?.associated_transactions) ? payout.raw_payload!.associated_transactions : []) {
+      if (!tx?.is_refund && Number(tx?.subtotal || 0) === 0 && Number(tx?.net_amount || 0) > 0) {
+        const c = normalizeRecoveryOrderCode(tx?.order_number)
+        if (c) codes.add(c)
+      }
+    }
+    for (const code of codes) {
+      const key = `${String(payout.platform).toUpperCase()}:${code}`
+      const list = grouped.get(key) || []
+      for (const entry of extractSettlementRecoveryCreditsForOrder(payout, code)) list.push({ payout, entry })
+      grouped.set(key, list)
+    }
+  }
+
+  let linkedOrders = 0
+  let unchangedOrders = 0
+  let ambiguousOrders = 0
+  let creditsSeen = 0
+
+  for (const [key, items] of grouped.entries()) {
+    if (items.length === 0) continue
+    creditsSeen += items.length
+    const sepIdx = key.indexOf(':')
+    const platform = key.slice(0, sepIdx)
+    const code = key.slice(sepIdx + 1)
+    const { data: candidateRows, error: candErr } = await db
+      .from('delivery_platform_orders')
+      .select(
+        'id, store_id, platform, platform_order_id, platform_transaction_id, payout_reference_id, payout_date, business_date, error_charge, dispute_amount, dispute_status, dispute_notes, is_disputed, reconciliation_status, match_confidence, raw_payload'
+      )
+      .eq('store_id', storeId)
+      .eq('platform', platform)
+      .in('platform_order_id', [code, `#${code}`, code.toLowerCase()])
+    if (candErr) throw new Error(`Error leyendo órdenes para recuperación #${code}: ${candErr.message}`)
+
+    const creditTxIds = new Set(items.map((it) => it.entry.transaction_id).filter(Boolean) as string[])
+    const candidates = (candidateRows || []).filter(
+      (r: any) => r.match_confidence !== 'TOAST_ONLY' && !creditTxIds.has(String(r.platform_transaction_id || ''))
+    )
+    const matchResult = resolveCrossPayoutRecoveryMatch(code, candidates)
+
+    if (matchResult.status === 'AMBIGUOUS_MATCH') {
+      for (const ambOrd of matchResult.ambiguousOrders) {
+        const { error: ambErr } = await db
+          .from('delivery_platform_orders')
+          .update({
+            reconciliation_status: 'REQUIRES_REVIEW',
+            dispute_reason: `Múltiples órdenes (${matchResult.ambiguousOrders.length}) coinciden con el código #${code} del crédito de recuperación en corte posterior; requiere asignación manual única.`,
+            raw_payload: {
+              ...(ambOrd.raw_payload || {}),
+              unverified_reason: 'AMBIGUOUS_RECOVERY_ORDER_MATCH',
+              ambiguous_recovery_candidate: items.map((it) => ({
+                payoutRef: it.payout.payout_reference_id,
+                amount: it.entry.amount,
+                transactionId: it.entry.transaction_id,
+                depositDate: it.payout.payout_date || null,
+              })),
+            },
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', ambOrd.id)
+        if (ambErr) throw new Error(`Error marcando recuperación ambigua #${code}: ${ambErr.message}`)
+        ambiguousOrders++
+      }
+      continue
+    }
+    if (matchResult.status !== 'UNIQUE_MATCH' || !matchResult.matchedOrder) continue
+
+    const order = matchResult.matchedOrder as Record<string, any>
+    const consumed = new Set<string>()
+    const incoming: RecoveryCredit[] = []
+    for (const it of items) {
+      const depositDate = isIsoDateStr(String(it.payout.payout_date || '').slice(0, 10))
+        ? String(it.payout.payout_date).slice(0, 10)
+        : null
+      const res = verifyRecoveryCreditAgainstSettlement({
+        order,
+        credit: {
+          transaction_id: it.entry.transaction_id,
+          payout_reference_id: it.payout.payout_reference_id,
+          amount: it.entry.amount,
+          deposit_date: depositDate,
+        },
+        payout: it.payout,
+        consumedEntryKeys: consumed,
+      })
+      if (res.verified) consumed.add(it.entry.entry_key)
+      incoming.push({
+        credit_id: it.entry.entry_key,
+        source: 'PLATFORM_SETTLEMENT_CREDIT',
+        transaction_id: it.entry.transaction_id,
+        payout_reference_id: it.payout.payout_reference_id,
+        amount: it.entry.amount,
+        deposit_date: depositDate,
+        period_start: it.payout.period_start || null,
+        period_end: it.payout.period_end || null,
+        description: it.entry.description,
+        order_code: code,
+        verified: res.verified,
+        verification_method: res.verified ? 'SETTLEMENT_CREDIT_MATCH' : null,
+        verification_issue: res.verified ? null : res.issue,
+        settlement_entry_key: res.verified ? it.entry.entry_key : null,
+      })
+    }
+
+    const prevRaw = order.raw_payload || {}
+    const prevLedger: RecoveryCredit[] = Array.isArray(prevRaw.recovery_credits) ? prevRaw.recovery_credits : []
+    const newLedger = mergeRecoveryCredits(prevLedger, incoming)
+    const original = resolveOriginalDisputedAmount(order)
+    const ledgerSignature = (l: RecoveryCredit[]) =>
+      JSON.stringify(
+        [...l]
+          .map((c) => [c.credit_id, round2(Number(c.amount || 0)), Boolean(c.verified), c.payout_reference_id])
+          .sort()
+      )
+    const ledgerUnchanged = ledgerSignature(prevLedger) === ledgerSignature(newLedger)
+    const originalAlreadyStored = original.amount === null || Number(prevRaw.original_disputed_amount || 0) > 0
+    if (ledgerUnchanged && originalAlreadyStored) {
+      unchangedOrders++
+      continue
+    }
+
+    const latest = [...newLedger].sort((a, b) => String(b.deposit_date || '').localeCompare(String(a.deposit_date || '')))[0]
+    const hasVerified = newLedger.some((c) => c.verified === true)
+    const currentStatus = String(order.dispute_status || 'NONE').toUpperCase()
+    const nextStatus =
+      hasVerified && ['NONE', 'NEEDS_DISPUTE', 'OPEN', 'SUBMITTED'].includes(currentStatus) ? 'APPROVED' : order.dispute_status
+    const creditsNote = newLedger
+      .map((c) => `+$${round2(Number(c.amount || 0)).toFixed(2)} en corte #${c.payout_reference_id}${c.deposit_date ? ` (dep. ${c.deposit_date})` : ''}${c.verified ? '' : ' [pendiente de verificar]'}`)
+      .join('; ')
+    const autoNote = `Crédito(s) de recuperación en corte(s) posterior(es): ${creditsNote}.`
+
+    const { error: updErr } = await db
+      .from('delivery_platform_orders')
+      .update({
+        is_disputed: true,
+        dispute_status: nextStatus,
+        dispute_notes: order.dispute_notes || autoNote,
+        raw_payload: {
+          ...prevRaw,
+          recovery_credits: newLedger,
+          ...(original.amount !== null
+            ? {
+                original_disputed_amount: original.amount,
+                original_disputed_amount_source: prevRaw.original_disputed_amount_source || original.source,
+              }
+            : {}),
+          // Compatibilidad: describen el crédito más reciente; el total y el desglose viven en `recovery_credits`
+          reimbursement_payout_ref: latest?.payout_reference_id || prevRaw.reimbursement_payout_ref || null,
+          reimbursement_period:
+            latest?.period_start && latest?.period_end ? `${latest.period_start} al ${latest.period_end}` : prevRaw.reimbursement_period || null,
+          reimbursement_deposit_date: latest?.deposit_date || prevRaw.reimbursement_deposit_date || null,
+          reimbursement_amount: latest ? round2(Number(latest.amount || 0)) : prevRaw.reimbursement_amount || null,
+          reimbursement_transaction_id: latest?.transaction_id || null,
+          reimbursement_description: latest?.description || prevRaw.reimbursement_description || null,
+        },
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', order.id)
+    if (updErr) throw new Error(`Error vinculando recuperación #${code}: ${updErr.message}`)
+    linkedOrders++
+  }
+
+  return { linkedOrders, unchangedOrders, ambiguousOrders, creditsSeen }
 }

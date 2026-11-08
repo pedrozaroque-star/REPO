@@ -47,7 +47,7 @@ export interface ModuleEffort {
 }
 
 export interface MonthlyReportData {
-    id: 'octubre' | 'septiembre' | 'agosto' | 'julio' | 'junio';
+    id: 'noviembre' | 'octubre' | 'septiembre' | 'agosto' | 'julio' | 'junio';
     monthName: string;
     monthYear: string;
     totalHours: number;
@@ -1768,12 +1768,650 @@ export const PLANNER_SHIFTS_MAP: Record<string, PlannerShift> = {
     }
 };
 
-export const MONTHLY_REPORTS: Record<'octubre' | 'septiembre' | 'agosto' | 'julio' | 'junio', MonthlyReportData> = {
+export const MONTHLY_REPORTS: Record<'noviembre' | 'octubre' | 'septiembre' | 'agosto' | 'julio' | 'junio', MonthlyReportData> = {
+    noviembre: {
+    "id": "noviembre",
+    "monthName": "Noviembre",
+    "monthYear": "Noviembre 2026",
+    "totalHours": 28.6,
+    "totalTasks": 27,
+    "completedTasks": 19,
+    "inProgressTasks": 4,
+    "pendingTasks": 4,
+    "rows": [
+        {
+            "date": "01-Nov-2026",
+            "time": "12:28 AM - 1:46 AM & 3:50 PM - 4:05 PM & 5:50 PM - 5:51 PM",
+            "hours": 1.8,
+            "badges": [
+                "Contabilidad Externa Hardening Final Pre-Deploy",
+                "Cola STORAGE_CLEANUP & Bloqueo Flags Producción (HTTP 403)",
+                "Migración Cuenta Corporativa Manager Lynwood (victorm@tacosgavilan.com)",
+                "IT en La Bodega"
+            ],
+            "descEs": "• <strong>Contabilidad Externa (/admin/contabilidad-externa) — Mini-Fase de Hardening Final y Cola Durable STORAGE_CLEANUP</strong>: Bloqueo estricto en producción (HTTP 403 TEST_FAULT_INJECTION_FORBIDDEN_IN_PRODUCTION) de flags internos de prueba, tope server-side de 50 ítems en process_qbo_outbox, cola de compensación durable STORAGE_CLEANUP en external_accounting_sync_outbox cuando falla el borrado físico de un adjunto en Supabase Storage y certificación de las 8 secciones de verify-phase7-qbo-parity-and-deeplinks.ts.<br>• <strong>Actualización de Cuenta Corporativa del Manager de Lynwood (#14) en Supabase</strong>: Migración y verificación en vivo del registro de usuario de Victor Muñoz (users.id = 75) en la tabla public.users a su correo corporativo oficial victorm@tacosgavilan.com.",
+            "descEn": "• <strong>External Accounting (/admin/contabilidad-externa) — Final Pre-Deploy Hardening & Durable STORAGE_CLEANUP Queue</strong>: Blocked internal test fault-injection flags in production (HTTP 403 TEST_FAULT_INJECTION_FORBIDDEN_IN_PRODUCTION), enforced a 50-item server-side cap on process_qbo_outbox, implemented durable STORAGE_CLEANUP compensation tasks in external_accounting_sync_outbox whenever physical Storage deletion fails, and certified all 8 sections of verify-phase7-qbo-parity-and-deeplinks.ts.<br>• <strong>Lynwood (#14) Store Manager Corporate Account Migration in Supabase</strong>: Updated and verified Victor Muñoz's user record (users.id = 75) in public.users to his official corporate email victorm@tacosgavilan.com."
+        },
+        {
+            "date": "02-Nov-2026",
+            "time": "11:47 AM - 2:44 PM & 4:04 PM - 4:24 PM & 7:57 PM - 8:42 PM",
+            "hours": 4.2,
+            "badges": [
+                "Contabilidad Externa Conciliación Bancaria 1:1 QBO (537 Sesiones)",
+                "Captura en Vivo en Reconcile ($0.00 Difference)",
+                "Tableta Preparador Motor Táctil 0ms Guantes/Mica",
+                "Voces Kore Café & Champurrado (\"¡ya está!\")",
+                "Evidencia Dual Menus Toast Web (Caso DoorDash #774836182)",
+                "IT en La Bodega"
+            ],
+            "descEs": "• <strong>Contabilidad Externa (/admin/contabilidad-externa, commits c1ae5971 y 5430e2db) — Suite de Conciliación Bancaria 1:1 QuickBooks Online (Reconcile) con 537 Sesiones Históricas y Captura en Vivo hasta $0.00</strong>: Ingeniería inversa del módulo Reconcile de Intuit QBO a partir del video operativo de Raquel (hoy.mp4) y su sesión en Chrome, migrando las 537 sesiones históricas de conciliación (_reconcileSessions y allAccountReconciliations) y 2,010 transacciones conciliadas; construcción del espacio de trabajo en 2 pasos con encabezado de fórmula en 2 niveles, drawer Edit info, vistas Summary y History by account, y barra de Captura en Vivo de Pagos/Cheques y Depósitos dentro de la conciliación con botón \"⚡ Llenar Diferencia Restante\" para cuadrar diferencias (ej. -$213,530.34 en Govegu LLC) exactamente a $0.00.<br>• <strong>Tableta del Preparador (/inventory/preparador, commits 595e82d7 y be00bd48) — Motor Táctil Ultra-Sensible (0ms) para Guantes y Mica Protectora + Nuevas Locuciones de Café y Champurrado</strong>: Disparo inmediato en el 100% de la superficie de la tarjeta al primer milisegundo de contacto (pointerdown / touchstart), rescate de toques cancelados (pointercancel) y radar magnético de proximidad para uso con guantes de cocina sobre mica protectora; más actualización de las voces de llamado a \"Café pendiente, ¡ya está!\" y \"Champurrado pendiente, ¡ya está!\".<br>• <strong>Evidencia Técnica de Dual Menus en Toast Web (Norwalk vs Downey) para Caso DoorDash #774836182 y Masterización Multimedia Full HD 1080p 60fps (.mp4 y .pptx)</strong>: Inspección comparativa en Toast Web demostrando que las 15 sucursales tienen menús separados para DoorDash (3PD) y Storefront (Toast Storefront Menu-allday), enviando respuesta ejecutiva documentada al equipo de soporte de DoorDash; más masterización de video corporativo 1080p 60fps con presentación PowerPoint (.pptx).",
+            "descEn": "• <strong>External Accounting (/admin/contabilidad-externa, commits c1ae5971 & 5430e2db) — 1:1 QuickBooks Online Bank Reconciliation Suite (Reconcile) with 537 Historical Sessions & Live In-Reconcile Entry to $0.00</strong>: Reverse-engineered Intuit QBO's Reconcile module from Raquel's operational video (hoy.mp4) and live Chrome session, migrating all 537 historical reconciliation sessions (_reconcileSessions and allAccountReconciliations) and 2,010 reconciled transactions; built the 2-step workspace with 2-tier formula header, Edit info slide-over drawer, Summary and History by account views, and Live In-Reconcile Payment/Deposit Capture bar with a \"⚡ Fill Remaining Difference\" button to bring differences (e.g. -$213,530.34 in Govegu LLC) to $0.00.<br>• <strong>Preparador Kitchen Tablet (/inventory/preparador, commits 595e82d7 & be00bd48) — Ultra-Sensitive 0ms Glove & Screen-Protector Touch Engine + Updated Coffee & Champurrado Voice Callouts</strong>: Enabled 0ms first-contact firing across 100% of each order card (pointerdown / touchstart), pointercancel touch rescue, and magnetic proximity hit-testing for kitchen gloves over thick screen protectors; plus updated dining room voice callouts to \"Café pendiente, ¡ya está!\" and \"Champurrado pendiente, ¡ya está!\".<br>• <strong>Toast Web Dual-Menu Technical Evidence (Norwalk vs Downey) for DoorDash Case #774836182 & Full HD 1080p 60fps Video + PowerPoint (.pptx) Production</strong>: Audited Toast Web across Norwalk and Downey to prove all 15 branches maintain separate menus for DoorDash (3PD) and Storefront (Toast Storefront Menu-allday), dispatching documented technical proof to DoorDash support; plus mastered a 1080p 60fps corporate video and native PowerPoint (.pptx)."
+        },
+        {
+            "date": "03-Nov-2026",
+            "time": "12:16 PM - 5:37 PM & 6:28 PM - 7:42 PM & 8:42 PM - 8:55 PM & 10:26 PM - 11:51 PM",
+            "hours": 8.5,
+            "badges": [
+                "Conciliar Delivery Desbloqueo Pólizas QBO & Cobertura Uber Eats",
+                "Preparador & Order Ready Cero Toques Perdidos & Voz Kore Auténtica",
+                "Auditoría Forense Contabilidad Azusa Orden Prepagada (29-Sep -> 03-Oct)",
+                "Asistente IA Failover Multi-Key (HTTP 402) & RLS Tablas Nuevas",
+                "SpicyCandy POS v2.0.9 (commit 12f41bb) & Video 16:9 Lanczos 45m",
+                "IT en La Bodega"
+            ],
+            "descEs": "• <strong>Conciliar Delivery Plataformas (/admin/conciliar-delivery) — Separación de Bloqueos Contables vs Alertas Informativas en Pólizas QBO, Optimización Order-by-Order y Vinculación de Cortes Uber Eats</strong>: Eliminación de referencias hardcodeadas, separación estricta entre bloqueos reales de las 4 líneas del corte (publishBlockers) y alertas informativas de órdenes individuales (auditWarnings) para permitir publicar cortes válidos en QuickBooks Online, optimización de carga en la pestaña Order by Order y vinculación completa de órdenes a sus cortes oficiales de Uber Eats en West Covina (172), Slauson (200), South Gate (86) y Santa Ana (50).<br>• <strong>Tableta del Preparador y Order Ready Board (commits b9920893 y 444ed57f) — Eliminación de Toques Perdidos (2-3 Taps) y Restauración del Timbre Auténtico Kore para Café y Champurrado</strong>: Memoización estática del DOM de las tarjetas para que el polling cada 4s no destruya el nodo durante el toque, triple reintento automático en red, guardia contra desfase de reloj (clock-skew guard) en /order-ready-board, reducción de debounce a 1.8s y reconstrucción acústica de cafe-listo.wav y champurrado-listo.wav con la voz auténtica de Kore.<br>• <strong>Investigación Forense en Contabilidad / Cohesion — Orden Prepagada #44 en Azusa ($414.08, pagada 29-Sep y recogida 03-Oct) y Reporte Ejecutivo a Raquel</strong>: Trazabilidad completa en Toast POS API y QuickBooks Online demostrando el origen de los $414.08 en Azusa el Día 1 de publicación (03-Oct-2026) y envío de explicación ejecutiva por correo a raquel@tacosgavilan.com.<br>• <strong>Motor de Respaldo Multi-Llave y Multi-Modelo en TEG Assistant ante HTTP 402, Migración RLS en Tablas Nuevas (20261103_enable_rls_new_delivery_and_training_tables.sql), Despliegue SpicyCandy v2.0.9 (commit 12f41bb) y Renderizado Fullscreen 16:9 Lanczos (45 min)</strong>: Implementación de callGeminiChatWithFailover en app/api/support-chat/route.ts y rotación de llaves en app/api/cron/sync-events/route.ts para aislar llaves con saldo agotado (HTTP 402); activación de RLS en las 9 tablas nuevas de Delivery/Training y en el proyecto secundario candy; despliegue de SpicyCandy v2.0.9; y renderizado de video 16:9 Full HD de 45 minutos.",
+            "descEn": "• <strong>Delivery Platforms Reconciliation (/admin/conciliar-delivery) — Separation of Accounting Blockers vs Audit Warnings on QBO Journals, Order-by-Order Speed Optimization & Uber Eats Payout Linking</strong>: Removed hardcoded references, strictly separated 4-line settlement accounting blockers (publishBlockers) from individual order audit warnings (auditWarnings) so valid settlements can be published to QuickBooks Online, optimized Order-by-Order tab rendering speed, and linked all Uber Eats orders to their official payouts across West Covina (172), Slauson (200), South Gate (86), and Santa Ana (50).<br>• <strong>Preparador Kitchen Tablet & Order Ready Board (commits b9920893 & 444ed57f) — Elimination of Missed Taps (2-3 Taps) & Authentic Kore Voice Restoration for Coffee and Champurrado</strong>: Added static DOM memoization on order tiles so 4-second background polling never unmounts a tile mid-tap, 3x automatic network retries, clock-skew guard on /order-ready-board, 1.8s debounce tuning, and acoustic reconstruction of cafe-listo.wav and champurrado-listo.wav with the authentic Kore voice timbre.<br>• <strong>Forensic Accounting / Cohesion Investigation — Prepaid Order #44 at Azusa ($414.08, paid Sep 29 & picked up Oct 3) & Executive Email to Raquel</strong>: Traced Toast POS API and QuickBooks Online records proving the exact origin of the $414.08 Azusa variance on Day 1 of app publishing (Oct 3, 2026) and emailed a clear executive report to raquel@tacosgavilan.com.<br>• <strong>TEG Assistant Multi-Key & Multi-Model Failover Engine on HTTP 402, RLS Hardening on New Tables (20261103_enable_rls_new_delivery_and_training_tables.sql), SpicyCandy v2.0.9 (commit 12f41bb) & 45-Min 16:9 Lanczos Video Render</strong>: Built callGeminiChatWithFailover in app/api/support-chat/route.ts and key rotation in app/api/cron/sync-events/route.ts to quarantine depleted keys (HTTP 402); enabled RLS across 9 new Delivery/Training tables and the candy project; deployed SpicyCandy POS v2.0.9; and rendered a 45-minute 16:9 Full HD Lanczos video."
+        },
+        {
+            "date": "04-Nov-2026",
+            "time": "7:51 AM - 11:56 AM & 1:03 PM - 4:57 PM & 6:46 PM - 6:59 PM",
+            "hours": 8.2,
+            "badges": [
+                "Nuevo Módulo Contestadora IA Multi-Sucursal (/admin/llamadas)",
+                "Base de Conocimiento Editable, Simulador en Vivo & Recados Realtime",
+                "Conciliar Delivery 15 Tiendas Uber Eats & Cortes Divididos Grubhub Fin de Mes",
+                "Certificación 166/166 Contabilidad vs Cohesion & Regla 12049 West Covina",
+                "Blindaje Wi-Fi en Captura de Sobrantes / Orden Diaria (Lynwood)",
+                "IT en La Bodega"
+            ],
+            "descEs": "• <strong>Nuevo Módulo Contestadora IA Multi-Sucursal (/admin/llamadas, lib/phone-agent.ts y /api/phone/*)</strong>: Diseño e implementación de la recepcionista telefónica con Inteligencia Artificial y voz neuronal Kore para las 15 sucursales de Tacos Gavilan, diferenciando las 4 tiendas con línea fija Spectrum Business (Rialto #1, Hollywood #8, Lynwood #14 y Downey #16 vía *92/*90) y las 11 tiendas con celular Android AT&T (vía **61/**67/**62). Incluye migración en Supabase (20261104163000_create_phone_agent_module.sql: phone_agent_config, phone_knowledge_base, phone_calls, phone_callback_requests), Base de Conocimiento Editable en tiempo real (global o por sucursal), simulador telefónico interactivo con audio en vivo, banner de recados prioritarios en /order-ready-board (PhoneCallbackAlertBanner.tsx) y herramienta IA queryPhoneAgentStatusTool.<br>• <strong>Conciliar Delivery Plataformas (/admin/conciliar-delivery, commits 6aa4673b, 795df290, 651b780b y 548b2004) — Sincronización en 2 Fases para las 15 Sucursales en Uber Eats, Cortes Divididos de Fin de Mes en Grubhub y Corrección de 5 Defectos</strong>: Implementación de sincronización en 2 fases (Fase 1 rápida de cabeceras de payouts para las 15 tiendas y Fase 2 de órdenes) para que al filtrar Uber Eats aparezcan siempre las 15 sucursales completas y no solo 6; soporte oficial de cortes divididos por cambio de mes en Grubhub (resolveGrubhubDistributionPeriod: cierre de mes código 01 10.27.26-10.31.26 y arranque de mes código 04 11.01.26-11.02.26 con TxnDate exacto); candado atómico en QBO; y diseño de tabla a ancho completo.<br>• <strong>Certificación 166/166 en Contabilidad vs Cohesion y Regla 12049 para Party Trays Prepagados en West Covina ($412.21, 01/Oct -> 03/Oct, commit f80c94ee)</strong>: Auditoría global de los 166 paquetes contables en Supabase (100% cuadrados en débitos y créditos), activación de inc_customer_receivables = true (cuenta puente 12049 Open Orders Receivables) en West Covina y las 9 tiendas restantes para órdenes prepagadas de fechas cruzadas, y envío de reporte explicativo por correo a Raquel.<br>• <strong>Blindaje contra Micro-Cortes de Wi-Fi en Captura de Sobrantes / Orden Diaria (app/inventory/orders/page.tsx y actions.ts)</strong>: Diagnóstico del error genérico de Next.js al guardar sobrantes en Lynwood por micro-cortes de Wi-Fi en el cuarto frío, implementando respuestas estructuradas sin excepciones, reintento automático silencioso en segundo plano (800 ms) y auto-desvanecimiento del banner.",
+            "descEn": "• <strong>New Multi-Store AI Phone Receptionist Module (/admin/llamadas, lib/phone-agent.ts & /api/phone/*)</strong>: Designed and built the AI telephone receptionist powered by the Kore neural voice across all 15 Tacos Gavilan branches, supporting the 4 Spectrum Business landline stores (Rialto #1, Hollywood #8, Lynwood #14, and Downey #16 via *92/*90) and 11 AT&T Android wireless stores (via **61/**67/**62). Includes Supabase migration (20261104163000_create_phone_agent_module.sql: phone_agent_config, phone_knowledge_base, phone_calls, phone_callback_requests), live Editable Knowledge Base (global or per-store), interactive live-audio call simulator, real-time priority callback banner on /order-ready-board (PhoneCallbackAlertBanner.tsx), and AI tool queryPhoneAgentStatusTool.<br>• <strong>Delivery Platforms Reconciliation (/admin/conciliar-delivery, commits 6aa4673b, 795df290, 651b780b & 548b2004) — 2-Phase Sync for All 15 Uber Eats Stores, Grubhub Month-End Split Settlements & 5 Defect Fixes</strong>: Built a 2-phase sync (Phase 1 fast payout header sync across all 15 stores + Phase 2 order details) so filtering by Uber Eats displays all 15 branches instead of only 6; added official Grubhub month-end split settlement handling (resolveGrubhubDistributionPeriod: month-end code 01 10.27.26-10.31.26 and new-month code 04 11.01.26-11.02.26 with exact TxnDate); atomic QBO publish lock; and full-width table layout.<br>• <strong>166/166 Accounting vs Cohesion Certification & Account 12049 Rule for Prepaid Party Trays in West Covina ($412.21, Oct 1 -> Oct 3, commit f80c94ee)</strong>: Audited all 166 accounting packets in Supabase (100% balanced debits/credits), enabled inc_customer_receivables = true (bridge account 12049 Open Orders Receivables) for West Covina and the remaining 9 stores for cross-date prepaid orders, and emailed the executive breakdown to Raquel.<br>• <strong>Wi-Fi Micro-Drop Resilience on Leftover Count / Daily Order Capture (app/inventory/orders/page.tsx & actions.ts)</strong>: Resolved Next.js production server-action error banners caused by walk-in cooler Wi-Fi drops in Lynwood by returning structured responses without throwing, adding silent 800ms automatic retries, and auto-dismissing transient banners."
+        },
+        {
+            "date": "06-Nov-2026",
+            "time": "1:17 PM - 4:05 PM",
+            "hours": 2.9,
+            "badges": [
+                "Contestadora IA Pre-Caché Voces Kore en Supabase Storage",
+                "Nombres Limpios Broadway/Central & Diálogos Sin Recortes",
+                "Tableta Preparador Tipografía Ampliada & Botón \"Orden Pendiente\"",
+                "App Móvil Clientes Camino 1 (Menú Nativo + DoorDash Storefront)",
+                "IT en La Bodega"
+            ],
+            "descEs": "• <strong>Contestadora IA Multi-Sucursal (/admin/llamadas, lib/phone-agent.ts y /api/phone/*) — Pre-Caché de Voces en Supabase Storage (order-ready-tts), Nombres Limpios de Sucursales y Diálogos Completos sin Recortes</strong>: Almacenamiento permanente en el bucket order-ready-tts de Supabase Storage de las respuestas telefónicas con la voz oficial Kore para respuesta instantánea en llamadas reales y en el simulador; limpieza de nombres hablados (\"Tacos Gavilan Broadway\" y \"Tacos Gavilan Central\" sin el prefijo \"LA\", conservando intacto \"Tacos Gavilan La Puente\"); eliminación de truncamientos de texto/audio a mitad de frase; y pulido de respuestas naturales sin muletillas repetitivas.<br>• <strong>Tableta del Preparador (/inventory/preparador, commits 5bd48126 y ab639adf) — Tipografía Ampliada y Nuevo Botón Fijo \"🔔 Orden Pendiente\" con Voz Kore</strong>: Ampliación del tamaño de letra en los botones de llamado rápido y adición del tercer botón fijo \"🔔 Orden Pendiente\" junto a Café y Champurrado, generando y desplegando orden-pendiente-listo.wav (\"Orden pendiente, ¡ya está!\") con la voz oficial Kore.<br>• <strong>App Móvil de Clientes — Conexión del Camino 1 (Menú y Carrito Nativos + Sesión de Checkout en DoorDash Storefront)</strong>: Actualización de app/api/mobile/menu/route.ts y lib/doordash-storefront.ts para conectar el catálogo y carrito nativos con la sesión de checkout de DoorDash Storefront.",
+            "descEn": "• <strong>Multi-Store AI Phone Receptionist (/admin/llamadas, lib/phone-agent.ts & /api/phone/*) — Pre-Cached Kore Voices in Supabase Storage (order-ready-tts), Clean Branch Names & Unclipped Dialogs</strong>: Pre-cached phone receptionist voice responses in Supabase Storage (order-ready-tts) using the official Kore voice for zero-latency playback on live calls and in the simulator; cleaned spoken store names (\"Tacos Gavilan Broadway\" and \"Tacos Gavilan Central\" without the \"LA\" prefix while keeping \"Tacos Gavilan La Puente\" intact); removed mid-sentence text/audio truncation; and refined dialog phrasing.<br>• <strong>Preparador Kitchen Tablet (/inventory/preparador, commits 5bd48126 & ab639adf) — Enlarged Button Typography & New \"🔔 Orden Pendiente\" Callout Button with Kore Voice</strong>: Enlarged font sizes on quick-call buttons and added the third fixed button \"🔔 Orden Pendiente\" alongside Coffee and Champurrado, generating and deploying orden-pendiente-listo.wav (\"Orden pendiente, ¡ya está!\") with the official Kore voice.<br>• <strong>Customer Mobile App — Path 1 Integration (Native Menu & Cart + DoorDash Storefront Checkout Session)</strong>: Updated app/api/mobile/menu/route.ts and lib/doordash-storefront.ts to connect the native menu and cart with DoorDash Storefront checkout sessions."
+        },
+        {
+            "date": "07-Nov-2026",
+            "time": "2:03 PM - 5:05 PM",
+            "hours": 3,
+            "badges": [
+                "Conciliar Delivery Cruce Bidireccional & Desglose de Órdenes por Póliza",
+                "Sincronización DoorDash /api/v1/transactions + Storefront (SF) en Hollywood #8",
+                "Order Ready Reparación Orden #175 en Español (v=11)",
+                "Consolidación Multi-Chat SM TEG v2.24.0 & Reporte Noviembre 2026",
+                "IT en La Bodega"
+            ],
+            "descEs": "• <strong>Conciliar Delivery Plataformas (/admin/conciliar-delivery y lib/delivery-reconciliation.ts) — Cruce Bidireccional Comprensible (Toast POS ↔ Plataformas), Desglose de Órdenes por Póliza QBO y Sincronización de Transacciones DoorDash (/api/v1/transactions) + Storefront (SF)</strong>: Rediseño operativo con la barra de Cruce Bidireccional en 4 tarjetas claras (Pagadas y Cuadradas, Pagadas de Menos, En Toast y NO en Plataforma, En Plataforma y NO en Toast con confirmación de 1 clic), desglose auditable de todas las órdenes incluidas dentro de cada Póliza QBO y cola progresiva 1×1 para las 15 tiendas; más integración del endpoint por rango de fechas /api/v1/transactions de DoorDash y soporte de órdenes DoorDash Storefront (prefijo SF), resolviendo al centavo el caso de Hollywood (Store #8, emparejando AEBC0934 por $79.10 y SF 9178E925 por $23.21 y clasificándolas como CONCILIATED_NEXT_PAYOUT).<br>• <strong>Order Ready Board (/order-ready-board, commit 10404600) — Reparación Acústica de la Orden #175 en Español reportada en Downey (&v=11)</strong>: Diagnóstico del clip v4/Kore/es/175.wav en Supabase Storage que se cortaba a los 2.52s diciendo \"Orden diecisiete, ¡ya está!\", regeneración limpia diciendo \"Orden ciento setenta y cinco, ¡ya está!\" (3.32s) y actualización global del cache-buster a &v=11.<br>• <strong>Auditoría General Multi-Chat (30 Oct – 7 Nov), Apertura del Mes de Noviembre 2026 en /admin/reporte-actividades, Lanzamiento de SM TEG v2.24.0 y Despliegue a Producción</strong>: Escaneo completo de todas las conversaciones y repositorios, cierre del mes de Octubre 2026 (242.2 hrs), apertura del reporte ejecutivo de Noviembre 2026 (28.6 hrs al 7 de noviembre), actualización de lib/version.ts (v2.24.0) y sincronización del Asistente IA.",
+            "descEn": "• <strong>Delivery Platforms Reconciliation (/admin/conciliar-delivery & lib/delivery-reconciliation.ts) — Clear Bidirectional Cross-Check (Toast POS ↔ Platforms), Per-Journal Included Orders Breakdown & DoorDash /api/v1/transactions + Storefront (SF) Sync</strong>: Built the 4-card Bidirectional Cross-Check bar (Paid & Matched, Underpaid/Disputed, In Toast & Missing in Platform, In Platform & Missing in Toast with 1-click candidate confirmation), full auditable table of orders included inside each QBO Journal Entry, and 1×1 progressive 15-store sync queue; plus integrated DoorDash's date-range /api/v1/transactions endpoint and DoorDash Storefront (SF prefix) matching, resolving Hollywood (Store #8) penny-exact (matching AEBC0934 for $79.10 and SF 9178E925 for $23.21 as CONCILIATED_NEXT_PAYOUT).<br>• <strong>Order Ready Board (/order-ready-board, commit 10404600) — Acoustic Repair of Spanish Order #175 Reported in Downey (&v=11)</strong>: Diagnosed v4/Kore/es/175.wav in Supabase Storage which clipped at 2.52s saying \"Orden diecisiete, ¡ya está!\", regenerated a clean 3.32s clip saying \"Orden ciento setenta y cinco, ¡ya está!\", and bumped the global audio cache-buster to &v=11.<br>• <strong>Multi-Chat System Audit (Oct 30 – Nov 7), November 2026 Executive Report Launch in /admin/reporte-actividades, SM TEG v2.24.0 Release & Production Deployment</strong>: Audited all active conversations and repositories, finalized October 2026 (242.2 hrs), launched the November 2026 Executive Report (28.6 hrs through Nov 7), bumped lib/version.ts to v2.24.0, and synced TEG Assistant AI knowledge."
+        }
+    ],
+    "effortSummary": [
+        {
+            "name": "Conciliar Delivery Plataformas (Cruce Bidireccional, 15 Tiendas Uber, Cortes Grubhub & DoorDash SF) y Contabilidad (166/166)",
+            "hours": 11.4,
+            "percent": 39.9
+        },
+        {
+            "name": "Nuevo Módulo Contestadora IA Multi-Sucursal (/admin/llamadas, Voz Kore, Simulador & Recados Realtime)",
+            "hours": 6.8,
+            "percent": 23.8
+        },
+        {
+            "name": "Contabilidad Externa (Conciliación Bancaria 1:1 QBO 537 Sesiones & Hardening Pre-Deploy)",
+            "hours": 4.8,
+            "percent": 16.8
+        },
+        {
+            "name": "Tableta Preparador (Motor Táctil 0ms Guantes, Café/Champurrado/Orden Pendiente) & Order Ready (#175 v=11)",
+            "hours": 3.8,
+            "percent": 13.3
+        },
+        {
+            "name": "App Móvil Clientes (Camino 1 Storefront), Blindaje Wi-Fi Orden Diaria & Resiliencia Multi-Key IA",
+            "hours": 1.8,
+            "percent": 6.2
+        }
+    ],
+    "parallelActivities": [
+        {
+            "title": "IT en La Bodega Central & Desarrollador del Sistema SM TEG (Infraestructura, Redes y Soporte a 15 Sucursales)",
+            "hours": 44,
+            "desc": "Operación continua en Noviembre 2026 de Carlos Velázquez como IT en La Bodega Central y Desarrollador del Sistema SM TEG, supervisando servidores, bases de datos en Supabase, despliegues en Vercel, telefonía de las 15 sucursales (Spectrum Business y AT&T), tabletas operativas y soporte técnico directo."
+        },
+        {
+            "title": "Monitoreo de Conciliación Delivery (DoorDash, Uber Eats, Grubhub), Pólizas Cohesion 166/166 y QBO V3 (8 Empresas)",
+            "hours": 9,
+            "desc": "Supervisión diaria de cortes semanales y de fin de mes de plataformas de delivery, cruce de órdenes Storefront (SF) y en tránsito, sincronización bidireccional QBO V3 en las 8 empresas de Contabilidad Externa y 166/166 paquetes de ventas diarias cuadrados al centavo."
+        }
+    ],
+    "tasks": [
+        {
+            "num": 1,
+            "title": "1. Inventario con reposición automática",
+            "category": "Inventario / Inventory",
+            "badgeDept": "📦 Inventario",
+            "badgePriority": "🔴 Alta",
+            "auditJune": "<strong>Muy Avanzado (En Progreso).</strong> El sistema calcula de manera inteligente el pedido sugerido de insumos para las tiendas analizando el consumo histórico de las últimas 4 semanas y las existencias actuales capturadas por el gerente.",
+            "auditJuly": "<strong>Muy Avanzado (En Progreso).</strong> El sistema calcula de manera inteligente el pedido sugerido de insumos para las tiendas con soporte preliminar de QuickBooks.",
+            "auditAugust": "<strong>✓ Completado e Implementado en Producción (Agosto 2026).</strong> Sistema de reposición semanal con cálculo de PAR dinámico, generación automática de Estimates en QuickBooks Online (usando <code>sparse: false</code> para proteger ítems) y soporte para carnes, secos, líquidos y uniformes.",
+            "steps": [
+                "Configurado el motor de órdenes semanales por sucursal hacia la bodega central.",
+                "Integrada la API de QuickBooks Online con guardado seguro.",
+                "Pruebas y validación en sucursales operando al 100%."
+            ],
+            "status": "completado",
+            "statusLabel": "Completado",
+            "audit": "<strong>✓ Completado y Optimizado en Producción (Octubre 2026).</strong> Captura ultrarrápida de sobrantes con interfaz optimista (Optimistic UI) y auto-guardado en segundo plano, cálculo automatizado de pedidos y sincronización continua con QuickBooks."
+        },
+        {
+            "num": 2,
+            "title": "2. Inventario para Bodega y COGS (Viele & Sons)",
+            "category": "Costos & Proveedores",
+            "badgeDept": "📦 Inventario",
+            "badgePriority": "🔴 Alta",
+            "auditJune": "<strong>Estructurado (En Progreso).</strong> Creado el catálogo en base de datos para diferenciar los insumos de uso interno del restaurante vs los que se compran al proveedor Viele & Sons.",
+            "auditJuly": "<strong>Estructurado (En Progreso).</strong> Creado el catálogo en base de datos para diferenciar los insumos de uso interno del restaurante vs los que se compran a Viele & Sons.",
+            "auditAugust": "<strong>✓ Completado e Integrado (Agosto 2026).</strong> Motor de scraping automático de facturas de Viele & Sons v3, indexación de los 87 insumos maestros, Radar de Precios con cálculo de impacto anual en USD ($) para las 15 tiendas y alertas automáticas por correo a directivos.",
+            "steps": [
+                "Scraper automatizado de facturas con normalización de empaques.",
+                "Dashboard ejecutivo de Radar de Precios con 4 métricas anuales.",
+                "Alertas por correo electrónico enviadas automáticamente ante aumentos."
+            ],
+            "status": "completado",
+            "statusLabel": "Completado",
+            "audit": "<strong>✓ Completado y Resuelto (Octubre 2026).</strong> Desbloqueo operativo de sucursales en Viele & Sons (Sage 100), corrección de regla de tasa 0 en sodas, sondeo de verificación de 40s y transición a estado superseded."
+        },
+        {
+            "num": 3,
+            "title": "3. Configuración local de TVs de Menús",
+            "category": "Dispositivos / Devices",
+            "badgeDept": "📺 Dispositivos",
+            "badgePriority": "🟡 Media",
+            "auditJune": "<strong>Muy Avanzado (En Progreso).</strong> Diseñada la pantalla de administración para subir las imágenes de menús por tienda y la página pública que muestra el menú rotativo en las pantallas.",
+            "auditJuly": "<strong>Muy Avanzado (En Progreso).</strong> Diseñada la pantalla de administración para subir las imágenes de menús por tienda.",
+            "auditAugust": "<strong>✓ Completado y Desplegado (Agosto 2026).</strong> Módulo de visualización y control centralizado de menús digitales en alta definición para pantallas de sucursales con soporte de cambios de precios y turnos día/noche.",
+            "steps": [
+                "Diseño responsive en alta resolución para pantallas de TV.",
+                "Conexión en tiempo real con la base de datos de precios.",
+                "Despliegue y verificación en pantallas locales."
+            ],
+            "status": "completado",
+            "statusLabel": "✓ Completado",
+            "audit": "<strong>✓ Completado y Desplegado (Agosto 2026).</strong> Módulo de visualización y control centralizado de menús digitales en alta definición para pantallas de sucursales con soporte de cambios de precios y turnos día/noche."
+        },
+        {
+            "num": 4,
+            "title": "4. Logotipo de marca en correos electrónicos",
+            "category": "Comunicaciones / Comms",
+            "badgeDept": "✉️ Comunicaciones",
+            "badgePriority": "🔵 Baja",
+            "auditJune": "<strong>Configuración Básica (En Progreso).</strong> El sistema ya envía correos institucionales utilizando el servidor de tacosgavilan.com con texto plano y firma básica.",
+            "auditJuly": "<strong>Configuración Básica (En Progreso).</strong> El sistema ya envía correos institucionales con firma básica.",
+            "auditAugust": "<strong>✓ Completado (Agosto 2026).</strong> Plantillas de correo electrónico con diseño corporativo oficial, branding de Tacos Gavilan, encabezados responsivos y soporte para notificaciones de violaciones laborales y alertas de precios.",
+            "steps": [
+                "Plantilla HTML responsiva con logotipo oficial de Tacos Gavilan.",
+                "Integración con el servicio de envío de correos (Resend/SMTP).",
+                "Verificado en clientes de correo móvil y escritorio."
+            ],
+            "status": "completado",
+            "statusLabel": "✓ Completado",
+            "audit": "<strong>✓ Completado (Agosto 2026).</strong> Plantillas de correo electrónico con diseño corporativo oficial, branding de Tacos Gavilan, encabezados responsivos y soporte para notificaciones de violaciones laborales y alertas de precios."
+        },
+        {
+            "num": 5,
+            "title": "5. Descripciones de procedimientos en página de ACTIVIDADES",
+            "category": "Operaciones / Operations",
+            "badgeDept": "📝 Operaciones",
+            "badgePriority": "🔴 Alta",
+            "auditJune": "<strong>Estructura Concluida (En Progreso).</strong> El panel administrativo y móvil de Actividades de Cocina está completo. Contiene el listado de 31 procedimientos operativos estandarizados.",
+            "auditJuly": "<strong>Estructura Concluida (En Progreso).</strong> El panel administrativo y móvil de Actividades de Cocina está completo.",
+            "auditAugust": "<strong>✓ Completado e Implementado (Agosto 2026).</strong> Catálogo digital de procedimientos operativos estandarizados con descripciones paso a paso, buscador interactivo y visualización clara para el personal.",
+            "steps": [
+                "Base de datos de procedimientos y actividades estructurada.",
+                "Interfaz de consulta rápida y búsqueda por palabra clave.",
+                "Sincronización con el Asistente de Soporte IA."
+            ],
+            "status": "completado",
+            "statusLabel": "✓ Completado",
+            "audit": "<strong>✓ Completado e Implementado (Agosto 2026).</strong> Catálogo digital de procedimientos operativos estandarizados con descripciones paso a paso, buscador interactivo y visualización clara para el personal."
+        },
+        {
+            "num": 6,
+            "title": "6. Verificar tabletas piloto en Slauson",
+            "category": "Dispositivos / Devices",
+            "badgeDept": "📺 Dispositivos",
+            "badgePriority": "🔴 Alta",
+            "auditJune": "<strong>En Pruebas (En Progreso).</strong> Hay 4 tabletas instaladas físicamente en la cocina piloto de Slauson corriendo software de telemetría.",
+            "auditJuly": "<strong>✓ Completado e Integrado (Julio 2026).</strong> Se verificaron físicamente las 4 tabletas piloto en la cocina de Slauson durante las pruebas de campo.",
+            "auditAugust": "<strong>✓ Completado e Integrado.</strong> Modo kiosko de tableta seguro para cocina (Preparador KDS) con bloqueo de edición táctil accidental, polling de sincronización cada 10 segundos con la PC del gerente y tipografía ampliada para visibilidad.",
+            "steps": [
+                "Desarrollo del modo pantalla completa exclusivo para cocina.",
+                "Polling de sincronización bidireccional cada 10s en Supabase.",
+                "Pruebas y validación en sitio en tableta de cocina."
+            ],
+            "status": "completado",
+            "statusLabel": "✓ Completado",
+            "audit": "<strong>✓ Completado e Integrado.</strong> Modo kiosko de tableta seguro para cocina (Preparador KDS) con bloqueo de edición táctil accidental, polling de sincronización cada 10 segundos con la PC del gerente y tipografía ampliada para visibilidad."
+        },
+        {
+            "num": 7,
+            "title": "7. App de Tacos Gavilán (Imitar King Taco)",
+            "category": "Sistemas / Systems",
+            "badgeDept": "💻 Sistemas",
+            "badgePriority": "🔴 Alta",
+            "auditJune": "<strong>Muy Avanzado (En Progreso).</strong> Creado el sistema de base de datos para la aplicación móvil (carritos de compra, puntos de fidelidad, selector de sucursal y menú interactivo).",
+            "auditJuly": "<strong>Muy Avanzado (En Progreso).</strong> Base de datos de la app móvil y catálogo digital de productos estructurado.",
+            "auditAugust": "<strong>⚡ En Progreso.</strong> Arquitectura móvil en React Native/Expo con flujo de pedidos, selección de sucursales y sincronización con POS Toast.",
+            "steps": [
+                "Estructura de catálogo móvil y carrito de compras.",
+                "Integración con la pasarela de pagos y menú en línea.",
+                "Pruebas de pedidos móviles en sucursales piloto."
+            ],
+            "status": "completado",
+            "statusLabel": "Completado",
+            "audit": "<strong>✓ Completado y Desplegado en Producción (Octubre 2026).</strong> Paridad contable 1:1 en Payouts, Cash In-Out, propinas de plataformas (GrubHub/Uber/DoorDash) y Summary Receipts, integración directa de depósitos de Toast Cash Management, estatus efectivos granulares en calendario y bloqueo automático ante depósitos pendientes."
+        },
+        {
+            "num": 8,
+            "title": "8. Sincronizador y clon de Basecamp",
+            "category": "Sistemas / Systems",
+            "badgeDept": "💻 Sistemas",
+            "badgePriority": "🔴 Alta",
+            "auditJune": "<strong>Altamente Avanzado (En Progreso).</strong> El sistema web está integrado con Basecamp. Las tablas internas sincronizan automáticamente proyectos, mensajes y listas de tareas pendientes.",
+            "auditJuly": "<strong>Altamente Avanzado (En Progreso).</strong> Sincronización continua con Basecamp y descarga asíncrona de adjuntos.",
+            "auditAugust": "<strong>✓ Completado (Agosto 2026).</strong> Integración bidireccional con Basecamp 3 API con tokens auto-renovables, buscador instantáneo global (Shift+J), modal Basecamp 4 Dialog Card con desenfoque y descarga asíncrona de archivos adjuntos.",
+            "steps": [
+                "Integración OAuth2 y sincronización local-first en Supabase.",
+                "Buscador universal Shift+J con búsqueda paralela.",
+                "Rediseño moderno con modal Dialog Card y carga bajo demanda de comentarios."
+            ],
+            "status": "completado",
+            "statusLabel": "✓ Completado",
+            "audit": "<strong>✓ Completado (Agosto 2026).</strong> Integración bidireccional con Basecamp 3 API con tokens auto-renovables, buscador instantáneo global (Shift+J), modal Basecamp 4 Dialog Card con desenfoque y descarga asíncrona de archivos adjuntos."
+        },
+        {
+            "num": 9,
+            "title": "9. Página Web Oficial de Tacos El Gavilán",
+            "category": "Sistemas / Systems",
+            "badgeDept": "💻 Sistemas",
+            "badgePriority": "🟡 Media",
+            "auditJune": "<strong>Avanzado (En Progreso).</strong> Toda la estructura visual y de contenidos del sitio web oficial está finalizada (exhibición de platillos, historia, mapa de sucursales).",
+            "auditJuly": "<strong>Avanzado (En Progreso).</strong> Estructura visual y mapa de sucursales completado.",
+            "auditAugust": "<strong>⚡ En Progreso.</strong> Portal web oficial responsivo con localización de sucursales, menú interactivo y optimización SEO.",
+            "steps": [
+                "Diseño responsivo móvil y de escritorio.",
+                "Integración del directorio oficial de 15 tiendas.",
+                "Despliegue y configuración de dominio."
+            ],
+            "status": "progreso",
+            "statusLabel": "⚡ En Progreso",
+            "audit": "<strong>⚡ En Progreso.</strong> Portal web oficial responsivo con localización de sucursales, menú interactivo y optimización SEO."
+        },
+        {
+            "num": 10,
+            "title": "10. Determinar gasto en Salsa Bar",
+            "category": "Inventario / Inventory",
+            "badgeDept": "📦 Inventario",
+            "badgePriority": "🟡 Media",
+            "auditJune": "<strong>⏳ No Iniciado (Pendiente).</strong> Existe registro de mermas e ingredientes de la barra de salsas en los checklists históricos, pero no se ha desarrollado el módulo de cálculo de costo por porción.",
+            "auditJuly": "<strong>⏳ No Iniciado (Pendiente).</strong> Módulo pendiente de desarrollo para calcular el costo por porción del salsa bar.",
+            "auditAugust": "<strong>⏳ Pendiente.</strong> Modelo de costos para estimar el consumo y merma de salsas, limones y vegetales por comensal.",
+            "steps": [
+                "Estandarizar recetas y pesos de preparación de salsas.",
+                "Registrar rendimiento por tanda y costo de insumos.",
+                "Integrar en la matriz de Food Cost de la cadena."
+            ],
+            "status": "pendiente",
+            "statusLabel": "⏳ Pendiente",
+            "audit": "<strong>⏳ Pendiente.</strong> Modelo de costos para estimar el consumo y merma de salsas, limones y vegetales por comensal."
+        },
+        {
+            "num": 11,
+            "title": "11. Fotos y verificación Apple Business Connect (Slauson)",
+            "category": "Dispositivos / Marketing",
+            "badgeDept": "📺 Dispositivos",
+            "badgePriority": "🟡 Media",
+            "auditJune": "<strong>⏳ No Iniciado (Pendiente).</strong> Tarea operativa consistente en registrar la sucursal de Slauson, subir fotografías en alta resolución del interior/exterior y verificar la ficha del negocio en Apple Maps.",
+            "auditJuly": "<strong>⏳ No Iniciado (Pendiente).</strong> Verificación en Apple Maps pendiente de sesión de fotografía.",
+            "auditAugust": "<strong>⏳ Pendiente.</strong> Sesión fotográfica y verificación en Apple Business Connect para sucursales oficiales.",
+            "steps": [
+                "Fotografía profesional de exteriores e interiores de tiendas.",
+                "Carga de assets en portal Apple Business Connect.",
+                "Validación de pin y horarios en Apple Maps."
+            ],
+            "status": "pendiente",
+            "statusLabel": "⏳ Pendiente",
+            "audit": "<strong>⏳ Pendiente.</strong> Sesión fotográfica y verificación en Apple Business Connect para sucursales oficiales."
+        },
+        {
+            "num": 12,
+            "title": "12. Registro de proveedores y técnicos sin contraseña",
+            "category": "Sistemas / Systems",
+            "badgeDept": "💻 Sistemas",
+            "badgePriority": "🟡 Media",
+            "auditJune": "<strong>⏳ No Iniciado (Pendiente).</strong> Planificado un portal simplificado de acceso rápido con códigos temporales para que técnicos de refrigeración y proveedores registren sus visitas sin requerir cuenta.",
+            "auditJuly": "<strong>⏳ No Iniciado (Pendiente).</strong> Portal de acceso con código QR temporal para proveedores pendiente.",
+            "auditAugust": "<strong>⏳ Pendiente.</strong> Registro ágil mediante código QR temporal para visitas técnicas de mantenimiento en tiendas.",
+            "steps": [
+                "Generador de códigos QR y links temporales para contratistas.",
+                "Bitácora digital de entradas y salidas de técnicos.",
+                "Alertas al gerente de tienda al arribar personal externo."
+            ],
+            "status": "pendiente",
+            "statusLabel": "⏳ Pendiente",
+            "audit": "<strong>⏳ Pendiente.</strong> Registro ágil mediante código QR temporal para visitas técnicas de mantenimiento en tiendas."
+        },
+        {
+            "num": 13,
+            "title": "13. Control de uniformes, gorras e inventario de ropa",
+            "category": "Inventario / Merchandise",
+            "badgeDept": "📦 Inventario",
+            "badgePriority": "🟡 Media",
+            "auditJune": "<strong>⏳ No Iniciado (Pendiente).</strong> Módulo operativo pendiente de desarrollo para controlar las existencias de uniformes, gorras y chamarras.",
+            "auditJuly": "<strong>▶ En Progreso (Julio 2026).</strong> Se implementó y desplegó en producción el tipo de orden de Uniformes en el módulo de Pedidos de Bodega.",
+            "auditAugust": "<strong>✓ Completado e Integrado (Agosto 2026).</strong> Módulo integral de uniformes con catálogo de precios (Camisas $7, Gorras $1, Chamarras $20), exenciones gerenciales, tabla de stock mínimo de 660 registros en BD para 15 tiendas y conciliación de ventas en efectivo con Caja Fuerte.",
+            "steps": [
+                "Catálogo de precios y reglas de exención implementadas.",
+                "Tabla de stock mínimo (660 registros en BD) blindada.",
+                "Conciliación automática con la bóveda de Caja Fuerte."
+            ],
+            "status": "completado",
+            "statusLabel": "✓ Completado",
+            "audit": "<strong>✓ Completado e Integrado (Agosto 2026).</strong> Módulo integral de uniformes con catálogo de precios (Camisas $7, Gorras $1, Chamarras $20), exenciones gerenciales, tabla de stock mínimo de 660 registros en BD para 15 tiendas y conciliación de ventas en efectivo con Caja Fuerte."
+        },
+        {
+            "num": 14,
+            "title": "14. Manuales, videos y certificación de cocina",
+            "category": "Operaciones / Training",
+            "badgeDept": "📝 Operaciones",
+            "badgePriority": "🔴 Alta",
+            "auditJune": "<strong>⏳ No Iniciado (Pendiente).</strong> El sistema cuenta con exámenes rápidos de desempeño para gerentes, pero falta crear la biblioteca de videos demostrativos y el flujo de certificación para personal de línea.",
+            "auditJuly": "<strong>⏳ No Iniciado (Pendiente).</strong> Biblioteca de videos demostrativos de recetas y cocina pendiente de producción.",
+            "auditAugust": "<strong>⏳ Pendiente.</strong> Portal interactivo de capacitación con videos y exámenes de certificación para cocineros y taqueros.",
+            "steps": [
+                "Producción de videos cortos demostrativos por estación.",
+                "Cuestionarios de evaluación interactivos en tableta.",
+                "Certificados digitales de aprobación por empleado."
+            ],
+            "status": "pendiente",
+            "statusLabel": "⏳ Pendiente",
+            "audit": "<strong>⏳ Pendiente.</strong> Portal interactivo de capacitación con videos y exámenes de certificación para cocineros y taqueros."
+        },
+        {
+            "num": 15,
+            "title": "15. Sección de Cultura Empresarial",
+            "category": "Operaciones / HR",
+            "badgeDept": "📝 Operaciones",
+            "badgePriority": "🟡 Media",
+            "auditJune": "<strong>⏳ No Iniciado (Pendiente).</strong> Sección informativa planificada para capacitar y familiarizar a los nuevos empleados con los valores, historia y visión de Tacos Gavilan.",
+            "auditJuly": "<strong>⏳ No Iniciado (Pendiente).</strong> Módulo de onboarding y valores de empresa pendiente.",
+            "auditAugust": "<strong>⚡ En Progreso.</strong> Guía interactiva de bienvenida y cultura institucional integrada en el asistente de soporte.",
+            "steps": [
+                "Documento de valores, misión y estándares de servicio.",
+                "Módulo visual de inducción para nuevos empleados.",
+                "Integración en el flujo de bienvenida de la app."
+            ],
+            "status": "progreso",
+            "statusLabel": "⚡ En Progreso",
+            "audit": "<strong>⚡ En Progreso.</strong> Guía interactiva de bienvenida y cultura institucional integrada en el asistente de soporte."
+        },
+        {
+            "num": 16,
+            "title": "16. CLONAR Cohesion (app de contabilidad)",
+            "category": "Sistemas / Finance",
+            "badgeDept": "💻 Finanzas",
+            "badgePriority": "🔴 Alta",
+            "auditJune": "<strong>⏳ No Iniciado (Pendiente).</strong> Desarrollo e integración de un clon contable de la plataforma Cohesión a medida para procesar pólizas de ventas y conciliar cuentas bancarias.",
+            "auditJuly": "<strong>⏳ No Iniciado (Pendiente).</strong> Módulo contable integral en fase de especificación y análisis de viabilidad.",
+            "auditAugust": "<strong>⚡ En Progreso (80% en Agosto 2026).</strong> Extracción forense de la estructura de Cohesion ($450/mes) con Puppeteer, mapeo de 17 cuentas contables (canales de venta, impuestos, propinas y pagos) y diseño de la base de datos.",
+            "auditSeptember": "<strong>⚡ En Progreso Activo (Fase de Desarrollo y Validación Dual con Raquel Velázquez).</strong> Desarrollo del módulo nativo de Contabilidad para reemplazar Cohesion ($450/mes / $5,400/año de ahorro). Construcción de la librería central lib/accounting-journal.ts, panel interactivo /contabilidad, 7 endpoints API de pólizas diarias Toast POS → QuickBooks Online con cuenta 51050 de faltantes/sobrantes y simulaciones multi-sucursal; en proceso de pruebas paralelas contra los libros reales de QBO antes de la migración final.",
+            "steps": [
+                "Extracción forense de reglas contables, catálogos de cuentas y mapeos GL de Cohesion.",
+                "Librería central lib/accounting-journal.ts (17 cuentas, canales For Here/To Go/Uber/DoorDash/GrubHub y efectivo).",
+                "Endpoints de generación automática, panel de revisión y publicación a QuickBooks Online.",
+                "Validación dual en paralelo contra Cohesion y visto bueno de Raquel Velázquez."
+            ],
+            "status": "progreso",
+            "statusLabel": "⚡ En Progreso",
+            "audit": "<strong>⚡ En Progreso Activo (Fase de Desarrollo y Validación Dual con Raquel Velázquez).</strong> Desarrollo del módulo nativo de Contabilidad para reemplazar Cohesion ($450/mes / $5,400/año de ahorro). Construcción de la librería central lib/accounting-journal.ts, panel interactivo /contabilidad, 7 endpoints API de pólizas diarias Toast POS → QuickBooks Online con cuenta 51050 de faltantes/sobrantes y simulaciones multi-sucursal; en proceso de pruebas paralelas contra los libros reales de QBO antes de la migración final."
+        },
+        {
+            "num": 17,
+            "title": "17. Módulo de Rendimiento y Telemetría de Drive-Thru (HME Zoom Nitro)",
+            "category": "Sistemas / Hardware",
+            "badgeDept": "💻 Sistemas",
+            "badgePriority": "🔴 Alta",
+            "auditJune": "<strong>✓ Completado e Integrado (Junio 2026).</strong> Se vinculó exitosamente el sistema con los sensores físicos de autos del Drive-Thru en las sucursales con ventanilla.",
+            "auditJuly": "<strong>✓ Completado e Integrado.</strong> Se vinculó exitosamente el sistema con los sensores físicos de autos del Drive-Thru.",
+            "auditAugust": "<strong>✓ Completado e Integrado.</strong> Telemetría en tiempo real de tiempos de espera, cobro y despacho de ventanilla con alertas por cuello de botella.",
+            "auditSeptember": "<strong>✓ Completado e Integrado.</strong> Telemetría en tiempo real activa en sucursales con ventanilla.",
+            "steps": [
+                "Conexión con la API/controlador de HME Zoom Nitro.",
+                "Métricas en vivo de segundos por vehículo en ventanilla.",
+                "Historial de rendimiento y benchmarks entre sucursales."
+            ],
+            "status": "completado",
+            "statusLabel": "✓ Completado",
+            "audit": "<strong>✓ Completado e Integrado.</strong> Telemetría en tiempo real activa en sucursales con ventanilla."
+        },
+        {
+            "num": 18,
+            "title": "18. Actualizar y Descargar Videos Musicales Regional Mexicano",
+            "category": "Operaciones / Marketing",
+            "badgeDept": "🎵 Tienda",
+            "badgePriority": "🟢 Normal",
+            "auditJune": "",
+            "auditJuly": "<strong>⏳ Pendiente (Julio 2026).</strong> Actualización y descarga de la biblioteca de videos musicales de Regional Mexicano para las pantallas de las sucursales.",
+            "auditAugust": "<strong>✓ Completado (Agosto 2026).</strong> Actualización y descarga de la biblioteca de videos musicales de Regional Mexicano en formato MP4 HD organizados en unidades USB para reproducción en los televisores de los restaurantes.",
+            "auditSeptember": "<strong>✓ Completado y Distribuido.</strong> Biblioteca musical de videos MP4 HD entregada a sucursales.",
+            "steps": [
+                "Definir lista de canciones y artistas populares para el ambiente de los restaurantes.",
+                "Descargar videos en alta definición compatibles con las pantallas de las sucursales.",
+                "Organizar archivos y distribuirlos a las sucursales."
+            ],
+            "status": "completado",
+            "statusLabel": "Completado",
+            "audit": "<strong>✓ Completado y Calibrado (Octubre 2026).</strong> Auditoría forense de recorridos de supervisores y recalibración de la matriz oficial de distancias reales de manejo por carretera entre las 15 sucursales."
+        },
+        {
+            "num": 19,
+            "title": "19. Módulo de Caja Fuerte (Conteo de Efectivo por Sucursal)",
+            "category": "Finanzas / Treasury",
+            "badgeDept": "💰 Finanzas",
+            "badgePriority": "🔴 Alta",
+            "auditJune": "",
+            "auditJuly": "<strong>✓ Completado e Integrado (10-Jul-2026).</strong> Módulo completo para que los gerentes registren el conteo de efectivo semanal de la caja fuerte con desglose de billetes, monedas y total.",
+            "auditAugust": "<strong>✓ Completado e Integrado.</strong> Registro semanal de billetes, monedas sueltas, rollos y gavetas con cálculo automático de gran total, conciliación de ventas de uniformes y control de ediciones pasadas.",
+            "auditSeptember": "<strong>✓ Completado e Integrado.</strong> Registro y conciliación semanal de caja fuerte en producción.",
+            "steps": [
+                "Formulario estructurado de desglose de efectivo.",
+                "Conciliación automática con ventas de uniformes en efectivo.",
+                "Historial auditable con control de modificaciones por rol."
+            ],
+            "status": "completado",
+            "statusLabel": "✓ Completado",
+            "audit": "<strong>✓ Completado e Integrado.</strong> Registro y conciliación semanal de caja fuerte en producción."
+        },
+        {
+            "num": 20,
+            "title": "20. Módulo de Tiendas (Integración Dinámica, Geocodificación y Mapas de Google)",
+            "category": "Sistemas / Locations",
+            "badgeDept": "💻 Sistemas",
+            "badgePriority": "🔴 Alta",
+            "auditJune": "",
+            "auditJuly": "<strong>✓ Completado e Integrado (14-Jul-2026).</strong> Vinculación dinámica de sucursales con el resto de los módulos del sistema y mapas de Google.",
+            "auditAugust": "<strong>✓ Completado e Integrado.</strong> Directorio dinámico de las 15 sucursales oficiales + Bodega Central con coordenadas GPS exactas, teléfonos y horarios de operación.",
+            "auditSeptember": "<strong>✓ Completado e Integrado.</strong> Directorio dinámico de 15 sucursales oficiales y Bodega Central.",
+            "steps": [
+                "Tabla canónica de tiendas en base de datos.",
+                "Geocodificación de coordenadas GPS para integración con MilesIQ.",
+                "Selector global de sucursales en cabecera del sistema."
+            ],
+            "status": "completado",
+            "statusLabel": "✓ Completado",
+            "audit": "<strong>✓ Completado e Integrado.</strong> Directorio dinámico de 15 sucursales oficiales y Bodega Central."
+        },
+        {
+            "num": 21,
+            "title": "21. Order Ready Board, Preparador KDS & Blindaje Delivery",
+            "category": "Costos & Proveedores",
+            "badgeDept": "📊 Finanzas",
+            "badgePriority": "🔴 Alta",
+            "auditJune": "",
+            "auditJuly": "",
+            "auditAugust": "<strong>⚡ En Progreso (90% de avance).</strong> Ingesta automática de API REST v3 de Viele & Sons (86 insumos en 1.3s), cron semanal los lunes 6:00 AM, cálculo de impacto anual en USD ($) para 15 tiendas y aprobación de cambios a Food Cost.",
+            "auditSeptember": "<strong>✓ Completado e Implementado en Producción (Septiembre 2026).</strong> Cron diario matutino 6:00 AM PST con telemetría en activity_logs, alerta ejecutiva por email con cálculo de impacto anual en USD y badge de estado en tiempo real.",
+            "steps": [
+                "Conexión API REST v3 y scraper automatizado.",
+                "Cálculo de impacto inflacionario en dólares para la cadena.",
+                "Integración con Sysco y US Foods para comparativas de mercado."
+            ],
+            "status": "completado",
+            "statusLabel": "Completado",
+            "audit": "<strong>✓ Completado y Lanzado (Octubre 2026).</strong> Sistema de llamado de órdenes listas con voz neuronal Gemini TTS (Inglés + Español obligatorio) con cuádruple redundancia de audio, filtro de bebidas/postres en tableta de Preparador con ventana de 90 min, y nuevo módulo Blindaje Delivery (/blindaje-delivery) con PIN RONOS, mesa de empaque y entrega verificada a repartidores."
+        },
+        {
+            "num": 22,
+            "title": "22. Control de Descansos Laborales (Labor Compliance AI & Alertas CA)",
+            "category": "Recursos Humanos",
+            "badgeDept": "⚖️ Legal & RRHH",
+            "badgePriority": "🔴 Alta",
+            "auditJune": "",
+            "auditJuly": "",
+            "auditAugust": "<strong>⚡ En Progreso (85% de avance).</strong> Algoritmo de sugerencias inteligentes de comida respetando la regla del Manager Jesús (salida temprana primero), alertas por correo de violaciones y auditoría según California Labor Law.",
+            "auditSeptember": "<strong>✓ Completado e Implementado en Producción (Septiembre 2026).</strong> Algoritmo inteligente de descansos, notificaciones automáticas de violaciones por correo electrónico y cumplimiento estricto de California Labor Law.",
+            "steps": [
+                "Motor de asignación dinámica de horarios de comida.",
+                "Alertas de violaciones despachadas a supervisores y directivos.",
+                "Afinación de la interfaz móvil y reporte mensual consolidado de multas."
+            ],
+            "status": "completado",
+            "statusLabel": "✓ Completado",
+            "audit": "<strong>✓ Completado e Implementado en Producción (Septiembre 2026).</strong> Algoritmo inteligente de descansos, notificaciones automáticas de violaciones por correo electrónico y cumplimiento estricto de California Labor Law."
+        },
+        {
+            "num": 23,
+            "title": "23. Conciliación Multitienda Toast API (Cross-Date Refunds & EBT)",
+            "category": "Ventas & Contabilidad",
+            "badgeDept": "💰 Finanzas",
+            "badgePriority": "🔴 Alta",
+            "auditJune": "",
+            "auditJuly": "",
+            "auditAugust": "<strong>⚡ En Progreso (90% de avance).</strong> Algoritmo de conciliación de reembolsos de fechas cruzadas (Party Trays) y ventas EBT para cuadre al centavo con reportes contables oficiales en las 15 tiendas.",
+            "auditSeptember": "<strong>✓ Completado e Implementado en Producción (Septiembre 2026).</strong> Algoritmo de conciliación de Party Trays (cross-date refunds), ventas EBT, mapa dinámico de dining options y auto-sanación de caché.",
+            "steps": [
+                "Fórmula unificada: Sum(Items) - Discounts - Refunds - CrossDateRefunds.",
+                "Diagnóstico y resolución de discrepancias en tiendas (Bell $8,332.64).",
+                "Automatización del cron de auto-sanación de caché de ventas."
+            ],
+            "status": "completado",
+            "statusLabel": "✓ Completado",
+            "audit": "<strong>✓ Completado e Implementado en Producción (Septiembre 2026).</strong> Algoritmo de conciliación de Party Trays (cross-date refunds), ventas EBT, mapa dinámico de dining options y auto-sanación de caché."
+        },
+        {
+            "num": 24,
+            "title": "24. Registro de Proveedores y Mantenimiento",
+            "category": "Supervisión & RRHH",
+            "badgeDept": "🚗 Supervisión",
+            "badgePriority": "🔴 Alta",
+            "auditJune": "",
+            "auditJuly": "",
+            "auditAugust": "<strong>⚡ En Progreso (85% de avance).</strong> Geofencing perimetral en las 15 tiendas + Bodega, cálculo fiscal IRS ($0.760/milla), lanzador rápido QuickDriveModal con apertura de Google/Apple Maps y sincronización automática desde inspecciones.",
+            "auditSeptember": "<strong>✓ Completado e Implementado en Producción (Septiembre 2026).</strong> Geofencing GPS en 15 tiendas + Bodega, cálculo fiscal IRS ($0.760/milla), modal QuickDrive y tabla supervisor_mileage_trips.",
+            "steps": [
+                "Detección GPS pasiva por geofencing en tiendas oficiales.",
+                "Cálculo automático de distancias y montos de reembolso IRS.",
+                "Concluir exportación formal de nómina para despacho a RRHH."
+            ],
+            "status": "completado",
+            "statusLabel": "Completado",
+            "audit": "<strong>✓ Completado e Integrado (Octubre 2026).</strong> Módulo integral de bitácora para técnicos externos con captura obligatoria de fotos antes/después, firma digital de gerentes y semáforo preventivo de estatus."
+        },
+        {
+            "num": 25,
+            "title": "25. Módulo Crear Bills en QuickBooks (/admin/crear-bills)",
+            "category": "Compras & Proveedores",
+            "badgeDept": "👕 Mercancía",
+            "badgePriority": "🟡 Media",
+            "auditJune": "",
+            "auditJuly": "",
+            "auditAugust": "<strong>⚡ En Progreso (75% de avance).</strong> Especificaciones técnicas de confección (telas, gramajes, costuras, bordados, pantones) y volúmenes de licitación anual (15 tiendas) para negociación directa con fabricantes.",
+            "auditSeptember": "<strong>✓ Completado e Implementado (Septiembre 2026).</strong> Fichas técnicas completas de Playeras Rojas, Polos Gerenciales y Chamarras, especificaciones de telas, pantones y volúmenes de licitación anual.",
+            "steps": [
+                "Fichas técnicas de Playeras Rojas, Polos Gerenciales y Chamarras.",
+                "Volúmenes de compra anual calculados para licitación RFQ.",
+                "Generación de documentos ejecutivos de negociación con proveedores."
+            ],
+            "status": "completado",
+            "statusLabel": "Completado",
+            "audit": "<strong>✓ Completado y Operativo (Octubre 2026).</strong> Herramienta financiera para transformar facturas de bodega central en Bills oficiales de QuickBooks Online con ordenamiento dinámico y validación de costos."
+        },
+        {
+            "num": 26,
+            "title": "26. App Móvil de Clientes (/app), Contestadora IA (/admin/llamadas) & tacosgavilan.com",
+            "category": "Cocina & Temporadas",
+            "badgeDept": "☕ Operaciones",
+            "badgePriority": "🟡 Media",
+            "auditJune": "",
+            "auditJuly": "",
+            "auditAugust": "<strong>✓ Completado e Integrado (Agosto 2026).</strong> Modelo de proyección estacional en /api/inventory/champurrado-forecast con 5 años de historial de semanas ISO, conversión de 8 lbs/galón y sugerencia automática de galones diarios para la orden de bodega.",
+            "auditSeptember": "<strong>✓ Completado e Integrado.</strong> Motor predictivo estacional de champurrado activo en producción para la temporada invernal.",
+            "steps": [
+                "Extracción histórica de galones y vasos vendidos en Toast.",
+                "Fórmula de sugerencia con niveles de confianza (HIGH/MED/LOW) y 8 lbs/gal.",
+                "Integración visual informativa en la Orden Diaria de Bodega."
+            ],
+            "status": "completado",
+            "statusLabel": "Completado",
+            "audit": "<strong>✓ Completado y Operativo (Noviembre 2026).</strong> tacosgavilan.com 100% en vivo en Vercel con WP Engine cancelado, App Móvil Clientes V1/V2 con Camino 1 Storefront conectado, y nuevo módulo Contestadora IA Multi-Sucursal (/admin/llamadas) con voz Kore y recados prioritarios en tiempo real."
+        },
+        {
+            "num": 27,
+            "title": "27. Módulo RONOS HR, Auditoría de Nóminas Simplify & Paystubs",
+            "category": "Recursos Humanos / Payroll",
+            "badgeDept": "👥 RRHH & Nóminas",
+            "badgePriority": "🔴 Alta",
+            "auditJune": "",
+            "auditJuly": "",
+            "auditAugust": "<strong>✓ Completado e Implementado (Agosto 2026).</strong> Sistema de extracción, auditoría y cruce de nóminas Simplify vs RONOS, motor de cálculo de billing PEO para 15 empresas/sucursales, visor de paystubs y detección automática de discrepancias salariales y horas extra.",
+            "auditSeptember": "<strong>En progreso: correcciones locales verificadas al 19-Sep-2026; sin desplegar.</strong> Auditoría de 14 facturas, reparación de identidad nativa, PTO/salarios, importación documental, cálculo independiente y UI sin CSV. Pruebas de 12 tiendas y TypeScript aprobadas. Pendientes: 15 vínculos de asistencia, 2 identificadores PDF, documentos complementarios y vigencia contractual; no se afirma conciliación completa ni sobrecargos de la agencia.",
+            "steps": [
+                "Extracción forense de nóminas y timbrados de Simplify y RONOS.",
+                "Motor de conciliación PEO con cálculo de cargas sociales y fees.",
+                "Visor interactivo de paystubs y reporte de discrepancias para gerencia."
+            ],
+            "status": "progreso",
+            "statusLabel": "⚡ En Progreso",
+            "audit": "<strong>En progreso: correcciones locales verificadas al 19-Sep-2026; sin desplegar.</strong> Auditoría de 14 facturas, reparación de identidad nativa, PTO/salarios, importación documental, cálculo independiente y UI sin CSV. Pruebas de 12 tiendas y TypeScript aprobadas. Pendientes: 15 vínculos de asistencia, 2 identificadores PDF, documentos complementarios y vigencia contractual; no se afirma conciliación completa ni sobrecargos de la agencia."
+        }
+    ]
+},
     octubre: {
     "id": "octubre",
     "monthName": "Octubre",
     "monthYear": "Octubre 2026",
-    "totalHours": 220.5,
+    "totalHours": 242.2,
     "totalTasks": 27,
     "completedTasks": 18,
     "inProgressTasks": 5,
@@ -2217,41 +2855,61 @@ export const MONTHLY_REPORTS: Record<'octubre' | 'septiembre' | 'agosto' | 'juli
         },
         {
             "date": "30-Oct-2026",
-            "time": "4:50 AM - 5:15 AM",
-            "hours": 0.4,
+            "time": "4:50 AM - 5:15 AM & 1:43 PM - 8:59 PM & 10:11 PM - 11:28 PM",
+            "hours": 9,
             "badges": [
-                "Consolidación Multi-Repositorio SM TEG v2.23.0 & tacosgavilan.com",
-                "Sincronización Asistente IA & Reporte Ejecutivo Octubre (220.5h)",
+                "Consolidación SM TEG v2.23.0 & tacosgavilan.com",
+                "Contabilidad Externa Intuit Accountant Suite 1:1 & Tenants/Facturas PDF",
+                "Conciliar Delivery Rediseño Ejecutivo MM/DD/YYYY & Auditoría 4-Subagentes",
+                "Order Ready Fonética numberToSpanishWords (#909) & v=10",
+                "Escudo Anti-Spam B2B V3 tacosgavilan.com & Caso DoorDash #774836182",
+                "13 Diseños Wrap 3D Torton 3 Ejes (2752x1536) & Video Entrada",
+                "Auditoría Facturación Supabase & SpicyCandy v2.0.8",
                 "IT en La Bodega"
             ],
-            "descEs": "• <strong>Consolidación General Multi-Chat y Despliegue a Producción (SM TEG v2.23.0 y tacosgavilan.com)</strong>: Auditoría y cierre de cambios pendientes en todos los módulos y repositorios (Conciliar Delivery Plataformas, Cron de Sincronización Delivery, Barra Lateral 1:1 tg en Contabilidad Externa, Filtro de Gift Cards y Voz Kore v=8 en Order Ready Board, y Filtro Anti-Spam B2B en tacosgavilan-web/api/contact.js), validación estática sin errores (npx tsc --noEmit), actualización de conocimiento del Asistente IA (app/api/support-chat/route.ts) y actualización del Reporte Ejecutivo de Octubre 2026 (220.5 hrs acumuladas del 1 al 30 de octubre).",
-            "descEn": "• <strong>Multi-Chat System Consolidation & Production Deployment (SM TEG v2.23.0 & tacosgavilan.com)</strong>: Audited and committed all pending module updates across repositories (Delivery Platforms Reconciliation UI & Cron Job, 1:1 tg Left Navigation in External Accounting, Gift Card filter & Kore v=8 voice calibration in Order Ready Board, and B2B Anti-Spam filter in tacosgavilan-web/api/contact.js), verified zero TypeScript errors (npx tsc --noEmit), synced TEG Assistant AI knowledge (app/api/support-chat/route.ts), and updated the October 2026 Executive Activity Report (220.5 cumulative hours across Oct 1–30)."
+            "descEs": "• <strong>Consolidación General Multi-Chat y Despliegue a Producción (SM TEG v2.23.0 y tacosgavilan.com)</strong>: Auditoría y cierre de cambios pendientes en todos los módulos y repositorios (Conciliar Delivery Plataformas, Cron de Sincronización Delivery, Barra Lateral 1:1 tg en Contabilidad Externa, Filtro de Gift Cards y Voz Kore v=8 en Order Ready Board, y Filtro Anti-Spam B2B en tacosgavilan-web/api/contact.js), validación estática sin errores (npx tsc --noEmit), actualización de conocimiento del Asistente IA (app/api/support-chat/route.ts) y actualización del Reporte Ejecutivo de Octubre 2026.<br>• <strong>Contabilidad Externa (/admin/contabilidad-externa, commits a1a4c858 y 95da79c7) — Ingeniería Inversa Profunda de Intuit Accountant Suite (ias), Vista de Inquilinos/Tenants, Generador de Facturas PDF Oficiales por Correo y Smoke Test 0.00 Drift</strong>: Inspección en vivo en Google Chrome de las secciones de Raquel Accounting (Clients, Books Review, Practice Management y las 7 empresas clientes), incorporación de la vista de Tenants/Inquilinos, generador y envío de facturas PDF oficiales por correo electrónico (/api/external-accounting/send-invoice), acoplamiento de sub-barra lateral y certificación completa con scripts/qbo_full_platform_smoke.ts (0.00 de desviación en las 7 empresas).<br>• <strong>Conciliar Delivery Plataformas (/admin/conciliar-delivery) — Rediseño de Interfaz Ejecutiva, Formato Estricto MM/DD/YYYY, Paridad Bilingüe EN/ES y Auditoría con 4 Subagentes en Paralelo</strong>: Simplificación de la interfaz para que gerentes y contabilidad comprendan en segundos qué órdenes requieren atención, estandarización de fechas en formato estadounidense MM/DD/YYYY, traducción bilingüe completa en lib/i18n.tsx y auditoría línea por línea de los 4 archivos núcleo.<br>• <strong>Order Ready Board (lib/order-ready-tts.ts, commit a1a4c858) — Auditoría Fonética STT de las 2,000 Órdenes en Español, numberToSpanishWords (#909) y Cache-Buster v=10</strong>: Diagnóstico de la orden #909 (pronunciada con dígitos en inglés por interferencia del modelo Gemini 3.8 TTS), implementación de numberToSpanishWords(n) para enviar siempre los números deletreados en palabras en español (\"Orden novecientos nueve, ¡ya está!\"), escaneo STT de las 2,000 órdenes en español y regeneración de clips con cache-buster &v=10.<br>• <strong>Escudo Universal Anti-Spam Comercial B2B V3 en tacosgavilan.com (commit 42e2434), Gestión del Caso DoorDash #774836182 (Storefront POS Integration) y Auditoría de Facturación Supabase (RNLIRT-00004 a 00013)</strong>: Despliegue en tacosgavilan-web/api/contact.js de la detección estructural de dominios corporativos no consumidores (!CONSUMER_EMAIL_DOMAINS) combinada con señales de prospección B2B; respuesta técnica al equipo de DoorDash POS Integration Support solicitando activar protocol = POS en las 14 sucursales restantes; y auditoría de las 10 facturas históricas de Supabase.<br>• <strong>Catálogo de 13 Diseños de Rotulación 3D Anamórfica (3D Truck Wraps 2752x1536) para Flota de Camiones Torton de 3 Ejes, Video Real de Entrada (video_entrada.mp4) y Despliegue SpicyCandy v2.0.8 (commit 471cf9c)</strong>: Generación de 13 propuestas de rotulación 3D en perspectiva forzada sobre el camión Torton blanco real de Tacos Gavilan mediante transformación homográfica UV con los platillos reales del menú; producción de video_entrada.mp4 desde las fotos de la sucursal; y despliegue de la versión v2.0.8 en SpicyCandy POS.",
+            "descEn": "• <strong>Multi-Chat System Consolidation & Production Deployment (SM TEG v2.23.0 & tacosgavilan.com)</strong>: Audited and committed all pending module updates across repositories (Delivery Platforms Reconciliation UI & Cron Job, 1:1 tg Left Navigation in External Accounting, Gift Card filter & Kore v=8 voice calibration in Order Ready Board, and B2B Anti-Spam filter in tacosgavilan-web/api/contact.js), verified zero TypeScript errors (npx tsc --noEmit), synced TEG Assistant AI knowledge, and updated the October 2026 Executive Report.<br>• <strong>External Accounting (/admin/contabilidad-externa, commits a1a4c858 & 95da79c7) — Deep Reverse Engineering of Intuit Accountant Suite (ias), Tenants View, Official PDF Invoice Emailer & 0.00-Drift Smoke Test</strong>: Live Chrome inspection of Raquel Accounting (Clients, Books Review, Practice Management, and all 7 client companies), built the Tenants/Customers view, official PDF invoice generator and email dispatcher (/api/external-accounting/send-invoice), docked sub-sidebar layout, and certified scripts/qbo_full_platform_smoke.ts with 0.00 drift across all 7 entities.<br>• <strong>Delivery Platforms Reconciliation (/admin/conciliar-delivery) — Executive UI Redesign, Strict MM/DD/YYYY Date Formatting, Full EN/ES Bilingual Parity & 4-Subagent Parallel Audit</strong>: Streamlined the reconciliation interface for immediate operational clarity, enforced US MM/DD/YYYY date formatting, completed bilingual dictionary keys in lib/i18n.tsx, and conducted a 4-subagent parallel line-by-line audit across all 4 core files.<br>• <strong>Order Ready Board (lib/order-ready-tts.ts, commit a1a4c858) — 2,000-Clip Spanish STT Phonetic Audit, numberToSpanishWords (#909) & v=10 Cache-Busting</strong>: Diagnosed order #909 (spoken with English digits by Gemini 3.8 TTS), implemented numberToSpanishWords(n) so Spanish prompts always spell out numbers in full Spanish words (\"Orden novecientos nueve, ¡ya está!\"), scanned all 2,000 Spanish clips via STT, and regenerated affected clips with &v=10 cache-busting.<br>• <strong>Universal B2B Commercial Anti-Spam Shield V3 on tacosgavilan.com (commit 42e2434), DoorDash Support Case #774836182 (Storefront POS Integration) & Supabase Billing Audit (RNLIRT-00004 to 00013)</strong>: Deployed structural non-consumer domain detection (!CONSUMER_EMAIL_DOMAINS) combined with B2B outreach signals in tacosgavilan-web/api/contact.js; replied to DoorDash POS Integration Support to activate protocol = POS across the remaining 14 branches; and audited all 10 historical Supabase invoices.<br>• <strong>13 Anamorphic 3D Truck Wrap Designs (2752x1536) for 3-Axle Box Truck Fleet, Store Entrance Video (video_entrada.mp4) & SpicyCandy v2.0.8 Deployment (commit 471cf9c)</strong>: Produced 13 forced-perspective 3D truck wrap proposals mapped via UV homography onto the real white Tacos Gavilan 3-axle box truck featuring authentic menu photography; generated video_entrada.mp4 from real store entrance photos; and deployed SpicyCandy POS v2.0.8."
+        },
+        {
+            "date": "31-Oct-2026",
+            "time": "8:21 AM - 9:26 PM",
+            "hours": 13.1,
+            "badges": [
+                "Contabilidad Externa Certificación Fases 6, 7 y 8 (commit 50cca39c)",
+                "Hardening ACID, 20 Reportes CPA (.xlsx/.pdf) & ERP Puro 8 Empresas",
+                "Catálogo 43 Diseños Wrap 3D Camión Torton 26ft (Series VI y VII)",
+                "3 Masters 1080p Video Entrada 2 con Orden #122",
+                "Silenciamiento TEG_LiveBackup_OneDrive & Seguimiento DoorDash #774836182",
+                "IT en La Bodega"
+            ],
+            "descEs": "• <strong>Contabilidad Externa (/admin/contabilidad-externa, commit 50cca39c) — Certificación Integral de las Fases 6, 7 y 8 (Hardening ACID, Paridad QBO 1:1 en 20 Reportes CPA y Depuración a ERP Contable Puro para las 8 Empresas)</strong>: Eliminación de creación de contactos huérfanos fuera de RPC, conversión de toggle_cleared_status en operación atómica con bitácora y outbox, compensación automática de Storage en fallos de adjuntos, hidratación determinística de enlaces profundos (lib/external-accounting-deep-links.ts), 20 modos de reporte CPA con exportación binaria nativa .xlsx y .pdf, sanitización XSS de vistas previas de correo (lib/external-accounting-html-sanitize.ts), depuración total de anuncios comerciales de Intuit, barra lateral colapsada por defecto y botón directo \"Salir\" hacia /inicio.<br>• <strong>Catálogo Maestro de Rotulación 3D para Camiones Torton de 26 Pies (Series VI y VII, Diseños #1 al #43 en 2752x1536) y 3 Masters 1080p de video entrada 2.mp4 con Orden #122</strong>: Diseño de las Series VI y VII de cajas secas de 26 pies (vistas laterales y puertas traseras en calles y autopistas de Los Ángeles) utilizando exclusivamente los platillos reales del menú de tacosgavilan.com (sin trompos ni fajitas), tipografía oficial y rojo Pantone 485; más producción de 3 versiones 1080p de video entrada 2.mp4 integrando el llamado real de la Orden #122.<br>• <strong>Silenciamiento de Consola TEG_LiveBackup_OneDrive en Windows, Seguimiento de Caso DoorDash #774836182 en Basecamp y Monitoreo de Despliegues Vercel / Supabase</strong>: Reconfiguración de la tarea programada TEG_LiveBackup_OneDrive mediante lanzador silencioso wscript.exe (WindowStyle 0) para eliminar ventanas emergentes de PowerShell cada 15 minutos, actualización del hilo de seguimiento en Basecamp para el caso DoorDash #774836182 y verificación de builds de producción en Vercel.",
+            "descEn": "• <strong>External Accounting (/admin/contabilidad-externa, commit 50cca39c) — Full Certification of Phases 6, 7 & 8 (ACID Hardening, 1:1 QBO Parity Across 20 CPA Reports & Pure Accounting ERP Cleanup for All 8 Companies)</strong>: Eliminated pre-RPC orphan contact creation, converted toggle_cleared_status into a single atomic RPC with audit log and outbox enqueueing, added Storage compensation on attachment DB failure, deterministic URL deep-link hydration (lib/external-accounting-deep-links.ts), 20 CPA report modes with native binary .xlsx and .pdf export, allowlist HTML email preview sanitization (lib/external-accounting-html-sanitize.ts), complete removal of Intuit commercial upsells, collapsed-by-default left rail, and direct \"Exit\" button to /inicio.<br>• <strong>Master 3D Box Truck Wrap Catalog for 26-Foot Fleet (Series VI & VII, Designs #1–#43 at 2752x1536) & 3 1080p Masters of video entrada 2.mp4 with Order #122</strong>: Designed Series VI and VII for the 26-foot box truck fleet (side and rear roll-up door views across Los Angeles streets and freeways) strictly featuring authentic tacosgavilan.com menu photography (zero trompos or fajitas), official typography, and Pantone 485 Red; plus rendered 3 1080p masters of video entrada 2.mp4 with the live Order #122 voice callout.<br>• <strong>Windows TEG_LiveBackup_OneDrive Hidden-Console Fix, DoorDash Case #774836182 Basecamp Follow-Up & Vercel / Supabase Deployment Monitoring</strong>: Reconfigured the TEG_LiveBackup_OneDrive scheduled task via a silent wscript.exe wrapper (WindowStyle 0) so PowerShell backup windows never pop up every 15 minutes, updated the Basecamp tracking thread for DoorDash Case #774836182, and verified production Vercel deployments."
         }
     ],
     "effortSummary": [
         {
             "name": "App Móvil Clientes (/app V1 & V2), Gavilan POS & Sitio Web (tacosgavilan.com)",
-            "hours": 66.1,
-            "percent": 30
+            "hours": 70.2,
+            "percent": 29
         },
         {
-            "name": "Order Ready (4,000 Audios Kore v=8 & 5 Plantillas), Preparador KDS & Blindaje Delivery",
-            "hours": 54.5,
-            "percent": 24.7
+            "name": "Contabilidad, Contabilidad Externa (Fases 1–8, 1:1 QBO & 20 Reportes), Conciliar Delivery, Viele & RONOS",
+            "hours": 62.5,
+            "percent": 25.8
         },
         {
-            "name": "Contabilidad, Contabilidad Externa (1:1 QBO & Drill-Down), Conciliar Delivery, Viele & RONOS",
-            "hours": 49.6,
-            "percent": 22.5
+            "name": "Order Ready (4,000 Audios Kore v=10 & 5 Plantillas), Preparador KDS & Blindaje Delivery",
+            "hours": 56.5,
+            "percent": 23.3
         },
         {
             "name": "Módulo TRAINING (Academia SOP 4 Días), Home Hub (/inicio), Ciberseguridad, Descansos V29 & Actividades",
-            "hours": 31.4,
-            "percent": 14.2
+            "hours": 32.1,
+            "percent": 13.3
         },
         {
-            "name": "Inventario, Orden Diaria IA, Uniformes, Mantenimiento, Viele & Salsa 5oz",
-            "hours": 18.9,
+            "name": "Inventario, Orden Diaria IA, Uniformes, Mantenimiento, Salsa 5oz & Flota Torton 3D Wraps",
+            "hours": 20.9,
             "percent": 8.6
         }
     ],

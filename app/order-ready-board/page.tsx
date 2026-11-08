@@ -114,6 +114,7 @@ import { getCaliforniaBusinessDate, getCaliforniaShift } from '@/lib/business-da
 import { STORE_GUID_BY_CODE } from '@/lib/toast-stores'
 import { isDrinkOrDessertOnlyOrder } from '@/lib/order-ready-filter'
 import { purgeTabletStaleCaches, getTabletNoCacheHeaders } from '@/lib/tablet-cache-cleaner'
+import PhoneCallbackAlertBanner from '@/components/PhoneCallbackAlertBanner'
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
@@ -2644,6 +2645,9 @@ function OrderReadyBoardContent() {
           </span>
         </div>
       )}
+
+      {/* Banner de Recados Telefónicos Prioritarios (Contestadora IA) */}
+      <PhoneCallbackAlertBanner storeCode={selectedStore} />
 
       {/* Top Header / Barra Superior */}
       <header className={`px-4 sm:px-6 py-3.5 flex flex-wrap items-center justify-between gap-3 border-b transition-colors ${

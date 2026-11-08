@@ -30,6 +30,14 @@
  *
  * @notes
  * - No incluye ninguna columna autogenerada (`GENERATED ALWAYS AS`) en mutaciones SQL.
+ * - Fix 2026-11-04: filtro de periodos INCLUSIVO (`payoutPeriodOverlapsRange`); el estado de disputa/recuperación por corte
+ *   usa `evaluateDisputeRecovery` con el índice de settlements (solo créditos localizados en el payout posterior cuentan como
+ *   recuperados). Estas evaluaciones solo generan alertas de auditoría: nunca alteran las líneas del asiento ni bloquean
+ *   un payout oficial completo y balanceado.
+ * - Desglose de Órdenes por Póliza (`includedOrders` y `toastCrossCheckSummary`): cada corte enriquecido incluye el resumen de
+ *   cruce contra Toast POS (`toastMatchedExactCount`, `varianceOrDeductionCount`, `missingToastCount`, `toastExpectedGrossTotal`,
+ *   `platformGrossTotal`) y en el detalle (`auditBreakdown.includedOrders`) entrega la lista orden por orden vinculada al payout
+ *   con su ticket Toast (`toast_display_number`), montos comparados y estado operativo.
  */
 
 import { NextRequest, NextResponse } from 'next/server'
@@ -39,9 +47,14 @@ import { getAuthClient } from '@/lib/quickbooks'
 import { getQBStoreRefs } from '@/lib/qb-classes-locations'
 import {
   DeliveryPlatformCode,
+  DisputeRecoveryContext,
+  buildRecoverySettlementIndex,
   evaluateDisputeRecovery,
   fetchAllSupabaseRows,
+  getOrderRecoveryPayoutRefs,
   getStorePlatformMappings,
+  payoutPeriodOverlapsRange,
+  resolveEffectivePayoutPeriod,
   round2,
 } from '@/lib/delivery-reconciliation'
 
@@ -686,6 +699,8 @@ export function buildPayoutJournalPreview(params: {
   splitTaxOnRefunds?: boolean
   platformSyncStatus?: 'COMPLETE' | 'PARTIAL' | 'FAILED' | 'NOT_CONNECTED'
   platformSyncCause?: string
+  /** Índice de settlements para verificar créditos de recuperación (solo afecta alertas de auditoría, nunca el asiento). */
+  recoveryCtx?: DisputeRecoveryContext
 }) {
   const {
     payout,
@@ -694,6 +709,7 @@ export function buildPayoutJournalPreview(params: {
     splitTaxOnRefunds = false,
     platformSyncStatus,
     platformSyncCause,
+    recoveryCtx,
   } = params
   const rawPlat = String(payout?.platform || '').trim().toUpperCase()
   const isSupportedPlatform = ['UBER_EATS', 'DOORDASH', 'GRUBHUB'].includes(rawPlat)
@@ -814,7 +830,7 @@ export function buildPayoutJournalPreview(params: {
       o.reconciliation_status !== 'MISSING_IN_PLATFORM' &&
       Boolean(payoutRef) &&
       (String(o.payout_reference_id || '').trim() === payoutRef ||
-        String(o.raw_payload?.reimbursement_payout_ref || '').trim() === payoutRef)
+        getOrderRecoveryPayoutRefs(o).includes(payoutRef))
   )
 
   const deductedOrders = settledOrdersInCut.filter(
@@ -1243,7 +1259,7 @@ export function buildPayoutJournalPreview(params: {
     })
   }
 
-  const disputeEvaluations = deductedOrders.map((o) => evaluateDisputeRecovery(o))
+  const disputeEvaluations = deductedOrders.map((o) => evaluateDisputeRecovery(o, recoveryCtx))
   const openOrPartialDisputesCount = disputeEvaluations.filter(
     (d) =>
       d.recoveryClassification === 'OPEN_DISPUTE' ||
@@ -1268,6 +1284,64 @@ export function buildPayoutJournalPreview(params: {
     })
   }
 
+  const includedOrders = settledOrdersInCut
+    .filter((o) => String(o.payout_reference_id || '').trim() === payoutRef)
+    .map((o) => {
+      const gVar = round2(Number(o.gross_diff ?? o.gross_variance ?? 0))
+      const errChg = round2(Number(o.error_charge || 0) + Number(o.adjustment_amount || 0))
+      const hasToastLink =
+        Boolean(o.toast_order_guid) || o.raw_payload?.explicit_review_decision === 'CONFIRM_TOAST_MATCH'
+      const isOk = hasToastLink && Math.abs(gVar) <= 0.05 && errChg >= -0.01
+      return {
+        id: o.id,
+        platform_order_id: o.platform_order_id,
+        business_date: o.business_date,
+        customer_name: o.customer_name || null,
+        toast_order_guid: o.toast_order_guid || null,
+        toast_display_number: o.toast_display_number || null,
+        toast_tab_name: o.toast_tab_name || null,
+        toast_net_sales: round2(Number(o.toast_net_sales || 0)),
+        toast_tax: round2(Number(o.toast_tax || 0)),
+        toast_expected_gross: round2(Number(o.toast_expected_gross || 0)),
+        platform_subtotal: round2(Number(o.platform_subtotal || 0)),
+        platform_tax_paid_to_merchant: round2(Number(o.platform_tax_paid_to_merchant || 0)),
+        platform_gross_receivable: round2(Number(o.platform_gross_receivable || 0)),
+        total_fees: round2(
+          Number(o.commission_fee || 0) +
+            Number(o.delivery_fee || 0) +
+            Number(o.processing_fee || 0) +
+            Number(o.marketing_fee || 0)
+        ),
+        error_charge: errChg,
+        net_payout: round2(Number(o.net_payout || 0)),
+        gross_variance: gVar,
+        reconciliation_status: o.reconciliation_status,
+        match_confidence: o.match_confidence,
+        dispute_status: o.dispute_status || 'NONE',
+        cross_check_state: isOk
+          ? 'MATCHED_OK'
+          : errChg < -0.01
+          ? 'DEDUCTED_OR_DISPUTED'
+          : !hasToastLink
+          ? 'MISSING_IN_TOAST'
+          : 'VARIANCE',
+      }
+    })
+
+  const toastCrossCheckSummary = {
+    declaredOrdersCount: Number(payout?.orders_count || includedOrders.length || 0),
+    linkedOrdersCount: includedOrders.length,
+    matchedOkCount: includedOrders.filter((io) => io.cross_check_state === 'MATCHED_OK').length,
+    underpaidOrDeductedCount: includedOrders.filter(
+      (io) => io.cross_check_state === 'VARIANCE' || io.cross_check_state === 'DEDUCTED_OR_DISPUTED'
+    ).length,
+    missingInToastCount: includedOrders.filter((io) => io.cross_check_state === 'MISSING_IN_TOAST').length,
+    unpaidInToastCount: unpaidToastOrders.length,
+    toastExpectedGrossSum: round2(includedOrders.reduce((acc, io) => acc + io.toast_expected_gross, 0)),
+    platformGrossSum: round2(includedOrders.reduce((acc, io) => acc + io.platform_gross_receivable, 0)),
+    netPayoutSum: round2(includedOrders.reduce((acc, io) => acc + io.net_payout, 0)),
+  }
+
   return {
     idempotencyKey,
     txnDate: payout.period_end || payout.payout_date || new Date().toISOString().slice(0, 10),
@@ -1286,7 +1360,9 @@ export function buildPayoutJournalPreview(params: {
     auditBreakdown: {
       settledOrdersCount: settledOrdersInCut.length || Number(payout.orders_count || 0),
       linkedOrdersExactCount: settledOrdersInCut.length,
-      deductedOrders: deductedOrders.map((o) => ({
+      includedOrders,
+      toastCrossCheckSummary,
+      deductedOrders: deductedOrders.map((o, idx) => ({
         id: o.id,
         platform_order_id: o.platform_order_id,
         business_date: o.business_date,
@@ -1303,6 +1379,13 @@ export function buildPayoutJournalPreview(params: {
         dispute_reason: o.dispute_reason,
         reimbursement_payout_ref: o.raw_payload?.reimbursement_payout_ref || null,
         reimbursement_amount: o.raw_payload?.reimbursement_amount || null,
+        // Evaluación verificada: original disputado, recuperado verificado y saldo pendiente por separado
+        recovery_classification: disputeEvaluations[idx]?.recoveryClassification || 'NONE',
+        original_disputed_amount: disputeEvaluations[idx]?.originalDeductionAbs || 0,
+        verified_recovered_amount: disputeEvaluations[idx]?.verifiedRecoveredAmount || 0,
+        claimed_unverified_amount: disputeEvaluations[idx]?.claimedUnverifiedAmount || 0,
+        unrecovered_amount: disputeEvaluations[idx]?.unrecoveredAmount || 0,
+        recovery_payout_refs: getOrderRecoveryPayoutRefs(o),
       })),
       crossPayoutRefunds,
       unpaidToastOrdersCount: unpaidToastOrders.length,
@@ -1380,24 +1463,17 @@ export async function GET(req: NextRequest) {
       return q.range(from, to)
     })
 
+    for (const p of rawPayoutsAll || []) {
+      const eff = resolveEffectivePayoutPeriod(p)
+      p.period_start = eff.period_start
+      p.period_end = eff.period_end
+    }
+
     const rawPayouts = (rawPayoutsAll || []).filter((p: any) => {
       if (search && search.length >= 2) return true
       if (!startDate && !endDate) return true
-      const pEnd = p.period_end || ''
-      const pStart = p.period_start || pEnd
-      const pPay = p.payout_date || ''
-      const effStart = startDate || '2020-01-01'
-      const effEnd = endDate || '2099-12-31'
-      if (pStart && pEnd) {
-        if (pStart < pEnd && effStart < effEnd) {
-          return pStart <= effEnd && pEnd > effStart
-        }
-        return pStart <= effEnd && pEnd >= effStart
-      }
-      if (pPay) {
-        return pPay >= effStart && pPay <= effEnd
-      }
-      return true
+      // Defecto 3: solapamiento INCLUSIVO (period_start <= endDate && period_end >= startDate)
+      return payoutPeriodOverlapsRange(p, startDate || '2020-01-01', endDate || '2099-12-31')
     })
 
     let minQbDate = startDate || '2026-09-01'
@@ -1469,6 +1545,27 @@ export async function GET(req: NextRequest) {
       if (o?.id) rawOrdersMap.set(String(o.id), o)
     }
     const rawOrders = Array.from(rawOrdersMap.values())
+
+    // Auto-vincular órdenes reales de plataforma con `payout_reference_id` nulo cuando exista un único corte oficial de esa tienda+plataforma para esa fecha
+    for (const o of rawOrders) {
+      if (!o || o.match_confidence === 'TOAST_ONLY' || Number(o.store_id) <= 0 || o.payout_reference_id || !o.business_date) {
+        continue
+      }
+      const candidatePayouts = (rawPayoutsAll || []).filter(
+        (sp: any) =>
+          Number(sp.store_id) === Number(o.store_id) &&
+          sp.platform === o.platform &&
+          sp.payout_reference_id &&
+          sp.period_start &&
+          sp.period_end &&
+          o.business_date >= sp.period_start &&
+          o.business_date <= sp.period_end
+      )
+      if (candidatePayouts.length === 1) {
+        o.payout_reference_id = candidatePayouts[0].payout_reference_id
+        o.payout_date = candidatePayouts[0].payout_date || o.payout_date || null
+      }
+    }
 
     let qbJournalEntries: any[] = []
     let qbDeposits: any[] = []
@@ -1557,6 +1654,8 @@ export async function GET(req: NextRequest) {
     }
 
     const payoutsToBackfillQbId: Array<{ id: string; raw_payload: Record<string, any> }> = []
+    // Índice de settlements (todos los payouts de la tienda/plataforma) para verificar créditos de recuperación en lectura
+    const recoveryCtx: DisputeRecoveryContext = { settlementPayouts: buildRecoverySettlementIndex(rawPayoutsAll || []) }
 
     let enrichedRecords = (rawPayouts || []).map((p: any) => {
       const storeMeta = storeNameMap.get(p.store_id) || { name: `Store #${p.store_id}`, code: '' }
@@ -1570,6 +1669,7 @@ export async function GET(req: NextRequest) {
         storeName: storeMeta.name,
         storeOrders,
         splitTaxOnRefunds: false,
+        recoveryCtx,
       })
 
       const savedQbId = String(p.raw_payload?.qb_journal_entry_id || '').trim()
@@ -1834,18 +1934,15 @@ export async function GET(req: NextRequest) {
       let fullRecoveryCount = 0
       let unverifiedRecoveryCount = 0
       for (const dOrd of deductedOrdersList) {
+        // Defecto 2: solo créditos verificados contra el settlement cuentan como dinero recuperado
         const dStat = String(dOrd.dispute_status || 'PENDING')
-        const recAmt = round2(Math.abs(Number(dOrd.reimbursement_amount || 0)))
-        const dedAmt = round2(Math.abs(Number(dOrd.error_charge || 0)))
-        const hasRef = Boolean(String(dOrd.reimbursement_payout_ref || '').trim())
-        if (dStat === 'REIMBURSED') {
-          if (hasRef && recAmt > 0 && recAmt >= dedAmt - 0.05) {
-            fullRecoveryCount++
-          } else if (hasRef && recAmt > 0) {
-            partialRecoveryCount++
-          } else {
-            unverifiedRecoveryCount++
-          }
+        const cls = String(dOrd.recovery_classification || 'OPEN_DISPUTE')
+        if (cls === 'FULL_RECOVERY') {
+          fullRecoveryCount++
+        } else if (cls === 'PARTIAL_RECOVERY') {
+          partialRecoveryCount++
+        } else if (cls === 'UNVERIFIED_RECOVERY') {
+          unverifiedRecoveryCount++
         } else if (dStat !== 'ACCEPTED_LOSS') {
           openDisputesCount++
         }
@@ -1871,7 +1968,7 @@ export async function GET(req: NextRequest) {
         netRefundsAdjustments: preview.rawErrAdj,
         label_es:
           unverifiedRecoveryCount > 0
-            ? `${unverifiedRecoveryCount} recuperación(es) sin evidencia completa`
+            ? `${unverifiedRecoveryCount} recuperación(es) pendiente(s) de verificar`
             : partialRecoveryCount > 0
             ? `${partialRecoveryCount} recuperación(es) parcial(es) (${openDisputesCount} abierta(s))`
             : openDisputesCount > 0
@@ -1885,7 +1982,7 @@ export async function GET(req: NextRequest) {
             : 'Sin disputas ni cargos por error',
         label_en:
           unverifiedRecoveryCount > 0
-            ? `${unverifiedRecoveryCount} recovery(ies) missing verifiable evidence`
+            ? `${unverifiedRecoveryCount} recovery(ies) pending verification`
             : partialRecoveryCount > 0
             ? `${partialRecoveryCount} partial recovery(ies) (${openDisputesCount} open)`
             : openDisputesCount > 0
@@ -1942,6 +2039,7 @@ export async function GET(req: NextRequest) {
         payoutPolicyStatus,
         auditStatus,
         disputeRecoveryStatus,
+        toastCrossCheckSummary: preview.auditBreakdown?.toastCrossCheckSummary || null,
         qboMatchEvaluation: {
           classification: qboMatch.classification,
           candidates: qboMatch.candidates,

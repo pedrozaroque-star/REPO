@@ -1,0 +1,132 @@
+{
+  "totalHours": 28.6,
+  "rows": [
+    {
+      "date": "01-Nov-2026",
+      "time": "12:28 AM - 1:46 AM & 3:50 PM - 4:05 PM & 5:50 PM - 5:51 PM",
+      "hours": 1.8,
+      "badges": [
+        "Contabilidad Externa Hardening Final Pre-Deploy",
+        "Cola STORAGE_CLEANUP & Bloqueo Flags Producción (HTTP 403)",
+        "Migración Cuenta Corporativa Manager Lynwood (victorm@tacosgavilan.com)",
+        "IT en La Bodega"
+      ],
+      "descEs": "• <strong>Contabilidad Externa (/admin/contabilidad-externa) — Mini-Fase de Hardening Final y Cola Durable STORAGE_CLEANUP</strong>: Bloqueo estricto en producción (HTTP 403 TEST_FAULT_INJECTION_FORBIDDEN_IN_PRODUCTION) de flags internos de prueba, tope server-side de 50 ítems en process_qbo_outbox, cola de compensación durable STORAGE_CLEANUP en external_accounting_sync_outbox cuando falla el borrado físico de un adjunto en Supabase Storage y certificación de las 8 secciones de verify-phase7-qbo-parity-and-deeplinks.ts.<br>• <strong>Actualización de Cuenta Corporativa del Manager de Lynwood (#14) en Supabase</strong>: Migración y verificación en vivo del registro de usuario de Victor Muñoz (users.id = 75) en la tabla public.users a su correo corporativo oficial victorm@tacosgavilan.com.",
+      "descEn": "• <strong>External Accounting (/admin/contabilidad-externa) — Final Pre-Deploy Hardening & Durable STORAGE_CLEANUP Queue</strong>: Blocked internal test fault-injection flags in production (HTTP 403 TEST_FAULT_INJECTION_FORBIDDEN_IN_PRODUCTION), enforced a 50-item server-side cap on process_qbo_outbox, implemented durable STORAGE_CLEANUP compensation tasks in external_accounting_sync_outbox whenever physical Storage deletion fails, and certified all 8 sections of verify-phase7-qbo-parity-and-deeplinks.ts.<br>• <strong>Lynwood (#14) Store Manager Corporate Account Migration in Supabase</strong>: Updated and verified Victor Muñoz's user record (users.id = 75) in public.users to his official corporate email victorm@tacosgavilan.com."
+    },
+    {
+      "date": "02-Nov-2026",
+      "time": "11:47 AM - 2:44 PM & 4:04 PM - 4:24 PM & 7:57 PM - 8:42 PM",
+      "hours": 4.2,
+      "badges": [
+        "Contabilidad Externa Conciliación Bancaria 1:1 QBO (537 Sesiones)",
+        "Captura en Vivo en Reconcile ($0.00 Difference)",
+        "Tableta Preparador Motor Táctil 0ms Guantes/Mica",
+        "Voces Kore Café & Champurrado (\"¡ya está!\")",
+        "Evidencia Dual Menus Toast Web (Caso DoorDash #774836182)",
+        "IT en La Bodega"
+      ],
+      "descEs": "• <strong>Contabilidad Externa (/admin/contabilidad-externa, commits c1ae5971 y 5430e2db) — Suite de Conciliación Bancaria 1:1 QuickBooks Online (Reconcile) con 537 Sesiones Históricas y Captura en Vivo hasta $0.00</strong>: Ingeniería inversa del módulo Reconcile de Intuit QBO a partir del video operativo de Raquel (hoy.mp4) y su sesión en Chrome, migrando las 537 sesiones históricas de conciliación (_reconcileSessions y allAccountReconciliations) y 2,010 transacciones conciliadas; construcción del espacio de trabajo en 2 pasos con encabezado de fórmula en 2 niveles, drawer Edit info, vistas Summary y History by account, y barra de Captura en Vivo de Pagos/Cheques y Depósitos dentro de la conciliación con botón \"⚡ Llenar Diferencia Restante\" para cuadrar diferencias (ej. -$213,530.34 en Govegu LLC) exactamente a $0.00.<br>• <strong>Tableta del Preparador (/inventory/preparador, commits 595e82d7 y be00bd48) — Motor Táctil Ultra-Sensible (0ms) para Guantes y Mica Protectora + Nuevas Locuciones de Café y Champurrado</strong>: Disparo inmediato en el 100% de la superficie de la tarjeta al primer milisegundo de contacto (pointerdown / touchstart), rescate de toques cancelados (pointercancel) y radar magnético de proximidad para uso con guantes de cocina sobre mica protectora; más actualización de las voces de llamado a \"Café pendiente, ¡ya está!\" y \"Champurrado pendiente, ¡ya está!\".<br>• <strong>Evidencia Técnica de Dual Menus en Toast Web (Norwalk vs Downey) para Caso DoorDash #774836182 y Masterización Multimedia Full HD 1080p 60fps (.mp4 y .pptx)</strong>: Inspección comparativa en Toast Web demostrando que las 15 sucursales tienen menús separados para DoorDash (3PD) y Storefront (Toast Storefront Menu-allday), enviando respuesta ejecutiva documentada al equipo de soporte de DoorDash; más masterización de video corporativo 1080p 60fps con presentación PowerPoint (.pptx).",
+      "descEn": "• <strong>External Accounting (/admin/contabilidad-externa, commits c1ae5971 & 5430e2db) — 1:1 QuickBooks Online Bank Reconciliation Suite (Reconcile) with 537 Historical Sessions & Live In-Reconcile Entry to $0.00</strong>: Reverse-engineered Intuit QBO's Reconcile module from Raquel's operational video (hoy.mp4) and live Chrome session, migrating all 537 historical reconciliation sessions (_reconcileSessions and allAccountReconciliations) and 2,010 reconciled transactions; built the 2-step workspace with 2-tier formula header, Edit info slide-over drawer, Summary and History by account views, and Live In-Reconcile Payment/Deposit Capture bar with a \"⚡ Fill Remaining Difference\" button to bring differences (e.g. -$213,530.34 in Govegu LLC) to $0.00.<br>• <strong>Preparador Kitchen Tablet (/inventory/preparador, commits 595e82d7 & be00bd48) — Ultra-Sensitive 0ms Glove & Screen-Protector Touch Engine + Updated Coffee & Champurrado Voice Callouts</strong>: Enabled 0ms first-contact firing across 100% of each order card (pointerdown / touchstart), pointercancel touch rescue, and magnetic proximity hit-testing for kitchen gloves over thick screen protectors; plus updated dining room voice callouts to \"Café pendiente, ¡ya está!\" and \"Champurrado pendiente, ¡ya está!\".<br>• <strong>Toast Web Dual-Menu Technical Evidence (Norwalk vs Downey) for DoorDash Case #774836182 & Full HD 1080p 60fps Video + PowerPoint (.pptx) Production</strong>: Audited Toast Web across Norwalk and Downey to prove all 15 branches maintain separate menus for DoorDash (3PD) and Storefront (Toast Storefront Menu-allday), dispatching documented technical proof to DoorDash support; plus mastered a 1080p 60fps corporate video and native PowerPoint (.pptx)."
+    },
+    {
+      "date": "03-Nov-2026",
+      "time": "12:16 PM - 5:37 PM & 6:28 PM - 7:42 PM & 8:42 PM - 8:55 PM & 10:26 PM - 11:51 PM",
+      "hours": 8.5,
+      "badges": [
+        "Conciliar Delivery Desbloqueo Pólizas QBO & Cobertura Uber Eats",
+        "Preparador & Order Ready Cero Toques Perdidos & Voz Kore Auténtica",
+        "Auditoría Forense Contabilidad Azusa Orden Prepagada (29-Sep -> 03-Oct)",
+        "Asistente IA Failover Multi-Key (HTTP 402) & RLS Tablas Nuevas",
+        "SpicyCandy POS v2.0.9 (commit 12f41bb) & Video 16:9 Lanczos 45m",
+        "IT en La Bodega"
+      ],
+      "descEs": "• <strong>Conciliar Delivery Plataformas (/admin/conciliar-delivery) — Separación de Bloqueos Contables vs Alertas Informativas en Pólizas QBO, Optimización Order-by-Order y Vinculación de Cortes Uber Eats</strong>: Eliminación de referencias hardcodeadas, separación estricta entre bloqueos reales de las 4 líneas del corte (publishBlockers) y alertas informativas de órdenes individuales (auditWarnings) para permitir publicar cortes válidos en QuickBooks Online, optimización de carga en la pestaña Order by Order y vinculación completa de órdenes a sus cortes oficiales de Uber Eats en West Covina (172), Slauson (200), South Gate (86) y Santa Ana (50).<br>• <strong>Tableta del Preparador y Order Ready Board (commits b9920893 y 444ed57f) — Eliminación de Toques Perdidos (2-3 Taps) y Restauración del Timbre Auténtico Kore para Café y Champurrado</strong>: Memoización estática del DOM de las tarjetas para que el polling cada 4s no destruya el nodo durante el toque, triple reintento automático en red, guardia contra desfase de reloj (clock-skew guard) en /order-ready-board, reducción de debounce a 1.8s y reconstrucción acústica de cafe-listo.wav y champurrado-listo.wav con la voz auténtica de Kore.<br>• <strong>Investigación Forense en Contabilidad / Cohesion — Orden Prepagada #44 en Azusa ($414.08, pagada 29-Sep y recogida 03-Oct) y Reporte Ejecutivo a Raquel</strong>: Trazabilidad completa en Toast POS API y QuickBooks Online demostrando el origen de los $414.08 en Azusa el Día 1 de publicación (03-Oct-2026) y envío de explicación ejecutiva por correo a raquel@tacosgavilan.com.<br>• <strong>Motor de Respaldo Multi-Llave y Multi-Modelo en TEG Assistant ante HTTP 402, Migración RLS en Tablas Nuevas (20261103_enable_rls_new_delivery_and_training_tables.sql), Despliegue SpicyCandy v2.0.9 (commit 12f41bb) y Renderizado Fullscreen 16:9 Lanczos (45 min)</strong>: Implementación de callGeminiChatWithFailover en app/api/support-chat/route.ts y rotación de llaves en app/api/cron/sync-events/route.ts para aislar llaves con saldo agotado (HTTP 402); activación de RLS en las 9 tablas nuevas de Delivery/Training y en el proyecto secundario candy; despliegue de SpicyCandy v2.0.9; y renderizado de video 16:9 Full HD de 45 minutos.",
+      "descEn": "• <strong>Delivery Platforms Reconciliation (/admin/conciliar-delivery) — Separation of Accounting Blockers vs Audit Warnings on QBO Journals, Order-by-Order Speed Optimization & Uber Eats Payout Linking</strong>: Removed hardcoded references, strictly separated 4-line settlement accounting blockers (publishBlockers) from individual order audit warnings (auditWarnings) so valid settlements can be published to QuickBooks Online, optimized Order-by-Order tab rendering speed, and linked all Uber Eats orders to their official payouts across West Covina (172), Slauson (200), South Gate (86), and Santa Ana (50).<br>• <strong>Preparador Kitchen Tablet & Order Ready Board (commits b9920893 & 444ed57f) — Elimination of Missed Taps (2-3 Taps) & Authentic Kore Voice Restoration for Coffee and Champurrado</strong>: Added static DOM memoization on order tiles so 4-second background polling never unmounts a tile mid-tap, 3x automatic network retries, clock-skew guard on /order-ready-board, 1.8s debounce tuning, and acoustic reconstruction of cafe-listo.wav and champurrado-listo.wav with the authentic Kore voice timbre.<br>• <strong>Forensic Accounting / Cohesion Investigation — Prepaid Order #44 at Azusa ($414.08, paid Sep 29 & picked up Oct 3) & Executive Email to Raquel</strong>: Traced Toast POS API and QuickBooks Online records proving the exact origin of the $414.08 Azusa variance on Day 1 of app publishing (Oct 3, 2026) and emailed a clear executive report to raquel@tacosgavilan.com.<br>• <strong>TEG Assistant Multi-Key & Multi-Model Failover Engine on HTTP 402, RLS Hardening on New Tables (20261103_enable_rls_new_delivery_and_training_tables.sql), SpicyCandy v2.0.9 (commit 12f41bb) & 45-Min 16:9 Lanczos Video Render</strong>: Built callGeminiChatWithFailover in app/api/support-chat/route.ts and key rotation in app/api/cron/sync-events/route.ts to quarantine depleted keys (HTTP 402); enabled RLS across 9 new Delivery/Training tables and the candy project; deployed SpicyCandy POS v2.0.9; and rendered a 45-minute 16:9 Full HD Lanczos video."
+    },
+    {
+      "date": "04-Nov-2026",
+      "time": "7:51 AM - 11:56 AM & 1:03 PM - 4:57 PM & 6:46 PM - 6:59 PM",
+      "hours": 8.2,
+      "badges": [
+        "Nuevo Módulo Contestadora IA Multi-Sucursal (/admin/llamadas)",
+        "Base de Conocimiento Editable, Simulador en Vivo & Recados Realtime",
+        "Conciliar Delivery 15 Tiendas Uber Eats & Cortes Divididos Grubhub Fin de Mes",
+        "Certificación 166/166 Contabilidad vs Cohesion & Regla 12049 West Covina",
+        "Blindaje Wi-Fi en Captura de Sobrantes / Orden Diaria (Lynwood)",
+        "IT en La Bodega"
+      ],
+      "descEs": "• <strong>Nuevo Módulo Contestadora IA Multi-Sucursal (/admin/llamadas, lib/phone-agent.ts y /api/phone/*)</strong>: Diseño e implementación de la recepcionista telefónica con Inteligencia Artificial y voz neuronal Kore para las 15 sucursales de Tacos Gavilan, diferenciando las 4 tiendas con línea fija Spectrum Business (Rialto #1, Hollywood #8, Lynwood #14 y Downey #16 vía *92/*90) y las 11 tiendas con celular Android AT&T (vía **61/**67/**62). Incluye migración en Supabase (20261104163000_create_phone_agent_module.sql: phone_agent_config, phone_knowledge_base, phone_calls, phone_callback_requests), Base de Conocimiento Editable en tiempo real (global o por sucursal), simulador telefónico interactivo con audio en vivo, banner de recados prioritarios en /order-ready-board (PhoneCallbackAlertBanner.tsx) y herramienta IA queryPhoneAgentStatusTool.<br>• <strong>Conciliar Delivery Plataformas (/admin/conciliar-delivery, commits 6aa4673b, 795df290, 651b780b y 548b2004) — Sincronización en 2 Fases para las 15 Sucursales en Uber Eats, Cortes Divididos de Fin de Mes en Grubhub y Corrección de 5 Defectos</strong>: Implementación de sincronización en 2 fases (Fase 1 rápida de cabeceras de payouts para las 15 tiendas y Fase 2 de órdenes) para que al filtrar Uber Eats aparezcan siempre las 15 sucursales completas y no solo 6; soporte oficial de cortes divididos por cambio de mes en Grubhub (resolveGrubhubDistributionPeriod: cierre de mes código 01 10.27.26-10.31.26 y arranque de mes código 04 11.01.26-11.02.26 con TxnDate exacto); candado atómico en QBO; y diseño de tabla a ancho completo.<br>• <strong>Certificación 166/166 en Contabilidad vs Cohesion y Regla 12049 para Party Trays Prepagados en West Covina ($412.21, 01/Oct -> 03/Oct, commit f80c94ee)</strong>: Auditoría global de los 166 paquetes contables en Supabase (100% cuadrados en débitos y créditos), activación de inc_customer_receivables = true (cuenta puente 12049 Open Orders Receivables) en West Covina y las 9 tiendas restantes para órdenes prepagadas de fechas cruzadas, y envío de reporte explicativo por correo a Raquel.<br>• <strong>Blindaje contra Micro-Cortes de Wi-Fi en Captura de Sobrantes / Orden Diaria (app/inventory/orders/page.tsx y actions.ts)</strong>: Diagnóstico del error genérico de Next.js al guardar sobrantes en Lynwood por micro-cortes de Wi-Fi en el cuarto frío, implementando respuestas estructuradas sin excepciones, reintento automático silencioso en segundo plano (800 ms) y auto-desvanecimiento del banner.",
+      "descEn": "• <strong>New Multi-Store AI Phone Receptionist Module (/admin/llamadas, lib/phone-agent.ts & /api/phone/*)</strong>: Designed and built the AI telephone receptionist powered by the Kore neural voice across all 15 Tacos Gavilan branches, supporting the 4 Spectrum Business landline stores (Rialto #1, Hollywood #8, Lynwood #14, and Downey #16 via *92/*90) and 11 AT&T Android wireless stores (via **61/**67/**62). Includes Supabase migration (20261104163000_create_phone_agent_module.sql: phone_agent_config, phone_knowledge_base, phone_calls, phone_callback_requests), live Editable Knowledge Base (global or per-store), interactive live-audio call simulator, real-time priority callback banner on /order-ready-board (PhoneCallbackAlertBanner.tsx), and AI tool queryPhoneAgentStatusTool.<br>• <strong>Delivery Platforms Reconciliation (/admin/conciliar-delivery, commits 6aa4673b, 795df290, 651b780b & 548b2004) — 2-Phase Sync for All 15 Uber Eats Stores, Grubhub Month-End Split Settlements & 5 Defect Fixes</strong>: Built a 2-phase sync (Phase 1 fast payout header sync across all 15 stores + Phase 2 order details) so filtering by Uber Eats displays all 15 branches instead of only 6; added official Grubhub month-end split settlement handling (resolveGrubhubDistributionPeriod: month-end code 01 10.27.26-10.31.26 and new-month code 04 11.01.26-11.02.26 with exact TxnDate); atomic QBO publish lock; and full-width table layout.<br>• <strong>166/166 Accounting vs Cohesion Certification & Account 12049 Rule for Prepaid Party Trays in West Covina ($412.21, Oct 1 -> Oct 3, commit f80c94ee)</strong>: Audited all 166 accounting packets in Supabase (100% balanced debits/credits), enabled inc_customer_receivables = true (bridge account 12049 Open Orders Receivables) for West Covina and the remaining 9 stores for cross-date prepaid orders, and emailed the executive breakdown to Raquel.<br>• <strong>Wi-Fi Micro-Drop Resilience on Leftover Count / Daily Order Capture (app/inventory/orders/page.tsx & actions.ts)</strong>: Resolved Next.js production server-action error banners caused by walk-in cooler Wi-Fi drops in Lynwood by returning structured responses without throwing, adding silent 800ms automatic retries, and auto-dismissing transient banners."
+    },
+    {
+      "date": "06-Nov-2026",
+      "time": "1:17 PM - 4:05 PM",
+      "hours": 2.9,
+      "badges": [
+        "Contestadora IA Pre-Caché Voces Kore en Supabase Storage",
+        "Nombres Limpios Broadway/Central & Diálogos Sin Recortes",
+        "Tableta Preparador Tipografía Ampliada & Botón \"Orden Pendiente\"",
+        "App Móvil Clientes Camino 1 (Menú Nativo + DoorDash Storefront)",
+        "IT en La Bodega"
+      ],
+      "descEs": "• <strong>Contestadora IA Multi-Sucursal (/admin/llamadas, lib/phone-agent.ts y /api/phone/*) — Pre-Caché de Voces en Supabase Storage (order-ready-tts), Nombres Limpios de Sucursales y Diálogos Completos sin Recortes</strong>: Almacenamiento permanente en el bucket order-ready-tts de Supabase Storage de las respuestas telefónicas con la voz oficial Kore para respuesta instantánea en llamadas reales y en el simulador; limpieza de nombres hablados (\"Tacos Gavilan Broadway\" y \"Tacos Gavilan Central\" sin el prefijo \"LA\", conservando intacto \"Tacos Gavilan La Puente\"); eliminación de truncamientos de texto/audio a mitad de frase; y pulido de respuestas naturales sin muletillas repetitivas.<br>• <strong>Tableta del Preparador (/inventory/preparador, commits 5bd48126 y ab639adf) — Tipografía Ampliada y Nuevo Botón Fijo \"🔔 Orden Pendiente\" con Voz Kore</strong>: Ampliación del tamaño de letra en los botones de llamado rápido y adición del tercer botón fijo \"🔔 Orden Pendiente\" junto a Café y Champurrado, generando y desplegando orden-pendiente-listo.wav (\"Orden pendiente, ¡ya está!\") con la voz oficial Kore.<br>• <strong>App Móvil de Clientes — Conexión del Camino 1 (Menú y Carrito Nativos + Sesión de Checkout en DoorDash Storefront)</strong>: Actualización de app/api/mobile/menu/route.ts y lib/doordash-storefront.ts para conectar el catálogo y carrito nativos con la sesión de checkout de DoorDash Storefront.",
+      "descEn": "• <strong>Multi-Store AI Phone Receptionist (/admin/llamadas, lib/phone-agent.ts & /api/phone/*) — Pre-Cached Kore Voices in Supabase Storage (order-ready-tts), Clean Branch Names & Unclipped Dialogs</strong>: Pre-cached phone receptionist voice responses in Supabase Storage (order-ready-tts) using the official Kore voice for zero-latency playback on live calls and in the simulator; cleaned spoken store names (\"Tacos Gavilan Broadway\" and \"Tacos Gavilan Central\" without the \"LA\" prefix while keeping \"Tacos Gavilan La Puente\" intact); removed mid-sentence text/audio truncation; and refined dialog phrasing.<br>• <strong>Preparador Kitchen Tablet (/inventory/preparador, commits 5bd48126 & ab639adf) — Enlarged Button Typography & New \"🔔 Orden Pendiente\" Callout Button with Kore Voice</strong>: Enlarged font sizes on quick-call buttons and added the third fixed button \"🔔 Orden Pendiente\" alongside Coffee and Champurrado, generating and deploying orden-pendiente-listo.wav (\"Orden pendiente, ¡ya está!\") with the official Kore voice.<br>• <strong>Customer Mobile App — Path 1 Integration (Native Menu & Cart + DoorDash Storefront Checkout Session)</strong>: Updated app/api/mobile/menu/route.ts and lib/doordash-storefront.ts to connect the native menu and cart with DoorDash Storefront checkout sessions."
+    },
+    {
+      "date": "07-Nov-2026",
+      "time": "2:03 PM - 5:05 PM",
+      "hours": 3,
+      "badges": [
+        "Conciliar Delivery Cruce Bidireccional & Desglose de Órdenes por Póliza",
+        "Sincronización DoorDash /api/v1/transactions + Storefront (SF) en Hollywood #8",
+        "Order Ready Reparación Orden #175 en Español (v=11)",
+        "Consolidación Multi-Chat SM TEG v2.24.0 & Reporte Noviembre 2026",
+        "IT en La Bodega"
+      ],
+      "descEs": "• <strong>Conciliar Delivery Plataformas (/admin/conciliar-delivery y lib/delivery-reconciliation.ts) — Cruce Bidireccional Comprensible (Toast POS ↔ Plataformas), Desglose de Órdenes por Póliza QBO y Sincronización de Transacciones DoorDash (/api/v1/transactions) + Storefront (SF)</strong>: Rediseño operativo con la barra de Cruce Bidireccional en 4 tarjetas claras (Pagadas y Cuadradas, Pagadas de Menos, En Toast y NO en Plataforma, En Plataforma y NO en Toast con confirmación de 1 clic), desglose auditable de todas las órdenes incluidas dentro de cada Póliza QBO y cola progresiva 1×1 para las 15 tiendas; más integración del endpoint por rango de fechas /api/v1/transactions de DoorDash y soporte de órdenes DoorDash Storefront (prefijo SF), resolviendo al centavo el caso de Hollywood (Store #8, emparejando AEBC0934 por $79.10 y SF 9178E925 por $23.21 y clasificándolas como CONCILIATED_NEXT_PAYOUT).<br>• <strong>Order Ready Board (/order-ready-board, commit 10404600) — Reparación Acústica de la Orden #175 en Español reportada en Downey (&v=11)</strong>: Diagnóstico del clip v4/Kore/es/175.wav en Supabase Storage que se cortaba a los 2.52s diciendo \"Orden diecisiete, ¡ya está!\", regeneración limpia diciendo \"Orden ciento setenta y cinco, ¡ya está!\" (3.32s) y actualización global del cache-buster a &v=11.<br>• <strong>Auditoría General Multi-Chat (30 Oct – 7 Nov), Apertura del Mes de Noviembre 2026 en /admin/reporte-actividades, Lanzamiento de SM TEG v2.24.0 y Despliegue a Producción</strong>: Escaneo completo de todas las conversaciones y repositorios, cierre del mes de Octubre 2026 (242.2 hrs), apertura del reporte ejecutivo de Noviembre 2026 (28.6 hrs al 7 de noviembre), actualización de lib/version.ts (v2.24.0) y sincronización del Asistente IA.",
+      "descEn": "• <strong>Delivery Platforms Reconciliation (/admin/conciliar-delivery & lib/delivery-reconciliation.ts) — Clear Bidirectional Cross-Check (Toast POS ↔ Platforms), Per-Journal Included Orders Breakdown & DoorDash /api/v1/transactions + Storefront (SF) Sync</strong>: Built the 4-card Bidirectional Cross-Check bar (Paid & Matched, Underpaid/Disputed, In Toast & Missing in Platform, In Platform & Missing in Toast with 1-click candidate confirmation), full auditable table of orders included inside each QBO Journal Entry, and 1×1 progressive 15-store sync queue; plus integrated DoorDash's date-range /api/v1/transactions endpoint and DoorDash Storefront (SF prefix) matching, resolving Hollywood (Store #8) penny-exact (matching AEBC0934 for $79.10 and SF 9178E925 for $23.21 as CONCILIATED_NEXT_PAYOUT).<br>• <strong>Order Ready Board (/order-ready-board, commit 10404600) — Acoustic Repair of Spanish Order #175 Reported in Downey (&v=11)</strong>: Diagnosed v4/Kore/es/175.wav in Supabase Storage which clipped at 2.52s saying \"Orden diecisiete, ¡ya está!\", regenerated a clean 3.32s clip saying \"Orden ciento setenta y cinco, ¡ya está!\", and bumped the global audio cache-buster to &v=11.<br>• <strong>Multi-Chat System Audit (Oct 30 – Nov 7), November 2026 Executive Report Launch in /admin/reporte-actividades, SM TEG v2.24.0 Release & Production Deployment</strong>: Audited all active conversations and repositories, finalized October 2026 (242.2 hrs), launched the November 2026 Executive Report (28.6 hrs through Nov 7), bumped lib/version.ts to v2.24.0, and synced TEG Assistant AI knowledge."
+    }
+  ],
+  "effort": [
+    {
+      "name": "Conciliar Delivery Plataformas (Cruce Bidireccional, 15 Tiendas Uber, Cortes Grubhub & DoorDash SF) y Contabilidad (166/166)",
+      "hours": 11.4,
+      "percent": 39.9
+    },
+    {
+      "name": "Nuevo Módulo Contestadora IA Multi-Sucursal (/admin/llamadas, Voz Kore, Simulador & Recados Realtime)",
+      "hours": 6.8,
+      "percent": 23.8
+    },
+    {
+      "name": "Contabilidad Externa (Conciliación Bancaria 1:1 QBO 537 Sesiones & Hardening Pre-Deploy)",
+      "hours": 4.8,
+      "percent": 16.8
+    },
+    {
+      "name": "Tableta Preparador (Motor Táctil 0ms Guantes, Café/Champurrado/Orden Pendiente) & Order Ready (#175 v=11)",
+      "hours": 3.8,
+      "percent": 13.3
+    },
+    {
+      "name": "App Móvil Clientes (Camino 1 Storefront), Blindaje Wi-Fi Orden Diaria & Resiliencia Multi-Key IA",
+      "hours": 1.8,
+      "percent": 6.2
+    }
+  ],
+  "parallelActivities": [
+    {
+      "title": "IT en La Bodega Central & Desarrollador del Sistema SM TEG (Infraestructura, Redes y Soporte a 15 Sucursales)",
+      "hours": 44,
+      "descEs": "Operación continua en Noviembre 2026 de Carlos Velázquez como IT en La Bodega Central y Desarrollador del Sistema SM TEG, supervisando servidores, bases de datos en Supabase, despliegues en Vercel, telefonía de las 15 sucursales (Spectrum Business y AT&T), tabletas operativas y soporte técnico directo.",
+      "descEn": "Continuous November 2026 operation by Carlos Velázquez as IT at La Bodega Central and SM TEG System Developer, overseeing servers, Supabase databases, Vercel deployments, 15-store telephony (Spectrum Business & AT&T), kitchen/store tablets, and direct technical support."
+    },
+    {
+      "title": "Monitoreo de Conciliación Delivery (DoorDash, Uber Eats, Grubhub), Pólizas Cohesion 166/166 y QBO V3 (8 Empresas)",
+      "hours": 9,
+      "descEs": "Supervisión diaria de cortes semanales y de fin de mes de plataformas de delivery, cruce de órdenes Storefront (SF) y en tránsito, sincronización bidireccional QBO V3 en las 8 empresas de Contabilidad Externa y 166/166 paquetes de ventas diarias cuadrados al centavo.",
+      "descEn": "Daily oversight of weekly and month-end delivery platform settlements, Storefront (SF) and in-transit order matching, bidirectional QBO V3 sync across all 8 External Accounting companies, and 166/166 daily sales packets balanced to the cent."
+    }
+  ]
+}

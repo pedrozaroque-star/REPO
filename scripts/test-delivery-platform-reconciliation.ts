@@ -29,6 +29,7 @@ import jwt from 'jsonwebtoken'
 import { supabaseAdmin } from '../lib/supabase'
 import { getJwtSecret } from '../lib/auth-server'
 import {
+  buildRecoverySettlementIndex,
   evaluateDisputeRecovery,
   toOperationalBusinessDate,
   localLaComponentsToIso,
@@ -576,7 +577,21 @@ async function runAllTests() {
       dispute_status: 'REIMBURSED',
     }
 
-    // 6A: Recuperación Total ($25.00 de $25.00 con payout, fecha y evidencia)
+    // Settlement posterior (UE-CUT-2) con créditos identificables de la orden (MISC_ITEM / cross_payout_refunds)
+    const settlementWith = (amount: number) =>
+      buildRecoverySettlementIndex([
+        {
+          store_id: 14,
+          platform: 'UBER_EATS',
+          payout_reference_id: 'UE-CUT-2',
+          payout_date: '2026-11-04',
+          period_start: '2026-10-26',
+          period_end: '2026-11-01',
+          raw_payload: { cross_payout_refunds: [{ orderCode: 'UE-DISP-1', amount, description: 'Refund #UE-DISP-1' }] },
+        },
+      ])
+
+    // 6A: Recuperación Total ($25.00 de $25.00) con crédito localizado en el settlement posterior
     const fullOrd = {
       ...baseDisputedOrder,
       dispute_notes: 'Evidencia de reembolso completo en liquidación posterior',
@@ -587,13 +602,14 @@ async function runAllTests() {
         reimbursement_evidence: 'Aprobado en portal Uber Eats ref UE-CUT-2',
       },
     }
-    const evalFull = evaluateDisputeRecovery(fullOrd)
-    const classFull = classifyOrderActionGroupAndExplanation(fullOrd)
+    const ctxFull = { settlementPayouts: settlementWith(25.0) }
+    const evalFull = evaluateDisputeRecovery(fullOrd, ctxFull)
+    const classFull = classifyOrderActionGroupAndExplanation(fullOrd, ctxFull)
     assert.strictEqual(evalFull.recoveryClassification, 'FULL_RECOVERY')
     assert.strictEqual(evalFull.unrecoveredAmount, 0)
     assert.strictEqual(classFull.status_code, 'DISPUTE_RECOVERED')
 
-    // 6B: Recuperación Parcial ($15.00 de $25.00 -> $10.00 pendientes)
+    // 6B: Recuperación Parcial ($15.00 de $25.00 -> $10.00 pendientes) con crédito de $15.00 en el settlement
     const partialOrd = {
       ...baseDisputedOrder,
       dispute_notes: 'Reembolso parcial otorgado por plataforma',
@@ -604,11 +620,17 @@ async function runAllTests() {
         reimbursement_evidence: 'Reembolso parcial en corte UE-CUT-2',
       },
     }
-    const evalPartial = evaluateDisputeRecovery(partialOrd)
-    const classPartial = classifyOrderActionGroupAndExplanation(partialOrd)
+    const ctxPartial = { settlementPayouts: settlementWith(15.0) }
+    const evalPartial = evaluateDisputeRecovery(partialOrd, ctxPartial)
+    const classPartial = classifyOrderActionGroupAndExplanation(partialOrd, ctxPartial)
     assert.strictEqual(evalPartial.recoveryClassification, 'PARTIAL_RECOVERY')
     assert.strictEqual(evalPartial.unrecoveredAmount, 10.0)
     assert.strictEqual(classPartial.status_code, 'DISPUTE_PARTIALLY_RECOVERED')
+
+    // 6D: Nota + referencia + fecha SIN crédito en el settlement -> pendiente de verificar (no prueba el cobro)
+    const evalNoteOnly = evaluateDisputeRecovery(fullOrd)
+    assert.strictEqual(evalNoteOnly.recoveryClassification, 'UNVERIFIED_RECOVERY')
+    assert.strictEqual(evalNoteOnly.verifiedRecoveredAmount, 0)
 
     // 6C: Sin evidencia verificable (falta fecha o referencia de payout)
     const unverifiedOrd = {
@@ -626,7 +648,7 @@ async function runAllTests() {
     assert.strictEqual(classUnverified.status_code, 'DISPUTE_RECOVERY_MISSING_EVIDENCE')
 
     console.log(
-      '   ✓ Recuperaciones verificadas: FULL_RECOVERY ($0 pendiente), PARTIAL_RECOVERY ($10.00 no recuperados) y UNVERIFIED_RECOVERY bloqueada sin evidencia.'
+      '   ✓ Recuperaciones verificadas contra el settlement: FULL_RECOVERY ($0 pendiente), PARTIAL_RECOVERY ($10.00 no recuperados); nota+ref sin crédito y datos incompletos => UNVERIFIED_RECOVERY.'
     )
     suitesPassed++
   }

@@ -20,20 +20,38 @@ export interface VersionMilestone {
 }
 
 export const SYSTEM_VERSION = {
-    version: 'v2.23.0',
-    versionNumber: '2.23.0',
-    releaseMonthEs: 'Octubre 2026',
-    releaseMonthEn: 'October 2026',
+    version: 'v2.24.0',
+    versionNumber: '2.24.0',
+    releaseMonthEs: 'Noviembre 2026',
+    releaseMonthEn: 'November 2026',
     stage: 'Producción',
     stageEn: 'Production',
     year: '2026',
-    labelEs: 'Octubre 2026 • SM TEG v2.23.0',
-    labelEn: 'October 2026 • SM TEG v2.23.0',
+    labelEs: 'Noviembre 2026 • SM TEG v2.24.0',
+    labelEn: 'November 2026 • SM TEG v2.24.0',
     brand: 'SM TEG',
-    lastUpdated: '2026-10-30'
+    lastUpdated: '2026-11-07'
 } as const;
 
 export const VERSION_HISTORY: readonly VersionMilestone[] = [
+    {
+        version: 'v2.24.0',
+        date: '07-Nov-2026',
+        titleEs: 'Nuevo Módulo Contestadora IA Multi-Sucursal (/admin/llamadas + Voz Kore), Conciliar Delivery Cruce Bidireccional + DoorDash Storefront (SF) + Cortes Grubhub Fin de Mes, Contabilidad Externa Conciliación Bancaria 1:1 (537 Sesiones) y Contabilidad 166/166',
+        titleEn: 'New 15-Store AI Phone Receptionist Module (/admin/llamadas + Kore Voice), Delivery Reconciliation Bidirectional Cross-Check + DoorDash Storefront (SF) + Grubhub Month-End Split, External Accounting 1:1 Bank Reconcile (537 Sessions) & 166/166 Accounting Parity',
+        highlightsEs: [
+            'Nuevo Módulo Contestadora IA Multi-Sucursal (/admin/llamadas, lib/phone-agent.ts, /api/phone/* y PhoneCallbackAlertBanner.tsx): recepcionista telefónica con Inteligencia Artificial y voz neuronal Kore pre-cacheada en Supabase Storage (order-ready-tts) para las 15 sucursales (4 con línea fija Spectrum Business y 11 con celular Android AT&T), con Base de Conocimiento Editable en tiempo real, simulador interactivo con audio en vivo, nombres limpios de sucursales (Broadway y Central sin prefijo LA, preservando La Puente) y banner de recados prioritarios en tiempo real en /order-ready-board',
+            'Módulo Conciliar Delivery Plataformas (/admin/conciliar-delivery y lib/delivery-reconciliation.ts): barra de Cruce Bidireccional de Órdenes (Toast POS ↔ Plataformas) en 4 tarjetas claras, desglose auditable de todas las órdenes incluidas dentro de cada Póliza QBO, sincronización en 2 fases para las 15 tiendas en Uber Eats, soporte de cortes divididos por cierre/inicio de mes en Grubhub (resolveGrubhubDistributionPeriod), e integración de /api/v1/transactions de DoorDash + órdenes DoorDash Storefront (prefijo SF) verificado al centavo en Hollywood #8 (AEBC0934 y SF 9178E925)',
+            'Contabilidad Externa (/admin/contabilidad-externa, Fases 6–8 y Suite Reconcile 1:1 QBO) y Contabilidad / Cohesion (166/166): certificación de Fases 6–8 (ERP contable puro para las 8 empresas de Raquel, 20 reportes CPA con exportación .xlsx/.pdf y cola durable STORAGE_CLEANUP) y nueva Suite de Conciliación Bancaria 1:1 QuickBooks Online con las 537 sesiones históricas migradas y captura en vivo de Pagos y Depósitos hasta diferencia $0.00; más certificación 166/166 en Contabilidad y activación de la regla 12049 para Party Trays prepagados en West Covina y las 15 tiendas',
+            'Tableta del Preparador (/inventory/preparador), Order Ready Board (/order-ready-board), Orden Diaria (/inventory/orders) y App Móvil Clientes: motor táctil de 0ms para uso con guantes y mica protectora, 3 botones fijos con tipografía ampliada y voz Kore ("Café pendiente, ¡ya está!", "Champurrado pendiente, ¡ya está!" y "Orden pendiente, ¡ya está!"), numberToSpanishWords (#909) y reparación de la orden #175 en español (&v=11), blindaje contra micro-cortes de Wi-Fi en captura de sobrantes, conexión del Camino 1 en App Clientes, cierre de Octubre 2026 (242.2 hrs) y apertura de Noviembre 2026 (28.6 hrs)'
+        ],
+        highlightsEn: [
+            'New Multi-Store AI Phone Receptionist Module (/admin/llamadas, lib/phone-agent.ts, /api/phone/* & PhoneCallbackAlertBanner.tsx): AI telephone receptionist powered by pre-cached Kore neural voice in Supabase Storage (order-ready-tts) across all 15 branches (4 Spectrum Business landline stores and 11 AT&T Android wireless stores), featuring a live Editable Knowledge Base, interactive live-audio simulator, clean spoken branch names (Broadway and Central without LA prefix while preserving La Puente), and real-time priority callback alerts on /order-ready-board',
+            'Delivery Platforms Reconciliation Module (/admin/conciliar-delivery & lib/delivery-reconciliation.ts): 4-card Bidirectional Order Cross-Check bar (Toast POS ↔ Platforms), full auditable table of orders included inside each QBO Journal Entry, 2-phase sync across all 15 Uber Eats stores, official Grubhub month-end/new-month split settlement handling (resolveGrubhubDistributionPeriod), and DoorDash /api/v1/transactions + DoorDash Storefront (SF prefix) matching verified penny-exact on Hollywood #8 (AEBC0934 and SF 9178E925)',
+            'External Accounting (/admin/contabilidad-externa, Phases 6–8 & 1:1 QBO Reconcile Suite) & Accounting / Cohesion (166/166): certified Phases 6–8 (pure accounting ERP across Raquel\'s 8 companies, 20 CPA reports with native .xlsx/.pdf export, and durable STORAGE_CLEANUP queue) and launched the 1:1 QuickBooks Online Bank Reconciliation Suite with 537 migrated historical sessions and live in-reconcile Payment/Deposit capture to $0.00 difference; plus 166/166 packet certification and account 12049 prepaid Party Tray rule across West Covina and all 15 stores',
+            'Preparador Kitchen Tablet (/inventory/preparador), Order Ready Board (/order-ready-board), Daily Order (/inventory/orders) & Customer Mobile App: 0ms glove/screen-protector touch engine, 3 enlarged voice callout buttons with Kore voice ("Café pendiente, ¡ya está!", "Champurrado pendiente, ¡ya está!", and "Orden pendiente, ¡ya está!"), numberToSpanishWords (#909) and Spanish order #175 repair (&v=11), walk-in cooler Wi-Fi drop resilience on leftover capture, Path 1 Storefront connection in Customer App, October 2026 closeout (242.2 hrs), and November 2026 report launch (28.6 hrs)'
+        ]
+    },
     {
         version: 'v2.23.0',
         date: '30-Oct-2026',

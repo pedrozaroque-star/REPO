@@ -26,8 +26,9 @@ vm.createContext(context);
 vm.runInContext(`
 ${buildScript}
 
-// October 2026 data ingestion
+// October & November 2026 data ingestion
 const octoberData = JSON.parse(fs.readFileSync('scripts/october_full_data.json', 'utf-8'));
+const novemberData = JSON.parse(fs.readFileSync('scripts/november_full_data.json', 'utf-8'));
 
 // Build October Tasks (Progression from September)
 const octoberTasks = septemberTasks.map(t => {
@@ -72,11 +73,44 @@ const octoberTasks = septemberTasks.map(t => {
     return task;
 });
 
+const novemberTasks = octoberTasks.map(t => {
+    const task = { ...t };
+    if (t.num === 26) {
+        task.status = 'completado';
+        task.statusLabel = 'Completado';
+        task.title = '26. App Móvil de Clientes (/app), Contestadora IA (/admin/llamadas) & tacosgavilan.com';
+        task.audit = '<strong>✓ Completado y Operativo (Noviembre 2026).</strong> tacosgavilan.com 100% en vivo en Vercel con WP Engine cancelado, App Móvil Clientes V1/V2 con Camino 1 Storefront conectado, y nuevo módulo Contestadora IA Multi-Sucursal (/admin/llamadas) con voz Kore y recados prioritarios en tiempo real.';
+    }
+    return task;
+});
+
 const octCompleted = octoberTasks.filter(t => t.status === 'completado').length;
 const octInProgress = octoberTasks.filter(t => t.status === 'progreso').length;
 const octPending = octoberTasks.filter(t => t.status === 'pendiente').length;
 
+const novCompleted = novemberTasks.filter(t => t.status === 'completado').length;
+const novInProgress = novemberTasks.filter(t => t.status === 'progreso').length;
+const novPending = novemberTasks.filter(t => t.status === 'pendiente').length;
+
 extractedData = {
+    novemberConfig: {
+        id: 'noviembre',
+        monthName: 'Noviembre',
+        monthYear: 'Noviembre 2026',
+        totalHours: novemberData.totalHours,
+        totalTasks: novemberTasks.length,
+        completedTasks: novCompleted,
+        inProgressTasks: novInProgress,
+        pendingTasks: novPending,
+        rows: novemberData.rows,
+        effortSummary: novemberData.effort || [],
+        parallelActivities: (novemberData.parallelActivities || []).map(p => ({
+            title: p.title,
+            hours: p.hours,
+            desc: p.descEs || p.desc
+        })),
+        tasks: novemberTasks
+    },
     octoberConfig: {
         id: 'octubre',
         monthName: 'Octubre',
@@ -206,7 +240,7 @@ export interface ModuleEffort {
 }
 
 export interface MonthlyReportData {
-    id: 'octubre' | 'septiembre' | 'agosto' | 'julio' | 'junio';
+    id: 'noviembre' | 'octubre' | 'septiembre' | 'agosto' | 'julio' | 'junio';
     monthName: string;
     monthYear: string;
     totalHours: number;
@@ -232,7 +266,8 @@ export interface PlannerShift {
 
 export const PLANNER_SHIFTS_MAP: Record<string, PlannerShift> = ${JSON.stringify(shiftsMap, null, 4)};
 
-export const MONTHLY_REPORTS: Record<'octubre' | 'septiembre' | 'agosto' | 'julio' | 'junio', MonthlyReportData> = {
+export const MONTHLY_REPORTS: Record<'noviembre' | 'octubre' | 'septiembre' | 'agosto' | 'julio' | 'junio', MonthlyReportData> = {
+    noviembre: ${JSON.stringify(data.novemberConfig, null, 4)},
     octubre: ${JSON.stringify(data.octoberConfig, null, 4)},
     septiembre: ${JSON.stringify(data.septemberConfig, null, 4)},
     agosto: ${JSON.stringify(data.augustConfig, null, 4)},
@@ -242,4 +277,4 @@ export const MONTHLY_REPORTS: Record<'octubre' | 'septiembre' | 'agosto' | 'juli
 `;
 
 fs.writeFileSync('lib/reports-data.ts', tsContent, 'utf-8');
-console.log('✅ lib/reports-data.ts generated successfully with October data and shifts!');
+console.log('✅ lib/reports-data.ts generated successfully with November & October data and shifts!');

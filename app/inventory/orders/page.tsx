@@ -45,6 +45,9 @@
  * - [2026-10-09] Optimización de captura de sobrantes: desacoplamiento de escritura visual
  *   (0ms lag) y persistencia en segundo plano (onBlur + debounce 600ms con flush atómico
  *   antes de enviar/generar). Elimina el congelamiento reportado por los managers al desplazarse hacia abajo.
+ * - [2026-11-04] Blindaje de sincronización de sobrantes: auto-reintento silencioso en background (800ms)
+ *   ante micro-cortes de red, auto-desvanecimiento de alerta tras 8s, buffer persistente ante fallos
+ *   y soporte de respuestas estructuradas sin excepciones que disparen la censura de Next.js en producción.
  */
 'use client'
 
@@ -541,6 +544,15 @@ export default function InventoryOrdersPage() {
         }
     }, [])
 
+    // Auto-desvanecimiento de la alerta de sincronización tras 8s para no alarmar innecesariamente al manager
+    useEffect(() => {
+        if (!leftoverSyncError) return
+        const timer = setTimeout(() => {
+            setLeftoverSyncError(null)
+        }, 8000)
+        return () => clearTimeout(timer)
+    }, [leftoverSyncError])
+
     // --- Edit Modal Handlers ---
     function handleOpenEditModal(order: any) {
         // Determinar si el pedido es de hoy (editable) o de otro día (solo consulta)
@@ -948,8 +960,8 @@ export default function InventoryOrdersPage() {
         }
     }
 
-    /** Persiste un sobrante a Supabase en segundo plano sin congelar la interfaz ni bloquear el teclado */
-    async function commitLeftoverSave(itemId: string, dateStr: string, numVal: number | null) {
+    /** Persiste un sobrante a Supabase en segundo plano con auto-reintento y sin congelar la interfaz ni bloquear el teclado */
+    async function commitLeftoverSave(itemId: string, dateStr: string, numVal: number | null, retryCount = 0): Promise<boolean> {
         if (!storeId) return false
         if (leftoverDebounceTimers.current[itemId]) {
             clearTimeout(leftoverDebounceTimers.current[itemId])
@@ -959,13 +971,32 @@ export default function InventoryOrdersPage() {
 
         setIsLiveSaving(true)
         try {
-            await updateDailyLeftover(storeId, itemId, dateStr, numVal)
+            const res = await updateDailyLeftover(storeId, itemId, dateStr, numVal)
+            if (!res.success) {
+                // Reintento automático silencioso (1 vez tras 800ms) ante micro-cortes de red/Wi-Fi
+                if (retryCount < 1) {
+                    await new Promise(resolve => setTimeout(resolve, 800))
+                    return await commitLeftoverSave(itemId, dateStr, numVal, retryCount + 1)
+                }
+                const msg = res.error || (language === 'es' ? 'Error al guardar en el servidor' : 'Server save error')
+                console.error(`[commitLeftoverSave] Error guardando sobrante de ${itemId}:`, msg)
+                setLeftoverSyncError(language === 'es' ? `Error al sincronizar sobrante: ${msg}` : `Leftover sync error: ${msg}`)
+                pendingLeftoverSaves.current[itemId] = { dateStr, value: numVal }
+                return false
+            }
+
             setLeftoverSyncError(null)
             return true
         } catch (error) {
-            const msg = error instanceof Error ? error.message : 'error desconocido'
-            console.error(`[commitLeftoverSave] Error guardando sobrante de ${itemId}:`, msg)
-            setLeftoverSyncError(language === 'es' ? `Error al sincronizar sobrante: ${msg}` : `Leftover sync error: ${msg}`)
+            // Caída de conexión a nivel de red HTTP
+            if (retryCount < 1) {
+                await new Promise(resolve => setTimeout(resolve, 800))
+                return await commitLeftoverSave(itemId, dateStr, numVal, retryCount + 1)
+            }
+            const msg = error instanceof Error ? error.message : 'error de red o conexión'
+            console.error(`[commitLeftoverSave] Excepción guardando sobrante de ${itemId}:`, msg)
+            setLeftoverSyncError(language === 'es' ? `Error de conexión al sincronizar sobrante: ${msg}` : `Connection error syncing leftover: ${msg}`)
+            pendingLeftoverSaves.current[itemId] = { dateStr, value: numVal }
             return false
         } finally {
             setIsLiveSaving(false)
@@ -980,7 +1011,13 @@ export default function InventoryOrdersPage() {
             const pending = pendingLeftoverSaves.current[itemId]
             return commitLeftoverSave(itemId, pending.dateStr, pending.value)
         })
-        await Promise.all(promises)
+        const results = await Promise.all(promises)
+        const hasFailed = results.some(ok => !ok)
+        if (hasFailed) {
+            throw new Error(language === 'es'
+                ? 'No se pudieron sincronizar todos los sobrantes con el servidor. Revisa tu conexión Wi-Fi e intenta de nuevo.'
+                : 'Failed to synchronize all leftovers with the server. Please check your Wi-Fi connection and try again.')
+        }
     }
 
     /** Función de respaldo para compatibilidad que persiste el conteo */
@@ -1278,7 +1315,12 @@ export default function InventoryOrdersPage() {
 
     async function handleGenerateOrder(skipAnomalyCheck = false) {
         if (!storeId) return
-        await flushPendingLeftoverSaves()
+        try {
+            await flushPendingLeftoverSaves()
+        } catch (flushErr: any) {
+            alert(flushErr.message)
+            return
+        }
         if (!validateCompleteCounts(orderLines)) return
 
         const hardCapErr = validateHardCaps(orderLines, adjustments)
@@ -1322,7 +1364,12 @@ export default function InventoryOrdersPage() {
 
     async function handleClosePilotCount() {
         if (!storeId || !pilotSession.enabled) return
-        await flushPendingLeftoverSaves()
+        try {
+            await flushPendingLeftoverSaves()
+        } catch (flushErr: any) {
+            alert(flushErr.message)
+            return
+        }
         if (!pilotSession.schemaReady) {
             alert('Primero aplica la migración 202609250001_inventory_automation_pilot.sql en Supabase.')
             return
@@ -1375,7 +1422,12 @@ export default function InventoryOrdersPage() {
     }
 
     async function handleSendToQb(skipAnomalyCheck = false) {
-        await flushPendingLeftoverSaves()
+        try {
+            await flushPendingLeftoverSaves()
+        } catch (flushErr: any) {
+            alert(flushErr.message)
+            return
+        }
         if (!validateCompleteCounts(orderLines)) return
 
         const hardCapErr = validateHardCaps(orderLines, adjustments)

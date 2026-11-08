@@ -35,7 +35,7 @@ import {
     CalendarCheck, UserCog, Monitor, ChefHat, Zap, ExternalLink, Globe, Shield,
     Sparkles, Truck, Timer, Shirt, Car, Calculator, Package, BarChart3,
     UserCheck, Bell, Receipt, Wrench, Smartphone, ShieldCheck, Search,
-    ArrowRight, ChevronRight, Star, LayoutGrid
+    ArrowRight, ChevronRight, Star, LayoutGrid, PhoneCall
 } from 'lucide-react'
 
 const BasecampIcon = ({ size = 20 }: { size?: number }) => (
@@ -381,6 +381,17 @@ function InicioHubContent() {
                     icon: <Bell size={20} />,
                     iconColorClass: 'bg-red-500/10 text-red-600 dark:bg-red-500/20 dark:text-red-400 border-red-500/20',
                     roles: ['asistente', 'manager', 'supervisor', 'admin'],
+                    badgeType: 'new',
+                    badgeLabel: 'new',
+                },
+                {
+                    id: 'phone_agent',
+                    title: t('items.phone_agent'),
+                    description: t('home_hub.desc.phone_agent'),
+                    path: '/admin/llamadas',
+                    icon: <PhoneCall size={20} />,
+                    iconColorClass: 'bg-indigo-500/10 text-indigo-600 dark:bg-indigo-500/20 dark:text-indigo-400 border-indigo-500/20',
+                    roles: ['admin', 'supervisor', 'manager'],
                     badgeType: 'new',
                     badgeLabel: 'new',
                 },

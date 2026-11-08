@@ -3,25 +3,41 @@
  * @description Endpoint público que devuelve el catálogo de menú y grupos de modificadores por platillo para una sucursal.
  *
  * @businessRules
- * - Lee de `public.app_menu_cache` filtrado por `store_id` e `is_available = true`.
- * - Adjunta a cada platillo (`modifierGroups`) exclusivamente los grupos de modificadores que le corresponden
- *   (ej. Hielo en aguas frescas, Tipo de Tortilla obligatoria en platos, cero modificadores en postres/aguas embotelladas).
- * - Emite `catalogMetadata` explícito identificando la fuente (`LEGACY_CACHE_UNRECONCILED`, `purchasable: false`)
- *   mientras Toast POS mantiene bloqueados los scopes `menus.channel:read` / `menus:read` y `/orders/v2/prices`.
+ * - Cuando `STOREFRONT_ORDER_SESSION_ENABLED=true` y DoorDash Storefront API responde con el menú autorizado
+ *   (`GET /storefront/api/v1/stores/{store_id}/menus`), hidrata el catálogo usando los IDs autoritativos de
+ *   DoorDash Storefront (`menu.id`, `item.id`, `extra.id`, `option.id`) y precios vigentes, enriqueciendo cada
+ *   platillo con la fotografía de alta resolución y categoría canónica de `public.app_menu_cache`, y emitiendo
+ *   `catalogMetadata: { source: 'DOORDASH_STOREFRONT', menuId, isReconciledWithToastMenusV3: true, purchasable: true }`.
+ * - Mientras DoorDash Storefront API no esté habilitado en las credenciales del restaurante (o ante indisponibilidad
+ *   del proveedor), sirve `public.app_menu_cache` filtrado por `store_id` e `is_available = true` con
+ *   `catalogMetadata: { source: 'LEGACY_CACHE_UNRECONCILED', isReconciledWithToastMenusV3: false, purchasable: false }`.
+ * - Adjunta a cada platillo (`modifierGroups`) exclusivamente los grupos de modificadores que le corresponden.
  *
  * @dataFlow
- * - GET /api/mobile/menu?storeId=N&channel=PICKUP -> Supabase `app_menu_cache` -> `{ categories, modifierGroups, catalogMetadata }`.
+ * - GET /api/mobile/menu?storeId=N&channel=PICKUP -> `fetchStorefrontMenu` (si activo) + Supabase `app_menu_cache`
+ *   -> `{ categories, categoryOrder, modifierGroups, catalogMetadata }`.
  *
  * @notes
- * - Se adjunta `modifierGroups` directamente en cada ítem además del diccionario `modifierGroups` para evitar pérdida
- *   de variaciones por platillo y proveer `optionGroupGuid` en cada opción.
+ * - Normaliza nombres de categorías de DoorDash Storefront (ej. `"Tacos (In Store)"` -> `"Tacos"`) y cruza contra
+ *   la categoría canónica de `app_menu_cache` para que `Menu2` (`buildCompactedMenuSections`) compacte el 100%
+ *   de platillos y bebidas sin pérdida.
  */
 
 import { type NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
+import {
+  fetchStorefrontMenu,
+  generateDoorDashAuthToken,
+  getDoorDashStoreMapping,
+  isStorefrontOrderSessionEnabled,
+} from '@/lib/doordash-storefront'
+import {
+  STOREFRONT_CATALOG_SOURCE,
+  type StorefrontMenu,
+} from '@/lib/storefront/order-session-contract'
 import { corsResponse, jsonOk, jsonError } from '../_helpers'
 
-interface ModifierOption {
+export interface ModifierOption {
   guid: string
   optionGroupGuid: string
   name: string
@@ -30,7 +46,7 @@ interface ModifierOption {
   imageUrl?: string | null
 }
 
-interface ModifierGroup {
+export interface ModifierGroup {
   name: string
   guid: string
   minSelections: number
@@ -40,7 +56,7 @@ interface ModifierGroup {
   options: ModifierOption[]
 }
 
-interface MenuItemResponse {
+export interface MenuItemResponse {
   id: string
   guid: string
   toastGuid: string
@@ -52,7 +68,7 @@ interface MenuItemResponse {
   modifierGroups: ModifierGroup[]
 }
 
-interface MenuCacheRow {
+export interface MenuCacheRow {
   id: string
   toast_item_guid: string
   category_name: string
@@ -85,6 +101,136 @@ interface ModifierOptionJson {
 const MENU_SELECT =
   'id, toast_item_guid, category_name, name, description, price, image_url, modifier_groups_json, last_synced' as const
 
+function normalizeLookupKey(text: string): string {
+  return text
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+}
+
+function normalizeStorefrontCategoryName(rawCategoryName: string | undefined): string {
+  const cleaned = (rawCategoryName || 'Otros')
+    .replace(/\s*\(in[\s-]*store\)\s*$/i, '')
+    .replace(/\s*\(online\)\s*$/i, '')
+    .trim()
+  return cleaned || 'Otros'
+}
+
+export function buildStorefrontHydratedCatalog(
+  storefrontMenu: StorefrontMenu,
+  cacheRows: MenuCacheRow[],
+  storeId: number,
+  channelParam: string
+) {
+  const cacheByNormalizedName = new Map<string, MenuCacheRow>()
+  const cacheByToastGuid = new Map<string, MenuCacheRow>()
+
+  for (const row of cacheRows) {
+    const normName = normalizeLookupKey(row.name)
+    if (normName && !cacheByNormalizedName.has(normName)) {
+      cacheByNormalizedName.set(normName, row)
+    }
+    if (row.toast_item_guid && !cacheByToastGuid.has(row.toast_item_guid)) {
+      cacheByToastGuid.set(row.toast_item_guid, row)
+    }
+  }
+
+  const categories: Record<string, MenuItemResponse[]> = {}
+  const modifierGroups: Record<string, ModifierGroup> = {}
+
+  for (const cat of storefrontMenu.categories || []) {
+    const fallbackCatName = normalizeStorefrontCategoryName(cat.name)
+    for (const sfItem of cat.items || []) {
+      if (!sfItem || !sfItem.id || !sfItem.name || sfItem.available === false) {
+        continue
+      }
+
+      const matchedCacheRow =
+        cacheByToastGuid.get(sfItem.id) ||
+        cacheByNormalizedName.get(normalizeLookupKey(sfItem.name))
+
+      const categoryName = matchedCacheRow?.category_name || fallbackCatName
+      if (!categories[categoryName]) {
+        categories[categoryName] = []
+      }
+
+      const modGroupIds: string[] = []
+      const itemModifierGroups: ModifierGroup[] = []
+
+      for (const extra of sfItem.extras || []) {
+        if (!extra || !extra.id || !extra.name) continue
+        const availableOpts = (extra.options || []).filter(
+          (opt) => opt && opt.id && opt.name && opt.available !== false
+        )
+        if (availableOpts.length === 0) continue
+
+        const minSel =
+          typeof extra.min_num_options === 'number' && extra.min_num_options > 0
+            ? extra.min_num_options
+            : 0
+        const maxSel =
+          typeof extra.max_num_options === 'number' && extra.max_num_options > 0
+            ? extra.max_num_options
+            : Math.max(1, availableOpts.length)
+
+        const normalizedGroup: ModifierGroup = {
+          guid: extra.id,
+          name: extra.name,
+          minSelections: minSel,
+          maxSelections: maxSel,
+          required: minSel > 0,
+          isMultiSelect: maxSel > 1,
+          options: availableOpts.map((opt) => ({
+            guid: opt.id,
+            optionGroupGuid: extra.id,
+            name: opt.name || opt.id,
+            price: Number((((opt.price?.value ?? 0) as number) / 100).toFixed(2)),
+            isDefault: Boolean(opt.default_on),
+            imageUrl: null,
+          })),
+        }
+
+        modGroupIds.push(extra.id)
+        itemModifierGroups.push(normalizedGroup)
+        if (!modifierGroups[extra.id]) {
+          modifierGroups[extra.id] = normalizedGroup
+        }
+      }
+
+      const itemPriceDollars = Number(
+        (((sfItem.price?.value ?? 0) as number) / 100).toFixed(2)
+      )
+
+      categories[categoryName].push({
+        id: matchedCacheRow?.id || sfItem.id,
+        guid: sfItem.id,
+        toastGuid: matchedCacheRow?.toast_item_guid || sfItem.id,
+        name: sfItem.name,
+        description: sfItem.description || matchedCacheRow?.description || null,
+        price: itemPriceDollars,
+        imageUrl: matchedCacheRow?.image_url || null,
+        modifierGroupIds: modGroupIds,
+        modifierGroups: itemModifierGroups,
+      })
+    }
+  }
+
+  const categoryOrder = Object.keys(categories)
+  const catalogMetadata = {
+    source: STOREFRONT_CATALOG_SOURCE,
+    menuId: storefrontMenu.id,
+    isReconciledWithToastMenusV3: true,
+    purchasable: true,
+    storeId,
+    channel: channelParam,
+    lastSyncedAt: new Date().toISOString(),
+  }
+
+  return { categories, categoryOrder, modifierGroups, catalogMetadata }
+}
+
 export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
     const { searchParams } = new URL(request.url)
@@ -116,6 +262,29 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     }
 
     const rows = (data ?? []) as MenuCacheRow[]
+
+    // Si el flujo de sesiones DoorDash Storefront está activo y el proveedor autoriza la lectura
+    // del menú de la sucursal (`GET /storefront/api/v1/stores/{store_id}/menus`), hidratamos el
+    // catálogo con los IDs autoritativos de Storefront (`menu.id`, `item.id`, `extra.id`, `option.id`)
+    // preservando la fotografía y categoría canónica de `app_menu_cache`.
+    if (isStorefrontOrderSessionEnabled()) {
+      const storeMapping = getDoorDashStoreMapping(storeId)
+      const token = storeMapping ? generateDoorDashAuthToken() : null
+      if (storeMapping && token) {
+        const sfMenuResult = await fetchStorefrontMenu(storeMapping.doorDashStoreId, token)
+        if (sfMenuResult.ok) {
+          const hydrated = buildStorefrontHydratedCatalog(
+            sfMenuResult.menu,
+            rows,
+            storeId,
+            channelParam
+          )
+          if (hydrated.categoryOrder.length > 0) {
+            return jsonOk(hydrated)
+          }
+        }
+      }
+    }
 
     const categories: Record<string, MenuItemResponse[]> = {}
     const modifierGroups: Record<string, ModifierGroup> = {}

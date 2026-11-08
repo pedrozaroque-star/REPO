@@ -32,6 +32,7 @@
  *   sustituyen el PMIX sintético para Lynwood; Slauson permanece sin teórico
  *   hasta versionar sus empaques. Una fuente incompleta nunca altera el pedido físico.
  * - [2026-10-01] Escrituras fail-closed: sesión y perfil de tienda obligatorios también en desarrollo.
+ * - [2026-11-04] Blindaje de updateDailyLeftover: respuesta estructurada { success, error } en lugar de throw no capturado para evitar la censura de errores de Next.js en producción.
  */
 
 'use server'
@@ -1045,36 +1046,42 @@ export async function updateWeeklyBase(
     if (error) throw new Error(`No se pudo guardar el PAR: ${error.message}`)
 }
 
-/** Actualiza o elimina un sobrante diario */
+/** Actualiza o elimina un sobrante diario con respuesta estructurada para evitar censura en producción */
 export async function updateDailyLeftover(
     storeId: string | number,
     itemId: string,
     dateStr: string,
     value: number | null
-) {
-    await assertUserStoreAccess(storeId)
-    if (value !== null && (typeof value !== 'number' || !Number.isFinite(value) || value < 0)) {
-        throw new Error('El sobrante debe ser un número finito no negativo.')
-    }
-    if (value === null) {
+): Promise<{ success: boolean; error?: string }> {
+    try {
+        await assertUserStoreAccess(storeId)
+        if (value !== null && (typeof value !== 'number' || !Number.isFinite(value) || value < 0)) {
+            return { success: false, error: 'El sobrante debe ser un número finito no negativo.' }
+        }
+        if (value === null) {
+            const { error } = await supabase
+                .from('inventory_counts')
+                .delete()
+                .match({ store_id: storeId.toString(), inventory_item_id: itemId, count_date: dateStr })
+            if (error) return { success: false, error: `No se pudo eliminar el sobrante: ${error.message}` }
+            return { success: true }
+        }
+
         const { error } = await supabase
             .from('inventory_counts')
-            .delete()
-            .match({ store_id: storeId.toString(), inventory_item_id: itemId, count_date: dateStr })
-        if (error) throw new Error(`No se pudo eliminar el sobrante: ${error.message}`)
-        return
+            .upsert({
+                store_id: storeId.toString(),
+                inventory_item_id: itemId,
+                count_date: dateStr,
+                quantity_on_hand: value
+            }, { onConflict: 'store_id, inventory_item_id, count_date' })
+
+        if (error) return { success: false, error: `No se pudo guardar el sobrante: ${error.message}` }
+        return { success: true }
+    } catch (err: any) {
+        console.error(`[updateDailyLeftover] Error para tienda ${storeId}, item ${itemId}:`, err?.message || err)
+        return { success: false, error: err instanceof Error ? err.message : 'Error desconocido al validar acceso o guardar datos' }
     }
-
-    const { error } = await supabase
-        .from('inventory_counts')
-        .upsert({
-            store_id: storeId.toString(),
-            inventory_item_id: itemId,
-            count_date: dateStr,
-            quantity_on_hand: value
-        }, { onConflict: 'store_id, inventory_item_id, count_date' })
-
-    if (error) throw new Error(`No se pudo guardar el sobrante: ${error.message}`)
 }
 
 /** Clona las bases de la semana anterior a la semana objetivo */

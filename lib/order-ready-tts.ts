@@ -46,9 +46,19 @@ export type TtsLang = 'en' | 'es'
 
 let bucketReady = false
 const inflight = new Map<string, Promise<Buffer>>()
-let poolIndex = 0
+const memoryPhoneAudioCache = new Map<string, Buffer>()
+const MAX_MEMORY_PHONE_CLIPS = 300
+let poolIndex = 3
 const keyBlockedUntil = new Map<string, number>()
 let remoteKeyPoolCache: { keys: string[]; fetchedAt: number } | null = null
+
+function setMemoryPhoneCache(path: string, wav: Buffer) {
+  if (memoryPhoneAudioCache.size >= MAX_MEMORY_PHONE_CLIPS) {
+    const oldestKey = memoryPhoneAudioCache.keys().next().value
+    if (oldestKey) memoryPhoneAudioCache.delete(oldestKey)
+  }
+  memoryPhoneAudioCache.set(path, wav)
+}
 
 export function getGeminiKeyPool(): string[] {
   const raw = [
@@ -232,19 +242,26 @@ async function generateTextWithGemini(
   }
   const candidateKeys = unblockedKeys
 
-  // Rotación balanceada (round-robin)
+  // Rotación balanceada (round-robin), priorizando llaves modernas (AQ.) para modelos 3.8
   const startIndex = (poolIndex++) % candidateKeys.length
-  const rotatedKeys = [
+  const baseRotated = [
     ...candidateKeys.slice(startIndex),
     ...candidateKeys.slice(0, startIndex)
   ]
+  const aqKeys = baseRotated.filter((k) => k.startsWith('AQ.'))
+  const classicKeys = baseRotated.filter((k) => !k.startsWith('AQ.'))
+  const rotatedKeys = [...aqKeys, ...classicKeys]
 
   let lastErr = ''
   const languageCode = lang === 'es' ? 'es-US' : 'en-US'
 
   // Priorizar los modelos neuronales puros (gemini-3.8-*) a través de TODAS las llaves antes de tocar 2.5
   for (const model of MODELS) {
-    for (const key of rotatedKeys) {
+    const keysForModel = model.includes('3.8') && aqKeys.length > 0 ? aqKeys : rotatedKeys
+    for (const key of keysForModel) {
+      if ((keyBlockedUntil.get(key) || 0) > Date.now()) {
+        continue
+      }
       const kmKey = `${key}:${model}`
       if ((keyBlockedUntil.get(kmKey) || 0) > Date.now()) {
         continue
@@ -308,8 +325,11 @@ async function generateTextWithGemini(
                 keyBlockedUntil.set(kmKey, Date.now() + 45 * 1000)
               }
               break
-            } else if (res.status === 403 || /leaked|API_KEY_INVALID/i.test(errText)) {
+            } else if (res.status === 402 || res.status === 403 || /prepayment|depleted|leaked|API_KEY_INVALID/i.test(errText)) {
               keyBlockedUntil.set(key, Date.now() + 12 * 60 * 60 * 1000)
+              break
+            } else if (res.status === 404 || res.status === 400) {
+              keyBlockedUntil.set(kmKey, Date.now() + 6 * 60 * 60 * 1000)
               break
             } else {
               break
@@ -452,6 +472,228 @@ export async function getAnnouncementSpeech(
         if (koreHit.data) {
           console.warn(`[order-ready-tts] Fallback a voz oficial ${DEFAULT_VOICE} para anuncio "${clean.slice(0, 40)}"`)
           return ensureWav(Buffer.from(await koreHit.data.arrayBuffer()))
+        }
+      }
+      throw genErr
+    }
+  })()
+
+  inflight.set(path, job)
+  try {
+    return await job
+  } finally {
+    inflight.delete(path)
+  }
+}
+
+export const PHONE_INSTANT_OPENERS: Record<string, { es: string; en: string }> = {
+  hours: {
+    es: '¡Claro que sí! Te confirmo el horario.',
+    en: 'Of course! Let me share our hours with you.'
+  },
+  menu_prices: {
+    es: '¡Con mucho gusto! Te doy los precios.',
+    en: 'Happy to help! Here are our menu prices.'
+  },
+  fiesta_platters: {
+    es: '¡Claro que sí! Te cuento de las charolas Fiesta Platter.',
+    en: 'Of course! Here are our Fiesta Platter options.'
+  },
+  callback: {
+    es: 'Entendido, con mucho gusto te ayudo con eso ahora mismo.',
+    en: 'I understand, let me help you with that right away.'
+  },
+  general: {
+    es: '¡Claro que sí, con mucho gusto!',
+    en: 'Of course, happy to help!'
+  }
+}
+
+export function isPhoneSpeechInRamCache(text: string, lang: TtsLang, voice: VoiceId = DEFAULT_VOICE): boolean {
+  const clean = text.trim().slice(0, 600)
+  if (!clean) return false
+  const selectedVoice = isValidVoice(voice) ? voice : DEFAULT_VOICE
+  const hash = createHash('md5').update(`phone_kore38_v2:${selectedVoice}:${lang}:${clean.toLowerCase()}`).digest('hex')
+  const path = `phone_v2/${selectedVoice}/${lang}/${hash}.wav`
+  return memoryPhoneAudioCache.has(path)
+}
+
+export function buildInstantOpenerStreamPlan(
+  replyText: string,
+  lang: TtsLang,
+  primaryIntent?: string,
+  callbackCreated?: boolean
+): {
+  openerText: string
+  remainderText: string
+} {
+  const key = callbackCreated
+    ? 'callback'
+    : primaryIntent === 'hours' || primaryIntent === 'location_drivethru'
+    ? 'hours'
+    : primaryIntent === 'menu_prices'
+    ? 'menu_prices'
+    : primaryIntent === 'fiesta_platters'
+    ? 'fiesta_platters'
+    : primaryIntent === 'complaint_missing_item' || primaryIntent === 'employee_callout' || primaryIntent === 'lost_and_found'
+    ? 'callback'
+    : 'general'
+
+  const openerText = PHONE_INSTANT_OPENERS[key]?.[lang] || PHONE_INSTANT_OPENERS.general[lang]
+
+  // Limpiar muletillas redundantes al inicio del replyText para que la transición sea 100% natural
+  const remainderText = replyText
+    .replace(
+      /^(¡?hola!?|¡?claro que s[ií]!?|¡?por supuesto!?|¡?con mucho gusto!?|¡?claro!?|entendido[,!.]?|hi!?|hello!?|of course!?|sure!?|happy to help!?)\s*/i,
+      ''
+    )
+    .replace(
+      /^(¡?claro que s[ií]!?|¡?con mucho gusto!?|¡?por supuesto!?|of course!?|happy to help!?)\s*/i,
+      ''
+    )
+    .trim()
+
+  return {
+    openerText,
+    remainderText: remainderText || replyText
+  }
+}
+
+/**
+ * Divide una respuesta telefónica en un primer fragmento corto (primera oración para reproducción inmediata < 1.2s)
+ * y el resto del mensaje (que se pre-genera en paralelo mientras suena la primera oración).
+ */
+export function splitPhoneReplyForStreaming(text: string): {
+  firstChunk: string
+  restChunk: string | null
+} {
+  const clean = text.replace(/\s+/g, ' ').trim()
+  if (clean.length <= 240) {
+    return { firstChunk: clean, restChunk: null }
+  }
+
+  // Buscar el final de la primera oración (. ! ?) entre los caracteres 25 y 135
+  const sentenceRegex = /[.!?]+(?=\s|$)/g
+  let match: RegExpExecArray | null
+  let splitIdx = -1
+
+  while ((match = sentenceRegex.exec(clean)) !== null) {
+    const endPos = match.index + match[0].length
+    if (endPos >= 28 && endPos <= 145) {
+      splitIdx = endPos
+      break
+    }
+    if (endPos > 145) {
+      break
+    }
+  }
+
+  // Si la primera oración era muy cortita (ej. "¡Hola!" o "¡Claro que sí!"), incluir la segunda oración
+  if (splitIdx === -1) {
+    const commaOrColon = /[,;:]+(?=\s)/g
+    while ((match = commaOrColon.exec(clean)) !== null) {
+      const endPos = match.index + match[0].length
+      if (endPos >= 45 && endPos <= 125) {
+        splitIdx = endPos
+        break
+      }
+    }
+  }
+
+  if (splitIdx === -1 || splitIdx >= clean.length - 15) {
+    return { firstChunk: clean, restChunk: null }
+  }
+
+  const firstChunk = clean.slice(0, splitIdx).trim()
+  const restChunk = clean.slice(splitIdx).trim()
+  return {
+    firstChunk,
+    restChunk: restChunk.length > 0 ? restChunk : null
+  }
+}
+
+/**
+ * Genera o recupera desde caché en RAM / Storage el audio neuronal (WAV) para una respuesta de la Contestadora IA de Tacos Gavilan.
+ * Usa un estilo conversacional cálido de recepcionista telefónica en lugar de altavoz de mostrador.
+ * - Incluye caché en memoria (`memoryPhoneAudioCache`) de 0ms.
+ * - La subida a Supabase Storage se realiza en segundo plano (`fire-and-forget`) para no bloquear la entrega de audio.
+ */
+export async function getPhoneAgentSpeech(
+  text: string,
+  lang: TtsLang,
+  voice: VoiceId = DEFAULT_VOICE,
+  forceRegenerate = false,
+  options?: { skipStorageLookup?: boolean }
+): Promise<Buffer> {
+  const clean = text.trim().slice(0, 600)
+  if (!clean) throw new Error('Texto de respuesta telefónica vacío')
+
+  const selectedVoice = isValidVoice(voice) ? voice : DEFAULT_VOICE
+  const hash = createHash('md5').update(`phone_kore38_v2:${selectedVoice}:${lang}:${clean.toLowerCase()}`).digest('hex')
+  const path = `phone_v2/${selectedVoice}/${lang}/${hash}.wav`
+
+  // 1. Caché ultrarrápido en RAM (0ms)
+  if (!forceRegenerate) {
+    const memHit = memoryPhoneAudioCache.get(path)
+    if (memHit) return memHit
+  }
+
+  const existing = inflight.get(path)
+  if (existing && !forceRegenerate) return existing
+
+  // 2. Caché persistente en Supabase Storage (solo si no se indicó skipStorageLookup para texto dinámico nuevo)
+  if (!forceRegenerate && !options?.skipStorageLookup) {
+    try {
+      const hit = await supabaseAdmin.storage.from(BUCKET).download(path)
+      if (hit.data) {
+        const wav = ensureWav(Buffer.from(await hit.data.arrayBuffer()))
+        setMemoryPhoneCache(path, wav)
+        return wav
+      }
+    } catch {
+      // continuar a generación
+    }
+  }
+
+  const job = (async () => {
+    try {
+      // Exactamente el mismo stylePrompt y versión de voz Kore 3.8 que se usa en las entregas de órdenes (Order Ready Board)
+      const stylePrompt =
+        lang === 'es'
+          ? 'cheerful, energetic, warm and enthusiastic Mexican restaurant counter announcement, speaking with a warm natural Mexican Spanish accent and saying the company slogan "¡ya está!" with joyful energy'
+          : 'cheerful, energetic, warm and enthusiastic restaurant counter announcement'
+      const wav = await generateTextWithGemini(clean, lang, selectedVoice, stylePrompt)
+      setMemoryPhoneCache(path, wav)
+
+      // Subir a Supabase Storage en segundo plano sin bloquear el retorno de voz al usuario
+      void (async () => {
+        try {
+          await ensureBucket()
+          if (forceRegenerate) {
+            await supabaseAdmin.storage.from(BUCKET).remove([path])
+          }
+          await supabaseAdmin.storage.from(BUCKET).upload(path, wav, {
+            contentType: 'audio/wav',
+            cacheControl: '3600',
+            upsert: true
+          })
+        } catch (e) {
+          console.warn('[order-ready-tts] no se pudo cachear audio telefónico en Storage:', e)
+        }
+      })()
+
+      return wav
+    } catch (genErr) {
+      if (selectedVoice !== DEFAULT_VOICE) {
+        const koreHash = createHash('md5').update(`phone_kore38_v2:${DEFAULT_VOICE}:${lang}:${clean.toLowerCase()}`).digest('hex')
+        const korePath = `phone_v2/${DEFAULT_VOICE}/${lang}/${koreHash}.wav`
+        const memKore = memoryPhoneAudioCache.get(korePath)
+        if (memKore) return memKore
+        const koreHit = await supabaseAdmin.storage.from(BUCKET).download(korePath)
+        if (koreHit.data) {
+          const wav = ensureWav(Buffer.from(await koreHit.data.arrayBuffer()))
+          setMemoryPhoneCache(korePath, wav)
+          return wav
         }
       }
       throw genErr

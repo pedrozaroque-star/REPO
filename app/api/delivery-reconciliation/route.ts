@@ -14,6 +14,19 @@
  *   4. `BLOCKED_MISSING_INFO`: Bloqueado por falta de información o sincronización (`AMBIGUOUS`, `UNVERIFIED_NO_ID`, `MISSING_TAX_BREAKDOWN`, `UNASSIGNED_STORE`, o en Toast pendiente de corte `TOAST_ONLY`).
  * - Paginación completa de las 15 sucursales mediante `fetchAllSupabaseRows` (sin truncamiento a 1,000 filas de PostgREST).
  * - Seguridad: Protegido con `verifyStaffAuth` en `GET` y `POST`, validación estricta de payloads y lista blanca de columnas en mutaciones.
+ * - Disputas y Recuperaciones (`update_dispute`): guardar una recuperación NUNCA sustituye el importe original disputado
+ *   (`dispute_amount`); la captura se agrega al libro `raw_payload.recovery_credits` y se verifica contra el settlement del
+ *   payout indicado. Sin crédito identificable de la orden (importe, referencia y cronología coherentes) queda
+ *   "Recuperación pendiente de verificar" y se responde `recovery_verification.verified = false` + `warning`.
+ *   Las notas/razón existentes se conservan cuando la solicitud no las envía.
+ * - GET verifica en lectura cada crédito contra el settlement (`buildRecoverySettlementIndex`, incluye payouts de recuperación
+ *   fuera del filtro) y expone `original_deduction_abs`, `recovered_amount` (solo verificado), `claimed_unverified_amount`,
+ *   `unrecovered_amount` y `recovery_credits_evaluated`.
+ * - Filtro de payouts por fechas con solapamiento INCLUSIVO (`payoutPeriodOverlapsRange`).
+ * - Cruce Bidireccional Operativo (`bidirectionalSummary` + `toast_only_store_synced` + `suggested_toast_candidate`):
+ *   * Separa órdenes `TOAST_ONLY` entre sucursales que ya tienen órdenes sincronizadas de la plataforma en el periodo (`toast_only_store_synced = true` -> alerta real `UNPAID_IN_PLATFORM`) y sucursales pendientes de sincronizar (`toast_only_store_synced = false` -> `PENDING_PLATFORM_SETTLEMENT` con lista `pendingSyncStoreIds`).
+ *   * Auto-vincula órdenes de las 3 plataformas (`UBER_EATS`, `DOORDASH`, `GRUBHUB`) con `payout_reference_id === null` cuando existe un único payout oficial de esa tienda/plataforma cuyo `[period_start, period_end]` cubre `business_date`, persistiendo el vínculo en `delivery_platform_orders`.
+ *   * Expone `suggested_toast_candidate` cuando una orden en plataforma sin ID en el cheque de Toast tiene un candidato único por misma tienda + fecha + subtotal (`UNVERIFIED_NO_ID`) para confirmación en 1 clic.
  *
  * @dataFlow
  * - GET `/api/delivery-reconciliation` -> Pagina `delivery_platform_orders`, `delivery_platform_payouts`, `delivery_platform_store_mappings` + cuarentena `UNASSIGNED_STORE`, calcula cobertura por tienda/plataforma y los 4 grupos de acción.
@@ -28,14 +41,23 @@ import { supabaseAdmin } from '@/lib/supabase'
 import { authorizeDeliveryReconciliationRequest } from '@/lib/auth-server'
 import {
   DeliveryPlatformCode,
+  DisputeRecoveryContext,
+  buildManualRecoveryUpdate,
+  buildRecoverySettlementIndex,
   buildStorePlatformCoverageMatrix,
   evaluateDisputeRecovery,
   fetchAllSupabaseRows,
+  getOrderRecoveryCredits,
+  getOrderRecoveryPayoutRefs,
   getQuarantinedUnassignedRecords,
   getStorePlatformMappings,
   hasDedicatedIntegrationEncryptionKey,
   parsePlatformReportPayload,
+  payoutPeriodOverlapsRange,
   reconcileAndPersistDeliveryData,
+  recoverySettlementKey,
+  resolveEffectivePayoutPeriod,
+  resolveOriginalDisputedAmount,
   round2,
   saveQuarantinedUnassignedRecords,
 } from '@/lib/delivery-reconciliation'
@@ -99,7 +121,7 @@ export function hasValidPersistedOrderVarianceApproval(o: any): boolean {
   return Math.abs(grossVar - approvedAmt) <= 0.02
 }
 
-export function classifyOrderActionGroupAndExplanation(o: any) {
+export function classifyOrderActionGroupAndExplanation(o: any, recoveryCtx?: DisputeRecoveryContext) {
   const plat = (o.platform as DeliveryPlatformCode) || 'DOORDASH'
   const isUnassignedStore = !o.store_id || Number(o.store_id) <= 0 || o.store_code === 'UNASSIGNED_STORE'
   const isToastOnly = o.match_confidence === 'TOAST_ONLY' || o.reconciliation_status === 'MISSING_IN_PLATFORM'
@@ -117,6 +139,7 @@ export function classifyOrderActionGroupAndExplanation(o: any) {
   const reimbRef = o.raw_payload?.reimbursement_payout_ref ? String(o.raw_payload.reimbursement_payout_ref) : null
   const reimbAmt = Number(o.raw_payload?.reimbursement_amount || 0)
   const reimbDate = o.raw_payload?.reimbursement_deposit_date ? String(o.raw_payload.reimbursement_deposit_date) : null
+  const hasRecoveryCredits = getOrderRecoveryCredits(o).length > 0
   const grossVar = round2(Number(o.gross_diff ?? o.gross_variance ?? 0))
   const subVar = round2(Number(o.subtotal_diff ?? o.subtotal_variance ?? 0))
   const taxVar = round2(Number(o.tax_diff ?? o.tax_variance ?? 0))
@@ -125,8 +148,23 @@ export function classifyOrderActionGroupAndExplanation(o: any) {
     Boolean(o.is_disputed) ||
     o.reconciliation_status === 'REFUNDED_OR_DISPUTED' ||
     errCharge < -0.01 ||
-    Boolean(reimbRef)
+    Boolean(reimbRef) ||
+    hasRecoveryCredits
 
+  // Defectos 1, 2 y 4: original disputado, créditos (verificados contra el settlement) y saldo pendiente por separado
+  const recoveryEval = isDisputeOrRecovery ? evaluateDisputeRecovery(o, recoveryCtx) : null
+  const verifiedCredits = (recoveryEval?.recoveryCredits || []).filter((c) => c.verified)
+  const pendingCredits = (recoveryEval?.recoveryCredits || []).filter(
+    (c) => !c.verified && c.verification_issue !== 'SUPERSEDED_BY_VERIFIED_SETTLEMENT_CREDIT'
+  )
+  const creditsDetailEs = verifiedCredits
+    .map((c) => `+$${c.amount.toFixed(2)} en corte #${c.payout_reference_id}${c.deposit_date ? ` (${c.deposit_date})` : ''}`)
+    .join('; ')
+  const creditsDetailEn = verifiedCredits
+    .map((c) => `+$${c.amount.toFixed(2)} in payout #${c.payout_reference_id}${c.deposit_date ? ` (${c.deposit_date})` : ''}`)
+    .join('; ')
+  const hasVerifiedRecovery = Boolean(recoveryEval && recoveryEval.verifiedRecoveredAmount > 0)
+  const hasPendingRecoveryClaim = Boolean(recoveryEval && !hasVerifiedRecovery && (pendingCredits.length > 0 || reimbRef))
   const lifecycleTrace = [
     {
       step: 1,
@@ -180,29 +218,37 @@ export function classifyOrderActionGroupAndExplanation(o: any) {
     {
       step: 4,
       stage: 'DISPUTE_RECOVERY',
-      title_es: reimbRef
-        ? `Recuperado en Corte #${reimbRef}`
+      title_es: hasVerifiedRecovery
+        ? `Recuperado (verificado) en ${verifiedCredits.length} corte(s) posterior(es)`
+        : hasPendingRecoveryClaim
+        ? 'Recuperación pendiente de verificar'
         : isDisputeOrRecovery
         ? `Disputa (${o.dispute_status || 'OPEN'})`
         : 'Sin disputa ni deducción',
-      title_en: reimbRef
-        ? `Recovered in Payout #${reimbRef}`
+      title_en: hasVerifiedRecovery
+        ? `Recovered (verified) in ${verifiedCredits.length} subsequent payout(s)`
+        : hasPendingRecoveryClaim
+        ? 'Recovery pending verification'
         : isDisputeOrRecovery
         ? `Dispute (${o.dispute_status || 'OPEN'})`
         : 'No dispute or deduction',
-      date: reimbDate || o.payout_date || null,
-      amount: reimbRef ? round2(reimbAmt || Math.abs(errCharge)) : round2(errCharge),
-      detail_es: reimbRef
-        ? `Deducción original: $${errCharge.toFixed(2)} en corte #${o.payout_reference_id || 'N/A'} → Recuperado: +$${(reimbAmt || Math.abs(errCharge)).toFixed(2)} en corte #${reimbRef} (${reimbDate || 'depositado'})`
+      date: recoveryEval?.reimbursementDepositDate || reimbDate || o.payout_date || null,
+      amount: hasVerifiedRecovery ? round2(recoveryEval!.verifiedRecoveredAmount) : round2(errCharge),
+      detail_es: hasVerifiedRecovery
+        ? `Original disputado: $${recoveryEval!.originalDeductionAbs.toFixed(2)} en corte #${o.payout_reference_id || 'N/A'} → Recuperado verificado: ${creditsDetailEs} (total +$${recoveryEval!.verifiedRecoveredAmount.toFixed(2)}) → Pendiente: $${recoveryEval!.unrecoveredAmount.toFixed(2)}`
+        : hasPendingRecoveryClaim
+        ? `Original disputado: $${(recoveryEval?.originalDeductionAbs || Math.abs(errCharge)).toFixed(2)}. Se registró una recuperación de $${(recoveryEval?.claimedUnverifiedAmount || reimbAmt).toFixed(2)} en corte #${reimbRef || pendingCredits[0]?.payout_reference_id || 'N/A'}, pero no se localizó el crédito de la orden en ese settlement.`
         : isDisputeOrRecovery
         ? `Cargo deducido por plataforma: $${errCharge.toFixed(2)}. Motivo: ${o.dispute_reason || 'Deducción / Reembolso de cliente'}`
         : 'Orden cobrada sin cargos por error ni contracargos',
-      detail_en: reimbRef
-        ? `Original deduction: $${errCharge.toFixed(2)} in payout #${o.payout_reference_id || 'N/A'} → Recovered: +$${(reimbAmt || Math.abs(errCharge)).toFixed(2)} in payout #${reimbRef} (${reimbDate || 'deposited'})`
+      detail_en: hasVerifiedRecovery
+        ? `Original disputed: $${recoveryEval!.originalDeductionAbs.toFixed(2)} in payout #${o.payout_reference_id || 'N/A'} → Verified recovery: ${creditsDetailEn} (total +$${recoveryEval!.verifiedRecoveredAmount.toFixed(2)}) → Remaining: $${recoveryEval!.unrecoveredAmount.toFixed(2)}`
+        : hasPendingRecoveryClaim
+        ? `Original disputed: $${(recoveryEval?.originalDeductionAbs || Math.abs(errCharge)).toFixed(2)}. A $${(recoveryEval?.claimedUnverifiedAmount || reimbAmt).toFixed(2)} recovery was recorded in payout #${reimbRef || pendingCredits[0]?.payout_reference_id || 'N/A'}, but the order credit was not found in that settlement.`
         : isDisputeOrRecovery
         ? `Platform error deduction: $${errCharge.toFixed(2)}. Reason: ${o.dispute_reason || 'Customer refund / chargeback'}`
         : 'Order settled without error charges or chargebacks',
-      completed: Boolean(reimbRef) || !isDisputeOrRecovery,
+      completed: recoveryEval?.recoveryClassification === 'FULL_RECOVERY' || !isDisputeOrRecovery,
     },
   ]
 
@@ -245,6 +291,11 @@ export function classifyOrderActionGroupAndExplanation(o: any) {
   }
 
   if (isUnverifiedNoId) {
+    const sugCand = o.raw_payload?.suggested_toast_candidate
+    const candNum = o.toast_display_number || sugCand?.toastDisplayNumber || sugCand?.displayNumber || 'N/A'
+    const candNet = Number(o.toast_net_sales || sugCand?.netSales || 0)
+    const candTax = Number(o.toast_tax || sugCand?.taxAmount || 0)
+    const candExpGross = round2(candNet + (plat === 'UBER_EATS' ? 0 : candTax))
     return {
       action_group: 'BLOCKED_MISSING_INFO' as ReconciliationActionGroup,
       status_code: 'BLOCKED_NO_PLATFORM_ID',
@@ -254,8 +305,8 @@ export function classifyOrderActionGroupAndExplanation(o: any) {
       what_happened_en: 'Same date and similar subtotal in Toast, but missing platform order ID on the check.',
       cause_es: 'Prohibido conciliar automáticamente solo por fecha + subtotal parecido.',
       cause_en: 'Auto-reconciling solely by date + similar subtotal is prohibited.',
-      evidence_es: `Toast #${o.toast_display_number || 'N/A'} ($${Number(o.toast_net_sales || 0).toFixed(2)}) vs ${plat} #${o.platform_order_id} ($${Number(o.platform_subtotal || 0).toFixed(2)})`,
-      evidence_en: `Toast #${o.toast_display_number || 'N/A'} ($${Number(o.toast_net_sales || 0).toFixed(2)}) vs ${plat} #${o.platform_order_id} ($${Number(o.platform_subtotal || 0).toFixed(2)})`,
+      evidence_es: `Toast #${candNum} ($${candExpGross.toFixed(2)}, Sub $${candNet.toFixed(2)}) vs ${plat} #${o.platform_order_id} ($${Number(o.platform_gross_receivable || o.platform_subtotal || 0).toFixed(2)})`,
+      evidence_en: `Toast #${candNum} ($${candExpGross.toFixed(2)}, Sub $${candNet.toFixed(2)}) vs ${plat} #${o.platform_order_id} ($${Number(o.platform_gross_receivable || o.platform_subtotal || 0).toFixed(2)})`,
       next_action_es: 'Verificar la comanda física o tablet y aprobar revisión manual.',
       next_action_en: 'Verify physical slip or tablet and approve manual review.',
       lifecycle_trace: lifecycleTrace,
@@ -281,30 +332,49 @@ export function classifyOrderActionGroupAndExplanation(o: any) {
   }
 
   if (isToastOnly) {
+    if (o.toast_only_store_synced) {
+      return {
+        action_group: 'BLOCKED_MISSING_INFO' as ReconciliationActionGroup,
+        status_code: 'UNPAID_IN_PLATFORM',
+        status_label_es: 'En Toast POS • Sin Pago en Plataforma',
+        status_label_en: 'In Toast POS • Unpaid in Platform',
+        what_happened_es: `Orden cerrada en Toast POS ($${Number(o.toast_expected_gross || 0).toFixed(2)}) que NO aparece pagada en las órdenes de ${plat} de esta sucursal.`,
+        what_happened_en: `Order closed in Toast POS ($${Number(o.toast_expected_gross || 0).toFixed(2)}) that does NOT appear paid in ${plat} orders for this store.`,
+        cause_es: `La sucursal ya tiene órdenes sincronizadas de ${plat} en este periodo, pero este ticket de Toast no fue incluido ni pagado por la plataforma.`,
+        cause_en: `This store already has synced ${plat} orders in this period, but this Toast check was not included or paid by the platform.`,
+        evidence_es: `Toast #${o.toast_display_number || 'S/N'} (${o.toast_tab_name || 'Sin nombre'}) del ${o.business_date}`,
+        evidence_en: `Toast #${o.toast_display_number || 'N/A'} (${o.toast_tab_name || 'No tab'}) on ${o.business_date}`,
+        next_action_es: `Verificar en el portal de ${plat} si la orden fue cancelada sin pago o levantar reclamo por orden no pagada.`,
+        next_action_en: `Verify in the ${plat} portal if the order was cancelled unpaid or file a claim for the unpaid order.`,
+        lifecycle_trace: lifecycleTrace,
+      }
+    }
     return {
       action_group: 'BLOCKED_MISSING_INFO' as ReconciliationActionGroup,
       status_code: 'PENDING_PLATFORM_SETTLEMENT',
-      status_label_es: 'En Toast (Pendiente de sincronizar/corte de plataforma)',
-      status_label_en: 'In Toast (Pending platform settlement/sync)',
-      what_happened_es: `Orden registrada en Toast POS ($${Number(o.toast_expected_gross || 0).toFixed(2)}) aún sin corte o reporte de ${plat}.`,
-      what_happened_en: `Order recorded in Toast POS ($${Number(o.toast_expected_gross || 0).toFixed(2)}) not yet in ${plat} settlement/report.`,
-      cause_es: 'El corte semanal aún no cierra o falta sincronizar el detalle de órdenes de esta tienda.',
-      cause_en: 'Weekly payout has not closed yet or store order detail sync is incomplete.',
+      status_label_es: 'En Toast (Pendiente sincronizar tienda)',
+      status_label_en: 'In Toast (Pending store sync)',
+      what_happened_es: `Orden registrada en Toast POS ($${Number(o.toast_expected_gross || 0).toFixed(2)}) aún sin órdenes descargadas de ${plat} en esta tienda.`,
+      what_happened_en: `Order recorded in Toast POS ($${Number(o.toast_expected_gross || 0).toFixed(2)}) pending ${plat} order download for this store.`,
+      cause_es: 'Falta sincronizar el detalle de órdenes de esta sucursal o el corte semanal aún no cierra.',
+      cause_en: 'Store order detail sync is pending for this period or weekly payout has not closed yet.',
       evidence_es: `Toast #${o.toast_display_number || 'S/N'} (${o.toast_tab_name || 'Sin nombre'}) del ${o.business_date}`,
       evidence_en: `Toast #${o.toast_display_number || 'N/A'} (${o.toast_tab_name || 'No tab'}) on ${o.business_date}`,
-      next_action_es: 'Sincronizar plataforma o esperar al cierre del corte semanal.',
-      next_action_en: 'Sync platform or wait for weekly settlement close.',
+      next_action_es: 'Usar "Sincronizar Tiendas Pendientes" para descargar y cruzar las órdenes de esta sucursal.',
+      next_action_en: 'Use "Sync Pending Stores" to download and cross-check orders for this store.',
       lifecycle_trace: lifecycleTrace,
     }
   }
 
   // 2) Check Group 3: DISPUTE_RECOVERY
-  if (isDisputeOrRecovery) {
-    const recEval = evaluateDisputeRecovery(o)
+  if (isDisputeOrRecovery && recoveryEval) {
+    const recEval = recoveryEval
     const isFullRecovery = recEval.recoveryClassification === 'FULL_RECOVERY'
     const isPartialRecovery = recEval.recoveryClassification === 'PARTIAL_RECOVERY'
     const isUnverifiedRecovery = recEval.recoveryClassification === 'UNVERIFIED_RECOVERY'
     const isConfirmedRecovery = isFullRecovery || isPartialRecovery
+    const origTxt = recEval.originalAmountVerified ? `$${recEval.originalDeductionAbs.toFixed(2)}` : 'no comprobado'
+    const origTxtEn = recEval.originalAmountVerified ? `$${recEval.originalDeductionAbs.toFixed(2)}` : 'unverified'
 
     let statusCode = 'DISPUTE_DEDUCTED'
     let statusLabelEs = `Con Payout, en Disputa / Cargo por Error ($${errCharge.toFixed(2)})`
@@ -316,28 +386,40 @@ export function classifyOrderActionGroupAndExplanation(o: any) {
 
     if (isFullRecovery) {
       statusCode = 'DISPUTE_RECOVERED'
-      statusLabelEs = `Recuperación Total Confirmada (+$${recEval.reimbursementAmount.toFixed(2)})`
-      statusLabelEn = `Full Recovery Confirmed (+$${recEval.reimbursementAmount.toFixed(2)})`
-      whatHappenedEs = `Orden #${o.platform_order_id} sufrió deducción de -$${recEval.originalDeductionAbs.toFixed(2)} en corte #${o.payout_reference_id || 'N/A'} y fue recuperada en su totalidad (+$${recEval.reimbursementAmount.toFixed(2)}) en el corte posterior #${recEval.reimbursementPayoutRef}.`
-      whatHappenedEn = `Order #${o.platform_order_id} had a -$${recEval.originalDeductionAbs.toFixed(2)} deduction in payout #${o.payout_reference_id || 'N/A'} and was recovered in full (+$${recEval.reimbursementAmount.toFixed(2)}) in subsequent payout #${recEval.reimbursementPayoutRef}.`
-      nextActionEs = 'Evidencia completa verificada. Recuperación total conciliada.'
-      nextActionEn = 'Full lifecycle evidence verified. Full recovery reconciled.'
+      statusLabelEs = `Recuperación Total Verificada (+$${recEval.verifiedRecoveredAmount.toFixed(2)})`
+      statusLabelEn = `Full Recovery Verified (+$${recEval.verifiedRecoveredAmount.toFixed(2)})`
+      whatHappenedEs = `Orden #${o.platform_order_id} sufrió deducción de -$${recEval.originalDeductionAbs.toFixed(2)} en corte #${o.payout_reference_id || 'N/A'} y fue recuperada en su totalidad: ${creditsDetailEs}.`
+      whatHappenedEn = `Order #${o.platform_order_id} had a -$${recEval.originalDeductionAbs.toFixed(2)} deduction in payout #${o.payout_reference_id || 'N/A'} and was recovered in full: ${creditsDetailEn}.`
+      nextActionEs = 'Crédito(s) localizados en el settlement posterior. Recuperación total conciliada.'
+      nextActionEn = 'Credit(s) located in the subsequent settlement. Full recovery reconciled.'
     } else if (isPartialRecovery) {
       statusCode = 'DISPUTE_PARTIALLY_RECOVERED'
-      statusLabelEs = `Recuperación Parcial (+$${recEval.reimbursementAmount.toFixed(2)} de -$${recEval.originalDeductionAbs.toFixed(2)} • Pendiente -$${recEval.unrecoveredAmount.toFixed(2)})`
-      statusLabelEn = `Partial Recovery (+$${recEval.reimbursementAmount.toFixed(2)} of -$${recEval.originalDeductionAbs.toFixed(2)} • Remaining -$${recEval.unrecoveredAmount.toFixed(2)})`
-      whatHappenedEs = `Orden #${o.platform_order_id} sufrió deducción de -$${recEval.originalDeductionAbs.toFixed(2)} en corte #${o.payout_reference_id || 'N/A'}; se recuperaron +$${recEval.reimbursementAmount.toFixed(2)} en el corte posterior #${recEval.reimbursementPayoutRef}, quedando -$${recEval.unrecoveredAmount.toFixed(2)} sin recuperar.`
-      whatHappenedEn = `Order #${o.platform_order_id} had a -$${recEval.originalDeductionAbs.toFixed(2)} deduction in payout #${o.payout_reference_id || 'N/A'}; +$${recEval.reimbursementAmount.toFixed(2)} was recovered in payout #${recEval.reimbursementPayoutRef}, leaving -$${recEval.unrecoveredAmount.toFixed(2)} unrecovered.`
+      statusLabelEs = `Recuperación Parcial (+$${recEval.verifiedRecoveredAmount.toFixed(2)} de -$${recEval.originalDeductionAbs.toFixed(2)} • Pendiente -$${recEval.unrecoveredAmount.toFixed(2)})`
+      statusLabelEn = `Partial Recovery (+$${recEval.verifiedRecoveredAmount.toFixed(2)} of -$${recEval.originalDeductionAbs.toFixed(2)} • Remaining -$${recEval.unrecoveredAmount.toFixed(2)})`
+      whatHappenedEs = `Orden #${o.platform_order_id} sufrió deducción de -$${recEval.originalDeductionAbs.toFixed(2)} en corte #${o.payout_reference_id || 'N/A'}; recuperado verificado: ${creditsDetailEs}, quedando -$${recEval.unrecoveredAmount.toFixed(2)} sin recuperar.`
+      whatHappenedEn = `Order #${o.platform_order_id} had a -$${recEval.originalDeductionAbs.toFixed(2)} deduction in payout #${o.payout_reference_id || 'N/A'}; verified recovery: ${creditsDetailEn}, leaving -$${recEval.unrecoveredAmount.toFixed(2)} unrecovered.`
       nextActionEs = `Reclamar el saldo restante de -$${recEval.unrecoveredAmount.toFixed(2)} o documentar el cierre parcial de la disputa.`
       nextActionEn = `Claim the remaining -$${recEval.unrecoveredAmount.toFixed(2)} balance or document partial dispute closure.`
     } else if (isUnverifiedRecovery) {
       statusCode = 'DISPUTE_RECOVERY_MISSING_EVIDENCE'
-      statusLabelEs = `Recuperación sin evidencia completa ($${errCharge.toFixed(2)})`
-      statusLabelEn = `Recovery missing complete evidence ($${errCharge.toFixed(2)})`
-      whatHappenedEs = `Se marcó intento de recuperación en la orden #${o.platform_order_id}, pero falta vínculo verificable al corte posterior, importe, fecha de depósito o evidencia documentada.`
-      whatHappenedEn = `Recovery attempt marked on order #${o.platform_order_id}, but missing verifiable link to subsequent payout, amount, deposit date, or documented evidence.`
-      nextActionEs = 'Completar referencia de corte posterior, importe recuperado, fecha YYYY-MM-DD y evidencia (mín. 5 caracteres).'
-      nextActionEn = 'Complete subsequent payout reference, recovered amount, YYYY-MM-DD date, and evidence (min 5 chars).'
+      statusLabelEs = `Recuperación pendiente de verificar (original ${origTxt})`
+      statusLabelEn = `Recovery pending verification (original ${origTxtEn})`
+      whatHappenedEs = !recEval.originalAmountVerified
+        ? `Se registró una recuperación en la orden #${o.platform_order_id}, pero el importe original disputado no está comprobado; no es posible determinar si fue total o parcial.`
+        : `Se registró una recuperación de $${recEval.claimedUnverifiedAmount.toFixed(2)} en la orden #${o.platform_order_id}, pero el settlement indicado no contiene un crédito identificable de esa orden con importe y fecha coherentes.`
+      whatHappenedEn = !recEval.originalAmountVerified
+        ? `A recovery was recorded on order #${o.platform_order_id}, but the original disputed amount is unverified; full vs partial cannot be determined.`
+        : `A $${recEval.claimedUnverifiedAmount.toFixed(2)} recovery was recorded on order #${o.platform_order_id}, but the referenced settlement has no identifiable credit for that order with matching amount and date.`
+      nextActionEs = 'Verificar en el portal el corte donde se pagó el crédito de la orden (ID de transacción e importe) y re-sincronizar ese corte.'
+      nextActionEn = 'Check the platform portal for the payout that paid the order credit (transaction ID and amount) and re-sync that payout.'
+    } else if (recEval.isDisputeApproved) {
+      statusCode = 'DISPUTE_APPROVED_RECOVERY_PENDING'
+      statusLabelEs = `Disputa aprobada, recuperación pendiente (-$${recEval.unrecoveredAmount.toFixed(2)})`
+      statusLabelEn = `Dispute approved, recovery pending (-$${recEval.unrecoveredAmount.toFixed(2)})`
+      whatHappenedEs = `La disputa de la orden #${o.platform_order_id} figura como aprobada, pero aún no existe un crédito en un settlement posterior.`
+      whatHappenedEn = `Order #${o.platform_order_id} dispute is marked approved, but no credit exists yet in a subsequent settlement.`
+      nextActionEs = 'Esperar el siguiente corte y sincronizarlo; el crédito se vinculará automáticamente al localizarse en el settlement.'
+      nextActionEn = 'Wait for the next payout and sync it; the credit will link automatically once found in the settlement.'
     }
 
     return {
@@ -345,8 +427,13 @@ export function classifyOrderActionGroupAndExplanation(o: any) {
       status_code: statusCode,
       recovery_classification: recEval.recoveryClassification,
       original_deduction_abs: recEval.originalDeductionAbs,
-      recovered_amount: recEval.reimbursementAmount,
+      original_amount_verified: recEval.originalAmountVerified,
+      recovered_amount: recEval.verifiedRecoveredAmount,
+      claimed_unverified_amount: recEval.claimedUnverifiedAmount,
       unrecovered_amount: recEval.unrecoveredAmount,
+      recovery_credits_evaluated: recEval.recoveryCredits,
+      recovery_verification_issues: recEval.verificationIssues,
+      dispute_approved: recEval.isDisputeApproved,
       status_label_es: statusLabelEs,
       status_label_en: statusLabelEn,
       what_happened_es: whatHappenedEs,
@@ -354,11 +441,11 @@ export function classifyOrderActionGroupAndExplanation(o: any) {
       cause_es: o.dispute_reason || 'Reembolso de cliente o ajuste de orden aplicado por la plataforma.',
       cause_en: o.dispute_reason || 'Customer refund or order adjustment applied by the platform.',
       evidence_es: isConfirmedRecovery
-        ? `Corte deducción: #${o.payout_reference_id || 'N/A'} (-$${recEval.originalDeductionAbs.toFixed(2)}) → Corte recuperación: #${recEval.reimbursementPayoutRef} (+$${recEval.reimbursementAmount.toFixed(2)} el ${recEval.reimbursementDepositDate || ''})`
-        : `Corte: #${o.payout_reference_id || 'Sin corte'} | Estado disputa: ${o.dispute_status || 'OPEN'}`,
+        ? `Corte deducción: #${o.payout_reference_id || 'N/A'} (-$${recEval.originalDeductionAbs.toFixed(2)}) → Créditos verificados: ${creditsDetailEs}`
+        : `Corte: #${o.payout_reference_id || 'Sin corte'} | Estado disputa: ${o.dispute_status || 'OPEN'}${recEval.verificationIssues.length ? ` | Verificación: ${recEval.verificationIssues.join(', ')}` : ''}`,
       evidence_en: isConfirmedRecovery
-        ? `Deduction payout: #${o.payout_reference_id || 'N/A'} (-$${recEval.originalDeductionAbs.toFixed(2)}) → Recovery payout: #${recEval.reimbursementPayoutRef} (+$${recEval.reimbursementAmount.toFixed(2)} on ${recEval.reimbursementDepositDate || ''})`
-        : `Payout: #${o.payout_reference_id || 'No payout'} | Dispute status: ${o.dispute_status || 'OPEN'}`,
+        ? `Deduction payout: #${o.payout_reference_id || 'N/A'} (-$${recEval.originalDeductionAbs.toFixed(2)}) → Verified credits: ${creditsDetailEn}`
+        : `Payout: #${o.payout_reference_id || 'No payout'} | Dispute status: ${o.dispute_status || 'OPEN'}${recEval.verificationIssues.length ? ` | Verification: ${recEval.verificationIssues.join(', ')}` : ''}`,
       next_action_es: nextActionEs,
       next_action_en: nextActionEn,
       lifecycle_trace: lifecycleTrace,
@@ -572,6 +659,28 @@ export function classifyOrderActionGroupAndExplanation(o: any) {
 
   // If matched in platform & Toast with $0 variance, check if it has a verified payout_reference_id
   if (!hasPayoutRef) {
+    const isVerifiedBothSides =
+      Boolean(o.toast_order_guid) &&
+      o.match_confidence !== 'TOAST_ONLY' &&
+      Boolean(o.platform_transaction_id) &&
+      !String(o.platform_transaction_id).startsWith('TOAST-')
+    if (o.raw_payload?.pending_next_payout || isVerifiedBothSides) {
+      return {
+        action_group: 'CONCILIATED_READY' as ReconciliationActionGroup,
+        status_code: 'CONCILIATED_NEXT_PAYOUT',
+        status_label_es: 'Cobrada y cuadrada • En tránsito al siguiente corte',
+        status_label_en: 'Paid & matched • Queued for next weekly payout',
+        what_happened_es: `Orden #${o.platform_order_id} cobrada y cuadrada al centavo entre Toast POS ($${Number(o.toast_expected_gross || 0).toFixed(2)}) y ${plat} ($${Number(o.platform_gross_receivable || 0).toFixed(2)}, Neto: $${Number(o.net_payout || 0).toFixed(2)}).`,
+        what_happened_en: `Order #${o.platform_order_id} paid and matched to the cent between Toast POS ($${Number(o.toast_expected_gross || 0).toFixed(2)}) and ${plat} ($${Number(o.platform_gross_receivable || 0).toFixed(2)}, Net: $${Number(o.net_payout || 0).toFixed(2)}).`,
+        cause_es: `Transacción verificada en ${plat} (Tx #${o.platform_transaction_id}) correspondiente al ciclo semanal en curso o posterior al horario de corte semanal; se deposita en el siguiente corte semanal.`,
+        cause_en: `Verified transaction in ${plat} (Tx #${o.platform_transaction_id}) belonging to the open weekly cycle or placed after the weekly cutoff; deposited in the next weekly payout.`,
+        evidence_es: `Toast #${o.toast_display_number} ↔ ${plat} #${o.platform_order_id} ($${Number(o.platform_gross_receivable || 0).toFixed(2)} | Neto $${Number(o.net_payout || 0).toFixed(2)}) ↔ Tx #${o.platform_transaction_id} (Siguiente corte semanal)`,
+        evidence_en: `Toast #${o.toast_display_number} ↔ ${plat} #${o.platform_order_id} ($${Number(o.platform_gross_receivable || 0).toFixed(2)} | Net $${Number(o.net_payout || 0).toFixed(2)}) ↔ Tx #${o.platform_transaction_id} (Next weekly payout)`,
+        next_action_es: 'Conciliada operativamente ($0.00 diferencia). Se incluirá en la póliza QBO del corte semanal al cerrar.',
+        next_action_en: 'Operationally reconciled ($0.00 variance). Will be included in the weekly payout QBO entry once closed.',
+        lifecycle_trace: lifecycleTrace,
+      }
+    }
     return {
       action_group: 'BLOCKED_MISSING_INFO' as ReconciliationActionGroup,
       status_code: 'MATCHED_AWAITING_PAYOUT_REF',
@@ -667,6 +776,7 @@ export async function GET(req: NextRequest) {
           .select('*')
           .order('business_date', { ascending: false })
           .order('placed_at', { ascending: false })
+          .order('id', { ascending: true })
         if (payoutRefParam) {
           q = q.eq('payout_reference_id', payoutRefParam)
         } else if (!search || search.length < 2) {
@@ -688,6 +798,7 @@ export async function GET(req: NextRequest) {
           .from('delivery_platform_orders')
           .select('*')
           .eq('is_disputed', true)
+          .order('id', { ascending: true })
         if (selectedStoreNum !== null && selectedStoreNum > 0) {
           q = q.eq('store_id', selectedStoreNum)
         }
@@ -704,6 +815,7 @@ export async function GET(req: NextRequest) {
           .from('delivery_platform_payouts')
           .select('*')
           .order('payout_date', { ascending: false })
+          .order('id', { ascending: true })
         if (selectedStoreNum !== null && selectedStoreNum > 0) {
           q = q.eq('store_id', selectedStoreNum)
         }
@@ -720,16 +832,29 @@ export async function GET(req: NextRequest) {
           .from('delivery_platform_orders')
           .select('store_id, platform, business_date, match_confidence, toast_order_guid, payout_reference_id, updated_at')
           .neq('match_confidence', 'TOAST_ONLY')
+          .order('id', { ascending: true })
           .range(from, to)
       ),
       fetchAllSupabaseRows<any>((from, to) =>
         supabaseAdmin
           .from('delivery_platform_payouts')
           .select('store_id, platform, payout_reference_id, payout_date, period_start, period_end, orders_count, updated_at')
+          .order('id', { ascending: true })
           .range(from, to)
       ),
       getQuarantinedUnassignedRecords(),
     ])
+
+    for (const p of rawPayouts || []) {
+      const eff = resolveEffectivePayoutPeriod(p)
+      p.period_start = eff.period_start
+      p.period_end = eff.period_end
+    }
+    for (const sp of allSyncPayouts || []) {
+      const eff = resolveEffectivePayoutPeriod(sp)
+      sp.period_start = eff.period_start
+      sp.period_end = eff.period_end
+    }
 
     // Unir órdenes del rango con órdenes en disputa cuyo reembolso ocurrió dentro del rango seleccionado o payout seleccionado
     const rawOrdersMap = new Map<string, any>()
@@ -738,12 +863,20 @@ export async function GET(req: NextRequest) {
         rawOrdersMap.set(String(r.id), r)
       }
       for (const d of disputedOrdersAll || []) {
-        const reimbRef = d?.raw_payload?.reimbursement_payout_ref
-        if (reimbRef && !rawOrdersMap.has(String(d.id))) {
-          const reimbDate = String(d?.raw_payload?.reimbursement_deposit_date || '')
+        // Defecto 4: considerar TODOS los payouts de recuperación de la orden (libro `recovery_credits` + campos históricos)
+        const recRefs = getOrderRecoveryPayoutRefs(d)
+        if (recRefs.length > 0 && !rawOrdersMap.has(String(d.id))) {
+          const recDates = getOrderRecoveryCredits(d)
+            .map((c) => String(c.deposit_date || ''))
+            .concat(String(d?.raw_payload?.reimbursement_deposit_date || ''))
+            .filter(Boolean)
           const isSearchMatch = Boolean(search && search.length >= 2)
-          const isPayoutRefMatch = Boolean(payoutRefParam && (reimbRef === payoutRefParam || d.payout_reference_id === payoutRefParam))
-          const isReimbInWindow = Boolean(!payoutRefParam && reimbDate && reimbDate >= startDate && reimbDate <= endDate)
+          const isPayoutRefMatch = Boolean(
+            payoutRefParam && (recRefs.includes(payoutRefParam) || d.payout_reference_id === payoutRefParam)
+          )
+          const isReimbInWindow = Boolean(
+            !payoutRefParam && recDates.some((dt) => dt >= startDate && dt <= endDate)
+          )
           if (isSearchMatch || isPayoutRefMatch || isReimbInWindow) {
             rawOrdersMap.set(String(d.id), d)
           }
@@ -810,6 +943,102 @@ export async function GET(req: NextRequest) {
     }
 
     const rawOrders = Array.from(rawOrdersMap.values())
+
+    // Pilar 2: Auto-vincular órdenes reales de plataforma (`match_confidence !== 'TOAST_ONLY'`) cuyo `payout_reference_id` es nulo
+    // cuando existe un único payout oficial de esa sucursal + plataforma cuyo `[period_start, period_end]` cubre `business_date`.
+    const autoLinkUpdates: Array<{ orderId: number | string; payoutRef: string; payoutDate: string | null }> = []
+    for (const o of rawOrders) {
+      if (
+        !o ||
+        o.match_confidence === 'TOAST_ONLY' ||
+        Number(o.store_id) <= 0 ||
+        o.payout_reference_id ||
+        !o.business_date ||
+        o.raw_payload?.pending_next_payout
+      ) {
+        continue
+      }
+      const candidatePayouts = (allSyncPayouts || []).filter(
+        (sp: any) =>
+          Number(sp.store_id) === Number(o.store_id) &&
+          sp.platform === o.platform &&
+          sp.payout_reference_id &&
+          sp.period_start &&
+          sp.period_end &&
+          o.business_date >= sp.period_start &&
+          o.business_date <= sp.period_end
+      )
+      if (candidatePayouts.length === 1) {
+        const matchedPay = candidatePayouts[0]
+        o.payout_reference_id = matchedPay.payout_reference_id
+        o.payout_date = matchedPay.payout_date || o.payout_date || null
+        if (o.id && !String(o.id).startsWith('UNASSIGNED-')) {
+          autoLinkUpdates.push({
+            orderId: o.id,
+            payoutRef: matchedPay.payout_reference_id,
+            payoutDate: matchedPay.payout_date || null,
+          })
+        }
+      }
+    }
+    for (const so of allSyncOrders || []) {
+      if (!so || so.match_confidence === 'TOAST_ONLY' || Number(so.store_id) <= 0 || so.payout_reference_id || !so.business_date) {
+        continue
+      }
+      const candidatePayouts = (allSyncPayouts || []).filter(
+        (sp: any) =>
+          Number(sp.store_id) === Number(so.store_id) &&
+          sp.platform === so.platform &&
+          sp.payout_reference_id &&
+          sp.period_start &&
+          sp.period_end &&
+          so.business_date >= sp.period_start &&
+          so.business_date <= sp.period_end
+      )
+      if (candidatePayouts.length === 1) {
+        so.payout_reference_id = candidatePayouts[0].payout_reference_id
+      }
+    }
+    if (autoLinkUpdates.length > 0) {
+      await Promise.all(
+        autoLinkUpdates.map((u) =>
+          supabaseAdmin
+            .from('delivery_platform_orders')
+            .update({
+              payout_reference_id: u.payoutRef,
+              payout_date: u.payoutDate,
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', u.orderId)
+        )
+      )
+    }
+
+    // Defecto 2: índice de settlements para verificar en lectura que cada crédito de recuperación exista en el payout posterior.
+    // Incluye payouts de recuperación que no entran en el filtro actual (otra semana / payout seleccionado).
+    const recoverySettlementIndex = buildRecoverySettlementIndex(rawPayouts || [])
+    const missingRecoveryRefs = new Set<string>()
+    for (const o of rawOrders) {
+      if (!o || Number(o.store_id) <= 0) continue
+      for (const ref of getOrderRecoveryPayoutRefs(o)) {
+        if (!recoverySettlementIndex.has(recoverySettlementKey(o.store_id, o.platform, ref))) missingRecoveryRefs.add(ref)
+      }
+    }
+    if (missingRecoveryRefs.size > 0) {
+      const refsList = Array.from(missingRecoveryRefs)
+      for (let i = 0; i < refsList.length; i += 100) {
+        const chunk = refsList.slice(i, i + 100)
+        const { data: recPayouts, error: recErr } = await supabaseAdmin
+          .from('delivery_platform_payouts')
+          .select('store_id, platform, payout_reference_id, payout_date, period_start, period_end, raw_payload')
+          .in('payout_reference_id', chunk)
+        if (recErr) throw new Error(`Error leyendo payouts de recuperación: ${recErr.message}`)
+        for (const rp of recPayouts || []) {
+          recoverySettlementIndex.set(recoverySettlementKey(rp.store_id, rp.platform, rp.payout_reference_id), rp)
+        }
+      }
+    }
+    const recoveryCtx = { settlementPayouts: recoverySettlementIndex }
 
     type PlatformSyncMeta = {
       lastSyncedAt: string | null
@@ -992,7 +1221,33 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    let orders = (rawOrders || []).map((o: any) => {
+    // Contar cuántas órdenes reales de plataforma (no TOAST_ONLY) y cuántas de Toast existen por sucursal + plataforma + fecha
+    const storePlatDateRealOrders = new Map<string, number>()
+    const storePlatDateToastOrders = new Map<string, number>()
+    const suggestedToastGuidsSet = new Set<string>()
+    for (const o of rawOrders || []) {
+      if (!o || Number(o.store_id) <= 0 || !o.business_date) continue
+      const spdKey = `${Number(o.store_id)}:${o.platform}:${o.business_date}`
+      if (o.match_confidence !== 'TOAST_ONLY') {
+        storePlatDateRealOrders.set(spdKey, (storePlatDateRealOrders.get(spdKey) || 0) + 1)
+        const sugGuid = o.raw_payload?.suggested_toast_candidate?.toastOrderGuid
+        if (sugGuid) suggestedToastGuidsSet.add(String(sugGuid))
+      }
+      if (o.toast_order_guid || o.match_confidence === 'TOAST_ONLY') {
+        storePlatDateToastOrders.set(spdKey, (storePlatDateToastOrders.get(spdKey) || 0) + 1)
+      }
+    }
+
+    const deduplicatedRawOrders = (rawOrders || []).filter((o: any) => {
+      const isToastOnlyRow =
+        o?.match_confidence === 'TOAST_ONLY' || o?.reconciliation_status === 'MISSING_IN_PLATFORM'
+      if (isToastOnlyRow && o?.toast_order_guid && suggestedToastGuidsSet.has(String(o.toast_order_guid))) {
+        return false
+      }
+      return true
+    })
+
+    let orders = deduplicatedRawOrders.map((o: any) => {
       const storeMeta = storeNameMap.get(Number(o.store_id)) || {
         name: o.store_id === 0 ? 'Tienda Desconocida (Requiere Mapeo)' : `Store #${o.store_id}`,
         code: o.store_id === 0 ? 'UNASSIGNED_STORE' : '',
@@ -1000,6 +1255,35 @@ export async function GET(req: NextRequest) {
       const subVar = round2(Number(o.subtotal_diff ?? o.subtotal_variance ?? 0))
       const taxVar = round2(Number(o.tax_diff ?? o.tax_variance ?? 0))
       const grossVar = round2(Number(o.gross_diff ?? o.gross_variance ?? 0))
+      const isToastOnlyRow =
+        o.match_confidence === 'TOAST_ONLY' || o.reconciliation_status === 'MISSING_IN_PLATFORM'
+      const spdKey = `${Number(o.store_id)}:${o.platform}:${o.business_date || ''}`
+      const realPlatOnDay = storePlatDateRealOrders.get(spdKey) || 0
+      const toastOnDay = storePlatDateToastOrders.get(spdKey) || 0
+      const coveringPayouts = (allSyncPayouts || []).filter(
+        (sp: any) =>
+          Number(sp.store_id) === Number(o.store_id) &&
+          sp.platform === o.platform &&
+          sp.period_start &&
+          sp.period_end &&
+          o.business_date >= sp.period_start &&
+          o.business_date <= sp.period_end
+      )
+      const payoutCoverageReady =
+        coveringPayouts.length === 0 ||
+        coveringPayouts.every((sp: any) => {
+          const expectedCnt = Number(sp.orders_count || 0)
+          const linkedCnt =
+            linkedOrdersByPayoutKey.get(`${sp.platform}:${Number(sp.store_id)}:${sp.payout_reference_id}`) || 0
+          return expectedCnt > 0 ? linkedCnt >= Math.max(1, Math.floor(expectedCnt * 0.96)) : linkedCnt > 0
+        })
+      const isTruncatedPageBoundary =
+        realPlatOnDay > 0 && realPlatOnDay % 50 === 0 && toastOnDay > realPlatOnDay
+      const dayCoverageReady =
+        realPlatOnDay > 0 &&
+        !isTruncatedPageBoundary &&
+        realPlatOnDay >= Math.max(1, Math.floor(toastOnDay * 0.85))
+      const toastOnlyStoreSynced = isToastOnlyRow ? dayCoverageReady && payoutCoverageReady : true
       const enrichedBase = {
         ...o,
         store_name: storeMeta.name,
@@ -1010,8 +1294,9 @@ export async function GET(req: NextRequest) {
         subtotal_variance: subVar,
         tax_variance: taxVar,
         gross_variance: grossVar,
+        toast_only_store_synced: toastOnlyStoreSynced,
       }
-      const audit = classifyOrderActionGroupAndExplanation(enrichedBase)
+      const audit = classifyOrderActionGroupAndExplanation(enrichedBase, recoveryCtx)
       const rp = o.raw_payload || {}
       const slimRawPayload = {
         reimbursement_payout_ref: rp.reimbursement_payout_ref ?? undefined,
@@ -1019,11 +1304,17 @@ export async function GET(req: NextRequest) {
         reimbursement_deposit_date: rp.reimbursement_deposit_date ?? undefined,
         reimbursement_amount: rp.reimbursement_amount ?? undefined,
         reimbursement_description: rp.reimbursement_description ?? undefined,
+        recovery_credits: rp.recovery_credits ?? undefined,
+        original_disputed_amount: rp.original_disputed_amount ?? undefined,
+        original_disputed_amount_source: rp.original_disputed_amount_source ?? undefined,
+        consolidated_from_count: Array.isArray(rp.consolidated_from_rows) ? rp.consolidated_from_rows.length : undefined,
         ambiguous_toast_candidates: rp.ambiguous_toast_candidates ?? undefined,
+        suggested_toast_candidate: rp.suggested_toast_candidate ?? undefined,
         missing_tax_breakdown: rp.missing_tax_breakdown ?? undefined,
         tax_breakdown_verified: rp.tax_breakdown_verified ?? undefined,
         unverified_reason: rp.unverified_reason ?? undefined,
         unassigned_store: rp.unassigned_store ?? undefined,
+        pending_next_payout: rp.pending_next_payout ?? undefined,
         manual_review_approved: rp.manual_review_approved ?? undefined,
         variance_approval: rp.variance_approval ?? undefined,
         explicit_review_decision: rp.explicit_review_decision ?? undefined,
@@ -1168,11 +1459,9 @@ export async function GET(req: NextRequest) {
         const pEnd = p.period_end || ''
         const pStart = p.period_start || pEnd
         const pPay = p.payout_date || ''
+        // Defecto 3: solapamiento INCLUSIVO (period_start <= endDate && period_end >= startDate)
         if (pStart && pEnd) {
-          if (pStart < pEnd && startDate < endDate) {
-            return pStart <= endDate && pEnd > startDate
-          }
-          return pStart <= endDate && pEnd >= startDate
+          return payoutPeriodOverlapsRange(p, startDate, endDate)
         }
         if (pPay) {
           return pPay >= startDate && pPay <= endDate
@@ -1539,6 +1828,61 @@ export async function GET(req: NextRequest) {
       platformGrossTotal > 0 ? round2((Math.abs(totalFeesAll) / platformGrossTotal) * 100) : 0
     const settledVarianceTotal = round2(settledPlatformGrossTotal - settledToastExpectedTotal)
 
+    // Calcular desglose bidireccional explícito: Toast POS <-> Plataformas Delivery
+    let inToastUnpaidSyncedStoreCount = 0
+    let inToastUnpaidSyncedStoreGross = 0
+    let inToastPendingStoreSyncCount = 0
+    let inToastPendingStoreSyncGross = 0
+    let inPlatformNotInToastCount = 0
+    let inPlatformNotInToastGross = 0
+    let otherBlockedPlatformCount = 0
+    let otherBlockedPlatformGross = 0
+    const pendingSyncStoreIdsSet = new Set<number>()
+
+    for (const o of orders) {
+      const isToastOnly = o.match_confidence === 'TOAST_ONLY' || o.reconciliation_status === 'MISSING_IN_PLATFORM'
+      const tExp = Number(o.toast_expected_gross || 0)
+      const pGross = Number(o.platform_gross_receivable || 0)
+      if (isToastOnly) {
+        if (o.toast_only_store_synced) {
+          inToastUnpaidSyncedStoreCount++
+          inToastUnpaidSyncedStoreGross = round2(inToastUnpaidSyncedStoreGross + tExp)
+        } else {
+          inToastPendingStoreSyncCount++
+          inToastPendingStoreSyncGross = round2(inToastPendingStoreSyncGross + tExp)
+          if (Number(o.store_id) > 0) pendingSyncStoreIdsSet.add(Number(o.store_id))
+        }
+      } else if (o.action_group === 'BLOCKED_MISSING_INFO') {
+        if (!o.toast_order_guid) {
+          inPlatformNotInToastCount++
+          inPlatformNotInToastGross = round2(inPlatformNotInToastGross + pGross)
+        } else {
+          otherBlockedPlatformCount++
+          otherBlockedPlatformGross = round2(otherBlockedPlatformGross + (tExp || pGross))
+        }
+      }
+    }
+
+    const bidirectionalSummary = {
+      paidAndMatchedCount: conciliatedReadyCount,
+      paidAndMatchedGross: round2(conciliatedReadyGross),
+      underpaidOrDisputedCount: varianceInvestigateCount + disputeRecoveryCount,
+      underpaidOrDisputedAmount: round2(varianceInvestigateAmount + disputeRecoveryAmount),
+      varianceInvestigateCount,
+      varianceInvestigateAmount: round2(varianceInvestigateAmount),
+      disputeRecoveryCount,
+      disputeRecoveryAmount: round2(disputeRecoveryAmount),
+      inToastUnpaidSyncedStoreCount,
+      inToastUnpaidSyncedStoreGross: round2(inToastUnpaidSyncedStoreGross),
+      inToastPendingStoreSyncCount,
+      inToastPendingStoreSyncGross: round2(inToastPendingStoreSyncGross),
+      inPlatformNotInToastCount,
+      inPlatformNotInToastGross: round2(inPlatformNotInToastGross),
+      otherBlockedPlatformCount,
+      otherBlockedPlatformGross: round2(otherBlockedPlatformGross),
+      pendingSyncStoreIds: Array.from(pendingSyncStoreIdsSet).sort((a, b) => a - b),
+    }
+
     const summary = {
       totalOrders: orders.length,
       conciliatedReadyCount,
@@ -1550,6 +1894,7 @@ export async function GET(req: NextRequest) {
       disputeRecoveryAmount: round2(disputeRecoveryAmount),
       blockedMissingInfoCount,
       blockedMissingInfoAmount: round2(blockedMissingInfoAmount),
+      bidirectionalSummary,
       settledOrdersCount,
       matchedOrdersCount,
       discrepancyOrdersCount,
@@ -1606,10 +1951,15 @@ export async function POST(req: NextRequest) {
     const action = String(body.action || '').trim()
 
     if (action === 'sync_live') {
+      const storeIdsArray = Array.isArray(body.store_ids)
+        ? body.store_ids.map((id: any) => Number(id)).filter((n: number) => Number.isFinite(n) && n > 0)
+        : []
       const storeId =
-        body.store_id && body.store_id !== 'ALL' && Number.isFinite(Number(body.store_id)) && Number(body.store_id) > 0
-          ? [Number(body.store_id)]
-          : []
+        storeIdsArray.length > 0
+          ? storeIdsArray
+          : body.store_id && body.store_id !== 'ALL' && Number.isFinite(Number(body.store_id)) && Number(body.store_id) > 0
+            ? [Number(body.store_id)]
+            : []
 
       const auth = await authorizeDeliveryReconciliationRequest(req, supabaseAdmin, {
         permission: 'sync',
@@ -1762,7 +2112,9 @@ export async function POST(req: NextRequest) {
 
       const { data: existingOrd, error: fetchErr } = await supabaseAdmin
         .from('delivery_platform_orders')
-        .select('id, store_id, platform, platform_order_id, error_charge, platform_gross_receivable, toast_expected_gross, raw_payload, dispute_amount')
+        .select(
+          'id, store_id, platform, platform_order_id, business_date, payout_reference_id, payout_date, error_charge, platform_gross_receivable, toast_expected_gross, raw_payload, dispute_amount, dispute_status, dispute_notes, is_disputed, reconciliation_status'
+        )
         .eq('id', id)
         .single()
 
@@ -1806,6 +2158,19 @@ export async function POST(req: NextRequest) {
 
       // P0-6: No permitir estado REIMBURSED sin payout de recuperación, monto > 0, fecha de depósito y nota/evidencia obligatoria,
       // validando en DB que el payout exista, pertenezca a la misma plataforma/tienda y tenga consistencia de importe.
+      let recoveryPayout: Record<string, any> | null = null
+      let recoveryPayoutLookedUp = false
+      const lookupRecoveryPayout = async () => {
+        recoveryPayoutLookedUp = true
+        const { data: rows, error: rpErr } = await supabaseAdmin
+          .from('delivery_platform_payouts')
+          .select('id, store_id, platform, payout_reference_id, payout_date, period_start, period_end, net_payout_amount, adjustments_amount, raw_payload')
+          .eq('store_id', existingOrd.store_id)
+          .eq('platform', existingOrd.platform)
+          .eq('payout_reference_id', effectivePayoutRef)
+        if (rpErr) throw new Error(rpErr.message)
+        return rows || []
+      }
       if (normalizedStatus === 'REIMBURSED') {
         if (!effectivePayoutRef) {
           return NextResponse.json(
@@ -1844,12 +2209,7 @@ export async function POST(req: NextRequest) {
           )
         }
 
-        const { data: recoveryPayouts } = await supabaseAdmin
-          .from('delivery_platform_payouts')
-          .select('id, store_id, platform, payout_reference_id, net_payout_amount, adjustments_amount, raw_payload')
-          .eq('store_id', existingOrd.store_id)
-          .eq('platform', existingOrd.platform)
-          .eq('payout_reference_id', effectivePayoutRef)
+        const recoveryPayouts = await lookupRecoveryPayout()
 
         if (!recoveryPayouts || recoveryPayouts.length === 0) {
           return NextResponse.json(
@@ -1886,40 +2246,74 @@ export async function POST(req: NextRequest) {
             { status: 400 }
           )
         }
+        recoveryPayout = recoveryPayouts[0]
+      }
+
+      const nowIso = new Date().toISOString()
+      const hasRecoveryInput =
+        reimbursement_payout_ref !== undefined || reimbursement_amount !== undefined || reimbursement_deposit_date !== undefined
+      let recoveryVerification: { verified: boolean; issue: string | null } | null = null
+      let baseRaw: Record<string, any>
+
+      // Defectos 1 y 2: la recuperación se agrega al libro `recovery_credits` y se verifica contra el settlement;
+      // el importe original disputado (`dispute_amount` / `original_disputed_amount`) nunca se sustituye.
+      if (effectivePayoutRef && effectiveReimbAmt > 0 && (hasRecoveryInput || normalizedStatus === 'REIMBURSED')) {
+        if (!recoveryPayoutLookedUp) {
+          const rows = await lookupRecoveryPayout()
+          recoveryPayout = rows.length === 1 ? rows[0] : null
+        }
+        const built = buildManualRecoveryUpdate({
+          existingOrder: existingOrd,
+          recoveryPayout: recoveryPayout as any,
+          input: {
+            payoutRef: effectivePayoutRef,
+            amount: effectiveReimbAmt,
+            depositDate: isValidIsoDate(effectiveDepositDate) ? effectiveDepositDate : null,
+            description:
+              reimbursement_description !== undefined ? String(reimbursement_description || '').trim() || null : null,
+            evidence: effectiveNotes || null,
+          },
+          actorEmail: auth.user?.email || 'staff',
+          nowIso,
+        })
+        baseRaw = built.rawPayload
+        recoveryVerification = { verified: built.verification.verified, issue: built.verification.issue }
+      } else {
+        const original = resolveOriginalDisputedAmount(existingOrd)
+        baseRaw = {
+          ...(existingOrd?.raw_payload || {}),
+          ...(reimbursement_description !== undefined
+            ? { reimbursement_description: String(reimbursement_description || '').trim() || null }
+            : {}),
+          ...(original.amount !== null && !(Number(existingOrd?.raw_payload?.original_disputed_amount || 0) > 0)
+            ? { original_disputed_amount: original.amount, original_disputed_amount_source: original.source }
+            : {}),
+        }
       }
 
       const updatedRaw = {
-        ...(existingOrd?.raw_payload || {}),
-        ...(reimbursement_payout_ref !== undefined
-          ? { reimbursement_payout_ref: effectivePayoutRef || null }
-          : {}),
-        ...(reimbursement_amount !== undefined
-          ? { reimbursement_amount: effectiveReimbAmt }
-          : {}),
-        ...(reimbursement_deposit_date !== undefined
-          ? { reimbursement_deposit_date: effectiveDepositDate || null }
-          : {}),
-        ...(reimbursement_description !== undefined
-          ? { reimbursement_description: String(reimbursement_description || '').trim() || null }
-          : {}),
+        ...baseRaw,
         reimbursement_evidence: effectiveNotes || null,
         last_dispute_updated_by_id: auth.user?.id || null,
         last_dispute_updated_by: auth.user?.email || 'staff',
         last_dispute_updated_by_role: auth.user?.role || null,
-        last_dispute_updated_at: new Date().toISOString(),
+        last_dispute_updated_at: nowIso,
       }
 
-      const recoveryEval = evaluateDisputeRecovery({
-        ...existingOrd,
-        dispute_status: normalizedStatus,
-        dispute_notes: effectiveNotes,
-        dispute_amount: effectiveReimbAmt > 0 ? effectiveReimbAmt : existingOrd.dispute_amount,
-        raw_payload: updatedRaw,
-      })
+      const recoveryEval = evaluateDisputeRecovery(
+        {
+          ...existingOrd,
+          dispute_status: normalizedStatus,
+          dispute_notes: effectiveNotes,
+          raw_payload: updatedRaw,
+        },
+        recoveryPayout ? { settlementPayouts: buildRecoverySettlementIndex([recoveryPayout]) } : undefined
+      )
 
       const finalRaw = {
         ...updatedRaw,
         recovery_classification: recoveryEval.recoveryClassification,
+        verified_recovered_amount: recoveryEval.verifiedRecoveredAmount,
         unrecovered_amount: recoveryEval.unrecoveredAmount,
       }
 
@@ -1927,13 +2321,15 @@ export async function POST(req: NextRequest) {
       const updatePayload: Record<string, any> = {
         is_disputed: Boolean(isDisputed),
         dispute_status: normalizedStatus,
-        dispute_notes: dispute_notes !== undefined ? String(dispute_notes || '').slice(0, 1000) : null,
-        dispute_reason: dispute_reason !== undefined ? String(dispute_reason || '').slice(0, 500) : null,
         raw_payload: finalRaw,
-        updated_at: new Date().toISOString(),
+        updated_at: nowIso,
       }
-      if (reimbursement_amount !== undefined && Number(reimbursement_amount) > 0) {
-        updatePayload.dispute_amount = round2(Number(reimbursement_amount))
+      // Conservar notas y razón existentes cuando la solicitud no las envía
+      if (dispute_notes !== undefined) updatePayload.dispute_notes = String(dispute_notes || '').slice(0, 1000)
+      if (dispute_reason !== undefined) updatePayload.dispute_reason = String(dispute_reason || '').slice(0, 500)
+      // `dispute_amount` = importe ORIGINAL disputado (solo se completa si está comprobado; nunca con el recuperado)
+      if (recoveryEval.originalAmountVerified && recoveryEval.originalDeductionAbs > 0) {
+        updatePayload.dispute_amount = recoveryEval.originalDeductionAbs
       }
 
       const { data, error } = await supabaseAdmin
@@ -1948,6 +2344,12 @@ export async function POST(req: NextRequest) {
         success: true,
         order: data,
         recovery_evaluation: recoveryEval,
+        recovery_verification: recoveryVerification,
+        ...(recoveryVerification && !recoveryVerification.verified
+          ? {
+              warning: `Recuperación guardada como pendiente de verificar: no se localizó en el settlement #${effectivePayoutRef} un crédito identificable de la orden #${existingOrd.platform_order_id} por $${effectiveReimbAmt.toFixed(2)} (${recoveryVerification.issue}).`,
+            }
+          : {}),
       })
     }
 

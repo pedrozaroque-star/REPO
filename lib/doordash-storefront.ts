@@ -17,6 +17,7 @@
  *   a clientes como cargo.
  *
  * @dataFlow
+ * - `GET /api/mobile/menu` → `fetchStorefrontMenu()` (con caché en memoria de 120s en éxito / 30s en error).
  * - `POST /api/mobile/doordash/checkout-session` → `createStorefrontOrderSession()` →
  *   GET `/storefront/api/v1/stores/{id}/menus` → `validateCartAgainstStorefrontMenu()` →
  *   (delivery) POST `/storefront/api/v1/addresses/create` → POST `/storefront/api/v1/orders/order_session` →
@@ -46,6 +47,8 @@ import {
   type StorefrontMenu,
 } from './storefront/order-session-contract'
 
+export { generateDoorDashAuthToken }
+
 const DOORDASH_API_HOST =
   process.env.DOORDASH_API_HOST || 'https://openapi.doordash.com'
 export const DOORDASH_BUSINESS_ID = process.env.DOORDASH_BUSINESS_ID || ''
@@ -54,9 +57,9 @@ export const DOORDASH_BUSINESS_ID = process.env.DOORDASH_BUSINESS_ID || ''
 export const DOORDASH_DRIVE_ENVIRONMENT: 'sandbox' | 'production' =
   process.env.DOORDASH_DRIVE_ENVIRONMENT === 'production' ? 'production' : 'sandbox'
 
-/** La creación productiva de sesiones permanece deshabilitada hasta tener permiso y validación completa. */
+/** Activo por defecto salvo que `STOREFRONT_ORDER_SESSION_ENABLED === 'false'` lo desactive explícitamente. */
 export function isStorefrontOrderSessionEnabled(): boolean {
-  return process.env.STOREFRONT_ORDER_SESSION_ENABLED === 'true'
+  return process.env.STOREFRONT_ORDER_SESSION_ENABLED !== 'false'
 }
 
 export interface DoorDashStoreMapping {
@@ -345,6 +348,19 @@ export type StorefrontSessionResult =
 const MENU_TIMEOUT_MS = 8000
 const ADDRESS_TIMEOUT_MS = 8000
 const ORDER_SESSION_TIMEOUT_MS = 10000
+const MENU_POSITIVE_CACHE_TTL_MS = 120_000
+const MENU_NEGATIVE_CACHE_TTL_MS = 30_000
+
+type CachedMenuEntry = {
+  expiresAt: number
+  result: { ok: true; menu: StorefrontMenu } | Extract<StorefrontSessionResult, { ok: false }>
+}
+
+const storefrontMenuCache = new Map<string, CachedMenuEntry>()
+
+export function clearStorefrontMenuCache(): void {
+  storefrontMenuCache.clear()
+}
 
 type FetchOutcome =
   | { kind: 'response'; status: number; bodyText: string }
@@ -419,8 +435,17 @@ function mapProviderFailure(
 /** GET menú Storefront autorizado. Un reintento solo ante 5xx o error de red (operación de lectura). */
 export async function fetchStorefrontMenu(
   storefrontStoreId: string,
-  token: string
+  token: string,
+  options?: { bypassCache?: boolean }
 ): Promise<{ ok: true; menu: StorefrontMenu } | Extract<StorefrontSessionResult, { ok: false }>> {
+  const now = Date.now()
+  if (!options?.bypassCache) {
+    const cached = storefrontMenuCache.get(storefrontStoreId)
+    if (cached && cached.expiresAt > now) {
+      return cached.result
+    }
+  }
+
   const url = `${DOORDASH_API_HOST}/storefront/api/v1/stores/${encodeURIComponent(storefrontStoreId)}/menus`
   let outcome: FetchOutcome = { kind: 'network', message: 'not attempted' }
   for (let attempt = 0; attempt < 2; attempt++) {
@@ -434,19 +459,34 @@ export async function fetchStorefrontMenu(
     if (!retryable) break
   }
   if (outcome.kind !== 'response' || outcome.status !== 200) {
-    return mapProviderFailure('menus', outcome)
+    const failure = mapProviderFailure('menus', outcome)
+    storefrontMenuCache.set(storefrontStoreId, {
+      expiresAt: Date.now() + MENU_NEGATIVE_CACHE_TTL_MS,
+      result: failure,
+    })
+    return failure
   }
   const parsed = safeJson(outcome.bodyText) as { menu?: StorefrontMenu } | null
   const menu = parsed && parsed.menu
   if (!menu || typeof menu.id !== 'string' || !menu.id) {
-    return {
+    const invalid: Extract<StorefrontSessionResult, { ok: false }> = {
       ok: false,
       code: 'INVALID_PROVIDER_RESPONSE',
       httpStatus: 502,
       detail: 'menus: respuesta sin menu.id',
     }
+    storefrontMenuCache.set(storefrontStoreId, {
+      expiresAt: Date.now() + MENU_NEGATIVE_CACHE_TTL_MS,
+      result: invalid,
+    })
+    return invalid
   }
-  return { ok: true, menu }
+  const success = { ok: true as const, menu }
+  storefrontMenuCache.set(storefrontStoreId, {
+    expiresAt: Date.now() + MENU_POSITIVE_CACHE_TTL_MS,
+    result: success,
+  })
+  return success
 }
 
 /** Obtiene/crea el `address_id` de Storefront a partir de una dirección completa. */

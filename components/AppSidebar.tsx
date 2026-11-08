@@ -31,7 +31,7 @@ import {
     DollarSign, TrendingUp, Calendar, MessageSquare, CalendarCheck, UserCog,
     Monitor, ChefHat, Zap, X, PanelLeftClose, PanelLeft, RefreshCw,
     Settings, Keyboard, HelpCircle, ExternalLink, Moon, Sun, Globe, Shield,
-    CalendarDays, Sparkles, Info, UserCircle, Menu, Folder, Truck, Timer, Shirt, Car, Calculator, Package, BarChart3, UserCheck, Bell, Receipt, Wrench, Smartphone, ShieldCheck, HardHat, Construction, Layers
+    CalendarDays, Sparkles, Info, UserCircle, Menu, Folder, Truck, Timer, Shirt, Car, Calculator, Package, BarChart3, UserCheck, Bell, Receipt, Wrench, Smartphone, ShieldCheck, HardHat, Construction, Layers, PhoneCall
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useLanguage } from '@/lib/i18n'
@@ -338,6 +338,17 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
                     tooltip: language === 'en'
                         ? 'Customer-facing order pickup display and voice announcer (Tablero de pedidos listos y locutor de voz)'
                         : 'Tablero de pedidos listos para clientes y locutor de voz automático'
+                },
+                {
+                    name: t('items.phone_agent') || 'Contestadora IA',
+                    plainName: 'Contestadora IA',
+                    path: '/admin/llamadas',
+                    icon: <PhoneCall size={20} />,
+                    roles: ['admin', 'supervisor', 'manager'],
+                    badgeText: 'new',
+                    tooltip: language === 'en'
+                        ? '15-store AI phone receptionist with Kore neural voice, live simulator, and editable knowledge base'
+                        : 'Contestadora telefónica IA para las 15 sucursales con voz Kore, simulador en vivo y base de conocimiento editable'
                 },
                 {
                     name: t('items.safe'),

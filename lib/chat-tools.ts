@@ -609,7 +609,7 @@ export const TOOL_DECLARATIONS = [
   },
   {
     name: 'query_delivery_reconciliation',
-    description: 'Consultar la conciliación financiera orden por orden, cortes bancarios (payouts), impuestos (Sales Tax entregado por DoorDash/Grubhub vs retenido por Uber Eats) y disputas/reembolsos entre Toast POS y DoorDash, Uber Eats y Grubhub (/admin/conciliar-delivery).',
+    description: 'Consultar la conciliación financiera bidireccional orden por orden (Toast POS ↔ Plataformas: Pagadas y Cuadradas, Pagadas de Menos, En Toast y NO en Plataforma en tiendas sincronizadas, En Plataforma y NO en Toast con candidato único Toast #NNN, y Pendientes de Sincronizar), cortes bancarios (payouts con desglose de órdenes incluidas por póliza QBO), impuestos (Sales Tax entregado por DoorDash/Grubhub vs retenido por Uber Eats) y disputas/reembolsos entre Toast POS y DoorDash, Uber Eats y Grubhub (/admin/conciliar-delivery). Para cada disputa reporta por separado el importe original disputado, lo recuperado VERIFICADO (crédito localizado en el settlement posterior) y el saldo pendiente; una nota o un payout existente sin crédito identificable es "Recuperación pendiente de verificar".',
     parameters: {
       type: 'OBJECT',
       properties: {
@@ -617,6 +617,16 @@ export const TOOL_DECLARATIONS = [
         platform: { type: 'STRING', description: 'DOORDASH, UBER_EATS, GRUBHUB o ALL.' },
         status: { type: 'STRING', description: 'MATCHED, AMOUNT_MISMATCH, TAX_MISMATCH, REFUNDED_OR_DISPUTED, MISSING_IN_PLATFORM, MISSING_IN_TOAST o ALL.' },
         limit: { type: 'NUMBER', description: 'Máximo 50 registros; por defecto 20.' }
+      }
+    }
+  },
+  {
+    name: 'query_phone_agent_status',
+    description: 'Consultar el estado de la Contestadora IA Multi-Sucursal (15 tiendas) en /admin/llamadas: configuración por tienda (Spectrum Business fijo vs Celular Android AT&T), reglas de la Base de Conocimiento Editable (phone_knowledge_base), llamadas recientes atendidas por la IA (phone_calls) y recados prioritarios pendientes para gerentes (phone_callback_requests).',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        store_name: { type: 'STRING', description: 'Filtro opcional de sucursal.' }
       }
     }
   }
@@ -692,6 +702,7 @@ export async function executeTool(name: string, rawArgs: any): Promise<string> {
       case 'query_delivery_handoffs': return await queryDeliveryHandoffs(args)
       case 'query_delivery_reconciliation': return await queryDeliveryReconciliationTool(args)
       case 'query_training_academy': return await queryTrainingAcademyTool(args)
+      case 'query_phone_agent_status': return await queryPhoneAgentStatusTool(args)
       default: return `Tool "${name}" not found.`
     }
   } catch (e: any) {
@@ -727,7 +738,7 @@ async function queryDeliveryReconciliationTool(args: any): Promise<string> {
   const limit = Math.min(50, Math.max(1, Number(args?.limit) || 20))
   let query = supabaseAdmin
     .from('delivery_platform_orders')
-    .select('store_id, platform, business_date, platform_order_id, payout_reference_id, toast_display_number, toast_net_sales, toast_tax, toast_expected_gross, platform_subtotal, platform_tax_paid_to_merchant, platform_gross_receivable, commission_fee, delivery_fee, processing_fee, error_charge, net_payout, gross_diff, reconciliation_status, dispute_status')
+    .select('store_id, platform, business_date, platform_order_id, payout_reference_id, payout_date, transaction_type, toast_display_number, toast_net_sales, toast_tax, toast_expected_gross, platform_subtotal, platform_tax_paid_to_merchant, platform_gross_receivable, commission_fee, delivery_fee, processing_fee, error_charge, adjustment_amount, net_payout, gross_diff, reconciliation_status, is_disputed, dispute_status, dispute_amount, dispute_notes, raw_payload')
     .order('business_date', { ascending: false })
     .limit(limit)
 
@@ -755,9 +766,30 @@ async function queryDeliveryReconciliationTool(args: any): Promise<string> {
     return `- Corte #${p.payout_reference_id} (${p.period_start} → ${p.period_end}) | Tienda #${p.store_id} | ${p.platform} | (+) Bruto: $${Number(p.platform_gross_receivable || 0).toFixed(2)} | (-) Comisiones: $${fees.toFixed(2)} | (±) Errores/Reemb: $${err.toFixed(2)} | (=) Depósito Neto: $${Number(p.net_payout_amount || 0).toFixed(2)} | Toast Auditado: $${Number(p.toast_expected_gross || 0).toFixed(2)} (${p.toast_matched_orders_count || 0} órd.)`
   })
 
-  const lines = rows.map((r: any) =>
-    `- ${r.business_date} | Tienda #${r.store_id} | ${r.platform} | Orden #${r.platform_order_id} (Toast #${r.toast_display_number || '-'} • Corte #${r.payout_reference_id || '-'}) | Toast Esperado: $${Number(r.toast_expected_gross || 0).toFixed(2)} | Plat Bruto: $${Number(r.platform_gross_receivable || 0).toFixed(2)} | Neto Pagado: $${Number(r.net_payout || 0).toFixed(2)} | Diff: $${Number(r.gross_diff || 0).toFixed(2)} | ${r.reconciliation_status}`
+  // Disputas: importe original, recuperado VERIFICADO (crédito localizado en el settlement posterior) y saldo pendiente
+  const { evaluateDisputeRecovery, buildRecoverySettlementIndex, getOrderRecoveryPayoutRefs } = await import(
+    './delivery-reconciliation'
   )
+  const recoveryRefs = Array.from(new Set(rows.flatMap((r: any) => getOrderRecoveryPayoutRefs(r))))
+  let recoveryPayouts: any[] = []
+  if (recoveryRefs.length > 0) {
+    const { data: recData, error: recErr } = await supabaseAdmin
+      .from('delivery_platform_payouts')
+      .select('store_id, platform, payout_reference_id, payout_date, period_start, period_end, raw_payload')
+      .in('payout_reference_id', recoveryRefs.slice(0, 200))
+    if (recErr) throw recErr
+    recoveryPayouts = recData || []
+  }
+  const recoveryCtx = { settlementPayouts: buildRecoverySettlementIndex(recoveryPayouts) }
+  const lines = rows.map((r: any) => {
+    const base = `- ${r.business_date} | Tienda #${r.store_id} | ${r.platform} | Orden #${r.platform_order_id} (Toast #${r.toast_display_number || '-'} • Corte #${r.payout_reference_id || '-'}) | Toast Esperado: $${Number(r.toast_expected_gross || 0).toFixed(2)} | Plat Bruto: $${Number(r.platform_gross_receivable || 0).toFixed(2)} | Neto Pagado: $${Number(r.net_payout || 0).toFixed(2)} | Diff: $${Number(r.gross_diff || 0).toFixed(2)} | ${r.reconciliation_status}`
+    const ev = evaluateDisputeRecovery(r, recoveryCtx)
+    if (!ev.isDisputed) return base
+    const credits = ev.recoveryCredits
+      .map((c: any) => `${c.verified ? '✅' : '⏳'} #${c.payout_reference_id} $${Number(c.amount || 0).toFixed(2)}`)
+      .join(', ')
+    return `${base} | Disputa ${r.dispute_status}: original ${ev.originalAmountVerified ? `$${ev.originalDeductionAbs.toFixed(2)}` : 'no comprobado'} • recuperado verificado $${ev.verifiedRecoveredAmount.toFixed(2)} • pendiente $${ev.unrecoveredAmount.toFixed(2)} (${ev.recoveryClassification})${credits ? ` • créditos: ${credits}` : ''}`
+  })
   return `Conciliación Delivery (/admin/conciliar-delivery):\n### Cortes Semanales (${payouts.length}):\n${payoutLines.join('\n') || 'Sin cortes'}\n\n### Órdenes (${rows.length}):\n${lines.join('\n') || 'Sin órdenes'}`
 }
 
@@ -3567,5 +3599,52 @@ async function queryTrainingAcademyTool(args: any): Promise<string> {
     return `Error consultando la Academia de Entrenamiento: ${e.message}`;
   }
 }
+
+/**
+ * Consulta la Contestadora IA Multi-Sucursal (/admin/llamadas): estado de las 15 sucursales, Base de Conocimiento Editable, llamadas y recados.
+ */
+async function queryPhoneAgentStatusTool(args: any): Promise<string> {
+  try {
+    const [{ data: configs }, { data: kb }, { data: calls }, { data: callbacks }] = await Promise.all([
+      supabaseAdmin.from('phone_agent_config').select('*, stores(id, name, phone)').order('store_id'),
+      supabaseAdmin.from('phone_knowledge_base').select('id, title, category, is_active').eq('is_active', true),
+      supabaseAdmin.from('phone_calls').select('id, store_id, primary_intent, resolved_by_ai, started_at').order('started_at', { ascending: false }).limit(50),
+      supabaseAdmin.from('phone_callback_requests').select('*, stores(name)').eq('status', 'pending').order('created_at', { ascending: false }).limit(20)
+    ]);
+
+    let rows = configs || [];
+    if (args?.store_name) {
+      const q = normText(args.store_name);
+      rows = rows.filter((r: any) => normText(r.stores?.name || '').includes(q));
+    }
+
+    const totalCalls = (calls || []).length;
+    const resolvedByAi = (calls || []).filter((c: any) => c.resolved_by_ai).length;
+    const pct = totalCalls > 0 ? ((resolvedByAi / totalCalls) * 100).toFixed(1) : '100.0';
+
+    let out = `📞 **Contestadora IA Multi-Sucursal (15 Tiendas) — Tacos Gavilan (/admin/llamadas)**\n`;
+    out += `• **Voz Neuronal Activa**: Kore (Gemini Neural TTS con caché en Supabase Storage)\n`;
+    out += `• **Sucursales Configuradas**: ${rows.length} (4 Spectrum Business fijo: Rialto, Downey, Hollywood, Lynwood; 11 Celulares Android AT&T)\n`;
+    out += `• **Reglas en Base de Conocimiento Editable (\`phone_knowledge_base\`)**: ${(kb || []).length}\n`;
+    out += `• **Llamadas Recientes**: ${totalCalls} (${pct}% resueltas al 100% por la IA)\n`;
+    out += `• **Recados Prioritarios Pendientes (\`phone_callback_requests\`)**: ${(callbacks || []).length}\n\n`;
+
+    if ((callbacks || []).length > 0) {
+      out += `| Sucursal | Persona | Teléfono | Motivo |\n`;
+      out += `|----------|---------|----------|--------|\n`;
+      (callbacks || []).forEach((cb: any) => {
+        const cleanStore = String(cb.stores?.name || cb.store_id)
+          .replace(/^Tacos Gavilan\s+/i, '')
+          .replace(/^LA\s+(Broadway|Central)\b/i, '$1')
+          .trim();
+        out += `| ${cleanStore} | ${cb.caller_name} | ${cb.caller_phone} | ${cb.reason_summary} |\n`;
+      });
+    }
+    return out;
+  } catch (e: any) {
+    return `Error consultando Contestadora IA: ${e.message}`;
+  }
+}
+
 
 
