@@ -18,6 +18,7 @@
  * - KDS bump silencioso: al pasar a READY por KDS, se persiste `announced = true` para evitar anuncios automáticos por altavoz.
  * - `ready_at` usa la hora real del bump (modifiedDate de los platillos).
  * - FIX (2026-10-22): el SELECT previo incluye `items_summary` y `ready_at`; `updateData` construye únicamente cambios semánticos reales usando `areOrderItemsSummariesEqual()` y omite ejecutar `UPDATE` si `updateData` está vacío.
+ * - FIX (2026-11-09, Paridad 1:1 con Toast KDS): prioriza `evaluation.sentAt` / `orderObj.createdDate` sobre `openedDate`, y reconcilia `created_at` en registros existentes cuando llega el timestamp autoritativo de disparo a cocina (`sentAtAuthoritative`).
  */
 
 import { NextResponse } from 'next/server'
@@ -136,7 +137,7 @@ export async function POST(request: Request) {
     if (orderGuid) {
       const { data: byGuid } = await supabaseAdmin
         .from('order_ready_announcements')
-        .select('id, status, announced, order_number, dining_option, customer_name, order_guid, items_summary, ready_at')
+        .select('id, status, announced, order_number, dining_option, customer_name, order_guid, items_summary, ready_at, created_at, business_date')
         .eq('order_guid', orderGuid)
         .order('created_at', { ascending: false })
         .limit(1)
@@ -144,14 +145,20 @@ export async function POST(request: Request) {
       existing = byGuid
     }
 
-    const orderDate = evaluation.sentAt || orderObj.createdDate || orderObj.openedDate || now
+    const orderDate =
+      evaluation.sentAt ||
+      orderObj.createdDate ||
+      orderObj.checks?.[0]?.createdDate ||
+      orderObj.paidDate ||
+      orderObj.openedDate ||
+      now
     const currentBusinessDate = getCaliforniaBusinessDate(orderDate)
 
     // 2. Si no se encontró por GUID pero tenemos orderNumber, buscar por store_code + order_number + business_date
     if (!existing && orderNumber) {
       const { data: byNum } = await supabaseAdmin
         .from('order_ready_announcements')
-        .select('id, status, announced, order_number, dining_option, customer_name, order_guid, items_summary, ready_at')
+        .select('id, status, announced, order_number, dining_option, customer_name, order_guid, items_summary, ready_at, created_at, business_date')
         .eq('store_code', storeInfo.code)
         .eq('business_date', currentBusinessDate)
         .eq('order_number', String(orderNumber))
@@ -177,6 +184,17 @@ export async function POST(request: Request) {
       }
       if (itemsSummary && (!existing.items_summary || !areOrderItemsSummariesEqual(existing.items_summary, itemsSummary))) {
         updateData.items_summary = itemsSummary
+      }
+      if (evaluation.sentAt && evaluation.sentAtAuthoritative) {
+        const oldCreatedMs = Date.parse(existing.created_at || '')
+        const newSentMs = Date.parse(evaluation.sentAt)
+        if (Number.isFinite(newSentMs) && (!Number.isFinite(oldCreatedMs) || Math.abs(newSentMs - oldCreatedMs) > 1000)) {
+          updateData.created_at = evaluation.sentAt
+          const reconciledBDate = getCaliforniaBusinessDate(evaluation.sentAt)
+          if (existing.business_date !== reconciledBDate) {
+            updateData.business_date = reconciledBDate
+          }
+        }
       }
       if (isKdsBump) {
         updateData.ready_at = evaluation.readyAt || now
@@ -261,6 +279,20 @@ export async function POST(request: Request) {
     }
 
     const itemsSummary = extractOrderItemsSummary(orderObj) || (fetchedToastOrder ? extractOrderItemsSummary(fetchedToastOrder) : null)
+    const fetchedEval = fetchedToastOrder ? evaluateToastOrder(fetchedToastOrder) : null
+    const effectiveOrderDate =
+      evaluation.sentAt ||
+      fetchedEval?.sentAt ||
+      orderObj.createdDate ||
+      fetchedToastOrder?.createdDate ||
+      orderObj.checks?.[0]?.createdDate ||
+      fetchedToastOrder?.checks?.[0]?.createdDate ||
+      orderObj.paidDate ||
+      fetchedToastOrder?.paidDate ||
+      orderObj.openedDate ||
+      fetchedToastOrder?.openedDate ||
+      now
+    const effectiveBusinessDate = getCaliforniaBusinessDate(effectiveOrderDate)
 
     // Insertar o actualizar registro en Supabase (evitar duplicados con onConflict)
     if (orderGuid) {
@@ -273,11 +305,11 @@ export async function POST(request: Request) {
         dining_option: finalDiningOption,
         customer_name: customerName,
         status,
-        business_date: currentBusinessDate,
+        business_date: effectiveBusinessDate,
         announced: status === 'READY' ? true : false,
-        ready_at: status === 'READY' ? (evaluation.readyAt || now) : null,
+        ready_at: status === 'READY' ? (evaluation.readyAt || fetchedEval?.readyAt || now) : null,
         items_summary: itemsSummary,
-        created_at: evaluation.sentAt || now
+        created_at: effectiveOrderDate
       }, { onConflict: 'order_guid' })
     } else {
       await supabaseAdmin.from('order_ready_announcements').insert({
@@ -289,11 +321,11 @@ export async function POST(request: Request) {
         dining_option: finalDiningOption,
         customer_name: customerName,
         status,
-        business_date: currentBusinessDate,
+        business_date: effectiveBusinessDate,
         announced: status === 'READY' ? true : false,
-        ready_at: status === 'READY' ? (evaluation.readyAt || now) : null,
+        ready_at: status === 'READY' ? (evaluation.readyAt || fetchedEval?.readyAt || now) : null,
         items_summary: itemsSummary,
-        created_at: evaluation.sentAt || now
+        created_at: effectiveOrderDate
       })
     }
 

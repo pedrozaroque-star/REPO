@@ -22,11 +22,12 @@
  *   (lib/order-ready-sync.ts, con lease distribuido y throttle 5 s por tienda) que lee `selections[].fulfillmentStatus` y marca READY con la hora real del bump.
  * - ACCESO POR TIENDA (2026-10-06): GET/POST/PATCH exigen sesión y validan la tienda con lib/order-ready-access.ts
  *   (admin = todas, supervisor = su alcance, manager/asistente = solo su tienda). 401 sin sesión, 403 fuera de alcance.
+ * - FIX (2026-11-09, Paridad 1:1 con Toast KDS): `inProgressOrders` se devuelve ordenado con `compareOrdersKdsFifo` (`created_at` ascendente + desempate por número de orden) para coincidir exactamente con la fila FIFO de pantallas KDS.
  */
 
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
-import { syncStoreFromToast, STORE_GUID_BY_CODE, isDrinkOrDessertOnlyOrder, areOrderItemsSummariesEqual } from '@/lib/order-ready-sync'
+import { syncStoreFromToast, STORE_GUID_BY_CODE, isDrinkOrDessertOnlyOrder, areOrderItemsSummariesEqual, compareOrdersKdsFifo } from '@/lib/order-ready-sync'
 import { getOrderReadyAccess, canAccessStore } from '@/lib/order-ready-access'
 import { getCaliforniaBusinessDate, getBusinessDayStartMs, getCaliforniaShift } from '@/lib/business-date'
 
@@ -143,9 +144,12 @@ export async function GET(request: Request) {
 
     const readyOrders = dedupe(rawReady)
     const readyNums = new Set(readyOrders.map(o => `${o.store_code}_${o.business_date}_${o.order_number}`))
-    const inProgressOrders = dedupe(rawInProgress).filter(
-      o => !readyNums.has(`${o.store_code}_${o.business_date}_${o.order_number}`) && !isDrinkOrDessertOnlyOrder(o.items_summary)
-    )
+    // Orden FIFO estricto 1:1 con Toast KDS (las comandas disparadas primero a cocina van primero)
+    const inProgressOrders = dedupe(rawInProgress)
+      .filter(
+        o => !readyNums.has(`${o.store_code}_${o.business_date}_${o.order_number}`) && !isDrinkOrDessertOnlyOrder(o.items_summary)
+      )
+      .sort(compareOrdersKdsFifo)
 
     return NextResponse.json({
       success: true,

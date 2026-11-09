@@ -42,6 +42,7 @@
  *   2. `areOrderItemsSummariesEqual` compara semánticamente `quantity` (aceptando `qty` como compatibilidad heredada), preserva cantidades reales (incluyendo `0`), no oculta JSON inválido distinto y evita ejecutar `UPDATE` redundantes cuando Toast devuelve `selections` en diferente orden.
  *   3. `syncStoreFromToast` utiliza un lease distribuido atómico en PostgreSQL (`try_acquire_order_ready_sync_lease` / `release_order_ready_sync_lease`) con expiración automática (TTL) junto con deduplicación en memoria para evitar tormentas de sincronización entre instancias serverless.
  * - FIX (2026-11-07, South Gate #315): `evaluateToastOrder` y `extractOrderItemsSummary` delegan en `isToastGiftCardOrNonFoodSelection` para excluir ventas y recargas de Gift Card (`TOAST_CARD_RELOAD` / `Add Value ($)` / `TOAST_CARD_SELL` / `toastGiftCard`) que nunca van al KDS.
+ * - FIX (2026-11-09, Paridad 1:1 de Secuencia FIFO con Toast KDS): `evaluateToastOrder` calcula `sentAt` usando la hora real de disparo a cocina (`min(sel.sentDate || sel.createdDate)` de los platillos de cocina, o `order.createdDate`), eliminando la sobrescritura con `order.openedDate` (que en kioskos y segundas cajas registradoras refleja la apertura de pantalla en blanco varios minutos antes de enviar al KDS e invertía el orden de las comandas). Además, `syncStoreFromToast` reconcilia `created_at` en registros existentes cuando difiere >1 s de `ev.sentAt` autoritativo, preservando también la posición original al hacer RECALL en KDS.
  */
 
 import { supabaseAdmin } from '@/lib/supabase'
@@ -187,8 +188,10 @@ export interface ToastOrderEvaluation {
   status: OrderReadyStatus
   /** Momento real del doble tap (ISO) cuando status = READY */
   readyAt: string | null
-  /** Momento en que la orden se envió a cocina / expediter (ISO) */
+  /** Momento real en que la orden se disparó al KDS de cocina / expediter (ISO) */
   sentAt: string | null
+  /** True cuando sentAt proviene de timestamps reales de disparo a cocina (sentDate/createdDate), no de modifiedDate ni openedDate */
+  sentAtAuthoritative?: boolean
   activeItems: number
   sentItems: number
   readyItems: number
@@ -210,10 +213,14 @@ export interface ToastOrderEvaluation {
  *      para que siga visible en la tableta del preparador (`/inventory/preparador`).
  *   3) Solo cuando TODOS los platillos de cocina enviados pasan a `READY`/`FULFILLED` (`kitchenReady > 0 && kitchenSent === 0`),
  *      la orden pasa a `READY` (ignorando bebidas como Horchata/Champurrado que permanecen en `SENT` por no ir al KDS).
+ *
+ * REGLA CRÍTICA DE ORDEN FIFO 1:1 CON TOAST KDS:
+ * - Toast KDS ordena las comandas por el instante real de disparo a cocina (`sel.sentDate || sel.createdDate` / `order.createdDate`),
+ *   JAMÁS por `order.openedDate` (que en kioskos o cajas abiertas en blanco ocurre varios minutos antes de cobrar/enviar al KDS).
  */
 export function evaluateToastOrder(order: any): ToastOrderEvaluation {
   if (!order || order.voided || order.deleted) {
-    return { status: 'COMPLETED', readyAt: null, sentAt: null, activeItems: 0, sentItems: 0, readyItems: 0 }
+    return { status: 'COMPLETED', readyAt: null, sentAt: null, sentAtAuthoritative: false, activeItems: 0, sentItems: 0, readyItems: 0 }
   }
 
   let activeItems = 0
@@ -224,7 +231,9 @@ export function evaluateToastOrder(order: any): ToastOrderEvaluation {
   let kitchenReady = 0
   let latestKitchenReadyMs = 0
   let latestAnyReadyMs = 0
-  let earliestSentMs = Infinity
+  let earliestKitchenSentMs = Infinity
+  let earliestAnySentMs = Infinity
+  let earliestModifiedMs = Infinity
 
   for (const check of order.checks || []) {
     if (check?.voided || check?.deleted) continue
@@ -240,10 +249,18 @@ export function evaluateToastOrder(order: any): ToastOrderEvaluation {
         kitchenActive++
       }
 
-      const itemDateStr = sel.sentDate || sel.createdDate || sel.modifiedDate
-      const itemDateMs = Date.parse(itemDateStr || '')
-      if (Number.isFinite(itemDateMs) && itemDateMs < earliestSentMs) {
-        earliestSentMs = itemDateMs
+      // Timestamp inmutable de disparo al KDS (sentDate o createdDate del platillo; NO modifiedDate que cambia en bump/recall)
+      const fireDateMs = Date.parse(sel.sentDate || sel.createdDate || '')
+      if (Number.isFinite(fireDateMs)) {
+        if (fireDateMs < earliestAnySentMs) earliestAnySentMs = fireDateMs
+        if (!isDrinkDessert && fireDateMs < earliestKitchenSentMs) {
+          earliestKitchenSentMs = fireDateMs
+        }
+      }
+
+      const modDateMs = Date.parse(sel.modifiedDate || '')
+      if (Number.isFinite(modDateMs) && modDateMs < earliestModifiedMs) {
+        earliestModifiedMs = modDateMs
       }
 
       const st = String(sel.fulfillmentStatus || '').toUpperCase()
@@ -264,15 +281,31 @@ export function evaluateToastOrder(order: any): ToastOrderEvaluation {
     }
   }
 
-  const orderOpenedMs = Date.parse(order.openedDate || order.createdDate || '')
-  if (Number.isFinite(orderOpenedMs) && orderOpenedMs < earliestSentMs) {
-    earliestSentMs = orderOpenedMs
+  const orderCreatedMs = Date.parse(order.createdDate || order.checks?.[0]?.createdDate || '')
+  const fallbackOrderMs = Date.parse(order.paidDate || order.openedDate || '')
+
+  let resolvedSentMs = Infinity
+  let sentAtAuthoritative = false
+  if (Number.isFinite(earliestKitchenSentMs)) {
+    resolvedSentMs = earliestKitchenSentMs
+    sentAtAuthoritative = true
+  } else if (Number.isFinite(earliestAnySentMs)) {
+    resolvedSentMs = earliestAnySentMs
+    sentAtAuthoritative = true
+  } else if (Number.isFinite(orderCreatedMs)) {
+    resolvedSentMs = orderCreatedMs
+    sentAtAuthoritative = activeItems > 0
+  } else if (Number.isFinite(earliestModifiedMs)) {
+    resolvedSentMs = earliestModifiedMs
+  } else if (Number.isFinite(fallbackOrderMs)) {
+    resolvedSentMs = fallbackOrderMs
   }
-  const sentAt = Number.isFinite(earliestSentMs) ? new Date(earliestSentMs).toISOString() : null
+
+  const sentAt = Number.isFinite(resolvedSentMs) ? new Date(resolvedSentMs).toISOString() : null
 
   // 1. Si no hay platillos activos, la orden no es válida para el tablero
   if (activeItems === 0) {
-    return { status: 'COMPLETED', readyAt: null, sentAt, activeItems: 0, sentItems: 0, readyItems: 0 }
+    return { status: 'COMPLETED', readyAt: null, sentAt, sentAtAuthoritative: false, activeItems: 0, sentItems: 0, readyItems: 0 }
   }
 
   // 2. Si la orden contiene platillos de cocina, los platillos de cocina gobiernan el estado:
@@ -284,6 +317,7 @@ export function evaluateToastOrder(order: any): ToastOrderEvaluation {
         status: 'IN_PROGRESS',
         readyAt: null,
         sentAt,
+        sentAtAuthoritative,
         activeItems,
         sentItems,
         readyItems
@@ -294,12 +328,13 @@ export function evaluateToastOrder(order: any): ToastOrderEvaluation {
         status: 'READY',
         readyAt: new Date(latestKitchenReadyMs || latestAnyReadyMs || Date.now()).toISOString(),
         sentAt,
+        sentAtAuthoritative,
         activeItems,
         sentItems,
         readyItems
       }
     }
-    return { status: 'COMPLETED', readyAt: null, sentAt, activeItems, sentItems, readyItems }
+    return { status: 'COMPLETED', readyAt: null, sentAt, sentAtAuthoritative, activeItems, sentItems, readyItems }
   }
 
   // 3. Si la orden solo tiene bebidas/postres (sin platillos de cocina):
@@ -308,6 +343,7 @@ export function evaluateToastOrder(order: any): ToastOrderEvaluation {
       status: 'IN_PROGRESS',
       readyAt: null,
       sentAt,
+      sentAtAuthoritative,
       activeItems,
       sentItems,
       readyItems
@@ -319,6 +355,7 @@ export function evaluateToastOrder(order: any): ToastOrderEvaluation {
       status: 'READY',
       readyAt: new Date(latestAnyReadyMs || Date.now()).toISOString(),
       sentAt,
+      sentAtAuthoritative,
       activeItems,
       sentItems,
       readyItems
@@ -326,7 +363,7 @@ export function evaluateToastOrder(order: any): ToastOrderEvaluation {
   }
 
   // 4. Si no tiene platillos SENT ni READY, la orden está abierta en la caja sin enviar al expediter
-  return { status: 'COMPLETED', readyAt: null, sentAt, activeItems, sentItems, readyItems }
+  return { status: 'COMPLETED', readyAt: null, sentAt, sentAtAuthoritative, activeItems, sentItems, readyItems }
 }
 
 /**
@@ -501,7 +538,7 @@ export async function syncStoreFromToast(storeCode: string, force = false): Prom
       const guids = orders.map(o => o.guid).filter(Boolean)
       const { data: existingRows } = await supabaseAdmin
         .from('order_ready_announcements')
-        .select('id, status, order_guid, order_number, dining_option, items_summary, ready_at')
+        .select('id, status, order_guid, order_number, dining_option, items_summary, ready_at, created_at, business_date')
         .eq('store_code', storeCode)
         .in('order_guid', guids)
 
@@ -546,6 +583,18 @@ export async function syncStoreFromToast(storeCode: string, force = false): Prom
           if (itemsSummary && (!row.items_summary || !areOrderItemsSummariesEqual(row.items_summary, itemsSummary))) {
             updatePayload.items_summary = itemsSummary
           }
+          // Reconciliación de hora real de disparo al KDS (sentAt autoritativo vs openedDate de kiosko/caja en blanco o webhook temprano)
+          if (ev.sentAt && ev.sentAtAuthoritative) {
+            const oldCreatedMs = Date.parse(row.created_at || '')
+            const newSentMs = Date.parse(ev.sentAt)
+            if (Number.isFinite(newSentMs) && (!Number.isFinite(oldCreatedMs) || Math.abs(newSentMs - oldCreatedMs) > 1000)) {
+              updatePayload.created_at = ev.sentAt
+              const reconciledBDate = getCaliforniaBusinessDate(ev.sentAt)
+              if (row.business_date !== reconciledBDate) {
+                updatePayload.business_date = reconciledBDate
+              }
+            }
+          }
           if (ev.status === 'READY' && row.status === 'IN_PROGRESS') {
             // Bump en Toast KDS: pasa de IN_PROGRESS a READY.
             // Regla de Negocio Tacos Gavilan: El bump en KDS NO emite voz automática por altavoz.
@@ -584,7 +633,13 @@ export async function syncStoreFromToast(storeCode: string, force = false): Prom
         // Orden desconocida (el webhook no llegó): solo la insertamos si sigue activa o se cerró hace poco
         if (ev.status === 'READY' && readyMs !== null && nowMs - readyMs > 10 * 60 * 1000) continue
 
-        const orderDate = ev.sentAt || ord.createdDate || ord.openedDate || ord.paidDate || new Date().toISOString()
+        const orderDate =
+          ev.sentAt ||
+          ord.createdDate ||
+          ord.checks?.[0]?.createdDate ||
+          ord.paidDate ||
+          ord.openedDate ||
+          new Date().toISOString()
         const bDate = getCaliforniaBusinessDate(orderDate)
 
         await supabaseAdmin.from('order_ready_announcements').upsert({

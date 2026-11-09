@@ -66,6 +66,8 @@
  *   2) Topic de canal aislado por sucursal (`order-ready-realtime:${selectedStore}`).
  *   3) Guardia `channelDisposed` por instancia de canal para evitar reconexión infinita ante evento `CLOSED` intencional al ejecutar `removeChannel`.
  *   4) Debounce de 500ms + guardia `fetchingRef` en refrescos por Realtime, usando siempre `syncToast=false` para romper el ciclo Realtime -> fetch -> syncToast -> UPDATE.
+ * - PARIDAD FIFO 1:1 CON TOAST KDS (2026-11-09):
+ *   La columna "En Preparación" (`displayedInProgressOrders`) y la precarga de clips de voz ordenan las comandas con `compareOrdersKdsFifo` (`created_at` ascendente + desempate por `order_number`).
  */
 
 'use client'
@@ -112,7 +114,7 @@ import ProtectedRoute from '@/components/ProtectedRoute'
 import { AVAILABLE_VOICES, VoiceId, isValidVoice, isForbiddenRaulVoice } from '@/lib/order-ready-tts'
 import { getCaliforniaBusinessDate, getCaliforniaShift } from '@/lib/business-date'
 import { STORE_GUID_BY_CODE } from '@/lib/toast-stores'
-import { isDrinkOrDessertOnlyOrder } from '@/lib/order-ready-filter'
+import { isDrinkOrDessertOnlyOrder, compareOrdersKdsFifo } from '@/lib/order-ready-filter'
 import { purgeTabletStaleCaches, getTabletNoCacheHeaders } from '@/lib/tablet-cache-cleaner'
 import PhoneCallbackAlertBanner from '@/components/PhoneCallbackAlertBanner'
 
@@ -2101,10 +2103,10 @@ function OrderReadyBoardContent() {
     }
   }, [selectedStore, storeOk])
 
-  // Precargar la voz de las órdenes en preparación (las más antiguas primero) para que el anuncio sea instantáneo al primer toque
+  // Precargar la voz de las órdenes en preparación (las más antiguas en KDS primero) para que el anuncio sea instantáneo al primer toque
   useEffect(() => {
     if (inProgressOrders.length === 0) return
-    const targets = [...inProgressOrders].reverse().slice(0, 15)
+    const targets = [...inProgressOrders].sort(compareOrdersKdsFifo).slice(0, 15)
     const langs = clipLangs()
     ;(async () => {
       for (const o of targets) {
@@ -3642,11 +3644,13 @@ function OrderReadyBoardContent() {
           return true
         })
 
-        const displayedInProgressOrders = inProgressOrders.filter((order) => {
-          if (!isAllowedDining(order)) return false
-          if (isDrinkOrDessertOnlyOrder(order.items_summary)) return false
-          return true
-        })
+        const displayedInProgressOrders = inProgressOrders
+          .filter((order) => {
+            if (!isAllowedDining(order)) return false
+            if (isDrinkOrDessertOnlyOrder(order.items_summary)) return false
+            return true
+          })
+          .sort(compareOrdersKdsFifo)
 
         return (
           <main className={`flex-1 p-6 md:p-8 grid grid-cols-1 md:grid-cols-2 gap-8 w-full min-h-0 ${

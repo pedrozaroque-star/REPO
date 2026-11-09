@@ -17,6 +17,7 @@
  * @notes
  * - Utiliza normalización Unicode NFD para eliminar diacríticos y tildes (ej. 'café' -> 'cafe', 'piña' -> 'pina') antes de la evaluación por expresiones regulares.
  * - FIX (2026-11-07, South Gate #315): `isToastGiftCardOrNonFoodSelection()` y `NON_FOOD_MARKER_PATTERNS` excluyen recargas y ventas de tarjetas de regalo (`TOAST_CARD_RELOAD`, `TOAST_CARD_SELL`, `Add Value ($)`, `Sell Card`, `toastGiftCard`, `giftCardSelectionInfo` e ítems `deferred: true` sin platillo) que Toast registra con `fulfillmentStatus: 'SENT'` sin enviarlas al KDS.
+ * - FIX (2026-11-09, Paridad 1:1 de Orden FIFO con Toast KDS): `compareOrdersKdsFifo()` estandariza el ordenamiento ascendente por hora real de disparo al KDS (`created_at` = `sentAt`), con desempate determinístico por número de orden e identificador canónico tanto en backend (`/api/order-ready/orders`) como en frontend (`/inventory/preparador` y `/order-ready-board`).
  */
 
 /**
@@ -197,4 +198,39 @@ export function isDrinkOrDessertOnlyOrder(itemsSummary: string | null | any[]): 
 
   // La orden es SOLO bebidas/postres si el 100% de los ítems reales son bebidas o postres
   return realItems.every(it => isDrinkOrDessertItem(it?.name || ''))
+}
+
+/**
+ * Comparador determinístico FIFO 1:1 con la secuencia de pantallas Toast POS Kitchen KDS:
+ * 1) `created_at` ascendente (hora real en que la comanda se disparó a cocina `sentAt`, nunca `openedDate` de kiosko/borrador).
+ * 2) Desempate numérico por `order_number` ascendente cuando dos comandas llegan en el mismo milisegundo.
+ * 3) Desempate estable por `id` / `order_guid`.
+ */
+export function compareOrdersKdsFifo(a: any, b: any): number {
+  const ta = Date.parse(a?.created_at || '')
+  const tb = Date.parse(b?.created_at || '')
+  const aFinite = Number.isFinite(ta)
+  const bFinite = Number.isFinite(tb)
+
+  if (aFinite && bFinite && ta !== tb) {
+    return ta - tb
+  }
+  if (aFinite !== bFinite) {
+    return aFinite ? -1 : 1
+  }
+
+  const rawNumA = String(a?.order_number ?? '').trim()
+  const rawNumB = String(b?.order_number ?? '').trim()
+  const numA = /^\d+$/.test(rawNumA) ? parseInt(rawNumA, 10) : NaN
+  const numB = /^\d+$/.test(rawNumB) ? parseInt(rawNumB, 10) : NaN
+  if (Number.isFinite(numA) && Number.isFinite(numB) && numA !== numB) {
+    return numA - numB
+  }
+  if (rawNumA !== rawNumB) {
+    return rawNumA.localeCompare(rawNumB, undefined, { numeric: true })
+  }
+
+  const idA = String(a?.id || a?.order_guid || '')
+  const idB = String(b?.id || b?.order_guid || '')
+  return idA.localeCompare(idB)
 }

@@ -53,6 +53,9 @@
  *        el sistema rescata y ejecuta el toque en vez de descartarlo.
  *     3) Tolerancia ampliada para presión prolongada con guante (`hasta 3500ms`) y deslizamiento por aplastamiento de la yema del guante (`hasta 75px`),
  *        bloqueando `onContextMenu` para evitar que el navegador cancele el toque por pulsación larga.
+ *   - PARIDAD FIFO 1:1 CON TOAST KDS (2026-11-09):
+ *     `filterAndDedupePrepOrders` y `applyReadyOrdersIfChanged` ordenan y reconcilian las tarjetas usando `compareOrdersKdsFifo` sobre la hora real
+ *     de disparo a cocina (`sentAt` / `created_at`), reflejando el mismo orden exacto del Toast Kitchen KDS.
  */
 'use client'
 
@@ -70,7 +73,7 @@ import { createClient } from '@/lib/supabase-client'
 import { motion, AnimatePresence } from 'framer-motion'
 import { TOAST_STORE_MAP } from '@/lib/toast-stores'
 import { getCaliforniaBusinessDate } from '@/lib/business-date'
-import { isDrinkOrDessertOnlyOrder } from '@/lib/order-ready-filter'
+import { isDrinkOrDessertOnlyOrder, compareOrdersKdsFifo } from '@/lib/order-ready-filter'
 import {
     purgeTabletStaleCaches,
     safeLocalStorageSet,
@@ -596,16 +599,12 @@ export default function PreparadorPage() {
         })
     }
 
-    // Filtra, desduplica y ordena FIFO las órdenes en preparación (IN_PROGRESS)
+    // Filtra, desduplica y ordena FIFO 1:1 con Toast KDS las órdenes en preparación (IN_PROGRESS)
     const filterAndDedupePrepOrders = (rows: any[], storeCode: string, todayLA: string): any[] => {
         const now = Date.now()
         const seenGuids = new Set<string>()
         const seenNumbers = new Set<string>()
-        const sortedRows = [...rows].sort((a, b) => {
-            const ta = Date.parse(a?.created_at || '') || 0
-            const tb = Date.parse(b?.created_at || '') || 0
-            return ta - tb // FIFO: las más antiguas primero
-        })
+        const sortedRows = [...rows].sort(compareOrdersKdsFifo)
         const uniqueRecent: any[] = []
 
         for (const o of sortedRows) {
@@ -629,10 +628,10 @@ export default function PreparadorPage() {
             seenNumbers.add(numKey)
             uniqueRecent.push(o)
         }
-        return uniqueRecent
+        return uniqueRecent.sort(compareOrdersKdsFifo)
     }
 
-    // Actualiza readyOrdersList SOLO si realmente cambió el listado de órdenes (evita re-renderizar los botones cada 5s mientras el cocinero toca la pantalla)
+    // Actualiza readyOrdersList SOLO si realmente cambió el listado o posición FIFO de órdenes (evita re-renderizar los botones cada 5s mientras el cocinero toca la pantalla)
     const applyReadyOrdersIfChanged = (nextOrders: any[]) => {
         setReadyOrdersList((prev) => {
             if (prev.length === nextOrders.length) {
@@ -644,7 +643,8 @@ export default function PreparadorPage() {
                         String(a?.id) !== String(b?.id) ||
                         String(a?.order_number) !== String(b?.order_number) ||
                         String(a?.status) !== String(b?.status) ||
-                        String(a?.dining_option) !== String(b?.dining_option)
+                        String(a?.dining_option) !== String(b?.dining_option) ||
+                        String(a?.created_at) !== String(b?.created_at)
                     ) {
                         identical = false
                         break
@@ -686,10 +686,11 @@ export default function PreparadorPage() {
                 .from('order_ready_announcements')
                 .select('*')
                 .eq('store_code', storeCode)
+                .eq('business_date', todayLA)
                 .eq('status', 'IN_PROGRESS') // Exclusivo órdenes en preparación (SEND)
                 .in('dining_option', ['FOR_HERE', 'TOGO']) // Exclusivo Comedor y Para Llevar (jamás Delivery ni Drive-Thru)
                 .gte('created_at', cutoffTime)
-                .order('created_at', { ascending: true }) // FIFO: las más antiguas primero
+                .order('created_at', { ascending: true }) // FIFO 1:1 con Toast KDS: las disparadas primero a cocina van primero
                 .limit(150)
 
             if (!error && data) {
