@@ -41,6 +41,7 @@
  *   1. `extractOrderItemsSummary` usa la clave oficial `quantity`, ordena determinísticamente tanto `modifiers` como el arreglo `items`, consolida platillos con la misma configuración sumando cantidades, preserva configuraciones distintas sin alterar nombres visuales y descarta `quantity <= 0` sin convertirlo en `1`.
  *   2. `areOrderItemsSummariesEqual` compara semánticamente `quantity` (aceptando `qty` como compatibilidad heredada), preserva cantidades reales (incluyendo `0`), no oculta JSON inválido distinto y evita ejecutar `UPDATE` redundantes cuando Toast devuelve `selections` en diferente orden.
  *   3. `syncStoreFromToast` utiliza un lease distribuido atómico en PostgreSQL (`try_acquire_order_ready_sync_lease` / `release_order_ready_sync_lease`) con expiración automática (TTL) junto con deduplicación en memoria para evitar tormentas de sincronización entre instancias serverless.
+ * - FIX (2026-11-07, South Gate #315): `evaluateToastOrder` y `extractOrderItemsSummary` delegan en `isToastGiftCardOrNonFoodSelection` para excluir ventas y recargas de Gift Card (`TOAST_CARD_RELOAD` / `Add Value ($)` / `TOAST_CARD_SELL` / `toastGiftCard`) que nunca van al KDS.
  */
 
 import { supabaseAdmin } from '@/lib/supabase'
@@ -85,8 +86,7 @@ export function extractOrderItemsSummary(order: any): string | null {
     for (const sel of chk.selections || []) {
       if (!sel || sel.voided || sel.deleted) continue
       const name = String(sel.displayName || sel.name || '').trim()
-      const isGiftCardSel = String(sel.selectionType || '').toUpperCase() === 'GIFT_CARD'
-      if (!name || isNonFoodMarkerItem(name) || isGiftCardSel) continue
+      if (!name || isToastGiftCardOrNonFoodSelection(sel)) continue
 
       const rawQty = sel.quantity !== undefined && sel.quantity !== null ? sel.quantity : sel.qty
       const parsedQty = rawQty === undefined || rawQty === null || rawQty === '' ? 1 : Number(rawQty)
@@ -180,7 +180,7 @@ export function areOrderItemsSummariesEqual(
   }
 }
 
-import { isDrinkOrDessertItem, isNonFoodMarkerItem } from '@/lib/order-ready-filter'
+import { isDrinkOrDessertItem, isNonFoodMarkerItem, isToastGiftCardOrNonFoodSelection } from '@/lib/order-ready-filter'
 export * from '@/lib/order-ready-filter'
 
 export interface ToastOrderEvaluation {
@@ -231,9 +231,8 @@ export function evaluateToastOrder(order: any): ToastOrderEvaluation {
     for (const sel of check.selections || []) {
       if (!sel || sel.voided || sel.deleted) continue
       const name = String(sel.displayName || sel.name || '').trim()
-      const isGiftCardSel = String(sel.selectionType || '').toUpperCase() === 'GIFT_CARD'
-      // Separadores de tacos del POS ("--- Taco Separator ---", "********"), Gift Cards y marcadores no son platillos reales
-      if (!name || isNonFoodMarkerItem(name) || isGiftCardSel) continue
+      // Separadores de tacos del POS ("--- Taco Separator ---", "********"), Gift Cards (TOAST_CARD_RELOAD / Add Value ($)) y marcadores no son platillos reales
+      if (!name || isToastGiftCardOrNonFoodSelection(sel)) continue
       activeItems++
 
       const isDrinkDessert = isDrinkOrDessertItem(name)
@@ -567,7 +566,7 @@ export async function syncStoreFromToast(storeCode: string, force = false): Prom
             updatePayload.status = 'IN_PROGRESS'
             updatePayload.ready_at = null
             updatePayload.announced = false
-          } else if (ev.status === 'COMPLETED' && row.status === 'IN_PROGRESS') {
+          } else if (ev.status === 'COMPLETED' && row.status !== 'COMPLETED') {
             updatePayload.status = 'COMPLETED'
           }
 

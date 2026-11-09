@@ -61,11 +61,17 @@ export async function POST(request: Request) {
     // Estado: misma lógica que el sync activo (platillos de cocina con fulfillmentStatus READY = doble tap del KDS).
     // Si el payload incluye selections (evaluation.activeItems > 0), evaluateToastOrder es la fuente autoritativa
     // y nunca debe ser sobrescrita a READY mientras existan platillos de cocina en SENT.
+    // Si el payload SÍ trae selections (hasRawSelections = true) pero evaluation.activeItems === 0,
+    // significa que el 100% de los ítems son Gift Cards / recargas (Add Value ($)) o anulados, por lo que permanece COMPLETED.
+    const hasRawSelections = Array.isArray(orderObj.checks)
+      ? orderObj.checks.some((c: any) => Array.isArray(c?.selections) && c.selections.length > 0)
+      : Array.isArray(orderObj.selections) && orderObj.selections.length > 0
+
     const evaluation = evaluateToastOrder(orderObj)
     let status: 'IN_PROGRESS' | 'READY' | 'COMPLETED' = evaluation.status
     if (rawStatus === 'VOIDED') {
       status = 'COMPLETED'
-    } else if (evaluation.activeItems === 0) {
+    } else if (evaluation.activeItems === 0 && !hasRawSelections) {
       if (rawStatus === 'READY_FOR_PICKUP' || rawStatus === 'READY' || rawStatus === 'FULFILLED') {
         status = 'READY'
       } else if (rawStatus === 'IN_PROGRESS' || rawStatus === 'SENT' || rawStatus === 'OPEN') {

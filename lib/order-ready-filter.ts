@@ -16,6 +16,7 @@
  * 
  * @notes
  * - Utiliza normalización Unicode NFD para eliminar diacríticos y tildes (ej. 'café' -> 'cafe', 'piña' -> 'pina') antes de la evaluación por expresiones regulares.
+ * - FIX (2026-11-07, South Gate #315): `isToastGiftCardOrNonFoodSelection()` y `NON_FOOD_MARKER_PATTERNS` excluyen recargas y ventas de tarjetas de regalo (`TOAST_CARD_RELOAD`, `TOAST_CARD_SELL`, `Add Value ($)`, `Sell Card`, `toastGiftCard`, `giftCardSelectionInfo` e ítems `deferred: true` sin platillo) que Toast registra con `fulfillmentStatus: 'SENT'` sin enviarlas al KDS.
  */
 
 /**
@@ -98,7 +99,7 @@ export const DRINK_DESSERT_PATTERNS: RegExp[] = [
 ]
 
 /**
- * Marcadores no-comida (descuentos, separadores POS, tarjetas de regalo / Gift Cards)
+ * Marcadores no-comida (descuentos, separadores POS, tarjetas de regalo / Gift Cards y recargas)
  * que se cobran en caja, no se envían al KDS de cocina y no constituyen platillos a preparar.
  */
 export const NON_FOOD_MARKER_PATTERNS: RegExp[] = [
@@ -111,8 +112,44 @@ export const NON_FOOD_MARKER_PATTERNS: RegExp[] = [
   /\bdescuento\b/i,
   /\bgift\s*cards?\b/i,
   /\be-?gift\b/i,
-  /\btarjeta\s+de\s+regalo\b/i
+  /\btarjeta\s+de\s+regalo\b/i,
+  /\badd\s+value\b/i,
+  /\bsell\s+card\b/i,
+  /\breload\s+card\b/i,
+  /\btoast\s+card\b/i,
+  /\bcash\s+out\b/i
 ]
+
+/**
+ * Evalúa si un objeto `selection` crudo de Toast POS corresponde a una Gift Card,
+ * recarga de saldo (`TOAST_CARD_RELOAD` / `Add Value ($)`), venta de tarjeta (`TOAST_CARD_SELL`)
+ * o marcador no-comida que no va al KDS de cocina.
+ */
+export function isToastGiftCardOrNonFoodSelection(sel: any): boolean {
+  if (!sel || typeof sel !== 'object') return false
+  const selType = String(sel.selectionType || '').toUpperCase().trim()
+  if (
+    selType === 'GIFT_CARD' ||
+    selType === 'TOAST_CARD_SELL' ||
+    selType === 'TOAST_CARD_RELOAD' ||
+    selType === 'CASH_OUT' ||
+    selType.includes('GIFT') ||
+    selType.includes('TOAST_CARD')
+  ) {
+    return true
+  }
+  if (sel.toastGiftCard || sel.giftCardSelectionInfo) {
+    return true
+  }
+  if (sel.deferred === true && !sel.item && !sel.itemGroup) {
+    return true
+  }
+  const name = String(sel.displayName || sel.name || '').trim()
+  if (!name || isNonFoodMarkerItem(name)) {
+    return true
+  }
+  return false
+}
 
 /**
  * Evalúa si un nombre de ítem corresponde a una bebida o postre.
