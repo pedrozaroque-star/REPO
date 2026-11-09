@@ -26,7 +26,9 @@
  * - Cruce Bidireccional Operativo (`bidirectionalSummary` + `toast_only_store_synced` + `suggested_toast_candidate`):
  *   * Separa órdenes `TOAST_ONLY` entre sucursales que ya tienen órdenes sincronizadas de la plataforma en el periodo (`toast_only_store_synced = true` -> alerta real `UNPAID_IN_PLATFORM`) y sucursales pendientes de sincronizar (`toast_only_store_synced = false` -> `PENDING_PLATFORM_SETTLEMENT` con lista `pendingSyncStoreIds`).
  *   * Auto-vincula órdenes de las 3 plataformas (`UBER_EATS`, `DOORDASH`, `GRUBHUB`) con `payout_reference_id === null` cuando existe un único payout oficial de esa tienda/plataforma cuyo `[period_start, period_end]` cubre `business_date`, persistiendo el vínculo en `delivery_platform_orders`.
- *   * Expone `suggested_toast_candidate` cuando una orden en plataforma sin ID en el cheque de Toast tiene un candidato único por misma tienda + fecha + subtotal (`UNVERIFIED_NO_ID`) para confirmación en 1 clic.
+ *   * Expone `suggested_toast_candidate` cuando una orden en plataforma sin ID en el cheque de Toast tiene un candidato único por misma tienda + fecha + subtotal (`UNVERIFIED_NO_ID`) para confirmación en 1 clic, y suprime la fila sintética duplicada `TOAST_ONLY` de ese mismo `toast_order_guid`.
+ *   * Paridad en las 3 plataformas (`DOORDASH`, `UBER_EATS`, `GRUBHUB`) para órdenes cuadradas al centavo con Toast POS cuyo corte semanal aún sigue abierto o está en tránsito (`CONCILIATED_NEXT_PAYOUT` dentro de `CONCILIATED_READY`).
+ *   * Soporte de sincronización por lotes (`store_ids: number[]`) en `action === 'sync_live'` acotada estrictamente al rango `[startDate, endDate]`.
  *
  * @dataFlow
  * - GET `/api/delivery-reconciliation` -> Pagina `delivery_platform_orders`, `delivery_platform_payouts`, `delivery_platform_store_mappings` + cuarentena `UNASSIGNED_STORE`, calcula cobertura por tienda/plataforma y los 4 grupos de acción.
@@ -127,9 +129,10 @@ export function classifyOrderActionGroupAndExplanation(o: any, recoveryCtx?: Dis
   const isToastOnly = o.match_confidence === 'TOAST_ONLY' || o.reconciliation_status === 'MISSING_IN_PLATFORM'
   const isAmbiguous = o.match_confidence === 'AMBIGUOUS' || Boolean(o.raw_payload?.ambiguous_toast_candidates?.length)
   const isUnverifiedNoId =
-    o.match_confidence === 'UNVERIFIED_NO_ID' ||
-    Boolean(o.raw_payload?.unverified_no_platform_id) ||
-    Boolean(o.raw_payload?.suggested_toast_candidate)
+    o.match_confidence !== 'EXACT_ID' &&
+    (o.match_confidence === 'UNVERIFIED_NO_ID' ||
+      Boolean(o.raw_payload?.unverified_no_platform_id) ||
+      Boolean(o.raw_payload?.suggested_toast_candidate))
   const isMissingTax =
     Boolean(o.raw_payload?.missing_tax_breakdown) || o.raw_payload?.tax_breakdown_verified === false
   const hasPayoutRef = Boolean(o.payout_reference_id && String(o.payout_reference_id).trim())
@@ -144,10 +147,17 @@ export function classifyOrderActionGroupAndExplanation(o: any, recoveryCtx?: Dis
   const subVar = round2(Number(o.subtotal_diff ?? o.subtotal_variance ?? 0))
   const taxVar = round2(Number(o.tax_diff ?? o.tax_variance ?? 0))
 
+  const isZeroAmountCancelOrAdj =
+    !o.toast_order_guid &&
+    Math.abs(Number(o.platform_subtotal || 0)) < 0.01 &&
+    Math.abs(Number(o.platform_gross_receivable || 0)) < 0.01 &&
+    (o.transaction_type === 'CANCELLATION' || o.transaction_type === 'ADJUSTMENT')
+
   const isDisputeOrRecovery =
     Boolean(o.is_disputed) ||
     o.reconciliation_status === 'REFUNDED_OR_DISPUTED' ||
     errCharge < -0.01 ||
+    (o.transaction_type === 'ADJUSTMENT' && Math.abs(Number(o.platform_subtotal || 0)) < 0.01 && adjAmount < -0.01) ||
     Boolean(reimbRef) ||
     hasRecoveryCredits
 
@@ -452,12 +462,36 @@ export function classifyOrderActionGroupAndExplanation(o: any, recoveryCtx?: Dis
     }
   }
 
+  if (
+    !isToastOnly &&
+    !o.toast_order_guid &&
+    o.toast_synced_on_date === false &&
+    (Number(o.platform_subtotal || 0) > 0 || Number(o.platform_gross_receivable || 0) > 0)
+  ) {
+    return {
+      action_group: 'BLOCKED_MISSING_INFO' as ReconciliationActionGroup,
+      status_code: 'PENDING_TOAST_SYNC',
+      status_label_es: 'En Plataforma (Pendiente sincronizar Toast POS)',
+      status_label_en: 'In Platform (Pending Toast POS sync)',
+      what_happened_es: `Orden cobrada en ${plat} ($${Number(o.platform_gross_receivable || 0).toFixed(2)}) en una fecha operativa donde aún no se han descargado tickets de Toast POS para esta sucursal.`,
+      what_happened_en: `Order settled in ${plat} ($${Number(o.platform_gross_receivable || 0).toFixed(2)}) on a business date where Toast POS checks have not been synced yet for this store.`,
+      cause_es: 'La sucursal tiene 0 órdenes de Toast POS sincronizadas en esa fecha operativa.',
+      cause_en: 'This store has 0 synced Toast POS orders on that business date.',
+      evidence_es: `${plat} #${o.platform_order_id} del ${o.business_date} | Corte: #${o.payout_reference_id || 'Pendiente'}`,
+      evidence_en: `${plat} #${o.platform_order_id} on ${o.business_date} | Payout: #${o.payout_reference_id || 'Pending'}`,
+      next_action_es: 'Sincronizar la sucursal en ese rango de fechas si deseas cruzar el detalle contra Toast POS.',
+      next_action_en: 'Sync the store for that date range if you want to cross-check against Toast POS.',
+      lifecycle_trace: lifecycleTrace,
+    }
+  }
+
   // 3) Check Group 2: VARIANCE_INVESTIGATE (or CONCILIATED_READY if variance has persisted server approval)
   if (
-    o.reconciliation_status === 'MISSING_IN_TOAST' ||
-    o.reconciliation_status === 'AMOUNT_MISMATCH' ||
-    o.reconciliation_status === 'TAX_MISMATCH' ||
-    Math.abs(grossVar) > 0.05
+    !isZeroAmountCancelOrAdj &&
+    (o.reconciliation_status === 'MISSING_IN_TOAST' ||
+      o.reconciliation_status === 'AMOUNT_MISMATCH' ||
+      o.reconciliation_status === 'TAX_MISMATCH' ||
+      Math.abs(grossVar) > 0.05)
   ) {
     if (hasValidPersistedOrderVarianceApproval(o) && hasPayoutRef) {
       const va = o.raw_payload.variance_approval
@@ -1224,10 +1258,12 @@ export async function GET(req: NextRequest) {
     // Contar cuántas órdenes reales de plataforma (no TOAST_ONLY) y cuántas de Toast existen por sucursal + plataforma + fecha
     const storePlatDateRealOrders = new Map<string, number>()
     const storePlatDateToastOrders = new Map<string, number>()
+    const storeDateToastOrders = new Map<string, number>()
     const suggestedToastGuidsSet = new Set<string>()
     for (const o of rawOrders || []) {
       if (!o || Number(o.store_id) <= 0 || !o.business_date) continue
       const spdKey = `${Number(o.store_id)}:${o.platform}:${o.business_date}`
+      const sdKey = `${Number(o.store_id)}:${o.business_date}`
       if (o.match_confidence !== 'TOAST_ONLY') {
         storePlatDateRealOrders.set(spdKey, (storePlatDateRealOrders.get(spdKey) || 0) + 1)
         const sugGuid = o.raw_payload?.suggested_toast_candidate?.toastOrderGuid
@@ -1235,6 +1271,7 @@ export async function GET(req: NextRequest) {
       }
       if (o.toast_order_guid || o.match_confidence === 'TOAST_ONLY') {
         storePlatDateToastOrders.set(spdKey, (storePlatDateToastOrders.get(spdKey) || 0) + 1)
+        storeDateToastOrders.set(sdKey, (storeDateToastOrders.get(sdKey) || 0) + 1)
       }
     }
 
@@ -1284,6 +1321,17 @@ export async function GET(req: NextRequest) {
         !isTruncatedPageBoundary &&
         realPlatOnDay >= Math.max(1, Math.floor(toastOnDay * 0.85))
       const toastOnlyStoreSynced = isToastOnlyRow ? dayCoverageReady && payoutCoverageReady : true
+      const toastSyncedOnDate =
+        (storeDateToastOrders.get(`${Number(o.store_id)}:${o.business_date || ''}`) || 0) > 0 ||
+        Boolean(o.raw_payload?.suggested_toast_candidate) ||
+        Boolean(o.raw_payload?.toast_live_checked_date)
+      const platformMissingToastSynced =
+        !isToastOnlyRow &&
+        !o.toast_order_guid &&
+        !o.raw_payload?.toast_voided &&
+        o.raw_payload?.explicit_review_decision !== 'CONFIRM_TOAST_MATCH' &&
+        (Number(o.platform_subtotal || 0) > 0 || Number(o.platform_gross_receivable || 0) > 0) &&
+        toastSyncedOnDate
       const enrichedBase = {
         ...o,
         store_name: storeMeta.name,
@@ -1295,6 +1343,8 @@ export async function GET(req: NextRequest) {
         tax_variance: taxVar,
         gross_variance: grossVar,
         toast_only_store_synced: toastOnlyStoreSynced,
+        toast_synced_on_date: toastSyncedOnDate,
+        platform_missing_toast_synced: platformMissingToastSynced,
       }
       const audit = classifyOrderActionGroupAndExplanation(enrichedBase, recoveryCtx)
       const rp = o.raw_payload || {}
@@ -1852,14 +1902,12 @@ export async function GET(req: NextRequest) {
           inToastPendingStoreSyncGross = round2(inToastPendingStoreSyncGross + tExp)
           if (Number(o.store_id) > 0) pendingSyncStoreIdsSet.add(Number(o.store_id))
         }
+      } else if (o.platform_missing_toast_synced) {
+        inPlatformNotInToastCount++
+        inPlatformNotInToastGross = round2(inPlatformNotInToastGross + pGross)
       } else if (o.action_group === 'BLOCKED_MISSING_INFO') {
-        if (!o.toast_order_guid) {
-          inPlatformNotInToastCount++
-          inPlatformNotInToastGross = round2(inPlatformNotInToastGross + pGross)
-        } else {
-          otherBlockedPlatformCount++
-          otherBlockedPlatformGross = round2(otherBlockedPlatformGross + (tExp || pGross))
-        }
+        otherBlockedPlatformCount++
+        otherBlockedPlatformGross = round2(otherBlockedPlatformGross + (tExp || pGross))
       }
     }
 

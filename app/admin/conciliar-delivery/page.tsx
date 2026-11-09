@@ -128,6 +128,8 @@ interface ReconciledOrder {
   items_summary?: Array<{ name: string; quantity: number; price: number }>
   raw_payload?: Record<string, any>
   toast_only_store_synced?: boolean
+  toast_synced_on_date?: boolean
+  platform_missing_toast_synced?: boolean
   // Enriched audit explanation fields from server
   action_group?: ActionGroup
   status_code?: string
@@ -841,14 +843,16 @@ export default function ConciliarDeliveryPage() {
     let completedCount = 0
 
     try {
-      for (let i = 0; i < storesList.length; i++) {
+      const batchSize = 3
+      for (let i = 0; i < storesList.length; i += batchSize) {
         if (cancelSyncQueueRef.current) break
-        const st = storesList[i]
+        const batch = storesList.slice(i, i + batchSize)
+        const batchNames = batch.map((st) => st.store_name).join(', ')
         setSyncQueueProgress({
           active: true,
-          current: i + 1,
+          current: Math.min(i + batch.length, storesList.length),
           total: storesList.length,
-          currentStoreName: `${st.store_name} (${st.store_code})`,
+          currentStoreName: batchNames,
         })
         try {
           await authFetch('/api/delivery-reconciliation', {
@@ -856,7 +860,7 @@ export default function ConciliarDeliveryPage() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               action: 'sync_live',
-              store_id: String(st.store_id),
+              store_ids: batch.map((st) => Number(st.store_id)),
               platform: selectedPlatform,
               start_date: startDate,
               end_date: endDate,
@@ -864,12 +868,9 @@ export default function ConciliarDeliveryPage() {
               sync_grubhub: selectedPlatform === 'ALL' || selectedPlatform === 'GRUBHUB',
             }),
           })
-          completedCount++
+          completedCount += batch.length
         } catch {
-          // Continuar con la siguiente sucursal en la cola progresiva
-        }
-        if (i < storesList.length - 1 && !cancelSyncQueueRef.current) {
-          await new Promise((r) => setTimeout(r, 650))
+          // Continuar con el siguiente lote en la cola progresiva
         }
       }
 
@@ -1386,12 +1387,15 @@ export default function ConciliarDeliveryPage() {
   )
   const platformMissingToastOrders = useMemo(
     () =>
-      orders.filter(
-        (o) =>
-          o.match_confidence !== 'TOAST_ONLY' &&
-          o.reconciliation_status !== 'MISSING_IN_PLATFORM' &&
-          !o.toast_order_guid &&
-          o.raw_payload?.explicit_review_decision !== 'CONFIRM_TOAST_MATCH'
+      orders.filter((o) =>
+        o.platform_missing_toast_synced !== undefined
+          ? Boolean(o.platform_missing_toast_synced) && !o.raw_payload?.toast_voided
+          : o.match_confidence !== 'TOAST_ONLY' &&
+            o.reconciliation_status !== 'MISSING_IN_PLATFORM' &&
+            !o.toast_order_guid &&
+            !o.raw_payload?.toast_voided &&
+            o.raw_payload?.explicit_review_decision !== 'CONFIRM_TOAST_MATCH' &&
+            (Number(o.platform_subtotal || 0) > 0 || Number(o.platform_gross_receivable || 0) > 0)
       ),
     [orders]
   )
@@ -2203,7 +2207,12 @@ export default function ConciliarDeliveryPage() {
                 {platformMissingToastOrders.length}
               </span>
               <span className="font-mono font-bold text-indigo-700 dark:text-indigo-400">
-                {fmtMoney(summary?.bidirectionalSummary?.inPlatformNotInToastGross || 0)}
+                {fmtMoney(
+                  platformMissingToastOrders.reduce(
+                    (acc, o) => acc + Number(o.platform_gross_receivable || 0),
+                    0
+                  )
+                )}
               </span>
             </div>
             <div className="text-[10px] text-slate-500 mt-0.5">{t('deliveryReconciliation.bidir_card_platform_only_desc')}</div>

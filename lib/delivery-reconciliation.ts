@@ -57,6 +57,19 @@
  *   cerrar una recuperación parcial como total; (2) bastaba que existiera el payout + nota para confirmar dinero recuperado;
  *   (3) el filtro `period_end > startDate` excluía cortes que terminan el primer día consultado; (4) Grubhub sumaba todos los
  *   créditos bajo el primer payout (`recoveryTxs[0]`); (5) las filas Grubhub se borraban ANTES de guardar la orden consolidada.
+ * - Upgrade 2026-11-07 (Paridad 3 Plataformas & Velocidad de Sincronización):
+ *   * Paridad en las 3 plataformas (`DOORDASH`, `UBER_EATS`, `GRUBHUB`) para órdenes ya cobradas y cuadradas al centavo con Toast POS
+ *     que pertenecen a una semana abierta o posteriores al corte (`pending_next_payout: true` -> `CONCILIATED_NEXT_PAYOUT`).
+ *   * Empate determinístico de IDs de 15 dígitos de Grubhub POS Relay que comparten época de 4 dígitos (`slice(4, 8)`), misma tienda,
+ *     ventana `<= 90s` y subtotal + tax idénticos al centavo.
+ *   * Sincronización acotada estrictamente al rango filtrado `[startDate, endDate]` (sin arrastrar semanas históricas), reutilización
+ *     instantánea de caché de órdenes de Toast POS para días cerrados (`bDate < todayLa`), consultas paralelas y soporte por lotes `store_ids`.
+ * - Fix 2026-11-09 (Aislamiento de Cookie `selectedRestaurant` en Chrome CDP y Paginación Completa `getHistoricOrders` Uber Eats):
+ *   * Eliminada toda mutación `document.cookie = 'selectedRestaurant=...'` en la pestaña abierta de Uber Eats Manager; Chrome CDP solo
+ *     extrae cookies y restaura `selectedRestaurant` al `?restaurantUUID=` de la URL activa, delegando 100% de las peticiones de Uber Eats
+ *     al cliente Server-to-Server con header `Cookie` aislado por sucursal para jamás desfasar la sucursal visualizada en el navegador.
+ *   * Corregida la paginación de `getHistoricOrders` para propagar dinámicamente `paginationResult.nextTable` (`liveOrders` -> `historyOrders`)
+ *     y vinculados los `enrichedPeriods` de Fase 1 a Fase 2 (`s2sEnrichedPeriodsByStore`) preservando metadatos de payouts existentes.
  */
 
 import crypto from 'crypto'
@@ -1199,8 +1212,8 @@ export async function fetchGrubhubLiveAccountingForStore(
   const custId = String(mapping.grubhub_cust_id).trim()
   // Extendemos endDate + 1 día para capturar órdenes entre 00:00 y 05:59 AM PT del día siguiente
   const queryEndDate = addDaysToDateStr(endDate, 1)
-  // Para depósitos, ampliamos ventana [-7 días, +7 días] en bloques de máximo 28 días (límite de Grubhub deposits/summary)
-  const rawDepStart = addDaysToDateStr(startDate, -7)
+  // Para depósitos, consultamos únicamente depósitos liquidados desde startDate hasta endDate + 7 días (sin traer semanas pasadas)
+  const rawDepStart = startDate
   const rawDepEnd = addDaysToDateStr(endDate, 7)
   const depWindows: Array<{ s: string; e: string }> = []
   let curWinStart = rawDepStart
@@ -1326,10 +1339,13 @@ export async function fetchGrubhubLiveAccountingForStore(
     for (const atx of assocTxs) {
       const ordNum = String(atx.order_number || '').trim()
       const txId = String(atx.transaction_id || '').trim()
-      if (txId && !rawTransactions.some((rt: any) => String(rt.transaction_id || '').trim() === txId)) {
-        rawTransactions.push(atx)
-      } else if (!txId && ordNum && !rawTransactions.some((rt: any) => String(rt.order_number || '').trim() === ordNum)) {
-        rawTransactions.push(atx)
+      const atxBDate = atx.placed_at_time ? toOperationalBusinessDate(atx.placed_at_time) : null
+      if (atxBDate && atxBDate >= startDate && atxBDate <= endDate) {
+        if (txId && !rawTransactions.some((rt: any) => String(rt.transaction_id || '').trim() === txId)) {
+          rawTransactions.push(atx)
+        } else if (!txId && ordNum && !rawTransactions.some((rt: any) => String(rt.order_number || '').trim() === ordNum)) {
+          rawTransactions.push(atx)
+        }
       }
 
       const atxTypeUpper = String(atx.transaction_type || '').toUpperCase()
@@ -1439,6 +1455,14 @@ export async function fetchGrubhubLiveAccountingForStore(
           ),
         })
       }
+    }
+
+    if (
+      ghPeriod.periodStart &&
+      ghPeriod.periodEnd &&
+      (ghPeriod.periodStart > endDate || ghPeriod.periodEnd < startDate)
+    ) {
+      continue
     }
 
     const baseRawPayload = detailData || dep || {}
@@ -1636,7 +1660,10 @@ export async function fetchGrubhubLiveAccountingForStore(
     })
   }
 
-  return { orders, payouts }
+  return {
+    orders: orders.filter((o) => o.businessDate >= startDate && o.businessDate <= endDate),
+    payouts,
+  }
 }
 
 /**
@@ -3417,6 +3444,9 @@ export function resolveCrossPayoutRecoveryMatch<T extends Record<string, any>>(
   return { status: 'NO_MATCH', matchedOrder: null, ambiguousOrders: [] }
 }
 
+const ddSummariesMemCache = new Map<string, { ts: number; summariesList: any[]; truncated: boolean }>()
+const cookieSavedMemCache: { uberTs: number; ddTs: number } = { uberTs: 0, ddTs: 0 }
+
 /**
  * Extrae en vivo DoorDash (payout_summaries + payout_transactions) y Uber Eats (listPayoutsHistory + getEarningsBreakdown + getHistoricOrders)
  * directamente desde las sesiones autenticadas de Chrome DevTools locales o sesiones cifradas con `INTEGRATION_ENCRYPTION_KEY`.
@@ -3460,8 +3490,8 @@ async function fetchChromeLiveDoorDashAndUberForStores(
   let doordashError: string | undefined
   let uberPartialReason: string | undefined
   let doordashPartialReason: string | undefined
-  const lookbackStartDate = addDaysToDateStr(startDate, -21)
-  const payoutQueryEndDate = addDaysToDateStr(endDate, 14)
+  const lookbackStartDate = startDate
+  const payoutQueryEndDate = addDaysToDateStr(endDate, 8)
   const syncedUberStoreIds = new Set<number>()
   const syncedDdStoreIds = new Set<number>()
 
@@ -3569,291 +3599,66 @@ async function fetchChromeLiveDoorDashAndUberForStores(
                   flatten: true,
                 })
 
-                const ckRes = await send(
-                  'Network.getCookies',
-                  { urls: ['https://merchants.ubereats.com'] },
-                  uberSession
-                ).catch(() => null)
-                if (Array.isArray(ckRes?.cookies) && ckRes.cookies.length > 0) {
-                  const cookieHeader = ckRes.cookies
-                    .filter((c: any) => c.name !== 'selectedRestaurant')
-                    .map((c: any) => `${c.name}=${c.value}`)
-                    .join('; ')
-                  const encryptedCookie = encryptIntegrationSecret(cookieHeader)
-                  const maxExp = Math.max(...ckRes.cookies.map((c: any) => c.expires || 0))
-                  const expiresAt =
-                    maxExp > 0
-                      ? new Date(maxExp * 1000).toISOString()
-                      : new Date(Date.now() + 7 * 86400000).toISOString()
-                  const { data: existingInt } = await supabaseAdmin
-                    .from('integrations')
-                    .select('id')
-                    .eq('service_name', 'ubereats_merchant')
-                    .maybeSingle()
-                  if (existingInt?.id) {
-                    await supabaseAdmin
+                if (Date.now() - cookieSavedMemCache.uberTs > 180000) {
+                  const ckRes = await send(
+                    'Network.getCookies',
+                    { urls: ['https://merchants.ubereats.com'] },
+                    uberSession
+                  ).catch(() => null)
+                  if (Array.isArray(ckRes?.cookies) && ckRes.cookies.length > 0) {
+                    cookieSavedMemCache.uberTs = Date.now()
+                    const cookieHeader = ckRes.cookies
+                      .filter((c: any) => c.name !== 'selectedRestaurant')
+                      .map((c: any) => `${c.name}=${c.value}`)
+                      .join('; ')
+                    const encryptedCookie = encryptIntegrationSecret(cookieHeader)
+                    const maxExp = Math.max(...ckRes.cookies.map((c: any) => c.expires || 0))
+                    const expiresAt =
+                      maxExp > 0
+                        ? new Date(maxExp * 1000).toISOString()
+                        : new Date(Date.now() + 7 * 86400000).toISOString()
+                    const { data: existingInt } = await supabaseAdmin
                       .from('integrations')
-                      .update({
+                      .select('id')
+                      .eq('service_name', 'ubereats_merchant')
+                      .maybeSingle()
+                    if (existingInt?.id) {
+                      await supabaseAdmin
+                        .from('integrations')
+                        .update({
+                          access_token: encryptedCookie,
+                          expires_at: expiresAt,
+                          updated_at: new Date().toISOString(),
+                        })
+                        .eq('id', existingInt.id)
+                    } else {
+                      await supabaseAdmin.from('integrations').insert({
+                        service_name: 'ubereats_merchant',
+                        realm_id: 'all_15_stores',
                         access_token: encryptedCookie,
+                        refresh_token: 'encrypted_cookie_session',
+                        token_type: 'Cookie',
                         expires_at: expiresAt,
                         updated_at: new Date().toISOString(),
                       })
-                      .eq('id', existingInt.id)
-                  } else {
-                    await supabaseAdmin.from('integrations').insert({
-                      service_name: 'ubereats_merchant',
-                      realm_id: 'all_15_stores',
-                      access_token: encryptedCookie,
-                      refresh_token: 'encrypted_cookie_session',
-                      token_type: 'Cookie',
-                      expires_at: expiresAt,
-                      updated_at: new Date().toISOString(),
-                    })
+                    }
                   }
                 }
 
-                // FASE 1 (Chrome CDP): Extraer PRIMERO todos los cortes semanales oficiales (`listPayoutsHistory` + `getEarningsBreakdown`) de todas las sucursales
-                const uberRefundDatesByStore = new Map<number, string[]>()
-                for (const m of targetMappings) {
-                  if (!m.ubereats_store_uuid) continue
-                  const locUuid = String(m.ubereats_store_uuid).trim()
-                  const orgUuid = m.ubereats_org_uuid || UBER_STORE_TO_ORG_UUID_MAP[locUuid.toLowerCase()] || null
-
-                  const payoutsEval = orgUuid
-                    ? await send(
-                        'Runtime.evaluate',
-                        {
-                          expression: `(async () => {
-                    document.cookie = 'selectedRestaurant=' + ${JSON.stringify(locUuid)} + '; path=/';
-                    const postApi = async (ep, body) => {
-                      const r = await fetch('/manager/api/' + ep + '?localeCode=en', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json', 'x-csrf-token': 'x' },
-                        body: JSON.stringify(body)
-                      });
-                      return await r.json().catch(() => ({}));
-                    };
-                    const payPeriods = [];
-                    let truncated = false;
-                    for (let offset = 0; offset < 250; offset += 25) {
-                      const payRes = await postApi('listPayoutsHistory', {
-                        orgUUIDs: [${JSON.stringify(orgUuid)}],
-                        isOngoingSettlementRequired: false,
-                        locale: 'en',
-                        startDate: ${JSON.stringify(lookbackStartDate)},
-                        endDate: ${JSON.stringify(payoutQueryEndDate)},
-                        pagination: { pageSize: 25, offset }
-                      });
-                      const batch = payRes?.data?.payPeriods || [];
-                      payPeriods.push(...batch);
-                      if (batch.length < 25) break;
-                      if (offset + 25 >= 250) truncated = true;
-                    }
-                    const toIso = (str) => {
-                      const d = new Date(str);
-                      if (Number.isNaN(d.getTime())) return null;
-                      return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
-                    };
-                    const filteredPeriods = payPeriods.filter((p) => {
-                      const sIso = toIso(p.periodStartDate);
-                      const eIso = toIso(p.periodEndDate);
-                      if (!sIso || !eIso) return false;
-                      return sIso <= ${JSON.stringify(endDate)} && eIso >= ${JSON.stringify(lookbackStartDate)};
-                    });
-                    const refundDates = [];
-                    const enrichedPeriods = await Promise.all(filteredPeriods.map(async (p) => {
-                      const sIso = toIso(p.periodStartDate);
-                      const eIso = toIso(p.periodEndDate);
-                      let breakdown = null;
-                      if (sIso && eIso && p.settlementUUID) {
-                        const eb = await postApi('getEarningsBreakdown', {
-                          orgUUIDs: [${JSON.stringify(orgUuid)}],
-                          startDate: sIso,
-                          endDate: eIso,
-                          locale: 'en',
-                          settlementUUID: p.settlementUUID
-                        });
-                        breakdown = eb?.data || null;
-                        const walk = (nodes) => {
-                          for (const n of nodes || []) {
-                            const cat = n?.categoryName?.text || '';
-                            const desc = n?.displayText?.description?.text || '';
-                            const amt = Number(n?.categoryAmount || 0);
-                            if (cat === 'MISC_ITEM' && amt > 0 && desc) {
-                              const mDate = desc.match(/\\b(20\\d{2})(\\d{2})(\\d{2})\\b/);
-                              if (mDate) refundDates.push(mDate[1] + '-' + mDate[2] + '-' + mDate[3]);
-                            }
-                            if (Array.isArray(n?.childSummaryNodes)) walk(n.childSummaryNodes);
-                          }
-                        };
-                        if (breakdown?.taxonomyNodes) walk(breakdown.taxonomyNodes);
-                      }
-                      return { ...p, startIso: sIso, endIso: eIso, breakdown };
-                    }));
-                    return { enrichedPeriods, refundDates, truncated };
-                  })()`,
-                          awaitPromise: true,
-                          returnByValue: true,
-                        },
-                        uberSession
-                      ).catch(() => null)
-                    : null
-
-                  const payVal = payoutsEval?.result?.value
-                  if (payVal?.truncated) {
-                    uberPartialReason = 'Límite técnico de paginación alcanzado en listPayoutsHistory de Uber Eats.'
-                  }
-                  const enrichedPeriods = Array.isArray(payVal?.enrichedPeriods) ? payVal.enrichedPeriods : []
-                  const discoveredRefundDates: string[] = Array.isArray(payVal?.refundDates) ? payVal.refundDates : []
-                  uberRefundDatesByStore.set(m.store_id, discoveredRefundDates)
-
-                  if (enrichedPeriods.length > 0) {
-                    const parsedPayoutsOnly = parseUberEatsNativeApiObject(
-                      {
-                        orders: [],
-                        payPeriods: enrichedPeriods,
-                        locationUuid: locUuid,
-                        orgUUID: orgUuid,
-                      },
-                      allMappings,
-                      byUberUuid,
-                      byUberOrgUuid,
-                      undefined
-                    )
-                    payouts.push(...parsedPayoutsOnly.payouts)
-                  }
-                }
-
-                // FASE 2 (Chrome CDP): Extraer el detalle de órdenes (`getHistoricOrders`) por sucursal
-                let cdpOrdersRateLimited = false
-                for (const m of targetMappings) {
-                  if (!m.ubereats_store_uuid || cdpOrdersRateLimited) continue
-                  const locUuid = String(m.ubereats_store_uuid).trim()
-                  const orgUuid = m.ubereats_org_uuid || UBER_STORE_TO_ORG_UUID_MAP[locUuid.toLowerCase()] || null
-                  const discoveredRefundDates = uberRefundDatesByStore.get(m.store_id) || []
-
-                  const primaryMaxPages = 50
-                  const dateWindows: Array<{ s: string; e: string; maxPages: number }> = storesForOrders.has(m.store_id)
-                    ? [{ s: startDate, e: endDate, maxPages: primaryMaxPages }]
-                    : []
-                  for (const rDate of discoveredRefundDates) {
-                    if (rDate < startDate || rDate > endDate) {
-                      extraBusinessDatesSet.add(rDate)
-                      if (!dateWindows.some((w) => w.s === rDate)) {
-                        dateWindows.push({ s: rDate, e: rDate, maxPages: 2 })
-                      }
-                    }
-                  }
-
-                  const storeRawOrders: any[] = []
-                  for (const win of dateWindows) {
-                    if (cdpOrdersRateLimited) break
-                    let cursor = ''
-                    for (let page = 0; page < win.maxPages; page++) {
-                      const evalRes = await send(
-                        'Runtime.evaluate',
-                        {
-                          expression: `(async () => {
-                        const postApi = async (ep, body) => {
-                          const r = await fetch('/manager/api/' + ep + '?localeCode=en', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json', 'x-csrf-token': 'x' },
-                            body: JSON.stringify(body)
-                          });
-                          if (r.status === 429) return { __rateLimited: true };
-                          return await r.json().catch(() => ({}));
-                        };
-                        const j = await postApi('getHistoricOrders', {
-                          filters: {
-                            currentTab: '',
-                            displayCurrencyCode: '',
-                            locationConstraints: {
-                              cities: [],
-                              countries: [],
-                              locationUuids: [${JSON.stringify(locUuid)}]
-                            },
-                            dateFilter: {
-                              startDate: ${JSON.stringify(`${win.s} 00:00:00`)},
-                              endDate: ${JSON.stringify(`${addDaysToDateStr(win.e, 1)} 06:00:00`)},
-                              lastUpdatedAt: ''
-                            },
-                            isEatsPassSubscriber: false,
-                            search: null,
-                            orderIssuesV2: [],
-                            issueOrderStatusFilter: [],
-                            displayByocIssues: false
-                          },
-                          sort: {
-                            sortColumn: 'SORT_COLUMN_ORDER_COMPLETED_AT',
-                            sortDirection: 'SORT_DIRECTION_DESC'
-                          },
-                          pagingInfo: {
-                            cursor: ${JSON.stringify(cursor)},
-                            limit: 50,
-                            nextTable: 'liveOrders'
-                          },
-                          pagination: {
-                            cursor: ${JSON.stringify(cursor)},
-                            nextTable: 'historyOrders',
-                            limit: 50
-                          }
-                        });
-                        if (j?.__rateLimited) return { rateLimited: true };
-                        const batch = j?.data?.orders || [];
-                        const disputedInBatch = batch.filter((o) => o.issueType || (o.chargebackTotal && o.chargebackTotal !== '$0.00'));
-                        await Promise.all(disputedInBatch.map(async (o) => {
-                          const det = await postApi('getOrderDetails', {
-                            workflowUuid: o.workflowUuid,
-                            orderUuid: o.orderUuid,
-                            restaurantUuid: ${JSON.stringify(locUuid)}
-                          });
-                          if (det?.data) o.orderDetails = det.data;
-                        }));
-                        return {
-                          orders: batch,
-                          nextCursor: j?.data?.paginationResult?.nextCursor || ''
-                        };
-                      })()`,
-                          awaitPromise: true,
-                          returnByValue: true,
-                        },
-                        uberSession
-                      ).catch(() => null)
-
-                      const val = evalRes?.result?.value
-                      if (val?.rateLimited) {
-                        cdpOrdersRateLimited = true
-                        uberPartialReason =
-                          'Uber Eats limitó temporalmente getHistoricOrders (HTTP 429); todos los cortes semanales oficiales fueron sincronizados.'
-                        break
-                      }
-                      if (!val || !Array.isArray(val.orders) || val.orders.length === 0) break
-                      storeRawOrders.push(...val.orders)
-                      if (!val.nextCursor) break
-                      if (page + 1 >= win.maxPages) {
-                        uberPartialReason = 'Límite técnico de paginación alcanzado en getHistoricOrders de Uber Eats.'
-                      }
-                      cursor = val.nextCursor
-                    }
-                  }
-
-                  // P1-10: Prohibido pasar defaultStoreId en sincronización automática
-                  const parsed = parseUberEatsNativeApiObject(
+                // Restaurar `selectedRestaurant` si la URL de la pestaña de Uber Eats tiene `?restaurantUUID=` para no desfasar nunca la vista del usuario en Chrome.
+                // Las llamadas de sincronización de Uber Eats se ejecutan abajo vía Server-to-Server con headers `Cookie` aislados por petición, sin tocar `document.cookie` del navegador.
+                const urlRestMatch = String(uberTab.url || '').match(/[?&]restaurantUUID=([0-9a-f-]{36})/i)
+                if (urlRestMatch?.[1]) {
+                  await send(
+                    'Network.setCookie',
                     {
-                      orders: storeRawOrders,
-                      payPeriods: [],
-                      locationUuid: locUuid,
-                      orgUUID: orgUuid,
+                      name: 'selectedRestaurant',
+                      value: urlRestMatch[1],
+                      domain: 'merchants.ubereats.com',
+                      path: '/',
                     },
-                    allMappings,
-                    byUberUuid,
-                    byUberOrgUuid,
-                    undefined
-                  )
-                  orders.push(...parsed.orders)
-                  if (parsed.orders.length > 0) {
-                    syncedUberStoreIds.add(m.store_id)
-                  }
+                    uberSession
+                  ).catch(() => null)
                 }
               }
 
@@ -3863,111 +3668,125 @@ async function fetchChromeLiveDoorDashAndUberForStores(
                   flatten: true,
                 })
 
-                const ddCkRes = await send(
-                  'Network.getCookies',
-                  { urls: ['https://merchant-portal.doordash.com', 'https://www.doordash.com'] },
-                  ddSession
-                ).catch(() => null)
-                if (Array.isArray(ddCkRes?.cookies) && ddCkRes.cookies.length > 0) {
-                  const ddCookieHeader = ddCkRes.cookies.map((c: any) => `${c.name}=${c.value}`).join('; ')
-                  const encryptedDdCookie = encryptIntegrationSecret(ddCookieHeader)
-                  const maxDdExp = Math.max(...ddCkRes.cookies.map((c: any) => c.expires || 0))
-                  const ddExpiresAt =
-                    maxDdExp > 0
-                      ? new Date(maxDdExp * 1000).toISOString()
-                      : new Date(Date.now() + 7 * 86400000).toISOString()
-                  const { data: existingDdInt } = await supabaseAdmin
-                    .from('integrations')
-                    .select('id')
-                    .eq('service_name', 'doordash_merchant')
-                    .maybeSingle()
-                  if (existingDdInt?.id) {
-                    await supabaseAdmin
+                if (Date.now() - cookieSavedMemCache.ddTs > 180000) {
+                  const ddCkRes = await send(
+                    'Network.getCookies',
+                    { urls: ['https://merchant-portal.doordash.com', 'https://www.doordash.com'] },
+                    ddSession
+                  ).catch(() => null)
+                  if (Array.isArray(ddCkRes?.cookies) && ddCkRes.cookies.length > 0) {
+                    cookieSavedMemCache.ddTs = Date.now()
+                    const ddCookieHeader = ddCkRes.cookies.map((c: any) => `${c.name}=${c.value}`).join('; ')
+                    const encryptedDdCookie = encryptIntegrationSecret(ddCookieHeader)
+                    const maxDdExp = Math.max(...ddCkRes.cookies.map((c: any) => c.expires || 0))
+                    const ddExpiresAt =
+                      maxDdExp > 0
+                        ? new Date(maxDdExp * 1000).toISOString()
+                        : new Date(Date.now() + 7 * 86400000).toISOString()
+                    const { data: existingDdInt } = await supabaseAdmin
                       .from('integrations')
-                      .update({
+                      .select('id')
+                      .eq('service_name', 'doordash_merchant')
+                      .maybeSingle()
+                    if (existingDdInt?.id) {
+                      await supabaseAdmin
+                        .from('integrations')
+                        .update({
+                          access_token: encryptedDdCookie,
+                          expires_at: ddExpiresAt,
+                          updated_at: new Date().toISOString(),
+                        })
+                        .eq('id', existingDdInt.id)
+                    } else {
+                      await supabaseAdmin.from('integrations').insert({
+                        service_name: 'doordash_merchant',
+                        realm_id: 'all_15_stores',
                         access_token: encryptedDdCookie,
+                        refresh_token: 'encrypted_cookie_session',
+                        token_type: 'Cookie',
                         expires_at: ddExpiresAt,
                         updated_at: new Date().toISOString(),
                       })
-                      .eq('id', existingDdInt.id)
-                  } else {
-                    await supabaseAdmin.from('integrations').insert({
-                      service_name: 'doordash_merchant',
-                      realm_id: 'all_15_stores',
-                      access_token: encryptedDdCookie,
-                      refresh_token: 'encrypted_cookie_session',
-                      token_type: 'Cookie',
-                      expires_at: ddExpiresAt,
-                      updated_at: new Date().toISOString(),
-                    })
+                    }
                   }
                 }
 
-                // 1. Obtener en lote paginado completo los `payout_summaries` de DoorDash para el rango solicitado
-                const ddSummariesEval = await send(
-                  'Runtime.evaluate',
-                  {
-                    expression: `(async () => {
-                  const summariesList = [];
-                  let truncated = false;
-                  for (let offset = 0; offset < 500; offset += 50) {
-                    const sumRes = await fetch('https://merchant-portal.doordash.com/merchant-analytics-service/api/v2/payout_summaries', {
-                      method: 'POST',
-                      credentials: 'include',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({
-                        storeIds: [],
-                        businessIds: [137616],
-                        organizations: [],
-                        dateRange: {
-                          startDate: ${JSON.stringify(`${lookbackStartDate}T07:00:00.000Z`)},
-                          endDate: ${JSON.stringify(`${payoutQueryEndDate}T23:59:59.999Z`)}
-                        },
-                        filtersList: [{ channelsList: [3] }],
-                        storeFilterGranularity: null,
-                        page: { offset, limit: 50 }
-                      })
-                    });
-                    const sumJson = await sumRes.json().catch(() => ({}));
-                    const batch = sumJson?.summariesList || [];
-                    summariesList.push(...batch);
-                    if (batch.length < 50) break;
-                    if (offset + 50 >= 500) truncated = true;
+                // 1. Obtener en lote paginado completo los `payout_summaries` de DoorDash para el rango solicitado (con caché en memoria de 90s para colas de sucursales)
+                const ddCacheKey = `${lookbackStartDate}_${payoutQueryEndDate}`
+                const cachedDd = ddSummariesMemCache.get(ddCacheKey)
+                let allDdSummaries: any[] = []
+                if (cachedDd && Date.now() - cachedDd.ts < 90000 && cachedDd.summariesList.length > 0) {
+                  allDdSummaries = cachedDd.summariesList
+                  if (cachedDd.truncated) {
+                    doordashPartialReason = 'Límite técnico de paginación alcanzado en payout_summaries de DoorDash.'
                   }
-                  return { summariesList, truncated };
-                })()`,
-                    awaitPromise: true,
-                    returnByValue: true,
-                  },
-                  ddSession
-                ).catch(() => null)
+                } else {
+                  const ddSummariesEval = await send(
+                    'Runtime.evaluate',
+                    {
+                      expression: `(async () => {
+                    const summariesList = [];
+                    let truncated = false;
+                    for (let offset = 0; offset < 500; offset += 50) {
+                      const sumRes = await fetch('https://merchant-portal.doordash.com/merchant-analytics-service/api/v2/payout_summaries', {
+                        method: 'POST',
+                        credentials: 'include',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                          storeIds: [],
+                          businessIds: [137616],
+                          organizations: [],
+                          dateRange: {
+                            startDate: ${JSON.stringify(`${lookbackStartDate}T07:00:00.000Z`)},
+                            endDate: ${JSON.stringify(`${payoutQueryEndDate}T23:59:59.999Z`)}
+                          },
+                          filtersList: [{ channelsList: [3] }],
+                          storeFilterGranularity: null,
+                          page: { offset, limit: 50 }
+                        })
+                      });
+                      const sumJson = await sumRes.json().catch(() => ({}));
+                      const batch = sumJson?.summariesList || [];
+                      summariesList.push(...batch);
+                      if (batch.length < 50) break;
+                      if (offset + 50 >= 500) truncated = true;
+                    }
+                    return { summariesList, truncated };
+                  })()`,
+                      awaitPromise: true,
+                      returnByValue: true,
+                    },
+                    ddSession
+                  ).catch(() => null)
 
-                if (ddSummariesEval?.result?.value?.truncated) {
-                  doordashPartialReason = 'Límite técnico de paginación alcanzado en payout_summaries de DoorDash.'
+                  const tr = Boolean(ddSummariesEval?.result?.value?.truncated)
+                  if (tr) {
+                    doordashPartialReason = 'Límite técnico de paginación alcanzado en payout_summaries de DoorDash.'
+                  }
+                  allDdSummaries = ddSummariesEval?.result?.value?.summariesList || []
+                  if (allDdSummaries.length > 0) {
+                    ddSummariesMemCache.set(ddCacheKey, { ts: Date.now(), summariesList: allDdSummaries, truncated: tr })
+                  }
                 }
-                const allDdSummaries: any[] = ddSummariesEval?.result?.value?.summariesList || []
 
-                // 2. Obtener `payout_transactions` para TODAS las sucursales objetivo y TODOS sus payouts del periodo (sin .slice(0,2))
+                // 2. Obtener `payout_transactions` únicamente para los payouts cuyo periodo se solapa con `[startDate, endDate]`
                 for (const m of targetMappings) {
                   if (!m.doordash_store_id || !storesForOrders.has(m.store_id)) continue
                   const ddStoreId = String(m.doordash_store_id).trim()
-                  const storeSummaries = allDdSummaries.filter(
-                    (s: any) => String(s?.storeId || '').trim() === ddStoreId
-                  )
+                  const storeSummaries = allDdSummaries.filter((s: any) => {
+                    if (String(s?.storeId || '').trim() !== ddStoreId) return false
+                    const pDate = toOperationalBusinessDate(s.payoutDate)
+                    const explicitStart = s.periodStartDate || s.payoutStartDate || s.startDate || null
+                    const explicitEnd = s.periodEndDate || s.payoutEndDate || s.endDate || null
+                    const fallbackCyc = resolveDoorDashCycleFromPayoutDate(pDate)
+                    const cycStart = explicitStart ? toOperationalBusinessDate(explicitStart) : fallbackCyc.periodStart
+                    const cycEnd = explicitEnd ? toOperationalBusinessDate(explicitEnd) : fallbackCyc.periodEnd
+                    return cycStart <= endDate && cycEnd >= startDate
+                  })
                   const matchingPayoutIds: string[] = []
                   for (const s of storeSummaries) {
                     const pId = String(s?.payoutId || s?.payout?.id || '').trim()
-                    if (!pId) continue
-                    const pDate = toOperationalBusinessDate(s.payoutDate)
-                    const payInWindow =
-                      pDate >= startDate && pDate <= addDaysToDateStr(endDate, 14)
-                    if (payInWindow) {
-                      matchingPayoutIds.push(pId)
-                    }
-                  }
-                  if (matchingPayoutIds.length === 0 && storeSummaries[0]) {
-                    const fallbackId = String(storeSummaries[0]?.payoutId || storeSummaries[0]?.payout?.id || '').trim()
-                    if (fallbackId) matchingPayoutIds.push(fallbackId)
+                    if (pId) matchingPayoutIds.push(pId)
                   }
 
                   const storeCombinedTransactions: any[] = []
@@ -4136,6 +3955,7 @@ async function fetchChromeLiveDoorDashAndUberForStores(
 
             // FASE 1 (Server-to-Server): Extraer PRIMERO todos los cortes semanales oficiales (`listPayoutsHistory` + `getEarningsBreakdown`) de todas las sucursales
             const s2sRefundDatesByStore = new Map<number, string[]>()
+            const s2sEnrichedPeriodsByStore = new Map<number, any[]>()
             for (const m of pendingUberMappings) {
               if (!m.ubereats_store_uuid) continue
               const locUuid = String(m.ubereats_store_uuid).trim()
@@ -4182,6 +4002,8 @@ async function fetchChromeLiveDoorDashAndUberForStores(
                   const batch: any[] = Array.isArray(payRes?.data?.payPeriods) ? payRes.data.payPeriods : []
                   payPeriods.push(...batch)
                   if (batch.length < 25) break
+                  const oldestEnd = toIsoDate(batch[batch.length - 1]?.periodEndDate)
+                  if (oldestEnd && oldestEnd < lookbackStartDate) break
                   if (offset + 25 >= 250) {
                     uberPartialReason = 'Límite técnico de paginación alcanzado en listPayoutsHistory de Uber Eats.'
                   }
@@ -4229,6 +4051,7 @@ async function fetchChromeLiveDoorDashAndUberForStores(
               )
 
               s2sRefundDatesByStore.set(m.store_id, discoveredRefundDates)
+              s2sEnrichedPeriodsByStore.set(m.store_id, enrichedPeriods)
               if (enrichedPeriods.length > 0) {
                 const parsedPayoutsOnly = parseUberEatsNativeApiObject(
                   {
@@ -4274,19 +4097,12 @@ async function fetchChromeLiveDoorDashAndUberForStores(
               const dateWindows: Array<{ s: string; e: string; maxPages: number }> = storesForOrders.has(m.store_id)
                 ? [{ s: startDate, e: endDate, maxPages: primaryMaxPages }]
                 : []
-              for (const rDate of discoveredRefundDates) {
-                if (rDate < startDate || rDate > endDate) {
-                  extraBusinessDatesSet.add(rDate)
-                  if (!dateWindows.some((w) => w.s === rDate)) {
-                    dateWindows.push({ s: rDate, e: rDate, maxPages: 2 })
-                  }
-                }
-              }
 
               const storeRawOrders: any[] = []
               for (const win of dateWindows) {
                 if (s2sOrdersRateLimited) break
                 let cursor = ''
+                let nextTable = 'liveOrders'
                 for (let page = 0; page < win.maxPages; page++) {
                   const j: any = await postUberNodeApi('getHistoricOrders', {
                     filters: {
@@ -4315,11 +4131,11 @@ async function fetchChromeLiveDoorDashAndUberForStores(
                     pagingInfo: {
                       cursor,
                       limit: 50,
-                      nextTable: 'liveOrders',
+                      nextTable,
                     },
                     pagination: {
                       cursor,
-                      nextTable: 'historyOrders',
+                      nextTable,
                       limit: 50,
                     },
                   })
@@ -4332,7 +4148,9 @@ async function fetchChromeLiveDoorDashAndUberForStores(
                   }
 
                   const batch: any[] = Array.isArray(j?.data?.orders) ? j.data.orders : []
-                  if (batch.length === 0) break
+                  const nextCursor = j?.data?.paginationResult?.nextCursor || ''
+                  const returnedNextTable = j?.data?.paginationResult?.nextTable || 'historyOrders'
+                  if (batch.length === 0 && !nextCursor) break
 
                   const disputedInBatch = batch.filter(
                     (o) => o.issueType || (o.chargebackTotal && o.chargebackTotal !== '$0.00')
@@ -4349,20 +4167,21 @@ async function fetchChromeLiveDoorDashAndUberForStores(
                   )
 
                   storeRawOrders.push(...batch)
-                  const nextCursor = j?.data?.paginationResult?.nextCursor || ''
                   if (!nextCursor) break
                   if (page + 1 >= win.maxPages) {
                     uberPartialReason = 'Límite técnico de paginación alcanzado en getHistoricOrders de Uber Eats.'
                   }
                   cursor = nextCursor
+                  nextTable = returnedNextTable
                 }
               }
 
               // P1-10: Prohibido pasar defaultStoreId en sincronización automática
+              // Pasar `enrichedPeriods` de la misma tienda para resolver `payoutReferenceId` de forma determinística
               const parsed = parseUberEatsNativeApiObject(
                 {
                   orders: storeRawOrders,
-                  payPeriods: [],
+                  payPeriods: s2sEnrichedPeriodsByStore.get(m.store_id) || [],
                   locationUuid: locUuid,
                   orgUUID: orgUuid,
                 },
@@ -4418,39 +4237,53 @@ async function fetchChromeLiveDoorDashAndUberForStores(
               Referer: 'https://www.doordash.com/',
             }
 
+            const ddCacheKey = `${lookbackStartDate}_${payoutQueryEndDate}`
+            const cachedDd = ddSummariesMemCache.get(ddCacheKey)
             const allDdSummaries: any[] = []
-            for (let offset = 0; offset < 500; offset += 50) {
-              const sumRes = await fetch(
-                'https://merchant-portal.doordash.com/merchant-analytics-service/api/v2/payout_summaries',
-                {
-                  method: 'POST',
-                  headers: ddHeaders,
-                  body: JSON.stringify({
-                    storeIds: [],
-                    businessIds: [137616],
-                    organizations: [],
-                    dateRange: {
-                      startDate: `${lookbackStartDate}T07:00:00.000Z`,
-                      endDate: `${payoutQueryEndDate}T23:59:59.999Z`,
-                    },
-                    filtersList: [{ channelsList: [3] }],
-                    storeFilterGranularity: null,
-                    page: { offset, limit: 50 },
-                  }),
-                }
-              ).catch(() => null)
-              if (!sumRes || !sumRes.ok) {
-                if (sumRes && !sumRes.ok && offset === 0) {
-                  doordashError = `DoorDash API devolvió HTTP ${sumRes.status} en payout_summaries.`
-                }
-                break
-              }
-              const sumJson: any = await sumRes.json().catch(() => ({}))
-              const batch: any[] = Array.isArray(sumJson?.summariesList) ? sumJson.summariesList : []
-              allDdSummaries.push(...batch)
-              if (batch.length < 50) break
-              if (offset + 50 >= 500) {
+            if (cachedDd && Date.now() - cachedDd.ts < 90000 && cachedDd.summariesList.length > 0) {
+              allDdSummaries.push(...cachedDd.summariesList)
+              if (cachedDd.truncated) {
                 doordashPartialReason = 'Límite técnico de paginación alcanzado en payout_summaries de DoorDash.'
+              }
+            } else {
+              let tr = false
+              for (let offset = 0; offset < 500; offset += 50) {
+                const sumRes = await fetch(
+                  'https://merchant-portal.doordash.com/merchant-analytics-service/api/v2/payout_summaries',
+                  {
+                    method: 'POST',
+                    headers: ddHeaders,
+                    body: JSON.stringify({
+                      storeIds: [],
+                      businessIds: [137616],
+                      organizations: [],
+                      dateRange: {
+                        startDate: `${lookbackStartDate}T07:00:00.000Z`,
+                        endDate: `${payoutQueryEndDate}T23:59:59.999Z`,
+                      },
+                      filtersList: [{ channelsList: [3] }],
+                      storeFilterGranularity: null,
+                      page: { offset, limit: 50 },
+                    }),
+                  }
+                ).catch(() => null)
+                if (!sumRes || !sumRes.ok) {
+                  if (sumRes && !sumRes.ok && offset === 0) {
+                    doordashError = `DoorDash API devolvió HTTP ${sumRes.status} en payout_summaries.`
+                  }
+                  break
+                }
+                const sumJson: any = await sumRes.json().catch(() => ({}))
+                const batch: any[] = Array.isArray(sumJson?.summariesList) ? sumJson.summariesList : []
+                allDdSummaries.push(...batch)
+                if (batch.length < 50) break
+                if (offset + 50 >= 500) {
+                  tr = true
+                  doordashPartialReason = 'Límite técnico de paginación alcanzado en payout_summaries de DoorDash.'
+                }
+              }
+              if (allDdSummaries.length > 0) {
+                ddSummariesMemCache.set(ddCacheKey, { ts: Date.now(), summariesList: allDdSummaries, truncated: tr })
               }
             }
 
@@ -4464,17 +4297,20 @@ async function fetchChromeLiveDoorDashAndUberForStores(
             for (const m of pendingDdMappings) {
               if (!m.doordash_store_id) continue
               const ddStoreId = String(m.doordash_store_id).trim()
-              const storeSummaries = allDdSummaries.filter(
-                (s: any) => String(s?.storeId || '').trim() === ddStoreId
-              )
+              const storeSummaries = allDdSummaries.filter((s: any) => {
+                if (String(s?.storeId || '').trim() !== ddStoreId) return false
+                const pDate = toOperationalBusinessDate(s.payoutDate)
+                const explicitStart = s.periodStartDate || s.payoutStartDate || s.startDate || null
+                const explicitEnd = s.periodEndDate || s.payoutEndDate || s.endDate || null
+                const fallbackCyc = resolveDoorDashCycleFromPayoutDate(pDate)
+                const cycStart = explicitStart ? toOperationalBusinessDate(explicitStart) : fallbackCyc.periodStart
+                const cycEnd = explicitEnd ? toOperationalBusinessDate(explicitEnd) : fallbackCyc.periodEnd
+                return cycStart <= endDate && cycEnd >= startDate
+              })
               const matchingPayoutIdsSet = new Set<string>()
               for (const s of storeSummaries) {
                 const pId = String(s?.payoutId || s?.payout?.id || '').trim()
-                if (!pId) continue
-                const pDate = toOperationalBusinessDate(s.payoutDate)
-                if (pDate >= startDate && pDate <= addDaysToDateStr(endDate, 14)) {
-                  matchingPayoutIdsSet.add(pId)
-                }
+                if (pId) matchingPayoutIdsSet.add(pId)
               }
               for (const dbp of dbDdPayouts || []) {
                 if (Number(dbp.store_id) === m.store_id && dbp.payout_reference_id) {
@@ -4569,9 +4405,14 @@ async function fetchChromeLiveDoorDashAndUberForStores(
   }
 
   return {
-    orders,
-    payouts,
-    extraBusinessDates: Array.from(extraBusinessDatesSet),
+    orders: orders.filter((o) => o.businessDate >= startDate && o.businessDate <= endDate),
+    payouts: payouts.filter((p) => {
+      const pStart = String(p.period_start || p.payout_date || '')
+      const pEnd = String(p.period_end || p.payout_date || '')
+      if (!pStart || !pEnd) return true
+      return pStart <= endDate && pEnd >= startDate
+    }),
+    extraBusinessDates: [],
     encryptionKeyMissing: false,
     uberError,
     doordashError,
@@ -4712,7 +4553,17 @@ export function matchPlatformAndToastOrdersForStore(
       .toUpperCase()
 
   // PASADA 1: Match por Identificador Confiable de Plataforma
-  for (const pOrd of storePlatformOrders) {
+  // Priorizar siempre órdenes primarias con subtotal positivo y IDs numéricos oficiales sobre reembolsos/reversos ($0 o negativos) o filas UUID antiguas
+  const pass1PlatformOrders = [...storePlatformOrders].sort((a, b) => {
+    const aPos = Number(a.platformSubtotal || 0) > 0 ? 0 : 1
+    const bPos = Number(b.platformSubtotal || 0) > 0 ? 0 : 1
+    if (aPos !== bPos) return aPos - bPos
+    const aNum = /^\d+$/.test(String(a.platformTransactionId || '')) ? 0 : 1
+    const bNum = /^\d+$/.test(String(b.platformTransactionId || '')) ? 0 : 1
+    return aNum - bNum
+  })
+
+  for (const pOrd of pass1PlatformOrders) {
     const pKey = `${pOrd.platform}:${pOrd.platformTransactionId}`
     const normPId = normalizeId(pOrd.platformOrderId)
     const normTxId = normalizeId(pOrd.platformTransactionId)
@@ -4727,30 +4578,34 @@ export function matchPlatformAndToastOrdersForStore(
       if (t.platform !== pOrd.platform) return false
       const normTId = normalizeId(t.extractedPlatformId)
       const normTab = normalizeId(t.toastTabName)
-      if (normTId && normTId.length >= 4) {
-        if (normTId === normPId || normPId.endsWith(normTId) || normTId.endsWith(normPId)) {
+      const effectiveTId =
+        normTId.length >= 14
+          ? normTId
+          : String(t.toastTabName || '').match(/\d{14,16}/)?.[0] || normTId
+      if (effectiveTId && effectiveTId.length >= 4) {
+        if (effectiveTId === normPId || normPId.endsWith(effectiveTId) || effectiveTId.endsWith(normPId)) {
           return true
         }
-        if (normTxId && normTxId.length >= 6 && (normTId === normTxId || normTxId.endsWith(normTId))) {
+        if (normTxId && normTxId.length >= 6 && (effectiveTId === normTxId || normTxId.endsWith(effectiveTId))) {
           return true
         }
-        // Grubhub 15-digit order root (primeros 13 dígitos idénticos, o epoch de 4 dígitos pos 4..8 idéntico con apertura dentro de 90s y subtotal/tax exactos)
+        // Grubhub 15-digit order root (primeros 13 dígitos idénticos, o epoch de 4 dígitos pos 4..8 idéntico del POS Relay con subtotal/tax exactos)
         if (
           pOrd.platform === 'GRUBHUB' &&
           normPId.length >= 14 &&
-          normTId.length >= 14 &&
+          effectiveTId.length >= 14 &&
           t.businessDate === pOrd.businessDate &&
           Math.abs(t.netSales - pOrd.platformSubtotal) <= 0.02
         ) {
-          if (normPId.slice(0, 13) === normTId.slice(0, 13)) {
+          if (normPId.slice(0, 13) === effectiveTId.slice(0, 13)) {
             return true
           }
           if (
-            normPId.slice(4, 8) === normTId.slice(4, 8) &&
+            normPId.slice(4, 8) === effectiveTId.slice(4, 8) &&
             Math.abs(t.taxAmount - pOrd.platformTax) <= 0.02 &&
-            pOrd.placedAt &&
-            t.openedAt &&
-            Math.abs(new Date(pOrd.placedAt).getTime() - new Date(t.openedAt).getTime()) <= 90000
+            (!pOrd.placedAt ||
+              !t.openedAt ||
+              Math.abs(new Date(pOrd.placedAt).getTime() - new Date(t.openedAt).getTime()) <= 300000)
           ) {
             return true
           }
@@ -5267,7 +5122,9 @@ export async function reconcileAndPersistDeliveryData(params: {
     if (refs.length === 0) return payoutRows
     const { data: existingPayouts } = await supabaseAdmin
       .from('delivery_platform_payouts')
-      .select('store_id, platform, payout_reference_id, status, raw_payload')
+      .select(
+        'store_id, platform, payout_reference_id, status, orders_count, toast_matched_orders_count, toast_net_sales, toast_tax_amount, toast_expected_gross, gross_variance, raw_payload'
+      )
       .in('payout_reference_id', refs)
     const existingByKey = new Map<string, Record<string, any>>()
     for (const ep of existingPayouts || []) {
@@ -5302,6 +5159,23 @@ export async function reconcileAndPersistDeliveryData(params: {
       }
       return {
         ...p,
+        orders_count: Number(p.orders_count || 0) > 0 ? p.orders_count : Number(ex.orders_count || 0),
+        toast_matched_orders_count:
+          Number(p.toast_matched_orders_count || 0) > 0
+            ? p.toast_matched_orders_count
+            : Number(ex.toast_matched_orders_count || 0),
+        toast_net_sales:
+          Number(p.toast_net_sales || 0) > 0 ? p.toast_net_sales : Number(ex.toast_net_sales || 0),
+        toast_tax_amount:
+          Number(p.toast_tax_amount || 0) > 0 ? p.toast_tax_amount : Number(ex.toast_tax_amount || 0),
+        toast_expected_gross:
+          Number(p.toast_expected_gross || 0) > 0
+            ? p.toast_expected_gross
+            : Number(ex.toast_expected_gross || 0),
+        gross_variance:
+          Number(p.toast_expected_gross || 0) > 0
+            ? p.gross_variance
+            : Number(ex.gross_variance || 0),
         status: exRp.qb_journal_entry_id ? 'RECONCILED' : p.status,
         raw_payload: mergedRp,
       }
@@ -5397,13 +5271,17 @@ export async function reconcileAndPersistDeliveryData(params: {
 
     // Combinar órdenes de plataforma (Grubhub en vivo + DoorDash/Uber en vivo + importadas para esta tienda)
     const storeImportedOrders = allImportedOrders.filter((o) => o.storeId === mapping.store_id)
-    const combinedPlatformInputs = [...liveGhOrders, ...storeImportedOrders]
+    const combinedPlatformInputs = [...liveGhOrders, ...storeImportedOrders].filter((inp) => {
+      if (importedPlatformOrders.length > 0) return true
+      return Boolean(inp.businessDate && inp.businessDate >= startDate && inp.businessDate <= endDate)
+    })
 
-    // Expandir fechas operativas de esta tienda con las fechas de las órdenes de los cortes descargados
-    // (ej. un corte semanal de Grubhub 10/27..11/02 al sincronizar la semana 11/02..11/08)
+    // En sincronización en vivo se respeta estrictamente el rango filtrado `[startDate, endDate]` sin arrastrar semanas históricas
     const storeBusinessDatesSet = new Set<string>(businessDates)
-    for (const inp of combinedPlatformInputs) {
-      if (inp.businessDate) storeBusinessDatesSet.add(inp.businessDate)
+    if (importedPlatformOrders.length > 0) {
+      for (const inp of combinedPlatformInputs) {
+        if (inp.businessDate) storeBusinessDatesSet.add(inp.businessDate)
+      }
     }
     const storeBusinessDates = Array.from(storeBusinessDatesSet).sort()
 
@@ -5597,11 +5475,24 @@ export async function reconcileAndPersistDeliveryData(params: {
             existingToastCountByDate.set(dStr, (existingToastCountByDate.get(dStr) || 0) + 1)
           }
         }
+        const datesWithUnlinkedPlatformOrder = new Set<string>()
+        for (const pOrd of storePlatformOrders) {
+          if (!pOrd.businessDate) continue
+          if (Number(pOrd.platformSubtotal || 0) <= 0 && Number(pOrd.platformGrossReceivable || 0) <= 0) continue
+          const exRow = existingManualByTxKey.get(`${pOrd.platform}:${pOrd.platformTransactionId}`)
+          if (!exRow?.toast_order_guid && exRow?.raw_payload?.toast_live_checked_date !== pOrd.businessDate) {
+            datesWithUnlinkedPlatformOrder.add(pOrd.businessDate)
+          }
+        }
         const reusableDatesSet = new Set<string>()
         const liveToastDates: string[] = []
         for (const bDate of storeBusinessDates) {
-          // Días pasados (< todayLa) que ya tienen órdenes de Toast en DB se reutilizan al instante sin re-consultar Toast API
-          if (bDate < todayLa && (existingToastCountByDate.get(bDate) || 0) > 0) {
+          // Días pasados (< todayLa) que ya tienen órdenes de Toast en DB y ninguna orden de plataforma sin vínculo pendiente de verificar anulados (VOID) se reutilizan al instante
+          if (
+            bDate < todayLa &&
+            (existingToastCountByDate.get(bDate) || 0) > 0 &&
+            !datesWithUnlinkedPlatformOrder.has(bDate)
+          ) {
             reusableDatesSet.add(bDate)
           } else {
             liveToastDates.push(bDate)
@@ -5612,6 +5503,17 @@ export async function reconcileAndPersistDeliveryData(params: {
           liveToastDates.length > 0
             ? await fetchToastDeliveryOrdersForStoreAndDates(mapping, liveToastDates)
             : []
+        if (liveToastDates.length > 0) {
+          const liveDatesLookup = new Set(liveToastDates)
+          for (const pOrd of storePlatformOrders) {
+            if (pOrd.businessDate && liveDatesLookup.has(pOrd.businessDate)) {
+              pOrd.rawPayload = {
+                ...(pOrd.rawPayload || {}),
+                toast_live_checked_date: pOrd.businessDate,
+              }
+            }
+          }
+        }
         toastOrders = [...cachedToastOrders, ...liveFetchedToastOrders]
         toastOrdersSynced += toastOrders.length
       } catch (tErr: any) {
@@ -5682,159 +5584,192 @@ export async function reconcileAndPersistDeliveryData(params: {
       storePayouts: storePayouts || [],
     })
 
-    for (const payout of storePayouts || []) {
-      // Vincular órdenes reales de la plataforma (`UBER_EATS`, `DOORDASH`, `GRUBHUB`) dentro del `[period_start, period_end]`
-      // cuando existe un único corte oficial de esa plataforma para esa tienda y periodo y la orden aún tenía `payout_reference_id` nulo.
-      if (payout.platform && payout.period_start && payout.period_end && payout.payout_reference_id) {
-        const overlappingSamePlatformPayouts = (storePayouts || []).filter(
-          (sp) =>
-            sp.platform === payout.platform &&
-            sp.period_start &&
-            sp.period_end &&
-            sp.period_start <= payout.period_end &&
-            sp.period_end >= payout.period_start
-        )
-        if (overlappingSamePlatformPayouts.length === 1) {
-          const { data: unlinkedCandidates } = await supabaseAdmin
+    const recalcLookbackStart = addDaysToDateStr(startDate, -14)
+    const activePayoutsToRecalc = (storePayouts || []).filter((p) => {
+      const pStart = String(p.period_start || p.payout_date || '')
+      const pEnd = String(p.period_end || p.payout_date || '')
+      if (!pStart || !pEnd) return true
+      return pStart <= endDate && pEnd >= recalcLookbackStart
+    })
+
+    await Promise.all(
+      activePayoutsToRecalc.map(async (payout) => {
+        // Vincular órdenes reales de la plataforma (`UBER_EATS`, `DOORDASH`, `GRUBHUB`) dentro del `[period_start, period_end]`
+        // cuando existe un único corte oficial de esa plataforma para esa tienda y periodo y la orden aún tenía `payout_reference_id` nulo.
+        if (payout.platform && payout.period_start && payout.period_end && payout.payout_reference_id) {
+          const overlappingSamePlatformPayouts = (storePayouts || []).filter(
+            (sp) =>
+              sp.platform === payout.platform &&
+              sp.period_start &&
+              sp.period_end &&
+              sp.period_start <= payout.period_end &&
+              sp.period_end >= payout.period_start
+          )
+          if (overlappingSamePlatformPayouts.length === 1) {
+            const { data: unlinkedCandidates } = await supabaseAdmin
+              .from('delivery_platform_orders')
+              .select('id, raw_payload')
+              .eq('store_id', mapping.store_id)
+              .eq('platform', payout.platform)
+              .neq('match_confidence', 'TOAST_ONLY')
+              .is('payout_reference_id', null)
+              .gte('business_date', payout.period_start)
+              .lte('business_date', payout.period_end)
+            const linkableRows = (unlinkedCandidates || []).filter((row: any) =>
+              payout.platform === 'UBER_EATS' ? true : !row?.raw_payload?.pending_next_payout
+            )
+            if (linkableRows.length > 0) {
+              const directIds = linkableRows
+                .filter((row: any) => !row?.raw_payload?.pending_next_payout)
+                .map((row: any) => row.id)
+              if (directIds.length > 0) {
+                await supabaseAdmin
+                  .from('delivery_platform_orders')
+                  .update({
+                    payout_reference_id: payout.payout_reference_id,
+                    payout_date: payout.payout_date || null,
+                    updated_at: new Date().toISOString(),
+                  })
+                  .in('id', directIds)
+              }
+              const clearFlagRows = linkableRows.filter((row: any) => Boolean(row?.raw_payload?.pending_next_payout))
+              if (clearFlagRows.length > 0) {
+                await Promise.all(
+                  clearFlagRows.map(async (row: any) => {
+                    const cleanedRp = { ...(row.raw_payload || {}) }
+                    delete cleanedRp.pending_next_payout
+                    await supabaseAdmin
+                      .from('delivery_platform_orders')
+                      .update({
+                        payout_reference_id: payout.payout_reference_id,
+                        payout_date: payout.payout_date || null,
+                        raw_payload: cleanedRp,
+                        updated_at: new Date().toISOString(),
+                      })
+                      .eq('id', row.id)
+                  })
+                )
+              }
+            }
+          }
+        }
+
+        // P0-5: Prohibido agregar órdenes a un payout solo por caer dentro del rango de fechas si no existe vínculo verificable (`payout_reference_id`).
+        const payoutOrders = await fetchAllSupabaseRows<Record<string, any>>((from, to) =>
+          supabaseAdmin
             .from('delivery_platform_orders')
-            .select('id, raw_payload')
+            .select(
+              'toast_net_sales, toast_tax, toast_expected_gross, toast_order_guid, payout_reference_id, business_date, platform_subtotal, platform_tax, platform_tax_paid_to_merchant, platform_gross_receivable, reconciliation_status, match_confidence, raw_payload'
+            )
             .eq('store_id', mapping.store_id)
             .eq('platform', payout.platform)
-            .neq('match_confidence', 'TOAST_ONLY')
-            .is('payout_reference_id', null)
-            .gte('business_date', payout.period_start)
-            .lte('business_date', payout.period_end)
-          const linkableIds = (unlinkedCandidates || [])
-            .filter((row: any) => !row?.raw_payload?.pending_next_payout)
-            .map((row: any) => row.id)
-          if (linkableIds.length > 0) {
-            await supabaseAdmin
-              .from('delivery_platform_orders')
-              .update({
-                payout_reference_id: payout.payout_reference_id,
-                payout_date: payout.payout_date || null,
-                updated_at: new Date().toISOString(),
-              })
-              .in('id', linkableIds)
+            .eq('payout_reference_id', payout.payout_reference_id)
+            .range(from, to)
+        )
+
+        if (payoutOrders && payoutOrders.length > 0) {
+          let tNet = 0
+          let tTax = 0
+          let tExp = 0
+          let pSub = 0
+          let pTax = 0
+          let pTaxMerch = 0
+          let pGross = 0
+          let matchedCnt = 0
+          let hasUnresolvedOrder = false
+          let allOrdersTaxVerified = true
+          let minTxDate: string | null = null
+          let maxTxDate: string | null = null
+
+          for (const po of payoutOrders) {
+            if (po.toast_order_guid && po.match_confidence === 'EXACT_ID') matchedCnt++
+            if (po.reconciliation_status !== 'MATCHED') {
+              hasUnresolvedOrder = true
+            }
+            if (po.raw_payload?.tax_breakdown_verified === false) {
+              allOrdersTaxVerified = false
+            }
+            tNet += Number(po.toast_net_sales || 0)
+            tTax += Number(po.toast_tax || 0)
+            tExp += Number(po.toast_expected_gross || 0)
+            pSub += Number(po.platform_subtotal || 0)
+            pTax += Number(po.platform_tax || 0)
+            pTaxMerch += Number(po.platform_tax_paid_to_merchant || 0)
+            pGross += Number(po.platform_gross_receivable || 0)
+            if (po.business_date) {
+              if (!minTxDate || po.business_date < minTxDate) minTxDate = po.business_date
+              if (!maxTxDate || po.business_date > maxTxDate) maxTxDate = po.business_date
+            }
           }
+          tNet = round2(tNet)
+          tTax = round2(tTax)
+          tExp = round2(tExp)
+          pSub = round2(pSub)
+          pTax = round2(pTax)
+          pTaxMerch = round2(pTaxMerch)
+          pGross = round2(pGross)
+
+          const updatePayload: Record<string, any> = {
+            toast_matched_orders_count: matchedCnt,
+            toast_net_sales: tNet,
+            toast_tax_amount: tTax,
+            toast_expected_gross: tExp,
+            updated_at: new Date().toISOString(),
+          }
+
+          let effectivePlatformGross = Number(payout.platform_gross_receivable || 0)
+          if (payout.platform === 'DOORDASH' && pSub > 0) {
+            updatePayload.subtotal_sales = pSub
+            updatePayload.tax_collected = pTax
+            updatePayload.tax_paid_to_merchant = pTaxMerch
+            updatePayload.orders_count = payoutOrders.length
+            if (payout.period_start === payout.period_end) {
+              if (minTxDate) updatePayload.period_start = minTxDate
+              if (maxTxDate) updatePayload.period_end = maxTxDate
+            }
+            // P1-11: Un payout solo puede ser tax_breakdown_verified = true si TODAS sus órdenes tienen tax verificado
+            updatePayload.raw_payload = {
+              ...(payout.raw_payload || {}),
+              tax_breakdown_verified: allOrdersTaxVerified,
+              period_verified: true,
+              unverified_reason: allOrdersTaxVerified ? null : 'PAYOUT_CONTAINS_ORDER_WITHOUT_ATOMIC_TAX',
+            }
+            effectivePlatformGross = pGross > 0 ? pGross : effectivePlatformGross
+          } else if (!allOrdersTaxVerified) {
+            // P1-11: Si cualquier orden de Grubhub/Uber/DoorDash carece de desglose fiscal verificado, marcar el payout como no verificado
+            updatePayload.raw_payload = {
+              ...(payout.raw_payload || {}),
+              tax_breakdown_verified: false,
+              unverified_reason: 'PAYOUT_CONTAINS_ORDER_WITHOUT_ATOMIC_TAX',
+            }
+          }
+
+          const grossVar = round2(effectivePlatformGross - tExp)
+          updatePayload.gross_variance = grossVar
+
+          const taxBreakdownVerified =
+            allOrdersTaxVerified &&
+            (updatePayload.raw_payload?.tax_breakdown_verified ??
+              payout.raw_payload?.tax_breakdown_verified ??
+              true)
+
+          if (!payout.raw_payload?.qb_journal_entry_id) {
+            if (!taxBreakdownVerified) {
+              updatePayload.status = 'REQUIRES_REVIEW'
+            } else if (Math.abs(grossVar) <= 0.05 && matchedCnt > 0 && !hasUnresolvedOrder) {
+              updatePayload.status = 'RECONCILED'
+            } else {
+              updatePayload.status = 'POSTED'
+            }
+          }
+
+          await supabaseAdmin
+            .from('delivery_platform_payouts')
+            .update(updatePayload)
+            .eq('id', payout.id)
         }
-      }
-
-      // P0-5: Prohibido agregar órdenes a un payout solo por caer dentro del rango de fechas si no existe vínculo verificable (`payout_reference_id`).
-      const payoutOrders = await fetchAllSupabaseRows<Record<string, any>>((from, to) =>
-        supabaseAdmin
-          .from('delivery_platform_orders')
-          .select(
-            'toast_net_sales, toast_tax, toast_expected_gross, toast_order_guid, payout_reference_id, business_date, platform_subtotal, platform_tax, platform_tax_paid_to_merchant, platform_gross_receivable, reconciliation_status, match_confidence, raw_payload'
-          )
-          .eq('store_id', mapping.store_id)
-          .eq('platform', payout.platform)
-          .eq('payout_reference_id', payout.payout_reference_id)
-          .range(from, to)
-      )
-
-      if (payoutOrders && payoutOrders.length > 0) {
-        let tNet = 0
-        let tTax = 0
-        let tExp = 0
-        let pSub = 0
-        let pTax = 0
-        let pTaxMerch = 0
-        let pGross = 0
-        let matchedCnt = 0
-        let hasUnresolvedOrder = false
-        let allOrdersTaxVerified = true
-        let minTxDate: string | null = null
-        let maxTxDate: string | null = null
-
-        for (const po of payoutOrders) {
-          if (po.toast_order_guid && po.match_confidence === 'EXACT_ID') matchedCnt++
-          if (po.reconciliation_status !== 'MATCHED') {
-            hasUnresolvedOrder = true
-          }
-          if (po.raw_payload?.tax_breakdown_verified === false) {
-            allOrdersTaxVerified = false
-          }
-          tNet += Number(po.toast_net_sales || 0)
-          tTax += Number(po.toast_tax || 0)
-          tExp += Number(po.toast_expected_gross || 0)
-          pSub += Number(po.platform_subtotal || 0)
-          pTax += Number(po.platform_tax || 0)
-          pTaxMerch += Number(po.platform_tax_paid_to_merchant || 0)
-          pGross += Number(po.platform_gross_receivable || 0)
-          if (po.business_date) {
-            if (!minTxDate || po.business_date < minTxDate) minTxDate = po.business_date
-            if (!maxTxDate || po.business_date > maxTxDate) maxTxDate = po.business_date
-          }
-        }
-        tNet = round2(tNet)
-        tTax = round2(tTax)
-        tExp = round2(tExp)
-        pSub = round2(pSub)
-        pTax = round2(pTax)
-        pTaxMerch = round2(pTaxMerch)
-        pGross = round2(pGross)
-
-        const updatePayload: Record<string, any> = {
-          toast_matched_orders_count: matchedCnt,
-          toast_net_sales: tNet,
-          toast_tax_amount: tTax,
-          toast_expected_gross: tExp,
-          updated_at: new Date().toISOString(),
-        }
-
-        let effectivePlatformGross = Number(payout.platform_gross_receivable || 0)
-        if (payout.platform === 'DOORDASH' && pSub > 0) {
-          updatePayload.subtotal_sales = pSub
-          updatePayload.tax_collected = pTax
-          updatePayload.tax_paid_to_merchant = pTaxMerch
-          updatePayload.orders_count = payoutOrders.length
-          if (payout.period_start === payout.period_end) {
-            if (minTxDate) updatePayload.period_start = minTxDate
-            if (maxTxDate) updatePayload.period_end = maxTxDate
-          }
-          // P1-11: Un payout solo puede ser tax_breakdown_verified = true si TODAS sus órdenes tienen tax verificado
-          updatePayload.raw_payload = {
-            ...(payout.raw_payload || {}),
-            tax_breakdown_verified: allOrdersTaxVerified,
-            period_verified: true,
-            unverified_reason: allOrdersTaxVerified ? null : 'PAYOUT_CONTAINS_ORDER_WITHOUT_ATOMIC_TAX',
-          }
-          effectivePlatformGross = pGross > 0 ? pGross : effectivePlatformGross
-        } else if (!allOrdersTaxVerified) {
-          // P1-11: Si cualquier orden de Grubhub/Uber/DoorDash carece de desglose fiscal verificado, marcar el payout como no verificado
-          updatePayload.raw_payload = {
-            ...(payout.raw_payload || {}),
-            tax_breakdown_verified: false,
-            unverified_reason: 'PAYOUT_CONTAINS_ORDER_WITHOUT_ATOMIC_TAX',
-          }
-        }
-
-        const grossVar = round2(effectivePlatformGross - tExp)
-        updatePayload.gross_variance = grossVar
-
-        const taxBreakdownVerified =
-          allOrdersTaxVerified &&
-          (updatePayload.raw_payload?.tax_breakdown_verified ??
-            payout.raw_payload?.tax_breakdown_verified ??
-            true)
-
-        if (!payout.raw_payload?.qb_journal_entry_id) {
-          if (!taxBreakdownVerified) {
-            updatePayload.status = 'REQUIRES_REVIEW'
-          } else if (Math.abs(grossVar) <= 0.05 && matchedCnt > 0 && !hasUnresolvedOrder) {
-            updatePayload.status = 'RECONCILED'
-          } else {
-            updatePayload.status = 'POSTED'
-          }
-        }
-
-        await supabaseAdmin
-          .from('delivery_platform_payouts')
-          .update(updatePayload)
-          .eq('id', payout.id)
-      }
-    }
+      })
+    )
 
     storeProgress.push({
       storeId: mapping.store_id,
@@ -6034,6 +5969,18 @@ export function buildReconciledOrderRow(
     isDisputed = true
     disputeStatus = 'APPROVED'
     disputeAmount = pOrd.adjustmentAmount
+  } else if (pOrd.transactionType === 'ADJUSTMENT' && pOrd.platformSubtotal === 0 && pOrd.adjustmentAmount < -0.01) {
+    status = 'REFUNDED_OR_DISPUTED'
+    isDisputed = true
+    disputeStatus =
+      existingDbRow?.dispute_status && existingDbRow.dispute_status !== 'NONE'
+        ? existingDbRow.dispute_status
+        : 'NEEDS_DISPUTE'
+    disputeAmount = Math.abs(pOrd.adjustmentAmount)
+    if (!(Number(mergedRawPayload.original_disputed_amount || 0) > 0)) {
+      mergedRawPayload.original_disputed_amount = round2(Math.abs(pOrd.adjustmentAmount))
+      mergedRawPayload.original_disputed_amount_source = 'PLATFORM_SETTLEMENT_DEDUCTION'
+    }
   } else if (pOrd.transactionType === 'CANCELLATION' && effectiveNetPayout <= 0 && toastExpectedGross > 0) {
     status = 'CANCELLED_UNPAID'
     isDisputed = true
@@ -6050,6 +5997,13 @@ export function buildReconciledOrderRow(
     pOrd.storeId === 0
   ) {
     status = 'REQUIRES_REVIEW'
+  } else if (
+    !tOrd &&
+    Math.abs(pOrd.platformSubtotal) < 0.01 &&
+    Math.abs(pOrd.platformGrossReceivable) < 0.01 &&
+    (pOrd.transactionType === 'CANCELLATION' || pOrd.transactionType === 'ADJUSTMENT')
+  ) {
+    status = 'MATCHED'
   } else if (!tOrd) {
     status = 'MISSING_IN_TOAST'
   } else if (Math.abs(finalSubtotalDiff) > 0.05) {
