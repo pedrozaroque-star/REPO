@@ -11,7 +11,9 @@
  *   retorna automáticamente al día de hoy tras 2 min de inactividad si quedó en otra fecha, y muestra el modal "☀️ Despertar Tableta" tras 3h sin actividad.
  * - Aprendizaje Continuo (AI Learning): Movimientos manuales del mánager se guardan en `break_manual_overrides` y se aplican en futuros cálculos.
  * @dataFlow Sincroniza turnos de `shifts`, ponchadas de `punches` (Toast POS), proyección de ventas, y guarda preferencias aprendidas en `break_manual_overrides`.
- * @notes Renderizado progresivo ultrarrápido con caché en DB (<150ms) y sincronización bidireccional PC-tableta.
+ * @notes Renderizado progresivo ultrarrápido con caché en DB (<150ms), Motor V30 Universal Multi-Tienda
+ *   (memoria por `employee_id`, puesto real del turno `s.job_id`, estaciones reales de `station_assignments`,
+ *   auto-sincronización de semanas pre-publicadas ante nuevos aprendizajes y supresión de auto-eco Realtime/Polling).
  *   Mantiene la pantalla siempre encendida 24/7 (Screen Wake Lock + video silencioso de respaldo, ver `lib/use-wake-lock.ts`).
  */
 
@@ -30,7 +32,24 @@ import { formatDateISO, formatStoreName, getMonday, addDays, getRoleWeight } fro
 import { Shift, Employee, Job } from '@/app/planificador/lib/types'
 import { useAuth } from '@/components/ProtectedRoute'
 
-import { scheduleBreaksWithDemand, LearnedPreference, getLocalDayOfWeek, getLocalHourMinute, getTypeSpecificBreakIndex, encodeLearnedSlotMeta, isGeneralManagerRole, getShiftOperationalTieRank } from '@/lib/breaks-engine'
+import {
+    scheduleBreaksWithDemand,
+    LearnedPreference,
+    getLocalDayOfWeek,
+    getLocalHourMinute,
+    getTypeSpecificBreakIndex,
+    encodeLearnedSlotMeta,
+    encodeLearnedRoleMeta,
+    decodeLearnedRoleMeta,
+    normalizeRoleString,
+    resolveShiftRoleTitle,
+    resolveShiftIsLeader,
+    resolveShiftStationSummary,
+    getWallClockDurationHours,
+    computeCohortIndexForShift,
+    isGeneralManagerRole,
+    GAP_MR_MS
+} from '@/lib/breaks-engine'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
 
@@ -86,69 +105,45 @@ export default function DescansosPage() {
     const wakeLock = useWakeLock(true)
     const [calendarOpen, setCalendarOpen] = useState(false)
     const [calendarViewDate, setCalendarViewDate] = useState(new Date())
+    const lastLocalMutationAtRef = useRef<number>(0)
 
-    const getShiftCategory = (rk: string): 'leader' | 'foh' | 'boh' => {
-        if (
-            rk.includes('manager') || rk.includes('leader') ||
-            rk.includes('shift') || rk.includes('lead') ||
-            rk.includes('assistant') || rk.includes('asistente') ||
-            rk.includes('asst') || rk.includes('encargado')
-        ) return 'leader';
-        if (rk.includes('cashier') || rk.includes('cajera') || rk.includes('cajero')) return 'foh';
-        return 'boh';
-    };
+    const resolveActiveStoreGuid = (): string => {
+        return (
+            storeGuid ||
+            stores.find(s => String(s.id) === String(selectedStoreId))?.external_id ||
+            searchParams.get('store_guid') ||
+            ''
+        )
+    }
+
+    const syncLocalPollingSnapshot = (shiftsList?: Shift[]) => {
+        lastLocalMutationAtRef.current = Date.now()
+        const baseDbShifts = lastDataRef.current?.shifts || []
+        const overrideMap = new Map<string, Shift>()
+        for (const s of shiftsList || []) {
+            if (!(s as any)._isAbsent && s.id != null) {
+                overrideMap.set(String(s.id), s)
+            }
+        }
+        const merged = (baseDbShifts.length > 0 ? baseDbShifts : (shiftsList || []).filter((s: any) => !(s as any)._isAbsent))
+            .filter(s => s.id != null)
+            .map(s => overrideMap.get(String(s.id)) || s)
+            .sort((a, b) => String(a.id).localeCompare(String(b.id)))
+            .map(s => ({ id: s.id, bs: (s as any).breaks_schedule, ic: (s as any).is_callback }))
+        lastPolledDbRef.current = JSON.stringify(merged)
+    }
 
     const computeShiftCohortIndex = (targetShift: Shift): number => {
-        const targetStartMs = new Date(targetShift.start_time).getTime();
-        const targetRk = (((targetShift as any).job_title || targetShift.job_id || 'unknown') as string).toLowerCase().trim();
-        if (isGeneralManagerRole(targetRk)) return 0;
-        const targetCat = getShiftCategory(targetRk);
-        const targetGroupKey = targetCat === 'leader'
-            ? `${getLocalHourMinute(targetStartMs).hour < 14 ? 'am_leader' : 'pm_leader'}|leader`
-            : `${Math.floor(targetStartMs / (30 * 60000))}|${targetCat}`;
-
-        const group = smartShifts.filter(s => {
-            if ((s as any)._isAbsent) return false;
-            const sRk = (((s as any).job_title || s.job_id || 'unknown') as string).toLowerCase().trim();
-            if (isGeneralManagerRole(sRk)) return false;
-            const sCat = getShiftCategory(sRk);
-            const sStartMs = new Date(s.start_time).getTime();
-            const sGroupKey = sCat === 'leader'
-                ? `${getLocalHourMinute(sStartMs).hour < 14 ? 'am_leader' : 'pm_leader'}|leader`
-                : `${Math.floor(sStartMs / (30 * 60000))}|${sCat}`;
-            return sGroupKey === targetGroupKey;
-        });
-
-        group.sort((a, b) => {
-            const rkA = (((a as any).job_title || a.job_id || 'unknown') as string).toLowerCase().trim();
-            const rkB = (((b as any).job_title || b.job_id || 'unknown') as string).toLowerCase().trim();
-            if (targetCat === 'leader') {
-                const isAsstA = rkA.includes('asst') || rkA.includes('assistant') || rkA.includes('asistente') || (rkA.includes('manager') && !rkA.includes('shift'));
-                const isAsstB = rkB.includes('asst') || rkB.includes('assistant') || rkB.includes('asistente') || (rkB.includes('manager') && !rkB.includes('shift'));
-                if (isAsstA !== isAsstB) return isAsstA ? 1 : -1;
-            }
-            const eMsA = new Date(a.end_time).getTime();
-            const eMsB = new Date(b.end_time).getTime();
-            if (eMsA !== eMsB) return eMsA - eMsB;
-            const sMsA = new Date(a.start_time).getTime();
-            const sMsB = new Date(b.start_time).getTime();
-            if (sMsA !== sMsB) return sMsA - sMsB;
-            const tieA = getShiftOperationalTieRank(a);
-            const tieB = getShiftOperationalTieRank(b);
-            if (tieA !== tieB) return tieA - tieB;
-            return String(a.employee_id || a.id || '').localeCompare(String(b.employee_id || b.id || ''));
-        });
-
-        const idx = group.findIndex(s => s.id === targetShift.id);
-        return idx >= 0 ? idx : 0;
-    };
+        const activeList = smartShifts.filter(s => !(s as any)._isAbsent)
+        return computeCohortIndexForShift(targetShift, activeList)
+    }
 
     const handleBreakDragEnd = async (e: any, info: any, shift: Shift, breakIdx: number) => {
         const b = shift.breaks_schedule[breakIdx];
+        if (!b) return;
         const timelineEl = document.getElementById('timeline-header');
         if (!timelineEl) return;
         const totalPx = timelineEl.getBoundingClientRect().width;
-        // Total minutes = TOTAL_HOURS * 60, here TOTAL_HOURS is 24
         const pxPerMinute = totalPx / (TOTAL_HOURS * 60);
         
         const rawOffset = Math.round(info.offset.x / pxPerMinute);
@@ -169,7 +164,7 @@ export default function DescansosPage() {
         }
 
         const isMeal = b.type === 'meal_30';
-        let warningMsgs = [];
+        const warningMsgs: string[] = [];
         
         if (isMeal) {
             if (newStartMs >= shiftStart + (5 * 3600000)) {
@@ -177,12 +172,10 @@ export default function DescansosPage() {
             }
         }
         
-        const rk = (((shift as any).job_title || shift.job_id || 'unknown') as string).toLowerCase().trim();
-        const isLeaderRk = (r: string) => r.includes('manager') || r.includes('leader') || r.includes('shift') || r.includes('lead') || r.includes('asst') || r.includes('assistant') || r.includes('asistente') || r.includes('encargado');
-        const thisIsLeader = isLeaderRk(rk);
+        const rk = normalizeRoleString((shift as any).job_title || shift.job_id || 'unknown');
+        const thisIsLeader = resolveShiftIsLeader(rk);
 
-        // Validar si choca o queda pegado (<30m) con otro descanso manual del MISMO empleado,
-        // o si aplasta (<45m) un descanso automático de la IA del mismo turno para reacomodarlo automáticamente
+        // Validar si choca con otro descanso manual del MISMO empleado o si requiere rebalancear un descanso automático del turno
         let needsPersonalAiRebalance = false;
         for (let idx = 0; idx < (shift.breaks_schedule || []).length; idx++) {
             if (idx === breakIdx) continue;
@@ -194,16 +187,17 @@ export default function DescansosPage() {
                     warningMsgs.push(`El descanso queda encimado o a menos de 30 min de otro descanso fijo del mismo empleado (${new Date(os).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}).`);
                 }
             } else {
-                if (newStartMs < oe + 45 * 60000 && newEndMs > os - 45 * 60000) {
+                const reqAutoGap = (isMeal || ownB.type === 'meal_30') ? GAP_MR_MS : 65 * 60000;
+                if (newStartMs < oe + reqAutoGap && newEndMs > os - reqAutoGap) {
                     needsPersonalAiRebalance = true;
                 }
             }
         }
 
         for (const otherShift of smartShifts) {
-            if (otherShift.id === shift.id) continue;
-            const otherRk = (((otherShift as any).job_title || otherShift.job_id || 'unknown') as string).toLowerCase().trim();
-            const sameRoleOrLeader = rk === otherRk || (thisIsLeader && isLeaderRk(otherRk));
+            if (otherShift.id === shift.id || (otherShift as any)._isAbsent) continue;
+            const otherRk = normalizeRoleString((otherShift as any).job_title || otherShift.job_id || 'unknown');
+            const sameRoleOrLeader = rk === otherRk || (thisIsLeader && resolveShiftIsLeader(otherRk));
             if (sameRoleOrLeader) {
                 for (const otherB of otherShift.breaks_schedule || []) {
                     const os = new Date(otherB.start_time).getTime();
@@ -228,41 +222,66 @@ export default function DescansosPage() {
             end_time: new Date(newEndMs).toISOString(),
             is_manual: true
         };
-        const typeBreakIndex = getTypeSpecificBreakIndex(updatedRawBreaks, breakIdx);
-        const newBreaks = [...updatedRawBreaks].sort(
+        let finalShiftBreaks = [...updatedRawBreaks].sort(
             (a, c) => new Date(a.start_time).getTime() - new Date(c.start_time).getTime()
         );
         
-        setSmartShifts(prev => prev.map(s => s.id === shift.id ? { ...s, breaks_schedule: newBreaks } : s));
+        const nextSmart = smartShifts.map(s => s.id === shift.id ? { ...s, breaks_schedule: finalShiftBreaks } : s);
+        setSmartShifts(nextSmart);
         if (lastDataRef.current?.shifts) {
-            lastDataRef.current.shifts = lastDataRef.current.shifts.map(s => s.id === shift.id ? { ...s, breaks_schedule: newBreaks } : s);
+            lastDataRef.current.shifts = lastDataRef.current.shifts.map(s => s.id === shift.id ? { ...s, breaks_schedule: finalShiftBreaks } : s);
         }
+        syncLocalPollingSnapshot(nextSmart);
         
         try {
             const supabase = await getSupabaseClient();
-            await supabase.from('shifts').update({ breaks_schedule: newBreaks }).eq('id', shift.id);
+            const currentStoreGuid = resolveActiveStoreGuid();
+            if (!currentStoreGuid) return;
 
-            const currentStoreGuid = storeGuid || (stores.find(s => String(s.id) === String(selectedStoreId))?.external_id) || searchParams.get('store_guid') || 'b7f63b01-f089-4ad7-a346-afdb1803dc1a';
-            const shiftDurationMin = Math.round((shiftEnd - shiftStart) / 60000);
+            const shiftDurationMin = Math.round(getWallClockDurationHours(shiftStart, shiftEnd) * 60);
             const dayOfWeek = getLocalDayOfWeek(shiftStart);
             const cohortIdx = computeShiftCohortIndex(shift);
             const slotMeta = encodeLearnedSlotMeta(shiftStart, cohortIdx);
+            const encodedEmpRole = encodeLearnedRoleMeta(rk, shift.employee_id);
             const nowIso = new Date().toISOString();
 
-            await supabase.from('break_manual_overrides').delete().match({
-                store_id: currentStoreGuid,
-                role: rk,
-                day_of_week: dayOfWeek,
-                peak_hour: slotMeta
-            });
+            // Si aplastó un descanso automático del mismo turno, rebalancear PRIMERO el turno antes de guardar preferencias
+            if (needsPersonalAiRebalance && shift.id) {
+                lastLocalMutationAtRef.current = Date.now();
+                await supabase.from('shifts').update({ breaks_schedule: finalShiftBreaks }).eq('id', shift.id);
+                await triggerAiRecalculation(absentEmpIds, lastDataRef.current, false, true, false, shift.id);
+                const rebalancedShift = lastDataRef.current.shifts.find(s => s.id === shift.id);
+                if (rebalancedShift?.breaks_schedule) {
+                    finalShiftBreaks = rebalancedShift.breaks_schedule;
+                }
+            } else {
+                lastLocalMutationAtRef.current = Date.now();
+                await supabase.from('shifts').update({ breaks_schedule: finalShiftBreaks }).eq('id', shift.id);
+            }
 
-            const rowsToInsert = newBreaks.map((brk, idx) => ({
+            // Guardar ÚNICAMENTE los descansos marcados como manuales (`is_manual === true`), ligados al `employee_id` exacto,
+            // sin contaminar `break_manual_overrides` con descansos automáticos que el gerente no movió.
+            const manualEntries = finalShiftBreaks
+                .map((brk, idx) => ({ brk, typeIdx: getTypeSpecificBreakIndex(finalShiftBreaks, idx) }))
+                .filter(entry => entry.brk.is_manual);
+
+            for (const entry of manualEntries) {
+                await supabase.from('break_manual_overrides').delete().match({
+                    store_id: currentStoreGuid,
+                    role: encodedEmpRole,
+                    day_of_week: dayOfWeek,
+                    break_type: entry.brk.type,
+                    break_index: entry.typeIdx
+                });
+            }
+
+            const rowsToInsert = manualEntries.map(entry => ({
                 store_id: currentStoreGuid,
-                role: rk,
+                role: encodedEmpRole,
                 day_of_week: dayOfWeek,
-                break_type: brk.type,
-                break_index: getTypeSpecificBreakIndex(newBreaks, idx),
-                offset_from_start_min: Math.round((new Date(brk.start_time).getTime() - shiftStart) / 60000),
+                break_type: entry.brk.type,
+                break_index: entry.typeIdx,
+                offset_from_start_min: Math.round((new Date(entry.brk.start_time).getTime() - shiftStart) / 60000),
                 shift_duration_min: shiftDurationMin,
                 peak_hour: slotMeta
             }));
@@ -279,18 +298,15 @@ export default function DescansosPage() {
                 offset_from_start_min: r.offset_from_start_min,
                 shift_duration_min: r.shift_duration_min,
                 peak_hour: r.peak_hour,
-                updated_at: nowIso
+                updated_at: nowIso,
+                created_at: nowIso
             }));
             const currentPrefs = lastDataRef.current.learnedPrefs || [];
+            const replacedKeys = new Set(rowsToInsert.map(r => `${r.role}|${r.day_of_week}|${r.break_type}|${r.break_index}`));
             lastDataRef.current.learnedPrefs = [
-                ...currentPrefs.filter(p => !(p.role === rk && p.day_of_week === dayOfWeek && p.peak_hour === slotMeta)),
+                ...currentPrefs.filter(p => !replacedKeys.has(`${p.role}|${p.day_of_week}|${p.break_type}|${p.break_index}`)),
                 ...newPrefsForSlot
             ];
-
-            // Si el movimiento manual aplastó un descanso automático (!is_manual) del mismo turno, reacomodarlo automáticamente
-            if (needsPersonalAiRebalance && shift.id) {
-                await triggerAiRecalculation(absentEmpIds, lastDataRef.current, false, true, false, shift.id);
-            }
 
             setAiStatus({ message: `✅ ${b.type === 'meal_30' ? 'Lunch' : 'Break'} movido y guardado — la IA lo respetará`, type: 'success' });
             setTimeout(() => setAiStatus(null), 4000);
@@ -303,109 +319,183 @@ export default function DescansosPage() {
 
     const handleResetBreakToAI = async (shift: Shift, breakIdx: number) => {
         const b = shift.breaks_schedule[breakIdx];
-        if (!b.is_manual) return;
+        if (!b) return;
 
-        const shiftDurHrs = (new Date(shift.end_time).getTime() - new Date(shift.start_time).getTime()) / 3600000;
+        const shiftStart = new Date(shift.start_time).getTime();
+        const shiftEnd = new Date(shift.end_time).getTime();
+        const shiftDurHrs = getWallClockDurationHours(shiftStart, shiftEnd);
         if (shiftDurHrs < 6 && b.type === 'meal_30') {
             await handleRemoveBreak(shift, breakIdx);
             return;
         }
 
-        const currentStoreGuid = storeGuid || (stores.find(s => String(s.id) === String(selectedStoreId))?.external_id) || searchParams.get('store_guid') || 'b7f63b01-f089-4ad7-a346-afdb1803dc1a';
-        const rk = (((shift as any).job_title || shift.job_id || 'unknown') as string).toLowerCase().trim();
-        const shiftStart = new Date(shift.start_time).getTime();
+        const currentStoreGuid = resolveActiveStoreGuid();
+        if (!currentStoreGuid) return;
+        const rk = normalizeRoleString((shift as any).job_title || shift.job_id || 'unknown');
+        const encodedEmpRole = encodeLearnedRoleMeta(rk, shift.employee_id);
         const dayOfWeek = getLocalDayOfWeek(shiftStart);
         const typeBreakIndex = getTypeSpecificBreakIndex(shift.breaks_schedule, breakIdx);
-        const slotMeta = encodeLearnedSlotMeta(shiftStart, computeShiftCohortIndex(shift));
+        const cohortIdx = computeShiftCohortIndex(shift);
+        const slotMeta = encodeLearnedSlotMeta(shiftStart, cohortIdx);
+        const legacySlotMeta = getLocalHourMinute(shiftStart).hour * 10 + Math.min(9, Math.max(0, cohortIdx));
 
-        // Quitar la bandera is_manual del break
         const newBreaks = [...shift.breaks_schedule];
         newBreaks[breakIdx] = { ...b, is_manual: false };
 
-        // Guardar en DB y limpiar la preferencia aprendida para que la IA realmente recalcule libremente
         try {
             const supabase = await getSupabaseClient();
+            lastLocalMutationAtRef.current = Date.now();
             await supabase.from('shifts').update({ breaks_schedule: newBreaks }).eq('id', shift.id);
 
-            // Eliminar de break_manual_overrides para desaprender la preferencia manual previa
-            await supabase.from('break_manual_overrides').delete().match({
-                store_id: currentStoreGuid,
-                role: rk,
-                day_of_week: dayOfWeek,
-                break_type: b.type,
-                break_index: typeBreakIndex,
-                peak_hour: slotMeta
-            });
-            await supabase.from('break_manual_overrides').delete().match({
-                store_id: currentStoreGuid,
-                role: rk,
-                day_of_week: dayOfWeek,
-                break_type: b.type,
-                break_index: breakIdx
-            });
+            // Eliminar ÚNICAMENTE la preferencia de este empleado y/o su cohorte exacta (NUNCA sin filtro de peak_hour/empleado)
+            await Promise.all([
+                supabase.from('break_manual_overrides').delete().match({
+                    store_id: currentStoreGuid,
+                    role: encodedEmpRole,
+                    day_of_week: dayOfWeek,
+                    break_type: b.type,
+                    break_index: typeBreakIndex
+                }),
+                supabase.from('break_manual_overrides').delete().match({
+                    store_id: currentStoreGuid,
+                    role: rk,
+                    day_of_week: dayOfWeek,
+                    break_type: b.type,
+                    break_index: typeBreakIndex,
+                    peak_hour: slotMeta
+                }),
+                supabase.from('break_manual_overrides').delete().match({
+                    store_id: currentStoreGuid,
+                    role: rk,
+                    day_of_week: dayOfWeek,
+                    break_type: b.type,
+                    break_index: typeBreakIndex,
+                    peak_hour: legacySlotMeta
+                })
+            ]);
         } catch (err) {
             console.error('Failed to reset break', err);
             return;
         }
 
-        // Limpiar preferencia de la memoria local
         const currentPrefs = lastDataRef.current.learnedPrefs || [];
-        lastDataRef.current.learnedPrefs = currentPrefs.filter(
-            p => !(p.role === rk && p.day_of_week === dayOfWeek && p.break_type === b.type && (p.break_index === typeBreakIndex || p.break_index === breakIdx) && (p.peak_hour === slotMeta || p.peak_hour == null))
-        );
+        lastDataRef.current.learnedPrefs = currentPrefs.filter(p => {
+            if (p.day_of_week !== dayOfWeek || p.break_type !== b.type || p.break_index !== typeBreakIndex) return true;
+            if (p.role === encodedEmpRole) return false;
+            if (normalizeRoleString(p.role) === rk && (p.peak_hour === slotMeta || p.peak_hour === legacySlotMeta)) return false;
+            return true;
+        });
 
         setAiStatus({ message: `🤖 ${b.type === 'meal_30' ? 'Lunch' : 'Break'} restaurado — recalculando con IA...`, type: 'info' });
 
-        // Recalcular con la IA para que el break se mueva a su posición óptima
         const updatedShifts = lastDataRef.current.shifts.map(s =>
             s.id === shift.id ? { ...s, breaks_schedule: newBreaks } : s
         );
         lastDataRef.current = { ...lastDataRef.current, shifts: updatedShifts };
         
-        // Pasamos shift.id como targetShiftId para que no mueva a los demás
         await triggerAiRecalculation(absentEmpIds, lastDataRef.current, false, true, false, shift.id);
 
         setTimeout(() => setAiStatus(null), 4000);
     };
 
     const handleAddManualBreak = async (emp: Employee, breakType: 'meal_30' | 'rest_10') => {
-        const shift = smartShifts.find(s => String(s.employee_id) === String(emp.id));
+        const shift = smartShifts.find(s => String(s.employee_id) === String(emp.id) && !(s as any)._isAbsent);
         if (!shift || !shift.id) return;
 
         const sMs = new Date(shift.start_time).getTime();
         const eMs = new Date(shift.end_time).getTime();
         const durMins = breakType === 'meal_30' ? 30 : 10;
+        const durMs = durMins * 60000;
+
+        // Buscar el hueco libre más amplio dentro del turno para no encimar el nuevo descanso con uno ya existente
+        const existingBreaks = (shift.breaks_schedule || [])
+            .map((b: any) => ({ ...b }))
+            .sort((a: any, c: any) => new Date(a.start_time).getTime() - new Date(c.start_time).getTime());
+
+        const minWindow = Math.min(eMs - durMs, sMs + 40 * 60000);
+        const maxWindow = Math.max(minWindow + durMs, breakType === 'meal_30' ? Math.min(eMs - 30 * 60000, sMs + 290 * 60000) : eMs - 20 * 60000);
+        const gaps: { s: number; e: number }[] = [];
+        let cursor = minWindow;
+        for (const eb of existingBreaks) {
+            const bs = new Date(eb.start_time).getTime() - 20 * 60000;
+            const be = new Date(eb.end_time).getTime() + 20 * 60000;
+            if (bs - cursor >= durMs) gaps.push({ s: cursor, e: Math.min(maxWindow, bs) });
+            if (be > cursor) cursor = be;
+        }
+        if (maxWindow - cursor >= durMs) gaps.push({ s: cursor, e: maxWindow });
 
         let targetStartMs = sMs + Math.min((eMs - sMs) / 2, 2.5 * 3600000);
+        if (gaps.length > 0) {
+            gaps.sort((a, c) => (c.e - c.s) - (a.e - a.s));
+            const bestGap = gaps[0];
+            targetStartMs = bestGap.s + (bestGap.e - bestGap.s - durMs) / 2;
+        }
         targetStartMs = Math.round(targetStartMs / (10 * 60000)) * (10 * 60000);
-        if (targetStartMs + durMins * 60000 > eMs) {
-            targetStartMs = eMs - durMins * 60000;
-        }
-        if (targetStartMs < sMs) {
-            targetStartMs = sMs;
-        }
+        targetStartMs = Math.max(sMs + 10 * 60000, Math.min(eMs - durMs - 10 * 60000, targetStartMs));
 
-        const targetEndMs = targetStartMs + durMins * 60000;
+        const targetEndMs = targetStartMs + durMs;
         const newBreak = {
             type: breakType,
             start_time: new Date(targetStartMs).toISOString(),
             end_time: new Date(targetEndMs).toISOString(),
-            status: 'scheduled',
+            status: 'scheduled' as const,
             is_manual: true
         };
 
-        const existingBreaks = (shift.breaks_schedule || []).map((b: any) => ({ ...b }));
-        const updatedBreaks = [...existingBreaks, newBreak].sort((a: any, b: any) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime());
+        const updatedBreaks = [...existingBreaks, newBreak].sort(
+            (a: any, c: any) => new Date(a.start_time).getTime() - new Date(c.start_time).getTime()
+        );
 
         try {
             const supabase = await getSupabaseClient();
+            lastLocalMutationAtRef.current = Date.now();
             await supabase.from('shifts').update({ breaks_schedule: updatedBreaks }).eq('id', shift.id);
+
+            const currentStoreGuid = resolveActiveStoreGuid();
+            if (currentStoreGuid) {
+                const rk = normalizeRoleString((shift as any).job_title || shift.job_id || 'unknown');
+                const encodedEmpRole = encodeLearnedRoleMeta(rk, shift.employee_id);
+                const dayOfWeek = getLocalDayOfWeek(sMs);
+                const cohortIdx = computeShiftCohortIndex(shift);
+                const slotMeta = encodeLearnedSlotMeta(sMs, cohortIdx);
+                const shiftDurationMin = Math.round(getWallClockDurationHours(sMs, eMs) * 60);
+                const addedIdx = updatedBreaks.findIndex((x: any) => x.start_time === newBreak.start_time && x.type === newBreak.type);
+                const typeIdx = getTypeSpecificBreakIndex(updatedBreaks, Math.max(0, addedIdx));
+                const nowIso = new Date().toISOString();
+
+                await supabase.from('break_manual_overrides').delete().match({
+                    store_id: currentStoreGuid,
+                    role: encodedEmpRole,
+                    day_of_week: dayOfWeek,
+                    break_type: breakType,
+                    break_index: typeIdx
+                });
+                const row = {
+                    store_id: currentStoreGuid,
+                    role: encodedEmpRole,
+                    day_of_week: dayOfWeek,
+                    break_type: breakType,
+                    break_index: typeIdx,
+                    offset_from_start_min: Math.round((targetStartMs - sMs) / 60000),
+                    shift_duration_min: shiftDurationMin,
+                    peak_hour: slotMeta
+                };
+                await supabase.from('break_manual_overrides').insert([row]);
+                lastDataRef.current.learnedPrefs = [
+                    ...(lastDataRef.current.learnedPrefs || []).filter(
+                        p => !(p.role === encodedEmpRole && p.day_of_week === dayOfWeek && p.break_type === breakType && p.break_index === typeIdx)
+                    ),
+                    { ...row, updated_at: nowIso, created_at: nowIso }
+                ];
+            }
 
             const updatedShifts = lastDataRef.current.shifts.map(s =>
                 s.id === shift.id ? { ...s, breaks_schedule: updatedBreaks } : s
             );
             lastDataRef.current = { ...lastDataRef.current, shifts: updatedShifts };
-            setSmartShifts(prev => prev.map(s => s.id === shift.id ? { ...s, breaks_schedule: updatedBreaks } : s));
+            const nextSmart = smartShifts.map(s => s.id === shift.id ? { ...s, breaks_schedule: updatedBreaks } : s);
+            setSmartShifts(nextSmart);
+            syncLocalPollingSnapshot(nextSmart);
 
             setAiStatus({
                 message: `✅ ${breakType === 'meal_30' ? 'Lunch (30 min)' : 'Break (10 min)'} agregado a ${emp.first_name}. Puedes arrastrarlo en la barra para ajustar la hora.`,
@@ -422,48 +512,69 @@ export default function DescansosPage() {
 
     const handleRemoveBreak = async (shift: Shift, breakIdx: number) => {
         const b = (shift.breaks_schedule || [])[breakIdx];
+        if (!b) return;
+        const shiftStart = new Date(shift.start_time).getTime();
         const typeBreakIndex = getTypeSpecificBreakIndex(shift.breaks_schedule || [], breakIdx);
-        const slotMeta = encodeLearnedSlotMeta(new Date(shift.start_time).getTime(), computeShiftCohortIndex(shift));
+        const cohortIdx = computeShiftCohortIndex(shift);
+        const slotMeta = encodeLearnedSlotMeta(shiftStart, cohortIdx);
+        const legacySlotMeta = getLocalHourMinute(shiftStart).hour * 10 + Math.min(9, Math.max(0, cohortIdx));
         const updatedBreaks = (shift.breaks_schedule || []).filter((_: any, idx: number) => idx !== breakIdx);
 
         try {
             const supabase = await getSupabaseClient();
+            lastLocalMutationAtRef.current = Date.now();
             await supabase.from('shifts').update({ breaks_schedule: updatedBreaks }).eq('id', shift.id);
 
-            // Si era un break manual, limpiar su override de preferencias
-            if (b && b.is_manual) {
-                const currentStoreGuid = storeGuid || (stores.find(s => String(s.id) === String(selectedStoreId))?.external_id) || searchParams.get('store_guid') || 'b7f63b01-f089-4ad7-a346-afdb1803dc1a';
-                const rk = (((shift as any).job_title || shift.job_id || 'unknown') as string).toLowerCase().trim();
-                const shiftStart = new Date(shift.start_time).getTime();
+            const currentStoreGuid = resolveActiveStoreGuid();
+            if (currentStoreGuid) {
+                const rk = normalizeRoleString((shift as any).job_title || shift.job_id || 'unknown');
+                const encodedEmpRole = encodeLearnedRoleMeta(rk, shift.employee_id);
                 const dayOfWeek = getLocalDayOfWeek(shiftStart);
 
-                await supabase.from('break_manual_overrides').delete().match({
-                    store_id: currentStoreGuid,
-                    role: rk,
-                    day_of_week: dayOfWeek,
-                    break_type: b.type,
-                    break_index: typeBreakIndex,
-                    peak_hour: slotMeta
-                });
-                await supabase.from('break_manual_overrides').delete().match({
-                    store_id: currentStoreGuid,
-                    role: rk,
-                    day_of_week: dayOfWeek,
-                    break_type: b.type,
-                    break_index: breakIdx
-                });
+                // Limpiar override tanto si era manual como si venía pre-generado por una preferencia previa ("zombie override"),
+                // acotado estrictamente a este empleado y/o su cohorte exacta.
+                await Promise.all([
+                    supabase.from('break_manual_overrides').delete().match({
+                        store_id: currentStoreGuid,
+                        role: encodedEmpRole,
+                        day_of_week: dayOfWeek,
+                        break_type: b.type,
+                        break_index: typeBreakIndex
+                    }),
+                    supabase.from('break_manual_overrides').delete().match({
+                        store_id: currentStoreGuid,
+                        role: rk,
+                        day_of_week: dayOfWeek,
+                        break_type: b.type,
+                        break_index: typeBreakIndex,
+                        peak_hour: slotMeta
+                    }),
+                    supabase.from('break_manual_overrides').delete().match({
+                        store_id: currentStoreGuid,
+                        role: rk,
+                        day_of_week: dayOfWeek,
+                        break_type: b.type,
+                        break_index: typeBreakIndex,
+                        peak_hour: legacySlotMeta
+                    })
+                ]);
 
                 const currentPrefs = lastDataRef.current.learnedPrefs || [];
-                lastDataRef.current.learnedPrefs = currentPrefs.filter(
-                    p => !(p.role === rk && p.day_of_week === dayOfWeek && p.break_type === b.type && (p.break_index === typeBreakIndex || p.break_index === breakIdx) && (p.peak_hour === slotMeta || p.peak_hour == null))
-                );
+                lastDataRef.current.learnedPrefs = currentPrefs.filter(p => {
+                    if (p.day_of_week !== dayOfWeek || p.break_type !== b.type || p.break_index !== typeBreakIndex) return true;
+                    if (p.role === encodedEmpRole) return false;
+                    if (normalizeRoleString(p.role) === rk && (p.peak_hour === slotMeta || p.peak_hour === legacySlotMeta)) return false;
+                    return true;
+                });
             }
 
             const updatedShifts = lastDataRef.current.shifts.map(s =>
                 s.id === shift.id ? { ...s, breaks_schedule: updatedBreaks } : s
             );
             lastDataRef.current = { ...lastDataRef.current, shifts: updatedShifts };
-            setSmartShifts(prev => prev.map(s => s.id === shift.id ? { ...s, breaks_schedule: updatedBreaks } : s));
+            const nextSmart = smartShifts.map(s => s.id === shift.id ? { ...s, breaks_schedule: updatedBreaks } : s);
+            setSmartShifts(nextSmart);
+            syncLocalPollingSnapshot(nextSmart);
 
             setAiStatus({ message: '🗑️ Descanso eliminado del turno', type: 'info' });
             setTimeout(() => setAiStatus(null), 4000);
@@ -553,16 +664,26 @@ export default function DescansosPage() {
     const [absentEmpIds, setAbsentEmpIds] = useState<Set<string>>(new Set())
     const [absentModalEmp, setAbsentModalEmp] = useState<Employee | null>(null)
     const [aiStatus, setAiStatus] = useState<{ message: string, type: 'info' | 'success' | 'alert' } | null>(null)
-    const lastDataRef = useRef<{ shifts: Shift[], hours: any[], employees: Employee[], jobs: Job[], learnedPrefs?: LearnedPreference[] }>({ shifts: [], hours: [], employees: [], jobs: [], learnedPrefs: [] })
+    const lastDataRef = useRef<{ shifts: Shift[], hours: any[], employees: Employee[], jobs: Job[], learnedPrefs?: LearnedPreference[], stationAssignments?: any[] }>({ shifts: [], hours: [], employees: [], jobs: [], learnedPrefs: [], stationAssignments: [] })
     const lastPolledDbRef = useRef<string>('')  // Snapshot serializado de la BD para polling
 
-    const triggerAiRecalculation = async (absentSet: Set<string>, dataOverride?: any, isManualAction: boolean = false, forceRecalculate: boolean = false, isRealtimeReload: boolean = false, targetShiftIdToRecalculate?: string) => {
-        setCalculating(true);
-        await new Promise(r => setTimeout(r, 50));
+    const triggerAiRecalculation = async (
+        absentSet: Set<string>,
+        dataOverride?: any,
+        isManualAction: boolean = false,
+        forceRecalculate: boolean = false,
+        isRealtimeReload: boolean = false,
+        targetShiftIdToRecalculate?: string,
+        silentBackgroundSync: boolean = false
+    ) => {
+        if (!silentBackgroundSync) {
+            setCalculating(true);
+            await new Promise(r => setTimeout(r, 50));
+        }
 
-        const { shifts, hours, employees, jobs, learnedPrefs } = dataOverride || lastDataRef.current;
+        const { shifts, hours, employees, jobs, learnedPrefs, stationAssignments } = dataOverride || lastDataRef.current;
         if (!shifts || shifts.length === 0) {
-            setCalculating(false);
+            if (!silentBackgroundSync) setCalculating(false);
             return;
         }
 
@@ -572,47 +693,40 @@ export default function DescansosPage() {
         });
 
         const shiftsForAi = presentShifts.map((s: Shift) => {
-            const emp = employees.find((e: Employee) => e.id === s.employee_id || e.toast_guid === (s as any).employee_toast_guid);
-            let extTitle = '';
-            if (emp && emp.job_references && emp.job_references.length > 0) {
-                const jobRef = emp.job_references[0];
-                // Deep Fix: Usar el title embebido si existe, en vez de depender ciegamente del JOIN
-                if (jobRef.title) extTitle = jobRef.title;
-                else {
-                    const job = jobs.find((j: Job) => j.guid === jobRef.guid || String(j.id) === jobRef.guid);
-                    if (job) extTitle = job.title;
-                }
-            }
-            if (!extTitle) {
-                const shiftJob = jobs.find((j: Job) => j.guid === s.job_id || String(j.id) === String(s.job_id));
-                if (shiftJob) extTitle = shiftJob.title;
-            }
+            const emp = employees.find((e: Employee) => String(e.id) === String(s.employee_id) || (e.toast_guid && e.toast_guid === (s as any).employee_toast_guid));
+            let extTitle = resolveShiftRoleTitle(s, emp, jobs);
 
             // Failsafe estructural para garantizar que breaks-engine identifique el rol
             if (!extTitle && emp) {
                 extTitle = 'cook'; // Fallback genérico para BOH en vez de tirar un UUID que rompe el wavePenalty
             }
 
-            const titleLowerCase = extTitle.toLowerCase();
-            const employeeName = emp ? `${emp.first_name} ${emp.last_name}`.toLowerCase() : '';
-            const isLeader = titleLowerCase.includes('manager') || titleLowerCase.includes('asst') || titleLowerCase.includes('shift') || titleLowerCase.includes('lead') || titleLowerCase.includes('asistente') || titleLowerCase.includes('assistant') || titleLowerCase.includes('encargado') || employeeName.includes('alberto romero') || employeeName.includes('manager');
+            const employeeName = emp ? `${emp.first_name || ''} ${emp.last_name || ''}`.replace(/\s+/g, ' ').trim().toLowerCase() : '';
+            const isLeader = resolveShiftIsLeader(extTitle);
+            const stationName = resolveShiftStationSummary(s, stationAssignments);
             
-            // 🎯 MEJORA SLAUSON: Si solo queremos recalcular un empleado (doble clic), 
+            // Si solo queremos recalcular un empleado (doble clic o colisión personal),
             // congelamos temporalmente los breaks de todos los demás haciéndolos 'manuales'.
-            // Esto asegura que la IA respete las posiciones de todos los demás sin moverlos.
             let safeBreaks = s.breaks_schedule;
             if (targetShiftIdToRecalculate && s.id !== targetShiftIdToRecalculate) {
                 safeBreaks = (s.breaks_schedule || []).map((b: any) => ({ ...b, is_manual: true }));
             }
 
-            return { ...s, is_leader: isLeader, job_title: extTitle, employee_name: employeeName, breaks_schedule: safeBreaks };
+            return {
+                ...s,
+                is_leader: isLeader,
+                job_title: extTitle,
+                employee_name: employeeName,
+                station_name: stationName,
+                breaks_schedule: safeBreaks
+            };
         });
 
-        // Detectar si algún turno activo (>= 3.5h) se quedó sin descansos asignados (ej. turno recién agregado o walk-in)
+        // Detectar si algún turno activo (>= 3.5h calendario muro) se quedó sin descansos asignados (ej. turno recién agregado o walk-in)
         const missingBreakIds = new Set<string | number>(
             shiftsForAi
                 .filter((s: any) => {
-                    const durHrs = (new Date(s.end_time).getTime() - new Date(s.start_time).getTime()) / 3_600_000;
+                    const durHrs = getWallClockDurationHours(new Date(s.start_time).getTime(), new Date(s.end_time).getTime());
                     return durHrs >= 3.5 && (!s.breaks_schedule || s.breaks_schedule.length === 0) && s.id != null;
                 })
                 .map((s: any) => s.id)
@@ -624,17 +738,16 @@ export default function DescansosPage() {
             
             if (someCalculated && missingBreakIds.size === 0) {
                 console.log("⏭️ Bypass IA: Turnos ya calculados previamente. Cargando caché de BD.");
-                // 🔧 FIX SYNC PC↔TABLETA: Inyectar los turnos de ausentes como fantasmas visuales
-                // para que el manager en PC pueda verlos (barra gris) y restaurarlos.
                 const absentShifts = shifts
                     .filter((s: Shift) => s.employee_id !== null && absentSet.has(String(s.employee_id)))
                     .map((s: Shift) => {
-                        const emp = employees.find((e: Employee) => e.id === s.employee_id);
-                        const empName = emp ? `${emp.first_name} ${emp.last_name}`.toLowerCase() : '';
-                        return { ...s, breaks_schedule: [], _isAbsent: true, employee_name: empName };
+                        const emp = employees.find((e: Employee) => String(e.id) === String(s.employee_id));
+                        const empName = emp ? `${emp.first_name || ''} ${emp.last_name || ''}`.replace(/\s+/g, ' ').trim().toLowerCase() : '';
+                        const extTitle = resolveShiftRoleTitle(s, emp, jobs);
+                        return { ...s, job_title: extTitle, breaks_schedule: [], _isAbsent: true, employee_name: empName };
                     });
                 setSmartShifts([...shiftsForAi, ...absentShifts]);
-                setCalculating(false);
+                if (!silentBackgroundSync) setCalculating(false);
                 return;
             }
 
@@ -650,7 +763,7 @@ export default function DescansosPage() {
         try {
             const augmented = scheduleBreaksWithDemand(shiftsForAi, hours, learnedPrefs || []);
             
-            // 🎯 MEJORA SLAUSON: Descongelamos los breaks de los demás empleados para no guardarlos con 'is_manual: true' falso
+            // Descongelar los breaks de los demás empleados para no guardarlos con 'is_manual: true' falso
             if (targetShiftIdToRecalculate) {
                 augmented.forEach((s: any) => {
                     if (s.id !== targetShiftIdToRecalculate) {
@@ -669,48 +782,73 @@ export default function DescansosPage() {
                 });
             }
 
-            // 🔧 FIX SYNC PC↔TABLETA: Inyectar turnos de ausentes como fantasmas visuales
+            // Inyectar turnos de ausentes como fantasmas visuales
             const absentShiftsForRender = shifts
                 .filter((s: Shift) => s.employee_id !== null && absentSet.has(String(s.employee_id)))
                 .map((s: Shift) => {
-                    const emp = employees.find((e: Employee) => e.id === s.employee_id);
-                    const empName = emp ? `${emp.first_name} ${emp.last_name}`.toLowerCase() : '';
-                    return { ...s, breaks_schedule: [], _isAbsent: true, employee_name: empName };
+                    const emp = employees.find((e: Employee) => String(e.id) === String(s.employee_id));
+                    const empName = emp ? `${emp.first_name || ''} ${emp.last_name || ''}`.replace(/\s+/g, ' ').trim().toLowerCase() : '';
+                    const extTitle = resolveShiftRoleTitle(s, emp, jobs);
+                    return { ...s, job_title: extTitle, breaks_schedule: [], _isAbsent: true, employee_name: empName };
                 });
-            setSmartShifts([...(augmented as Shift[]), ...absentShiftsForRender]);
 
             const supabase = await getSupabaseClient()
             const shiftsToUpdate = augmented.filter((s: any) => {
                 const original = shifts.find((old: Shift) => old.id === s.id);
-                const stringifyBreak = (b: any) => `${b.type}_${new Date(b.start_time).getTime()}_${new Date(b.end_time).getTime()}`;
-                const newStr = s.breaks_schedule.map(stringifyBreak).sort().join('|');
+                const stringifyBreak = (b: any) => `${b.type}_${new Date(b.start_time).getTime()}_${new Date(b.end_time).getTime()}_${!!b.is_manual}`;
+                const newStr = (s.breaks_schedule || []).map(stringifyBreak).sort().join('|');
                 const oldStr = (original?.breaks_schedule || []).map(stringifyBreak).sort().join('|');
                 return newStr !== oldStr;
             });
 
+            if (!silentBackgroundSync || shiftsToUpdate.length > 0) {
+                setSmartShifts([...(augmented as Shift[]), ...absentShiftsForRender]);
+            }
+
+            // Actualizar copia base en memoria (`lastDataRef.current.shifts`) antes de sincronizar snapshot de polling
+            const augmentedMap = new Map<string, any>(
+                augmented.filter((s: any) => s.id != null).map((s: any) => [String(s.id), s])
+            );
+            const nextRawDbShifts = shifts.map((s: Shift) => {
+                const aug = s.id != null ? augmentedMap.get(String(s.id)) : undefined;
+                const nextCallback = (isManualAction && !isRealtimeReload && s.employee_id !== null)
+                    ? absentSet.has(String(s.employee_id))
+                    : s.is_callback;
+                return {
+                    ...s,
+                    breaks_schedule: aug ? aug.breaks_schedule : s.breaks_schedule,
+                    is_callback: nextCallback
+                };
+            });
+            lastDataRef.current = {
+                ...lastDataRef.current,
+                shifts: nextRawDbShifts
+            };
+
             if (shiftsToUpdate.length > 0 && !isRealtimeReload) {
-                // 🔧 FIX ANTI-LOOP: No re-escribir a BD si la recarga viene de Realtime
-                // (evita ping-pong entre PC y Tableta)
+                lastLocalMutationAtRef.current = Date.now();
                 await Promise.all(shiftsToUpdate.map(async shift => {
                     if (!shift.id) return;
                     const { error } = await supabase.from('shifts').update({ breaks_schedule: shift.breaks_schedule }).eq('id', shift.id);
                     if (error) console.warn("Supabase DB Warning:", error.message || JSON.stringify(error));
                 }));
+                syncLocalPollingSnapshot(nextRawDbShifts);
 
-                // 🧠 DEEP FIX: Diferenciar el motivo del mensaje
                 if (isManualAction) {
                     setAiStatus({ message: 'Asistencia actualizada: Descansos re-balanceados para cubrir huecos operativos', type: 'success' });
-                } else {
-                    // Si fue automático (al cargar), el mensaje debe ser sobre optimización, no asistencia
+                } else if (!silentBackgroundSync && !targetShiftIdToRecalculate) {
                     setAiStatus({ message: 'Inteligencia Artificial: Horario optimizado para maximizar cobertura en picos de venta', type: 'success' });
+                } else if (silentBackgroundSync) {
+                    setAiStatus({ message: '🧠 Preferencias aprendidas aplicadas automáticamente a este día', type: 'success' });
+                    setTimeout(() => setAiStatus(null), 3500);
                 }
             } else if (isManualAction) {
                 setAiStatus({ message: 'Asistencia registrada: No se requirieron cambios en los descansos de los demás', type: 'info' });
             }
 
             // 🚩 PERSISTENCIA PROFUNDA: Guardar ausentes en DB en Paralelo
-            // Solo escribir si es acción manual (no desde Realtime para evitar loops)
             if (isManualAction && !isRealtimeReload && shifts) {
+                lastLocalMutationAtRef.current = Date.now();
                 const validShifts = shifts.filter((s: Shift) => s.employee_id !== null && s.id != null);
                 await Promise.all(validShifts.map(async (s: Shift) => {
                     const id = String(s.employee_id);
@@ -720,11 +858,12 @@ export default function DescansosPage() {
                         await supabase.from('shifts').update({ is_callback: false }).eq('id', s.id);
                     }
                 }));
+                syncLocalPollingSnapshot(nextRawDbShifts);
             }
         } catch (e) {
             console.error(e);
         }
-        setCalculating(false);
+        if (!silentBackgroundSync) setCalculating(false);
     }
 
     useEffect(() => {
@@ -900,8 +1039,8 @@ export default function DescansosPage() {
     }, [currentDate, currentTime, mounted])
 
     const currentTimeLeft = useMemo(() => {
-        const now = currentTime
-        let shiftHour = now.getHours() + now.getMinutes() / 60
+        const { hour, minute } = getLocalHourMinute(currentTime.getTime())
+        let shiftHour = hour + minute / 60
         if (shiftHour < START_HOUR) shiftHour += 24
         return Math.max(0, Math.min(100, ((shiftHour - START_HOUR) / 24) * 100))
     }, [currentTime])
@@ -913,7 +1052,7 @@ export default function DescansosPage() {
         // RESET ausentes al cambiar de día/tienda
         const freshAbsentSet = new Set<string>();
         setAbsentEmpIds(freshAbsentSet);
-        setAiStatus(null);
+        if (!isRealtimeReload) setAiStatus(null);
 
         const supabase = await getSupabaseClient()
 
@@ -922,26 +1061,59 @@ export default function DescansosPage() {
         const startStr = formatDateISO(weekStartM)
         const endStr = formatDateISO(addDays(weekStartM, 6))
 
-        // 2a. CARGA EXTREMADAMENTE RÁPIDA: Supabase DB (Milisegundos)
-        const [empRes, jobsRes, weekShiftsRes] = await Promise.all([
+        // 2a. CARGA EXTREMADAMENTE RÁPIDA EN PARALELO: Empleados, Puestos, Turnos, Estaciones y Memoria Aprendida
+        const [empRes, jobsRes, weekShiftsRes, stationRes, prefRes] = await Promise.all([
             supabase.from('toast_employees').select('*').contains('store_ids', JSON.stringify([storeGuid])),
             supabase.from('toast_jobs').select('*'),
             supabase.from('shifts')
                 .select('*')
                 .eq('store_id', storeGuid)
                 .gte('shift_date', startStr)
-                .lte('shift_date', endStr)
+                .lte('shift_date', endStr),
+            supabase.from('station_assignments')
+                .select('employee_id, assignment_date, main_station, sub_position, station_group')
+                .eq('store_id', storeGuid)
+                .eq('assignment_date', dateStr),
+            supabase.from('break_manual_overrides')
+                .select('*')
+                .eq('store_id', storeGuid)
+                .order('created_at', { ascending: false })
+                .limit(3000)
         ]);
 
-        const allEmpData = empRes.data as Employee[] || []
-        const jobs = jobsRes.data as Job[] || []
+        let allEmpData = (empRes.data as Employee[]) || []
+        const jobs = (jobsRes.data as Job[]) || []
         setAllJobs(jobs)
-        const weekShifts = weekShiftsRes.data as Shift[] || []
+        const weekShifts = (weekShiftsRes.data as Shift[]) || []
+        const stationAssignments = stationRes.data || []
+        const learnedPrefs = (prefRes.data as LearnedPreference[]) || []
+
+        // 2b. Suplementar empleados prestados de otras tiendas que tengan turno esta semana
+        const knownEmpIds = new Set(allEmpData.map(e => String(e.id)))
+        const missingShiftEmpIds = Array.from(
+            new Set(
+                weekShifts
+                    .map(s => (s.employee_id != null ? String(s.employee_id) : ''))
+                    .filter(id => id !== '' && !knownEmpIds.has(id))
+            )
+        )
+        if (missingShiftEmpIds.length > 0) {
+            const { data: borrowedEmps } = await supabase
+                .from('toast_employees')
+                .select('*')
+                .in('id', missingShiftEmpIds)
+            if (borrowedEmps && borrowedEmps.length > 0) {
+                allEmpData = [...allEmpData, ...(borrowedEmps as Employee[])]
+            }
+        }
 
         // 3. Reconstruir la lista exacta de empleados activos que usa el planificador
-        const ALLOWED_ROLES = ['manager', 'shift', 'cook', 'cocinero', 'cashier', 'cajero', 'prep', 'taquero', 'assistant', 'asst'];
+        const ALLOWED_ROLES = ['manager', 'shift', 'cook', 'cocinero', 'cashier', 'cajero', 'prep', 'taquero', 'assistant', 'asst', 'encargado', 'lider', 'lead'];
 
         const storeEmployees = allEmpData.filter((e: any) => {
+            const hasShiftThisWeek = weekShifts.some(s => String(s.employee_id) === String(e.id))
+            if (hasShiftThisWeek) return true
+
             let empStoreIds: string[] = []
             if (Array.isArray(e.store_ids)) {
                 empStoreIds = e.store_ids
@@ -973,7 +1145,7 @@ export default function DescansosPage() {
             for (const guid of Array.from(empJobGuids)) {
                 const job = jobs.find(j => j.guid === guid || String(j.id) === guid);
                 if (job && job.title) {
-                    const titleLower = job.title.toLowerCase();
+                    const titleLower = normalizeRoleString(job.title);
                     if (ALLOWED_ROLES.some(role => titleLower.includes(role))) {
                         hasAllowedRole = true;
                         break;
@@ -984,30 +1156,38 @@ export default function DescansosPage() {
         });
 
         const sortedVisibleEmployees = visibleEmployees.sort((a, b) => {
-            const getTitle = (e: Employee) => {
+            const getTitle = (e: Employee, empShifts: Shift[]) => {
+                const todayS = empShifts.find(s => s.shift_date === dateStr)
+                if (todayS) {
+                    const resolved = resolveShiftRoleTitle(todayS, e, jobs)
+                    if (resolved) return resolved
+                }
                 const ref = e.job_references?.[0];
                 if (!ref) return '';
+                if ((ref as any).title) return (ref as any).title;
                 const j = jobs.find(job => job.guid === ref.guid || String(job.id) === ref.guid);
                 return j?.title || '';
             }
-            const shiftsA = weekShifts.filter(s => s.employee_id == a.id);
-            const shiftsB = weekShifts.filter(s => s.employee_id == b.id);
-            const weightA = getRoleWeight(getTitle(a), shiftsA);
-            const weightB = getRoleWeight(getTitle(b), shiftsB);
+            const shiftsA = weekShifts.filter(s => String(s.employee_id) === String(a.id));
+            const shiftsB = weekShifts.filter(s => String(s.employee_id) === String(b.id));
+            const weightA = getRoleWeight(getTitle(a, shiftsA), shiftsA);
+            const weightB = getRoleWeight(getTitle(b, shiftsB), shiftsB);
 
             if (weightA !== weightB) return weightA - weightB;
             return (a.chosen_name || a.first_name || '').localeCompare(b.chosen_name || b.first_name || '');
         });
 
         const rosterWithoutManagers = sortedVisibleEmployees.filter(emp => {
-            const ref = emp.job_references?.[0];
-            const j = jobs.find(job => job.guid === ref?.guid || String(job.id) === ref?.guid);
-            const jobTitle = (j?.title || '').toLowerCase();
-            const isGeneralManager = (jobTitle.includes('manager') || jobTitle.includes('gerente')) &&
-                !jobTitle.includes('assist') &&
-                !jobTitle.includes('asst') &&
-                !jobTitle.includes('shift');
-            return !isGeneralManager;
+            const todayS = weekShifts.find(s => s.shift_date === dateStr && String(s.employee_id) === String(emp.id));
+            const titleToCheck = todayS
+                ? resolveShiftRoleTitle(todayS, emp, jobs)
+                : (() => {
+                    const ref = emp.job_references?.[0];
+                    if ((ref as any)?.title) return (ref as any).title;
+                    const j = jobs.find(job => job.guid === ref?.guid || String(job.id) === ref?.guid);
+                    return j?.title || '';
+                })();
+            return !isGeneralManagerRole(titleToCheck);
         });
 
         setRosterEmployees(rosterWithoutManagers);
@@ -1015,10 +1195,13 @@ export default function DescansosPage() {
         const todayRawShifts = weekShifts.filter(s => s.shift_date === dateStr);
         setTodayShifts(todayRawShifts);
 
-        // Inicializar snapshot del polling con el estado actual de la BD
-        // para que el primer poll detecte cambios inmediatamente (no tenga que esperar 2 ciclos)
+        // Inicializar snapshot del polling ordenado por ID para evitar falsos positivos por ordenamiento MVCC en Postgres
         lastPolledDbRef.current = JSON.stringify(
-            todayRawShifts.map(s => ({ id: s.id, bs: (s as any).breaks_schedule, ic: (s as any).is_callback }))
+            todayRawShifts
+                .filter(s => s.id != null)
+                .slice()
+                .sort((a, b) => String(a.id).localeCompare(String(b.id)))
+                .map(s => ({ id: s.id, bs: (s as any).breaks_schedule, ic: (s as any).is_callback }))
         );
 
         const dbAbsentees = todayRawShifts
@@ -1030,18 +1213,17 @@ export default function DescansosPage() {
         }
 
         const hydratedAbsentSet = new Set(dbAbsentees);
-        
-        // ── 🧠 AI LEARNING: Cargar preferencias manuales del gerente ──
-        const { data: prefData } = await supabase
-            .from('break_manual_overrides')
-            .select('*')
-            .eq('store_id', storeGuid);
-        const learnedPrefs = prefData || [];
+
         try {
-            // --- 🧠 DEEP ARCHITECTURE: RENDERIZADO PROGRESIVO ---
+            // --- 🧠 DEEP ARCHITECTURE: RENDERIZADO PROGRESIVO + AUTO-SINCRONIZACIÓN ---
             const alreadyCalculated = todayRawShifts.some((s: any) => s.breaks_schedule && s.breaks_schedule.length > 0);
-            
-            // Definimos la tarea lenta (Toast API y Projections) que no bloquea la interfaz si hay Bypass
+            const missingBreakCount = todayRawShifts.filter((s: any) => {
+                if (s.employee_id !== null && hydratedAbsentSet.has(String(s.employee_id))) return false;
+                const durHrs = getWallClockDurationHours(new Date(s.start_time).getTime(), new Date(s.end_time).getTime());
+                return durHrs >= 3.5 && (!s.breaks_schedule || s.breaks_schedule.length === 0) && s.id != null;
+            }).length;
+
+            // Tarea lenta (Toast API y Projections) que no bloquea la interfaz cuando el día completo ya está en caché
             const fetchSlowData = async () => {
                 const authToken = typeof window !== 'undefined' ? (localStorage.getItem('teg_token') || '') : ''
                 const [_, projData] = await Promise.all([
@@ -1076,28 +1258,64 @@ export default function DescansosPage() {
                 return hoursToDraw;
             };
 
-            if (alreadyCalculated) {
-                // RUTA RÁPIDA (Bypass): Quitamos el cuadro de carga instantáneamente.
-                const data = { shifts: todayRawShifts, hours: [], employees: allEmpData as Employee[], jobs: jobs, learnedPrefs };
+            if (alreadyCalculated && missingBreakCount === 0) {
+                // RUTA RÁPIDA (Bypass): Quitamos el cuadro de carga instantáneamente (<150ms)
+                const data = {
+                    shifts: todayRawShifts,
+                    hours: [],
+                    employees: allEmpData as Employee[],
+                    jobs: jobs,
+                    learnedPrefs,
+                    stationAssignments
+                };
                 lastDataRef.current = data;
                 await triggerAiRecalculation(hydratedAbsentSet, data, false, false, isRealtimeReload);
-                setCalculating(false); // ¡PANTALLA LIBERADA EN ~150ms!
-                
-                // Cargamos el Heatmap y Toast en segundo plano sin bloquear al usuario
+                setCalculating(false);
+
+                // Cargar Heatmap y Toast en segundo plano; si es hoy o futuro y existen preferencias más recientes
+                // para este día de la semana que la creación del turno pre-publicado, sincronizar silenciosamente
                 fetchSlowData()
                     .then((loadedHours) => {
-                        if (lastDataRef.current) lastDataRef.current.hours = loadedHours; // Por si oprime "Recalcular" después
+                        if (lastDataRef.current) lastDataRef.current.hours = loadedHours;
+                        if (!isRealtimeReload && dateStr >= getCurrentCaliforniaBusinessDateStr()) {
+                            const targetDow = getLocalDayOfWeek(new Date(dateStr + 'T12:00:00').getTime());
+                            const shiftCreatedMs = todayRawShifts
+                                .map((s: any) => (s.created_at ? new Date(s.created_at).getTime() : 0))
+                                .filter((ms: number) => ms > 0);
+                            const oldestShiftCreated = shiftCreatedMs.length > 0 ? Math.min(...shiftCreatedMs) : 0;
+                            const hasNewerOverrideForDay = oldestShiftCreated > 0 && learnedPrefs.some(p => {
+                                if (p.day_of_week !== targetDow) return false;
+                                const ts = p.updated_at || p.created_at;
+                                return ts ? new Date(ts).getTime() > oldestShiftCreated : false;
+                            });
+                            if (hasNewerOverrideForDay && lastDataRef.current) {
+                                void triggerAiRecalculation(
+                                    hydratedAbsentSet,
+                                    { ...lastDataRef.current, hours: loadedHours },
+                                    false,
+                                    true,
+                                    false,
+                                    undefined,
+                                    true
+                                );
+                            }
+                        }
                     })
                     .catch(e => console.error("Error en carga de fondo:", e));
             } else {
+                // Día nuevo o con turnos walk-in sin descansos: esperar curvas reales de demanda antes de calcular
                 const hoursData = await fetchSlowData();
                 setOperatingHours(hoursData);
-                const fullData = { shifts: todayRawShifts, hours: hoursData, employees: allEmpData as Employee[], jobs: jobs, learnedPrefs };
+                const fullData = {
+                    shifts: todayRawShifts,
+                    hours: hoursData,
+                    employees: allEmpData as Employee[],
+                    jobs: jobs,
+                    learnedPrefs,
+                    stationAssignments
+                };
                 lastDataRef.current = fullData;
-
-                if (!alreadyCalculated) {
-                    triggerAiRecalculation(hydratedAbsentSet, fullData, false, false, isRealtimeReload);
-                }
+                await triggerAiRecalculation(hydratedAbsentSet, fullData, false, false, isRealtimeReload);
             }
         } catch (error) {
             console.error("Error en la cadena principal de loadDayData:", error);
@@ -1125,9 +1343,12 @@ export default function DescansosPage() {
                     filter: `store_id=eq.${storeGuid}`
                 }, (payload: any) => {
                     if (payload.new.shift_date === dateStr) {
-                        // DEBOUNCE: Si vienen varios cambios seguidos, solo re-cargamos una vez al final
+                        // Ignorar auto-ecos generados por mutaciones locales recientes (< 4s)
+                        if (Date.now() - lastLocalMutationAtRef.current < 4000) return;
+
                         if (rebalanceTimer) clearTimeout(rebalanceTimer);
                         rebalanceTimer = setTimeout(() => {
+                            if (Date.now() - lastLocalMutationAtRef.current < 4000) return;
                             const hasBreaksChange = payload.old?.breaks_schedule !== payload.new?.breaks_schedule;
                             setAiStatus({ 
                                 message: hasBreaksChange 
@@ -1146,7 +1367,6 @@ export default function DescansosPage() {
 
         return () => {
             if (channel) {
-                // We use a separate async cleanup if needed, but simple channel removal works
                 const supabaseAsync = getSupabaseClient()
                 supabaseAsync.then(s => s.removeChannel(channel))
             }
@@ -1154,12 +1374,12 @@ export default function DescansosPage() {
     }, [storeGuid, dateStr])
 
     // --- POLLING BIDIRECCIONAL: Cada 10s verifica cambios en Supabase (PC ↔ Tableta) ---
-    // Compara snapshot-BD-anterior vs snapshot-BD-actual (NO contra smartShifts)
-    // para evitar falsos positivos por los turnos de ausentes inyectados con breaks_schedule=[].
+    // Compara snapshot-BD-anterior vs snapshot-BD-actual ordenado por ID
     useEffect(() => {
         if (!storeGuid || !dateStr) return;
 
         const pollInterval = setInterval(async () => {
+            if (Date.now() - lastLocalMutationAtRef.current < 4000) return;
             try {
                 const supabase = await getSupabaseClient();
                 const { data: freshShifts } = await supabase
@@ -1170,9 +1390,13 @@ export default function DescansosPage() {
 
                 if (!freshShifts || freshShifts.length === 0) return;
 
-                // Serializar el snapshot actual de la BD
+                // Serializar el snapshot actual de la BD ordenado por ID
                 const freshSnapshot = JSON.stringify(
-                    freshShifts.map(s => ({ id: s.id, bs: s.breaks_schedule, ic: s.is_callback }))
+                    freshShifts
+                        .filter(s => s.id != null)
+                        .slice()
+                        .sort((a, b) => String(a.id).localeCompare(String(b.id)))
+                        .map(s => ({ id: s.id, bs: s.breaks_schedule, ic: s.is_callback }))
                 );
 
                 // Primera vez: guardar snapshot y salir (no hay con qué comparar)
@@ -1246,25 +1470,26 @@ export default function DescansosPage() {
 
     const getTimelinePosition = (isoTimeString: string) => {
         if (!isoTimeString) return 0
-        const d = new Date(isoTimeString)
-        let h = d.getHours()
+        const { hour: rawH, minute: m } = getLocalHourMinute(new Date(isoTimeString).getTime())
+        let h = rawH
         if (h < START_HOUR) h += 24
-        const m = d.getMinutes()
         const totalMinutes = (h - START_HOUR) * 60 + m
         return Math.max(0, Math.min(100, (totalMinutes / (TOTAL_HOURS * 60)) * 100))
     }
 
     const getTimelineWidth = (startIso: string, endIso: string) => {
         if (!startIso) return 0
-        const s = new Date(startIso)
-        const e = endIso ? new Date(endIso) : new Date()
-        let sH = s.getHours()
+        const sMs = new Date(startIso).getTime()
+        const eMs = endIso ? new Date(endIso).getTime() : Date.now()
+        const { hour: rawSH, minute: sMin } = getLocalHourMinute(sMs)
+        const { hour: rawEH, minute: eMin } = getLocalHourMinute(eMs)
+        let sH = rawSH
         if (sH < START_HOUR) sH += 24
-        let eH = e.getHours()
+        let eH = rawEH
         if (eH < START_HOUR) eH += 24
-        if (eH < sH) eH += 24
+        if (eH < sH || (eH === sH && eMin < sMin)) eH += 24
 
-        const durationMins = ((eH - sH) * 60) + e.getMinutes() - s.getMinutes()
+        const durationMins = ((eH - sH) * 60) + eMin - sMin
         return Math.max(0, Math.min(100, (durationMins / (TOTAL_HOURS * 60)) * 100))
     }
 
@@ -1663,10 +1888,8 @@ export default function DescansosPage() {
                                             {emp.first_name} {emp.last_name}
                                         </div>
                                         {(() => {
-                                            // Resolver el título del puesto
-                                            const ref = emp.job_references?.[0];
-                                            const jobMatch = ref ? allJobs.find(j => j.guid === ref.guid || String(j.id) === ref.guid) : null;
-                                            const jobTitle = jobMatch?.title || (shift as any)?.job_title || '';
+                                            // Resolver el título real del puesto asignado al turno de hoy (priorizando shift.job_id)
+                                            const jobTitle = resolveShiftRoleTitle(shift || {}, emp, allJobs) || (shift as any)?.job_title || '';
                                             return jobTitle ? (
                                                 <div className="text-xs font-bold text-blue-500 truncate mt-0.5 uppercase tracking-wide">
                                                     {jobTitle}
@@ -1677,17 +1900,17 @@ export default function DescansosPage() {
                                             <div className="text-sm text-slate-400 font-bold mt-0.5">OFF</div>
                                         ) : isAbsent ? (
                                             <div className="text-sm text-red-400 font-bold mt-1 flex items-center gap-1.5">
-                                                <span>{new Date(shift.start_time).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })} - {new Date(shift.end_time).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}</span>
+                                                <span>{new Date(shift.start_time).toLocaleTimeString('en-US', { timeZone: 'America/Los_Angeles', hour: '2-digit', minute: '2-digit' })} - {new Date(shift.end_time).toLocaleTimeString('en-US', { timeZone: 'America/Los_Angeles', hour: '2-digit', minute: '2-digit' })}</span>
                                                 <span className="bg-red-100 text-red-600 text-[10px] font-black px-2 py-0.5 rounded-full uppercase tracking-wider border border-red-200">Ausente</span>
                                             </div>
                                         ) : (
                                             <div className="text-sm text-slate-600 font-bold mt-1">
-                                                {new Date(shift.start_time).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })} - {new Date(shift.end_time).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+                                                {new Date(shift.start_time).toLocaleTimeString('en-US', { timeZone: 'America/Los_Angeles', hour: '2-digit', minute: '2-digit' })} - {new Date(shift.end_time).toLocaleTimeString('en-US', { timeZone: 'America/Los_Angeles', hour: '2-digit', minute: '2-digit' })}
                                             </div>
                                         )}
                                         {showRealPunches && empPunch && (
                                             <div className="text-xs text-cyan-600 mt-1 uppercase font-bold">
-                                                Toast: {new Date(empPunch.clock_in).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+                                                Toast: {new Date(empPunch.clock_in).toLocaleTimeString('en-US', { timeZone: 'America/Los_Angeles', hour: '2-digit', minute: '2-digit' })}
                                             </div>
                                         )}
                                     </div>
@@ -1885,9 +2108,9 @@ export default function DescansosPage() {
                             const shift = smartShifts.find(s => String(s.employee_id) === String(absentModalEmp.id));
                             if (!shift) return <div className="text-slate-500 font-bold mb-6">Empleado sin turno programado hoy.</div>;
 
-                            const shiftStartStr = new Date(shift.start_time).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
-                            const shiftEndStr = new Date(shift.end_time).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
-                            const shiftDurHrs = ((new Date(shift.end_time).getTime() - new Date(shift.start_time).getTime()) / 3600000).toFixed(1);
+                            const shiftStartStr = new Date(shift.start_time).toLocaleTimeString('en-US', { timeZone: 'America/Los_Angeles', hour: '2-digit', minute: '2-digit' });
+                            const shiftEndStr = new Date(shift.end_time).toLocaleTimeString('en-US', { timeZone: 'America/Los_Angeles', hour: '2-digit', minute: '2-digit' });
+                            const shiftDurHrs = getWallClockDurationHours(new Date(shift.start_time).getTime(), new Date(shift.end_time).getTime()).toFixed(1);
 
                             return (
                                 <div className="mb-6">
@@ -1926,7 +2149,7 @@ export default function DescansosPage() {
                                                         <div className="flex items-center gap-2 font-bold text-slate-800 text-sm">
                                                             <span>{b.type === 'meal_30' ? '🍽️ Lunch 30m' : '☕ Break 10m'}</span>
                                                             <span className="text-slate-500">
-                                                                ({new Date(b.start_time).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })} - {new Date(b.end_time).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })})
+                                                                ({new Date(b.start_time).toLocaleTimeString('en-US', { timeZone: 'America/Los_Angeles', hour: 'numeric', minute: '2-digit' })} - {new Date(b.end_time).toLocaleTimeString('en-US', { timeZone: 'America/Los_Angeles', hour: 'numeric', minute: '2-digit' })})
                                                             </span>
                                                             {b.is_manual && <span className="text-xs text-blue-600 font-normal">📌 manual</span>}
                                                         </div>
@@ -2060,23 +2283,29 @@ function DraggableBreakBlock({ b, idx, shift, isMeal, relativeLeft, relativeWidt
         const shiftStartMs = new Date(shift.start_time).getTime();
         const shiftEndMs = new Date(shift.end_time).getTime();
 
-        if (isMeal && displayStartMs > shiftStartMs + (5 * 3600000)) {
-            conflictReasons.push('⚠️ Meal Penalty (>5h)');
+        if (isMeal && displayStartMs >= shiftStartMs + (5 * 3600000)) {
+            conflictReasons.push('⚠️ Meal Penalty (>=5h)');
         }
         if (displayStartMs < shiftStartMs || displayEndMs > shiftEndMs) {
             conflictReasons.push('❌ Fuera del turno');
         }
 
-        const myRole = ((shift as any).job_title || shift.job_id || '').toString().toLowerCase().trim();
+        const myRole = normalizeRoleString((shift as any).job_title || shift.job_id || '');
+        const amLeader = !!(shift as any).is_leader;
         for (const other of allShifts) {
-            if (other.id === shift.id) continue;
-            const otherRole = ((other as any).job_title || other.job_id || '').toString().toLowerCase().trim();
-            if (myRole !== otherRole) continue;
+            if (other.id === shift.id || (other as any)._isAbsent) continue;
+            const otherRole = normalizeRoleString((other as any).job_title || other.job_id || '');
+            const bothLeaders = amLeader && !!(other as any).is_leader;
+            if (myRole !== otherRole && !bothLeaders) continue;
             for (const ob of other.breaks_schedule || []) {
                 const os = new Date(ob.start_time).getTime();
                 const oe = new Date(ob.end_time).getTime();
                 if (displayStartMs < oe && displayEndMs > os) {
-                    conflictReasons.push(`🔴 ${(other as any).employee_name || 'Otro'} mismo rol`);
+                    conflictReasons.push(
+                        bothLeaders && myRole !== otherRole
+                            ? `🔴 ${(other as any).employee_name || 'Líder'} en descanso`
+                            : `🔴 ${(other as any).employee_name || 'Otro'} mismo rol`
+                    );
                     break;
                 }
             }
@@ -2122,7 +2351,7 @@ function DraggableBreakBlock({ b, idx, shift, isMeal, relativeLeft, relativeWidt
             }}
             onDoubleClick={(e: React.MouseEvent) => {
                 e.stopPropagation();
-                if (isManual && !isTabletMode) {
+                if (!isTabletMode) {
                     handleResetBreakToAI(shift, idx);
                 }
             }}
@@ -2141,9 +2370,16 @@ function DraggableBreakBlock({ b, idx, shift, isMeal, relativeLeft, relativeWidt
             )}
             {/* Tooltip dinámico */}
             <div className={`absolute -top-14 left-1/2 -translate-x-1/2 ${tooltipBg} text-white text-[13px] font-bold px-3 py-1.5 rounded-lg whitespace-nowrap shadow-lg pointer-events-none transition-all duration-100 ${isDragging ? 'opacity-100 z-[100] scale-105' : 'opacity-0 z-[80] group-hover/break:opacity-100 group-focus/break:opacity-100 scale-100'}`}>
-                {isMeal ? '🍽️ Meal' : '☕ Break'} → {displayDate.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
+                {isMeal ? '🍽️ Meal' : '☕ Break'} → {displayDate.toLocaleTimeString('en-US', { timeZone: 'America/Los_Angeles', hour: 'numeric', minute: '2-digit' })}
                 {!isDragging && isManual && !isTabletMode && <span className="text-blue-300 ml-1">(manual)</span>}
-                {!isDragging && isManual && !isTabletMode && <><br /><span className="text-[11px] text-blue-200 font-normal">Doble clic para restaurar IA</span></>}
+                {!isDragging && !isTabletMode && (
+                    <>
+                        <br />
+                        <span className="text-[11px] text-blue-200 font-normal">
+                            {isManual ? 'Doble clic para restaurar IA' : 'Doble clic para re-calcular IA'}
+                        </span>
+                    </>
+                )}
                 {isDragging && hasConflict && (
                     <>
                         <br />

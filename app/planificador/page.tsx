@@ -26,6 +26,7 @@
  * - Optimized employee loading to filter via jsonb contains directly in database (160ms vs 407ms).
  * - Fixed past-midnight shift cloning bug preventing 24-hour backward regression.
  * - Shifts are not marked published until Gmail notification dispatch succeeds, preventing lockout.
+ * - Resets `breaks_schedule: []` when cloning weeks, dragging/dropping shifts, or editing shift times/employee/role so Motor V30 Universal recalculates fresh breaks using latest `break_manual_overrides`.
  */
 
 import { useState, useEffect, useMemo, useRef } from 'react'
@@ -895,6 +896,20 @@ export default function SchedulePlanner() {
             if (typeof payload.start_time === 'object') payload.start_time = (payload.start_time as Date).toISOString()
             if (typeof payload.end_time === 'object') payload.end_time = (payload.end_time as Date).toISOString()
 
+            const isNewShift = !s.id || String(s.id).startsWith('temp-')
+            const existing = !isNewShift ? shifts.find(prev => String(prev.id) === String(s.id)) : undefined
+            const scheduleChanged =
+                isNewShift ||
+                !existing ||
+                new Date(existing.start_time).getTime() !== new Date(payload.start_time).getTime() ||
+                new Date(existing.end_time).getTime() !== new Date(payload.end_time).getTime() ||
+                String(existing.employee_id || '') !== String(payload.employee_id || '') ||
+                String(existing.job_id || '') !== String(payload.job_id || '')
+
+            if (scheduleChanged) {
+                payload.breaks_schedule = []
+            }
+
             if (payload.start_time) {
                 const d = new Date(payload.start_time)
                 const laParts = new Intl.DateTimeFormat('en-US', {
@@ -1283,20 +1298,8 @@ export default function SchedulePlanner() {
                 const targetBusinessDate = addDays(origBusinessDate, daysDiff)
                 const dateStr = formatDateISO(targetBusinessDate)
 
-                // Shift breaks_schedule timestamps forward by daysDiff if present
-                let newBreaks = null
-                if (Array.isArray(s.breaks_schedule) && s.breaks_schedule.length > 0) {
-                    newBreaks = s.breaks_schedule.map((b: any) => {
-                        if (!b) return b
-                        const shiftedBreak: any = { ...b }
-                        if (b.start) shiftedBreak.start = addDays(new Date(b.start), daysDiff).toISOString()
-                        if (b.end) shiftedBreak.end = addDays(new Date(b.end), daysDiff).toISOString()
-                        if (b.inDate) shiftedBreak.inDate = addDays(new Date(b.inDate), daysDiff).toISOString()
-                        if (b.outDate) shiftedBreak.outDate = addDays(new Date(b.outDate), daysDiff).toISOString()
-                        return shiftedBreak
-                    })
-                }
-
+                // Limpiar breaks_schedule al clonar borradores para que al publicar o abrir /descansos
+                // el Motor V30 Universal aplique las últimas preferencias aprendidas con fechas reales de la nueva semana
                 return {
                     employee_id: s.employee_id,
                     job_id: s.job_id,
@@ -1306,7 +1309,7 @@ export default function SchedulePlanner() {
                     shift_date: dateStr,
                     is_open: s.is_open,
                     notes: s.notes || null,
-                    breaks_schedule: newBreaks,
+                    breaks_schedule: [],
                     status: 'draft'
                 }
             })
@@ -1626,7 +1629,8 @@ export default function SchedulePlanner() {
             shift_date: targetDateStr,
             status: 'draft',
             is_open: !targetEmpId,
-            notes: draggedShift.notes
+            notes: draggedShift.notes,
+            breaks_schedule: []
         }
 
         if (isCopy) {

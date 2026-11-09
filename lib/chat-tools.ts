@@ -56,7 +56,12 @@
 import { supabaseAdmin } from '@/lib/supabase'
 import { calculateIngredientCost, type InventoryCostData } from '@/lib/inventory/recipe-calculations'
 import { generateSmartForecast } from '@/lib/intelligence'
-import { scheduleBreaksWithDemand } from '@/lib/breaks-engine'
+import {
+  scheduleBreaksWithDemand,
+  resolveShiftRoleTitle,
+  resolveShiftIsLeader,
+  resolveShiftStationSummary,
+} from '@/lib/breaks-engine'
 import { getRonosStoreAudit, getRonosChainWideAudit, RONOS_STORES_MAP } from '@/lib/ronos-api'
 import { calculateCingularPayrollReport } from '@/lib/payroll-calculator'
 import { calculateTicketPackaging, type ToastTicketSelection } from '@/lib/inventory/ticket-packaging'
@@ -2018,8 +2023,18 @@ async function calculateBreaks(args: any): Promise<string> {
     if (shiftErr) return `Database error fetching shifts: ${shiftErr.message}`
     if (!dbShifts?.length) return `No scheduled shifts found for ${storeName} on ${targetDate}. Breaks can only be calculated for scheduled days.`
     
-    const { data: employees } = await supabaseAdmin.from('toast_employees').select('*')
-    const { data: jobs } = await supabaseAdmin.from('toast_jobs').select('*')
+    const shiftEmpIds = [...new Set(dbShifts.map(s => s.employee_id).filter(Boolean))]
+    const [{ data: employees }, { data: jobs }, { data: stationRows }] = await Promise.all([
+      shiftEmpIds.length > 0
+        ? supabaseAdmin.from('toast_employees').select('*').in('id', shiftEmpIds)
+        : Promise.resolve({ data: [] as any[] }),
+      supabaseAdmin.from('toast_jobs').select('*'),
+      supabaseAdmin
+        .from('station_assignments')
+        .select('employee_id, assignment_date, main_station, sub_position, station_group')
+        .eq('store_id', storeExtId)
+        .eq('assignment_date', targetDate),
+    ])
     
     const forecast = await generateSmartForecast(storeId, targetDate)
     const hours = forecast.hours || []
@@ -2027,31 +2042,18 @@ async function calculateBreaks(args: any): Promise<string> {
     const presentShifts = dbShifts.filter(s => s.employee_id !== null && s.is_callback !== true)
     
     const shiftsForAi = presentShifts.map(s => {
-      const emp = (employees || []).find(e => e.id === s.employee_id || e.toast_guid === s.employee_toast_guid)
-      let extTitle = ''
-      if (emp && emp.job_references && emp.job_references.length > 0) {
-        const jobRef = emp.job_references[0]
-        if (jobRef.title) extTitle = jobRef.title
-        else {
-          const job = (jobs || []).find(j => j.guid === jobRef.guid || String(j.id) === jobRef.guid)
-          if (job) extTitle = job.title
-        }
-      }
-      if (!extTitle) {
-        const shiftJob = (jobs || []).find(j => j.guid === s.job_id || String(j.id) === String(s.job_id))
-        if (shiftJob) extTitle = shiftJob.title
-      }
-      if (!extTitle && emp) extTitle = 'cook'
-      
-      const titleLowerCase = extTitle.toLowerCase()
-      const employeeName = emp ? `${emp.first_name} ${emp.last_name}` : 'Unknown Staff'
-      const isLeader = titleLowerCase.includes('manager') || titleLowerCase.includes('asst') || titleLowerCase.includes('shift') || titleLowerCase.includes('lead') || titleLowerCase.includes('asistente') || titleLowerCase.includes('assistant') || titleLowerCase.includes('encargado') || employeeName.toLowerCase().includes('manager')
+      const emp = (employees || []).find(e => String(e.id) === String(s.employee_id) || (e.toast_guid && e.toast_guid === s.employee_toast_guid))
+      const extTitle = resolveShiftRoleTitle(s, emp, jobs || []) || (emp ? 'cook' : '')
+      const employeeName = emp ? `${emp.first_name || ''} ${emp.last_name || ''}`.replace(/\s+/g, ' ').trim() : 'Unknown Staff'
+      const isLeader = resolveShiftIsLeader(extTitle)
+      const stationName = resolveShiftStationSummary(s, stationRows || [])
       
       return {
         ...s,
         is_leader: isLeader,
         job_title: extTitle,
-        employee_name: employeeName
+        employee_name: employeeName,
+        station_name: stationName,
       }
     })
     
@@ -2059,6 +2061,8 @@ async function calculateBreaks(args: any): Promise<string> {
       .from('break_manual_overrides')
       .select('*')
       .in('store_id', [storeExtId, storeId])
+      .order('created_at', { ascending: false })
+      .limit(3000)
       
     const learnedPrefs = prefData || []
     
@@ -2067,7 +2071,7 @@ async function calculateBreaks(args: any): Promise<string> {
     const lines = [
       `📅 **California-Compliant AI Breaks Schedule for ${storeName} on ${targetDate}**`,
       `========================================================================`,
-      `🤖 *Processed by TEG AI Breaks Engine V25 (Strict spacing & Peak-aware)*`,
+      `🤖 *Processed by TEG AI Breaks Engine V30 Universal (Employee-Memory, Multi-Store & Peak-Aware)*`,
       ``,
       `| Employee | Position | Shift Hours | Scheduled Lunches & Breaks |`,
       `| :--- | :--- | :--- | :--- |`

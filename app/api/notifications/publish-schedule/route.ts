@@ -20,8 +20,13 @@
  *      (Slauson activa en piloto; las 15 sucursales 100% soportadas y verificables).
  *
  * @dataFlow
- * - Reads: `stores`, `shifts`, `toast_employees`, `station_assignments`, `position_activities`, `operating_procedures`.
+ * - Reads: `stores`, `shifts`, `toast_employees`, `station_assignments`, `position_activities`, `operating_procedures`, `break_manual_overrides`.
  * - Writes (solo cuando `preview_only !== true`): `shifts.status = 'published'`, `shifts.breaks_schedule`, `schedules` sync.
+ *
+ * @notes
+ * - Motor V30 Universal de Descansos IA integrado al publicar: prioriza el rol real del turno (`s.job_id`),
+ *   resuelve estaciones operativas desde `station_assignments`, carga hasta 3,000 preferencias ordenadas por `created_at DESC`
+ *   y congela como anclas los descansos de compañeros ya publicados cuando se ejecuta una publicación parcial.
  */
 
 import { NextResponse } from 'next/server'
@@ -32,7 +37,13 @@ import autoTable from 'jspdf-autotable'
 import path from 'path'
 import fs from 'fs'
 import { generateSmartForecast } from '@/lib/intelligence'
-import { scheduleBreaksWithDemand, LearnedPreference } from '@/lib/breaks-engine'
+import {
+    scheduleBreaksWithDemand,
+    LearnedPreference,
+    resolveShiftRoleTitle,
+    resolveShiftIsLeader,
+    resolveShiftStationSummary,
+} from '@/lib/breaks-engine'
 import {
     generateScheduleICS,
     buildGoogleCalendarUrl,
@@ -458,7 +469,12 @@ export async function POST(req: Request) {
                 },
             }),
             supabase.from('toast_jobs').select('*'),
-            supabase.from('break_manual_overrides').select('*').eq('store_id', resolvedStoreGuid),
+            supabase
+                .from('break_manual_overrides')
+                .select('*')
+                .eq('store_id', resolvedStoreGuid)
+                .order('created_at', { ascending: false })
+                .limit(3000),
             supabase
                 .from('position_activities')
                 .select('id, position_key, activity_id, shift, frequency, store_model'),
@@ -486,7 +502,7 @@ export async function POST(req: Request) {
         const positionActivities = posActRes.data || []
         const allProcedures = procRes.data || []
 
-        // 5. SMART BREAKS GENERATION (solo muta DB cuando previewOnly === false)
+        // 5. SMART BREAKS GENERATION — MOTOR V30 UNIVERSAL (solo muta DB cuando previewOnly === false)
         const learnedPrefs: LearnedPreference[] = storeOverrides.map((o: any) => ({
             role: o.role,
             day_of_week: o.day_of_week,
@@ -496,9 +512,11 @@ export async function POST(req: Request) {
             shift_duration_min: o.shift_duration_min,
             peak_hour: o.peak_hour,
             updated_at: o.updated_at || o.created_at || null,
+            created_at: o.created_at || null,
         }))
 
         if (!previewOnly && shifts.length > 0) {
+            const publishedShiftIdSet = new Set(shifts.map((ls: any) => String(ls.id)))
             const datesToProcess = [...new Set(shifts.map((s: any) => s.shift_date))]
             for (const dateStr of datesToProcess) {
                 try {
@@ -511,45 +529,41 @@ export async function POST(req: Request) {
 
                     const { hours: hoursToDraw } = await generateSmartForecast(resolvedStoreGuid, dateStr)
                     const dayEmpIds = [...new Set(dayShifts.map((s: any) => s.employee_id).filter(Boolean))]
-                    const { data: dayEmployees } = await supabase
-                        .from('toast_employees')
-                        .select('*')
-                        .in('id', dayEmpIds)
+                    const { data: dayEmployees } = dayEmpIds.length > 0
+                        ? await supabase.from('toast_employees').select('*').in('id', dayEmpIds)
+                        : { data: [] }
+
+                    const dayStationRows = stationAssignments.filter((a: any) => a.assignment_date === dateStr)
 
                     const shiftsForAi = dayShifts
                         .filter((s: any) => s.is_callback !== true)
                         .map((s: any) => {
                             const emp = (dayEmployees || []).find(
-                                (e: any) => e.id === s.employee_id || e.toast_guid === s.employee_toast_guid
+                                (e: any) => String(e.id) === String(s.employee_id) || (e.toast_guid && e.toast_guid === s.employee_toast_guid)
                             )
-                            let extTitle = ''
-                            if (emp?.job_references?.[0]) {
-                                const job = allJobs.find((j: any) => j.guid === emp.job_references[0].guid)
-                                if (job) extTitle = job.title
-                            }
-                            if (!extTitle && s.job_id) {
-                                const shiftJob = allJobs.find(
-                                    (j: any) => j.guid === s.job_id || String(j.id) === String(s.job_id)
-                                )
-                                if (shiftJob) extTitle = shiftJob.title
-                            }
-
-                            const titleLower = extTitle.toLowerCase()
+                            const extTitle = resolveShiftRoleTitle(s, emp, allJobs) || (emp ? 'cook' : '')
                             const empNameLower = emp
-                                ? `${emp.first_name} ${emp.last_name}`.toLowerCase()
+                                ? `${emp.first_name || ''} ${emp.last_name || ''}`.replace(/\s+/g, ' ').trim().toLowerCase()
                                 : ''
-                            const isLeader =
-                                titleLower.includes('manager') ||
-                                titleLower.includes('asst') ||
-                                titleLower.includes('shift') ||
-                                titleLower.includes('lead') ||
-                                titleLower.includes('asistente') ||
-                                titleLower.includes('assistant') ||
-                                titleLower.includes('encargado') ||
-                                empNameLower.includes('alberto romero') ||
-                                empNameLower.includes('manager')
+                            const isLeader = resolveShiftIsLeader(extTitle)
+                            const stationName = resolveShiftStationSummary(s, dayStationRows)
 
-                            return { ...s, is_leader: isLeader, job_title: extTitle, employee_name: empNameLower }
+                            // Si es publicación parcial y este compañero NO está en el lote actual pero ya tiene descansos,
+                            // congelar sus descansos como anclas para no solaparse ni borrarle su horario.
+                            const isInCurrentPublishBatch = publishedShiftIdSet.has(String(s.id))
+                            const existingBreaks = Array.isArray(s.breaks_schedule) ? s.breaks_schedule : []
+                            const safeBreaks = (!isInCurrentPublishBatch && existingBreaks.length > 0)
+                                ? existingBreaks.map((b: any) => ({ ...b, is_manual: true }))
+                                : existingBreaks
+
+                            return {
+                                ...s,
+                                is_leader: isLeader,
+                                job_title: extTitle,
+                                employee_name: empNameLower,
+                                station_name: stationName,
+                                breaks_schedule: safeBreaks,
+                            }
                         })
 
                     const augmented = scheduleBreaksWithDemand(
@@ -559,9 +573,15 @@ export async function POST(req: Request) {
                     )
 
                     for (const aug of augmented) {
-                        const originalIdx = shifts.findIndex((ls: any) => ls.id === aug.id)
-                        if (originalIdx !== -1) {
-                            shifts[originalIdx].breaks_schedule = aug.breaks_schedule
+                        const isInCurrentPublishBatch = publishedShiftIdSet.has(String(aug.id))
+                        const origDayShift = dayShifts.find((ds: any) => String(ds.id) === String(aug.id))
+                        const hadNoBreaksBefore = !Array.isArray(origDayShift?.breaks_schedule) || origDayShift.breaks_schedule.length === 0
+
+                        if (isInCurrentPublishBatch || hadNoBreaksBefore) {
+                            const originalIdx = shifts.findIndex((ls: any) => String(ls.id) === String(aug.id))
+                            if (originalIdx !== -1) {
+                                shifts[originalIdx].breaks_schedule = aug.breaks_schedule
+                            }
                             await supabase
                                 .from('shifts')
                                 .update({ breaks_schedule: aug.breaks_schedule })
