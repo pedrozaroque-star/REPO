@@ -10,6 +10,7 @@
  *   A las 6:00 AM (`America/Los_Angeles`) avanza automáticamente al nuevo día de negocio, limpia cachés obsoletas cada 15 min,
  *   retorna automáticamente al día de hoy tras 2 min de inactividad si quedó en otra fecha, y muestra el modal "☀️ Despertar Tableta" tras 3h sin actividad.
  * - Aprendizaje Continuo (AI Learning): Movimientos manuales del mánager se guardan en `break_manual_overrides` y se aplican en futuros cálculos.
+ * - Privacidad Operativa en Tableta: Al marcar un empleado como ausente (`is_callback = true`), su fila desaparece completamente del Timeline y de la pantalla de tableta (sin texto rojo ni etiquetas visibles al personal), ofreciendo al mánager un botón neutro discreto ("Ocultos") fuera del Modo Tableta por si desea restaurar el turno.
  * @dataFlow Sincroniza turnos de `shifts`, ponchadas de `punches` (Toast POS), proyección de ventas, y guarda preferencias aprendidas en `break_manual_overrides`.
  * @notes Renderizado progresivo ultrarrápido con caché en DB (<150ms), Motor V30 Universal Multi-Tienda
  *   (memoria por `employee_id`, puesto real del turno `s.job_id`, estaciones reales de `station_assignments`,
@@ -20,7 +21,7 @@
 'use client'
 
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
-import { Calendar, Loader2, Zap, ArrowLeft, History, RefreshCw, Maximize, Minimize, ChevronLeft, ChevronRight, Plus, Trash2, Sun, MoonStar, CheckCircle2, Clock } from 'lucide-react'
+import { Calendar, Loader2, Zap, ArrowLeft, History, RefreshCw, Maximize, Minimize, ChevronLeft, ChevronRight, Plus, Trash2, Sun, MoonStar, CheckCircle2, Clock, EyeOff, RotateCcw } from 'lucide-react'
 import { useLanguage } from '@/lib/i18n'
 import { useWakeLock } from '@/lib/use-wake-lock'
 import { purgeTabletStaleCaches } from '@/lib/tablet-cache-cleaner'
@@ -602,6 +603,7 @@ export default function DescansosPage() {
         const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 
         if (!isFullscreen) {
+            setShowHiddenShiftsModal(false);
             // 🔆 Pedir "pantalla siempre encendida" DENTRO del gesto del usuario (requisito de iOS para el video de respaldo)
             wakeLock.requestNow();
             if (isIOS) {
@@ -663,6 +665,7 @@ export default function DescansosPage() {
 
     const [absentEmpIds, setAbsentEmpIds] = useState<Set<string>>(new Set())
     const [absentModalEmp, setAbsentModalEmp] = useState<Employee | null>(null)
+    const [showHiddenShiftsModal, setShowHiddenShiftsModal] = useState(false)
     const [aiStatus, setAiStatus] = useState<{ message: string, type: 'info' | 'success' | 'alert' } | null>(null)
     const lastDataRef = useRef<{ shifts: Shift[], hours: any[], employees: Employee[], jobs: Job[], learnedPrefs?: LearnedPreference[], stationAssignments?: any[] }>({ shifts: [], hours: [], employees: [], jobs: [], learnedPrefs: [], stationAssignments: [] })
     const lastPolledDbRef = useRef<string>('')  // Snapshot serializado de la BD para polling
@@ -835,7 +838,7 @@ export default function DescansosPage() {
                 syncLocalPollingSnapshot(nextRawDbShifts);
 
                 if (isManualAction) {
-                    setAiStatus({ message: 'Asistencia actualizada: Descansos re-balanceados para cubrir huecos operativos', type: 'success' });
+                    setAiStatus({ message: t('descansos.schedule_rebalanced'), type: 'success' });
                 } else if (!silentBackgroundSync && !targetShiftIdToRecalculate) {
                     setAiStatus({ message: 'Inteligencia Artificial: Horario optimizado para maximizar cobertura en picos de venta', type: 'success' });
                 } else if (silentBackgroundSync) {
@@ -843,7 +846,7 @@ export default function DescansosPage() {
                     setTimeout(() => setAiStatus(null), 3500);
                 }
             } else if (isManualAction) {
-                setAiStatus({ message: 'Asistencia registrada: No se requirieron cambios en los descansos de los demás', type: 'info' });
+                setAiStatus({ message: t('descansos.schedule_updated_no_changes'), type: 'info' });
             }
 
             // 🚩 PERSISTENCIA PROFUNDA: Guardar ausentes en DB en Paralelo
@@ -1010,6 +1013,7 @@ export default function DescansosPage() {
                 lastBusinessDateRef.current = currentBDateStr
                 lastPolledDbRef.current = ''
                 setAbsentModalEmp(null)
+                setShowHiddenShiftsModal(false)
                 setCalendarOpen(false)
                 setCurrentDate(new Date(currentBDateStr + 'T12:00:00'))
                 void purgeTabletStaleCaches({ force: true })
@@ -1049,10 +1053,12 @@ export default function DescansosPage() {
         if (!storeGuid) return;
         setCalculating(true) // Mostramos spinner de "Procesando" brevemente
 
-        // RESET ausentes al cambiar de día/tienda
-        const freshAbsentSet = new Set<string>();
-        setAbsentEmpIds(freshAbsentSet);
-        if (!isRealtimeReload) setAiStatus(null);
+        // RESET ausentes solo al cambiar de día/tienda (evita parpadeo visual durante recargas Realtime/Polling)
+        if (!isRealtimeReload) {
+            setAbsentEmpIds(new Set<string>());
+            setShowHiddenShiftsModal(false);
+            setAiStatus(null);
+        }
 
         const supabase = await getSupabaseClient()
 
@@ -1208,11 +1214,8 @@ export default function DescansosPage() {
             .filter(s => s.is_callback === true && s.employee_id !== null)
             .map(s => String(s.employee_id));
 
-        if (dbAbsentees.length > 0) {
-            setAbsentEmpIds(new Set(dbAbsentees));
-        }
-
         const hydratedAbsentSet = new Set(dbAbsentees);
+        setAbsentEmpIds(hydratedAbsentSet);
 
         try {
             // --- 🧠 DEEP ARCHITECTURE: RENDERIZADO PROGRESIVO + AUTO-SINCRONIZACIÓN ---
@@ -1449,6 +1452,7 @@ export default function DescansosPage() {
             lastBusinessDateRef.current = currentBDateStr
             lastPolledDbRef.current = ''
             setAbsentModalEmp(null)
+            setShowHiddenShiftsModal(false)
             setCalendarOpen(false)
 
             const todayBDate = new Date(currentBDateStr + 'T12:00:00')
@@ -1503,10 +1507,18 @@ export default function DescansosPage() {
     // if (loading) return <div className="p-10 text-white flex items-center gap-2"><Loader2 className="animate-spin text-amber-500" /> Sincronizando con Planificador...</div>
 
     const activeEmployees = rosterEmployees.filter(emp => {
+        if (absentEmpIds.has(String(emp.id))) return false
+        const shiftBase = todayShifts.find(s => String(s.employee_id) === String(emp.id))
+        const shiftAi = smartShifts.find(s => String(s.employee_id) === String(emp.id) && !(s as any)._isAbsent)
+        const empPunch = punches.find(p => p.employee_toast_guid === emp.toast_guid && p.clock_in)
+        return Boolean(shiftBase || shiftAi || empPunch)
+    });
+
+    const hiddenAbsentEmployees = rosterEmployees.filter(emp => {
+        if (!absentEmpIds.has(String(emp.id))) return false
         const shiftBase = todayShifts.find(s => String(s.employee_id) === String(emp.id))
         const shiftAi = smartShifts.find(s => String(s.employee_id) === String(emp.id))
-        const empPunch = punches.find(p => p.employee_toast_guid === emp.toast_guid && p.clock_in)
-        return shiftBase || shiftAi || empPunch;
+        return Boolean(shiftBase || shiftAi)
     });
 
     return (
@@ -1690,6 +1702,18 @@ export default function DescansosPage() {
                 </div>
 
                 <div className="flex items-center gap-2 md:gap-3">
+                    {!isFullscreen && hiddenAbsentEmployees.length > 0 && (
+                        <button
+                            type="button"
+                            onClick={() => setShowHiddenShiftsModal(true)}
+                            title={t('descansos.hidden_shifts_tip')}
+                            className="flex items-center gap-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 px-3 py-2 rounded-lg font-bold text-sm transition-colors border border-slate-200"
+                        >
+                            <EyeOff size={16} />
+                            <span>{t('descansos.hidden_shifts')} ({hiddenAbsentEmployees.length})</span>
+                        </button>
+                    )}
+
                     <button
                         onClick={toggleFullscreen}
                         className="flex items-center gap-2 bg-slate-100 hover:bg-slate-200 text-slate-600 px-3 py-2 rounded-lg font-bold text-sm transition-colors border border-slate-200"
@@ -1867,9 +1891,8 @@ export default function DescansosPage() {
                         {activeEmployees.length === 0 ? (
                             <div className="p-8 text-center text-slate-500">No scheduled shifts or Toast records for this day.</div>
                         ) : activeEmployees.map((emp) => {
-                            // Link con los turnos inteligentes (ya traen la data de breaks inyectada)
-                            const shift = smartShifts.find(s => String(s.employee_id) === String(emp.id))
-                            const isAbsent = !!(shift as any)?._isAbsent
+                            // Link con los turnos inteligentes activos (excluye turnos ocultos/ausentes)
+                            const shift = smartShifts.find(s => String(s.employee_id) === String(emp.id) && !(s as any)._isAbsent)
                             const isOff = !shift
 
                             const empPunch = punches.find(p => p.employee_toast_guid === emp.toast_guid)
@@ -1879,11 +1902,11 @@ export default function DescansosPage() {
                                     <div
                                         data-touch-tap="true"
                                         onClick={() => setAbsentModalEmp(emp)}
-                                        title="Click para marcar Ausente o Editar"
+                                        title="Click para editar turno o descansos"
                                         className="w-64 shrink-0 border-r border-slate-100 p-3 flex flex-col justify-center bg-white backdrop-blur cursor-pointer active:bg-indigo-50/70 transition-colors select-none touch-manipulation"
                                     >
                                         <div
-                                            className={`text-lg leading-tight font-black truncate transition-colors ${absentEmpIds.has(String(emp.id)) ? 'text-red-500 line-through opacity-80' : 'text-slate-800 group-hover:text-indigo-600'}`}
+                                            className="text-lg leading-tight font-black truncate transition-colors text-slate-800 group-hover:text-indigo-600"
                                         >
                                             {emp.first_name} {emp.last_name}
                                         </div>
@@ -1898,11 +1921,6 @@ export default function DescansosPage() {
                                         })()}
                                         {isOff ? (
                                             <div className="text-sm text-slate-400 font-bold mt-0.5">OFF</div>
-                                        ) : isAbsent ? (
-                                            <div className="text-sm text-red-400 font-bold mt-1 flex items-center gap-1.5">
-                                                <span>{new Date(shift.start_time).toLocaleTimeString('en-US', { timeZone: 'America/Los_Angeles', hour: '2-digit', minute: '2-digit' })} - {new Date(shift.end_time).toLocaleTimeString('en-US', { timeZone: 'America/Los_Angeles', hour: '2-digit', minute: '2-digit' })}</span>
-                                                <span className="bg-red-100 text-red-600 text-[10px] font-black px-2 py-0.5 rounded-full uppercase tracking-wider border border-red-200">Ausente</span>
-                                            </div>
                                         ) : (
                                             <div className="text-sm text-slate-600 font-bold mt-1">
                                                 {new Date(shift.start_time).toLocaleTimeString('en-US', { timeZone: 'America/Los_Angeles', hour: '2-digit', minute: '2-digit' })} - {new Date(shift.end_time).toLocaleTimeString('en-US', { timeZone: 'America/Los_Angeles', hour: '2-digit', minute: '2-digit' })}
@@ -1920,13 +1938,13 @@ export default function DescansosPage() {
                                         {!isOff && (
                                             <motion.div
                                                 initial={{ opacity: 0, scaleX: 0 }}
-                                                animate={{ opacity: isAbsent ? 0.45 : 1, scaleX: 1 }}
+                                                animate={{ opacity: 1, scaleX: 1 }}
                                                 style={{
                                                     left: `${getTimelinePosition(shift.start_time)}%`,
                                                     width: `${getTimelineWidth(shift.start_time, shift.end_time)}%`,
                                                     transformOrigin: 'left'
                                                 }}
-                                                className={`absolute ${showRealPunches ? 'top-3' : 'top-1/2 -translate-y-1/2'} h-9 ${isAbsent ? 'bg-slate-200 border-slate-300 border-dashed' : 'bg-indigo-100 border border-indigo-200'} rounded-md flex items-center overflow-visible z-[70] shadow-sm`}
+                                                className={`absolute ${showRealPunches ? 'top-3' : 'top-1/2 -translate-y-1/2'} h-9 bg-indigo-100 border border-indigo-200 rounded-md flex items-center overflow-visible z-[70] shadow-sm`}
                                             >
                                                 {/* Scheduled Breaks */}
                                                 {shift.breaks_schedule?.map((b: any, idx: number) => {
@@ -2195,9 +2213,81 @@ export default function DescansosPage() {
                                 onClick={() => setAbsentModalEmp(null)}
                                 className="px-6 py-3.5 rounded-xl text-base font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 transition-colors"
                             >
-                                Cerrar
+                                {t('descansos.close_modal')}
                             </button>
                         </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Modal Discreto de Mánager para Restaurar Turnos Ocultos */}
+            {showHiddenShiftsModal && !isFullscreen && (
+                <div
+                    onClick={() => setShowHiddenShiftsModal(false)}
+                    className="fixed inset-0 z-[99999] bg-slate-900/80 flex items-center justify-center p-4 backdrop-blur-md"
+                >
+                    <div
+                        onClick={(e) => e.stopPropagation()}
+                        className="bg-white rounded-3xl shadow-2xl p-7 w-full max-w-lg border border-slate-300 max-h-[85vh] overflow-y-auto"
+                    >
+                        <h3 className="text-2xl font-black text-slate-900 mb-1 flex items-center gap-2.5">
+                            <EyeOff size={26} className="text-slate-600" />
+                            {t('descansos.hidden_modal_title')}
+                        </h3>
+                        <p className="text-slate-500 text-sm font-medium mb-5 pb-4 border-b border-slate-200">
+                            {t('descansos.hidden_modal_subtitle')}
+                        </p>
+
+                        <div className="space-y-3 mb-6">
+                            {hiddenAbsentEmployees.map(emp => {
+                                const hiddenShift =
+                                    todayShifts.find(s => String(s.employee_id) === String(emp.id)) ||
+                                    smartShifts.find(s => String(s.employee_id) === String(emp.id))
+                                const jobTitle = resolveShiftRoleTitle(hiddenShift || {}, emp, allJobs)
+                                const timeLabel = hiddenShift
+                                    ? `${new Date(hiddenShift.start_time).toLocaleTimeString('en-US', { timeZone: 'America/Los_Angeles', hour: '2-digit', minute: '2-digit' })} - ${new Date(hiddenShift.end_time).toLocaleTimeString('en-US', { timeZone: 'America/Los_Angeles', hour: '2-digit', minute: '2-digit' })}`
+                                    : ''
+
+                                return (
+                                    <div
+                                        key={emp.id}
+                                        className="flex items-center justify-between gap-3 bg-slate-50 border border-slate-200 rounded-2xl p-4"
+                                    >
+                                        <div className="min-w-0">
+                                            <div className="text-base font-black text-slate-800 truncate">
+                                                {emp.first_name} {emp.last_name}
+                                            </div>
+                                            <div className="text-xs font-bold text-slate-500 mt-0.5 flex items-center gap-2 flex-wrap">
+                                                {jobTitle && <span className="text-blue-600 uppercase">{jobTitle}</span>}
+                                                {timeLabel && <span>{timeLabel}</span>}
+                                            </div>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                const newSet = new Set(absentEmpIds)
+                                                newSet.delete(String(emp.id))
+                                                setAbsentEmpIds(newSet)
+                                                if (newSet.size === 0) setShowHiddenShiftsModal(false)
+                                                void triggerAiRecalculation(newSet, null, true)
+                                            }}
+                                            className="shrink-0 px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-black shadow-sm flex items-center gap-1.5 transition-colors"
+                                        >
+                                            <RotateCcw size={14} />
+                                            <span>{t('descansos.restore_shift')}</span>
+                                        </button>
+                                    </div>
+                                )
+                            })}
+                        </div>
+
+                        <button
+                            type="button"
+                            onClick={() => setShowHiddenShiftsModal(false)}
+                            className="w-full px-6 py-3 rounded-xl text-sm font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 transition-colors"
+                        >
+                            {t('descansos.close_modal')}
+                        </button>
                     </div>
                 </div>
             )}

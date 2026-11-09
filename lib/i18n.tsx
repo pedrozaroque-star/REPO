@@ -1775,6 +1775,14 @@ export const dictionaries: Record<Language, Dictionary> = {
             wake_off: 'Toca para mantener pantalla encendida',
             wake_on_tip: 'La tableta no se dormirá mientras el Modo Tableta esté activo',
             wake_off_tip: 'El navegador no permitió bloquear el apagado. Toca aquí para reintentar o configura Bloqueo Automático en "Nunca".',
+            hidden_shifts: 'Ocultos',
+            hidden_shifts_tip: 'Ver o restaurar turnos ocultos de hoy',
+            hidden_modal_title: 'Turnos Ocultos de Hoy',
+            hidden_modal_subtitle: 'Estos turnos no aparecen en la pantalla principal ni en la tableta.',
+            restore_shift: 'Restaurar Turno',
+            close_modal: 'Cerrar',
+            schedule_rebalanced: 'Horario de descansos optimizado automáticamente',
+            schedule_updated_no_changes: 'Horario actualizado sin requerir cambios adicionales',
         },
         // DESCUENTOS (Discount Audit)
         descuentos: {
@@ -9302,6 +9310,14 @@ export const dictionaries: Record<Language, Dictionary> = {
             wake_off: 'Tap to keep screen on',
             wake_on_tip: 'The tablet will not sleep while Tablet Mode is active',
             wake_off_tip: 'The browser did not allow the screen lock. Tap here to retry or set Auto-Lock to "Never".',
+            hidden_shifts: 'Hidden',
+            hidden_shifts_tip: 'View or restore hidden shifts for today',
+            hidden_modal_title: 'Hidden Shifts Today',
+            hidden_modal_subtitle: 'These shifts are hidden from the main screen and tablet.',
+            restore_shift: 'Restore Shift',
+            close_modal: 'Close',
+            schedule_rebalanced: 'Break schedule optimized automatically',
+            schedule_updated_no_changes: 'Schedule updated with no additional changes required',
         },
         // DESCUENTOS (Discount Audit)
         descuentos: {
