@@ -2556,7 +2556,7 @@ async function queryInventoryOrders(args: any): Promise<string> {
   const { idToName } = await getStoreMaps()
   let query = supabaseAdmin
     .from('inventory_orders')
-    .select('id, store_id, order_date, week_start_date, status, created_by, qb_estimate_number')
+    .select('id, store_id, order_date, week_start_date, status, created_by, qb_estimate_number, order_type')
     .gte('order_date', args.start_date)
     .lte('order_date', args.end_date)
     .order('order_date', { ascending: false })
@@ -2586,21 +2586,25 @@ async function queryInventoryOrders(args: any): Promise<string> {
 
     const orderLinesMap: Record<string, string[]> = {}
     lines?.forEach(l => {
+      const effectiveQty = Number(l.final_qty ?? l.adjusted_qty ?? l.calculated_qty ?? 0)
+      if (!Number.isFinite(effectiveQty) || effectiveQty <= 0) return
       if (!orderLinesMap[l.order_id]) orderLinesMap[l.order_id] = []
       const name = itemMap[l.inventory_item_id] || l.inventory_item_id
-      orderLinesMap[l.order_id].push(`  - ${name}: final=${l.final_qty} (calc=${l.calculated_qty}, adj=${l.adjusted_qty})`)
+      orderLinesMap[l.order_id].push(`  - ${name}: final=${effectiveQty} (calc=${l.calculated_qty}, adj=${l.adjusted_qty})`)
     })
 
     lineDetails = '\n\nRecent Order Details:\n' + data.slice(0, 5).map(o => {
       const storeName = idToName[o.store_id] || `Store #${o.store_id}`
+      const typeLabel = o.order_type === 'uniforms' ? 'Uniforms' : o.order_type === 'liquids' ? 'Liquids' : 'Daily'
       const orderLines = orderLinesMap[o.id] || []
-      return `📦 Order ${o.order_date} - ${storeName} [${o.status || 'Pending'}] (QB: ${o.qb_estimate_number || 'N/A'})\n${orderLines.join('\n')}`
+      return `📦 Order ${o.order_date} (${typeLabel}) - ${storeName} [${o.status || 'Pending'}] (QB: ${o.qb_estimate_number || 'N/A'})\n${orderLines.join('\n')}`
     }).join('\n')
   }
 
   const summary = data.map(o => {
     const storeName = idToName[o.store_id] || `Store #${o.store_id}`
-    return `${o.order_date} | ${storeName} | Status: ${o.status || 'Pending'} | QB: ${o.qb_estimate_number || 'N/A'} | Created By: ${o.created_by || 'System'}`
+    const typeLabel = o.order_type === 'uniforms' ? 'Uniforms' : o.order_type === 'liquids' ? 'Liquids' : 'Daily'
+    return `${o.order_date} | ${storeName} | Type: ${typeLabel} | Status: ${o.status || 'Pending'} | QB: ${o.qb_estimate_number || 'N/A'} | Created By: ${o.created_by || 'System'}`
   }).join('\n')
 
   return `Inventory Orders:\n${summary}${lineDetails}`

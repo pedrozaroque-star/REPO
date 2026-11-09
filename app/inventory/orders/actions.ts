@@ -33,6 +33,11 @@
  *   hasta versionar sus empaques. Una fuente incompleta nunca altera el pedido físico.
  * - [2026-10-01] Escrituras fail-closed: sesión y perfil de tienda obligatorios también en desarrollo.
  * - [2026-11-04] Blindaje de updateDailyLeftover: respuesta estructurada { success, error } en lugar de throw no capturado para evitar la censura de errores de Next.js en producción.
+ * - [2026-11-09] Sincronización blindada de Orden de Uniformes → QuickBooks:
+ *   * `assertUserStoreAccess` permite roles de piso autorizados (`manager`, `gerente`, `asistente`, `assistant`) con alcance estricto por sucursal.
+ *   * `fetchWeeklyData` filtra `store_order_template` por `store_id` y garantiza `countsMap` (`d = -1..7`) sin valores `null` ni sobreescritura de PAR explícito en `0`.
+ *   * `fetchOrderableItems` evita caer al catálogo diario de comida cuando `orderType` es `uniforms` o `liquids`.
+ *   * `saveOrderDraft` rechaza cantidades finales negativas y preserva overrides explícitos `adjusted_qty = 0` para que `Generar Orden` → `Enviar a QuickBooks` nunca borre ajustes manuales.
  */
 
 'use server'
@@ -94,7 +99,7 @@ async function assertUserStoreAccess(storeId: string | number) {
 
     const profileRole = String(userProfile.role || '').trim().toLowerCase()
     if (profileRole === 'admin' || profileRole === 'supervisor') return user
-    if (profileRole !== 'manager') {
+    if (!['manager', 'gerente', 'asistente', 'assistant'].includes(profileRole)) {
         throw new Error('No tienes permiso para modificar pedidos.')
     }
 
@@ -209,8 +214,8 @@ export async function fetchOrderableItems(storeId: string | number, orderType: O
         }
     }
 
-    if (result.length === 0) {
-        // Fallback: Si no hay template, usar la lista global anterior
+    if (result.length === 0 && orderType === 'daily') {
+        // Fallback exclusivo de orden diaria: si no hay template, usar la lista global con excel_reference
         const { data: items, error: itemsError } = await supabase
             .from('inventory_items')
             .select('id, name, unit_type, excel_reference, order_unit_description, order_rounding_rule, order_sort_position, purchase_unit_cost, unit_measure')
@@ -266,14 +271,26 @@ export async function fetchOrderableItems(storeId: string | number, orderType: O
 }
 
 /**
- * Obtiene todos los items de inventario (para vincular los que no tienen excel_reference)
+ * Obtiene todos los items de inventario (para vincular los que no tienen excel_reference y resolver metadatos en modales)
  */
 export async function fetchAllInventoryItems() {
-    const { data } = await supabase
-        .from('inventory_items')
-        .select('id, name, unit_type, excel_reference, purchase_unit_cost, unit_measure, order_unit_description')
-        .order('name', { ascending: true })
-    return data || []
+    const [{ data }, { data: mappings }] = await Promise.all([
+        supabase
+            .from('inventory_items')
+            .select('id, name, unit_type, excel_reference, purchase_unit_cost, unit_measure, order_unit_description')
+            .order('name', { ascending: true }),
+        supabase
+            .from('quickbooks_mappings')
+            .select('inventory_item_id, qb_item_id')
+    ])
+    const qbMap = new Map<string, string>()
+    mappings?.forEach(m => {
+        if (m.inventory_item_id && m.qb_item_id) qbMap.set(m.inventory_item_id, m.qb_item_id)
+    })
+    return (data || []).map(item => ({
+        ...item,
+        qb_item_id: qbMap.get(item.id) || null
+    }))
 }
 
 /**
@@ -488,10 +505,25 @@ export async function fetchWeeklyData(storeId: string | number, mondayStr: strin
                 .select('*')
                 .eq('store_id', numericStoreId)
 
-            const { data: templateItems } = await supabase
+            let { data: templateItems } = await supabase
                 .from('store_order_template')
                 .select('inventory_item_id, inventory_items(name, excel_reference)')
+                .eq('store_id', numericStoreId)
                 .eq('order_type', 'uniforms')
+
+            if (!templateItems || templateItems.length === 0) {
+                const { data: fallbackTemplate } = await supabase
+                    .from('store_order_template')
+                    .select('inventory_item_id, inventory_items(name, excel_reference)')
+                    .eq('order_type', 'uniforms')
+                    .limit(200)
+                const seen = new Set<string>()
+                templateItems = (fallbackTemplate || []).filter(t => {
+                    if (!t.inventory_item_id || seen.has(t.inventory_item_id)) return false
+                    seen.add(t.inventory_item_id)
+                    return true
+                })
+            }
 
             const stockMap = new Map<string, any>()
             uniformStock?.forEach(s => stockMap.set(`${s.item_category}_${s.size}`, s))
@@ -503,12 +535,15 @@ export async function fetchWeeklyData(storeId: string | number, mondayStr: strin
                 const itemObj = t.inventory_items as any
                 const name = itemObj?.excel_reference || itemObj?.name || ''
                 const { category, size } = parseUniformCategoryAndSize(name)
-                if (!category) return
 
-                const stockRow = stockMap.get(`${category}_${size}`)
-                const defaultMin = getDefaultMinStock(category, size)
-                const minStock = (stockRow?.min_stock !== null && stockRow?.min_stock !== undefined) ? Number(stockRow.min_stock) : defaultMin
-                const quantityOnHand = stockRow ? Number(stockRow.quantity_on_hand) || 0 : 0
+                let minStock = 0
+                let quantityOnHand = 0
+                if (category) {
+                    const stockRow = stockMap.get(`${category}_${size}`)
+                    const defaultMin = getDefaultMinStock(category, size)
+                    minStock = (stockRow?.min_stock !== null && stockRow?.min_stock !== undefined) ? Number(stockRow.min_stock) : defaultMin
+                    quantityOnHand = stockRow ? Number(stockRow.quantity_on_hand) || 0 : 0
+                }
 
                 // Si no hay base manual de esta semana, pre-cargar el Stock Mínimo como PAR
                 if (!basesMap[itemId]) {
@@ -522,14 +557,14 @@ export async function fetchWeeklyData(storeId: string | number, mondayStr: strin
                         sat_par: minStock,
                         sun_par: minStock
                     }
-                } else {
-                    // Asegurar que si mon_par es 0 o vacio, tome el Stock Mínimo por defecto
-                    if (!basesMap[itemId].mon_par) basesMap[itemId].mon_par = minStock
+                } else if (basesMap[itemId].mon_par === null || basesMap[itemId].mon_par === undefined) {
+                    // Respetar 0 explícito; solo rellenar cuando mon_par es null/undefined
+                    basesMap[itemId].mon_par = minStock
                 }
 
-                // Sincronizar automáticamente el Sobrante con la existencia física del módulo de uniformes
+                // Sincronizar automáticamente el Sobrante con la existencia física (incluye domingo previo y lunes siguiente)
                 if (!countsMap[itemId]) countsMap[itemId] = {}
-                for (let d = 0; d < 7; d++) {
+                for (let d = -1; d <= 7; d++) {
                     const dateStr = addDays(mondayStr, d)
                     countsMap[itemId][dateStr] = quantityOnHand
                 }
@@ -1231,12 +1266,19 @@ export async function saveOrderDraft(
             return { error: `No se pudo verificar la captura completa: ${error instanceof Error ? error.message : 'error desconocido'}` }
         }
     }
+    for (const l of lines) {
+        const finalQty = l.adjusted_qty ?? l.calculated_qty
+        if (typeof finalQty !== 'number' || !Number.isFinite(finalQty) || finalQty < 0) {
+            return { error: `Cantidad final inválida (${finalQty}). La cantidad mínima permitida es 0.` }
+        }
+    }
+
     // Si la orden ya existe y fue enviada a QB, preservar su status actual
     // (no resetear a 'draft' un pedido que ya tiene Estimate en QB)
     let preservedStatus: string | null = null
     const { data: existingOrder } = await supabase
         .from('inventory_orders')
-        .select('status, qb_estimate_id')
+        .select('status, qb_estimate_id, qb_estimate_number')
         .eq('store_id', storeId)
         .eq('order_date', orderDate)
         .eq('order_type', orderType)
@@ -1286,7 +1328,12 @@ export async function saveOrderDraft(
     }
 
     revalidatePath('/inventory/orders')
-    return { success: true, orderId: order.id }
+    return {
+        success: true,
+        orderId: order.id,
+        alreadySentToQb: Boolean(existingOrder?.qb_estimate_id),
+        qbEstimateNumber: existingOrder?.qb_estimate_number || null
+    }
 }
 
 

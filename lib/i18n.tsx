@@ -2822,6 +2822,14 @@ export const dictionaries: Record<Language, Dictionary> = {
             adaptiveBufferBadge: 'Protección (+{qty})',
             adaptiveBufferTooltip: 'Colchón adaptativo activado: +{qty} unidades por stock apretado para proteger contra picos matutinos.',
             tightStockBadge: 'Stock Apretado',
+            adjustColTooltip: 'Cantidad FINAL exacta a pedir (escribe 0 para no pedir este artículo)',
+            clearAdjustmentTitle: 'Restaurar cálculo automático',
+            savedLocalPendingQbSync: '¡Pedido guardado localmente! Como ya existe el Estimate #{number} en QuickBooks, haz clic en "Enviar a QuickBooks" para actualizarlo allá también.',
+            unsavedAdjustmentsBadge: 'Ajustes sin guardar',
+            backToToday: 'Volver a Hoy',
+            orderTypeDailyBadge: '📦 Orden Diaria',
+            orderTypeLiquidsBadge: '🧴 Orden Líquidos',
+            orderTypeUniformsBadge: '🎽 Orden Uniformes',
         },
         // DRIVE-THRU LEADERBOARD MODULE
         drive_thru: {
@@ -10357,6 +10365,14 @@ export const dictionaries: Record<Language, Dictionary> = {
             adaptiveBufferBadge: 'Buffer (+{qty})',
             adaptiveBufferTooltip: 'Adaptive safety buffer activated: +{qty} units due to tight stock to protect against morning rushes.',
             tightStockBadge: 'Tight Stock',
+            adjustColTooltip: 'Exact FINAL quantity to order (type 0 to skip ordering this item)',
+            clearAdjustmentTitle: 'Restore automatic calculation',
+            savedLocalPendingQbSync: 'Order saved locally! Since Estimate #{number} already exists in QuickBooks, click "Send to QuickBooks" to update it there as well.',
+            unsavedAdjustmentsBadge: 'Unsaved adjustments',
+            backToToday: 'Back to Today',
+            orderTypeDailyBadge: '📦 Daily Order',
+            orderTypeLiquidsBadge: '🧴 Liquids Order',
+            orderTypeUniformsBadge: '🎽 Uniforms Order',
         },
         // DRIVE-THRU LEADERBOARD MODULE
         drive_thru: {

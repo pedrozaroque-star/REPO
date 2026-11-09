@@ -13,6 +13,8 @@
  *   "Server Actions must be async functions."
  * - [2026-09-28] Las líneas incluyen estado de fuente teórica; nunca equivale
  *   por sí solo a un pedido oficial o a un conteo físico.
+ * - [2026-11-09] Unificado `getBusinessDate` y `getBusinessMonday` en `America/Los_Angeles`
+ *   con `hourCycle: 'h23'` y corte 6:00 AM para evitar desincronización entre navegador y servidor.
  */
 
 // ============================================================================
@@ -38,11 +40,10 @@ export function getMonday(d: Date | string): string {
 }
 
 /**
- * Obtiene el lunes de la semana de NEGOCIO actual en America/Los_Angeles.
- * El día laboral empieza a las 6:00 AM y termina a las 5:59 AM del siguiente día.
- * Entonces lunes 1:00 AM PT = todavía es "domingo" → retorna el lunes de la semana anterior.
+ * Obtiene la fecha del día de NEGOCIO actual (`YYYY-MM-DD`) en `America/Los_Angeles`.
+ * El día laboral inicia a las 6:00 AM y termina a las 5:59 AM del siguiente día.
  */
-export function getBusinessMonday(d: Date = new Date()): string {
+export function getBusinessDate(d: Date = new Date()): string {
     const formatter = new Intl.DateTimeFormat('en-US', {
         timeZone: 'America/Los_Angeles',
         year: 'numeric',
@@ -51,7 +52,7 @@ export function getBusinessMonday(d: Date = new Date()): string {
         hour: '2-digit',
         minute: '2-digit',
         second: '2-digit',
-        hour12: false
+        hourCycle: 'h23'
     })
     const parts = formatter.formatToParts(d)
     const partMap: Record<string, string> = {}
@@ -60,14 +61,23 @@ export function getBusinessMonday(d: Date = new Date()): string {
     const year = parseInt(partMap.year, 10)
     const month = parseInt(partMap.month, 10) - 1
     const day = parseInt(partMap.day, 10)
-    const hour = parseInt(partMap.hour, 10)
+    const hour = parseInt(partMap.hour, 10) % 24
 
     const dateInLA = new Date(Date.UTC(year, month, day, 12, 0, 0))
     if (hour < 6) {
         dateInLA.setUTCDate(dateInLA.getUTCDate() - 1)
     }
 
-    return getMonday(dateInLA)
+    return dateInLA.toISOString().split('T')[0]
+}
+
+/**
+ * Obtiene el lunes de la semana de NEGOCIO actual en America/Los_Angeles.
+ * El día laboral empieza a las 6:00 AM y termina a las 5:59 AM del siguiente día.
+ * Entonces lunes 1:00 AM PT = todavía es "domingo" → retorna el lunes de la semana anterior.
+ */
+export function getBusinessMonday(d: Date = new Date()): string {
+    return getMonday(getBusinessDate(d))
 }
 
 /** Suma días a una fecha string YYYY-MM-DD */
@@ -159,4 +169,248 @@ export type OrderLineRecord = {
     final_qty: number
     par_value: number
     leftover_value: number
+}
+
+export interface OrderAnomaly {
+    itemId: string
+    itemName: string
+    parValue: number
+    leftoverValue: number | null
+    calculatedQty: number
+    adjustedQty?: number
+    finalQty: number
+    type: 'high_leftover' | 'high_adjust' | 'high_final' | 'zero_critical' | 'negative_final'
+    message: string
+}
+
+export type PersistableOrderLineInput = {
+    inventory_item_id: string
+    calculated_qty: number
+    adjusted_qty?: number
+    par_value: number
+    leftover_value: number
+}
+
+/**
+ * Resuelve la cantidad final efectiva de una línea considerando ajustes manuales (`Adjust`)
+ * y el tipo de orden (`daily` vs `liquids` / `uniforms`).
+ * En órdenes no diarias (`liquids` / `uniforms`), un ajuste manual explícito SIEMPRE es válido
+ * incluso si `leftover_value` es `null`/`undefined`.
+ */
+export function resolveEffectiveOrderLineQty(
+    line: Pick<CalculatedOrderLine, 'inventory_item_id' | 'calculated_qty' | 'leftover_value' | 'is_extraordinary'>,
+    adjustmentsMap: Record<string, number | string>,
+    orderType: 'daily' | 'liquids' | 'uniforms'
+): { isReady: boolean; adjNum: number | undefined; finalQty: number } {
+    const rawAdj = adjustmentsMap[line.inventory_item_id]
+    const parsedAdj = rawAdj !== undefined && rawAdj !== '' ? Number(rawAdj) : undefined
+    const adjNum = parsedAdj !== undefined && Number.isFinite(parsedAdj) ? parsedAdj : undefined
+    const hasLeftover = line.leftover_value !== null && line.leftover_value !== undefined
+
+    if (line.is_extraordinary) {
+        return {
+            isReady: true,
+            adjNum,
+            finalQty: adjNum !== undefined ? adjNum : line.calculated_qty
+        }
+    }
+
+    if (orderType === 'daily') {
+        if (!hasLeftover) {
+            return { isReady: false, adjNum, finalQty: 0 }
+        }
+        return {
+            isReady: true,
+            adjNum,
+            finalQty: adjNum !== undefined ? adjNum : line.calculated_qty
+        }
+    }
+
+    // Para uniformes y líquidos: si hay ajuste manual explícito, nunca descartar por leftover_value nulo
+    if (adjNum !== undefined) {
+        return {
+            isReady: true,
+            adjNum,
+            finalQty: adjNum
+        }
+    }
+
+    if (!hasLeftover) {
+        return { isReady: false, adjNum: undefined, finalQty: 0 }
+    }
+
+    return {
+        isReady: true,
+        adjNum: undefined,
+        finalQty: line.calculated_qty
+    }
+}
+
+/**
+ * Construye las líneas a guardar en `inventory_order_lines`.
+ * - Incluye todas las líneas con `finalQty > 0` (incluyendo ajustes manuales y extraordinarios).
+ * - También persiste las líneas donde el usuario puso explícitamente `Adjust = 0` sobre un ítem con `calculated_qty > 0`,
+ *   para que al guardar (`Generar Orden`) y recargar (`loadData`) NUNCA se pierdan las cancelaciones manuales en `0`.
+ */
+export function buildPersistableOrderLines(
+    lines: CalculatedOrderLine[],
+    adjustmentsMap: Record<string, number | string>,
+    orderType: 'daily' | 'liquids' | 'uniforms'
+): { persistableLines: PersistableOrderLineInput[]; positiveCount: number } {
+    const persistableLines: PersistableOrderLineInput[] = []
+    let positiveCount = 0
+
+    for (const l of lines) {
+        const { isReady, adjNum, finalQty } = resolveEffectiveOrderLineQty(l, adjustmentsMap, orderType)
+        if (!isReady) continue
+
+        const isPositive = finalQty > 0
+        const isExplicitZeroSuppression = adjNum === 0 && l.calculated_qty > 0
+
+        if (!isPositive && !isExplicitZeroSuppression) continue
+        if (isPositive) positiveCount++
+
+        persistableLines.push({
+            inventory_item_id: l.inventory_item_id,
+            calculated_qty: l.calculated_qty,
+            adjusted_qty: adjNum,
+            par_value: l.par_value,
+            leftover_value: l.leftover_value ?? 0
+        })
+    }
+
+    return { persistableLines, positiveCount }
+}
+
+/**
+ * Escaneo inteligente de anomalías y errores de dedo (Capa 2 Pre-Flight).
+ * En `orderType === 'uniforms'`, omite falsos positivos de `high_leftover` y `zero_critical`
+ * ya que `En Existencia` se sincroniza automáticamente en solo-lectura desde `uniforms_inventory_stock`
+ * y los pedidos de uniformes son esporádicos por talla requerida.
+ */
+export function evaluateOrderAnomalies(
+    lines: CalculatedOrderLine[],
+    adjustmentsMap: Record<string, number | string>,
+    countsMap: Record<string, Record<string, number>>,
+    orderDate: string,
+    lang: string,
+    orderType: 'daily' | 'liquids' | 'uniforms' = 'daily'
+): OrderAnomaly[] {
+    const anomalies: OrderAnomaly[] = []
+
+    for (const l of lines) {
+        const rawAdj = adjustmentsMap[l.inventory_item_id]
+        const adjNum = rawAdj !== undefined && rawAdj !== '' ? Number(rawAdj) : undefined
+        const finalQty = adjNum !== undefined && !isNaN(adjNum) ? adjNum : l.calculated_qty
+        const currentLeftover = countsMap[l.inventory_item_id]?.[orderDate]
+        const par = l.par_value || 0
+
+        // 1. Sobrante anormalmente alto vs PAR (solo cuando el sobrante se captura manualmente: daily / liquids)
+        if (
+            orderType !== 'uniforms' &&
+            !l.is_extraordinary &&
+            currentLeftover !== undefined &&
+            currentLeftover !== null &&
+            par > 0
+        ) {
+            const isHighLeftover = (par >= 3 && currentLeftover >= par * 1.5 && (currentLeftover - par >= 4)) ||
+                (par < 3 && currentLeftover >= 8)
+
+            if (isHighLeftover) {
+                const percent = Math.round(((currentLeftover - par) / par) * 100)
+                anomalies.push({
+                    itemId: l.inventory_item_id,
+                    itemName: l.item_name,
+                    parValue: par,
+                    leftoverValue: currentLeftover,
+                    calculatedQty: l.calculated_qty,
+                    adjustedQty: adjNum,
+                    finalQty,
+                    type: 'high_leftover',
+                    message: lang === 'es'
+                        ? `Sobrante capturado (${currentLeftover}) es ${percent}% mayor al PAR (${par}). Provocará pedir 0 unidades.`
+                        : `Captured leftover (${currentLeftover}) is ${percent}% higher than PAR (${par}). Will result in ordering 0 units.`
+                })
+                continue
+            }
+        }
+
+        // 2. Ajuste manual inusualmente alto o negativo
+        if (adjNum !== undefined && !isNaN(adjNum)) {
+            if (adjNum < 0) {
+                anomalies.push({
+                    itemId: l.inventory_item_id,
+                    itemName: l.item_name,
+                    parValue: par,
+                    leftoverValue: currentLeftover ?? null,
+                    calculatedQty: l.calculated_qty,
+                    adjustedQty: adjNum,
+                    finalQty,
+                    type: 'negative_final',
+                    message: lang === 'es'
+                        ? `El ajuste ingresado (${adjNum}) es negativo.`
+                        : `Entered adjustment (${adjNum}) is negative.`
+                })
+                continue
+            }
+
+            const isHighAdjust = (par >= 4 && adjNum >= par * 2.5 && (adjNum - par >= 8)) ||
+                (par < 4 && par > 0 && adjNum >= 25) ||
+                (par === 0 && adjNum >= 50)
+
+            if (isHighAdjust) {
+                anomalies.push({
+                    itemId: l.inventory_item_id,
+                    itemName: l.item_name,
+                    parValue: par,
+                    leftoverValue: currentLeftover ?? null,
+                    calculatedQty: l.calculated_qty,
+                    adjustedQty: adjNum,
+                    finalQty,
+                    type: 'high_adjust',
+                    message: lang === 'es'
+                        ? `Ajuste manual (${adjNum}) excede ampliamente el PAR habitual (${par}). Pedido final: ${finalQty}.`
+                        : `Manual adjustment (${adjNum}) substantially exceeds PAR (${par}). Final order: ${finalQty}.`
+                })
+                continue
+            }
+        }
+
+        // 3. Cantidad final elevada no justificada
+        if (par > 0 && finalQty > Math.max(par * 2.5, 30)) {
+            anomalies.push({
+                itemId: l.inventory_item_id,
+                itemName: l.item_name,
+                parValue: par,
+                leftoverValue: currentLeftover ?? null,
+                calculatedQty: l.calculated_qty,
+                adjustedQty: adjNum,
+                finalQty,
+                type: 'high_final',
+                message: lang === 'es'
+                    ? `Cantidad final (${finalQty}) es más de 2.5x el consumo diario normal (PAR ${par}).`
+                    : `Final quantity (${finalQty}) is over 2.5x normal daily consumption (PAR ${par}).`
+            })
+            continue
+        }
+
+        // 4. Insumo de alto volumen que queda en 0 (no aplica en uniformes, donde pedir solo ciertas tallas es normal)
+        if (orderType !== 'uniforms' && !l.is_extraordinary && par >= 15 && finalQty === 0 && currentLeftover !== undefined) {
+            anomalies.push({
+                itemId: l.inventory_item_id,
+                itemName: l.item_name,
+                parValue: par,
+                leftoverValue: currentLeftover,
+                calculatedQty: l.calculated_qty,
+                adjustedQty: adjNum,
+                finalQty,
+                type: 'zero_critical',
+                message: lang === 'es'
+                    ? `Insumo de alto volumen (PAR ${par}) quedará en 0 a pedir por el sobrante reportado (${currentLeftover}).`
+                    : `High-volume item (PAR ${par}) will have 0 ordered due to reported leftover (${currentLeftover}).`
+            })
+        }
+    }
+
+    return anomalies
 }

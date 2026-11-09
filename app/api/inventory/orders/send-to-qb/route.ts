@@ -22,6 +22,9 @@
  * - [2026-09-25] Valida JWT, rol y alcance de tienda; el correo ya no se confía al cliente.
  * - [2026-10-01] Fail-closed: errores al leer/actualizar QB nunca crean otro Estimate;
  *   un DocNumber encontrado debe pertenecer a la misma tienda y fecha.
+ * - [2026-11-09] Alineado alcance de roles (`manager`, `gerente`, `asistente`, `assistant`) con `users` en BD,
+ *   coerción numérica segura de `adjusted_qty ?? final_qty ?? calculated_qty`, y filtrado de líneas con
+ *   override explícito `adjusted_qty = 0` antes de consultar el catálogo de QuickBooks.
  */
 
 import { NextRequest, NextResponse } from 'next/server'
@@ -41,8 +44,18 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ error: 'Sesión no válida' }, { status: 401 })
         }
 
-        const role = (authenticatedUser.user_role || authenticatedUser.user_metadata?.role || '').toLowerCase()
-        if (!['admin', 'supervisor', 'manager'].includes(role)) {
+        const supabase = await getSupabaseAdminClient()
+
+        const { data: userProfile } = authenticatedUser.email
+            ? await supabase
+                .from('users')
+                .select('role, store_id, store_scope')
+                .eq('email', authenticatedUser.email)
+                .maybeSingle()
+            : { data: null }
+
+        const role = String(userProfile?.role || authenticatedUser.user_role || authenticatedUser.user_metadata?.role || '').trim().toLowerCase()
+        if (!['admin', 'supervisor', 'manager', 'gerente', 'asistente', 'assistant'].includes(role)) {
             return NextResponse.json({ error: 'No tienes permiso para enviar pedidos a QuickBooks' }, { status: 403 })
         }
 
@@ -52,8 +65,6 @@ export async function POST(request: NextRequest) {
         if (!orderId) {
             return NextResponse.json({ error: 'orderId es requerido' }, { status: 400 })
         }
-
-        const supabase = await getSupabaseAdminClient()
 
         // 1. Obtener la orden con sus líneas
         const { data: order, error: orderError } = await supabase
@@ -66,9 +77,12 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ error: 'Orden no encontrada' }, { status: 404 })
         }
 
-        if (role === 'manager') {
+        if (!['admin', 'supervisor'].includes(role)) {
             const metadata = authenticatedUser.user_metadata || {}
+            const profileScope = Array.isArray(userProfile?.store_scope) ? userProfile.store_scope : []
             const allowedStoreIds = new Set([
+                userProfile?.store_id,
+                ...profileScope,
                 metadata.store_id,
                 ...(Array.isArray(metadata.store_ids) ? metadata.store_ids : []),
                 ...(Array.isArray(metadata.store_scope) ? metadata.store_scope : []),
@@ -231,10 +245,19 @@ export async function POST(request: NextRequest) {
             integration.refresh_token
         )
 
-        // 6. Obtener las tarifas (Rate) y descripciones de cada item directamente del catálogo de QB
+        // 6. Obtener las tarifas (Rate) y descripciones de cada item activo (> 0) directamente del catálogo de QB
         //    para que Amount y Description sean correctos y coincidan con el template del Estimate.
+        const resolveLineFinalQty = (l: any): number => {
+            const raw = l.adjusted_qty ?? l.final_qty ?? l.calculated_qty
+            return raw !== null && raw !== undefined ? Number(raw) : NaN
+        }
+
         const allQbItemIds = [...new Set(
             order.inventory_order_lines
+                .filter((l: any) => {
+                    const q = resolveLineFinalQty(l)
+                    return Number.isFinite(q) && q > 0
+                })
                 .map((l: any) => qbMap.get(l.inventory_item_id))
                 .filter(Boolean)
         )] as string[]
@@ -277,11 +300,11 @@ export async function POST(request: NextRequest) {
         const EXCLUDED_ITEMS = ['flan', 'cheesecake', 'whole flan']
 
         for (const line of order.inventory_order_lines) {
-            const finalQty = line.adjusted_qty ?? line.final_qty ?? line.calculated_qty
+            const finalQty = resolveLineFinalQty(line)
             if (typeof finalQty !== 'number' || !Number.isFinite(finalQty) || finalQty < 0) {
                 return NextResponse.json({ error: `Cantidad final inválida para ${line.inventory_item_id}. No se envió el pedido.` }, { status: 409 })
             }
-            if (finalQty <= 0) continue // No enviar items negativos o cero
+            if (finalQty <= 0) continue // No enviar items negativos o con override explícito 0
 
             // Excluir items que no van a bodega (Flan, Cheesecake)
             const item = itemMap.get(line.inventory_item_id)

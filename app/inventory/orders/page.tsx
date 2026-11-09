@@ -48,6 +48,13 @@
  * - [2026-11-04] Blindaje de sincronización de sobrantes: auto-reintento silencioso en background (800ms)
  *   ante micro-cortes de red, auto-desvanecimiento de alerta tras 8s, buffer persistente ante fallos
  *   y soporte de respuestas estructuradas sin excepciones que disparen la censura de Next.js en producción.
+ * - [2026-11-09] Blindaje integral de Orden de Uniformes → QuickBooks:
+ *   * Soporte directo de `?type=uniforms|liquids|daily` al navegar desde `/inventory/uniforms`.
+ *   * Unificación de fecha comercial en `America/Los_Angeles` (corte 6:00 AM) vía `getBusinessDate`.
+ *   * Persistencia de cancelaciones manuales explícitas (`Adjust = 0`) y ajustes manuales (`Adjust > 0`)
+ *     vía `buildPersistableOrderLines`, evitando que `Generar Orden` o recargas borren ajustes manuales.
+ *   * Eliminación de falsos positivos de anomalías (`high_leftover`, `zero_critical`) en Uniformes,
+ *     bloqueo de signos negativos en `Adjust` (cantidad final exacta >= 0) y catálogo completo en el modal de edición.
  */
 'use client'
 
@@ -68,9 +75,10 @@ import {
     type OrderType
 } from './actions'
 import {
-    getMonday, getBusinessMonday, addDays,
+    getMonday, getBusinessDate, getBusinessMonday, addDays,
+    resolveEffectiveOrderLineQty, buildPersistableOrderLines, evaluateOrderAnomalies,
     type OrderableItem, type WeeklyBaseRecord, type ParIdealRecord,
-    type CalculatedOrderLine
+    type CalculatedOrderLine, type OrderAnomaly
 } from './utils'
 import { useAuth } from '@/components/ProtectedRoute'
 import { createClient } from '@/lib/supabase-client'
@@ -81,38 +89,14 @@ import { useLanguage } from '@/lib/i18n'
 // HELPERS
 // ============================================================================
 function getLocalBusinessDate(d: Date = new Date()): string {
-    const year = d.getFullYear()
-    const month = d.getMonth()
-    const date = d.getDate()
-    const hours = d.getHours()
-
-    const localDate = new Date(year, month, date, 12, 0, 0)
-    if (hours < 6) {
-        localDate.setDate(localDate.getDate() - 1)
-    }
-
-    const y = localDate.getFullYear()
-    const m = String(localDate.getMonth() + 1).padStart(2, '0')
-    const r = String(localDate.getDate()).padStart(2, '0')
-    return `${y}-${m}-${r}`
+    return getBusinessDate(d)
 }
 
 // ============================================================================
 // TYPES
 // ============================================================================
 type TabId = 'daily_order' | 'weekly_config' | 'history' | 'leftovers' | 'analysis'
-
-export interface OrderAnomaly {
-    itemId: string
-    itemName: string
-    parValue: number
-    leftoverValue: number | null
-    calculatedQty: number
-    adjustedQty?: number
-    finalQty: number
-    type: 'high_leftover' | 'high_adjust' | 'high_final' | 'zero_critical' | 'negative_final'
-    message: string
-}
+export type { OrderAnomaly }
 
 const WEEK_DAYS = [
     { key: 'mon', baseField: 'mon_par', offset: 0 },
@@ -158,6 +142,16 @@ export default function InventoryOrdersPage() {
     const [savingPar, setSavingPar] = useState(false)
     const [weeklyRightView, setWeeklyRightView] = useState<'leftovers' | 'par_ideal'>('leftovers')
     const lastSyncedKeyRef = useRef('')
+    const loadedContextKeyRef = useRef('')
+
+    // Hidratar `?type=uniforms|liquids|daily` al abrir desde módulos hermanos (ej. /inventory/uniforms)
+    useEffect(() => {
+        if (typeof window === 'undefined') return
+        const requestedType = new URLSearchParams(window.location.search).get('type')
+        if (requestedType === 'uniforms' || requestedType === 'liquids' || requestedType === 'daily') {
+            setOrderType(requestedType)
+        }
+    }, [])
 
     // Order entry safeguards state
     const [anomalyModal, setAnomalyModal] = useState<{
@@ -348,6 +342,11 @@ export default function InventoryOrdersPage() {
         if (user !== undefined) fetchStores()
     }, [user])
 
+    const overrideDayFieldRef = useRef(overrideDayField)
+    overrideDayFieldRef.current = overrideDayField
+    const parBoostPercentRef = useRef(parBoostPercent)
+    parBoostPercentRef.current = parBoostPercent
+
     // --- Load all data ---
     const loadData = useCallback(async () => {
         if (!storeId) return
@@ -375,7 +374,10 @@ export default function InventoryOrdersPage() {
 
             // Pre-cargar notas y ajustes de la orden de hoy
             const todayOrder = weekData.orders?.find((o: any) => o.order_date === selectedOrderDate)
-            
+            const contextKey = `${storeId}_${orderType}_${selectedOrderDate}`
+            const isNewContext = loadedContextKeyRef.current !== contextKey
+            loadedContextKeyRef.current = contextKey
+
             // Extract extraordinary lines saved in database
             const extraordinarySavedLines: CalculatedOrderLine[] = []
             if (todayOrder && todayOrder.inventory_order_lines) {
@@ -400,52 +402,60 @@ export default function InventoryOrdersPage() {
                 })
             }
 
-            if (todayOrder) {
-                setOrderNotes(todayOrder.notes || '')
-                const savedAdjustments: Record<string, number> = {}
-                todayOrder.inventory_order_lines?.forEach((l: any) => {
-                    if (l.adjusted_qty !== null && l.adjusted_qty !== undefined) {
-                        savedAdjustments[l.inventory_item_id] = l.adjusted_qty
-                    }
-                })
+            const savedAdjustments: Record<string, number> = {}
+            todayOrder?.inventory_order_lines?.forEach((l: any) => {
+                if (l.adjusted_qty !== null && l.adjusted_qty !== undefined) {
+                    savedAdjustments[l.inventory_item_id] = Number(l.adjusted_qty)
+                }
+            })
+
+            if (isNewContext) {
+                setOrderNotes(todayOrder?.notes || '')
                 setAdjustments(savedAdjustments)
             } else {
-                setOrderNotes('')
-                setAdjustments({})
+                // Preservar ajustes manuales y notas aún no guardados durante refrescos del mismo contexto
+                setOrderNotes(prev => prev || todayOrder?.notes || '')
+                setAdjustments(prev => ({ ...savedAdjustments, ...prev }))
             }
 
-            // Calculate order
-            if (isCurrentWeek) {
-                const lines = await calculateDailyOrder(
-                    storeId, selectedOrderDate, orderableItems,
-                    weekData.bases, weekData.counts, activeMonday,
-                    weekData.parIdeal, overrideDayField, parBoostPercent,
-                    orderType, (weekData as any).nextWeekBases
-                )
-                // Si hay una sesión de piloto revelada para esta fecha, combinar sus líneas guardadas
-                // para que el usuario siempre vea los valores teóricos y varianzas fijadas al cerrar el conteo
-                if (currentPilotSession?.status === 'revealed' && currentPilotSession.lines?.length) {
-                    const pilotMap = new Map(currentPilotSession.lines.map((pl: any) => [pl.inventory_item_id, pl]))
-                    lines.forEach(line => {
-                        const pl = pilotMap.get(line.inventory_item_id)
-                        if (pl) {
-                            if (pl.automatic_leftover !== null && pl.automatic_leftover !== undefined) {
-                                line.suggested_leftover = pl.automatic_leftover
-                            }
-                            if (pl.variance !== null && pl.variance !== undefined) {
-                                line.variance = pl.variance
-                            }
-                            if (pl.automatic_order_qty !== null && pl.automatic_order_qty !== undefined) {
-                                line.suggested_order_qty = pl.automatic_order_qty
-                            }
-                            (line as any).tolerance_value = pl.tolerance_value
-                            (line as any).within_tolerance = pl.within_tolerance
+            // Calcular siempre la orden para la fecha seleccionada
+            const lines = await calculateDailyOrder(
+                storeId, selectedOrderDate, orderableItems,
+                weekData.bases, weekData.counts, activeMonday,
+                weekData.parIdeal, overrideDayFieldRef.current, parBoostPercentRef.current,
+                orderType, (weekData as any).nextWeekBases
+            )
+            // Si hay una sesión de piloto revelada para esta fecha, combinar sus líneas guardadas
+            // para que el usuario siempre vea los valores teóricos y varianzas fijadas al cerrar el conteo
+            if (currentPilotSession?.status === 'revealed' && currentPilotSession.lines?.length) {
+                const pilotMap = new Map(currentPilotSession.lines.map((pl: any) => [pl.inventory_item_id, pl]))
+                lines.forEach(line => {
+                    const pl = pilotMap.get(line.inventory_item_id)
+                    if (pl) {
+                        if (pl.automatic_leftover !== null && pl.automatic_leftover !== undefined) {
+                            line.suggested_leftover = pl.automatic_leftover
                         }
-                    })
-                    setShowSuggestedCol(true)
-                }
+                        if (pl.variance !== null && pl.variance !== undefined) {
+                            line.variance = pl.variance
+                        }
+                        if (pl.automatic_order_qty !== null && pl.automatic_order_qty !== undefined) {
+                            line.suggested_order_qty = pl.automatic_order_qty
+                        }
+                        (line as any).tolerance_value = pl.tolerance_value
+                        (line as any).within_tolerance = pl.within_tolerance
+                    }
+                })
+                setShowSuggestedCol(true)
+            }
 
+            if (isNewContext) {
                 setOrderLines([...lines, ...extraordinarySavedLines])
+            } else {
+                setOrderLines(prev => {
+                    const savedExtraIds = new Set(extraordinarySavedLines.map(e => e.inventory_item_id))
+                    const unsavedExtra = prev.filter(l => l.is_extraordinary && !savedExtraIds.has(l.inventory_item_id))
+                    return [...lines, ...extraordinarySavedLines, ...unsavedExtra]
+                })
             }
 
             // 2. Apagar el spinner de carga de inmediato para visualización instantánea
@@ -485,7 +495,7 @@ export default function InventoryOrdersPage() {
             console.error('Error loading data:', error)
             setLoading(false)
         }
-    }, [storeId, activeMonday, overrideDayField, selectedOrderDate, orderType, parBoostPercent])
+    }, [storeId, activeMonday, selectedOrderDate, orderType])
 
     useEffect(() => { loadData() }, [loadData])
 
@@ -554,36 +564,109 @@ export default function InventoryOrdersPage() {
     }, [leftoverSyncError])
 
     // --- Edit Modal Handlers ---
-    function handleOpenEditModal(order: any) {
+    async function handleOpenEditModal(order: any) {
         // Determinar si el pedido es de hoy (editable) o de otro día (solo consulta)
         const isEditable = order.order_date === todayStr
+        const modalOrderType: OrderType = order.order_type || 'daily'
         setModalReadOnly(!isEditable)
         setEditModal({ open: true, order })
         setModalNotes(order.notes || '')
         setModalExtraSearch('')
         setShowModalExtraDropdown(false)
-        
-        // Mapear las líneas guardadas de la orden con sus metadatos de insumos
-        const lines = order.inventory_order_lines.map((line: any) => {
-            const item = allItems.find(i => i.id === line.inventory_item_id)
+
+        const rawSavedLines = Array.isArray(order.inventory_order_lines) ? order.inventory_order_lines : []
+        const mapSavedLine = (line: any, isExtra = false) => {
+            const item = allItems.find(i => i.id === line.inventory_item_id) || mappedItems.find(mi => mi.id === line.inventory_item_id)
             return {
                 ...line,
                 item_name: item?.name || 'Insumo Desconocido',
-                unit_description: item?.order_unit_description || '',
+                unit_description: item?.order_unit_description || item?.unit_type || '',
                 qb_item_id: item?.qb_item_id || null,
                 purchase_unit_cost: item?.purchase_unit_cost,
-                unit_measure: item?.unit_measure
+                unit_measure: item?.unit_measure,
+                order_rounding_rule: (item as any)?.order_rounding_rule || 'none',
+                is_extraordinary: isExtra
             }
-        })
-        setModalLines(lines)
+        }
+
+        if (!isEditable) {
+            const positiveSaved = rawSavedLines.filter((l: any) => Number(l.final_qty ?? l.adjusted_qty ?? l.calculated_qty ?? 0) > 0)
+            const displaySaved = positiveSaved.length > 0 ? positiveSaved : rawSavedLines
+            setModalLines(displaySaved.map((l: any) => mapSavedLine(l, false)))
+            return
+        }
+
+        // Mostrar primero las líneas guardadas al instante y enriquecer con el catálogo completo del tipo de orden
+        setModalLines(rawSavedLines.map((l: any) => mapSavedLine(l, false)))
+
+        if (!storeId) return
+        try {
+            const modalWeekMonday = order.week_start_date || getMonday(order.order_date)
+            const [tplItems, tplWeekData] = await Promise.all([
+                fetchOrderableItems(storeId, modalOrderType),
+                fetchWeeklyData(storeId, modalWeekMonday, modalOrderType)
+            ])
+            const calcLines = await calculateDailyOrder(
+                storeId,
+                order.order_date,
+                tplItems,
+                tplWeekData.bases,
+                tplWeekData.counts,
+                modalWeekMonday,
+                tplWeekData.parIdeal,
+                'auto',
+                0,
+                modalOrderType,
+                (tplWeekData as any).nextWeekBases
+            )
+            const orderableTplLines = calcLines.filter(cl => cl.qb_item_id && cl.qb_item_id !== 'TRACK_ONLY')
+            const savedLineMap = new Map<string, any>(rawSavedLines.map((l: any) => [l.inventory_item_id, l]))
+            const templateIds = new Set(orderableTplLines.map(cl => cl.inventory_item_id))
+
+            const mergedModalLines: any[] = orderableTplLines.map(cl => {
+                const saved = savedLineMap.get(cl.inventory_item_id)
+                const tplMeta = tplItems.find(ti => ti.id === cl.inventory_item_id)
+                return {
+                    id: saved?.id || `tpl-${cl.inventory_item_id}`,
+                    order_id: order.id,
+                    inventory_item_id: cl.inventory_item_id,
+                    item_name: cl.item_name,
+                    unit_description: cl.unit_description || '',
+                    qb_item_id: cl.qb_item_id || null,
+                    purchase_unit_cost: cl.purchase_unit_cost,
+                    unit_measure: cl.unit_measure,
+                    order_rounding_rule: tplMeta?.order_rounding_rule || cl.rounding_rule || 'none',
+                    par_value: saved?.par_value ?? cl.par_value,
+                    leftover_value: modalOrderType === 'uniforms'
+                        ? (cl.leftover_value ?? saved?.leftover_value ?? 0)
+                        : (saved?.leftover_value ?? cl.leftover_value),
+                    calculated_qty: saved?.calculated_qty ?? cl.calculated_qty,
+                    adjusted_qty: saved && saved.adjusted_qty !== null && saved.adjusted_qty !== undefined
+                        ? Number(saved.adjusted_qty)
+                        : null,
+                    is_extraordinary: false
+                }
+            })
+
+            rawSavedLines.forEach((saved: any) => {
+                if (!templateIds.has(saved.inventory_item_id)) {
+                    mergedModalLines.push(mapSavedLine(saved, true))
+                }
+            })
+
+            setModalLines(mergedModalLines)
+        } catch (err) {
+            console.error('Error hydrating full template in Edit Modal:', err)
+        }
     }
 
     function handleModalLeftoverChange(itemId: string, value: string) {
+        if (value !== '' && !/^\d*\.?\d*$/.test(value)) return
         const numVal = value === '' ? null : (parseFloat(value) || 0)
         setModalLines(prev => prev.map(line => {
             if (line.inventory_item_id !== itemId) return line
             const orderBase = numVal === null ? 0 : Math.max(0, line.par_value - numVal)
-            const roundingRule = items.find(item => item.id === itemId)?.order_rounding_rule
+            const roundingRule = line.order_rounding_rule || items.find(item => item.id === itemId)?.order_rounding_rule
             const calculatedQty = roundingRule === 'ceiling_60' ? Math.ceil(orderBase / 60) * 60
                 : roundingRule === 'ceiling_30' ? Math.ceil(orderBase / 30) * 30
                 : roundingRule === 'ceiling_4' ? Math.ceil(orderBase / 4) * 4
@@ -593,39 +676,62 @@ export default function InventoryOrdersPage() {
     }
 
     function handleModalAdjustmentChange(itemId: string, value: string) {
-        const numVal = value === '' ? null : (parseFloat(value) || 0)
+        if (value !== '' && !/^\d*\.?\d*$/.test(value)) return
         setModalLines(prev => prev.map(line => {
             if (line.inventory_item_id !== itemId) return line
-            return { ...line, adjusted_qty: numVal }
+            return { ...line, adjusted_qty: value === '' ? null : value }
         }))
+    }
+
+    function buildModalSubmissionPayload(modalOrderType: OrderType) {
+        const modalAdjustmentsMap: Record<string, number | string> = {}
+        modalLines.forEach((l: any) => {
+            if (l.adjusted_qty !== null && l.adjusted_qty !== undefined && l.adjusted_qty !== '') {
+                modalAdjustmentsMap[l.inventory_item_id] = l.adjusted_qty
+            }
+        })
+        const hardCapErr = validateHardCaps(modalLines as CalculatedOrderLine[], modalAdjustmentsMap)
+        if (hardCapErr) {
+            return { error: hardCapErr, persistableLines: [], positiveCount: 0 }
+        }
+        const { persistableLines, positiveCount } = buildPersistableOrderLines(
+            modalLines as CalculatedOrderLine[],
+            modalAdjustmentsMap,
+            modalOrderType
+        )
+        return { error: null, persistableLines, positiveCount }
     }
 
     async function handleSaveModalChanges() {
         if (!editModal.order || !storeId) return
+        const modalOrderType: OrderType = editModal.order.order_type || 'daily'
+        const { error: validationErr, persistableLines } = buildModalSubmissionPayload(modalOrderType)
+        if (validationErr) {
+            alert(validationErr)
+            return
+        }
+
         setSavingModal(true)
         try {
-            const lines = modalLines.map(l => ({
-                inventory_item_id: l.inventory_item_id,
-                calculated_qty: l.calculated_qty,
-                adjusted_qty: l.adjusted_qty,
-                par_value: l.par_value,
-                leftover_value: l.leftover_value ?? 0
-            }))
-
             const res = await saveOrderDraft(
                 storeId, 
                 editModal.order.order_date, 
                 editModal.order.week_start_date || getMonday(editModal.order.order_date),
-                lines, 
+                persistableLines, 
                 user?.name, 
                 modalNotes || undefined,
-                editModal.order.order_type || 'daily'
+                modalOrderType
             )
             if (res.error) {
                 alert(res.error)
             } else {
-                alert(t('bodegaOrders.savedLocal'))
+                if (res.alreadySentToQb) {
+                    alert(t('bodegaOrders.savedLocalPendingQbSync', { number: res.qbEstimateNumber || '' }))
+                } else {
+                    alert(t('bodegaOrders.savedLocal'))
+                }
                 setEditModal({ open: false, order: null })
+                loadedContextKeyRef.current = ''
                 await Promise.all([loadData(), loadHistoryData()])
             }
         } catch (e: any) {
@@ -637,24 +743,27 @@ export default function InventoryOrdersPage() {
 
     async function handleSendModalToQb() {
         if (!editModal.order || !storeId) return
+        const modalOrderType: OrderType = editModal.order.order_type || 'daily'
+        const { error: validationErr, persistableLines, positiveCount } = buildModalSubmissionPayload(modalOrderType)
+        if (validationErr) {
+            alert(validationErr)
+            return
+        }
+        if (positiveCount === 0) {
+            alert(t('bodegaOrders.noItemsToOrderError'))
+            return
+        }
+
         setSendingModal(true)
         try {
-            const lines = modalLines.map(l => ({
-                inventory_item_id: l.inventory_item_id,
-                calculated_qty: l.calculated_qty,
-                adjusted_qty: l.adjusted_qty,
-                par_value: l.par_value,
-                leftover_value: l.leftover_value ?? 0
-            }))
-
             const saveRes = await saveOrderDraft(
                 storeId, 
                 editModal.order.order_date, 
                 editModal.order.week_start_date || getMonday(editModal.order.order_date),
-                lines, 
+                persistableLines, 
                 user?.name, 
                 modalNotes || undefined,
-                editModal.order.order_type || 'daily'
+                modalOrderType
             )
             if (saveRes.error) {
                 alert(saveRes.error)
@@ -680,6 +789,7 @@ export default function InventoryOrdersPage() {
             } else {
                 alert(t('bodegaOrders.orderSentDesc', { number: data.estimateNumber }))
                 setEditModal({ open: false, order: null })
+                loadedContextKeyRef.current = ''
                 await Promise.all([loadData(), loadHistoryData()])
             }
         } catch (e: any) {
@@ -868,7 +978,7 @@ export default function InventoryOrdersPage() {
         setHasBaseChanges(true)
     }
 
-    /** onBlur para líquidos: Guarda en Supabase + recalcula orden. */
+    /** onBlur para líquidos/uniformes: Guarda en Supabase + recalcula orden preservando extraordinarios. */
     async function handleLiquidsParBlur(itemId: string) {
         if (!storeId) return
         const nextWeekMonday = addDays(activeMonday, 7)
@@ -888,7 +998,10 @@ export default function InventoryOrdersPage() {
                 parIdeal, overrideDayField, parBoostPercent,
                 orderType, nextWeekBases
             )
-            setOrderLines(lines)
+            setOrderLines(prev => {
+                const prevExtraordinary = prev.filter(l => l.is_extraordinary)
+                return [...lines, ...prevExtraordinary]
+            })
         } catch (err) {
             console.error('Error auto-saving liquids PAR base:', err)
         } finally {
@@ -1195,122 +1308,7 @@ export default function InventoryOrdersPage() {
         orderDate: string,
         lang: string
     ): OrderAnomaly[] {
-        const anomalies: OrderAnomaly[] = []
-
-        for (const l of lines) {
-            const rawAdj = adjustmentsMap[l.inventory_item_id]
-            const adjNum = rawAdj !== undefined && rawAdj !== '' ? Number(rawAdj) : undefined
-            const finalQty = adjNum !== undefined && !isNaN(adjNum) ? adjNum : l.calculated_qty
-            const currentLeftover = countsMap[l.inventory_item_id]?.[orderDate]
-            const par = l.par_value || 0
-
-            // 1. Sobrante anormalmente alto vs PAR (detecta typos como poner 55 en vez de 5)
-            if (
-                !l.is_extraordinary &&
-                currentLeftover !== undefined &&
-                currentLeftover !== null &&
-                par > 0
-            ) {
-                const isHighLeftover = (par >= 3 && currentLeftover >= par * 1.5 && (currentLeftover - par >= 4)) ||
-                    (par < 3 && currentLeftover >= 8)
-
-                if (isHighLeftover) {
-                    const percent = Math.round(((currentLeftover - par) / par) * 100)
-                    anomalies.push({
-                        itemId: l.inventory_item_id,
-                        itemName: l.item_name,
-                        parValue: par,
-                        leftoverValue: currentLeftover,
-                        calculatedQty: l.calculated_qty,
-                        adjustedQty: adjNum,
-                        finalQty,
-                        type: 'high_leftover',
-                        message: lang === 'es'
-                            ? `Sobrante capturado (${currentLeftover}) es ${percent}% mayor al PAR (${par}). Provocará pedir 0 unidades.`
-                            : `Captured leftover (${currentLeftover}) is ${percent}% higher than PAR (${par}). Will result in ordering 0 units.`
-                    })
-                    continue
-                }
-            }
-
-            // 2. Ajuste manual inusualmente alto o negativo
-            if (adjNum !== undefined && !isNaN(adjNum)) {
-                if (adjNum < 0) {
-                    anomalies.push({
-                        itemId: l.inventory_item_id,
-                        itemName: l.item_name,
-                        parValue: par,
-                        leftoverValue: currentLeftover ?? null,
-                        calculatedQty: l.calculated_qty,
-                        adjustedQty: adjNum,
-                        finalQty,
-                        type: 'negative_final',
-                        message: lang === 'es'
-                            ? `El ajuste ingresado (${adjNum}) es negativo.`
-                            : `Entered adjustment (${adjNum}) is negative.`
-                    })
-                    continue
-                }
-
-                const isHighAdjust = (par >= 4 && adjNum >= par * 2.5 && (adjNum - par >= 8)) ||
-                    (par < 4 && par > 0 && adjNum >= 25) ||
-                    (par === 0 && adjNum >= 50)
-
-                if (isHighAdjust) {
-                    anomalies.push({
-                        itemId: l.inventory_item_id,
-                        itemName: l.item_name,
-                        parValue: par,
-                        leftoverValue: currentLeftover ?? null,
-                        calculatedQty: l.calculated_qty,
-                        adjustedQty: adjNum,
-                        finalQty,
-                        type: 'high_adjust',
-                        message: lang === 'es'
-                            ? `Ajuste manual (${adjNum}) excede ampliamente el PAR habitual (${par}). Pedido final: ${finalQty}.`
-                            : `Manual adjustment (${adjNum}) substantially exceeds PAR (${par}). Final order: ${finalQty}.`
-                    })
-                    continue
-                }
-            }
-
-            // 3. Cantidad final elevada no justificada
-            if (par > 0 && finalQty > Math.max(par * 2.5, 30)) {
-                anomalies.push({
-                    itemId: l.inventory_item_id,
-                    itemName: l.item_name,
-                    parValue: par,
-                    leftoverValue: currentLeftover ?? null,
-                    calculatedQty: l.calculated_qty,
-                    adjustedQty: adjNum,
-                    finalQty,
-                    type: 'high_final',
-                    message: lang === 'es'
-                        ? `Cantidad final (${finalQty}) es más de 2.5x el consumo diario normal (PAR ${par}).`
-                        : `Final quantity (${finalQty}) is over 2.5x normal daily consumption (PAR ${par}).`
-                })
-                continue
-            }
-
-            // 4. Insumo de alto volumen que queda en 0
-            if (!l.is_extraordinary && par >= 15 && finalQty === 0 && currentLeftover !== undefined) {
-                anomalies.push({
-                    itemId: l.inventory_item_id,
-                    itemName: l.item_name,
-                    parValue: par,
-                    leftoverValue: currentLeftover,
-                    calculatedQty: l.calculated_qty,
-                    adjustedQty: adjNum,
-                    finalQty,
-                    type: 'zero_critical',
-                    message: lang === 'es'
-                        ? `Insumo de alto volumen (PAR ${par}) quedará en 0 a pedir por el sobrante reportado (${currentLeftover}).`
-                        : `High-volume item (PAR ${par}) will have 0 ordered due to reported leftover (${currentLeftover}).`
-                })
-            }
-        }
-
-        return anomalies
+        return evaluateOrderAnomalies(lines, adjustmentsMap, countsMap, orderDate, lang, orderType)
     }
 
     async function handleGenerateOrder(skipAnomalyCheck = false) {
@@ -1338,27 +1336,20 @@ export default function InventoryOrdersPage() {
         }
 
         setSaving(true)
-        const lines = orderLines.filter(l => {
-            if (!l.is_extraordinary && (l.leftover_value === null || l.leftover_value === undefined)) return false
-            const rawAdj = adjustments[l.inventory_item_id]
-            const adj = rawAdj !== undefined && rawAdj !== '' ? Number(rawAdj) : undefined
-            const finalQty = adj !== undefined && !isNaN(adj) ? adj : l.calculated_qty
-            return finalQty > 0
-        }).map(l => {
-            const rawAdj = adjustments[l.inventory_item_id]
-            const adj = rawAdj !== undefined && rawAdj !== '' ? Number(rawAdj) : undefined
-            return {
-                inventory_item_id: l.inventory_item_id,
-                calculated_qty: l.calculated_qty,
-                adjusted_qty: adj !== undefined && !isNaN(adj) ? adj : undefined,
-                par_value: l.par_value,
-                leftover_value: l.leftover_value ?? 0
-            }
-        })
+        const { persistableLines: lines } = buildPersistableOrderLines(orderLines, adjustments, orderType)
 
         const res = await saveOrderDraft(storeId, selectedOrderDate, activeMonday, lines, user?.name, orderNotes || undefined, orderType)
-        if (res.error) alert(res.error)
-        else { alert(t('bodegaOrders.saved')); await loadData() }
+        if (res.error) {
+            alert(res.error)
+        } else {
+            if (res.alreadySentToQb) {
+                alert(t('bodegaOrders.savedLocalPendingQbSync', { number: res.qbEstimateNumber || '' }))
+            } else {
+                alert(t('bodegaOrders.saved'))
+            }
+            loadedContextKeyRef.current = ''
+            await loadData()
+        }
         setSaving(false)
     }
 
@@ -1447,27 +1438,11 @@ export default function InventoryOrdersPage() {
         if (!confirm(t('bodegaOrders.confirmSend'))) return
 
         // SIEMPRE re-guardar las líneas antes de enviar a QB,
-        // incluso si la orden ya existe (podría tener 0 líneas de un guardado parcial previo)
+        // incluso si la orden ya existe (preservando ajustes manuales > 0 y cancelaciones en 0)
         setSaving(true)
-        const lines = orderLines.filter(l => {
-            if (!l.is_extraordinary && (l.leftover_value === null || l.leftover_value === undefined)) return false
-            const rawAdj = adjustments[l.inventory_item_id]
-            const adj = rawAdj !== undefined && rawAdj !== '' ? Number(rawAdj) : undefined
-            const finalQty = adj !== undefined && !isNaN(adj) ? adj : l.calculated_qty
-            return finalQty > 0
-        }).map(l => {
-            const rawAdj = adjustments[l.inventory_item_id]
-            const adj = rawAdj !== undefined && rawAdj !== '' ? Number(rawAdj) : undefined
-            return {
-                inventory_item_id: l.inventory_item_id,
-                calculated_qty: l.calculated_qty,
-                adjusted_qty: adj !== undefined && !isNaN(adj) ? adj : undefined,
-                par_value: l.par_value,
-                leftover_value: l.leftover_value ?? 0
-            }
-        })
+        const { persistableLines: lines, positiveCount } = buildPersistableOrderLines(orderLines, adjustments, orderType)
 
-        if (lines.length === 0) {
+        if (positiveCount === 0) {
             alert(t('bodegaOrders.noItemsToOrderError'))
             setSaving(false)
             return
@@ -1520,6 +1495,7 @@ export default function InventoryOrdersPage() {
                                     alert(`Error: ${retryData.error}`);
                                 } else {
                                     alert(t('bodegaOrders.orderSentDesc', { number: retryData.estimateNumber }));
+                                    loadedContextKeyRef.current = '';
                                     await loadData();
                                 }
                             } catch (retryErr: any) {
@@ -1549,6 +1525,7 @@ export default function InventoryOrdersPage() {
                 alert(`Error: ${data.error}`)
             } else {
                 alert(t('bodegaOrders.orderSentDesc', { number: data.estimateNumber }))
+                loadedContextKeyRef.current = ''
                 await loadData()
             }
         } catch (err: any) {
@@ -1664,12 +1641,34 @@ export default function InventoryOrdersPage() {
 
     // Summary cards for Order tab
     const itemsToOrder = orderLines.filter(l => {
-        if (!l.is_extraordinary && (l.leftover_value === null || l.leftover_value === undefined)) return false
-        const adj = adjustments[l.inventory_item_id]
-        const finalQty = adj !== undefined ? adj : l.calculated_qty
-        return Number(finalQty) > 0
+        const { isReady, finalQty } = resolveEffectiveOrderLineQty(l, adjustments, orderType)
+        return isReady && finalQty > 0
     }).length
     const excessItems = orderLines.filter(l => l.leftover_value !== null && l.leftover_value !== undefined && l.par_value > 0 && l.leftover_value > l.par_value).length
+
+    const hasUnsavedAdjustments = (() => {
+        const todayOrder = orders.find((o: any) => o.order_date === selectedOrderDate)
+        const savedAdjMap: Record<string, number> = {}
+        todayOrder?.inventory_order_lines?.forEach((l: any) => {
+            if (l.adjusted_qty !== null && l.adjusted_qty !== undefined) {
+                savedAdjMap[l.inventory_item_id] = Number(l.adjusted_qty)
+            }
+        })
+        const activeEntries = Object.entries(adjustments).filter(([, v]) => v !== undefined && v !== '')
+        if (activeEntries.length !== Object.keys(savedAdjMap).length) {
+            // Ignorar ajustes 0 redundantes sobre ítems cuyo calculated_qty ya es 0 solo si no hay diferencias reales
+            const hasDiff = orderLines.some(l => {
+                const raw = adjustments[l.inventory_item_id]
+                const cur = raw !== undefined && raw !== '' ? Number(raw) : undefined
+                const sav = savedAdjMap[l.inventory_item_id]
+                const curFinal = cur !== undefined && !isNaN(cur) ? cur : l.calculated_qty
+                const savFinal = sav !== undefined ? sav : l.calculated_qty
+                return curFinal !== savFinal || (cur !== undefined && sav === undefined && cur > 0)
+            })
+            if (hasDiff) return true
+        }
+        return activeEntries.some(([itemId, val]) => Number(val) !== savedAdjMap[itemId])
+    })()
 
     // Compute the next day name + date for daily order header
     const tomorrow = new Date(selectedOrderDate + 'T12:00:00')
@@ -1909,21 +1908,28 @@ export default function InventoryOrdersPage() {
                                                 <th className="p-2 sm:p-3 text-center">{t('bodegaOrders.packagingCol')}</th>
                                                 <th className="p-2 sm:p-3 text-center">{t('bodegaOrders.costCol')}</th>
                                                 <th className="p-2 sm:p-3 text-center w-14 sm:w-16">PAR</th>
-                                                <th className="p-2 sm:p-3 text-center w-20 sm:w-24">Sobrante</th>
-                                                <th className="p-2 sm:p-3 text-center w-16 sm:w-20">Pedir</th>
-                                                <th className="p-2 sm:p-3 text-center w-20 sm:w-24">Ajuste</th>
-                                                <th className="p-2 sm:p-3 text-center w-16 sm:w-20">Final</th>
+                                                <th className="p-2 sm:p-3 text-center w-20 sm:w-24">
+                                                    {editModal.order?.order_type === 'uniforms' ? `🎽 ${t('bodegaOrders.inStock')}` : t('bodegaOrders.leftover')}
+                                                </th>
+                                                <th className="p-2 sm:p-3 text-center w-16 sm:w-20">{t('bodegaOrders.orderCol')}</th>
+                                                <th className="p-2 sm:p-3 text-center w-20 sm:w-24" title={t('bodegaOrders.adjustColTooltip')}>{t('bodegaOrders.adjustCol')}</th>
+                                                <th className="p-2 sm:p-3 text-center w-16 sm:w-20">{t('bodegaOrders.finalQty')}</th>
                                             </tr>
                                         </thead>
                                         <tbody>
                                             {modalLines.map((line: any, index: number) => {
+                                                const modalOrderType: OrderType = editModal.order?.order_type || 'daily';
                                                 const leftoverVal = line.leftover_value;
                                                 const isZeroLeftover = leftoverVal === null || leftoverVal === undefined;
                                                 const parVal = line.par_value || 0;
                                                 const calculatedQty = line.calculated_qty;
                                                 const adj = line.adjusted_qty;
-                                                const finalQty = adj !== null && adj !== undefined ? adj : calculatedQty;
+                                                const hasAdj = adj !== null && adj !== undefined && adj !== '';
+                                                const adjNum = hasAdj ? Number(adj) : undefined;
+                                                const finalQty = adjNum !== undefined && !isNaN(adjNum) ? adjNum : calculatedQty;
                                                 const isNegative = calculatedQty < 0;
+                                                const hideCalculated = !line.is_extraordinary && isZeroLeftover && modalOrderType === 'daily';
+                                                const hideFinal = !line.is_extraordinary && isZeroLeftover && !hasAdj && modalOrderType === 'daily';
 
                                                 return (
                                                     <tr key={line.id || index} className="border-b border-slate-100 hover:bg-slate-50/50 transition-colors">
@@ -1952,13 +1958,16 @@ export default function InventoryOrdersPage() {
                                                         <td className="p-2 sm:p-3 text-center font-medium bg-emerald-50/30 text-emerald-800">
                                                             {parVal}
                                                         </td>
-                                                        {/* Sobrante */}
-                                                        <td className="p-1 sm:p-1.5 text-center bg-orange-50/20">
-                                                            {modalReadOnly ? (
+                                                        {/* Sobrante / En Existencia */}
+                                                        <td className={`p-1 sm:p-1.5 text-center ${modalOrderType === 'uniforms' ? 'bg-emerald-50/40' : 'bg-orange-50/20'}`}>
+                                                            {modalOrderType === 'uniforms' ? (
+                                                                <span className="font-bold text-emerald-800 text-[11px] sm:text-xs">🎽 {leftoverVal !== null && leftoverVal !== undefined ? leftoverVal : 0}</span>
+                                                            ) : modalReadOnly ? (
                                                                 <span className="font-bold text-orange-800 text-[11px] sm:text-xs">{leftoverVal !== null && leftoverVal !== undefined ? leftoverVal : '-'}</span>
                                                             ) : (
                                                                 <input
-                                                                    type="number"
+                                                                    type="text"
+                                                                    inputMode="decimal"
                                                                     value={leftoverVal !== null && leftoverVal !== undefined ? leftoverVal : ''}
                                                                     onChange={e => handleModalLeftoverChange(line.inventory_item_id, e.target.value)}
                                                                     onFocus={e => e.target.select()}
@@ -1969,16 +1978,18 @@ export default function InventoryOrdersPage() {
                                                         </td>
                                                         {/* Pedir */}
                                                         <td className={`p-2 sm:p-3 text-center font-bold ${isNegative ? 'text-red-500 bg-red-50/20' : 'text-blue-700 bg-blue-50/10'}`}>
-                                                            {isZeroLeftover ? '-' : calculatedQty}
+                                                            {hideCalculated ? '-' : calculatedQty}
                                                         </td>
                                                         {/* Ajuste */}
                                                         <td className="p-1 sm:p-1.5 text-center bg-indigo-50/10">
                                                             {modalReadOnly ? (
-                                                                <span className="font-bold text-indigo-700 text-[11px] sm:text-xs">{adj !== null && adj !== undefined ? adj : '-'}</span>
+                                                                <span className="font-bold text-indigo-700 text-[11px] sm:text-xs">{hasAdj ? adj : '-'}</span>
                                                             ) : (
                                                                 <input
-                                                                    type="number"
-                                                                    value={adj !== null && adj !== undefined ? adj : ''}
+                                                                    type="text"
+                                                                    inputMode="decimal"
+                                                                    title={t('bodegaOrders.adjustColTooltip')}
+                                                                    value={hasAdj ? adj : ''}
                                                                     onChange={e => handleModalAdjustmentChange(line.inventory_item_id, e.target.value)}
                                                                     onFocus={e => e.target.select()}
                                                                     placeholder="-"
@@ -1988,7 +1999,7 @@ export default function InventoryOrdersPage() {
                                                         </td>
                                                         {/* Final */}
                                                         <td className={`p-2 sm:p-3 text-center font-black text-[12px] sm:text-sm ${finalQty > 0 ? 'text-slate-800 bg-slate-50/50' : 'text-slate-300'}`}>
-                                                            {isZeroLeftover ? '-' : finalQty}
+                                                            {hideFinal ? '-' : finalQty}
                                                         </td>
                                                     </tr>
                                                 );
@@ -2305,9 +2316,16 @@ export default function InventoryOrdersPage() {
 
                             if (!isCurrentWeek) {
                                 return (
-                                    <div className="p-16 text-center text-slate-400 flex flex-col items-center gap-3">
+                                    <div className="p-16 text-center text-slate-400 flex flex-col items-center gap-4">
                                         <AlertTriangle className="w-10 h-10 text-amber-400" />
                                         <span className="text-lg font-bold text-slate-500">{t('bodegaOrders.notCurrentWeek')}</span>
+                                        <button
+                                            type="button"
+                                            onClick={() => handleOrderDateChange(todayStr)}
+                                            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow-sm transition-all active:scale-95"
+                                        >
+                                            {t('bodegaOrders.backToToday')}
+                                        </button>
                                     </div>
                                 )
                             }
@@ -2358,24 +2376,26 @@ export default function InventoryOrdersPage() {
                                                 </button>
                                             </div>
 
-                                            {/* Dropdown to override PAR base day field */}
-                                            <div className="flex items-center gap-2 bg-slate-100 border border-slate-200 rounded-xl px-3 py-1.5 shadow-sm text-xs">
-                                                <span className="font-bold text-slate-500">📅 Usar PAR de:</span>
-                                                <select
-                                                    value={overrideDayField}
-                                                    onChange={e => setOverrideDayField(e.target.value)}
-                                                    className="bg-transparent text-slate-700 font-bold outline-none cursor-pointer focus:text-blue-600 font-sans"
-                                                >
-                                                    <option value="auto">Automático ({tomorrowDayName?.es || ''})</option>
-                                                    <option value="mon_par">Lunes / Monday</option>
-                                                    <option value="tue_par">Martes / Tuesday</option>
-                                                    <option value="wed_par">Miércoles / Wednesday</option>
-                                                    <option value="thu_par">Jueves / Thursday</option>
-                                                    <option value="fri_par">Viernes / Friday</option>
-                                                    <option value="sat_par">Sábado / Saturday</option>
-                                                    <option value="sun_par">Domingo / Sunday</option>
-                                                </select>
-                                            </div>
+                                            {/* Dropdown to override PAR base day field (only applicable to Daily Order) */}
+                                            {orderType === 'daily' && (
+                                                <div className="flex items-center gap-2 bg-slate-100 border border-slate-200 rounded-xl px-3 py-1.5 shadow-sm text-xs">
+                                                    <span className="font-bold text-slate-500">📅 Usar PAR de:</span>
+                                                    <select
+                                                        value={overrideDayField}
+                                                        onChange={e => setOverrideDayField(e.target.value)}
+                                                        className="bg-transparent text-slate-700 font-bold outline-none cursor-pointer focus:text-blue-600 font-sans"
+                                                    >
+                                                        <option value="auto">Automático ({tomorrowDayName?.es || ''})</option>
+                                                        <option value="mon_par">Lunes / Monday</option>
+                                                        <option value="tue_par">Martes / Tuesday</option>
+                                                        <option value="wed_par">Miércoles / Wednesday</option>
+                                                        <option value="thu_par">Jueves / Thursday</option>
+                                                        <option value="fri_par">Viernes / Friday</option>
+                                                        <option value="sat_par">Sábado / Saturday</option>
+                                                        <option value="sun_par">Domingo / Sunday</option>
+                                                    </select>
+                                                </div>
+                                            )}
 
                                             {/* Selector de Incremento de PAR (Emergencia) */}
                                             <div className="flex items-center gap-2 bg-indigo-50 border border-indigo-200 rounded-xl px-3 py-1.5 shadow-sm text-xs text-indigo-800">
@@ -2593,12 +2613,14 @@ export default function InventoryOrdersPage() {
                                         </div>
 
                                         {/* Live Sync Indicator */}
-                                        <div className="flex items-center gap-1.5 px-3 py-2 bg-white border border-slate-200 rounded-xl shadow-2xs select-none">
-                                            <span className={`w-2.5 h-2.5 rounded-full transition-all ${isLiveSaving ? 'bg-amber-500 animate-ping' : 'bg-emerald-500'}`} />
-                                            <span className="text-[11px] font-bold text-slate-600">
+                                        <div className={`flex items-center gap-1.5 px-3 py-2 border rounded-xl shadow-2xs select-none ${hasUnsavedAdjustments && !isLiveSaving ? 'bg-amber-50 border-amber-200' : 'bg-white border-slate-200'}`}>
+                                            <span className={`w-2.5 h-2.5 rounded-full transition-all ${isLiveSaving ? 'bg-amber-500 animate-ping' : hasUnsavedAdjustments ? 'bg-amber-500' : 'bg-emerald-500'}`} />
+                                            <span className={`text-[11px] font-bold ${hasUnsavedAdjustments && !isLiveSaving ? 'text-amber-800' : 'text-slate-600'}`}>
                                                 {isLiveSaving 
                                                     ? (language === 'es' ? 'Guardando en la nube...' : 'Saving to cloud...') 
-                                                    : (language === 'es' ? 'Sincronizado' : 'Synced')}
+                                                    : hasUnsavedAdjustments
+                                                        ? t('bodegaOrders.unsavedAdjustmentsBadge')
+                                                        : (language === 'es' ? 'Sincronizado' : 'Synced')}
                                             </span>
                                         </div>
 
@@ -2672,7 +2694,7 @@ export default function InventoryOrdersPage() {
                                                     <th className="p-3 text-center w-20 bg-blue-50 text-blue-700 border-b-2 border-blue-200">
                                                         {t('bodegaOrders.orderCol')}
                                                     </th>
-                                                    <th className="p-3 text-center w-24 bg-indigo-50 text-indigo-700 border-b-2 border-indigo-200">
+                                                    <th className="p-3 text-center w-24 bg-indigo-50 text-indigo-700 border-b-2 border-indigo-200" title={t('bodegaOrders.adjustColTooltip')}>
                                                         {t('bodegaOrders.adjustCol')}
                                                     </th>
                                                     <th className="p-3 text-center w-20 bg-slate-100 text-slate-800 border-b-2 border-slate-300 font-black">
@@ -2685,15 +2707,17 @@ export default function InventoryOrdersPage() {
                                                 {orderableLines.map((line, rowIndex) => {
                                                     const rawAdj = adjustments[line.inventory_item_id]
                                                     const adjNum = rawAdj !== undefined && rawAdj !== '' ? Number(rawAdj) : undefined
-                                                    const finalQty = adjNum !== undefined && !isNaN(adjNum) ? adjNum : line.calculated_qty
+                                                    const hasManualAdj = adjNum !== undefined && !isNaN(adjNum)
+                                                    const finalQty = hasManualAdj ? adjNum : line.calculated_qty
                                                     const isNegative = line.calculated_qty < 0
                                                     const isZeroLeftover = line.leftover_value === null
+                                                    const hideFinalCell = isZeroLeftover && !(orderType !== 'daily' && hasManualAdj)
                                                     const currentLeftover = counts[line.inventory_item_id]?.[selectedOrderDate]
                                                     const par = line.par_value || 0
-                                                    const isHighLeftover = !line.is_extraordinary && currentLeftover !== undefined && currentLeftover !== null && par > 0 &&
+                                                    const isHighLeftover = orderType !== 'uniforms' && !line.is_extraordinary && currentLeftover !== undefined && currentLeftover !== null && par > 0 &&
                                                         ((par >= 3 && currentLeftover >= par * 1.5 && (currentLeftover - par >= 4)) || (par < 3 && currentLeftover >= 8))
-                                                    const isNegativeAdjust = adjNum !== undefined && !isNaN(adjNum) && adjNum < 0
-                                                    const isHighAdjust = adjNum !== undefined && !isNaN(adjNum) && adjNum >= 0 && (
+                                                    const isNegativeAdjust = hasManualAdj && adjNum < 0
+                                                    const isHighAdjust = hasManualAdj && adjNum >= 0 && (
                                                         (par >= 4 && adjNum >= par * 2.5 && (adjNum - par >= 8)) ||
                                                         (par < 4 && par > 0 && adjNum >= 25) ||
                                                         (par === 0 && adjNum >= 50)
@@ -2743,7 +2767,7 @@ export default function InventoryOrdersPage() {
                                                                         <span title={`Previsualización no certificada: ${line.theoretical_source_status || 'sin estado'} | Consumo por tickets: ${line.theoretical_consumption ?? '-'} | Órdenes: ${line.yesterday_order_qty ?? '-'} | ${line.theoretical_source_reason || ''}`}>
                                                                             {line.suggested_leftover}
                                                                         </span>
-                                                                    ) : (
+                                     ) : (
                                                                         <span className="text-slate-300" title={line.theoretical_source_reason || 'Sobrante teórico no certificado'}>-</span>
                                                                     )}
                                                                 </td>
@@ -2812,6 +2836,7 @@ export default function InventoryOrdersPage() {
                                                                         type="text"
                                                                         inputMode="decimal"
                                                                         placeholder="-"
+                                                                        title={t('bodegaOrders.adjustColTooltip')}
                                                                         disabled={isPilotBlind}
                                                                         className={`w-full p-2.5 text-center outline-none font-bold text-sm placeholder:text-indigo-200 border-l-[4px] transition-all ${
                                                                             isNegativeAdjust
@@ -2829,20 +2854,37 @@ export default function InventoryOrdersPage() {
                                                                                     delete newAdj[line.inventory_item_id]
                                                                                     return newAdj
                                                                                 })
-                                                                            } else if (/^-?\d*\.?\d*$/.test(v)) {
+                                                                            } else if (/^\d*\.?\d*$/.test(v)) {
                                                                                 setAdjustments(prev => ({ ...prev, [line.inventory_item_id]: v }))
                                                                             }
                                                                         }}
                                                                         onKeyDown={e => handleGridKeyDown(e, rowIndex, 1)}
                                                                         onFocus={e => e.target.select()}
                                                                     />
+                                                                    {rawAdj !== undefined && !isPilotBlind && (
+                                                                        <button
+                                                                            type="button"
+                                                                            tabIndex={-1}
+                                                                            onClick={() => {
+                                                                                setAdjustments(prev => {
+                                                                                    const newAdj = { ...prev }
+                                                                                    delete newAdj[line.inventory_item_id]
+                                                                                    return newAdj
+                                                                                })
+                                                                            }}
+                                                                            title={t('bodegaOrders.clearAdjustmentTitle')}
+                                                                            className="absolute right-1 text-slate-300 hover:text-slate-600 text-[10px] font-bold px-1 py-0.5 rounded transition-colors"
+                                                                        >
+                                                                            ✕
+                                                                        </button>
+                                                                    )}
                                                                 </div>
                                                             </td>
                                                             {/* Final */}
                                                             <td className={`p-2 text-center font-black text-base border-b border-indigo-100 ${
-                                                                isHighFinal ? 'bg-purple-100/40 text-purple-950 font-black' : isZeroLeftover ? 'text-slate-300 bg-indigo-50/20' : 'text-indigo-800 bg-indigo-50/20'
+                                                                isHighFinal ? 'bg-purple-100/40 text-purple-950 font-black' : hideFinalCell ? 'text-slate-300 bg-indigo-50/20' : 'text-indigo-800 bg-indigo-50/20'
                                                             }`}>
-                                                                {isPilotBlind ? '🔒' : isZeroLeftover ? '-' : (
+                                                                {isPilotBlind ? '🔒' : hideFinalCell ? '-' : (
                                                                     <div className="flex flex-col items-center justify-center">
                                                                         <span>{finalQty}</span>
                                                                         {isHighFinal && (
@@ -2938,6 +2980,7 @@ export default function InventoryOrdersPage() {
                                                                         type="text"
                                                                         inputMode="decimal"
                                                                         placeholder="-"
+                                                                        title={t('bodegaOrders.adjustColTooltip')}
                                                                         className={`w-full p-2.5 text-center outline-none font-bold text-sm placeholder:text-indigo-200 border-l-[4px] transition-all ${
                                                                             isNegativeAdjust
                                                                                 ? 'bg-red-100/70 focus:bg-white focus:ring-2 focus:ring-red-500 text-red-900 border-l-red-500'
@@ -2954,7 +2997,7 @@ export default function InventoryOrdersPage() {
                                                                                     delete newAdj[line.inventory_item_id]
                                                                                     return newAdj
                                                                                 })
-                                                                            } else if (/^-?\d*\.?\d*$/.test(v)) {
+                                                                            } else if (/^\d*\.?\d*$/.test(v)) {
                                                                                 setAdjustments(prev => ({ ...prev, [line.inventory_item_id]: v }))
                                                                             }
                                                                         }}
@@ -3582,11 +3625,29 @@ export default function InventoryOrdersPage() {
                                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                                         {historyOrders.map((order: any) => {
                                             const isDeleting = deletingOrderId === order.id
+                                            const orderedItemsCount = Array.isArray(order.inventory_order_lines)
+                                                ? order.inventory_order_lines.filter((l: any) => Number(l.final_qty ?? l.adjusted_qty ?? l.calculated_qty ?? 0) > 0).length
+                                                : 0
+                                            const orderTypeBadge = order.order_type === 'uniforms'
+                                                ? t('bodegaOrders.orderTypeUniformsBadge')
+                                                : order.order_type === 'liquids'
+                                                    ? t('bodegaOrders.orderTypeLiquidsBadge')
+                                                    : t('bodegaOrders.orderTypeDailyBadge')
+                                            const orderTypeBadgeClass = order.order_type === 'uniforms'
+                                                ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                                : order.order_type === 'liquids'
+                                                    ? 'bg-purple-50 text-purple-700 border-purple-200'
+                                                    : 'bg-blue-50 text-blue-700 border-blue-200'
                                             return (
                                                 <div key={order.id} className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm hover:shadow-md transition-shadow relative flex flex-col justify-between min-h-[160px]">
                                                     <div>
-                                                        <div className="flex justify-between items-start mb-2">
-                                                            <span className="font-black text-slate-800 text-sm">📅 {language === 'es' ? 'Pedido del' : 'Order from'} {order.order_date}</span>
+                                                        <div className="flex justify-between items-start gap-2 mb-2">
+                                                            <div className="flex flex-col gap-1">
+                                                                <span className="font-black text-slate-800 text-sm">📅 {language === 'es' ? 'Pedido del' : 'Order from'} {order.order_date}</span>
+                                                                <span className={`self-start text-[10px] px-2 py-0.5 rounded-md font-bold border ${orderTypeBadgeClass}`}>
+                                                                    {orderTypeBadge}
+                                                                </span>
+                                                            </div>
                                                             <span className={`text-[10px] px-2.5 py-0.5 rounded-full font-bold uppercase tracking-wider ${
                                                                 order.status === 'sent' ? 'bg-emerald-100 text-emerald-800 border border-emerald-200' :
                                                                 order.status === 'draft' ? 'bg-slate-100 text-slate-600 border border-slate-200' :
@@ -3614,7 +3675,7 @@ export default function InventoryOrdersPage() {
 
                                                         {order.inventory_order_lines && (
                                                             <div className="text-[11px] text-blue-500 mt-2 font-medium">
-                                                                📦 {order.inventory_order_lines.length} {language === 'es' ? 'items' : 'items'}
+                                                                📦 {orderedItemsCount} {language === 'es' ? 'items' : 'items'}
                                                             </div>
                                                         )}
                                                     </div>
