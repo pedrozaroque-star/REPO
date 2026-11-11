@@ -27,6 +27,12 @@
  * - Motor V30 Universal de Descansos IA integrado al publicar: prioriza el rol real del turno (`s.job_id`),
  *   resuelve estaciones operativas desde `station_assignments`, carga hasta 3,000 preferencias ordenadas por `created_at DESC`
  *   y congela como anclas los descansos de compañeros ya publicados cuando se ejecuta una publicación parcial.
+ * - Publicación parcial (`Publicar Cambios`): `shift_ids` marca borradores como `published` y acota `publishedShiftIdSet`,
+ *   pero consulta siempre todos los turnos `published` de la semana para que cada empleado impactado reciba su horario semanal
+ *   completo actualizado (y soporta `resend_only: true` / `skip_manager_report: true` para reenvíos selectivos sin mutar DB).
+ * - Validación de destinatarios (`classifyRecipientEmail`): omite correos placeholder de POS (`@example.com`, `@toasttab.com`,
+ *   `@tryotter.com`) y dominios con error tipográfico (`@gamail.com`, `@gnail.com`, etc.) evitando rebotes `mailer-daemon`
+ *   y listándolos como alerta en el resumen del gerente (`stats.skipped_invalid`).
  */
 
 import { NextResponse } from 'next/server'
@@ -160,6 +166,60 @@ function normalizeText(text: string): string {
     return sharedNormalizeText(text)
 }
 
+const NON_ROUTABLE_EMAIL_DOMAINS = new Set([
+    'example.com',
+    'example.org',
+    'example.net',
+    'toasttab.com',
+    'tryotter.com',
+    'test.com',
+    'invalid',
+    'localhost',
+])
+
+const KNOWN_TYPO_EMAIL_DOMAINS: Record<string, string> = {
+    'gamail.com': 'gmail.com',
+    'gnail.com': 'gmail.com',
+    'gamil.com': 'gmail.com',
+    'gmal.com': 'gmail.com',
+    'gmial.com': 'gmail.com',
+    'gmail.con': 'gmail.com',
+    'hotmal.com': 'hotmail.com',
+    'hotmial.com': 'hotmail.com',
+    'hotmail.con': 'hotmail.com',
+    'outlok.com': 'outlook.com',
+    'yaho.com': 'yahoo.com',
+    'yahoo.con': 'yahoo.com',
+    'iclod.com': 'icloud.com',
+    'icloud.con': 'icloud.com',
+}
+
+export function classifyRecipientEmail(rawEmail: string | null | undefined): {
+    deliverable: boolean
+    normalizedEmail: string
+    reason?: string
+} {
+    const trimmed = String(rawEmail || '').trim()
+    if (!trimmed) {
+        return { deliverable: false, normalizedEmail: '', reason: 'MISSING_EMAIL' }
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(trimmed)) {
+        return { deliverable: false, normalizedEmail: trimmed, reason: 'INVALID_SYNTAX' }
+    }
+    const domain = trimmed.split('@')[1]?.toLowerCase() || ''
+    if (NON_ROUTABLE_EMAIL_DOMAINS.has(domain)) {
+        return { deliverable: false, normalizedEmail: trimmed, reason: `PLACEHOLDER_DOMAIN (${domain})` }
+    }
+    if (KNOWN_TYPO_EMAIL_DOMAINS[domain]) {
+        return {
+            deliverable: false,
+            normalizedEmail: trimmed,
+            reason: `TYPO_DOMAIN (${domain} -> ¿${KNOWN_TYPO_EMAIL_DOMAINS[domain]}?)`,
+        }
+    }
+    return { deliverable: true, normalizedEmail: trimmed }
+}
+
 // Initialize clients
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co'
 const supabaseKey =
@@ -258,6 +318,8 @@ export async function POST(req: Request) {
         const body = await req.json()
         const { store_id, start_date, end_date } = body
         const previewOnly = Boolean(body.preview_only)
+        const resendOnly = Boolean(body.resend_only)
+        const skipManagerReport = Boolean(body.skip_manager_report)
 
         if (!store_id || !start_date || !end_date) {
             return NextResponse.json(
@@ -358,8 +420,8 @@ export async function POST(req: Request) {
             fromEmail = creds.fromEmail
         }
 
-        // 2. Actualizar estado a 'published' SOLO cuando no es preview_only y con scope estricto de tienda/rango
-        if (!previewOnly && requestedShiftIds.length > 0) {
+        // 2. Actualizar estado a 'published' SOLO cuando no es preview_only ni resend_only y con scope estricto de tienda/rango
+        if (!previewOnly && !resendOnly && requestedShiftIds.length > 0) {
             const { error: ensureError } = await supabase
                 .from('shifts')
                 .update({ status: 'published' })
@@ -377,7 +439,8 @@ export async function POST(req: Request) {
             }
         }
 
-        // Consultar turnos del periodo (en preview_only incluye borradores para previsualizar antes de publicar)
+        // Consultar turnos completos de la semana (en publicación real siempre incluye todos los turnos 'published'
+        // de la semana para que al editar 1 día el empleado reciba su semana completa y no un día aislado)
         let query = supabase
             .from('shifts')
             .select('*')
@@ -387,8 +450,7 @@ export async function POST(req: Request) {
 
         if (!previewOnly) {
             query = query.eq('status', 'published')
-        }
-        if (requestedShiftIds.length > 0) {
+        } else if (requestedShiftIds.length > 0) {
             query = query.in('id', requestedShiftIds)
         }
 
@@ -406,14 +468,14 @@ export async function POST(req: Request) {
             return NextResponse.json({
                 success: true,
                 preview_only: previewOnly,
-                stats: { email: 0, errors: 0 },
+                stats: { email: 0, errors: 0, skipped_invalid: [], sent_to: [] },
                 previews: [],
                 message: 'No shifts found for the specified store and date range',
             })
         }
 
-        // Sincronizar turnos de liderazgo solo en publicación real (nunca en preview_only)
-        if (!previewOnly) {
+        // Sincronizar turnos de liderazgo solo en publicación real (nunca en preview_only ni resend_only)
+        if (!previewOnly && !resendOnly) {
             try {
                 await syncPlannerToSchedules({
                     storeExternalId: resolvedStoreGuid,
@@ -515,9 +577,18 @@ export async function POST(req: Request) {
             created_at: o.created_at || null,
         }))
 
-        if (!previewOnly && shifts.length > 0) {
-            const publishedShiftIdSet = new Set(shifts.map((ls: any) => String(ls.id)))
-            const datesToProcess = [...new Set(shifts.map((s: any) => s.shift_date))]
+        if (!previewOnly && !resendOnly && shifts.length > 0) {
+            const publishedShiftIdSet =
+                requestedShiftIds.length > 0
+                    ? new Set(requestedShiftIds)
+                    : new Set(shifts.map((ls: any) => String(ls.id)))
+            const datesToProcess = [
+                ...new Set(
+                    shifts
+                        .filter((s: any) => publishedShiftIdSet.has(String(s.id)))
+                        .map((s: any) => s.shift_date)
+                ),
+            ]
             for (const dateStr of datesToProcess) {
                 try {
                     const { data: dayShifts } = await supabase
@@ -600,7 +671,17 @@ export async function POST(req: Request) {
         const isActivitiesEnabled =
             isPilotStoreActive || (previewOnly && body.include_activities_preview !== false)
 
-        const results = { email: 0, errors: 0 }
+        const results: {
+            email: number
+            errors: number
+            skipped_invalid: Array<{ employee_id: string; name: string; email: string | null; reason: string }>
+            sent_to: Array<{ employee_id: string; name: string; email: string; shifts_count: number; message_id?: string }>
+        } = {
+            email: 0,
+            errors: 0,
+            skipped_invalid: [],
+            sent_to: [],
+        }
         const employeePreviews: any[] = []
 
         const isFreqMatch = (paFrequency: string, dayIdxOrDate: string | number): boolean => {
@@ -1146,64 +1227,81 @@ export async function POST(req: Request) {
                     contentType: 'text/calendar; charset=utf-8; method=PUBLISH',
                 })
 
+                const emailCheck = classifyRecipientEmail(emp.email)
+
+                if (!emailCheck.deliverable) {
+                    results.skipped_invalid.push({
+                        employee_id: String(emp.id),
+                        name: empFullName,
+                        email: emp.email || null,
+                        reason: emailCheck.reason || 'INVALID_EMAIL',
+                    })
+                    return
+                }
+
                 const mailOptions = {
                     from: `"${storeName} Schedule" <${fromEmail}>`,
-                    to: emp.email,
+                    to: emailCheck.normalizedEmail,
                     subject: `📅 Horario: ${storeName}`,
                     html: fullHtml,
                     attachments,
                 }
 
-                if (emp.email) {
-                    try {
-                        const compiler = nodemailer.createTransport({
-                            streamTransport: true,
-                            newline: 'windows',
-                        })
-                        const info = await compiler.sendMail(mailOptions)
+                try {
+                    const compiler = nodemailer.createTransport({
+                        streamTransport: true,
+                        newline: 'windows',
+                    })
+                    const info = await compiler.sendMail(mailOptions)
 
-                        const rawBuffer = await new Promise<Buffer>((resolve, reject) => {
-                            const message = info.message as any
-                            if (Buffer.isBuffer(message)) return resolve(message)
-                            if (typeof message.pipe === 'function') {
-                                const chunks: Buffer[] = []
-                                message.on('data', (chunk: Buffer) => chunks.push(chunk))
-                                message.on('end', () => resolve(Buffer.concat(chunks)))
-                                message.on('error', (err: Error) => reject(err))
-                                return
-                            }
-                            reject(new Error('Nodemailer returned unknown message format'))
-                        })
-
-                        const raw = rawBuffer
-                            .toString('base64')
-                            .replace(/\+/g, '-')
-                            .replace(/\//g, '_')
-                            .replace(/=+$/, '')
-
-                        const sendRes = await fetch(
-                            'https://gmail.googleapis.com/gmail/v1/users/me/messages/send',
-                            {
-                                method: 'POST',
-                                headers: {
-                                    Authorization: `Bearer ${accessToken}`,
-                                    'Content-Type': 'application/json',
-                                },
-                                body: JSON.stringify({ raw }),
-                            }
-                        )
-
-                        if (!sendRes.ok) {
-                            const err = await sendRes.json()
-                            throw new Error(JSON.stringify(err))
+                    const rawBuffer = await new Promise<Buffer>((resolve, reject) => {
+                        const message = info.message as any
+                        if (Buffer.isBuffer(message)) return resolve(message)
+                        if (typeof message.pipe === 'function') {
+                            const chunks: Buffer[] = []
+                            message.on('data', (chunk: Buffer) => chunks.push(chunk))
+                            message.on('end', () => resolve(Buffer.concat(chunks)))
+                            message.on('error', (err: Error) => reject(err))
+                            return
                         }
+                        reject(new Error('Nodemailer returned unknown message format'))
+                    })
 
-                        await sendRes.json()
-                        results.email++
-                    } catch (e) {
-                        console.error(`Email failed for ${emp.first_name}:`, e)
-                        results.errors++
+                    const raw = rawBuffer
+                        .toString('base64')
+                        .replace(/\+/g, '-')
+                        .replace(/\//g, '_')
+                        .replace(/=+$/, '')
+
+                    const sendRes = await fetch(
+                        'https://gmail.googleapis.com/gmail/v1/users/me/messages/send',
+                        {
+                            method: 'POST',
+                            headers: {
+                                Authorization: `Bearer ${accessToken}`,
+                                'Content-Type': 'application/json',
+                            },
+                            body: JSON.stringify({ raw }),
+                        }
+                    )
+
+                    if (!sendRes.ok) {
+                        const err = await sendRes.json()
+                        throw new Error(JSON.stringify(err))
                     }
+
+                    const sendJson = await sendRes.json()
+                    results.email++
+                    results.sent_to.push({
+                        employee_id: String(emp.id),
+                        name: empFullName,
+                        email: emailCheck.normalizedEmail,
+                        shifts_count: empShifts.length,
+                        message_id: sendJson?.id,
+                    })
+                } catch (e) {
+                    console.error(`Email failed for ${emp.first_name}:`, e)
+                    results.errors++
                 }
             })
             await Promise.all(promises)
@@ -1249,7 +1347,7 @@ export async function POST(req: Request) {
         }
 
         // 7. SEND CONSOLIDATED REPORT TO MANAGER
-        if (results.email > 0) {
+        if (results.email > 0 && !skipManagerReport) {
             const getApiRoleWeight = (title: string, empShifts: any[]) => {
                 const t = (title || '').toLowerCase()
                 if (
@@ -1387,6 +1485,23 @@ export async function POST(req: Request) {
                 })
                 .join('')
 
+            const skippedWarningHtml =
+                results.skipped_invalid.length > 0
+                    ? `
+                        <div style="margin-bottom: 24px; background: #fffbeb; border: 1px solid #fcd34d; border-radius: 8px; padding: 12px 16px; font-size: 11px; color: #92400e;">
+                            <div style="font-weight: 800; margin-bottom: 6px;">⚠️ Empleados sin correo válido en Toast POS (${results.skipped_invalid.length}):</div>
+                            <ul style="margin: 0; padding-left: 18px;">
+                                ${results.skipped_invalid
+                                    .map(
+                                        (sk) =>
+                                            `<li><b>${escapeHtml(sk.name)}</b>: ${escapeHtml(sk.email || 'Sin correo')} — <i>${escapeHtml(sk.reason)}</i></li>`
+                                    )
+                                    .join('')}
+                            </ul>
+                        </div>
+                    `
+                    : ''
+
             const managerHtml = `
                 <!DOCTYPE html>
                 <html>
@@ -1406,6 +1521,7 @@ export async function POST(req: Request) {
                                 </div>
                             </div>
                         </div>
+                        ${skippedWarningHtml}
                         <table style="width: 100%; border-collapse: collapse; border: 1px solid #e2e8f0; table-layout: fixed;">
                             <thead>
                                 <tr style="background: #f8fafc;">
