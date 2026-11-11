@@ -1,24 +1,27 @@
 /**
  * @module PilotComparisonModal
  * @description Modal de auditoría y comparación detallada entre el conteo físico real capturado
- * por el manager y la proyección teórica automática (generada con tickets Toast, PMIX y recetas).
- * Permite visualizar insumo por insumo la varianza, el margen de tolerancia y el impacto que
- * tendría en el pedido de Bodega.
- * 
+ * por el manager y la proyección teórica automática (generada por el motor dual de tickets Toast
+ * + balance de masas histórico causal). Permite visualizar insumo por insumo la varianza, el
+ * margen de tolerancia y el impacto que tendría en el pedido de Bodega.
+ *
  * @businessRules
  * 1. El conteo físico capturado por el manager es la ÚNICA base oficial del pedido a Bodega.
  * 2. El cálculo teórico se revela únicamente después del cierre del conteo ciego (blind count).
  * 3. Tolerancia: 1 unidad para productos unitarios/discretos, o MAX(1, 15% del sobrante físico).
  * 4. Pedido Oficial = MAX(0, PAR - Sobrante Físico).
  * 5. Pedido Teórico = MAX(0, PAR - Sobrante Teórico).
- * 
+ *
  * @dataFlow
  * Recibe las líneas comparativas desde `inventory_automation_pilot_lines` (Supabase) o
  * directamente desde la sesión activa de la orden diaria en `page.tsx`.
- * 
+ *
  * @notes
- * Creado para que Carlos y supervisores puedan auditar de un vistazo la precisión de las
- * recetas y el comportamiento del motor de consumo teórico sin salir de la pantalla de pedidos.
+ * - Creado para que Carlos y supervisores puedan auditar de un vistazo la precisión de las
+ *   recetas y el comportamiento del motor de consumo teórico sin salir de la pantalla de pedidos.
+ * - [2026-11-09] Corregido conteo de `within_tolerance === null` para no clasificar sin-base como
+ *   `outsideCount`, evitado cálculo espurio de diferencia de pedido cuando `automatic_order_qty` es
+ *   `null` y migrados textos visibles a `lib/i18n.tsx` (`es` / `en`).
  */
 
 'use client'
@@ -81,24 +84,31 @@ export default function PilotComparisonModal({
         const total = lines.length
         let withinCount = 0
         let outsideCount = 0
+        let pendingCount = 0
         let totalOfficialOrder = 0
         let totalTheoreticalOrder = 0
 
         lines.forEach(line => {
             if (line.within_tolerance === true) withinCount++
-            else outsideCount++
+            else if (line.within_tolerance === false) outsideCount++
+            else pendingCount++
 
             totalOfficialOrder += line.official_order_qty || 0
             totalTheoreticalOrder += line.automatic_order_qty || 0
         })
 
-        const accuracyRate = total > 0 ? Math.round((withinCount / total) * 100) : 0
+        const evaluatedCount = withinCount + outsideCount
+        const accuracyRate = evaluatedCount > 0 ? Math.round((withinCount / evaluatedCount) * 100) : 0
+        const outsideRate = evaluatedCount > 0 ? Math.round((outsideCount / evaluatedCount) * 100) : 0
 
         return {
             total,
+            evaluatedCount,
             withinCount,
             outsideCount,
+            pendingCount,
             accuracyRate,
+            outsideRate,
             totalOfficialOrder,
             totalTheoreticalOrder,
             orderDiff: totalTheoreticalOrder - totalOfficialOrder,
@@ -117,12 +127,18 @@ export default function PilotComparisonModal({
         })
     }, [lines, searchTerm, filterType])
 
-    // Copiar tabla como texto / CSV
+    // Copiar tabla como texto / TSV
     const handleCopyData = () => {
-        const header = 'Insumo\tFísico\tTeórico\tVarianza\tTolerancia\tEstado\tPAR\tPedido Oficial\tPedido Teórico\tDif. Pedido\n'
+        const header = t('bodegaOrders.pilotCsvHeader')
         const rows = lines.map(l => {
-            const status = l.within_tolerance ? 'Dentro' : 'Fuera'
-            const orderDiff = (l.automatic_order_qty ?? 0) - (l.official_order_qty ?? 0)
+            const status =
+                l.within_tolerance === true
+                    ? t('bodegaOrders.pilotStatusWithin')
+                    : l.within_tolerance === false
+                    ? t('bodegaOrders.pilotStatusDeviation')
+                    : t('bodegaOrders.pilotStatusPending')
+            const hasBothOrders = l.automatic_order_qty !== null && l.official_order_qty !== null
+            const orderDiff = hasBothOrders ? Number(l.automatic_order_qty) - Number(l.official_order_qty) : '-'
             return `${l.item_name}\t${l.physical_leftover ?? '-'}\t${l.automatic_leftover ?? '-'}\t${l.variance ?? '-'}\t${l.tolerance_value ?? '-'}\t${status}\t${l.par_value}\t${l.official_order_qty ?? '-'}\t${l.automatic_order_qty ?? '-'}\t${orderDiff}`
         }).join('\n')
 
@@ -147,6 +163,8 @@ export default function PilotComparisonModal({
             formattedTime = completedAt
         }
     }
+
+    const diffLabel = stats.orderDiff > 0 ? `+${stats.orderDiff}` : String(stats.orderDiff)
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-3 md:p-6 bg-slate-950/70 backdrop-blur-sm overflow-y-auto animate-in fade-in duration-200">
@@ -200,10 +218,10 @@ export default function PilotComparisonModal({
                             {t('bodegaOrders.pilotEvaluatedItems')}
                         </div>
                         <div className="text-2xl font-black text-slate-800 mt-1">
-                            {stats.total}
+                            {stats.evaluatedCount} <span className="text-xs font-semibold text-slate-400">/ {stats.total}</span>
                         </div>
                         <div className="text-[10px] text-slate-400 mt-0.5">
-                            100% de la orden diaria
+                            {t('bodegaOrders.pilotFullDailyOrder')}
                         </div>
                     </div>
 
@@ -216,7 +234,7 @@ export default function PilotComparisonModal({
                             {stats.withinCount} <span className="text-sm font-semibold text-emerald-600">({stats.accuracyRate}%)</span>
                         </div>
                         <div className="text-[10px] text-emerald-600 mt-0.5">
-                            Concordancia directa
+                            {t('bodegaOrders.pilotDirectMatch')}
                         </div>
                     </div>
 
@@ -226,10 +244,10 @@ export default function PilotComparisonModal({
                             {t('bodegaOrders.pilotOutsideTolerance')}
                         </div>
                         <div className="text-2xl font-black text-amber-800 mt-1">
-                            {stats.outsideCount} <span className="text-sm font-semibold text-amber-700">({100 - stats.accuracyRate}%)</span>
+                            {stats.outsideCount} <span className="text-sm font-semibold text-amber-700">({stats.outsideRate}%)</span>
                         </div>
                         <div className="text-[10px] text-amber-700 mt-0.5">
-                            Revisión de merma / porción
+                            {t('bodegaOrders.pilotShrinkReview')}
                         </div>
                     </div>
 
@@ -240,10 +258,10 @@ export default function PilotComparisonModal({
                         <div className="text-xl font-black text-blue-800 mt-1 flex items-baseline gap-1.5">
                             <span>{stats.totalOfficialOrder}</span>
                             <span className="text-xs font-normal text-slate-500">vs</span>
-                            <span className="text-sm font-bold text-indigo-600">{stats.totalTheoreticalOrder} teór.</span>
+                            <span className="text-sm font-bold text-indigo-600">{stats.totalTheoreticalOrder} {t('bodegaOrders.pilotTheoreticalShort')}</span>
                         </div>
                         <div className="text-[10px] text-blue-600 mt-0.5">
-                            Impacto: {stats.orderDiff > 0 ? `+${stats.orderDiff}` : stats.orderDiff} unidades
+                            {t('bodegaOrders.pilotImpactUnits', { diff: diffLabel })}
                         </div>
                     </div>
                 </div>
@@ -304,7 +322,7 @@ export default function PilotComparisonModal({
                     <table className="w-full border-collapse text-left text-xs">
                         <thead className="sticky top-0 bg-slate-100 text-slate-600 uppercase text-[10px] font-black tracking-wider border-b border-slate-200 shadow-2xs z-10">
                             <tr>
-                                <th className="p-2.5 pl-4">Insumo</th>
+                                <th className="p-2.5 pl-4">{t('bodegaOrders.pilotItemCol')}</th>
                                 <th className="p-2.5 text-center bg-orange-50/60 text-orange-950">{t('bodegaOrders.pilotPhysicalLeftover')}</th>
                                 <th className="p-2.5 text-center bg-amber-50/60 text-amber-950">{t('bodegaOrders.pilotTheoreticalLeftover')}</th>
                                 <th className="p-2.5 text-center">{t('bodegaOrders.pilotVariance')}</th>
@@ -320,20 +338,24 @@ export default function PilotComparisonModal({
                             {filteredLines.length === 0 ? (
                                 <tr>
                                     <td colSpan={10} className="p-8 text-center text-slate-400 text-xs">
-                                        No se encontraron insumos con el filtro aplicado.
+                                        {t('bodegaOrders.pilotNoItemsFound')}
                                     </td>
                                 </tr>
                             ) : (
                                 filteredLines.map((line, idx) => {
                                     const isWithin = line.within_tolerance === true
+                                    const isOutside = line.within_tolerance === false
                                     const diff = line.variance ?? 0
-                                    const orderDiff = (line.automatic_order_qty ?? 0) - (line.official_order_qty ?? 0)
+                                    const hasBothOrders = line.automatic_order_qty !== null && line.official_order_qty !== null
+                                    const orderDiff = hasBothOrders
+                                        ? Number(line.automatic_order_qty) - Number(line.official_order_qty)
+                                        : null
 
                                     return (
                                         <tr
                                             key={line.inventory_item_id || idx}
                                             className={`hover:bg-slate-50/80 transition-colors ${
-                                                !isWithin ? 'bg-amber-50/20' : ''
+                                                isOutside ? 'bg-amber-50/20' : ''
                                             }`}
                                         >
                                             <td className="p-2.5 pl-4 font-bold text-slate-900">
@@ -381,11 +403,15 @@ export default function PilotComparisonModal({
                                             <td className="p-2.5 text-center">
                                                 {isWithin ? (
                                                     <span className="inline-flex items-center gap-1 text-[10px] font-black text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded-full">
-                                                        <CheckCircle2 size={11} /> En tolerancia
+                                                        <CheckCircle2 size={11} /> {t('bodegaOrders.pilotStatusWithin')}
+                                                    </span>
+                                                ) : isOutside ? (
+                                                    <span className="inline-flex items-center gap-1 text-[10px] font-black text-amber-800 bg-amber-100 px-2 py-0.5 rounded-full">
+                                                        <AlertTriangle size={11} /> {t('bodegaOrders.pilotStatusDeviation')}
                                                     </span>
                                                 ) : (
-                                                    <span className="inline-flex items-center gap-1 text-[10px] font-black text-amber-800 bg-amber-100 px-2 py-0.5 rounded-full">
-                                                        <AlertTriangle size={11} /> Desviación
+                                                    <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">
+                                                        {t('bodegaOrders.pilotStatusPending')}
                                                     </span>
                                                 )}
                                             </td>
@@ -407,12 +433,14 @@ export default function PilotComparisonModal({
 
                                             {/* Diferencia en Pedido */}
                                             <td className="p-2.5 text-center pr-4 font-bold">
-                                                {orderDiff === 0 ? (
-                                                    <span className="text-slate-400 font-normal">0 (exacto)</span>
+                                                {orderDiff === null ? (
+                                                    <span className="text-slate-300 font-normal">-</span>
+                                                ) : orderDiff === 0 ? (
+                                                    <span className="text-slate-400 font-normal">{t('bodegaOrders.pilotExact')}</span>
                                                 ) : orderDiff > 0 ? (
-                                                    <span className="text-amber-700 font-black">+{orderDiff} más</span>
+                                                    <span className="text-amber-700 font-black">{t('bodegaOrders.pilotMore', { diff: orderDiff })}</span>
                                                 ) : (
-                                                    <span className="text-blue-700 font-black">{orderDiff} menos</span>
+                                                    <span className="text-blue-700 font-black">{t('bodegaOrders.pilotLess', { diff: orderDiff })}</span>
                                                 )}
                                             </td>
                                         </tr>
@@ -426,7 +454,7 @@ export default function PilotComparisonModal({
                 {/* Footer */}
                 <div className="sticky bottom-0 bg-slate-50 px-6 py-3 border-t border-slate-200 flex items-center justify-between z-10">
                     <div className="text-[11px] text-slate-500">
-                        Mostrando <strong className="text-slate-800">{filteredLines.length}</strong> de <strong className="text-slate-800">{lines.length}</strong> productos evaluados.
+                        {t('bodegaOrders.pilotShowingCount', { shown: filteredLines.length, total: lines.length })}
                     </div>
                     <button
                         type="button"

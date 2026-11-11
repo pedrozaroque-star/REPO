@@ -6,6 +6,9 @@
  * @dataFlow Toast ordersBulk + diningOptions -> RawToastTicket[] y huella SHA-256 estable.
  * @notes Solo lectura. Una fuente estable no garantiza que todas las recetas estén mapeadas ni
  *        que reembolsos/anulaciones posteriores al servicio no requieran ajuste físico.
+ *        [2026-11-09] Permite hasta 4 lecturas consecutivas (con pausa breve si entra una orden
+ *        en vivo a medianoche) para exigir 2 lecturas consecutivas idénticas sin abortar en el
+ *        primer cruce transitorio de servicio nocturno.
  */
 
 import { createHash } from 'node:crypto'
@@ -151,17 +154,26 @@ export async function fetchStableToastTicketSource(externalStoreId: string, busi
     return { orders: orders.length, tickets, digest: fingerprint(tickets) }
   }
 
-  const first = await readPass()
-  const second = await readPass()
-  if (first.orders !== second.orders || first.digest !== second.digest) {
+  let prev = await readPass()
+  let matched: Awaited<ReturnType<typeof readPass>> | null = null
+  for (let attempt = 2; attempt <= 4; attempt++) {
+    const curr = await readPass()
+    if (prev.orders === curr.orders && prev.digest === curr.digest) {
+      matched = curr
+      break
+    }
+    prev = curr
+    if (attempt < 4) await pause(1500)
+  }
+  if (!matched) {
     throw new Error(`Toast cambió durante la lectura de ${businessDate}; consumo no certificado`)
   }
   return {
-    tickets: second.tickets,
-    totalOrdersFetched: second.orders,
-    activeOrders: second.tickets.length,
-    selectionCount: second.tickets.reduce((sum, ticket) => sum + (ticket.selections || []).length, 0),
-    digest: second.digest,
+    tickets: matched.tickets,
+    totalOrdersFetched: matched.orders,
+    activeOrders: matched.tickets.length,
+    selectionCount: matched.tickets.reduce((sum, ticket) => sum + (ticket.selections || []).length, 0),
+    digest: matched.digest,
     verification: 'two_matching_toast_reads',
   }
 }

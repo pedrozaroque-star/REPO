@@ -25,6 +25,9 @@
  * - [2026-11-09] Alineado alcance de roles (`manager`, `gerente`, `asistente`, `assistant`) con `users` en BD,
  *   coerción numérica segura de `adjusted_qty ?? final_qty ?? calculated_qty`, y filtrado de líneas con
  *   override explícito `adjusted_qty = 0` antes de consultar el catálogo de QuickBooks.
+ * - [2026-11-10] En modo `'auto_order_visible'` (activo en las 15 sucursales) y `'assisted_2tier'`,
+ *   permite enviar el Estimate a QuickBooks directamente sin exigir el cierre modal del piloto ciego,
+ *   respetando solo el bloqueo ciego cuando `inventory_automation_mode === 'shadow_blind'`.
  */
 
 import { NextRequest, NextResponse } from 'next/server'
@@ -106,12 +109,19 @@ export async function POST(request: NextRequest) {
                 return NextResponse.json({ error: `No se pudo verificar la captura completa: ${error instanceof Error ? error.message : 'error desconocido'}` }, { status: 503 })
             }
 
-            // Si la tienda está en el piloto activo, verificar que la sesión del piloto esté cerrada ('revealed')
-            const { data: storeInfo, error: storeInfoError } = await supabase.from('stores').select('name').eq('id', order.store_id).single()
+            // Solo si la tienda está explícitamente en modo 'shadow_blind' (conteo ciego estricto),
+            // exigir que la sesión comparativa haya sido cerrada antes de enviar a QuickBooks.
+            // En 'auto_order_visible' (las 15 sucursales) y 'assisted_2tier', el envío jamás se bloquea por validación modal.
+            const { data: storeInfo, error: storeInfoError } = await supabase
+                .from('stores')
+                .select('name, inventory_automation_mode')
+                .eq('id', order.store_id)
+                .single()
             if (storeInfoError || !storeInfo) {
                 return NextResponse.json({ error: 'No se pudo verificar la sucursal y el control del piloto. No se envió el pedido.' }, { status: 503 })
             }
-            if (isInventoryAutomationPilotStore(storeInfo.name)) {
+            const storeMode = String((storeInfo as any).inventory_automation_mode || 'auto_order_visible')
+            if (storeMode === 'shadow_blind' && isInventoryAutomationPilotStore(storeInfo.name)) {
                 const { data: pilotSession, error: pilotSessionError } = await supabase
                     .from('inventory_automation_pilot_sessions')
                     .select('status')

@@ -28,8 +28,7 @@
  *         Si combinan maíz y harina, cada alternativa recibe el 50%.
  *       - Merma operativa de comal: +6.5% (pegado/quemado en comal, limpieza y extras en platos).
  *     * "Tortillas, Burritos" (13", paquete de 12 / 1 dz):
- *       - 1 por burrito / super burrito.
- *       - Merma operativa de vaporera: +7.8% (rotura y desgarro al calentar y enrollar burritos).
+ *       - 1 por burrito / super burrito (sin factor artificial de rotura: 0% scrap).
  *     * "Tortillas, Regular 8 in." (paquete de 12 / 1 dz):
  *       - Platos y desayunos si el cliente selecciona Harina: 2 tortillas.
  *       - Party Trays harina: 15-20 (5 paq = 60), 20-25 (7 paq = 84), 25-30 (9 paq = 108), 30-40 (12 paq = 144).
@@ -155,6 +154,19 @@
  *     usan receta específica: no omitir toppings ni sustituir cantidades por defaults.
  *   - Tacos/platos identifican carne por nombre del producto y Half explícito;
  *     notas como Cebollas Asadas o juntar con otro taco no cambian la proteína.
+ *   - [2026-11-09] Confirmado por Carlos: Quesadillas regulares y Super Quesadillas,
+ *     Burritos, Nachos, Platos y Tortas llevan 6.0 oz de carne cocida base (+6.0 oz con
+ *     Extra/Doble Carne); Meat Only Burrito regular y Super llevan 12.0 oz base (+6.0 oz
+ *     con Extra/Doble Carne) sin arroz ni frijol; `applyNamedMeatPortion` (Half 50/50 +
+ *     Extra Carne) aplica en Mulitas, Tortas, Sopes, Quesadillas y Nachos, y Party Trays
+ *     detectan las 8 proteínas activas. Se elimina el +7.8% de merma artificial en tortilla
+ *     de harina 13" y se blindan los divisores físicos de Salsa Huevos Rancheros (2.30 lb)
+ *     y Bolsa Aguacate (2.0 lb) frente a `quantity_per_unit = 0.5` del catálogo legado.
+ *   - [2026-11-11] Blindaje de resolución determinista por UUID canónico (`ACTIVE_DAILY_ORDER_ITEM_IDS`)
+ *     antes del fallback por nombre (`findItemByName`). Evita que filas legadas duplicadas en
+ *     `inventory_items` (ej. `3c48a147...` "1100Y Tortilla, Tacos y Platos" frente al SKU activo
+ *     de plantilla diaria `dcd79433...` "1100 Tortilla,White Corn 4.7OZ 60CT") capturen el consumo
+ *     según el orden de lectura o paginación de PostgreSQL.
  */
 
 import { PARTY_TRAY_GUIDELINES, resolvePartyTraySize } from './party-tray-guidelines'
@@ -243,10 +255,57 @@ const normalize = (val: string | null | undefined): string =>
 /**
  * Factores de merma operativa comprobados empíricamente en Lynwood #14:
  * - Maíz 1100 (60ct): +6.5% por merma de comal (pegado/quemado), limpieza y tortillas extra en platos.
- * - Harina 13" Burrito (1 dz): +7.8% por rotura y desgarro al calentar y enrollar en mesa de vapor.
+ * - Harina 13" Burrito (1 dz): 0% (conteo puro 1:1 por burrito; se eliminó el +7.8% no validado).
  */
 export const CORN_TORTILLA_GRILL_SCRAP_FACTOR = 0.065
-export const BURRITO_TORTILLA_TEAR_SCRAP_FACTOR = 0.078
+export const BURRITO_TORTILLA_TEAR_SCRAP_FACTOR = 0
+
+/**
+ * UUIDs canónicos activos de la plantilla de Orden Diaria (`store_order_template` / `recipes`)
+ * en las 15 sucursales de Tacos Gavilan. Garantizan resolución O(1) determinista y evitan
+ * colisiones con filas legadas duplicadas de `inventory_items`.
+ */
+export const ACTIVE_DAILY_ORDER_ITEM_IDS = {
+  cornTortillas: 'dcd79433-e97c-46dc-80c0-8429401e0fa0',
+  burritoTortillas: '55798c3c-a86e-469d-ab70-24e0f1af0c2b',
+  regular8Tortillas: '1df90372-7648-4ec1-9a6c-fca4032095a6',
+  mulitas: 'c94028ef-cdc5-4173-9686-9eeaa1a76510',
+  teleras: '8322778b-a978-478f-8508-a1332ea09551',
+  milanesa: '5c59d80c-7d7b-45f9-997c-57540127d3a8',
+  jamon: '5a962d06-d162-425e-a942-c7ad6dab663d',
+  salchicha: 'cac598b2-9c18-4055-8f2e-16de22d78535',
+  sopes: '983a3a9a-446a-4b98-b26b-3c3e642508a0',
+  nachoChips: 'dbadf821-79dc-4c1a-9b68-907bb9c8c112',
+  huevos: '15871ef1-768e-4176-978e-346edb2006eb',
+  arroz: 'a1bbc13a-a481-4b7f-a5c6-8a44a96ad562',
+  frijolMolido: '557d9414-c769-4399-a6cc-15bb81cba85f',
+  frijolEntero: '88a992db-c021-4719-88f9-58c70302392e',
+  salsaRanchera: '202c48b0-f9f9-4304-87a5-07d5e970f0cf',
+  quesadillaBodega: '0ae260b8-ec71-4b4f-a38f-e3b81f84f720',
+  quesoRayado: '525a859d-9f16-477b-9a30-a56abeb4ec14',
+  quesoCotija: '6549dc7d-7657-4bbd-851e-153707b4556b',
+  crema: '0166aec7-160a-4c9c-82d4-9ecbb251cb9d',
+  mayonesa: '3ab4f8a4-97dc-4949-903c-82102cffbb03',
+  papelitoTorta: 'fb83420e-8c32-4e85-a29d-e74de2055807',
+  vivaLard: 'cbb0ce87-dac0-4741-a4f1-f9d2911fcaf1',
+  flan: 'f8f776c5-3b8c-453e-8161-b49840823933',
+  cheesecake: '8ba55664-5ca9-4886-8ac8-acf1fd070713',
+  amarilloCheese: '62968b74-7877-4650-aa43-4ec6e9eb1888',
+  aguacate: '0289794f-e7e1-4a65-9492-56ca6b6767e9',
+  salsaRojaPackets: 'a639ad41-81bf-4de6-8dbc-0291005654ad',
+  salsaVerdePackets: '6c0a3378-8309-48c9-a438-15313cabd9d8',
+  mixtaPackets: '90fb17e3-6ba7-4545-b5a1-94df4f6a9fcb',
+  limaPackets: 'f73fe7a6-105c-4624-a87b-07d5f78c09ea',
+  jalapenoBulk: 'd56d8df8-d30c-4964-a425-9aa25d962364',
+  salsaRojaGallon: 'aa8d2711-fbd7-45b7-9223-52a2722ffd0e',
+  salsaVerdeGallon: '68a502a5-7e28-4b63-a830-47b9acb91bdf',
+  galonesVacios: '2fba5d5d-2af8-437d-8eae-844ed531dd8d',
+  horchata: '085ecb0d-c711-4134-ae1a-f7630a22759c',
+  tamarindo: 'b6f3f5de-c554-4650-b0df-09dd5d3ca053',
+  jamaica: '6051e960-7564-41f6-9a52-ff79ed7c6353',
+  pina: '9851a32c-dc35-4653-a1e4-b2cf7bac9009',
+  champurrado: '808c43e2-df89-4b6d-bef3-2f5c7310914c',
+} as const
 
 /**
  * Motor central de cálculo de consumo de la Orden Diaria de Bodega
@@ -270,7 +329,7 @@ export function calculateDailyOrderConsumption(
     recipesByGuid.set(r.toast_menu_item_guid, list)
   }
 
-  // Mapeo canónico de insumos clave de Bodega
+  // Mapeo canónico de insumos clave de Bodega (UUID canónico primero; fallback por nombre para tests unitarios)
   const findItemByName = (patterns: RegExp[]): InventoryItemCatalogEntry | undefined => {
     return inventoryItems.find(i => {
       const n = normalize(i.name)
@@ -278,63 +337,65 @@ export function calculateDailyOrderConsumption(
       return patterns.some(p => p.test(n) || p.test(ref))
     })
   }
+  const resolveCanonicalItem = (canonicalId: string, patterns: RegExp[]): InventoryItemCatalogEntry | undefined =>
+    invMap.get(canonicalId) || findItemByName(patterns)
 
-  const itemCornTortillas = findItemByName([/1100\s*tortilla/i, /tortillas?,\s*tacos?\s*y\s*platos?/i])
-  const itemBurritoTortillas = findItemByName([/358-9673bt/i, /tortillas?,\s*burritos?/i])
-  const itemRegular8Tortillas = findItemByName([/358_9604bt/i, /tortilla\s*regular\s*8\s*in/i])
-  const itemMulitas = findItemByName([/mulitas?\s*con\s*queso/i, /^mulitas?$/i])
-  const itemTeleras = findItemByName([/^teleras?$/i])
-  const itemMilanesa = findItemByName([/^milanesa$/i, /^milaneza$/i])
-  const itemJamon = findItemByName([/^jamon\s*pack$/i])
-  const itemSalchicha = findItemByName([/^salchicha\s*bag$/i])
-  const itemSopes = findItemByName([/^sopes?$/i])
-  const itemNachoChips = findItemByName([/tortillas?,\s*nachos?/i, /tortilla\s*nacho/i])
-  const itemHuevos = findItemByName([/^huevo$/i, /huevos?\/eggs?/i])
-  const itemArroz = findItemByName([/^arroz$/i])
-  const itemFrijolMolido = findItemByName([/^frijol\s*molido$/i])
-  const itemFrijolEntero = findItemByName([/^frijol\s*entero$/i])
-  const itemSalsaRanchera = findItemByName([/^salsa\s*huevos?\s*rancheros?$/i])
-  const itemQuesadillaBodega = findItemByName([/^quesadilla\s*bodega$/i])
-  const itemQuesoRayado = findItemByName([/^queso\s*rayado/i])
+  const itemCornTortillas = resolveCanonicalItem(ACTIVE_DAILY_ORDER_ITEM_IDS.cornTortillas, [/1100\s*tortilla/i, /tortillas?,\s*tacos?\s*y\s*platos?/i])
+  const itemBurritoTortillas = resolveCanonicalItem(ACTIVE_DAILY_ORDER_ITEM_IDS.burritoTortillas, [/358-9673bt/i, /tortillas?,\s*burritos?/i])
+  const itemRegular8Tortillas = resolveCanonicalItem(ACTIVE_DAILY_ORDER_ITEM_IDS.regular8Tortillas, [/358_9604bt/i, /tortilla\s*regular\s*8\s*in/i])
+  const itemMulitas = resolveCanonicalItem(ACTIVE_DAILY_ORDER_ITEM_IDS.mulitas, [/mulitas?\s*con\s*queso/i, /^mulitas?$/i])
+  const itemTeleras = resolveCanonicalItem(ACTIVE_DAILY_ORDER_ITEM_IDS.teleras, [/^teleras?$/i])
+  const itemMilanesa = resolveCanonicalItem(ACTIVE_DAILY_ORDER_ITEM_IDS.milanesa, [/^milanesa$/i, /^milaneza$/i])
+  const itemJamon = resolveCanonicalItem(ACTIVE_DAILY_ORDER_ITEM_IDS.jamon, [/^jamon\s*pack$/i])
+  const itemSalchicha = resolveCanonicalItem(ACTIVE_DAILY_ORDER_ITEM_IDS.salchicha, [/^salchicha\s*bag$/i])
+  const itemSopes = resolveCanonicalItem(ACTIVE_DAILY_ORDER_ITEM_IDS.sopes, [/^sopes?$/i])
+  const itemNachoChips = resolveCanonicalItem(ACTIVE_DAILY_ORDER_ITEM_IDS.nachoChips, [/tortillas?,\s*nachos?/i, /tortilla\s*nacho/i])
+  const itemHuevos = resolveCanonicalItem(ACTIVE_DAILY_ORDER_ITEM_IDS.huevos, [/^huevo$/i, /huevos?\/eggs?/i])
+  const itemArroz = resolveCanonicalItem(ACTIVE_DAILY_ORDER_ITEM_IDS.arroz, [/^arroz$/i])
+  const itemFrijolMolido = resolveCanonicalItem(ACTIVE_DAILY_ORDER_ITEM_IDS.frijolMolido, [/^frijol\s*molido$/i])
+  const itemFrijolEntero = resolveCanonicalItem(ACTIVE_DAILY_ORDER_ITEM_IDS.frijolEntero, [/^frijol\s*entero$/i])
+  const itemSalsaRanchera = resolveCanonicalItem(ACTIVE_DAILY_ORDER_ITEM_IDS.salsaRanchera, [/^salsa\s*huevos?\s*rancheros?$/i])
+  const itemQuesadillaBodega = resolveCanonicalItem(ACTIVE_DAILY_ORDER_ITEM_IDS.quesadillaBodega, [/^quesadilla\s*bodega$/i])
+  const itemQuesoRayado = resolveCanonicalItem(ACTIVE_DAILY_ORDER_ITEM_IDS.quesoRayado, [/^queso\s*rayado/i])
   // Orden Diaria usa Cotija 021 de 12 oz; el Cotija 002df de 5 lb es otro SKU.
-  const itemQuesoCotija = inventoryItems.find(i =>
+  const itemQuesoCotija = invMap.get(ACTIVE_DAILY_ORDER_ITEM_IDS.quesoCotija) || inventoryItems.find(i =>
     /^queso\s*cotija\s*021/i.test(normalize(i.name)) &&
     normalize(i.unit_measure) === 'oz' && Number(i.quantity_per_unit) === 12
   )
-  const itemCrema = findItemByName([/^bolsa\s*crema/i])
-  const itemMayonesa = findItemByName([/^bolsa\s*mayonesa/i])
-  const itemPapelitoTorta = findItemByName([/papelito\s*para\s*torta/i, /papelitos?\s*tortas?/i])
-  const itemVivaLard = findItemByName([/viva\s*lard/i])
-  const itemFlan = findItemByName([/^flan$/i])
-  const itemCheesecake = findItemByName([/^cheesecake$/i])
-  const itemAmarilloCheese = findItemByName([/amarillo\s*cheese/i, /queso\s*amarillo/i])
-  const itemAguacate = findItemByName([/^bolsa\s*aguacate/i, /^aguacate\s*2\s*lbs?/i, /^aguacate$/i])
-  const itemSalsaRojaPackets = findItemByName([/^1\.5\s*oz\s*salsa\s*roja\s*pack$/i])
-  const itemSalsaVerdePackets = findItemByName([/^1\.5\s*oz\s*salsa\s*verde\s*pack$/i])
-  const itemMixtaPackets = findItemByName([/^1\s*oz\s*bolsa\s*de\s*mixta$/i])
-  const itemLimaPackets = findItemByName([/^lima\s*bolsita$/i])
-  const itemJalapenoBulk = findItemByName([/^rajas\s*y\s*zanahorias$/i])
-  const itemSalsaRojaGallon = findItemByName([/^salsa\s*roja$/i])
-  const itemSalsaVerdeGallon = findItemByName([/^salsa\s*verde$/i])
-  const itemGalonesVacios = findItemByName([/^galones\s+vacios$/i])
+  const itemCrema = resolveCanonicalItem(ACTIVE_DAILY_ORDER_ITEM_IDS.crema, [/^bolsa\s*crema/i])
+  const itemMayonesa = resolveCanonicalItem(ACTIVE_DAILY_ORDER_ITEM_IDS.mayonesa, [/^bolsa\s*mayonesa/i])
+  const itemPapelitoTorta = resolveCanonicalItem(ACTIVE_DAILY_ORDER_ITEM_IDS.papelitoTorta, [/papelito\s*para\s*torta/i, /papelitos?\s*tortas?/i])
+  const itemVivaLard = resolveCanonicalItem(ACTIVE_DAILY_ORDER_ITEM_IDS.vivaLard, [/viva\s*lard/i])
+  const itemFlan = resolveCanonicalItem(ACTIVE_DAILY_ORDER_ITEM_IDS.flan, [/^flan$/i])
+  const itemCheesecake = resolveCanonicalItem(ACTIVE_DAILY_ORDER_ITEM_IDS.cheesecake, [/^cheesecake$/i])
+  const itemAmarilloCheese = resolveCanonicalItem(ACTIVE_DAILY_ORDER_ITEM_IDS.amarilloCheese, [/amarillo\s*cheese/i, /queso\s*amarillo/i])
+  const itemAguacate = resolveCanonicalItem(ACTIVE_DAILY_ORDER_ITEM_IDS.aguacate, [/^bolsa\s*aguacate/i, /^aguacate\s*2\s*lbs?/i, /^aguacate$/i])
+  const itemSalsaRojaPackets = resolveCanonicalItem(ACTIVE_DAILY_ORDER_ITEM_IDS.salsaRojaPackets, [/^1\.5\s*oz\s*salsa\s*roja\s*pack$/i])
+  const itemSalsaVerdePackets = resolveCanonicalItem(ACTIVE_DAILY_ORDER_ITEM_IDS.salsaVerdePackets, [/^1\.5\s*oz\s*salsa\s*verde\s*pack$/i])
+  const itemMixtaPackets = resolveCanonicalItem(ACTIVE_DAILY_ORDER_ITEM_IDS.mixtaPackets, [/^1\s*oz\s*bolsa\s*de\s*mixta$/i])
+  const itemLimaPackets = resolveCanonicalItem(ACTIVE_DAILY_ORDER_ITEM_IDS.limaPackets, [/^lima\s*bolsita$/i])
+  const itemJalapenoBulk = resolveCanonicalItem(ACTIVE_DAILY_ORDER_ITEM_IDS.jalapenoBulk, [/^rajas\s*y\s*zanahorias$/i])
+  const itemSalsaRojaGallon = resolveCanonicalItem(ACTIVE_DAILY_ORDER_ITEM_IDS.salsaRojaGallon, [/^salsa\s*roja$/i])
+  const itemSalsaVerdeGallon = resolveCanonicalItem(ACTIVE_DAILY_ORDER_ITEM_IDS.salsaVerdeGallon, [/^salsa\s*verde$/i])
+  const itemGalonesVacios = resolveCanonicalItem(ACTIVE_DAILY_ORDER_ITEM_IDS.galonesVacios, [/^galones\s+vacios$/i])
 
   const itemAguas: Record<string, InventoryItemCatalogEntry | undefined> = {
-    horchata: findItemByName([/^horchata$/i]),
-    tamarindo: findItemByName([/tamarindo/i]),
-    jamaica: findItemByName([/jamaica/i]),
-    pina: findItemByName([/pina|piña/i]),
-    champurrado: findItemByName([/champurrado/i]),
+    horchata: resolveCanonicalItem(ACTIVE_DAILY_ORDER_ITEM_IDS.horchata, [/^horchata$/i]),
+    tamarindo: resolveCanonicalItem(ACTIVE_DAILY_ORDER_ITEM_IDS.tamarindo, [/tamarindo/i]),
+    jamaica: resolveCanonicalItem(ACTIVE_DAILY_ORDER_ITEM_IDS.jamaica, [/jamaica/i]),
+    pina: resolveCanonicalItem(ACTIVE_DAILY_ORDER_ITEM_IDS.pina, [/pina|piña/i]),
+    champurrado: resolveCanonicalItem(ACTIVE_DAILY_ORDER_ITEM_IDS.champurrado, [/champurrado/i]),
   }
 
   const itemMeats: Record<string, InventoryItemCatalogEntry | undefined> = {
-    asada: inventoryItems.find(i => i.id === ACTIVE_PROTEIN_IDS.asada) || findItemByName([/carne\s*asada/i]),
-    pastor: inventoryItems.find(i => i.id === ACTIVE_PROTEIN_IDS.pastor) || findItemByName([/^pastor$/i]),
-    pollo: inventoryItems.find(i => i.id === ACTIVE_PROTEIN_IDS.pollo) || findItemByName([/^pollo$/i]),
-    cabeza: inventoryItems.find(i => i.id === ACTIVE_PROTEIN_IDS.cabeza) || findItemByName([/^cabeza$/i]),
-    lengua: inventoryItems.find(i => i.id === ACTIVE_PROTEIN_IDS.lengua) || findItemByName([/^lengua$/i]),
-    chorizo: inventoryItems.find(i => i.id === ACTIVE_PROTEIN_IDS.chorizo) || findItemByName([/^chorizo/i]),
-    carnitas: inventoryItems.find(i => i.id === ACTIVE_PROTEIN_IDS.carnitas) || findItemByName([/^carnitas/i]),
-    buche: inventoryItems.find(i => i.id === ACTIVE_PROTEIN_IDS.buche) || findItemByName([/^buche/i]),
+    asada: invMap.get(ACTIVE_PROTEIN_IDS.asada) || findItemByName([/carne\s*asada/i]),
+    pastor: invMap.get(ACTIVE_PROTEIN_IDS.pastor) || findItemByName([/^pastor$/i]),
+    pollo: invMap.get(ACTIVE_PROTEIN_IDS.pollo) || findItemByName([/^pollo$/i]),
+    cabeza: invMap.get(ACTIVE_PROTEIN_IDS.cabeza) || findItemByName([/^cabeza$/i]),
+    lengua: invMap.get(ACTIVE_PROTEIN_IDS.lengua) || findItemByName([/^lengua$/i]),
+    chorizo: invMap.get(ACTIVE_PROTEIN_IDS.chorizo) || findItemByName([/^chorizo/i]),
+    carnitas: invMap.get(ACTIVE_PROTEIN_IDS.carnitas) || findItemByName([/^carnitas/i]),
+    buche: invMap.get(ACTIVE_PROTEIN_IDS.buche) || findItemByName([/^buche/i]),
   }
 
   // Acumuladores de consumo atómico
@@ -549,7 +610,9 @@ export function calculateDailyOrderConsumption(
 
       // Recetas específicas: antes estos productos caían en ramas genéricas que
       // omitían ingredientes. Papelito ya fue contabilizado en piezas arriba.
-      if (/huevos?/.test(normName) || /^meat\s+only\s+super\s+burrito\b/.test(normName) ||
+      // Meat Only Burrito y Meat Only Super Burrito se procesan en la rama 6 (BURRITOS)
+      // con 12 oz base (+6 oz Extra, soporte Half 50/50) y sin arroz/frijol.
+      if (/huevos?/.test(normName) ||
         /^(?:sope queso|torta queso|torta salchicha|(?:super )?quesadilla jamon|plato jamon)$/.test(normName) ||
         ((/vegetar|veggie|vegie/.test(normName) || isVegetarianModifier) && /^(?:super\s+)?(?:taco|burrito|torta)\b/.test(normName))) {
         const flag = (reason: string) => {
@@ -672,6 +735,10 @@ export function calculateDailyOrderConsumption(
         if (/pollo|chicken/.test(fullText)) detectedMeats.push('pollo')
         if (/pastor/.test(fullText)) detectedMeats.push('pastor')
         if (/carnitas/.test(fullText)) detectedMeats.push('carnitas')
+        if (/cabeza/.test(fullText)) detectedMeats.push('cabeza')
+        if (/lengua/.test(fullText)) detectedMeats.push('lengua')
+        if (/buche/.test(fullText)) detectedMeats.push('buche')
+        if (/chorizo/.test(fullText)) detectedMeats.push('chorizo')
         if (detectedMeats.length > 0) {
           const meatPerProtOz = (pt.meatLbs * 16 * sQty) / detectedMeats.length
           detectedMeats.forEach(p => { cookedMeatOz[p] = (cookedMeatOz[p] || 0) + meatPerProtOz })
@@ -814,15 +881,16 @@ export function calculateDailyOrderConsumption(
         arrozOz += 4 * sQty
         frijolMolidoOz += 4 * sQty
 
-        applyNamedMeatPortion(mods.some(m => /^(?:extra|doble)\s+carne$/.test(m.norm)) ? 12 : 6)
+        applyNamedMeatPortion(mods.some(m => /^(?:extra|doble)\s+(?:carne|meat)(?:\s*\(in store\))?$/.test(m.norm)) ? 12 : 6)
         continue
       }
 
-      // 6. BURRITOS
+      // 6. BURRITOS (incluye Meat Only Burrito y Meat Only Super Burrito con 12 oz base)
       if (/burrito/.test(normName)) {
         burritoTortillaCount += 1 * sQty
+        const isMeatOnly = /^meat\s*only\b/.test(normName)
         const isExtra = mods.some(m => /^(?:extra|doble)\s+(?:carne|meat)(?:\s*\(in store\))?$/.test(m.norm))
-        const meatOz = isExtra ? 12.0 : 6.0
+        const meatOz = isMeatOnly ? (isExtra ? 18.0 : 12.0) : (isExtra ? 12.0 : 6.0)
 
         // Un solo Half es la forma habitual de Toast: mitad carne del nombre,
         // mitad proteína elegida. La función también valida cantidades y mezclas.
@@ -834,24 +902,25 @@ export function calculateDailyOrderConsumption(
           uncoveredMap.set(key, prior)
         }
 
-        // Calibrado a la porción real operativa: 4 oz arroz y 4 oz frijol
-        if (!/meat\s*only/.test(normName)) {
+        // Calibrado a la porción real operativa: 4 oz arroz y 4 oz frijol (excepto Meat Only)
+        if (!isMeatOnly) {
           arrozOz += 4 * sQty
           frijolMolidoOz += 4 * sQty
-          // Jack pesado: 2.1 oz por Super Burrito o Burrito con queso.
-          const hasCheese = /super|cheese|queso/.test(normName) || mods.some(m => /cheese|queso/.test(m.norm))
-          if (hasCheese && !noJack) {
-            // En burritos regulares el queso puede ser un extra opcional; su
-            // ausencia en la receta base no significa una receta incompleta.
-            quesoRayadoOz += (isSuperBurrito ? fixedRecipeOz(itemQuesoRayado, 2.1) : 2.1) * sQty
-          }
-          // Dos disparos de aguacate y tres de crema, medidos por peso.
-          const isSuper = /super/.test(normName)
-          const hasAvocado = isSuper || mods.some(m => /aguacate|avocado|guac/.test(m.norm))
-          const hasCrema = isSuper || mods.some(m => /crema|sour\s*cream/.test(m.norm))
-          if (hasAvocado && !isSuperBurrito && !noAvocado) aguacateOz += 2.3 * sQty
-          if (hasCrema && !isSuperBurrito && !noCrema) cremaOz += 1.5 * sQty
         }
+
+        // Jack pesado: 2.1 oz por Super Burrito (incl. Meat Only Super) o Burrito con queso.
+        const hasCheese = /super|cheese|queso/.test(normName) || mods.some(m => /cheese|queso/.test(m.norm))
+        if (hasCheese && !noJack) {
+          // En burritos regulares el queso puede ser un extra opcional; su
+          // ausencia en la receta base no significa una receta incompleta.
+          quesoRayadoOz += (isSuperBurrito ? fixedRecipeOz(itemQuesoRayado, 2.1) : 2.1) * sQty
+        }
+        // Dos disparos de aguacate y tres de crema, medidos por peso.
+        const isSuper = /super/.test(normName)
+        const hasAvocado = isSuper || mods.some(m => /aguacate|avocado|guac/.test(m.norm))
+        const hasCrema = isSuper || mods.some(m => /crema|sour\s*cream/.test(m.norm))
+        if (hasAvocado && !isSuperBurrito && !noAvocado) aguacateOz += 2.3 * sQty
+        if (hasCrema && !isSuperBurrito && !noCrema) cremaOz += 1.5 * sQty
         continue
       }
 
@@ -862,9 +931,9 @@ export function calculateDailyOrderConsumption(
           if (!noAvocado) aguacateOz += fixedRecipeOz(itemAguacate, 1.15) * sQty
           if (!noCrema) cremaOz += fixedRecipeOz(itemCrema, 0.75) * sQty
         }
-        for (const prot of Object.keys(MEAT_COOKING_YIELDS)) {
-          if (normName.includes(prot)) cookedMeatOz[prot] = (cookedMeatOz[prot] || 0) + 1.5 * sQty
-        }
+        if (/\bjamon\b/.test(normName)) jamonOz += 1.4 * sQty
+        const isExtraMulita = mods.some(m => /^(?:extra|doble)\s+(?:carne|meat)(?:\s*\(in store\))?$/.test(m.norm))
+        applyNamedMeatPortion(isExtraMulita ? 3.0 : 1.5)
         continue
       }
 
@@ -878,9 +947,8 @@ export function calculateDailyOrderConsumption(
           jamonOz += 1.4 * sQty
           salchichaOz += 0.8 * sQty
         }
-        for (const prot of Object.keys(MEAT_COOKING_YIELDS)) {
-          if (normName.includes(prot)) cookedMeatOz[prot] = (cookedMeatOz[prot] || 0) + 6.0 * sQty
-        }
+        const isExtraTorta = mods.some(m => /^(?:extra|doble)\s+(?:carne|meat)(?:\s*\(in store\))?$/.test(m.norm))
+        applyNamedMeatPortion(isExtraTorta ? 12.0 : 6.0)
         frijolMolidoOz += 1.5 * sQty
         continue
       }
@@ -888,9 +956,8 @@ export function calculateDailyOrderConsumption(
       // 9. SOPES (un disparo de crema y una cucharada de cotija)
       if (/sope/.test(normName)) {
         sopeCount += 1 * sQty
-        for (const prot of Object.keys(MEAT_COOKING_YIELDS)) {
-          if (normName.includes(prot)) cookedMeatOz[prot] = (cookedMeatOz[prot] || 0) + 1.5 * sQty
-        }
+        const isExtraSope = mods.some(m => /^(?:extra|doble)\s+(?:carne|meat)(?:\s*\(in store\))?$/.test(m.norm))
+        applyNamedMeatPortion(isExtraSope ? 3.0 : 1.5)
         frijolMolidoOz += 1.5 * sQty
         const cotijaRemovals = mods.filter(m => /^(?:no|sin)\s+(?:cotija|queso)\b/.test(m.norm))
         if (cotijaRemovals.some(m => m.qty !== sQty)) {
@@ -905,10 +972,8 @@ export function calculateDailyOrderConsumption(
       // 10. QUESADILLAS (Quesadilla Bodega es un paquete preformado de 12 ct que ya incluye queso)
       if (/quesadilla/.test(normName)) {
         quesadillaBodegaCount += 1 * sQty
-        const qMeatOz = /super/.test(normName) ? 6.0 : 4.0
-        for (const prot of Object.keys(MEAT_COOKING_YIELDS)) {
-          if (normName.includes(prot)) cookedMeatOz[prot] = (cookedMeatOz[prot] || 0) + qMeatOz * sQty
-        }
+        const isExtraQuesadilla = mods.some(m => /^(?:extra|doble)\s+(?:carne|meat)(?:\s*\(in store\))?$/.test(m.norm))
+        applyNamedMeatPortion(isExtraQuesadilla ? 12.0 : 6.0)
         // Los toppings de la Super Quesadilla ya se agregaron antes de las recetas específicas.
         continue
       }
@@ -917,9 +982,8 @@ export function calculateDailyOrderConsumption(
       if (isNachos) {
         nachoChipBags += 1 * sQty
         quesoAmarilloOz += 4 * sQty
-        for (const prot of Object.keys(MEAT_COOKING_YIELDS)) {
-          if (normName.includes(prot)) cookedMeatOz[prot] = (cookedMeatOz[prot] || 0) + 6.0 * sQty
-        }
+        const isExtraNachos = mods.some(m => /^(?:extra|doble)\s+(?:carne|meat)(?:\s*\(in store\))?$/.test(m.norm))
+        applyNamedMeatPortion(isExtraNachos ? 12.0 : 6.0)
         continue
       }
 
@@ -1136,7 +1200,8 @@ export function calculateDailyOrderConsumption(
   registerUsage(itemArroz, (arrozOz / 16) / 5, 'bolsas_5_lb')
   registerUsage(itemFrijolMolido, (frijolMolidoOz / 16) / 10, 'bolsas_10_lb')
   registerUsage(itemFrijolEntero, (frijolEnteroOz / 16) / 10, 'bolsas_10_lb')
-  registerUsage(itemSalsaRanchera, (salsaRancheraOz / 16) / Number(itemSalsaRanchera?.quantity_per_unit || 2.3), 'bolsas_salsa_ranchera_2_3_lb')
+  // Salsa Huevos Rancheros es físicamente bolsa de 2.30 lb (quantity_per_unit legado en DB = 0.5).
+  registerUsage(itemSalsaRanchera, (salsaRancheraOz / 16) / 2.3, 'bolsas_salsa_ranchera_2_3_lb')
   registerUsage(itemQuesoRayado, (quesoRayadoOz / 16) / 2, 'bolsas_2_lb')
   registerUsage(itemQuesoCotija, quesoCotijaOz / 12, 'bolsas_cotija_12_oz')
   registerUsage(itemAmarilloCheese, (quesoAmarilloOz / 440), 'cajas_440_oz')
@@ -1168,10 +1233,18 @@ export function calculateDailyOrderConsumption(
       uncoveredMap.set(key, prior)
       continue
     }
-    // La unidad del conteo operativo puede diferir del empaque del catálogo.
-    // Aplicar el mismo contrato que en las ramas específicas de arriba.
-    const perUnit = item.id === itemPapelitoTorta?.id ? 1 :
-      item.id === itemAmarilloCheese?.id ? 440 : Number(item.quantity_per_unit || 1)
+    // La unidad del conteo operativo puede diferir del empaque legado del catálogo.
+    // Aplicar exactamente el mismo contrato físico que en las ramas específicas de arriba.
+    const perUnit =
+      item.id === itemPapelitoTorta?.id ? 1 :
+      item.id === itemAmarilloCheese?.id ? 440 :
+      item.id === itemSalsaRanchera?.id ? 2.3 :
+      item.id === itemAguacate?.id ? 2 :
+      item.id === itemMeats.pastor?.id ? (meatBagSizes.pastor || 5) :
+      item.id === itemMeats.pollo?.id ? (meatBagSizes.pollo || 5) :
+      item.id === itemMeats.cabeza?.id ? (meatBagSizes.cabeza || 2.5) :
+      item.id === itemMeats.lengua?.id ? (meatBagSizes.lengua || 2.5) :
+      Number(item.quantity_per_unit || 1)
     const normalizedQty = perUnit > 0 ? qty / perUnit : qty
     registerUsage(item, normalizedQty, 'receta_directa_supabase')
   }

@@ -875,9 +875,20 @@ function OrderReadyBoardContent() {
   // Fullscreen container and state (Modo TV)
   const containerRef = useRef<HTMLDivElement | null>(null)
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false)
+  const [isKioskTvQuery, setIsKioskTvQuery] = useState<boolean>(false)
 
-  // Sincronizar estado con eventos nativos del navegador (F11, ESC)
+  // Sincronizar estado con eventos nativos del navegador (F11, ESC) y banderas de URL para TV de comedor (?tv=1 / ?kiosk=1 / ?fullscreen=1)
   useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search)
+      if (
+        params.get('tv') === '1' ||
+        params.get('kiosk') === '1' ||
+        params.get('fullscreen') === '1'
+      ) {
+        setIsKioskTvQuery(true)
+      }
+    }
     const handleFsChange = () => {
       const doc = document as any
       setIsFullscreen(!!(doc.fullscreenElement || doc.webkitFullscreenElement))
@@ -2932,8 +2943,10 @@ function OrderReadyBoardContent() {
         </div>
       )}
 
-      {/* Banner de Recados Telefónicos Prioritarios (Contestadora IA) */}
-      <PhoneCallbackAlertBanner storeCode={selectedStore} />
+      {/* Banner de Recados Telefónicos Prioritarios (Contestadora IA — Oculto en Modo TV de clientes para proteger PII) */}
+      {!isFullscreen && !isKioskTvQuery && (
+        <PhoneCallbackAlertBanner storeCode={selectedStore} ready={storeOk} />
+      )}
 
       {/* Top Header / Barra Superior */}
       <header className={`px-4 sm:px-6 py-3.5 flex flex-wrap items-center justify-between gap-3 border-b transition-colors ${

@@ -55,6 +55,19 @@
  *     vía `buildPersistableOrderLines`, evitando que `Generar Orden` o recargas borren ajustes manuales.
  *   * Eliminación de falsos positivos de anomalías (`high_leftover`, `zero_critical`) en Uniformes,
  *     bloqueo de signos negativos en `Adjust` (cantidad final exacta >= 0) y catálogo completo en el modal de edición.
+ * - [2026-11-10] Upgrades Integrales 1–4 de Orden Diaria:
+ *   * `TRACK_ONLY` (Flan, Cheesecake) muestra sobrante teórico sugerido y varianza sin generar pedidos a Bodega.
+ *   * Conciliación visible de `Invoice` despachado por La Bodega (`qb_invoice_number`).
+ *   * Botón explícito para recalcular `PAR Ideal` dinámico sin alterar `PAR Actual`.
+ *   * Modo Operativo de 2 Niveles (`assisted_2tier` vs `shadow_blind`) con pre-llenado de 34 SKU estables,
+ *     auditoría rápida de 17 críticos diarios y Ancla Física Dominical obligatoria.
+ * - [2026-11-10] Modo Definitivo `'auto_order_visible'` habilitado en las 15 sucursales:
+ *   * Muestra desde el primer instante el sobrante del sistema y la Orden Calculada a QuickBooks en los 51 SKU sin candados `'🔒'`.
+ *   * Sin validación bloqueante: si el asistente o manager captura su sobrante físico, ese conteo físico manda al 100% de inmediato; los ítems no editados quedan respaldados automáticamente por el cálculo del sistema (`AUTO_CYCLE_V2`).
+ * - [2026-11-11] Blindaje integral de `handleCopyDayPar` y alertas visuales de captura:
+ *   * Elimina el destino destructivo por defecto (`'all'` / `'Domingo'`) en `orderType === 'daily'`, exige selección explícita (`copyTgtDay = ''`), ofrece `'weekdays'` (`Lun–Mié`), advierte al sobrescribir `Viernes`/`Sábado (Sáb+Dom)`, respeta días bloqueados (`isLocked`) y sincroniza `nextWeekBases` (100% bilingüe i18n).
+ *   * Sincroniza la exclusión de `isTrackOnlyOrderItem` (`Flan`, `Cheesecake`) en los chips inline de anomalías (`isHighLeftover`, `isHighAdjust`, `isHighFinal`).
+ *   * Corrige el sufijo de `Costo (QB)` a `/ empaque` (evitando mostrar `/ pza` o `/ lb` de receta) y muestra recordatorio visual `📦 Contar PAQUETES` en empaques multipieza (ej. `Queso Tortas/platos/Desayuno`).
  */
 'use client'
 
@@ -67,19 +80,22 @@ import {
 import {
     fetchOrderableItems, fetchAllInventoryItems, fetchWeeklyData,
     calculateDailyOrder, updateWeeklyBase, updateDailyLeftover,
-    clonePreviousWeekBases, copyFromParIdeal, linkExcelItem,
+    clonePreviousWeekBases, copyFromParIdeal, recalculateParIdeal, linkExcelItem,
     saveOrderDraft, executeWeekRollover, fetchAnalysisData,
     saveWeeklyBases, saveSingleItemWeeklyBase, fetchMappedItems, fetchHistoryData,
     fetchInventoryPilotSession, finalizeInventoryPilotCount,
+    setStoreInventoryAutomationMode, applyAssistedCycleCountPrefill,
     type InventoryPilotSession,
     type OrderType
 } from './actions'
 import {
     getMonday, getBusinessDate, getBusinessMonday, addDays,
+    isTrackOnlyOrderItem,
     resolveEffectiveOrderLineQty, buildPersistableOrderLines, evaluateOrderAnomalies,
     type OrderableItem, type WeeklyBaseRecord, type ParIdealRecord,
     type CalculatedOrderLine, type OrderAnomaly
 } from './utils'
+import type { InventoryAutomationMode } from '@/lib/inventory/automation-pilot'
 import { useAuth } from '@/components/ProtectedRoute'
 import { createClient } from '@/lib/supabase-client'
 import PilotComparisonModal from '@/components/PilotComparisonModal'
@@ -169,6 +185,7 @@ export default function InventoryOrdersPage() {
     const [originalBases, setOriginalBases] = useState<Record<string, WeeklyBaseRecord>>({})
     const [parIdeal, setParIdeal] = useState<Record<string, ParIdealRecord>>({})
     const [counts, setCounts] = useState<Record<string, Record<string, number>>>({})
+    const [countSources, setCountSources] = useState<Record<string, Record<string, 'manual' | 'auto_cycle_v2'>>>({})
     const [orderLines, setOrderLines] = useState<CalculatedOrderLine[]>([])
     const [adjustments, setAdjustments] = useState<Record<string, number | string>>({})
     const [orders, setOrders] = useState<any[]>([])
@@ -178,6 +195,11 @@ export default function InventoryOrdersPage() {
     })
     const [closingPilotCount, setClosingPilotCount] = useState(false)
     const [showPilotComparisonModal, setShowPilotComparisonModal] = useState(false)
+    const [recalculatingParIdeal, setRecalculatingParIdeal] = useState(false)
+    const [switchingAutomationMode, setSwitchingAutomationMode] = useState(false)
+    const [prefillingCycle, setPrefillingCycle] = useState(false)
+    const [refreshingToast, setRefreshingToast] = useState(false)
+    const skipNextCalcEffectRef = useRef(false)
 
     // Timers y buffer para guardado optimista no bloqueante de sobrantes (Ultra-fast non-blocking input)
     const leftoverDebounceTimers = useRef<Record<string, NodeJS.Timeout>>({})
@@ -204,7 +226,7 @@ export default function InventoryOrdersPage() {
     const [overrideDayField, setOverrideDayField] = useState<string>('auto')
     const [selectedOrderDate, setSelectedOrderDate] = useState<string>(() => getLocalBusinessDate(new Date()))
     const [copySrcDay, setCopySrcDay] = useState<string>('mon_par')
-    const [copyTgtDay, setCopyTgtDay] = useState<string>('all')
+    const [copyTgtDay, setCopyTgtDay] = useState<string>('')
     const [parBoostPercent, setParBoostPercent] = useState<number>(0)
 
     const [champurradoForecast, setChampurradoForecast] = useState<any>(null)
@@ -368,6 +390,7 @@ export default function InventoryOrdersPage() {
             setOriginalBases(JSON.parse(JSON.stringify(weekData.bases || {})))
             setParIdeal(weekData.parIdeal)
             setCounts(weekData.counts)
+            setCountSources((weekData as any).countSources || {})
             setOrders(weekData.orders)
             setPilotSession(currentPilotSession)
             setHasBaseChanges(false)
@@ -423,11 +446,11 @@ export default function InventoryOrdersPage() {
                 storeId, selectedOrderDate, orderableItems,
                 weekData.bases, weekData.counts, activeMonday,
                 weekData.parIdeal, overrideDayFieldRef.current, parBoostPercentRef.current,
-                orderType, (weekData as any).nextWeekBases
+                orderType, (weekData as any).nextWeekBases, (weekData as any).countSources
             )
             // Si hay una sesión de piloto revelada para esta fecha, combinar sus líneas guardadas
             // para que el usuario siempre vea los valores teóricos y varianzas fijadas al cerrar el conteo
-            if (currentPilotSession?.status === 'revealed' && currentPilotSession.lines?.length) {
+            if (currentPilotSession?.status === 'revealed' && currentPilotSession.lines?.length && currentPilotSession.automationMode !== 'auto_order_visible') {
                 const pilotMap = new Map(currentPilotSession.lines.map((pl: any) => [pl.inventory_item_id, pl]))
                 lines.forEach(line => {
                     const pl = pilotMap.get(line.inventory_item_id)
@@ -446,6 +469,8 @@ export default function InventoryOrdersPage() {
                     }
                 })
                 setShowSuggestedCol(true)
+            } else if (currentPilotSession?.automationMode === 'auto_order_visible') {
+                setShowSuggestedCol(true)
             }
 
             if (isNewContext) {
@@ -458,7 +483,8 @@ export default function InventoryOrdersPage() {
                 })
             }
 
-            // 2. Apagar el spinner de carga de inmediato para visualización instantánea
+            // 2. Apagar el spinner de carga de inmediato (marcando skipNextCalcEffectRef para evitar doble llamada al hidratar)
+            skipNextCalcEffectRef.current = true
             setLoading(false)
 
             // 3. Lanzar la sincronización en segundo plano con QuickBooks Online sin bloquear al usuario
@@ -473,7 +499,7 @@ export default function InventoryOrdersPage() {
                             setQbAuthRequired(false)
                             lastSyncedKeyRef.current = syncKey
                             
-                            // Si el sync actualizó templates o empaques, recargar silenciosamente los estados
+                            // Si el sync actualizó templates, empaques o concilió Invoices de Bodega, recargar silenciosamente
                             if (data.templates_updated > 0 || data.items_updated > 0) {
                                 console.log('[QB-Sync] Cambios en QB detectados en segundo plano. Recargando items...');
                                 const [freshItems, freshAllItems, freshMapped] = await Promise.all([
@@ -484,6 +510,10 @@ export default function InventoryOrdersPage() {
                                 setItems(freshItems)
                                 setAllItems(freshAllItems)
                                 setMappedItems(freshMapped)
+                            }
+                            if (data.invoiceReconciliation?.reconciled > 0) {
+                                const freshWeek = await fetchWeeklyData(storeId, activeMonday, orderType)
+                                setOrders(freshWeek.orders)
                             }
                         }
                     })
@@ -499,17 +529,20 @@ export default function InventoryOrdersPage() {
 
     useEffect(() => { loadData() }, [loadData])
 
-    // Recalcular orden localmente al cambiar el día de base, fecha seleccionada, incremento de PAR, o tipo de orden.
-    // NOTA: NO incluir bases/counts/nextWeekBases aquí — cada handler individual ya recalcula su línea.
-    // Incluirlos causaría recálculos en cada tecla presionada (cada onChange actualiza bases).
+    // Recalcular orden únicamente cuando cambia overrideDayField o parBoostPercent (evita duplicar el cálculo inicial de loadData).
     // eslint-disable-next-line react-hooks/exhaustive-deps
     useEffect(() => {
-        if (!loading && storeId && items.length > 0 && bases && Object.keys(bases).length > 0) {
+        if (loading) return
+        if (skipNextCalcEffectRef.current) {
+            skipNextCalcEffectRef.current = false
+            return
+        }
+        if (storeId && items.length > 0 && bases && Object.keys(bases).length > 0) {
             calculateDailyOrder(
                 storeId, selectedOrderDate, items,
                 bases, counts, activeMonday,
                 parIdeal, overrideDayField, parBoostPercent,
-                orderType, nextWeekBases
+                orderType, nextWeekBases, countSources
             ).then(newLines => {
                 setOrderLines(prev => {
                     const prevExtraordinary = prev.filter(l => l.is_extraordinary)
@@ -517,7 +550,7 @@ export default function InventoryOrdersPage() {
                 })
             })
         }
-    }, [loading, overrideDayField, storeId, selectedOrderDate, items, activeMonday, parIdeal, parBoostPercent, orderType])
+    }, [loading, overrideDayField, parBoostPercent])
 
     // Load analysis data when tab switches
     useEffect(() => {
@@ -617,7 +650,8 @@ export default function InventoryOrdersPage() {
                 'auto',
                 0,
                 modalOrderType,
-                (tplWeekData as any).nextWeekBases
+                (tplWeekData as any).nextWeekBases,
+                (tplWeekData as any).countSources
             )
             const orderableTplLines = calcLines.filter(cl => cl.qb_item_id && cl.qb_item_id !== 'TRACK_ONLY')
             const savedLineMap = new Map<string, any>(rawSavedLines.map((l: any) => [l.inventory_item_id, l]))
@@ -640,6 +674,11 @@ export default function InventoryOrdersPage() {
                     leftover_value: modalOrderType === 'uniforms'
                         ? (cl.leftover_value ?? saved?.leftover_value ?? 0)
                         : (saved?.leftover_value ?? cl.leftover_value),
+                    effective_leftover: saved?.leftover_value ?? cl.effective_leftover ?? cl.leftover_value ?? null,
+                    effective_source: saved?.leftover_value !== null && saved?.leftover_value !== undefined
+                        ? 'manual'
+                        : (cl.effective_source || 'none'),
+                    suggested_leftover: cl.suggested_leftover ?? null,
                     calculated_qty: saved?.calculated_qty ?? cl.calculated_qty,
                     adjusted_qty: saved && saved.adjusted_qty !== null && saved.adjusted_qty !== undefined
                         ? Number(saved.adjusted_qty)
@@ -665,13 +704,25 @@ export default function InventoryOrdersPage() {
         const numVal = value === '' ? null : (parseFloat(value) || 0)
         setModalLines(prev => prev.map(line => {
             if (line.inventory_item_id !== itemId) return line
-            const orderBase = numVal === null ? 0 : Math.max(0, line.par_value - numVal)
+            const fallbackAuto = numVal === null && line.suggested_leftover !== null && line.suggested_leftover !== undefined
+                ? Number(line.suggested_leftover)
+                : null
+            const effectiveVal = numVal !== null ? numVal : fallbackAuto
+            const orderBase = effectiveVal === null ? 0 : Math.max(0, line.par_value - effectiveVal)
             const roundingRule = line.order_rounding_rule || items.find(item => item.id === itemId)?.order_rounding_rule
-            const calculatedQty = roundingRule === 'ceiling_60' ? Math.ceil(orderBase / 60) * 60
+            const calculatedQty = effectiveVal === null
+                ? 0
+                : roundingRule === 'ceiling_60' ? Math.ceil(orderBase / 60) * 60
                 : roundingRule === 'ceiling_30' ? Math.ceil(orderBase / 30) * 30
                 : roundingRule === 'ceiling_4' ? Math.ceil(orderBase / 4) * 4
                 : Math.round(orderBase)
-            return { ...line, leftover_value: numVal, calculated_qty: calculatedQty }
+            return {
+                ...line,
+                leftover_value: numVal,
+                effective_leftover: effectiveVal,
+                effective_source: numVal !== null ? 'manual' : (effectiveVal !== null ? 'system_auto' : 'none'),
+                calculated_qty: calculatedQty
+            }
         }))
     }
 
@@ -800,57 +851,111 @@ export default function InventoryOrdersPage() {
     }
 
     async function handleCopyDayPar(src: string, tgt: string) {
+        if (!tgt) return
         if (src === tgt) {
             alert(t('bodegaOrders.sameDayError'))
             return
         }
         const labelSrc = t(`bodegaOrders.dayLabels.${src}`)
         const labelTgt = t(`bodegaOrders.dayLabels.${tgt}`)
-        const msg = t('bodegaOrders.confirmCopyDayPar')
+        const isWeekendOverwrite =
+            orderType === 'daily' &&
+            (tgt === 'fri_par' || tgt === 'sat_par') &&
+            ['mon_par', 'tue_par', 'wed_par', 'thu_par'].includes(src)
+        const msgTemplate = isWeekendOverwrite
+            ? t('bodegaOrders.confirmCopyWeekendWarning')
+            : t('bodegaOrders.confirmCopyDayPar')
+        const msg = msgTemplate
             .replace('{src}', labelSrc)
             .replace('{tgt}', labelTgt)
 
         if (!confirm(msg)) return
 
-        const nextBases = { ...bases }
-        const updatedList: any[] = []
+        const targetFields: string[] =
+            tgt === 'weekdays'
+                ? ['mon_par', 'tue_par', 'wed_par']
+                : tgt === 'all'
+                ? (orderType === 'daily'
+                    ? ['mon_par', 'tue_par', 'wed_par', 'thu_par', 'fri_par', 'sat_par']
+                    : ['mon_par', 'tue_par', 'wed_par', 'thu_par', 'fri_par', 'sat_par', 'sun_par'])
+                : (orderType === 'daily' && tgt === 'sun_par' ? [] : [tgt])
 
-        Object.keys(nextBases).forEach(itemId => {
-            const itemBase = { ...nextBases[itemId] } as any
+        if (targetFields.length === 0) return
+
+        const nextBasesState = { ...bases }
+        const nextOriginalBasesState = { ...originalBases }
+        const nextFutureBasesState = { ...nextWeekBases }
+        const updatedCurrentList: any[] = []
+        const updatedNextList: any[] = []
+        const activeItemIds = new Set(items.map(i => i.id))
+
+        Object.keys(nextBasesState).forEach(itemId => {
+            if (activeItemIds.size > 0 && !activeItemIds.has(itemId)) return
+            const itemBase = { ...nextBasesState[itemId] } as any
             if (!itemBase.inventory_item_id) itemBase.inventory_item_id = itemId
+            const nextItemBase = { ...(nextFutureBasesState[itemId] || itemBase) } as any
+            if (!nextItemBase.inventory_item_id) nextItemBase.inventory_item_id = itemId
+
             const sourceVal = itemBase[src] || 0
-            if (tgt === 'all') {
-                itemBase.mon_par = sourceVal
-                itemBase.tue_par = sourceVal
-                itemBase.wed_par = sourceVal
-                itemBase.thu_par = sourceVal
-                itemBase.fri_par = sourceVal
-                itemBase.sat_par = sourceVal
-                itemBase.sun_par = sourceVal
-            } else {
-                itemBase[tgt] = sourceVal
+            let currentChanged = false
+
+            for (const f of targetFields) {
+                if (f === src) continue
+                const dayOffset = fieldIndexMap[f] ?? 0
+                const fieldDateStr = addDays(activeMonday, dayOffset)
+                const hasLeftover = counts[itemId]?.[fieldDateStr] !== undefined && counts[itemId]?.[fieldDateStr] !== null
+                const isPastDay = fieldDateStr < todayStr
+                const isLocked = hasLeftover || isPastDay
+
+                if (!isLocked) {
+                    itemBase[f] = sourceVal
+                    currentChanged = true
+                }
+                nextItemBase[f] = sourceVal
             }
-            nextBases[itemId] = itemBase
-            updatedList.push({
-                inventory_item_id: itemBase.inventory_item_id,
-                mon_par: itemBase.mon_par || 0,
-                tue_par: itemBase.tue_par || 0,
-                wed_par: itemBase.wed_par || 0,
-                thu_par: itemBase.thu_par || 0,
-                fri_par: itemBase.fri_par || 0,
-                sat_par: itemBase.sat_par || 0,
-                sun_par: itemBase.sun_par || 0
+
+            if (currentChanged) {
+                nextBasesState[itemId] = itemBase
+                nextOriginalBasesState[itemId] = { ...(nextOriginalBasesState[itemId] || itemBase), ...itemBase }
+                updatedCurrentList.push({
+                    inventory_item_id: itemBase.inventory_item_id,
+                    mon_par: itemBase.mon_par || 0,
+                    tue_par: itemBase.tue_par || 0,
+                    wed_par: itemBase.wed_par || 0,
+                    thu_par: itemBase.thu_par || 0,
+                    fri_par: itemBase.fri_par || 0,
+                    sat_par: itemBase.sat_par || 0,
+                    sun_par: itemBase.sun_par || 0
+                })
+            }
+
+            nextFutureBasesState[itemId] = nextItemBase
+            updatedNextList.push({
+                inventory_item_id: nextItemBase.inventory_item_id,
+                mon_par: nextItemBase.mon_par || 0,
+                tue_par: nextItemBase.tue_par || 0,
+                wed_par: nextItemBase.wed_par || 0,
+                thu_par: nextItemBase.thu_par || 0,
+                fri_par: nextItemBase.fri_par || 0,
+                sat_par: nextItemBase.sat_par || 0,
+                sun_par: nextItemBase.sun_par || 0
             })
         })
-        
-        setBases(nextBases)
-        setHasBaseChanges(true)
 
-        // Live Auto-Save to Supabase
-        if (storeId && updatedList.length > 0) {
+        setBases(nextBasesState)
+        setOriginalBases(nextOriginalBasesState)
+        setNextWeekBases(nextFutureBasesState)
+        setCopyTgtDay('')
+
+        // Live Auto-Save to Supabase (semana actual desbloqueada + próxima semana)
+        if (storeId && (updatedCurrentList.length > 0 || updatedNextList.length > 0)) {
+            const nextWeekMonday = addDays(activeMonday, 7)
             setIsLiveSaving(true)
             try {
-                await saveWeeklyBases(storeId, activeMonday, updatedList)
+                await Promise.all([
+                    updatedCurrentList.length > 0 ? saveWeeklyBases(storeId, activeMonday, updatedCurrentList) : Promise.resolve(),
+                    updatedNextList.length > 0 ? saveWeeklyBases(storeId, nextWeekMonday, updatedNextList) : Promise.resolve()
+                ])
             } catch (err) {
                 console.error('Error auto-saving copied day PAR:', err)
             } finally {
@@ -1147,23 +1252,44 @@ export default function InventoryOrdersPage() {
     }
 
     /** Handler para edición inline de sobrantes en la tabla del pedido diario.
-     *  Actualiza en memoria instantáneamente (0ms de retraso, 60 FPS) y agenda guardado en background. */
+     *  Actualiza en memoria instantáneamente (0ms de retraso, 60 FPS) y agenda guardado en background.
+     *  Regla A3 ("Físico Manda"): si el asistente escribe un sobrante físico, manda al 100% de inmediato;
+     *  si borra la celda en modo 'auto_order_visible', la línea regresa sin fricción al cálculo del sistema. */
     function handleInlineLeftoverChange(itemId: string, value: string) {
         if (value !== '' && Number(value) < 0) return
         const numVal = value === '' ? null : Math.max(0, parseFloat(value) || 0)
+        const autoVisibleActive = orderType === 'daily' && pilotSession.automationMode === 'auto_order_visible'
 
-        // 1. Actualizar estado de conteos inmediatamente en memoria
+        // 1. Actualizar estado de conteos y origen manual inmediatamente en memoria
         setCounts(prev => {
             const itemCounts = { ...(prev[itemId] || {}) }
             if (numVal === null) delete itemCounts[selectedOrderDate]
             else itemCounts[selectedOrderDate] = numVal
             return { ...prev, [itemId]: itemCounts }
         })
+        setCountSources(prev => {
+            const itemSources = { ...(prev[itemId] || {}) }
+            if (numVal === null) delete itemSources[selectedOrderDate]
+            else itemSources[selectedOrderDate] = 'manual'
+            return { ...prev, [itemId]: itemSources }
+        })
 
         // 2. Recalcular la orden y varianza en vivo sin esperar llamadas de red
         setOrderLines(prev => prev.map(line => {
             if (line.inventory_item_id !== itemId) return line
-            const orderBase = numVal === null ? 0 : Math.max(0, line.par_value - numVal)
+            const trackOnly = orderType === 'daily' && isTrackOnlyOrderItem(line)
+
+            const fallbackAutoLeftover =
+                autoVisibleActive && line.suggested_leftover !== null && line.suggested_leftover !== undefined
+                    ? line.suggested_leftover
+                    : null
+            const resolvedEffectiveLeftover = numVal !== null ? numVal : fallbackAutoLeftover
+            const resolvedEffectiveSource: 'manual' | 'system_auto' | null =
+                numVal !== null ? 'manual' : fallbackAutoLeftover !== null ? 'system_auto' : null
+
+            const orderBase = trackOnly || resolvedEffectiveLeftover === null
+                ? 0
+                : Math.max(0, line.par_value - resolvedEffectiveLeftover)
             let calculatedQty = orderBase
             
             // Aplicar reglas de empaque si es positivo
@@ -1182,13 +1308,21 @@ export default function InventoryOrdersPage() {
                 calculatedQty = 0
             }
 
+            const nextVariance =
+                numVal === null || line.suggested_leftover === null || line.suggested_leftover === undefined
+                    ? null
+                    : Number((numVal - line.suggested_leftover).toFixed(2))
+            const nextTol = line.tolerance_value ?? (/papelito/i.test(line.item_name) ? 30 : 1)
+
             return {
                 ...line,
                 leftover_value: numVal,
+                effective_leftover: resolvedEffectiveLeftover,
+                effective_source: resolvedEffectiveSource,
+                count_source: numVal === null ? null : 'manual',
                 calculated_qty: calculatedQty,
-                variance: numVal === null || line.suggested_leftover === null || line.suggested_leftover === undefined
-                    ? null
-                    : Number((numVal - line.suggested_leftover).toFixed(2))
+                variance: nextVariance,
+                within_tolerance: nextVariance === null ? null : Math.abs(nextVariance) <= nextTol,
             }
         }))
 
@@ -1200,6 +1334,60 @@ export default function InventoryOrdersPage() {
         leftoverDebounceTimers.current[itemId] = setTimeout(() => {
             commitLeftoverSave(itemId, selectedOrderDate, numVal)
         }, 600)
+    }
+
+    /** Confirma en 1 clic el sobrante calculado por el sistema como conteo físico verificado del asistente */
+    function handleAcceptSingleSuggested(itemId: string, suggestedVal: number) {
+        handleInlineLeftoverChange(itemId, String(suggestedVal))
+        if (leftoverDebounceTimers.current[itemId]) {
+            clearTimeout(leftoverDebounceTimers.current[itemId])
+            delete leftoverDebounceTimers.current[itemId]
+        }
+        commitLeftoverSave(itemId, selectedOrderDate, suggestedVal)
+    }
+
+    /** Refresca en vivo los tickets más recientes de Toast POS y QBO Invoices sin perder conteos ni ajustes */
+    async function handleRefreshToastSales() {
+        if (!storeId || refreshingToast) return
+        try {
+            await flushPendingLeftoverSaves()
+        } catch (flushErr: any) {
+            alert(flushErr.message)
+            return
+        }
+        setRefreshingToast(true)
+        try {
+            const [freshWeek, freshOrderable] = await Promise.all([
+                fetchWeeklyData(storeId, activeMonday, orderType),
+                fetchOrderableItems(storeId, orderType),
+            ])
+            setCounts(freshWeek.counts)
+            setCountSources((freshWeek as any).countSources || {})
+            setOrders(freshWeek.orders)
+            const freshLines = await calculateDailyOrder(
+                storeId,
+                selectedOrderDate,
+                freshOrderable,
+                freshWeek.bases,
+                freshWeek.counts,
+                activeMonday,
+                freshWeek.parIdeal,
+                overrideDayField,
+                parBoostPercent,
+                orderType,
+                (freshWeek as any).nextWeekBases,
+                (freshWeek as any).countSources,
+                { forceRefresh: true }
+            )
+            setOrderLines(prev => {
+                const prevExtra = prev.filter(l => l.is_extraordinary)
+                return [...freshLines, ...prevExtra]
+            })
+        } catch (err: any) {
+            alert(err?.message || 'Error al actualizar ventas de Toast')
+        } finally {
+            setRefreshingToast(false)
+        }
     }
 
     /** Handler onBlur: Al salir de la celda (Tab, Enter, Flecha o click fuera),
@@ -1256,6 +1444,76 @@ export default function InventoryOrdersPage() {
         setLoading(false)
     }
 
+    async function handleRecalcParIdeal() {
+        if (!storeId) return
+        setRecalculatingParIdeal(true)
+        try {
+            const res = await recalculateParIdeal(storeId, 4)
+            if (!res.success) {
+                alert(res.error || 'Error al recalcular PAR Ideal')
+            } else {
+                alert(t('bodegaOrders.recalcParIdealSuccess'))
+                await loadData()
+            }
+        } catch (err: any) {
+            alert(err?.message || 'Error al recalcular PAR Ideal')
+        } finally {
+            setRecalculatingParIdeal(false)
+        }
+    }
+
+    async function handleSwitchAutomationMode(nextMode: InventoryAutomationMode) {
+        if (!storeId || nextMode === pilotSession.automationMode) return
+        setSwitchingAutomationMode(true)
+        try {
+            const res = await setStoreInventoryAutomationMode(storeId, nextMode)
+            if (!res.success) {
+                alert(res.error || 'Error al cambiar el modo')
+                return
+            }
+            const modeLabel = nextMode === 'auto_order_visible'
+                ? t('bodegaOrders.automationModeAutoVisible')
+                : nextMode === 'assisted_2tier'
+                ? t('bodegaOrders.automationModeAssisted2Tier')
+                : nextMode === 'shadow_blind'
+                ? t('bodegaOrders.automationModeShadowBlind')
+                : t('bodegaOrders.automationModeOff')
+            alert(t('bodegaOrders.automationModeUpdated', { mode: modeLabel }))
+            await loadData()
+        } catch (err: any) {
+            alert(err?.message || 'Error al cambiar el modo')
+        } finally {
+            setSwitchingAutomationMode(false)
+        }
+    }
+
+    async function handlePrefillCycleCounts() {
+        if (!storeId) return
+        try {
+            await flushPendingLeftoverSaves()
+        } catch (flushErr: any) {
+            alert(flushErr.message)
+            return
+        }
+        setPrefillingCycle(true)
+        try {
+            const res = await applyAssistedCycleCountPrefill(storeId, selectedOrderDate)
+            if (!res.success) {
+                alert(res.error || 'No se pudo ejecutar el pre-llenado')
+                return
+            }
+            alert(t('bodegaOrders.prefillStableDone', {
+                filled: res.prefilledCount ?? 0,
+                critical: res.criticalRemainingCount ?? 0,
+            }))
+            await loadData()
+        } catch (err: any) {
+            alert(err?.message || 'No se pudo ejecutar el pre-llenado')
+        } finally {
+            setPrefillingCycle(false)
+        }
+    }
+
     async function handleSaveLink() {
         if (!selectedItemId) return
         setLoading(true)
@@ -1267,8 +1525,13 @@ export default function InventoryOrdersPage() {
 
     function validateCompleteCounts(lines: CalculatedOrderLine[]): boolean {
         if (orderType !== 'daily') return true
-        const missing = lines.filter(l => !l.is_extraordinary && (l.leftover_value === null || l.leftover_value === undefined))
-            .map(l => l.item_name)
+        const allowSystemEffective = pilotSession.automationMode === 'auto_order_visible'
+        const missing = lines.filter(l => {
+            if (l.is_extraordinary) return false
+            const hasManual = l.leftover_value !== null && l.leftover_value !== undefined
+            const hasAutoEffective = allowSystemEffective && l.effective_leftover !== null && l.effective_leftover !== undefined
+            return !hasManual && !hasAutoEffective
+        }).map(l => l.item_name)
 
         if (missing.length > 0) {
             alert(`⚠️ FALTAN ${missing.length} SOBRANTES:\nCaptura el conteo físico de: ${missing.join(', ')}. No se puede generar ni enviar la orden incompleta.`)
@@ -1276,6 +1539,25 @@ export default function InventoryOrdersPage() {
         }
 
         return true
+    }
+
+    /** Construye el respaldo de sobrantes calculados por el sistema (incluyendo Flan/Cheesecake) para los ítems sin captura manual */
+    function buildAutoCountsFallback(lines: CalculatedOrderLine[]): Array<{ inventory_item_id: string; quantity_on_hand: number }> | undefined {
+        if (orderType !== 'daily' || pilotSession.automationMode !== 'auto_order_visible') return undefined
+        const list: Array<{ inventory_item_id: string; quantity_on_hand: number }> = []
+        for (const l of lines) {
+            if (l.is_extraordinary) continue
+            const hasManual = l.leftover_value !== null && l.leftover_value !== undefined && l.count_source === 'manual'
+            if (hasManual) continue
+            const candidate = l.effective_leftover ?? l.suggested_leftover
+            if (candidate !== null && candidate !== undefined && Number.isFinite(Number(candidate)) && Number(candidate) >= 0) {
+                list.push({
+                    inventory_item_id: l.inventory_item_id,
+                    quantity_on_hand: Number(Number(candidate).toFixed(1)),
+                })
+            }
+        }
+        return list
     }
 
     /** Validación de topes máximos y cantidades imposibles (Capa 3 Anti-Catástrofe) */
@@ -1337,8 +1619,18 @@ export default function InventoryOrdersPage() {
 
         setSaving(true)
         const { persistableLines: lines } = buildPersistableOrderLines(orderLines, adjustments, orderType)
+        const autoFallback = buildAutoCountsFallback(orderLines)
 
-        const res = await saveOrderDraft(storeId, selectedOrderDate, activeMonday, lines, user?.name, orderNotes || undefined, orderType)
+        const res = await saveOrderDraft(
+            storeId,
+            selectedOrderDate,
+            activeMonday,
+            lines,
+            user?.name,
+            orderNotes || undefined,
+            orderType,
+            autoFallback
+        )
         if (res.error) {
             alert(res.error)
         } else {
@@ -1375,7 +1667,7 @@ export default function InventoryOrdersPage() {
                 .map(line => ({
                     inventory_item_id: line.inventory_item_id,
                     item_name: line.item_name,
-                    physical_leftover: Number(line.leftover_value),
+                    physical_leftover: Number(line.leftover_value ?? line.effective_leftover ?? 0),
                     automatic_leftover: line.suggested_leftover ?? null,
                     par_value: Number(line.par_value) || 0,
                     rounding_rule: line.rounding_rule,
@@ -1448,7 +1740,17 @@ export default function InventoryOrdersPage() {
             return
         }
 
-        const saveRes = await saveOrderDraft(storeId, selectedOrderDate, activeMonday, lines, user?.name, orderNotes || undefined, orderType)
+        const autoFallback = buildAutoCountsFallback(orderLines)
+        const saveRes = await saveOrderDraft(
+            storeId,
+            selectedOrderDate,
+            activeMonday,
+            lines,
+            user?.name,
+            orderNotes || undefined,
+            orderType,
+            autoFallback
+        )
         if (saveRes.error) { alert(saveRes.error); setSaving(false); return }
         const orderId = saveRes.orderId
         setSaving(false)
@@ -1644,7 +1946,16 @@ export default function InventoryOrdersPage() {
         const { isReady, finalQty } = resolveEffectiveOrderLineQty(l, adjustments, orderType)
         return isReady && finalQty > 0
     }).length
-    const excessItems = orderLines.filter(l => l.leftover_value !== null && l.leftover_value !== undefined && l.par_value > 0 && l.leftover_value > l.par_value).length
+    const excessItems = orderLines.filter(l => {
+        const effLeft = l.leftover_value ?? l.effective_leftover ?? null
+        return effLeft !== null && effLeft !== undefined && l.par_value > 0 && effLeft > l.par_value
+    }).length
+    const estimatedOrderCost = orderLines.reduce((sum, l) => {
+        const { isReady, finalQty } = resolveEffectiveOrderLineQty(l, adjustments, orderType)
+        if (!isReady || finalQty <= 0) return sum
+        const unitCost = Number(l.purchase_unit_cost ?? 0)
+        return sum + (Number.isFinite(unitCost) ? finalQty * unitCost : 0)
+    }, 0)
 
     const hasUnsavedAdjustments = (() => {
         const todayOrder = orders.find((o: any) => o.order_date === selectedOrderDate)
@@ -1689,7 +2000,57 @@ export default function InventoryOrdersPage() {
     const orderableLines = orderLines.filter(l => l.qb_item_id && l.qb_item_id !== 'TRACK_ONLY' && !l.is_extraordinary)
     const trackingLines = orderLines.filter(l => (!l.qb_item_id || l.qb_item_id === 'TRACK_ONLY') && !l.is_extraordinary)
     const extraordinaryLines = orderLines.filter(l => l.is_extraordinary)
-    const isPilotBlind = pilotSession.enabled && pilotSession.schemaReady && pilotSession.status !== 'revealed'
+    const selectedUtcDow = new Date(`${selectedOrderDate}T12:00:00Z`).getUTCDay()
+    const isAutoOrderVisible = Boolean(
+        orderType === 'daily' &&
+        pilotSession.automationMode === 'auto_order_visible'
+    )
+    const isAssisted2Tier = Boolean(
+        pilotSession.enabled &&
+        pilotSession.schemaReady &&
+        pilotSession.automationMode === 'assisted_2tier' &&
+        !pilotSession.isSundayAnchor &&
+        selectedUtcDow !== 6
+    )
+    const isPilotBlind = Boolean(
+        pilotSession.enabled &&
+        pilotSession.schemaReady &&
+        pilotSession.automationMode === 'shadow_blind' &&
+        pilotSession.status !== 'revealed'
+    )
+    const manualCapturedToday = orderLines.filter(l =>
+        !l.is_extraordinary &&
+        l.count_source === 'manual' &&
+        l.leftover_value !== null &&
+        l.leftover_value !== undefined
+    ).length
+    const autoBackedToday = orderLines.filter(l =>
+        !l.is_extraordinary &&
+        (l.effective_source === 'system_auto' || l.effective_source === 'auto_cycle_v2') &&
+        l.effective_leftover !== null &&
+        l.effective_leftover !== undefined
+    ).length
+    const readyTodayCount = orderLines.filter(l =>
+        !l.is_extraordinary &&
+        (
+            (l.leftover_value !== null && l.leftover_value !== undefined) ||
+            (l.effective_leftover !== null && l.effective_leftover !== undefined)
+        )
+    ).length
+    const prefillableCycleCount = orderLines.filter(l =>
+        !l.is_extraordinary &&
+        l.sku_tier === 'cycle_stable' &&
+        !isTrackOnlyOrderItem(l) &&
+        !(l.leftover_value !== null && l.count_source === 'manual') &&
+        l.suggested_leftover !== null &&
+        l.suggested_leftover !== undefined &&
+        l.suggested_leftover >= -1
+    ).length
+    const criticalRemainingToday = orderLines.filter(l =>
+        !l.is_extraordinary &&
+        l.sku_tier === 'critical_daily' &&
+        (l.leftover_value === null || l.leftover_value === undefined)
+    ).length
     const pilotCanClose = pilotSession.enabled && pilotSession.schemaReady
         && capturedToday === items.length && items.length > 0
 
@@ -1920,7 +2281,10 @@ export default function InventoryOrdersPage() {
                                             {modalLines.map((line: any, index: number) => {
                                                 const modalOrderType: OrderType = editModal.order?.order_type || 'daily';
                                                 const leftoverVal = line.leftover_value;
-                                                const isZeroLeftover = leftoverVal === null || leftoverVal === undefined;
+                                                const effectiveLeftVal = leftoverVal !== null && leftoverVal !== undefined
+                                                    ? leftoverVal
+                                                    : (line.effective_leftover ?? null);
+                                                const hasEffectiveLeftover = effectiveLeftVal !== null && effectiveLeftVal !== undefined;
                                                 const parVal = line.par_value || 0;
                                                 const calculatedQty = line.calculated_qty;
                                                 const adj = line.adjusted_qty;
@@ -1928,8 +2292,8 @@ export default function InventoryOrdersPage() {
                                                 const adjNum = hasAdj ? Number(adj) : undefined;
                                                 const finalQty = adjNum !== undefined && !isNaN(adjNum) ? adjNum : calculatedQty;
                                                 const isNegative = calculatedQty < 0;
-                                                const hideCalculated = !line.is_extraordinary && isZeroLeftover && modalOrderType === 'daily';
-                                                const hideFinal = !line.is_extraordinary && isZeroLeftover && !hasAdj && modalOrderType === 'daily';
+                                                const hideCalculated = !line.is_extraordinary && !hasEffectiveLeftover && modalOrderType === 'daily';
+                                                const hideFinal = !line.is_extraordinary && !hasEffectiveLeftover && !hasAdj && modalOrderType === 'daily';
 
                                                 return (
                                                     <tr key={line.id || index} className="border-b border-slate-100 hover:bg-slate-50/50 transition-colors">
@@ -1963,7 +2327,7 @@ export default function InventoryOrdersPage() {
                                                             {modalOrderType === 'uniforms' ? (
                                                                 <span className="font-bold text-emerald-800 text-[11px] sm:text-xs">🎽 {leftoverVal !== null && leftoverVal !== undefined ? leftoverVal : 0}</span>
                                                             ) : modalReadOnly ? (
-                                                                <span className="font-bold text-orange-800 text-[11px] sm:text-xs">{leftoverVal !== null && leftoverVal !== undefined ? leftoverVal : '-'}</span>
+                                                                <span className="font-bold text-orange-800 text-[11px] sm:text-xs">{effectiveLeftVal !== null && effectiveLeftVal !== undefined ? effectiveLeftVal : '-'}</span>
                                                             ) : (
                                                                 <input
                                                                     type="text"
@@ -1971,8 +2335,8 @@ export default function InventoryOrdersPage() {
                                                                     value={leftoverVal !== null && leftoverVal !== undefined ? leftoverVal : ''}
                                                                     onChange={e => handleModalLeftoverChange(line.inventory_item_id, e.target.value)}
                                                                     onFocus={e => e.target.select()}
-                                                                    placeholder="Sobrante"
-                                                                    className="w-full p-1.5 text-center bg-white border border-orange-200 rounded-lg outline-none focus:ring-2 focus:ring-orange-400 font-bold text-orange-800 text-[11px] sm:text-xs"
+                                                                    placeholder={effectiveLeftVal !== null && effectiveLeftVal !== undefined ? t('bodegaOrders.autoPlaceholder', { val: effectiveLeftVal }) : t('bodegaOrders.leftover')}
+                                                                    className="w-full p-1.5 text-center bg-white border border-orange-200 rounded-lg outline-none focus:ring-2 focus:ring-orange-400 font-bold text-orange-800 placeholder:text-cyan-700 placeholder:font-semibold text-[11px] sm:text-xs"
                                                                 />
                                                             )}
                                                         </td>
@@ -2452,46 +2816,129 @@ export default function InventoryOrdersPage() {
 
                                     {pilotSession.enabled && (
                                         <div className={`mx-5 mb-4 p-4 rounded-xl border flex flex-wrap items-center justify-between gap-3 shadow-sm ${
-                                            isPilotBlind
+                                            isAutoOrderVisible
+                                                ? 'bg-sky-50/90 border-sky-200 text-sky-950'
+                                                : isAssisted2Tier
+                                                ? 'bg-amber-50/90 border-amber-300 text-amber-950'
+                                                : isPilotBlind
                                                 ? 'bg-violet-50 border-violet-200 text-violet-900'
                                                 : 'bg-emerald-50 border-emerald-200 text-emerald-900'
                                         }`}>
-                                            <div>
-                                                <div className="font-black text-sm">
-                                                    {isPilotBlind
-                                                        ? `🔒 Piloto ${pilotSession.storeName || 'de inventario'} · Conteo ciego`
-                                                        : `✅ Piloto ${pilotSession.storeName || 'de inventario'} · Comparación revelada`}
+                                            <div className="space-y-1.5">
+                                                <div className="flex flex-wrap items-center gap-2">
+                                                    <span className="font-black text-sm">
+                                                        {isAutoOrderVisible
+                                                            ? t('bodegaOrders.autoVisibleBannerTitle', { store: pilotSession.storeName || '' })
+                                                            : pilotSession.automationMode === 'assisted_2tier' && pilotSession.isSundayAnchor
+                                                            ? t('bodegaOrders.sundayAnchorTitle')
+                                                            : isAssisted2Tier
+                                                            ? t('bodegaOrders.assisted2TierTitle', { store: pilotSession.storeName || '' })
+                                                            : isPilotBlind
+                                                            ? `🔒 Piloto ${pilotSession.storeName || 'de inventario'} · Conteo ciego`
+                                                            : `✅ Piloto ${pilotSession.storeName || 'de inventario'} · Comparación revelada`}
+                                                    </span>
+                                                    {isAutoOrderVisible && (
+                                                        <span className="text-[11px] font-bold bg-white/90 text-sky-900 border border-sky-300 px-2.5 py-0.5 rounded-full shadow-2xs">
+                                                            {t('bodegaOrders.autoVisibleProgressBadge', {
+                                                                manual: manualCapturedToday,
+                                                                auto: autoBackedToday
+                                                            })}
+                                                        </span>
+                                                    )}
+                                                    {isAssisted2Tier && criticalRemainingToday > 0 && (
+                                                        <span className="text-[11px] font-bold bg-red-100 text-red-800 border border-red-200 px-2 py-0.5 rounded-full">
+                                                            {t('bodegaOrders.criticalRemainingBadge', { count: criticalRemainingToday })}
+                                                        </span>
+                                                    )}
                                                 </div>
-                                                <p className="text-xs mt-1 max-w-3xl">
-                                                    {isPilotBlind
+                                                <p className="text-xs max-w-3xl leading-relaxed">
+                                                    {isAutoOrderVisible
+                                                        ? t('bodegaOrders.autoVisibleBannerDesc')
+                                                        : pilotSession.automationMode === 'assisted_2tier' && pilotSession.isSundayAnchor
+                                                        ? t('bodegaOrders.sundayAnchorDesc')
+                                                        : isAssisted2Tier
+                                                        ? t('bodegaOrders.assisted2TierDesc')
+                                                        : isPilotBlind
                                                         ? 'Captura primero todos los sobrantes físicos. El cálculo automático y el pedido permanecen ocultos para no influir en el conteo.'
                                                         : `El conteo físico sigue siendo el oficial. La estimación automática se muestra solo para validar su precisión${pilotSession.completedBy ? ` · Cerrado por ${pilotSession.completedBy}` : ''}.`}
                                                 </p>
+                                                {pilotSession.canManageMode && (
+                                                    <div className="flex flex-wrap items-center gap-2 pt-1">
+                                                        <span className="text-[11px] font-bold uppercase tracking-wider opacity-80">
+                                                            {t('bodegaOrders.automationModeLabel')}
+                                                        </span>
+                                                        <select
+                                                            value={pilotSession.automationMode || 'auto_order_visible'}
+                                                            disabled={switchingAutomationMode}
+                                                            onChange={(e) => handleSwitchAutomationMode(e.target.value as InventoryAutomationMode)}
+                                                            className="bg-white border border-slate-300 text-slate-800 rounded-lg px-2.5 py-1 text-xs font-bold shadow-2xs outline-none cursor-pointer"
+                                                        >
+                                                            <option value="auto_order_visible">{t('bodegaOrders.automationModeAutoVisible')}</option>
+                                                            <option value="assisted_2tier">{t('bodegaOrders.automationModeAssisted2Tier')}</option>
+                                                            <option value="shadow_blind">{t('bodegaOrders.automationModeShadowBlind')}</option>
+                                                            <option value="off">{t('bodegaOrders.automationModeOff')}</option>
+                                                        </select>
+                                                    </div>
+                                                )}
                                                 {!pilotSession.schemaReady && (
                                                     <p className="text-xs font-bold text-red-700 mt-2">
                                                         Falta aplicar en Supabase la migración 202609250001_inventory_automation_pilot.sql.
                                                     </p>
                                                 )}
                                             </div>
-                                            {isPilotBlind ? (
-                                                <button
-                                                    type="button"
-                                                    onClick={handleClosePilotCount}
-                                                    disabled={!pilotCanClose || closingPilotCount}
-                                                    className="px-4 py-2.5 rounded-xl bg-violet-700 hover:bg-violet-800 text-white text-xs font-black disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
-                                                >
-                                                    {closingPilotCount ? 'Cerrando...' : `Cerrar conteo y comparar (${capturedToday}/${items.length})`}
-                                                </button>
-                                            ) : pilotSession.lines && pilotSession.lines.length > 0 ? (
-                                                <button
-                                                    type="button"
-                                                    onClick={() => setShowPilotComparisonModal(true)}
-                                                    className="px-4 py-2.5 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-black shadow-sm flex items-center gap-2 cursor-pointer transition-all hover:shadow"
-                                                >
-                                                    <span>📊</span>
-                                                    <span>{t('bodegaOrders.viewPilotComparison')} ({pilotSession.lines.length})</span>
-                                                </button>
-                                            ) : null}
+                                            <div className="flex flex-wrap items-center gap-2">
+                                                {orderType === 'daily' && (
+                                                    <button
+                                                        type="button"
+                                                        onClick={handleRefreshToastSales}
+                                                        disabled={refreshingToast || loading}
+                                                        className="px-3.5 py-2.5 rounded-xl bg-white hover:bg-sky-100/70 text-sky-900 border border-sky-300 text-xs font-black shadow-2xs flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer transition-all"
+                                                    >
+                                                        <RefreshCcw size={13} className={refreshingToast ? 'animate-spin' : ''} />
+                                                        <span>{refreshingToast ? t('bodegaOrders.refreshingToast') : t('bodegaOrders.refreshToastBtn')}</span>
+                                                    </button>
+                                                )}
+                                                {isAssisted2Tier && (
+                                                    <button
+                                                        type="button"
+                                                        onClick={handlePrefillCycleCounts}
+                                                        disabled={prefillingCycle || prefillableCycleCount === 0}
+                                                        className="px-4 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-black shadow-sm disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-all"
+                                                    >
+                                                        {prefillingCycle
+                                                            ? t('bodegaOrders.prefillingStable')
+                                                            : t('bodegaOrders.prefillStableBtn', { count: prefillableCycleCount })}
+                                                    </button>
+                                                )}
+                                                {pilotSession.status === 'revealed' && pilotSession.lines && pilotSession.lines.length > 0 ? (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setShowPilotComparisonModal(true)}
+                                                        className="px-4 py-2.5 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-black shadow-sm flex items-center gap-2 cursor-pointer transition-all hover:shadow"
+                                                    >
+                                                        <span>📊</span>
+                                                        <span>{t('bodegaOrders.viewPilotComparison')} ({pilotSession.lines.length})</span>
+                                                    </button>
+                                                ) : !isAutoOrderVisible ? (
+                                                    <button
+                                                        type="button"
+                                                        onClick={handleClosePilotCount}
+                                                        disabled={!pilotCanClose || closingPilotCount}
+                                                        className="px-4 py-2.5 rounded-xl bg-violet-700 hover:bg-violet-800 text-white text-xs font-black disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                                                    >
+                                                        {closingPilotCount ? 'Cerrando...' : `Cerrar conteo y comparar (${capturedToday}/${items.length})`}
+                                                    </button>
+                                                ) : pilotCanClose ? (
+                                                    <button
+                                                        type="button"
+                                                        onClick={handleClosePilotCount}
+                                                        disabled={closingPilotCount}
+                                                        className="px-3.5 py-2.5 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-black shadow-sm cursor-pointer transition-all"
+                                                    >
+                                                        {closingPilotCount ? 'Cerrando...' : `📊 Guardar comparativa (${capturedToday}/${items.length})`}
+                                                    </button>
+                                                ) : null}
+                                            </div>
                                         </div>
                                     )}
 
@@ -2503,9 +2950,16 @@ export default function InventoryOrdersPage() {
                                                     <Check className="w-5 h-5" />
                                                 </div>
                                                 <div>
-                                                    <h4 className="font-bold text-slate-800 text-sm">
-                                                        {t('bodegaOrders.orderSent')}
-                                                    </h4>
+                                                    <div className="flex flex-wrap items-center gap-2">
+                                                        <h4 className="font-bold text-slate-800 text-sm">
+                                                            {t('bodegaOrders.orderSent')}
+                                                        </h4>
+                                                        {existingOrder?.qb_invoice_number && (
+                                                            <span className="text-[11px] font-bold bg-indigo-100 text-indigo-800 border border-indigo-200 px-2.5 py-0.5 rounded-full">
+                                                                {t('bodegaOrders.qbInvoiceReconciledBadge', { number: existingOrder.qb_invoice_number })}
+                                                            </span>
+                                                        )}
+                                                    </div>
                                                     <p className="text-xs text-slate-500">
                                                         {t('bodegaOrders.orderSentDesc', { number: existingOrder.qb_estimate_number })}
                                                     </p>
@@ -2526,7 +2980,14 @@ export default function InventoryOrdersPage() {
                                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4 px-5 pb-4">
                                         <div className="bg-blue-50 rounded-xl p-4 border border-blue-100">
                                             <div className="text-xs text-blue-500 font-bold uppercase tracking-wider">{t('bodegaOrders.totalItemsToOrder')}</div>
-                                            <div className="text-3xl font-black text-blue-700 mt-1">{isPilotBlind ? '🔒' : itemsToOrder}</div>
+                                            <div className="flex items-baseline justify-between gap-2 mt-1">
+                                                <span className="text-3xl font-black text-blue-700">{isPilotBlind ? '🔒' : itemsToOrder}</span>
+                                                {!isPilotBlind && estimatedOrderCost > 0 && (
+                                                    <span className="text-xs font-bold text-blue-800 bg-blue-100/80 border border-blue-200 px-2 py-0.5 rounded-lg">
+                                                        {t('bodegaOrders.estimatedOrderTotal')}: ${estimatedOrderCost.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                    </span>
+                                                )}
+                                            </div>
                                         </div>
                                         <div className="bg-amber-50 rounded-xl p-4 border border-amber-100">
                                             <div className="text-xs text-amber-500 font-bold uppercase tracking-wider">{t('bodegaOrders.excessItems')}</div>
@@ -2539,23 +3000,44 @@ export default function InventoryOrdersPage() {
                                                     ? `#${existingOrder.qb_estimate_number}`
                                                     : '—'}
                                             </div>
+                                            {existingOrder?.qb_invoice_number && (
+                                                <div className="text-[11px] font-bold text-indigo-700 mt-0.5">
+                                                    {t('bodegaOrders.qbInvoiceReconciledBadge', { number: existingOrder.qb_invoice_number })}
+                                                </div>
+                                            )}
                                         </div>
                                     </div>
 
                                     {/* ---- Progress bar ---- */}
                                     <div className="px-5 pb-3">
-                                        <div className="flex items-center justify-between mb-1.5">
+                                        <div className="flex flex-wrap items-center justify-between gap-2 mb-1.5">
                                             <span className="text-xs font-bold text-slate-500">
                                                 {t('bodegaOrders.itemsCaptured', { count: capturedToday, total: items.length })}
                                             </span>
-                                            {capturedToday === items.length && items.length > 0 && (
-                                                <span className="text-xs font-bold text-emerald-600 bg-emerald-100 px-3 py-0.5 rounded-full flex items-center gap-1">
-                                                    <Check size={12} /> {t('bodegaOrders.allItemsCaptured')}
-                                                </span>
-                                            )}
+                                            <div className="flex flex-wrap items-center gap-2">
+                                                {isAutoOrderVisible && readyTodayCount > 0 && (
+                                                    <span className="text-xs font-bold text-sky-800 bg-sky-100 border border-sky-200 px-3 py-0.5 rounded-full flex items-center gap-1">
+                                                        🤖 {t('bodegaOrders.readyForQbStatus', { ready: readyTodayCount, total: items.length })}
+                                                    </span>
+                                                )}
+                                                {capturedToday === items.length && items.length > 0 && (
+                                                    <span className="text-xs font-bold text-emerald-600 bg-emerald-100 px-3 py-0.5 rounded-full flex items-center gap-1">
+                                                        <Check size={12} /> {t('bodegaOrders.allItemsCaptured')}
+                                                    </span>
+                                                )}
+                                            </div>
                                         </div>
-                                        <div className="w-full bg-slate-200 rounded-full h-1.5">
-                                            <div className="bg-emerald-500 h-1.5 rounded-full transition-all duration-500" style={{ width: `${items.length ? (capturedToday / items.length) * 100 : 0}%` }} />
+                                        <div className="w-full bg-slate-200 rounded-full h-1.5 overflow-hidden flex">
+                                            <div
+                                                className="bg-emerald-500 h-1.5 transition-all duration-500"
+                                                style={{ width: `${items.length ? (capturedToday / items.length) * 100 : 0}%` }}
+                                            />
+                                            {isAutoOrderVisible && readyTodayCount > capturedToday && (
+                                                <div
+                                                    className="bg-sky-400 h-1.5 transition-all duration-500"
+                                                    style={{ width: `${items.length ? ((readyTodayCount - capturedToday) / items.length) * 100 : 0}%` }}
+                                                />
+                                            )}
                                         </div>
                                     </div>
 
@@ -2624,6 +3106,17 @@ export default function InventoryOrdersPage() {
                                             </span>
                                         </div>
 
+                                        {orderType === 'daily' && !pilotSession.enabled && (
+                                            <button
+                                                type="button"
+                                                onClick={handleRefreshToastSales}
+                                                disabled={refreshingToast || loading}
+                                                className="flex items-center gap-1.5 bg-sky-50 hover:bg-sky-100 text-sky-900 border border-sky-200 px-3.5 py-2.5 rounded-xl font-bold text-xs shadow-sm transition-colors disabled:opacity-50"
+                                            >
+                                                <RefreshCcw size={14} className={refreshingToast ? 'animate-spin' : ''} />
+                                                {refreshingToast ? t('bodegaOrders.refreshingToast') : t('bodegaOrders.refreshToastBtn')}
+                                            </button>
+                                        )}
                                         <button
                                             onClick={() => {
                                                 const url = `/inventory/orders/print-sheet?storeId=${storeId}&orderType=${orderType}&week=${activeMonday}`
@@ -2710,30 +3203,62 @@ export default function InventoryOrdersPage() {
                                                     const hasManualAdj = adjNum !== undefined && !isNaN(adjNum)
                                                     const finalQty = hasManualAdj ? adjNum : line.calculated_qty
                                                     const isNegative = line.calculated_qty < 0
-                                                    const isZeroLeftover = line.leftover_value === null
-                                                    const hideFinalCell = isZeroLeftover && !(orderType !== 'daily' && hasManualAdj)
+                                                    const hasEffectiveLeftover =
+                                                        (line.leftover_value !== null && line.leftover_value !== undefined) ||
+                                                        (line.effective_leftover !== null && line.effective_leftover !== undefined)
+                                                    const hideFinalCell = !hasEffectiveLeftover && !(orderType !== 'daily' && hasManualAdj)
                                                     const currentLeftover = counts[line.inventory_item_id]?.[selectedOrderDate]
+                                                    const isAutoBackedRow =
+                                                        orderType === 'daily' &&
+                                                        currentLeftover === undefined &&
+                                                        line.effective_leftover !== null &&
+                                                        line.effective_leftover !== undefined
+                                                    const isManualSource =
+                                                        currentLeftover !== undefined
+                                                            ? line.count_source !== 'auto_cycle_v2'
+                                                            : line.effective_source === 'manual'
                                                     const par = line.par_value || 0
-                                                    const isHighLeftover = orderType !== 'uniforms' && !line.is_extraordinary && currentLeftover !== undefined && currentLeftover !== null && par > 0 &&
+                                                    const isTrackOnlyDaily = !line.is_extraordinary && orderType === 'daily' && isTrackOnlyOrderItem(line)
+                                                    const isHighLeftover = orderType !== 'uniforms' && !line.is_extraordinary && !isTrackOnlyDaily && currentLeftover !== undefined && currentLeftover !== null && par > 0 &&
                                                         ((par >= 3 && currentLeftover >= par * 1.5 && (currentLeftover - par >= 4)) || (par < 3 && currentLeftover >= 8))
                                                     const isNegativeAdjust = hasManualAdj && adjNum < 0
-                                                    const isHighAdjust = hasManualAdj && adjNum >= 0 && (
+                                                    const isHighAdjust = !isTrackOnlyDaily && hasManualAdj && adjNum >= 0 && (
                                                         (par >= 4 && adjNum >= par * 2.5 && (adjNum - par >= 8)) ||
                                                         (par < 4 && par > 0 && adjNum >= 25) ||
                                                         (par === 0 && adjNum >= 50)
                                                     )
-                                                    const isHighFinal = par > 0 && finalQty > Math.max(par * 2.5, 30)
+                                                    const isHighFinal = !isTrackOnlyDaily && par > 0 && finalQty > Math.max(par * 2.5, 30)
+                                                    const isMultiPiecePack =
+                                                        line.unit_measure === 'pza' &&
+                                                        /pack|paq|bag|bolsa|case|caja/i.test(line.unit_description || '')
 
                                                     return (
                                                         <tr key={line.inventory_item_id}
                                                             className={`transition-colors border-b border-slate-100 ${isNegative ? 'bg-red-50/30' : finalQty > 0 ? 'hover:bg-blue-50/20' : 'hover:bg-slate-50/50'}`}>
                                                             {/* Producto */}
                                                             <td className="sticky left-0 bg-white border-b border-slate-100 p-2.5 z-10 shadow-[2px_0_5px_rgba(0,0,0,0.03)] w-72 min-w-[220px] max-w-[300px]">
-                                                                {renderItemName(line.item_name, "font-semibold text-slate-800")}
+                                                                <div className="flex flex-wrap items-center gap-1.5">
+                                                                    {renderItemName(line.item_name, "font-semibold text-slate-800")}
+                                                                    {orderType === 'daily' && pilotSession.automationMode === 'assisted_2tier' && line.sku_tier === 'critical_daily' && (
+                                                                        <span className="text-[9px] font-black bg-rose-50 text-rose-700 border border-rose-200 px-1.5 py-0.5 rounded">
+                                                                            {t('bodegaOrders.tierCriticalBadge')}
+                                                                        </span>
+                                                                    )}
+                                                                    {orderType === 'daily' && !isAutoOrderVisible && line.count_source === 'auto_cycle_v2' && (
+                                                                        <span className="text-[9px] font-black bg-amber-100 text-amber-800 border border-amber-200 px-1.5 py-0.5 rounded">
+                                                                            {t('bodegaOrders.tierCycleAutoBadge')}
+                                                                        </span>
+                                                                    )}
+                                                                </div>
                                                             </td>
                                                             {/* Empaque (QB) */}
                                                             <td className="p-2.5 text-left text-slate-600 border-b border-slate-100 font-medium text-xs w-52 min-w-[160px]">
-                                                                {line.unit_description || '-'}
+                                                                <div>{line.unit_description || '-'}</div>
+                                                                {isMultiPiecePack && (
+                                                                    <span className="inline-block mt-0.5 text-[9px] font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 px-1.5 py-0.2 rounded">
+                                                                        {t('bodegaOrders.countPacksHint')}
+                                                                    </span>
+                                                                )}
                                                             </td>
                                                             {/* Costo (QB) */}
                                                             <td className="p-2.5 text-center text-slate-700 border-b border-slate-100 font-bold text-xs w-28 min-w-[90px]">
@@ -2742,16 +3267,16 @@ export default function InventoryOrdersPage() {
                                                                 ) : (
                                                                     '-'
                                                                 )}
-                                                                {line.unit_measure && (
+                                                                {line.purchase_unit_cost !== undefined && line.purchase_unit_cost !== null && (
                                                                     <span className="text-[9px] text-slate-400 font-normal block">
-                                                                        / {line.unit_measure}
+                                                                        {t('bodegaOrders.perPackCostSuffix')}
                                                                     </span>
                                                                 )}
                                                             </td>
                                                             {/* PAR Ideal (readonly) */}
                                                             {showParIdealCol && (
                                                                 <td className="p-2 text-center text-violet-600 border-b border-slate-100 font-semibold text-xs bg-violet-50/20">
-                                                                    {line.par_ideal !== null && line.par_ideal !== undefined ? line.par_ideal : '-'}
+                                                                    {(line.par_ideal_value ?? line.par_ideal) !== null && (line.par_ideal_value ?? line.par_ideal) !== undefined ? (line.par_ideal_value ?? line.par_ideal) : '-'}
                                                                 </td>
                                                             )}
                                                             {/* PAR (actual) */}
@@ -2760,20 +3285,36 @@ export default function InventoryOrdersPage() {
                                                             </td>
                                                             {/* Sugerido (theoretical leftover) */}
                                                             {showSuggestedCol && (
-                                                                <td className="p-2 text-center border-b border-slate-100 font-medium text-xs bg-amber-50/20 text-amber-800">
+                                                                <td className="p-2 text-center border-b border-slate-100 font-medium text-xs bg-cyan-50/25 text-cyan-900">
                                                                     {isPilotBlind ? (
                                                                         <span className="text-violet-500" title="Se revela al cerrar el conteo">🔒</span>
                                                                     ) : line.suggested_leftover !== null && line.suggested_leftover !== undefined ? (
-                                                                        <span title={`Previsualización no certificada: ${line.theoretical_source_status || 'sin estado'} | Consumo por tickets: ${line.theoretical_consumption ?? '-'} | Órdenes: ${line.yesterday_order_qty ?? '-'} | ${line.theoretical_source_reason || ''}`}>
-                                                                            {line.suggested_leftover}
-                                                                        </span>
-                                     ) : (
+                                                                        <div className="inline-flex items-center justify-center gap-1">
+                                                                            <span
+                                                                                className="font-bold"
+                                                                                title={`${line.is_burn_rate ? 'Balance de masas histórico causal' : 'Recetas deterministas Toast POS'} | Consumo estimado: ${line.theoretical_consumption ?? '-'} | Órdenes recibidas: ${line.yesterday_order_qty ?? '-'} | ${line.theoretical_source_reason || ''}`}
+                                                                            >
+                                                                                {line.suggested_leftover}
+                                                                            </span>
+                                                                            {orderType === 'daily' && currentLeftover === undefined && (
+                                                                                <button
+                                                                                    type="button"
+                                                                                    tabIndex={-1}
+                                                                                    onClick={() => handleAcceptSingleSuggested(line.inventory_item_id, Number(line.suggested_leftover))}
+                                                                                    title={t('bodegaOrders.stampSuggestedTooltip', { val: line.suggested_leftover })}
+                                                                                    className="text-[10px] font-black text-emerald-700 bg-emerald-100 hover:bg-emerald-200 border border-emerald-200 px-1 py-0.2 rounded transition-colors cursor-pointer"
+                                                                                >
+                                                                                    ✓
+                                                                                </button>
+                                                                            )}
+                                                                        </div>
+                                                                    ) : (
                                                                         <span className="text-slate-300" title={line.theoretical_source_reason || 'Sobrante teórico no certificado'}>-</span>
                                                                     )}
                                                                 </td>
                                                             )}
                                                             {/* Sobrante (daily count) */}
-                                                            <td className={`p-0 border-b ${isHighLeftover ? 'bg-amber-100/30 border-amber-300' : 'border-orange-100 bg-orange-50/20'}`}>
+                                                            <td className={`p-0 border-b ${isHighLeftover ? 'bg-amber-100/30 border-amber-300' : isAutoBackedRow ? 'border-sky-100 bg-sky-50/25' : 'border-orange-100 bg-orange-50/20'}`}>
                                                                 {orderType === 'uniforms' ? (
                                                                     <div className="w-full p-2.5 text-center font-bold text-emerald-800 text-xs bg-emerald-50/60 border-l-[3px] border-l-emerald-500">
                                                                         🎽 {currentLeftover !== undefined ? currentLeftover : '-'}
@@ -2789,11 +3330,13 @@ export default function InventoryOrdersPage() {
                                                                             id={`input_${rowIndex}_0`}
                                                                             type="number"
                                                                             min="0"
-                                                                            placeholder={t('bodegaOrders.enterLeftover')}
-                                                                            className={`w-full p-2.5 text-center outline-none font-bold text-sm placeholder:text-xs placeholder:font-normal border-l-[4px] transition-all ${
+                                                                            placeholder={isAutoBackedRow ? t('bodegaOrders.autoPlaceholder', { val: line.effective_leftover }) : t('bodegaOrders.enterLeftover')}
+                                                                            className={`w-full p-2.5 text-center outline-none font-bold text-sm placeholder:text-xs border-l-[4px] transition-all ${
                                                                                 isHighLeftover
-                                                                                    ? 'bg-amber-100/70 focus:bg-white focus:ring-2 focus:ring-amber-500 text-amber-950 border-l-amber-500'
-                                                                                    : 'bg-transparent focus:bg-white focus:ring-2 focus:ring-orange-400 text-orange-800 placeholder:text-orange-300 border-l-orange-400'
+                                                                                    ? 'bg-amber-100/70 focus:bg-white focus:ring-2 focus:ring-amber-500 text-amber-950 border-l-amber-500 placeholder:font-normal'
+                                                                                    : isAutoBackedRow
+                                                                                    ? 'bg-transparent focus:bg-white focus:ring-2 focus:ring-orange-400 text-orange-800 placeholder:text-sky-700 placeholder:font-bold border-l-sky-400'
+                                                                                    : 'bg-transparent focus:bg-white focus:ring-2 focus:ring-orange-400 text-orange-800 placeholder:text-orange-300 placeholder:font-normal border-l-orange-400'
                                                                             }`}
                                                                             value={currentLeftover !== undefined ? currentLeftover : ''}
                                                                             onChange={e => handleInlineLeftoverChange(line.inventory_item_id, e.target.value)}
@@ -2818,10 +3361,23 @@ export default function InventoryOrdersPage() {
                                                             {/* Pedir (calculated) */}
                                                             <td className={`p-2 text-center font-bold border-b ${
                                                                 isNegative ? 'text-red-600 bg-red-50/40 border-red-100'
-                                                                : isZeroLeftover ? 'text-slate-400 bg-slate-50 border-slate-100'
+                                                                : !hasEffectiveLeftover ? 'text-slate-400 bg-slate-50 border-slate-100'
                                                                 : 'text-blue-700 bg-blue-50/30 border-blue-100'
                                                             }`}>
-                                                                {isPilotBlind ? '🔒' : isZeroLeftover ? '-' : line.calculated_qty}
+                                                                {isPilotBlind ? '🔒' : !hasEffectiveLeftover ? '-' : (
+                                                                    <div className="flex flex-col items-center justify-center leading-tight">
+                                                                        <span>{line.calculated_qty}</span>
+                                                                        {orderType === 'daily' && isAutoOrderVisible && (
+                                                                            <span className={`text-[9px] font-extrabold px-1.5 py-0.2 rounded mt-0.5 ${
+                                                                                isManualSource
+                                                                                    ? 'bg-emerald-100 text-emerald-800'
+                                                                                    : 'bg-sky-100 text-sky-800'
+                                                                            }`}>
+                                                                                {isManualSource ? t('bodegaOrders.sourceManualShort') : t('bodegaOrders.sourceAutoShort')}
+                                                                            </span>
+                                                                        )}
+                                                                    </div>
+                                                                )}
                                                             </td>
                                                             {/* Ajuste (optional override) */}
                                                             <td className={`p-0 border-b ${isNegativeAdjust ? 'bg-red-100/30 border-red-300' : isHighAdjust ? 'bg-purple-100/30 border-purple-300' : 'border-indigo-100 bg-indigo-50/20'}`}>
@@ -3036,8 +3592,13 @@ export default function InventoryOrdersPage() {
 
                                                 {/* ---- Tracking-only items ---- */}
                                                 {trackingLines.map((line, idx) => {
-                                                    const rowIndex = orderableLines.length + idx + 1
+                                                    const rowIndex = orderableLines.length + (extraordinaryLines.length > 0 ? extraordinaryLines.length + 1 : 0) + idx
                                                     const currentLeftover = counts[line.inventory_item_id]?.[selectedOrderDate]
+                                                    const isAutoBackedTrackRow =
+                                                        orderType === 'daily' &&
+                                                        currentLeftover === undefined &&
+                                                        line.effective_leftover !== null &&
+                                                        line.effective_leftover !== undefined
 
                                                     return (
                                                         <tr key={line.inventory_item_id} className="transition-colors border-b border-slate-100 hover:bg-slate-50/50">
@@ -3047,7 +3608,14 @@ export default function InventoryOrdersPage() {
                                                                     {line.unit_description && (
                                                                         <span className="text-[10px] text-slate-400 font-medium leading-tight">{line.unit_description}</span>
                                                                     )}
-                                                                    {renderItemName(line.item_name, "font-semibold text-slate-500")}
+                                                                    <div className="flex flex-wrap items-center gap-1.5">
+                                                                        {renderItemName(line.item_name, "font-semibold text-slate-500")}
+                                                                        {orderType === 'daily' && pilotSession.automationMode === 'assisted_2tier' && line.sku_tier === 'critical_daily' && (
+                                                                            <span className="text-[9px] font-black bg-rose-50 text-rose-700 border border-rose-200 px-1.5 py-0.5 rounded">
+                                                                                {t('bodegaOrders.tierCriticalBadge')}
+                                                                            </span>
+                                                                        )}
+                                                                    </div>
                                                                 </div>
                                                             </td>
                                                             {/* Empaque (QB) */}
@@ -3066,23 +3634,69 @@ export default function InventoryOrdersPage() {
                                                             <td className="p-2 text-center font-bold text-emerald-600 bg-emerald-50/30 border-b border-emerald-100">
                                                                 {line.par_value || '-'}
                                                             </td>
-                                                            {/* Sugerido — dash */}
+                                                            {/* Sugerido (theoretical leftover for external vendor items) */}
                                                             {showSuggestedCol && (
-                                                                <td className="p-2 text-center text-slate-300 border-b border-slate-100">—</td>
+                                                                <td className="p-2 text-center border-b border-slate-100 font-medium text-xs bg-cyan-50/25 text-cyan-900">
+                                                                    {isPilotBlind ? (
+                                                                        <span className="text-violet-500" title="Se revela al cerrar el conteo">🔒</span>
+                                                                    ) : line.suggested_leftover !== null && line.suggested_leftover !== undefined ? (
+                                                                        <div className="inline-flex items-center justify-center gap-1">
+                                                                            <span
+                                                                                className="font-bold"
+                                                                                title={`Recetas deterministas Toast POS (Proveedor Externo) | Consumo estimado: ${line.theoretical_consumption ?? '-'} | Llegada Bodega: 0`}
+                                                                            >
+                                                                                {line.suggested_leftover}
+                                                                            </span>
+                                                                            {orderType === 'daily' && currentLeftover === undefined && (
+                                                                                <button
+                                                                                    type="button"
+                                                                                    tabIndex={-1}
+                                                                                    onClick={() => handleAcceptSingleSuggested(line.inventory_item_id, Number(line.suggested_leftover))}
+                                                                                    title={t('bodegaOrders.stampSuggestedTooltip', { val: line.suggested_leftover })}
+                                                                                    className="text-[10px] font-black text-emerald-700 bg-emerald-100 hover:bg-emerald-200 border border-emerald-200 px-1 py-0.2 rounded transition-colors cursor-pointer"
+                                                                                >
+                                                                                    ✓
+                                                                                </button>
+                                                                            )}
+                                                                        </div>
+                                                                    ) : (
+                                                                        <span className="text-slate-300">—</span>
+                                                                    )}
+                                                                </td>
                                                             )}
                                                             {/* Sobrante (EDITABLE for tracking too) */}
-                                                            <td className="p-0 border-b border-orange-200 bg-orange-50/20">
-                                                                <input
-                                                                    id={`input_${rowIndex}_0`}
-                                                                    type="number"
-                                                                    placeholder={t('bodegaOrders.enterLeftover')}
-                                                                    className="w-full p-2.5 text-center outline-none bg-transparent focus:bg-white focus:ring-2 focus:ring-orange-400 font-bold text-orange-700 text-sm placeholder:text-orange-300 placeholder:text-xs placeholder:font-normal border-l-[3px] border-l-orange-300"
-                                                                    value={currentLeftover !== undefined ? currentLeftover : ''}
-                                                                    onChange={e => handleInlineLeftoverChange(line.inventory_item_id, e.target.value)}
-                                                                    onBlur={() => handleInlineLeftoverBlur(line.inventory_item_id)}
-                                                                    onKeyDown={e => handleGridKeyDown(e, rowIndex, 0)}
-                                                                    onFocus={e => e.target.select()}
-                                                                />
+                                                            <td className={`p-0 border-b ${isAutoBackedTrackRow ? 'border-sky-200 bg-sky-50/25' : 'border-orange-200 bg-orange-50/20'}`}>
+                                                                <div className="relative flex items-center">
+                                                                    <input
+                                                                        id={`input_${rowIndex}_0`}
+                                                                        type="number"
+                                                                        min="0"
+                                                                        placeholder={isAutoBackedTrackRow ? t('bodegaOrders.autoPlaceholder', { val: line.effective_leftover }) : t('bodegaOrders.enterLeftover')}
+                                                                        className={`w-full py-2.5 ${currentLeftover !== undefined ? 'pl-3 pr-14 text-left' : 'px-2.5 text-center'} outline-none bg-transparent focus:bg-white focus:ring-2 focus:ring-orange-400 font-bold text-orange-700 text-sm placeholder:text-xs border-l-[3px] ${
+                                                                            isAutoBackedTrackRow
+                                                                                ? 'placeholder:text-sky-700 placeholder:font-bold border-l-sky-400'
+                                                                                : 'placeholder:text-orange-300 placeholder:font-normal border-l-orange-300'
+                                                                        }`}
+                                                                        value={currentLeftover !== undefined ? currentLeftover : ''}
+                                                                        onChange={e => handleInlineLeftoverChange(line.inventory_item_id, e.target.value)}
+                                                                        onBlur={() => handleInlineLeftoverBlur(line.inventory_item_id)}
+                                                                        onKeyDown={e => handleGridKeyDown(e, rowIndex, 0)}
+                                                                        onFocus={e => e.target.select()}
+                                                                    />
+                                                                    {!isPilotBlind && line.variance !== null && line.variance !== undefined && currentLeftover !== undefined && (
+                                                                        <span className={`absolute right-1 text-[9px] px-1 py-0.5 rounded font-black ${
+                                                                            (line as any).within_tolerance === true || line.variance === 0
+                                                                                ? 'bg-emerald-100 text-emerald-800'
+                                                                                : line.variance >= 10
+                                                                                ? 'bg-sky-100 text-sky-800'
+                                                                                : Math.abs(line.variance) <= 2
+                                                                                ? 'bg-amber-100 text-amber-800'
+                                                                                : 'bg-red-100 text-red-800'
+                                                                        }`} title={line.variance >= 10 ? `Resurtido de proveedor externo (+${line.variance})` : `Varianza: ${line.variance > 0 ? '+' : ''}${line.variance}`}>
+                                                                            {line.variance >= 10 ? `📦 +${line.variance}` : line.variance > 0 ? `+${line.variance}` : line.variance}
+                                                                        </span>
+                                                                    )}
+                                                                </div>
                                                             </td>
                                                             {/* Pedir — dash */}
                                                             <td className="p-2 text-center text-slate-300 border-b border-slate-100">—</td>
@@ -3265,43 +3879,55 @@ export default function InventoryOrdersPage() {
                                         className="flex items-center gap-1.5 bg-indigo-50 border border-indigo-200 hover:bg-indigo-100 text-indigo-700 px-3 py-2 rounded-xl font-semibold text-xs shadow-sm transition-colors disabled:opacity-50">
                                         <RefreshCcw size={14} /> {t('bodegaOrders.copyFromParIdeal')}
                                     </button>
+                                    {orderType === 'daily' && (
+                                        <button
+                                            type="button"
+                                            onClick={handleRecalcParIdeal}
+                                            disabled={loading || recalculatingParIdeal}
+                                            className="flex items-center gap-1.5 bg-violet-50 border border-violet-200 hover:bg-violet-100 text-violet-700 px-3 py-2 rounded-xl font-semibold text-xs shadow-sm transition-colors disabled:opacity-50 cursor-pointer"
+                                        >
+                                            <RefreshCcw size={14} className={recalculatingParIdeal ? 'animate-spin' : ''} />
+                                            {recalculatingParIdeal ? t('bodegaOrders.recalculatingParIdeal') : t('bodegaOrders.recalcParIdealBtn')}
+                                        </button>
+                                    )}
 
                                     {orderType === 'daily' && (
                                          <div className="flex items-center gap-1.5 bg-slate-100 border border-slate-200 rounded-xl px-3 py-1.5 shadow-sm text-xs select-none">
-                                             <span className="font-bold text-slate-500">📋 Copiar PAR:</span>
+                                             <span className="font-bold text-slate-500">{t('bodegaOrders.copyParLabel')}</span>
                                              <select 
                                                  value={copySrcDay} 
                                                  onChange={(e) => setCopySrcDay(e.target.value)} 
                                                  className="bg-transparent text-slate-700 font-bold outline-none cursor-pointer focus:text-blue-600 font-sans border-0 p-0"
                                              >
-                                                 <option value="mon_par">Lunes</option>
-                                                 <option value="tue_par">Martes</option>
-                                                 <option value="wed_par">Miércoles</option>
-                                                 <option value="thu_par">Jueves</option>
-                                                 <option value="fri_par">Viernes</option>
-                                                 <option value="sat_par">Sábado</option>
-                                                 <option value="sun_par">Domingo</option>
+                                                 <option value="mon_par">{t('bodegaOrders.dayLabels.mon_par')}</option>
+                                                 <option value="tue_par">{t('bodegaOrders.dayLabels.tue_par')}</option>
+                                                 <option value="wed_par">{t('bodegaOrders.dayLabels.wed_par')}</option>
+                                                 <option value="thu_par">{t('bodegaOrders.dayLabels.thu_par')}</option>
+                                                 <option value="fri_par">{t('bodegaOrders.dayLabels.fri_par')}</option>
+                                                 <option value="sat_par">{t('bodegaOrders.dayLabels.sat_par')}</option>
                                              </select>
-                                             <span className="font-bold text-slate-400">➡️ a:</span>
+                                             <span className="font-bold text-slate-400">{t('bodegaOrders.copyParTo')}</span>
                                              <select 
                                                  value={copyTgtDay} 
                                                  onChange={(e) => setCopyTgtDay(e.target.value)} 
                                                  className="bg-transparent text-slate-700 font-bold outline-none cursor-pointer focus:text-blue-600 font-sans border-0 p-0"
                                              >
-                                                 <option value="all">Todos los días</option>
-                                                 <option value="mon_par">Lunes</option>
-                                                 <option value="tue_par">Martes</option>
-                                                 <option value="wed_par">Miércoles</option>
-                                                 <option value="thu_par">Jueves</option>
-                                                 <option value="fri_par">Viernes</option>
-                                                 <option value="sat_par">Sábado</option>
-                                                 <option value="sun_par">Domingo</option>
+                                                 <option value="">{t('bodegaOrders.copyParSelectTarget')}</option>
+                                                 <option value="weekdays">{t('bodegaOrders.dayLabels.weekdays')}</option>
+                                                 <option value="mon_par">{t('bodegaOrders.dayLabels.mon_par')}</option>
+                                                 <option value="tue_par">{t('bodegaOrders.dayLabels.tue_par')}</option>
+                                                 <option value="wed_par">{t('bodegaOrders.dayLabels.wed_par')}</option>
+                                                 <option value="thu_par">{t('bodegaOrders.dayLabels.thu_par')}</option>
+                                                 <option value="fri_par">{t('bodegaOrders.dayLabels.fri_par')}</option>
+                                                 <option value="sat_par">{t('bodegaOrders.dayLabels.sat_par')}</option>
                                              </select>
                                              <button 
+                                                 type="button"
+                                                 disabled={!copyTgtDay || copySrcDay === copyTgtDay}
                                                  onClick={() => handleCopyDayPar(copySrcDay, copyTgtDay)}
-                                                 className="ml-1 bg-blue-600 hover:bg-blue-700 text-white font-black px-2.5 py-1 rounded-lg transition-all text-xs"
+                                                 className="ml-1 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 disabled:cursor-not-allowed text-white font-black px-2.5 py-1 rounded-lg transition-all text-xs cursor-pointer"
                                              >
-                                                 Copiar
+                                                 {t('bodegaOrders.copyParBtn')}
                                              </button>
                                          </div>
                                     )}

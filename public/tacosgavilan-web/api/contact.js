@@ -19,8 +19,16 @@
  *   - Verified against live Supabase schema for public.customer_feedback (references stores.id).
  *   - Default fallback store_id: 14 (Lynwood) when no specific store is chosen.
  *   - Expired in-memory rate-limit entries are periodically purged to bound memory use in warm instances.
- *   - Includes B2B Cold-Outreach / Commercial Solicitation Filter (isB2BSolicitationSpam) to shadow-drop
- *     unsolicited agency pitches (website redesigns, AI tools, SEO/backlinks, lead gen, merchant cash advances).
+ *   - V4 Multi-Layer Anti-Spam & Universal B2B Cold-Outreach Shield (2026-11-09):
+ *     1. Bot/Stealth Traps (isAutomatedBotSubmission): blocks headless/scanner UAs, malformed 2-octet spoofed Chrome UAs
+ *        (e.g. "Chrome/130.0"), WebDriver automation flags (_tg_wd), sub-1.8s programmatic fills (_tg_dwell_ms),
+ *        fictional NANPA 555 phone numbers (e.g. 2015550123), Gmail dot-stuffing, and gibberish tokens.
+ *     2. Universal B2B Solicitation Filter (isB2BSolicitationSpam): shadow-drops (TG-FILTERED) unsolicited vendor/agency
+ *        pitches across all topics (including abused ccpa_* / accessibility categories) via domain blocklist,
+ *        self-repeated corporate email signatures, external commercial URLs from corporate domains, burner TLDs,
+ *        bilingual EN/ES high-confidence solicitation patterns (VA/AI automation, business loans/lines of credit,
+ *        AI data licensing, PR/press releases, travel directories, web design/SEO, wholesale supplies, M&A),
+ *        industry-agnostic cold-outreach CTA scoring, and foreign-IP + custom-corporate-domain validation.
  */
 
 const RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000; // 10 minutes
@@ -74,19 +82,77 @@ function isValidEmail(email) {
 }
 
 /**
- * Detects automated form-spam bots and vulnerability scanners (e.g., random gibberish strings
- * like "ovqjDtWDLvqzWsbkECjAxUny", consonant clusters like "Bzuchqo Gtgtno", Gmail dot-stuffing
- * like "u.ze.ziz.ez7.67@gmail.com", or malformed/scanner User-Agents).
+ * Detects local verification / compliance E2E test runs (loopback or RFC1918 10.x test IPs
+ * paired with official test domains) so automated Puppeteer / smoke tests can verify DB writes
+ * while public internet traffic enforces full headless, timing, and phone-number bot guards.
  */
-function isAutomatedBotSubmission({ name, email, message, userAgent }) {
-    const ua = String(userAgent || '').trim();
-    // 1. Literal quotes around User-Agent, headless browser automation, or known scanner tools
-    if (
-        ua.startsWith('"') ||
-        ua.endsWith('"') ||
-        /(headlesschrome|phantomjs|slimerjs|playwright|puppeteer|selenium|cypress|sqlmap|nikto|nmap|masscan|zgrab|python-requests|aiohttp|httpx|go-http-client|scrapy|libwww-perl|curl\/|wget\/)/i.test(ua)
-    ) {
-        return true;
+function isInternalVerificationTest({ email, clientIp }) {
+    const emailLower = String(email || '').toLowerCase().trim();
+    const [localPart, domainPart] = emailLower.split('@');
+    const ip = String(clientIp || '').trim();
+    const isLocalOrTestIp =
+        ip === '127.0.0.1' ||
+        ip === '::1' ||
+        ip.startsWith('127.') ||
+        ip.startsWith('10.');
+    if (!isLocalOrTestIp) return false;
+    return (
+        domainPart === 'tacosgavilan.test' ||
+        domainPart === 'example.com' ||
+        (domainPart === 'tacosgavilan.com' && /^e2e[_-]test/i.test(localPart || ''))
+    );
+}
+
+/**
+ * Detects automated form-spam bots, headless/stealth form-blasters, malformed spoofed User-Agents,
+ * fictional NANPA 555 phone numbers, Gmail dot-stuffing, and random gibberish strings.
+ */
+function isAutomatedBotSubmission({ name, email, phone, message, userAgent, clientTelemetry, isLocalTest }) {
+    if (!isLocalTest) {
+        const ua = String(userAgent || '').trim();
+        // 1a. Missing User-Agent, literal quotes around User-Agent, headless browser automation, or scanner tools
+        if (
+            !ua ||
+            ua.startsWith('"') ||
+            ua.endsWith('"') ||
+            /(headlesschrome|phantomjs|slimerjs|playwright|puppeteer|selenium|cypress|sqlmap|nikto|nmap|masscan|zgrab|python-requests|aiohttp|httpx|go-http-client|scrapy|libwww-perl|curl\/|wget\/|node-fetch|undici|axios\/|java\/|okhttp)/i.test(ua)
+        ) {
+            return true;
+        }
+
+        // 1b. Malformed spoofed Chrome User-Agent (e.g., "Chrome/130.0 Safari/537.36" with 2 octets instead of 4 octets "Chrome/130.0.0.0")
+        if (/\bChrome\/\d+\.\d+(?=\s|$)/.test(ua)) {
+            return true;
+        }
+
+        // 1c. Frontend WebDriver flag or sub-human form completion speed (< 1.8s from page load to submit)
+        if (clientTelemetry) {
+            if (clientTelemetry.wd === 1 || clientTelemetry.wd === true) {
+                return true;
+            }
+            if (
+                typeof clientTelemetry.dwellMs === 'number' &&
+                Number.isFinite(clientTelemetry.dwellMs) &&
+                clientTelemetry.dwellMs >= 0 &&
+                clientTelemetry.dwellMs < 1800
+            ) {
+                return true;
+            }
+        }
+
+        // 1d. Fictional / reserved NANPA 555 exchange phone numbers (e.g., 2015550123) or dummy repeating digits
+        const phoneDigits = String(phone || '').replace(/\D/g, '');
+        if (phoneDigits.length === 10 || (phoneDigits.length === 11 && phoneDigits.startsWith('1'))) {
+            const tenDigits = phoneDigits.length === 11 ? phoneDigits.slice(1) : phoneDigits;
+            if (
+                tenDigits.slice(3, 6) === '555' ||
+                tenDigits === '1234567890' ||
+                tenDigits === '0123456789' ||
+                /^(\d)\1{9}$/.test(tenDigits)
+            ) {
+                return true;
+            }
+        }
     }
 
     // 2. Gmail dot-stuffing bot pattern (3+ dots in local part of gmail/googlemail)
@@ -136,68 +202,142 @@ function isAutomatedBotSubmission({ name, email, message, userAgent }) {
 }
 
 /**
- * Detects unsolicited B2B cold outreach and commercial solicitation spam
- * (e.g., web design agencies like TriFide Labs or SignalSetBase, AI tool pitches,
- * SEO/backlink sellers, lead-generation agencies, business brokers, virtual assistants,
- * merchant cash advances, or bulk form-blasters with "Reply STOP to opt out")
- * while preserving 100% of real restaurant guest feedback, catering inquiries, job applicants, and CCPA/ADA requests.
+ * V4 Universal Multi-Layer B2B Cold-Outreach & Commercial Solicitation Shield.
+ * Blocks unsolicited vendor, agency, lending, AI, VA, PR/SEO, directory, data-licensing,
+ * wholesale supply, and M&A pitches across English and Spanish (even when bots abuse CCPA/ADA
+ * dropdown categories), while preserving 100% of real restaurant guest feedback, catering orders,
+ * job applicants, employment verifications, franchise inquiries, and genuine CCPA/ADA requests.
  */
-function isB2BSolicitationSpam({ email, message }) {
+function isB2BSolicitationSpam({ email, message, ipCountry, isLocalTest }) {
+    if (isLocalTest) return false;
+
     const emailLower = String(email || '').toLowerCase().trim();
     const domainPart = emailLower.split('@')[1] || '';
 
-    // 1. Known cold-outreach burner, agency & wholesale vendor spam domains
+    // 1. Known cold-outreach burner, agency, lending, PR & wholesale vendor spam domains
     const BLOCKED_OUTREACH_DOMAINS = new Set([
         'signalsetbase.com',
         'thetrifidelabs.com',
         'trifidelabs.com',
         'integribridge.com',
         'itsbrandfactory.com',
-        'brandfactory.com'
+        'brandfactory.com',
+        'vas4hire.com',
+        'heylending.com',
+        'renaissancedatalabs.com',
+        'prspainmk.com',
+        'withtourists.com',
+        'touristinvite.live',
+        'tourist.com'
     ]);
     if (BLOCKED_OUTREACH_DOMAINS.has(domainPart)) {
         return true;
     }
 
     const msgNorm = String(message || '')
+        .replace(/[\u200B-\u200D\uFEFF]/g, '')
         .toLowerCase()
         .replace(/[\u2018\u2019`]/g, "'")
+        .replace(/[\u201C\u201D\u00AB\u00BB]/g, '"')
         .replace(/[\u2013\u2014]/g, '-')
         .replace(/\s+/g, ' ')
         .trim();
 
     if (!msgNorm) return false;
 
-    // 2. High-confidence B2B cold solicitation & bulk opt-out phrases (single match is definitive commercial spam)
+    // 2. Consumer vs. Custom Corporate Domain classification
+    const CONSUMER_EMAIL_DOMAINS = new Set([
+        'gmail.com', 'googlemail.com', 'yahoo.com', 'yahoo.com.mx', 'yahoo.es',
+        'ymail.com', 'rocketmail.com', 'icloud.com', 'me.com', 'mac.com',
+        'hotmail.com', 'hotmail.es', 'outlook.com', 'outlook.es', 'live.com',
+        'msn.com', 'aol.com', 'att.net', 'sbcglobal.net', 'verizon.net',
+        'comcast.net', 'charter.net', 'spectrum.net', 'cox.net', 'earthlink.net',
+        'frontier.com', 'pacbell.net', 'prodigy.net', 'protonmail.com', 'proton.me',
+        'zoho.com', 'mail.com', 'gmx.com', 'tacosgavilan.com', 'tacosgavilan.test', 'example.com'
+    ]);
+    const isCustomCorporateDomain = Boolean(
+        domainPart &&
+        !CONSUMER_EMAIL_DOMAINS.has(domainPart) &&
+        !domainPart.endsWith('.edu') &&
+        !domainPart.endsWith('.gov') &&
+        !domainPart.endsWith('.org') &&
+        !domainPart.endsWith('.mil')
+    );
+
+    // 2a. Self-Referential Corporate Email in Message Body:
+    // Real customers never re-type their corporate email inside the message box after entering it in the Email field;
+    // pasted cold-email templates routinely include "reach me at x@company.com" or a signature block.
+    if (isCustomCorporateDomain && emailLower && msgNorm.includes(emailLower)) {
+        return true;
+    }
+
+    // 2b. Corporate Domain + External Website URL / Domain Link in Message Body:
+    // Blocks cold-outreach portals (e.g., partners.tourist.com, calendly.com, loom.com, agency portfolios).
+    if (isCustomCorporateDomain) {
+        const msgWithoutEmails = msgNorm.replace(/[^\s@]+@[^\s@]+\.[^\s@]+/g, ' ');
+        const urlOrDomainMatches = msgWithoutEmails.match(/\b(?:https?:\/\/[^\s]+|www\.[a-z0-9-]+(?:\.[a-z0-9-]+)+|[a-z0-9-]+(?:\.[a-z0-9-]+)*\.(?:com|io|ai|co|net|live|agency|app|dev|ly|biz|xyz|info|us|es|eu))\b/gi) || [];
+        const hasExternalCommercialDomain = urlOrDomainMatches.some((rawMatch) => {
+            const cleaned = rawMatch.replace(/^https?:\/\//i, '').replace(/^www\./i, '').split('/')[0].replace(/[^a-z0-9.-]/gi, '');
+            return (
+                cleaned &&
+                !cleaned.endsWith('tacosgavilan.com') &&
+                !cleaned.endsWith('order.online') &&
+                !/^\d+\.\d+$/.test(cleaned)
+            );
+        });
+        if (hasExternalCommercialDomain) {
+            return true;
+        }
+    }
+
+    // 2c. High-abuse bulk cold-outreach burner TLDs
+    if (
+        /\.(live|buzz|click|top|xyz|icu|work|rest|quest|cfd|sbs|pw)$/i.test(domainPart) &&
+        !/\b(tacos?|burritos?|quesadillas?|tortas?|platter|catering|receipt|check\s*#|hiring|apply)\b/i.test(msgNorm)
+    ) {
+        return true;
+    }
+
+    // 3. High-confidence B2B cold solicitation, meta-confessions & bulk opt-out phrases (single match = definitive spam)
     const HIGH_CONFIDENCE_SOLICITATION_PATTERNS = [
-        // Bulk form-blaster opt-out footers (never written by a real restaurant guest)
+        // Bulk form-blaster opt-out & polite dismissal footers (EN + ES)
         /\breply\s+stop\s+to\s+(opt\s*out|unsubscribe)\b/i,
         /\b(unsubscribe\s+from\s+future|opt\s*out\s+of\s+future|no\s+longer\s+wish\s+to\s+receive)\b/i,
-        // Universal B2B agency/vendor pitch ("We help restaurants...", "We help businesses...")
-        /\bwe\s+help\s+(businesses|restaurants|companies|brands|local\s+businesses|clients|owners|operators)\b/i,
-        // Wholesale / Disposables / Packaging / Uniforms / Factory Supply pitches (e.g. Brand Factory)
-        /\b(straight\s+from\s+the\s+factory|less\s+than\s+(they|you)\s+pay\s+now|send\s+us\s+the\s+specs|get\s+you\s+a\s+quote\s+today|curious\s+about\s+saving\s+money\s+on)\b/i,
-        /\b(all\s+sorts\s+of\s+restaurant\s+supplies|disposables\s+like\s+to-go\s+containers|tableware,\s+glassware,\s+napkins)\b/i,
-        // Website design / redesign / agency pitches (e.g. TriFide Labs, SignalSetBase)
+        /\b(we\s+won't\s+reach\s+out\s+again|won't\s+bother\s+you\s+again|feel\s+free\s+to\s+ignore\s+this)\b/i,
+        /\bsi\s+no\s+(os|te|les|le)\s+interesa.{0,45}\bno\s+insisto\b/i,
+        // Contact-form meta-confessions & pasted cold-email reply instructions
+        /\bsending\s+you\s+a\s+(private\s+)?message\s+through\s+your\s+(website|contact\s+form|site)\b/i,
+        /\bautomate\s+and\s+maintain\s+every\s+aspect\s+of\s+contact\s+us\b/i,
+        /\bjust\s+reply\s+(here|with\s+a\s+good\s+time|with\s+what\s+works)\b/i,
+        // Universal B2B agency/vendor proposition ("We help restaurants...", "We help businesses...")
+        /\bwe\s+help\s+(businesses|restaurants|companies|brands|local\s+businesses|clients|owners|operators|hospitality)\b/i,
+        // Virtual Assistants, Offshore Staffing & Contact-Form Automation (e.g., VAs4hire)
+        /\b(trained|dedicated|human|offshore|remote|full[- ]time)\s+(virtual\s+assistants?|vas?)\b/i,
+        /\b(hire\s+virtual\s+assistants?|vas4hire|custom\s+ai\s+system\s+for\s+you|at\s+a\s+fraction\s+of\s+the\s+cost|offshore\s+developers)\b/i,
+        // Business Financing, Lines of Credit, Loans & Merchant Processing (e.g., HeyLending, MCA)
+        /\b(merchant\s+cash\s+advance|business\s+working\s+capital|unsecured\s+business\s+funding|line\s+of\s+credit\s+funded|capital\s+for\s+growth)\b/i,
+        /\b(no\s+personal\s+guarantee|no\s+credit\s+check\s+to\s+qualify|provide\s+financing\s+within\s+a\s+day|funded\s+in\s+a\s+day)\b/i,
+        /\b(lower\s+your\s+(credit\s+card\s+)?processing\s+fees|zero[- ]fee\s+(credit\s+card\s+)?processing|employee\s+retention\s+credit)\b/i,
+        // AI Data Licensing, AI Voice/Receptionist & Tech Vendor Pitches (e.g., Renaissance Data Lab)
+        /\b(license\s+de[- ]identified\s+business\s+data|indicative\s+estimates\s+for\s+companies\s+like\s+yours|for\s+ai\s+research)\b/i,
+        /\b(ai\s+voice\s+agent|ai\s+receptionist|ai\s+phone\s+answering|top\s+ai\s+tools\s+on\s+the\s+market)\b/i,
+        // PR, Digital Newspapers, Directories, SEO & ChatGPT Ranking Pitches (EN + ES — e.g., PRSpain, Tourist.com)
+        /\b(red\s+de\s+peri[oó]dicos\s+digitales|publicar\s+una\s+noticia\s+sobre|arriba\s+en\s+google|recomendados?\s+por\s+chatgpt|tarifas\s+desde\s+\d+\s*(euros|usd|d[oó]lares)|garant[ií]a\s+de\s+devoluci[oó]n\s+por\s+resultados)\b/i,
+        /\b(redise[ñn]amos\s+tu\s+sitio\s+web|posicionamiento\s+seo|agencia\s+de\s+marketing\s+digital|dise[ñn]o\s+de\s+p[aá]ginas\s+web|conseguir\s+m[aá]s\s+clientes\s+para\s+(tu|su)\s+restaurante)\b/i,
+        /\b(add\s+your\s+business\s+here|feature\s+your\s+place\s+on\s+tourist|set\s+up\s+and\s+manage\s+your\s+listing)\b/i,
+        // Website Design / Redesign / Audit / SEO / Lead Gen Pitches (e.g., TriFide Labs, SignalSetBase)
         /\b(rebuilt|redesigned|revamped|remade)\s+your\s+(homepage|website|site|landing\s+page|web\s+page)\b/i,
         /\b(website|web)\s+design\s+(samples|ideas|services|agency|packages|proposal)\b/i,
         /\bimprovements\s+to\s+your\s+(business\s+)?website\b/i,
         /\bmobile[- ]friendly\s+websites?\b/i,
         /\bdesign\s+ideas\s+and\s+possibilities\s+for\s+your\s+website\b/i,
-        /\b(live,?\s+working\s+version|not\s+a\s+mockup)\b/i,
-        /\bfocused\s+on\s+clarity,\s+trust,\s+and\s+decision\s+flow\b/i,
-        /\b(free\s+website\s+audit|audit\s+of\s+your\s+website)\b/i,
-        // AI / SEO / Digital Marketing / Lead Generation pitches
-        /\btop\s+ai\s+tools\s+on\s+the\s+market\b/i,
-        /\b(seo\s+services|search\s+engine\s+optimization|high[- ]authority\s+backlinks|guest\s+post\s+opportunities|domain\s+authority)\b/i,
-        /\b(rank\s+higher\s+on\s+google|first\s+page\s+of\s+google|google\s+page\s+1\s+ranking)\b/i,
-        /\b(lead\s+generation\s+agency|b2b\s+lead\s+generation|qualified\s+leads\s+for\s+your\s+business)\b/i,
-        /\b(ai\s+voice\s+agent|ai\s+receptionist|ai\s+phone\s+answering)\b/i,
-        // Financial / M&A Business Brokers / Merchant Cash Advance / Virtual Assistants
-        /\bbuyers\s+interested\s+in\s+purchasing\s+businesses\b/i,
-        /\b(merchant\s+cash\s+advance|business\s+working\s+capital|unsecured\s+business\s+funding|lower\s+your\s+credit\s+card\s+processing\s+fees)\b/i,
-        /\b(offshore\s+developers|dedicated\s+virtual\s+assistant|hire\s+virtual\s+assistants)\b/i,
-        /\b(rediseñamos\s+tu\s+sitio\s+web|posicionamiento\s+seo\s+en\s+google|agencia\s+de\s+marketing\s+digital|diseño\s+de\s+páginas\s+web)\b/i
+        /\b(live,?\s+working\s+version|not\s+a\s+mockup|focused\s+on\s+clarity,\s+trust,\s+and\s+decision\s+flow)\b/i,
+        /\b(free\s+website\s+audit|audit\s+of\s+your\s+website|seo\s+services|search\s+engine\s+optimization|high[- ]authority\s+backlinks|guest\s+post\s+opportunities|domain\s+authority)\b/i,
+        /\b(rank\s+higher\s+on\s+google|first\s+page\s+of\s+google|google\s+page\s+1\s+ranking|lead\s+generation\s+agency|b2b\s+lead\s+generation|qualified\s+leads\s+for\s+your\s+business)\b/i,
+        // Wholesale Packaging, Supplies & M&A Business Brokers (e.g., Brand Factory, IntegriBridge)
+        /\b(straight\s+from\s+the\s+factory|less\s+than\s+(they|you)\s+pay\s+now|send\s+us\s+the\s+specs|get\s+you\s+a\s+quote\s+today|curious\s+about\s+saving\s+money\s+on)\b/i,
+        /\b(all\s+sorts\s+of\s+restaurant\s+supplies|disposables\s+like\s+to-go\s+containers|tableware,\s+glassware,\s+napkins)\b/i,
+        /\bbuyers\s+interested\s+in\s+purchasing\s+businesses\b/i
     ];
 
     for (const pattern of HIGH_CONFIDENCE_SOLICITATION_PATTERNS) {
@@ -206,25 +346,27 @@ function isB2BSolicitationSpam({ email, message }) {
         }
     }
 
-    // 3. Multi-signal cold-outreach scoring (requires 2+ distinct B2B pitch signals in the same message)
+    // 4. Industry-agnostic cold-outreach conversational mechanics (2+ signals block any email; 1+ signal blocks custom corporate domains)
     const COLD_OUTREACH_SIGNALS = [
-        /\b(hi|hello|hey|dear)\s+tacos\s+(el\s+)?gavilan\s+team\b/i,
-        /\bi\s+see\s+you\s+serve\s+authentic\s+mexican\s+food\b/i,
-        /\busing\s+your\s+existing\s+positioning\b/i,
-        /\bif\s+not,?\s+you\s+can\s+feel\s+free\s+to\s+ignore\s+this\b/i,
-        /\bi\s+can\s+send\s+it\s+over\s+and\s+you\s+can\s+review\s+it\s+directly\b/i,
-        /\bwould\s+you\s+be\s+open\s+to\s+seeing\b/i,
-        /\bwould\s+you\s+be\s+interested\s+in\s+seeing\s+some\s+samples\b/i,
-        /\bi'd\s+be\s+happy\s+to\s+share\s+a\s+few\s+relevant\s+examples\b/i,
-        /\btailored\s+to\s+(their|your)\s+needs\b/i,
-        /\bare\s+you\s+interested\s+in\s+selling\b/i,
-        /\blet's\s+set\s+up\s+a\s+call\b/i,
-        /\bget\s+you\s+a\s+quote\b/i,
-        /\bsaving\s+money\s+on\b/i,
-        /\brestaurant\s+supplies\b/i,
-        /\b(calendly\.com\/|loom\.com\/share\/)\b/i,
-        /\b(quick\s+10[- ]minute\s+call|book\s+a\s+quick\s+call|15[- ]minute\s+discovery\s+call)\b/i,
-        /\b(web\s+design\s+agency|digital\s+marketing\s+services|social\s+media\s+management\s+agency)\b/i
+        // Scraped Apollo/ZoomInfo executive first-name salutation or "Hi Tacos Gavilan Team"
+        /^(hi|hello|hey|dear|hola)\s+(robert|roberto|javier|manuel|carlos|tacos\s+(el\s+)?gavilan\s+team)[,!]/i,
+        // Cold-sales self-intro ("I'm Chloe with VAs4hire", "I'm Ben with Brand Factory")
+        /\b(i'm|i\s+am)\s+[a-z]+\s+(with|from)\s+[a-z0-9]/i,
+        // Cold meeting / call / demo CTAs (EN + ES)
+        /\b(open\s+to\s+a\s+(quick\s+)?(chat|call|conversation)|worth\s+a\s+(quick\s+)?(talk|chat|call|look|conversation))\b/i,
+        /\b(let's\s+set\s+up\s+a\s+call|schedule\s+a\s+(quick\s+)?(call|demo|chat|meeting)|book\s+a\s+(quick\s+)?(call|demo))\b/i,
+        /\b(can\s+we\s+connect|if\s+we\s+can\s+connect)\s+(this\s+week|next\s+week|soon|briefly)\b/i,
+        /\bdo\s+you\s+have\s+(\d+\s+minutes|a\s+few\s+minutes|time\s+tomorrow|time\s+this\s+week)\b/i,
+        /\b(quick\s+10[- ]minute|15[- ]minute\s+(discovery\s+)?call|walk\s+you\s+through\s+(exactly\s+)?(what|how)|i'd\s+love\s+to\s+show\s+you\s+how)\b/i,
+        /\b(te\s+lo\s+explico\s+en\s+\d+\s+minutos|agendar\s+una\s+(llamada|reuni[oó]n|demo)|sin\s+compromiso)\b/i,
+        // Seller offer / pitch propositions (EN + ES)
+        /\b(because\s+i\s+offer|i\s+offer\s+something|we\s+offer|we\s+provide|we\s+supply|we\s+manufacture|we\s+specialize|we\s+can\s+do|we\s+essentially\s+give\s+you|we\s+automate)\b/i,
+        /\b(our\s+agency|our\s+platform|our\s+custom\s+ai|our\s+ai\s+system|our\s+services|our\s+clients|companies\s+like\s+yours|businesses\s+in\s+your\s+industry)\b/i,
+        /\b(get\s+you\s+a\s+quote|free\s+quote|free\s+estimate|free\s+sample|free\s+audit|free\s+trial|no\s+commission|saving\s+money\s+on|restaurant\s+supplies)\b/i,
+        /\b(would\s+you\s+be\s+open\s+to\s+seeing|would\s+you\s+be\s+interested\s+in\s+(seeing|selling|learning)|i'd\s+be\s+happy\s+to\s+share|tailored\s+to\s+(their|your)\s+needs|are\s+you\s+interested\s+in\s+selling)\b/i,
+        /\b(i\s+see\s+you\s+serve\s+authentic\s+mexican\s+food|using\s+your\s+existing\s+positioning|i\s+can\s+send\s+it\s+over\s+and\s+you\s+can\s+review)\b/i,
+        /\b(ofrecemos\s+servicios|nuestra\s+agencia|nuestros\s+servicios|cotizaci[oó]n\s+sin\s+costo|prueba\s+gratuita)\b/i,
+        /\b(calendly\.com\/|cal\.com\/|loom\.com\/share\/|hubspot\.com\/meetings\/)\b/i
     ];
 
     let signalMatches = 0;
@@ -235,31 +377,29 @@ function isB2BSolicitationSpam({ email, message }) {
         }
     }
 
-    // 4. Non-Consumer Corporate Email Domain + Any B2B Pitch Signal
-    const CONSUMER_EMAIL_DOMAINS = new Set([
-        'gmail.com', 'googlemail.com', 'yahoo.com', 'ymail.com', 'rocketmail.com',
-        'icloud.com', 'me.com', 'mac.com', 'hotmail.com', 'outlook.com', 'live.com',
-        'msn.com', 'aol.com', 'att.net', 'sbcglobal.net', 'verizon.net', 'comcast.net',
-        'charter.net', 'spectrum.net', 'cox.net', 'earthlink.net', 'protonmail.com',
-        'proton.me', 'zoho.com', 'mail.com', 'gmx.com', 'tacosgavilan.com'
-    ]);
-    const isCustomCorporateDomain = Boolean(domainPart && !CONSUMER_EMAIL_DOMAINS.has(domainPart) && !domainPart.endsWith('.edu') && !domainPart.endsWith('.gov'));
+    // 5. Custom Corporate Domain + 1+ Cold-Outreach Signal or Any B2B Vendor Vertical Keyword
+    const CORPORATE_B2B_VERTICAL_REGEX = /\b(wholesale|disposables|to-go\s+containers|design\s+samples|website\s+design|seo|backlinks|lead\s+generation|merchant\s+cash|processing\s+fees|line\s+of\s+credit|provide\s+financing|business\s+loan|virtual\s+assistant|ai\s+system|ai\s+research|de-identified|press\s+release|peri[oó]dicos\s+digitales|chatgpt|hood\s+cleaning|grease\s+trap|pest\s+control|linen\s+service|uniform\s+rental|solar\s+panels?|tax\s+credit|bookkeeping|staffing\s+agency|pos\s+terminals?|influencer\s+marketing|travel\s+catalogue|direct\s+bookings)\b/i;
 
+    if (isCustomCorporateDomain && (signalMatches >= 1 || CORPORATE_B2B_VERTICAL_REGEX.test(msgNorm))) {
+        return true;
+    }
+
+    // 6. Foreign IP Country (outside US/MX/CA/US-territories) + Custom Corporate Domain without genuine restaurant/guest/privacy topic
+    const countryUpper = String(ipCountry || '').trim().toUpperCase();
     if (
         isCustomCorporateDomain &&
-        (
-            signalMatches >= 1 ||
-            /\b(we\s+offer|we\s+provide|we\s+supply|we\s+manufacture|we\s+specialize|we\s+can\s+do|our\s+agency|our\s+platform|our\s+services|wholesale|disposables|to-go\s+containers|design\s+samples|website\s+design|seo|backlinks|lead\s+generation|merchant\s+cash|processing\s+fees|set\s+up\s+a\s+call|schedule\s+a\s+call|get\s+you\s+a\s+quote|send\s+us\s+the\s+specs)\b/i.test(msgNorm)
-        )
+        countryUpper &&
+        !['US', 'MX', 'CA', 'PR', 'GU', 'VI'].includes(countryUpper) &&
+        !/\b(tacos?|burritos?|quesadillas?|tortas?|mulitas?|platter|catering|party|order|receipt|check\s*#|hiring|apply|employment|verify\s+employment|ccpa|privacy\s+request|personal\s+information|accessibility|screen\s+reader)\b/i.test(msgNorm)
     ) {
         return true;
     }
 
-    // 5. Email-signature repetition + B2B keyword (cold-emailers paste their full email signature inside the message box)
+    // 7. Consumer-domain email repeated in signature alongside commercial solicitation terms
     if (
         emailLower &&
         msgNorm.includes(emailLower) &&
-        /\b(website|design|samples|agency|marketing|seo|ai\s+tools|set\s+up\s+a\s+call|opt\s*out|quote|supplies)\b/i.test(msgNorm)
+        /\b(website|design|samples|agency|marketing|seo|ai\s+tools|set\s+up\s+a\s+call|opt\s*out|quote|supplies|financing|line\s+of\s+credit|virtual\s+assistant|hood\s+cleaning|pest\s+control|solar)\b/i.test(msgNorm)
     ) {
         return true;
     }
@@ -689,10 +829,30 @@ module.exports = async function handler(req, res) {
             });
         }
 
-        // 6b. Automated Bot / Gibberish / Scanner / B2B Cold-Outreach Solicitation Filter (Shadow-Drop)
+        // 6b. V4 Multi-Layer Automated Bot / Stealth Form-Blaster / Universal B2B Solicitation Filter (Shadow-Drop)
+        const isLocalTest = isInternalVerificationTest({ email, clientIp });
+        const clientTelemetry = {
+            wd: body._tg_wd,
+            dwellMs: typeof body._tg_dwell_ms === 'number' ? body._tg_dwell_ms : undefined
+        };
+        const ipCountry = req.headers['x-vercel-ip-country'] || '';
+
         if (
-            isAutomatedBotSubmission({ name, email, message, userAgent: req.headers['user-agent'] }) ||
-            isB2BSolicitationSpam({ email, message })
+            isAutomatedBotSubmission({
+                name,
+                email,
+                phone,
+                message,
+                userAgent: req.headers['user-agent'],
+                clientTelemetry,
+                isLocalTest
+            }) ||
+            isB2BSolicitationSpam({
+                email,
+                message,
+                ipCountry,
+                isLocalTest
+            })
         ) {
             return res.status(200).json({
                 ok: true,
@@ -774,18 +934,21 @@ module.exports = async function handler(req, res) {
         const referenceId = `TG-${dateCompact}-${recordId}`;
 
         // Dispatch notification email to support@tacosgavilan.com and confirmation to customer
-        const emailDispatched = await dispatchContactEmails({
-            supabaseUrl,
-            supabaseKey,
-            name,
-            email,
-            phone,
-            rawReason,
-            rawStore,
-            message,
-            referenceId,
-            confirmedTimestamp
-        });
+        // (Skipped for local loopback smoke/E2E verification runs so test scripts never clutter support@ inbox)
+        const emailDispatched = isLocalTest
+            ? false
+            : await dispatchContactEmails({
+                supabaseUrl,
+                supabaseKey,
+                name,
+                email,
+                phone,
+                rawReason,
+                rawStore,
+                message,
+                referenceId,
+                confirmedTimestamp
+            });
 
         // Return HTTP 200 ONLY after confirmed database persistence
         return res.status(200).json({

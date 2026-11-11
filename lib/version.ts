@@ -20,20 +20,38 @@ export interface VersionMilestone {
 }
 
 export const SYSTEM_VERSION = {
-    version: 'v2.24.0',
-    versionNumber: '2.24.0',
+    version: 'v2.25.0',
+    versionNumber: '2.25.0',
     releaseMonthEs: 'Noviembre 2026',
     releaseMonthEn: 'November 2026',
     stage: 'Producción',
     stageEn: 'Production',
     year: '2026',
-    labelEs: 'Noviembre 2026 • SM TEG v2.24.0',
-    labelEn: 'November 2026 • SM TEG v2.24.0',
+    labelEs: 'Noviembre 2026 • SM TEG v2.25.0',
+    labelEn: 'November 2026 • SM TEG v2.25.0',
     brand: 'SM TEG',
-    lastUpdated: '2026-11-07'
+    lastUpdated: '2026-11-11'
 } as const;
 
 export const VERSION_HISTORY: readonly VersionMilestone[] = [
+    {
+        version: 'v2.25.0',
+        date: '11-Nov-2026',
+        titleEs: 'Orden Diaria Automática en las 15 Tiendas (auto_order_visible + Facturas QBO + Balance de Masas), Contestadora IA Blindada (Menú/Horarios en Vivo + Festivos + RLS + Voz Kore), Motor Descansos V30 Universal, Timer Manos Libres Slauson y Dominio/DNS Vercel + Cron 364 Correos',
+        titleEn: '15-Store Automated Daily Order (auto_order_visible + QBO Invoices + Mass Balance), Hardened AI Phone Receptionist (Live Menu/Hours + Holidays + RLS + Kore Voice), Breaks V30 Universal Engine, Slauson Hands-Free Auto-Timer & Vercel Domain/DNS + 364-Email Audit Cron',
+        highlightsEs: [
+            'Orden Diaria Automática en las 15 Sucursales (/inventory/orders, lib/inventory/qb-shipped-reconciliation.ts, historical-mass-balance.ts y par-ideal-engine.ts): activación del modo auto_order_visible en las 15 tiendas para los 51 SKU bajo la regla "Físico Manda" (cálculo visible desde el primer instante donde el conteo físico del manager/asistente manda al 100% y los insumos no editados se respaldan con AUTO_CYCLE_V2), conciliación en vivo de facturas enviadas por La Bodega en QuickBooks Online (qb_invoice_number), Balance de Masas Histórico Causal en 19 SKU de autoservicio/salsabar, PAR Ideal de 4 semanas, preservación de ajustes manuales en Orden de Uniformes (commit 77ca976d) y validación sobre 330,945 tickets reales de Toast POS (1 Oct – 10 Nov)',
+            'Contestadora IA Multi-Sucursal Blindada (/admin/llamadas, lib/phone-agent.ts, lib/phone-agent-access.ts, lib/phone-speech-format.ts y lib/holidays.ts): conexión en vivo al menú y precios reales en app_menu_cache, horarios reales corregidos por tienda, streaming PCM en tiempo real, saludo legal de California con opción Tecla 9, simulador ampliado a 30 escenarios en 6 categorías, motor perpetuo de días festivos/cierres tempranos, fonética natural de calles en las 15 sucursales, estabilidad acústica femenina Kore y migración RLS estricta en las 5 tablas phone_* aislando pruebas del simulador (source = twilio)',
+            'Motor IA de Descansos V30 Universal (/descansos y lib/breaks-engine.ts, commits 1e09aefb y 377d5b62) & Order Ready / Preparador (commits 615edd6a, a3231125 y 60898372): aprendizaje aislado por empleado exacto (role::emp:<uuid>), desempate por estación real desde station_assignments (CUBRIR DESCANSOS primero), duración inmune a cambio de horario DST y ocultamiento total de empleados ausentes en tableta/timeline; más exclusión de recargas de Gift Cards, orden FIFO 1:1 con Toast KDS y Piloto Manos Libres con Timer Inteligente Adaptativo de Voz en Slauson (#7)',
+            'Dominio tacosgavilan.com en Vercel (SPF + DMARC), Auditoría Automática Sabatina de 364 Correos de Empleados (commit e44d8598), Conciliar Delivery Cookie S2S Uber (commit 4effd926) y Escudo Web Anti-Spam V4 (v=118): transferencia completa del dominio desde GoDaddy a Vercel (renovado a 2028) con registros SPF/DMARC verificados, verificación SMTP buzón por buzón con cron todos los sábados (/api/cron/audit-employee-emails), aislamiento de cookie S2S por sucursal en Uber Eats, respeto de plataforma filtrada al sincronizar, Escudo Anti-Spam V4 en tacosgavilan.com y 53.5 horas consolidadas en Noviembre 2026'
+        ],
+        highlightsEn: [
+            '15-Store Automated Daily Order (/inventory/orders, lib/inventory/qb-shipped-reconciliation.ts, historical-mass-balance.ts & par-ideal-engine.ts): enabled auto_order_visible mode across all 15 branches and 51 SKUs under the "Physical Count Wins" rule (upfront system-calculated leftover and QB order where any manager/assistant physical count takes 100% immediate precedence while untouched lines are backed by AUTO_CYCLE_V2), live Bodega QuickBooks Online shipped invoice reconciliation (qb_invoice_number), Causal Historical Mass-Balance Engine for 19 self-serve/salsabar SKUs, 4-week Ideal PAR engine, Uniforms Order manual adjustment preservation (commit 77ca976d), and validation across 330,945 Toast POS tickets (Oct 1 – Nov 10)',
+            'Hardened Multi-Store AI Phone Receptionist (/admin/llamadas, lib/phone-agent.ts, lib/phone-agent-access.ts, lib/phone-speech-format.ts & lib/holidays.ts): live menu and price integration via app_menu_cache, corrected store weekly hours, real-time PCM audio streaming, California-compliant disclosure greeting with Key 9 live transfer, 30 simulator scenarios across 6 categories, perpetual holiday/early-close announcements, natural spoken street addresses across all 15 branches, locked warm female Kore voice acoustics, and strict RLS across all 5 phone_* tables isolating simulator tests (source = twilio)',
+            'Breaks AI Engine V30 Universal (/descansos & lib/breaks-engine.ts, commits 1e09aefb & 377d5b62) & Order Ready / Preparador (commits 615edd6a, a3231125 & 60898372): exact employee-scoped learning (role::emp:<uuid>), real station tie-ranking from station_assignments (CUBRIR DESCANSOS first), DST-safe wall-clock duration, and complete hiding of absent employee rows from tablet/timeline; plus Gift Card reload exclusion, 1:1 Toast KDS FIFO fire ordering, and Hands-Free Smart Adaptive Voice Auto-Timer pilot in Slauson (#7)',
+            'tacosgavilan.com Domain Transfer to Vercel (SPF + DMARC), Automated Saturday 364-Employee Email Audit Cron (commit e44d8598), Delivery S2S Uber Cookie Isolation (commit 4effd926) & Website Anti-Spam V4 Shield (v=118): completed full registrar transfer from GoDaddy to Vercel (renewed through 2028) with verified SPF/DMARC records, live SMTP mailbox verification with an automated Saturday afternoon cron (/api/cron/audit-employee-emails), per-store Uber Eats S2S cookie isolation, active-platform sync scoping, Website Anti-Spam Shield V4 on tacosgavilan.com, and 53.5 hours consolidated in November 2026'
+        ]
+    },
     {
         version: 'v2.24.0',
         date: '07-Nov-2026',

@@ -391,7 +391,7 @@ function InicioHubContent() {
                     path: '/admin/llamadas',
                     icon: <PhoneCall size={20} />,
                     iconColorClass: 'bg-indigo-500/10 text-indigo-600 dark:bg-indigo-500/20 dark:text-indigo-400 border-indigo-500/20',
-                    roles: ['admin', 'supervisor', 'manager'],
+                    roles: ['admin', 'supervisor', 'manager', 'asistente'],
                     badgeType: 'new',
                     badgeLabel: 'new',
                 },

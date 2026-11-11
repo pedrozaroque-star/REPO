@@ -64,12 +64,16 @@
  *   unit_measure. When packaging changes, auto-adjusts PAR across all stores and invalidates
  *   food_cost_daily_cache. Smart Price Protection now compares cost-per-unit-measure
  *   (e.g. $/lb) instead of cost-per-bag when a packaging change is detected.
+ * - [2026-11-10] Added QBO Invoice return reconciliation (`reconcileStoreOrdersWithQbInvoices`)
+ *   to sync actual warehouse-shipped quantities back into `inventory_order_lines.final_qty` and
+ *   mark invoiced orders as `received`.
  */
 import { NextResponse, NextRequest } from 'next/server';
 import { getSupabaseAdminClient } from '@/lib/supabase';
 import { authClient } from '@/lib/quickbooks';
 import QuickBooks from 'node-quickbooks';
 import { verifyAuthToken } from '@/lib/auth-server';
+import { reconcileStoreOrdersWithQbInvoices } from '@/lib/inventory/qb-shipped-reconciliation';
 
 // ── Packaging Parser ──────────────────────────────────────────────────
 // Extrae cantidad y unidad de medida del campo Description de QB
@@ -891,6 +895,16 @@ export async function POST(request: Request) {
             console.error('[QB-Sync] Error general en template sync:', templateError.message);
         }
 
+        // 6. Reconcile shipped QBO Invoices back into inventory_order_lines (non-blocking fail-safe)
+        const invoiceReconciliation = await reconcileStoreOrdersWithQbInvoices({ lookbackDays: 14 });
+        if (invoiceReconciliation.reconciledOrders > 0) {
+            console.log(
+                `[QB-Sync] 🧾 Invoices conciliados: ${invoiceReconciliation.reconciledOrders} órdenes, ` +
+                `${invoiceReconciliation.updatedLines} líneas ajustadas, ${invoiceReconciliation.zeroedLines} recortadas a 0, ` +
+                `${invoiceReconciliation.addedLines} agregadas por Bodega.`
+            );
+        }
+
         // Log summary with protection details
         console.log(`[QB-Sync] ✅ Done: ${updatedCount} updated, ${createdCount} created, ${priceChanges} price changes, ${blockedCount} blocked, ${packagingChanges} packaging cascades, ${storesLinked} stores linked, ${itemsAdded} items added, ${itemsRemoved} items removed, ${templatesUpdated} templates updated (${templateItemsSynced} items)`);
         if (blockedItems.length > 0) {
@@ -914,7 +928,8 @@ export async function POST(request: Request) {
                 packagingUpdates: packagingUpdates.length > 0 ? packagingUpdates : undefined
             },
             storesLinked,
-            templateSync: { itemsAdded, itemsRemoved, templatesUpdated, templateItemsSynced }
+            templateSync: { itemsAdded, itemsRemoved, templatesUpdated, templateItemsSynced },
+            invoiceReconciliation
         });
 
     } catch (error: any) {

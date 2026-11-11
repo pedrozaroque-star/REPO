@@ -3458,7 +3458,8 @@ async function fetchChromeLiveDoorDashAndUberForStores(
   targetMappings: StorePlatformMapping[],
   allMappings: StorePlatformMapping[],
   startDate: string,
-  endDate: string
+  endDate: string,
+  targetPlatform: 'ALL' | DeliveryPlatformCode = 'ALL'
 ): Promise<{
   orders: PlatformOrderInput[]
   payouts: Array<Record<string, any>>
@@ -3492,6 +3493,8 @@ async function fetchChromeLiveDoorDashAndUberForStores(
   let doordashPartialReason: string | undefined
   const lookbackStartDate = startDate
   const payoutQueryEndDate = addDaysToDateStr(endDate, 8)
+  const wantUber = targetPlatform === 'ALL' || targetPlatform === 'UBER_EATS'
+  const wantDd = targetPlatform === 'ALL' || targetPlatform === 'DOORDASH'
   const syncedUberStoreIds = new Set<number>()
   const syncedDdStoreIds = new Set<number>()
 
@@ -3567,33 +3570,12 @@ async function fetchChromeLiveDoorDashAndUberForStores(
                     String(t.url || '').includes('merchant-portal.doordash.com'))
               )
 
-              if (!uberTab) {
-                const created = await send('Target.createTarget', {
-                  url: 'https://merchants.ubereats.com/manager/payments',
-                  background: true,
-                }).catch(() => null)
-                if (created?.targetId) {
-                  createdUberTargetId = created.targetId
-                  uberTab = { targetId: created.targetId }
-                  await new Promise((r) => setTimeout(r, 2500))
-                }
-              }
-
-              if (!ddTab) {
-                const created = await send('Target.createTarget', {
-                  url: 'https://www.doordash.com/merchant/financials/payouts?business_id=137616',
-                  background: true,
-                }).catch(() => null)
-                if (created?.targetId) {
-                  createdDdTargetId = created.targetId
-                  ddTab = { targetId: created.targetId }
-                  await new Promise((r) => setTimeout(r, 3500))
-                }
-              }
+              // Nunca abrir pestañas nuevas (`Target.createTarget`) en el navegador del usuario;
+              // si no hay pestaña abierta, el motor usa directamente la sesión cifrada Server-to-Server en Supabase.
 
               const storesForOrders = new Set(targetMappings.map((m) => m.store_id))
 
-              if (uberTab) {
+              if (uberTab && wantUber) {
                 const { sessionId: uberSession } = await send('Target.attachToTarget', {
                   targetId: uberTab.targetId,
                   flatten: true,
@@ -3662,7 +3644,7 @@ async function fetchChromeLiveDoorDashAndUberForStores(
                 }
               }
 
-              if (ddTab) {
+              if (ddTab && wantDd) {
                 const { sessionId: ddSession } = await send('Target.attachToTarget', {
                   targetId: ddTab.targetId,
                   flatten: true,
@@ -3914,9 +3896,9 @@ async function fetchChromeLiveDoorDashAndUberForStores(
   }
 
   // Fallback Headless Server-to-Server para Uber Eats con sesión cifrada (`integrations.service_name = 'ubereats_merchant'`)
-  const pendingUberMappings = targetMappings.filter(
-    (m) => Boolean(m.ubereats_store_uuid) && !syncedUberStoreIds.has(m.store_id)
-  )
+  const pendingUberMappings = wantUber
+    ? targetMappings.filter((m) => Boolean(m.ubereats_store_uuid) && !syncedUberStoreIds.has(m.store_id))
+    : []
   if (pendingUberMappings.length > 0) {
     try {
       const { data: uberInt } = await supabaseAdmin
@@ -4201,9 +4183,9 @@ async function fetchChromeLiveDoorDashAndUberForStores(
   }
 
   // Fallback Headless Server-to-Server para DoorDash con sesión cifrada (`integrations.service_name = 'doordash_merchant'`)
-  const pendingDdMappings = targetMappings.filter(
-    (m) => Boolean(m.doordash_store_id) && !syncedDdStoreIds.has(m.store_id)
-  )
+  const pendingDdMappings = wantDd
+    ? targetMappings.filter((m) => Boolean(m.doordash_store_id) && !syncedDdStoreIds.has(m.store_id))
+    : []
   if (pendingDdMappings.length > 0) {
     try {
       const { data: ddInt } = await supabaseAdmin
@@ -5020,6 +5002,8 @@ export async function reconcileAndPersistDeliveryData(params: {
   endDate: string
   syncToast?: boolean
   syncGrubhubLive?: boolean
+  syncChromePlatforms?: boolean
+  targetPlatform?: 'ALL' | DeliveryPlatformCode
   importedPlatformOrders?: PlatformOrderInput[]
   importedPayouts?: Array<Record<string, any>>
 }): Promise<{
@@ -5048,9 +5032,13 @@ export async function reconcileAndPersistDeliveryData(params: {
     endDate,
     syncToast = true,
     syncGrubhubLive = true,
+    syncChromePlatforms,
+    targetPlatform = 'ALL',
     importedPlatformOrders = [],
     importedPayouts = [],
   } = params
+  const shouldSyncChromePlatforms =
+    syncChromePlatforms !== undefined ? syncChromePlatforms : syncGrubhubLive && targetPlatform !== 'GRUBHUB'
 
   const allMappings = await getStorePlatformMappings()
   const targetMappings =
@@ -5081,12 +5069,13 @@ export async function reconcileAndPersistDeliveryData(params: {
   let doordashPartialReason: string | undefined
   const grubhubErrorsByStore = new Map<number, string>()
 
-  if (syncGrubhubLive && importedPlatformOrders.length === 0) {
+  if (shouldSyncChromePlatforms && importedPlatformOrders.length === 0) {
     const liveChrome = await fetchChromeLiveDoorDashAndUberForStores(
       targetMappings,
       allMappings,
       startDate,
-      endDate
+      endDate,
+      targetPlatform
     )
     chromeOrders = liveChrome.orders
     chromePayouts = liveChrome.payouts

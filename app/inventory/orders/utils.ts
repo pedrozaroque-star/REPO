@@ -15,7 +15,37 @@
  *   por sí solo a un pedido oficial o a un conteo físico.
  * - [2026-11-09] Unificado `getBusinessDate` y `getBusinessMonday` en `America/Los_Angeles`
  *   con `hourCycle: 'h23'` y corte 6:00 AM para evitar desincronización entre navegador y servidor.
+ * - [2026-11-10] Blindaje de insumos externos `TRACK_ONLY` (`Flan`, `Whole Flan`, `Cheesecake`):
+ *   excluidos de `resolveEffectiveOrderLineQty`, `buildPersistableOrderLines` y `evaluateOrderAnomalies`
+ *   para impedir líneas ficticias en `inventory_order_lines` y llegadas fantasma de Bodega.
+ * - [2026-11-10] Soporte nativo de `'auto_order_visible'` en las 15 sucursales: `effective_leftover`
+ *   permite que la orden a QuickBooks esté pre-calculada desde el inicio con el sobrante del sistema,
+ *   dando prioridad inmediata y absoluta (`100%`) a `leftover_value` en cuanto el asistente o manager
+ *   captura su conteo físico.
  */
+
+export const EXTERNAL_TRACK_ONLY_ITEM_IDS = new Set<string>([
+    'f8f776c5-3b8c-453e-8161-b49840823933', // Flan
+    '8ba55664-5ca9-4886-8ac8-acf1fd070713', // Cheesecake
+])
+
+export function isTrackOnlyOrderItem(input: {
+    inventory_item_id?: string | null
+    id?: string | null
+    item_name?: string | null
+    name?: string | null
+    qb_item_id?: string | null
+}): boolean {
+    if (input.qb_item_id === 'TRACK_ONLY') return true
+    const itemId = String(input.inventory_item_id || input.id || '').trim()
+    if (itemId && EXTERNAL_TRACK_ONLY_ITEM_IDS.has(itemId)) return true
+    const rawName = String(input.item_name || input.name || '')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .trim()
+        .toLowerCase()
+    return /^(flan|whole\s+flan|cheesecake)$/.test(rawName)
+}
 
 // ============================================================================
 // HELPERS
@@ -130,19 +160,26 @@ export type CalculatedOrderLine = {
     qb_item_id?: string
     is_extraordinary?: boolean
     suggested_leftover?: number | null
+    raw_suggested_leftover?: number | null
+    effective_leftover?: number | null
+    effective_source?: 'manual' | 'auto_cycle_v2' | 'system_auto' | null
     is_burn_rate?: boolean
     variance?: number | null
+    tolerance_value?: number | null
+    within_tolerance?: boolean | null
     purchase_unit_cost?: number
     unit_measure?: string
     adjusted_qty?: number
     theoretical_consumption?: number | null
-    theoretical_source_status?: 'not_certified' | 'verified_source_partial_recipe' | 'legacy_pmix_unverified'
+    theoretical_source_status?: 'not_certified' | 'verified_source_partial_recipe' | 'legacy_pmix_unverified' | 'verified_dual_engine_v2'
     theoretical_source_reason?: string
     yesterday_order_qty?: number | null
     adaptive_buffer?: number
     is_tight?: boolean
     buffer_reason?: string
     suggested_order_qty?: number
+    sku_tier?: 'critical_daily' | 'cycle_stable'
+    count_source?: 'manual' | 'auto_cycle_v2' | null
 }
 
 export type OrderRecord = {
@@ -155,6 +192,9 @@ export type OrderRecord = {
     notes?: string
     qb_estimate_id?: string
     qb_estimate_number?: string
+    qb_invoice_id?: string
+    qb_invoice_number?: string
+    qb_invoiced_at?: string
     sent_at?: string
     created_at: string
     lines?: OrderLineRecord[]
@@ -189,23 +229,38 @@ export type PersistableOrderLineInput = {
     adjusted_qty?: number
     par_value: number
     leftover_value: number
+    is_auto_leftover?: boolean
 }
 
 /**
  * Resuelve la cantidad final efectiva de una línea considerando ajustes manuales (`Adjust`)
  * y el tipo de orden (`daily` vs `liquids` / `uniforms`).
+ * En `'auto_order_visible'`, `effective_leftover` respalda la línea cuando el asistente aún no
+ * captura un conteo físico manual; si captura `leftover_value`, este último manda al 100%.
  * En órdenes no diarias (`liquids` / `uniforms`), un ajuste manual explícito SIEMPRE es válido
  * incluso si `leftover_value` es `null`/`undefined`.
+ * Los artículos externos `TRACK_ONLY` (`Flan`, `Whole Flan`, `Cheesecake`) nunca generan cantidad a pedir a Bodega.
  */
 export function resolveEffectiveOrderLineQty(
-    line: Pick<CalculatedOrderLine, 'inventory_item_id' | 'calculated_qty' | 'leftover_value' | 'is_extraordinary'>,
+    line: Pick<CalculatedOrderLine, 'inventory_item_id' | 'calculated_qty' | 'leftover_value' | 'is_extraordinary'> & {
+        effective_leftover?: number | null
+        item_name?: string
+        qb_item_id?: string
+    },
     adjustmentsMap: Record<string, number | string>,
     orderType: 'daily' | 'liquids' | 'uniforms'
 ): { isReady: boolean; adjNum: number | undefined; finalQty: number } {
+    if (!line.is_extraordinary && orderType === 'daily' && isTrackOnlyOrderItem(line)) {
+        return { isReady: false, adjNum: undefined, finalQty: 0 }
+    }
+
     const rawAdj = adjustmentsMap[line.inventory_item_id]
     const parsedAdj = rawAdj !== undefined && rawAdj !== '' ? Number(rawAdj) : undefined
     const adjNum = parsedAdj !== undefined && Number.isFinite(parsedAdj) ? parsedAdj : undefined
-    const hasLeftover = line.leftover_value !== null && line.leftover_value !== undefined
+    const resolvedLeftover = line.leftover_value !== null && line.leftover_value !== undefined
+        ? line.leftover_value
+        : (line.effective_leftover ?? null)
+    const hasLeftover = resolvedLeftover !== null && resolvedLeftover !== undefined
 
     if (line.is_extraordinary) {
         return {
@@ -216,7 +271,7 @@ export function resolveEffectiveOrderLineQty(
     }
 
     if (orderType === 'daily') {
-        if (!hasLeftover) {
+        if (!hasLeftover && adjNum === undefined) {
             return { isReady: false, adjNum, finalQty: 0 }
         }
         return {
@@ -251,6 +306,7 @@ export function resolveEffectiveOrderLineQty(
  * - Incluye todas las líneas con `finalQty > 0` (incluyendo ajustes manuales y extraordinarios).
  * - También persiste las líneas donde el usuario puso explícitamente `Adjust = 0` sobre un ítem con `calculated_qty > 0`,
  *   para que al guardar (`Generar Orden`) y recargar (`loadData`) NUNCA se pierdan las cancelaciones manuales en `0`.
+ * - Excluye estrictamente artículos `TRACK_ONLY` (`Flan`, `Whole Flan`, `Cheesecake`) que provienen de proveedor externo.
  */
 export function buildPersistableOrderLines(
     lines: CalculatedOrderLine[],
@@ -261,6 +317,8 @@ export function buildPersistableOrderLines(
     let positiveCount = 0
 
     for (const l of lines) {
+        if (!l.is_extraordinary && orderType === 'daily' && isTrackOnlyOrderItem(l)) continue
+
         const { isReady, adjNum, finalQty } = resolveEffectiveOrderLineQty(l, adjustmentsMap, orderType)
         if (!isReady) continue
 
@@ -270,12 +328,14 @@ export function buildPersistableOrderLines(
         if (!isPositive && !isExplicitZeroSuppression) continue
         if (isPositive) positiveCount++
 
+        const hasManualLeftover = l.leftover_value !== null && l.leftover_value !== undefined
         persistableLines.push({
             inventory_item_id: l.inventory_item_id,
             calculated_qty: l.calculated_qty,
             adjusted_qty: adjNum,
             par_value: l.par_value,
-            leftover_value: l.leftover_value ?? 0
+            leftover_value: hasManualLeftover ? l.leftover_value! : (l.effective_leftover ?? 0),
+            is_auto_leftover: !hasManualLeftover && l.effective_leftover !== null && l.effective_leftover !== undefined,
         })
     }
 
@@ -299,6 +359,7 @@ export function evaluateOrderAnomalies(
     const anomalies: OrderAnomaly[] = []
 
     for (const l of lines) {
+        if (!l.is_extraordinary && orderType === 'daily' && isTrackOnlyOrderItem(l)) continue
         const rawAdj = adjustmentsMap[l.inventory_item_id]
         const adjNum = rawAdj !== undefined && rawAdj !== '' ? Number(rawAdj) : undefined
         const finalQty = adjNum !== undefined && !isNaN(adjNum) ? adjNum : l.calculated_qty

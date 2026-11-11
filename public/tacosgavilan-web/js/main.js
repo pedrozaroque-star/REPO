@@ -585,6 +585,7 @@ document.addEventListener('DOMContentLoaded', () => {
        ========================================================== */
     const contactForm = document.getElementById('contact-form');
     const contactStatus = document.getElementById('contact-status');
+    const contactFormBootedAt = Date.now();
 
     if (contactForm) {
         contactForm.addEventListener('submit', async (e) => {
@@ -637,7 +638,9 @@ document.addEventListener('DOMContentLoaded', () => {
                     reason: reasonInput ? reasonInput.value : 'general',
                     store: storeInput ? storeInput.value : '',
                     message: messageInput.value.trim(),
-                    b_company_website: honeypot ? honeypot.value : ''
+                    b_company_website: honeypot ? honeypot.value : '',
+                    _tg_dwell_ms: Math.max(0, Date.now() - contactFormBootedAt),
+                    _tg_wd: (typeof navigator !== 'undefined' && navigator.webdriver === true) ? 1 : 0
                 };
 
                 const isLocalStatic = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');

@@ -340,15 +340,13 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
                         : 'Tablero de pedidos listos para clientes y locutor de voz automático'
                 },
                 {
-                    name: t('items.phone_agent') || 'Contestadora IA',
+                    name: t('items.phone_agent'),
                     plainName: 'Contestadora IA',
                     path: '/admin/llamadas',
                     icon: <PhoneCall size={20} />,
-                    roles: ['admin', 'supervisor', 'manager'],
+                    roles: ['admin', 'supervisor', 'manager', 'asistente'],
                     badgeText: 'new',
-                    tooltip: language === 'en'
-                        ? '15-store AI phone receptionist with Kore neural voice, live simulator, and editable knowledge base'
-                        : 'Contestadora telefónica IA para las 15 sucursales con voz Kore, simulador en vivo y base de conocimiento editable'
+                    tooltip: t('home_hub.desc.phone_agent')
                 },
                 {
                     name: t('items.safe'),

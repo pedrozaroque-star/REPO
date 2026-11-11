@@ -6,8 +6,7 @@
  * - Actividades preserva asignaciones de managers: conteo exacto/revisión MD5 de contenido de filas estable, fail-closed ante lecturas incompletas (Asignación, Checklist, Reportes y publicación), clonación semanal protegida por revisión optimista del destino, fusión no destructiva de overrides.stores y protección contra reemplazos vacíos accidentales en position_activities.
  * - Adheres to California compliance guidelines by wrapping the AI breaks scheduler.
  * - Performs theoretical cost analysis matching QuickBooks purchase prices.
- * - Para Orden Diaria, el PAR menos sobrante sólo es accionable con captura física completa; cero explícito es válido y faltantes bloquean guardado/envío.
- * - El piloto supervisado de Lynwood y Slauson usa conteo ciego; el físico sigue oficial y el pedido no recibe un colchón fuera del PAR.
+ * - Para Orden Diaria (/inventory/orders), las 15 sucursales activas operan en modo `'auto_order_visible'` (Orden Automática Visible + Validación Física Opcional): el motor `dual-engine-v2` (32 SKU por recetas deterministas de tickets Toast POS + 19 SKU por Balance de Masas Histórico Causal `historical-mass-balance.ts`) y la Ley Telescópica de Conservación de Masa ($\hat{C}_T = C_A + \sum O_d - \sum U_d$ con ventana de hasta 7 días para cierres dominicales y huecos entre semana, más conciliación real contra Invoices despachadas por La Bodega en QuickBooks Online `qb_invoice_number`) pre-calculan desde el segundo 1 tanto el sobrante del sistema como la cantidad a pedir a QuickBooks (`Pedir = MAX(0, PAR_mañana - Sobrante_efectivo)` con reglas de redondeo de empaque y `0` para `TRACK_ONLY` `Flan` y `Cheesecake`). Regla de Oro "Físico Manda": no se obliga validación bloqueante; si el asistente o manager captura su sobrante físico en cualquier producto, ese conteo físico manda al 100% de inmediato, y los productos no editados quedan respaldados automáticamente por el cálculo del sistema (`AUTO_CYCLE_V2`) sin sobrescribir jamás un conteo físico humano ni introducir deriva circular en el balance de masas histórico. También siguen disponibles bajo selector administrativo los modos `assisted_2tier`, `shadow_blind` y `off`.
  * - Sin ventas/recetas completas o con unidades incompatibles, el sobrante teórico se informa como no certificado; nunca se fuerza a igualar el físico.
  * - El backtest revisado usa PAR de semana exacta y pedidos enviados/recibidos, reporta faltantes y excluye papelito dominical no medido. Sus ventanas ya exploradas no certifican autonomía; merma estimada no equivale a merma registrada.
  * - Un snapshot solo es fuente certificable si sus GUID y selecciones coinciden con Toast vigente; el fin de semana se concilia viernes→domingo y las carnes en bolsas cerradas no se equiparan a onzas servidas.
@@ -66,6 +65,8 @@ import {
 import { getRonosStoreAudit, getRonosChainWideAudit, RONOS_STORES_MAP } from '@/lib/ronos-api'
 import { calculateCingularPayrollReport } from '@/lib/payroll-calculator'
 import { calculateTicketPackaging, type ToastTicketSelection } from '@/lib/inventory/ticket-packaging'
+import { getCaliforniaDate } from '@/lib/business-date'
+import { getUpcomingOfficialStoreHolidays } from '@/lib/holidays'
 
 const clean = (name: string) => (name || '').replace(/^Tacos Gavilan\s+/i, '').trim()
 const fmt$ = (n: number) => '$' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -339,7 +340,7 @@ export const TOOL_DECLARATIONS = [
   },
   {
     name: 'query_inventory_orders',
-    description: 'Query store inventory orders, statuses, and order line details from inventory_orders and inventory_order_lines.',
+    description: 'Query store inventory orders, statuses (draft/sent/received), QB Estimate numbers, reconciled QB Invoice numbers, and order line details from inventory_orders and inventory_order_lines.',
     parameters: {
       type: 'OBJECT',
       properties: {
@@ -352,7 +353,7 @@ export const TOOL_DECLARATIONS = [
   },
   {
     name: 'query_inventory_pilot_status',
-    description: 'Query the Lynwood and Slauson blind-count automation pilot status and accuracy comparison by business date. Physical count remains official; Sunday leftover Papelito discard and free salsa-bar use cannot certify ticket-derived leftovers. Anomalous historical quantities are excluded from automatic estimates.',
+    description: 'Query the Daily Warehouse Order automation status across all 15 Tacos Gavilan stores (active mode per store: auto_order_visible, assisted_2tier, shadow_blind, or off) and accuracy comparison sessions by business date.',
     parameters: {
       type: 'OBJECT',
       properties: {
@@ -2557,7 +2558,7 @@ async function queryInventoryOrders(args: any): Promise<string> {
   const { idToName } = await getStoreMaps()
   let query = supabaseAdmin
     .from('inventory_orders')
-    .select('id, store_id, order_date, week_start_date, status, created_by, qb_estimate_number, order_type')
+    .select('id, store_id, order_date, week_start_date, status, created_by, qb_estimate_number, qb_invoice_number, order_type')
     .gte('order_date', args.start_date)
     .lte('order_date', args.end_date)
     .order('order_date', { ascending: false })
@@ -2598,14 +2599,16 @@ async function queryInventoryOrders(args: any): Promise<string> {
       const storeName = idToName[o.store_id] || `Store #${o.store_id}`
       const typeLabel = o.order_type === 'uniforms' ? 'Uniforms' : o.order_type === 'liquids' ? 'Liquids' : 'Daily'
       const orderLines = orderLinesMap[o.id] || []
-      return `📦 Order ${o.order_date} (${typeLabel}) - ${storeName} [${o.status || 'Pending'}] (QB: ${o.qb_estimate_number || 'N/A'})\n${orderLines.join('\n')}`
+      const qbInvoiceLabel = (o as any).qb_invoice_number ? ` | Invoice #${(o as any).qb_invoice_number}` : ''
+      return `📦 Order ${o.order_date} (${typeLabel}) - ${storeName} [${o.status || 'Pending'}] (QB Estimate: ${o.qb_estimate_number || 'N/A'}${qbInvoiceLabel})\n${orderLines.join('\n')}`
     }).join('\n')
   }
 
   const summary = data.map(o => {
     const storeName = idToName[o.store_id] || `Store #${o.store_id}`
     const typeLabel = o.order_type === 'uniforms' ? 'Uniforms' : o.order_type === 'liquids' ? 'Liquids' : 'Daily'
-    return `${o.order_date} | ${storeName} | Type: ${typeLabel} | Status: ${o.status || 'Pending'} | QB: ${o.qb_estimate_number || 'N/A'} | Created By: ${o.created_by || 'System'}`
+    const qbInvoiceLabel = (o as any).qb_invoice_number ? ` | Invoice: #${(o as any).qb_invoice_number}` : ''
+    return `${o.order_date} | ${storeName} | Type: ${typeLabel} | Status: ${o.status || 'Pending'} | QB Estimate: ${o.qb_estimate_number || 'N/A'}${qbInvoiceLabel} | Created By: ${o.created_by || 'System'}`
   }).join('\n')
 
   return `Inventory Orders:\n${summary}${lineDetails}`
@@ -2618,31 +2621,47 @@ async function queryInventoryPilotStatus(args: { business_date?: string; days_ba
   start.setUTCDate(start.getUTCDate() - (daysBack - 1))
   const startDate = args.business_date ? endDate : start.toISOString().slice(0, 10)
 
-  const { data, error } = await supabaseAdmin
-    .from('inventory_automation_pilot_sessions')
-    .select('business_date, status, completed_by_name, completed_at, stores(name), inventory_automation_pilot_lines(within_tolerance, variance, physical_leftover, automatic_leftover)')
-    .gte('business_date', startDate)
-    .lte('business_date', endDate)
-    .order('business_date', { ascending: false })
+  const [{ data: activeStores }, { data, error }] = await Promise.all([
+    supabaseAdmin
+      .from('stores')
+      .select('id, name, inventory_automation_mode')
+      .not('external_id', 'is', null)
+      .order('id', { ascending: true }),
+    supabaseAdmin
+      .from('inventory_automation_pilot_sessions')
+      .select('business_date, status, model_version, completed_by_name, completed_at, stores(name, inventory_automation_mode), inventory_automation_pilot_lines(within_tolerance, variance, physical_leftover, automatic_leftover)')
+      .gte('business_date', startDate)
+      .lte('business_date', endDate)
+      .order('business_date', { ascending: false }),
+  ])
+
+  const storeModeSummary = (activeStores || [])
+    .map((s: any) => `${clean(s.name)}: ${s.inventory_automation_mode || 'auto_order_visible'}`)
+    .join(' | ')
 
   if (error) {
     if (error.code === '42P01' || /does not exist|schema cache/i.test(error.message)) {
-      return 'El piloto de conteo ciego todavía no está habilitado porque falta aplicar su configuración en el sistema.'
+      return `Estado de Automatización de Orden Diaria (${activeStores?.length || 15} sucursales):\n${storeModeSummary}`
     }
-    return `No se pudo consultar el piloto: ${error.message}`
+    return `No se pudo consultar sesiones comparativas: ${error.message}\nSucursales activas: ${storeModeSummary}`
   }
-  if (!data?.length) return `No hay sesiones cerradas del piloto Lynwood/Slauson entre ${startDate} y ${endDate}.`
 
-  const rows = data.map((session: any) => {
+  const rows = (data || []).map((session: any) => {
     const lines = session.inventory_automation_pilot_lines || []
     const comparable = lines.filter((line: any) => line.within_tolerance !== null)
     const accurate = comparable.filter((line: any) => line.within_tolerance === true).length
     const accuracy = comparable.length ? ((accurate / comparable.length) * 100).toFixed(1) : 'N/A'
-    const storeName = Array.isArray(session.stores) ? session.stores[0]?.name : session.stores?.name
-    return `${storeName || 'Sucursal'} · ${session.business_date}: ${session.status === 'revealed' ? 'Conteo cerrado' : 'En captura'} | ${lines.length} artículos | Precisión dentro de tolerancia: ${accuracy}% | Cerró: ${session.completed_by_name || '—'}`
+    const storeObj = Array.isArray(session.stores) ? session.stores[0] : session.stores
+    const storeName = storeObj?.name || 'Sucursal'
+    const activeMode = storeObj?.inventory_automation_mode || 'auto_order_visible'
+    return `${storeName} (modo activo: ${activeMode}) · ${session.business_date}: ${session.status === 'revealed' ? 'Comparativa cerrada' : 'En captura'} [${session.model_version || 'dual-engine-v2'}] | ${lines.length} artículos | Precisión dentro de tolerancia: ${accuracy}% | Cerró: ${session.completed_by_name || '—'}`
   })
 
-  return `Piloto de automatización de inventario — Lynwood y Slauson\n${rows.join('\n')}\n\nDurante el piloto, el conteo físico es el oficial para el pedido a QuickBooks; las diferencias con el teórico se investigan y no se corrigen con un colchón automático.`
+  const sessionsSection = rows.length
+    ? `\n\nSesiones comparativas registradas (${startDate} a ${endDate}):\n${rows.join('\n')}`
+    : `\n\nNo hay sesiones comparativas cerradas entre ${startDate} y ${endDate} (en modo auto_order_visible la comparación es opcional y no bloquea el envío a QuickBooks).`
+
+  return `🤖 Automatización de Orden Diaria a Bodega (${activeStores?.length || 15} Sucursales Activas)\nModo activo por sucursal: ${storeModeSummary}${sessionsSection}\n\nRegla operativa vigente (auto_order_visible): Los 51 SKU muestran desde el segundo 1 el sobrante calculado por el sistema y la cantidad lista a pedir a QuickBooks. No se obliga validación bloqueante: si el asistente o manager captura su sobrante físico, el conteo físico manda al 100% de inmediato; los insumos no editados quedan respaldados automáticamente por el cálculo del sistema (AUTO_CYCLE_V2).`
 }
 
 async function querySupervisorMileage(args: { start_date: string; end_date: string; supervisor_name?: string }): Promise<string> {
@@ -3610,43 +3629,129 @@ async function queryTrainingAcademyTool(args: any): Promise<string> {
 }
 
 /**
- * Consulta la Contestadora IA Multi-Sucursal (/admin/llamadas): estado de las 15 sucursales, Base de Conocimiento Editable, llamadas y recados.
+ * Consulta la Contestadora IA Multi-Sucursal (/admin/llamadas): estado de las 15 sucursales, Base de Conocimiento Editable, festivos dinámicos, llamadas reales vs simulador y recados prioritarios.
  */
 async function queryPhoneAgentStatusTool(args: any): Promise<string> {
   try {
-    const [{ data: configs }, { data: kb }, { data: calls }, { data: callbacks }] = await Promise.all([
+    const todayIso = getCaliforniaDate();
+    const [{ data: configs }, { data: kb }, { data: specialHours }, { data: calls }, { data: callbacks }] = await Promise.all([
       supabaseAdmin.from('phone_agent_config').select('*, stores(id, name, phone)').order('store_id'),
-      supabaseAdmin.from('phone_knowledge_base').select('id, title, category, is_active').eq('is_active', true),
-      supabaseAdmin.from('phone_calls').select('id, store_id, primary_intent, resolved_by_ai, started_at').order('started_at', { ascending: false }).limit(50),
-      supabaseAdmin.from('phone_callback_requests').select('*, stores(name)').eq('status', 'pending').order('created_at', { ascending: false }).limit(20)
+      supabaseAdmin.from('phone_knowledge_base').select('id, title, category, store_id, is_active').eq('is_active', true),
+      supabaseAdmin
+        .from('phone_special_hours')
+        .select('event_date, holiday_name, is_closed, open_time, close_time, store_id')
+        .gte('event_date', todayIso)
+        .order('event_date')
+        .limit(20),
+      supabaseAdmin
+        .from('phone_calls')
+        .select('id, call_sid, source, store_id, primary_intent, resolved_by_ai, turns_count, status, started_at')
+        .order('started_at', { ascending: false })
+        .limit(100),
+      supabaseAdmin
+        .from('phone_callback_requests')
+        .select('*, stores(name)')
+        .eq('status', 'pending')
+        .order('created_at', { ascending: false })
+        .limit(30),
     ]);
 
     let rows = configs || [];
+    let matchedStoreIds: Set<number> | null = null;
     if (args?.store_name) {
       const q = normText(args.store_name);
-      rows = rows.filter((r: any) => normText(r.stores?.name || '').includes(q));
-    }
-
-    const totalCalls = (calls || []).length;
-    const resolvedByAi = (calls || []).filter((c: any) => c.resolved_by_ai).length;
-    const pct = totalCalls > 0 ? ((resolvedByAi / totalCalls) * 100).toFixed(1) : '100.0';
-
-    let out = `📞 **Contestadora IA Multi-Sucursal (15 Tiendas) — Tacos Gavilan (/admin/llamadas)**\n`;
-    out += `• **Voz Neuronal Activa**: Kore (Gemini Neural TTS con caché en Supabase Storage)\n`;
-    out += `• **Sucursales Configuradas**: ${rows.length} (4 Spectrum Business fijo: Rialto, Downey, Hollywood, Lynwood; 11 Celulares Android AT&T)\n`;
-    out += `• **Reglas en Base de Conocimiento Editable (\`phone_knowledge_base\`)**: ${(kb || []).length}\n`;
-    out += `• **Llamadas Recientes**: ${totalCalls} (${pct}% resueltas al 100% por la IA)\n`;
-    out += `• **Recados Prioritarios Pendientes (\`phone_callback_requests\`)**: ${(callbacks || []).length}\n\n`;
-
-    if ((callbacks || []).length > 0) {
-      out += `| Sucursal | Persona | Teléfono | Motivo |\n`;
-      out += `|----------|---------|----------|--------|\n`;
-      (callbacks || []).forEach((cb: any) => {
-        const cleanStore = String(cb.stores?.name || cb.store_id)
-          .replace(/^Tacos Gavilan\s+/i, '')
+      rows = rows.filter((r: any) => {
+        const cleanLabel = String(r.stores?.name || '')
+          .replace(/^Tacos Gavilan\s*[-—]?\s*/i, '')
           .replace(/^LA\s+(Broadway|Central)\b/i, '$1')
           .trim();
-        out += `| ${cleanStore} | ${cb.caller_name} | ${cb.caller_phone} | ${cb.reason_summary} |\n`;
+        return normText(r.stores?.name || '').includes(q) || normText(cleanLabel).includes(q);
+      });
+      matchedStoreIds = new Set(rows.map((r: any) => Number(r.store_id)));
+    }
+
+    const filteredCalls = matchedStoreIds
+      ? (calls || []).filter((c: any) => matchedStoreIds!.has(Number(c.store_id)))
+      : calls || [];
+
+    const isSimCall = (c: any) => c.source === 'simulator' || String(c.call_sid || '').startsWith('SIM-');
+    const realCalls = filteredCalls.filter((c: any) => !isSimCall(c));
+    const simCalls = filteredCalls.filter((c: any) => isSimCall(c));
+    const realCallsWithTurns = realCalls.filter((c: any) => Number(c.turns_count || 0) > 0);
+    const resolvedReal = realCallsWithTurns.filter((c: any) => Boolean(c.resolved_by_ai)).length;
+    const realPct =
+      realCallsWithTurns.length > 0 ? ((resolvedReal / realCallsWithTurns.length) * 100).toFixed(1) : '100.0';
+
+    const filteredKb = matchedStoreIds
+      ? (kb || []).filter((r: any) => r.store_id == null || matchedStoreIds!.has(Number(r.store_id)))
+      : kb || [];
+
+    const filteredCallbacks = (callbacks || []).filter((cb: any) => {
+      if (cb.source === 'simulator') return false;
+      if (matchedStoreIds && !matchedStoreIds.has(Number(cb.store_id))) return false;
+      return true;
+    });
+
+    // Merge upcoming dynamic calendar holidays + manual DB overrides
+    const dynamicHolidays = getUpcomingOfficialStoreHolidays(todayIso, 150);
+    const mergedHolidayMap = new Map<string, any>();
+    for (const dh of dynamicHolidays) {
+      mergedHolidayMap.set(`${dh.event_date}:ALL`, {
+        event_date: dh.event_date,
+        holiday_name: dh.holiday_name,
+        is_closed: dh.is_closed,
+        open_time: dh.open_time,
+        close_time: dh.close_time,
+        store_id: null,
+      });
+    }
+    for (const sh of specialHours || []) {
+      if (matchedStoreIds && sh.store_id != null && !matchedStoreIds.has(Number(sh.store_id))) continue;
+      const key = `${sh.event_date}:${sh.store_id ?? 'ALL'}`;
+      mergedHolidayMap.set(key, sh);
+    }
+    const mergedHolidays = Array.from(mergedHolidayMap.values()).sort((a, b) =>
+      String(a.event_date).localeCompare(String(b.event_date))
+    );
+
+    const safeCell = (val: unknown) =>
+      String(val ?? '')
+        .replace(/\|/g, '\\|')
+        .replace(/[\r\n]+/g, ' ')
+        .trim();
+
+    let out = `📞 **Contestadora IA Multi-Sucursal (15 Tiendas) — Tacos Gavilan (/admin/llamadas)**\n`;
+    out += `• **Voz Neuronal Activa**: Kore 3.8 (Gemini Neural TTS con Streaming PCM 24kHz en vivo)\n`;
+    out += `• **Sucursales Consultadas**: ${rows.length} (Cadena: 4 líneas fijas Spectrum Business y 11 celulares Android AT&T)\n`;
+    out += `• **Reglas Activas en Base de Conocimiento**: ${filteredKb.length}\n`;
+    out += `• **Próximos Horarios Festivos / Especiales (150 días)**: ${mergedHolidays.length}\n`;
+    out += `• **Llamadas Reales Recientes (Twilio)**: ${realCalls.length} (${realPct}% resueltas por la IA en llamadas con conversación) | **Pruebas en Simulador**: ${simCalls.length}\n`;
+    out += `• **Recados Reales Pendientes de Gerente**: ${filteredCallbacks.length}\n\n`;
+
+    if (mergedHolidays.length > 0) {
+      out += `**Próximos Horarios Festivos Oficiales:**\n`;
+      mergedHolidays.slice(0, 7).forEach((sh: any) => {
+        const hrs = sh.is_closed
+          ? 'CERRADO TODO EL DÍA'
+          : sh.open_time && sh.close_time
+            ? `${sh.open_time} - ${sh.close_time}`
+            : sh.close_time
+              ? `Apertura regular → Cierre temprano ${sh.close_time}`
+              : `Apertura tarde ${sh.open_time} → Cierre regular`;
+        out += `• ${sh.event_date} (${sh.holiday_name}): ${hrs}\n`;
+      });
+      out += `\n`;
+    }
+
+    if (filteredCallbacks.length > 0) {
+      out += `| Sucursal | Persona | Teléfono | Motivo |\n`;
+      out += `|----------|---------|----------|--------|\n`;
+      filteredCallbacks.forEach((cb: any) => {
+        const cleanStore = String(cb.stores?.name || cb.store_id)
+          .replace(/^Tacos Gavilan\s*[-—]?\s*/i, '')
+          .replace(/^LA\s+(Broadway|Central)\b/i, '$1')
+          .trim();
+        out += `| ${safeCell(cleanStore)} | ${safeCell(cb.caller_name)} | ${safeCell(cb.caller_phone)} | ${safeCell(cb.reason_summary)} |\n`;
       });
     }
     return out;

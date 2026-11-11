@@ -38,26 +38,63 @@
  *   * `fetchWeeklyData` filtra `store_order_template` por `store_id` y garantiza `countsMap` (`d = -1..7`) sin valores `null` ni sobreescritura de PAR explícito en `0`.
  *   * `fetchOrderableItems` evita caer al catálogo diario de comida cuando `orderType` es `uniforms` o `liquids`.
  *   * `saveOrderDraft` rechaza cantidades finales negativas y preserva overrides explícitos `adjusted_qty = 0` para que `Generar Orden` → `Enviar a QuickBooks` nunca borre ajustes manuales.
+ * - [2026-11-09] Arquitectura Dual de Orden Diaria (`dual-engine-v2`) para Lynwood (#14) y Slauson (#7):
+ *   * `calculateDailyOrder` combina consumo por recetas de tickets Toast (`getPilotTicketUsage`) en los 32 SKU observables en POS con Balance de Masas Histórico causal (`getHistoricalMassBalanceUsage`) en los 19 SKU de autoservicio, salsabar y cocina, cubriendo los 51 productos sin ocultarlos detrás de `'-'`.
+ *   * Corregida precedencia de `recentOrderError` y `unreliableArrivalItems` antes de calcular `suggestedLeftover`.
+ *   * `finalizeInventoryPilotCount` recalcula en el servidor el sobrante teórico actualizado al momento exacto del cierre para evitar sesiones en `NULL` cuando el navegador cargó antes de estabilizarse Toast.
+ * - [2026-11-10] Upgrades Integrales 1–4 rumbo al Cierre Asistido de Orden Diaria:
+ *   * Upgrade 1: Aislamiento total de postres externos `TRACK_ONLY` (`Flan`, `Cheesecake`) para impedir pedidos o llegadas ficticias de Bodega.
+ *   * Upgrade 2: Conciliación automática `QBO Invoice -> inventory_order_lines` (`reconcileStoreOrdersWithQbInvoices`) para reflejar recortes/ajustes reales de La Bodega Central.
+ *   * Upgrade 3: Descongelamiento automático (>7 días) y modernización de `recalculateParIdeal` integrando pronóstico inteligente de ventas y clima (`generateSmartForecast` de `lib/intelligence.ts`) sin sobreescribir `PAR Actual`.
+ *   * Upgrade 4 (Paso 3): Modo Operativo de 2 Niveles (`assisted_2tier` vs `shadow_blind`) con pre-llenado `AUTO_CYCLE_V2` de los 34 SKU estables (Lun–Sáb), auditoría física rápida de los 17 SKU críticos diarios y Ancla Física Dominical obligatoria.
+ * - [2026-11-10] Modo Definitivo `'auto_order_visible'` en las 15 Sucursales Activas:
+ *   * `calculateDailyOrder` ejecuta el motor dual (`dual-engine-v2` + conciliación `QBO Invoice` de 7 días + respaldo telescópico multi-día hasta 7 días para cierres dominicales o días sin conteo) en TODAS las sucursales activas con `external_id`.
+ *   * Los 51 SKU muestran desde el segundo 1 tanto el sobrante calculado por el sistema como la Orden Calculada a QuickBooks (`effective_leftover` / `calculated_qty`), sin candados ciegos ni bloqueos obligatorios.
+ *   * Regla de Oro ("Físico Manda"): si el asistente o manager captura su sobrante físico en cualquier ítem, ese conteo físico toma prioridad inmediata y absoluta (`100%`) sobre el cálculo del sistema; los ítems no editados manualmente se materializan de forma transparente como `AUTO_CYCLE_V2` en `saveOrderDraft` sin sobrescribir jamás un conteo físico humano ni generar deriva circular en el motor histórico.
+ * - [2026-11-11] Blindajes adicionales tras auditoría forense multi-sucursal:
+ *   * `calculateDailyOrder` excluye capturas accidentales de sábado (`getUTCDay() === 6`) como `anchorDate` en Orden Diaria para evitar restar doblemente el consumo del sábado en el cierre unificado del domingo (`Sáb+Dom`).
+ *   * `fetchWeeklyData` y `finalizeInventoryPilotCount` completan por ítem las bases faltantes desde la semana previa o `PAR Ideal` cuando una semana futura tiene edición parcial (`1..N` filas), evitando que el resto del catálogo caiga en `PAR = 0`.
  */
 
 'use server'
 
 import { createClient } from '@supabase/supabase-js'
 import { revalidatePath } from 'next/cache'
-import { addDays, getMonday } from './utils'
+import {
+    addDays,
+    getBusinessDate,
+    getMonday,
+    EXTERNAL_TRACK_ONLY_ITEM_IDS,
+    isTrackOnlyOrderItem,
+} from './utils'
 import type { OrderableItem, WeeklyBaseRecord, ParIdealRecord, CalculatedOrderLine } from './utils'
 import { parseUniformCategoryAndSize, getDefaultMinStock } from '../uniforms/utils'
 import { getMissingDailyCounts } from '@/lib/inventory/order-count-validation'
 import { getServerUser } from '@/lib/auth-server'
 import { getPilotTicketUsage, type PilotTicketUsage } from '@/lib/inventory/pilot-ticket-usage'
 import {
+    getHistoricalMassBalanceUsage,
+    isAutoCycleCountRecord,
+    isHistoricalMassBalanceItem,
+    isSeasonalBeverageMassBalanceItem,
+    type HistoricalMassBalanceResult,
+} from '@/lib/inventory/historical-mass-balance'
+import {
+    AUTO_CYCLE_COUNT_MARKER,
     buildPilotComparisonLine,
     canCloseInventoryAutomationPilot,
+    canManageInventoryAutomationMode,
     getInventoryAutomationPilotStoreName,
+    isCriticalDailyPhysicalSku,
+    isExternalTrackOnlyDessert,
+    isFullPhysicalAnchorDate,
     isInventoryAutomationPilotStore,
     isImplausibleArrivalQuantity,
+    type InventoryAutomationMode,
     type PilotComparisonInput,
 } from '@/lib/inventory/automation-pilot'
+import { reconcileStoreOrdersWithQbInvoices } from '@/lib/inventory/qb-shipped-reconciliation'
+import { recalculateStoreParIdeal } from '@/lib/inventory/par-ideal-engine'
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -74,6 +111,9 @@ export type InventoryPilotSession = {
     sessionId?: string
     completedAt?: string | null
     completedBy?: string | null
+    automationMode?: InventoryAutomationMode
+    isSundayAnchor?: boolean
+    canManageMode?: boolean
     lines: any[]
 }
 
@@ -243,7 +283,14 @@ export async function fetchOrderableItems(storeId: string | number, orderType: O
     }
 
     // Asegurar que Flan y Cheesecake estén presentes en el pedido diario como TRACK_ONLY
+    // y blindar cualquier coincidencia de postre externo para que jamás se envíe como item de Bodega
     if (orderType === 'daily') {
+        result = result.map(r => (
+            isTrackOnlyOrderItem(r)
+                ? { ...r, qb_item_id: 'TRACK_ONLY' }
+                : r
+        ))
+
         const requiredDesserts = [
             { id: 'f8f776c5-3b8c-453e-8161-b49840823933', name: 'Flan', unit_type: 'Per Unit', order_unit_description: '', purchase_unit_cost: 1.85, unit_measure: 'pza' },
             { id: '8ba55664-5ca9-4886-8ac8-acf1fd070713', name: 'Cheesecake', unit_type: 'Per Unit', order_unit_description: 'Cheesecake', purchase_unit_cost: 2.15, unit_measure: 'pza' }
@@ -344,73 +391,97 @@ export async function fetchWeeklyData(storeId: string | number, mondayStr: strin
         return applyRounding(val, rule)
     }
 
-    // Bases de esta semana
-    let { data: bases } = await supabase
-        .from('inventory_weekly_bases')
-        .select('*')
-        .eq('store_id', storeId)
-        .eq('week_start_date', mondayStr)
-
-    // Fix #3: Si la semana actual no tiene bases, auto-clonar de la semana anterior o PAR Ideal
-    let basesAreFallback = false
-    if (!bases || bases.length === 0) {
-        const lastWeekMonday = addDays(mondayStr, -7)
-        const { data: prevBases } = await supabase
+    // Bases de esta semana + semana anterior en paralelo para garantizar integridad en todos los orderType (daily, liquids, uniforms)
+    const lastWeekMonday = addDays(mondayStr, -7)
+    const [{ data: currBasesData }, { data: prevBases }] = await Promise.all([
+        supabase
             .from('inventory_weekly_bases')
             .select('*')
             .eq('store_id', storeId)
-            .eq('week_start_date', lastWeekMonday)
+            .eq('week_start_date', mondayStr),
+        supabase
+            .from('inventory_weekly_bases')
+            .select('*')
+            .eq('store_id', storeId)
+            .eq('week_start_date', lastWeekMonday),
+    ])
+    let bases = currBasesData
 
-        if (prevBases && prevBases.length > 0) {
-            // Auto-clonar de semana anterior a semana actual para que no se pierdan
-            const clonedBases = prevBases.map((b: any) => ({
+    // Fix #3: Si la semana actual no tiene bases o solo tiene una edición parcial (ej. 1 ítem de uniformes/diario editado por adelantado),
+    // auto-completar TODOS los ítems faltantes desde la semana anterior o PAR Ideal sin sobrescribir los ya guardados.
+    let basesAreFallback = false
+    const existingBaseIds = new Set((bases || []).map((b: any) => String(b.inventory_item_id)))
+    const missingPrev = (prevBases || []).filter((b: any) => !existingBaseIds.has(String(b.inventory_item_id)))
+    if (missingPrev.length > 0) {
+        const clonedBases = missingPrev.map((b: any) => ({
+            store_id: storeId,
+            inventory_item_id: b.inventory_item_id,
+            week_start_date: mondayStr,
+            mon_par: b.mon_par, tue_par: b.tue_par, wed_par: b.wed_par,
+            thu_par: b.thu_par, fri_par: b.fri_par, sat_par: b.sat_par, sun_par: b.sun_par
+        }))
+        const { error: cloneErr } = await supabase
+            .from('inventory_weekly_bases')
+            .upsert(clonedBases, { onConflict: 'store_id, inventory_item_id, week_start_date' })
+        if (cloneErr) {
+            console.error(`[fetchWeeklyData] Error auto-cloning bases for store ${storeId}:`, cloneErr.message)
+        }
+        bases = [...(bases || []), ...missingPrev]
+        basesAreFallback = existingBaseIds.size === 0
+        console.log(`[fetchWeeklyData] Store ${storeId}: Auto-cloned ${missingPrev.length} missing bases from ${lastWeekMonday} → ${mondayStr}`)
+    } else if (!bases || bases.length === 0) {
+        // Intentar con PAR Ideal
+        const { data: idealFallback } = await supabase
+            .from('inventory_par_ideal')
+            .select('*')
+            .eq('store_id', storeId)
+        if (idealFallback && idealFallback.length > 0) {
+            const idealBases = idealFallback.map((p: any) => ({
                 store_id: storeId,
-                inventory_item_id: b.inventory_item_id,
+                inventory_item_id: p.inventory_item_id,
                 week_start_date: mondayStr,
-                mon_par: b.mon_par, tue_par: b.tue_par, wed_par: b.wed_par,
-                thu_par: b.thu_par, fri_par: b.fri_par, sat_par: b.sat_par, sun_par: b.sun_par
+                mon_par: p.mon_par, tue_par: p.tue_par, wed_par: p.wed_par,
+                thu_par: p.thu_par, fri_par: p.fri_par, sat_par: p.sat_par, sun_par: p.sun_par
             }))
-            const { error: cloneErr } = await supabase
+            const { error: idealErr } = await supabase
                 .from('inventory_weekly_bases')
-                .upsert(clonedBases, { onConflict: 'store_id, inventory_item_id, week_start_date' })
-            if (cloneErr) {
-                console.error(`[fetchWeeklyData] Error auto-cloning bases for store ${storeId}:`, cloneErr.message)
+                .upsert(idealBases, { onConflict: 'store_id, inventory_item_id, week_start_date' })
+            if (idealErr) {
+                console.error(`[fetchWeeklyData] Error auto-populating from PAR Ideal for store ${storeId}:`, idealErr.message)
             }
-            bases = prevBases
+            bases = idealFallback
             basesAreFallback = true
-            console.log(`[fetchWeeklyData] Store ${storeId}: Auto-cloned ${prevBases.length} bases from ${lastWeekMonday} → ${mondayStr}`)
-        } else {
-            // Intentar con PAR Ideal
-            const { data: idealFallback } = await supabase
-                .from('inventory_par_ideal')
-                .select('*')
-                .eq('store_id', storeId)
-            if (idealFallback && idealFallback.length > 0) {
-                const idealBases = idealFallback.map((p: any) => ({
-                    store_id: storeId,
-                    inventory_item_id: p.inventory_item_id,
-                    week_start_date: mondayStr,
-                    mon_par: p.mon_par, tue_par: p.tue_par, wed_par: p.wed_par,
-                    thu_par: p.thu_par, fri_par: p.fri_par, sat_par: p.sat_par, sun_par: p.sun_par
-                }))
-                const { error: idealErr } = await supabase
-                    .from('inventory_weekly_bases')
-                    .upsert(idealBases, { onConflict: 'store_id, inventory_item_id, week_start_date' })
-                if (idealErr) {
-                    console.error(`[fetchWeeklyData] Error auto-populating from PAR Ideal for store ${storeId}:`, idealErr.message)
-                }
-                bases = idealFallback
-                basesAreFallback = true
-                console.log(`[fetchWeeklyData] Store ${storeId}: Auto-populated ${idealFallback.length} bases from PAR Ideal → ${mondayStr}`)
-            }
+            console.log(`[fetchWeeklyData] Store ${storeId}: Auto-populated ${idealFallback.length} bases from PAR Ideal → ${mondayStr}`)
         }
     }
 
-    // PAR Ideal (Baseline PAR)
-    const { data: parIdealRaw } = await supabase
+    // PAR Ideal (Baseline PAR) — auto-descongelamiento cuando lleva >7 días sin actualizarse
+    let { data: parIdealRaw } = await supabase
         .from('inventory_par_ideal')
         .select('*')
         .eq('store_id', storeId)
+
+    if (orderType === 'daily') {
+        const latestParIdealMs = (parIdealRaw || []).reduce((maxMs: number, row: any) => {
+            const ts = row?.updated_at ? Date.parse(String(row.updated_at)) : 0
+            return Number.isFinite(ts) && ts > maxMs ? ts : maxMs
+        }, 0)
+        const isParIdealStale = !parIdealRaw || parIdealRaw.length === 0 || (Date.now() - latestParIdealMs > 7 * 86_400_000)
+        if (isParIdealStale) {
+            try {
+                await recalculateStoreParIdeal(storeId, 4, mondayStr)
+                const { data: refreshedParIdeal } = await supabase
+                    .from('inventory_par_ideal')
+                    .select('*')
+                    .eq('store_id', storeId)
+                if (refreshedParIdeal && refreshedParIdeal.length > 0) {
+                    parIdealRaw = refreshedParIdeal
+                }
+            } catch (parErr: any) {
+                console.warn(`[fetchWeeklyData] Auto-refresh de PAR Ideal omitido para tienda ${storeId}:`, parErr?.message || parErr)
+            }
+        }
+    }
 
     // Redondear dinámicamente el PAR Ideal obtenido de la BD
     const parIdeal = parIdealRaw?.map((p: any) => ({
@@ -424,7 +495,7 @@ export async function fetchWeeklyData(storeId: string | number, mondayStr: strin
         sun_par: applyRound(p.inventory_item_id, p.sun_par)
     })) || []
 
-    // Sobrantes de esta semana + domingo de semana pasada (para cálculo del lunes)
+    // Sobrantes de esta semana + semana anterior completa (ventana de 14 días para respaldo telescópico multi-día)
     const lastWeekMondayForCounts = addDays(mondayStr, -7)
     const thisSunday = addDays(mondayStr, 6)
 
@@ -432,8 +503,9 @@ export async function fetchWeeklyData(storeId: string | number, mondayStr: strin
         .from('inventory_counts')
         .select('*')
         .eq('store_id', storeId.toString())
-        .gte('count_date', addDays(lastWeekMondayForCounts, 6)) // Solo domingo anterior
+        .gte('count_date', lastWeekMondayForCounts)
         .lte('count_date', thisSunday)
+        .limit(2500)
 
     // Bases de la próxima semana (para previsualizar cambios guardados para próxima semana)
     const nextWeekMonday = addDays(mondayStr, 7)
@@ -491,9 +563,17 @@ export async function fetchWeeklyData(storeId: string | number, mondayStr: strin
     parIdeal?.forEach((p: any) => { parIdealMap[p.inventory_item_id] = p })
 
     const countsMap: Record<string, Record<string, number>> = {}
+    const countSourcesMap: Record<string, Record<string, 'manual' | 'auto_cycle_v2'>> = {}
     counts?.forEach((c: any) => {
         if (!countsMap[c.inventory_item_id]) countsMap[c.inventory_item_id] = {}
+        if (!countSourcesMap[c.inventory_item_id]) countSourcesMap[c.inventory_item_id] = {}
         countsMap[c.inventory_item_id][c.count_date] = c.quantity_on_hand
+        countSourcesMap[c.inventory_item_id][c.count_date] = isAutoCycleCountRecord({
+            countedBy: c.counted_by,
+            notes: c.notes,
+        })
+            ? 'auto_cycle_v2'
+            : 'manual'
     })
 
     // Auto-sincronizar módulo de uniformes: PAR = Stock Mínimo, Sobrante = En Existencia Real
@@ -577,6 +657,7 @@ export async function fetchWeeklyData(storeId: string | number, mondayStr: strin
         nextWeekBases: nextWeekBasesMap,
         parIdeal: parIdealMap,
         counts: countsMap,
+        countSources: countSourcesMap,
         orders: orders || [],
         currentMonday: mondayStr,
         lastSundayDate: addDays(lastWeekMondayForCounts, 6),
@@ -732,7 +813,9 @@ export async function calculateDailyOrder(
     overrideDayField?: string,
     parBoostPercent: number = 0,
     orderType: OrderType = 'daily',
-    nextWeekBases?: Record<string, WeeklyBaseRecord>
+    nextWeekBases?: Record<string, WeeklyBaseRecord>,
+    countSources?: Record<string, Record<string, 'manual' | 'auto_cycle_v2'>>,
+    options?: { forceRefresh?: boolean }
 ): Promise<CalculatedOrderLine[]> {
     const dayKey = getDayKey(dateStr)
     const dayIndex = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'].indexOf(dayKey)
@@ -751,55 +834,282 @@ export async function calculateDailyOrder(
     const targetField = overrideDayField && overrideDayField !== 'auto' ? overrideDayField : nextDayBaseField
     const actualTargetField = (orderType === 'liquids' || orderType === 'uniforms') ? 'mon_par' : targetField
 
-    const usageMap = new Map<string, number>()
-    let pilotUsage: PilotTicketUsage | null = null
-    let theoreticalSource = 'legacy_pmix_unverified'
+    const MAX_TELESCOPIC_LOOKBACK_DAYS = 7
+    const lookbackStartStr = addDays(dateStr, -MAX_TELESCOPIC_LOOKBACK_DAYS)
+
+    let storeMode: InventoryAutomationMode = 'off'
+    let useDualEngine = false
+
     if (orderType === 'daily') {
-        const { data: store, error: storeError } = await supabase.from('stores').select('name').eq('id', storeId).maybeSingle()
+        const { data: store, error: storeError } = await supabase
+            .from('stores')
+            .select('id, name, external_id, inventory_automation_mode')
+            .eq('id', storeId)
+            .maybeSingle()
         if (storeError) throw new Error(`No se pudo identificar la sucursal: ${storeError.message}`)
-        if (isInventoryAutomationPilotStore(store?.name)) {
-            pilotUsage = await getPilotTicketUsage(Number(storeId), dateStr)
-            theoreticalSource = pilotUsage.sourceReason
-            for (const [itemId, quantity] of pilotUsage.usageByItemId) usageMap.set(itemId, quantity)
+
+        const rawMode = String((store as any)?.inventory_automation_mode || '')
+        if (rawMode === 'auto_order_visible' || rawMode === 'assisted_2tier' || rawMode === 'shadow_blind' || rawMode === 'off') {
+            storeMode = rawMode
+        } else {
+            storeMode = store?.external_id ? 'auto_order_visible' : 'off'
+        }
+        useDualEngine = Boolean(store?.external_id) && storeMode !== 'off'
+
+        const ageDays = Math.max(0, Math.ceil((Date.now() - Date.parse(`${dateStr}T12:00:00Z`)) / 86_400_000))
+        const dynamicLookback = Math.min(60, Math.max(7, ageDays + 7))
+        try {
+            await reconcileStoreOrdersWithQbInvoices({
+                storeId: Number(storeId),
+                lookbackDays: dynamicLookback,
+                forceResync: Boolean(options?.forceRefresh),
+            })
+        } catch (qbRecErr: any) {
+            console.warn(`[calculateDailyOrder] QBO Invoice check omitido (${dateStr}):`, qbRecErr?.message || qbRecErr)
         }
     }
-    if (!pilotUsage) {
-        // Otras sucursales aún usan el log histórico, sin declararlo certificado.
+
+    // 1. Resolver el ancla previa más reciente (A en [dateStr - 7, dateStr - 1]) por cada ítem
+    //    Garantiza cierre exacto en domingos (ancla viernes -> resta consumo Sáb+Dom) y días sin conteo intermedio.
+    const mergedPriorCounts: Record<string, Record<string, number>> = {}
+    for (const item of items) {
+        const src = counts[item.id]
+        if (src) {
+            mergedPriorCounts[item.id] = { ...src }
+        }
+    }
+
+    if (orderType === 'daily') {
+        const anyMissingAnchor = items.some(item => {
+            const cMap = mergedPriorCounts[item.id]
+            if (!cMap) return true
+            const ib = bases[item.id]
+            const maxPar = ib
+                ? Math.max(
+                    Number(ib.mon_par || 0),
+                    Number(ib.tue_par || 0),
+                    Number(ib.wed_par || 0),
+                    Number(ib.thu_par || 0),
+                    Number(ib.fri_par || 0),
+                    Number(ib.sat_par || 0)
+                )
+                : 0
+            for (let k = 1; k <= MAX_TELESCOPIC_LOOKBACK_DAYS; k++) {
+                const d = addDays(dateStr, -k)
+                if (new Date(`${d}T12:00:00Z`).getUTCDay() === 6) continue
+                const v = cMap[d]
+                if (v !== null && v !== undefined && Number.isFinite(Number(v))) {
+                    const nv = Number(v)
+                    const spiked =
+                        !isTrackOnlyOrderItem(item) &&
+                        maxPar > 0 &&
+                        ((maxPar <= 3 && nv >= 8) || (maxPar > 3 && nv >= maxPar * 4 && nv - maxPar >= 12))
+                    if (!spiked) return false
+                }
+            }
+            return true
+        })
+
+        if (anyMissingAnchor) {
+            const { data: fallbackPriorRows } = await supabase
+                .from('inventory_counts')
+                .select('inventory_item_id, count_date, quantity_on_hand')
+                .eq('store_id', String(storeId))
+                .gte('count_date', lookbackStartStr)
+                .lt('count_date', dateStr)
+                .limit(1000)
+
+            fallbackPriorRows?.forEach((r: any) => {
+                if (r.quantity_on_hand === null || r.quantity_on_hand === undefined) return
+                const num = Number(r.quantity_on_hand)
+                if (!Number.isFinite(num)) return
+                if (!mergedPriorCounts[r.inventory_item_id]) mergedPriorCounts[r.inventory_item_id] = {}
+                if (mergedPriorCounts[r.inventory_item_id][r.count_date] === undefined) {
+                    mergedPriorCounts[r.inventory_item_id][r.count_date] = num
+                }
+            })
+        }
+    }
+
+    const anchorByItemId = new Map<string, { anchorDate: string; anchorQty: number; spanDays: number }>()
+    const neededUsageDatesSet = new Set<string>([dateStr])
+
+    if (orderType === 'daily') {
+        for (const item of items) {
+            const cMap = mergedPriorCounts[item.id]
+            if (!cMap) continue
+            const ib = bases[item.id]
+            const maxItemPar = ib
+                ? Math.max(
+                    Number(ib.mon_par || 0),
+                    Number(ib.tue_par || 0),
+                    Number(ib.wed_par || 0),
+                    Number(ib.thu_par || 0),
+                    Number(ib.fri_par || 0),
+                    Number(ib.sat_par || 0)
+                )
+                : 0
+
+            for (let k = 1; k <= MAX_TELESCOPIC_LOOKBACK_DAYS; k++) {
+                const candidateDate = addDays(dateStr, -k)
+                // Sábado no tiene cierre diario; ignorar capturas sabatinas accidentales para no restar doble el consumo de sábado en el domingo
+                if (new Date(`${candidateDate}T12:00:00Z`).getUTCDay() === 6) continue
+                const rawVal = cMap[candidateDate]
+                if (rawVal !== null && rawVal !== undefined && Number.isFinite(Number(rawVal))) {
+                    const numVal = Number(rawVal)
+                    // Ignorar picos de error de unidad (ej. capturar 8 o 15 rebanadas sueltas en un ítem de PAR 1-3 paquetes) si existe un ancla previa limpia
+                    const isUnitSpikeAnchor =
+                        !isTrackOnlyOrderItem(item) &&
+                        maxItemPar > 0 &&
+                        ((maxItemPar <= 3 && numVal >= 8) || (maxItemPar > 3 && numVal >= maxItemPar * 4 && numVal - maxItemPar >= 12))
+                    if (isUnitSpikeAnchor) {
+                        const hasEarlierCleanAnchor = Array.from({ length: MAX_TELESCOPIC_LOOKBACK_DAYS - k }, (_, idx) => addDays(dateStr, -(k + 1 + idx)))
+                            .some(d => {
+                                if (new Date(`${d}T12:00:00Z`).getUTCDay() === 6) return false
+                                const v = cMap[d]
+                                if (v === null || v === undefined || !Number.isFinite(Number(v))) return false
+                                const nv = Number(v)
+                                return !((maxItemPar <= 3 && nv >= 8) || (maxItemPar > 3 && nv >= maxItemPar * 4 && nv - maxItemPar >= 12))
+                            })
+                        if (hasEarlierCleanAnchor) continue
+                    }
+
+                    anchorByItemId.set(item.id, {
+                        anchorDate: candidateDate,
+                        anchorQty: numVal,
+                        spanDays: k,
+                    })
+                    for (let step = k - 1; step >= 0; step--) {
+                        const candUsage = addDays(dateStr, -step)
+                        const candDow = new Date(`${candUsage}T12:00:00Z`).getUTCDay()
+                        // Sábado se concilia de forma unificada dentro del domingo (Sáb+Dom) en ambos motores
+                        if (candDow === 6 && addDays(candUsage, 1) <= dateStr) continue
+                        neededUsageDatesSet.add(candUsage)
+                    }
+                    break
+                }
+            }
+        }
+    }
+
+    // 2. Calcular consumo dual por cada fecha necesaria en (anchorDate, dateStr]
+    type DailyDualUsageBundle = {
+        pilotUsage: PilotTicketUsage
+        massBalanceUsage: HistoricalMassBalanceResult
+        combinedMap: Map<string, number>
+    }
+    const dualUsageByDate = new Map<string, DailyDualUsageBundle>()
+    const legacyUsageMap = new Map<string, number>()
+    let theoreticalSource = 'legacy_pmix_unverified'
+
+    if (useDualEngine) {
+        const sortedUsageDates = Array.from(neededUsageDatesSet).sort()
+        const bundles = await Promise.all(
+            sortedUsageDates.map(async uDate => {
+                const pUsage = await getPilotTicketUsage(Number(storeId), uDate, {
+                    forceRefresh: Boolean(options?.forceRefresh && uDate === dateStr),
+                })
+                const mUsage = await getHistoricalMassBalanceUsage(
+                    Number(storeId),
+                    uDate,
+                    items.map(it => ({ id: it.id, name: it.excel_reference || it.name })),
+                    pUsage.sourceStatus !== 'unavailable' ? pUsage.tickets : undefined,
+                    { forceRefresh: Boolean(options?.forceRefresh && uDate === dateStr) }
+                )
+                const combinedMap = new Map<string, number>()
+                if (pUsage.sourceStatus !== 'unavailable') {
+                    for (const [itemId, qty] of pUsage.usageByItemId) combinedMap.set(itemId, qty)
+                }
+                if (mUsage.status === 'ok') {
+                    for (const [itemId, qty] of mUsage.usageByItemId) combinedMap.set(itemId, qty)
+                }
+                return { uDate, pilotUsage: pUsage, massBalanceUsage: mUsage, combinedMap }
+            })
+        )
+        for (const b of bundles) {
+            dualUsageByDate.set(b.uDate, {
+                pilotUsage: b.pilotUsage,
+                massBalanceUsage: b.massBalanceUsage,
+                combinedMap: b.combinedMap,
+            })
+        }
+        const todayBundle = dualUsageByDate.get(dateStr)
+        if (todayBundle) {
+            theoreticalSource = todayBundle.pilotUsage.sourceStatus !== 'unavailable'
+                ? `${todayBundle.pilotUsage.sourceReason} | ${todayBundle.massBalanceUsage.reason}`
+                : todayBundle.massBalanceUsage.status === 'ok'
+                ? `${todayBundle.pilotUsage.sourceReason} | ${todayBundle.massBalanceUsage.reason}`
+                : todayBundle.pilotUsage.sourceReason
+        }
+    } else if (orderType === 'daily') {
         const { data: usageLogData, error: usageError } = await supabase
             .from('inventory_usage_log')
             .select('inventory_item_id, theoretical_usage')
             .eq('store_id', storeId.toString())
             .eq('business_date', dateStr)
         if (usageError) throw new Error(`No se pudo leer consumo teórico: ${usageError.message}`)
-        usageLogData?.forEach((u: any) => usageMap.set(u.inventory_item_id, Number(u.theoretical_usage) || 0))
+        usageLogData?.forEach((u: any) => legacyUsageMap.set(u.inventory_item_id, Number(u.theoretical_usage) || 0))
     }
 
-    // 2. Obtener la fecha de ayer para leer Sobrante de Ayer + Pedido Llegó Hoy
-    const yesterdayStr = addDays(dateStr, new Date(`${dateStr}T12:00:00Z`).getUTCDay() === 0 && orderType === 'daily' ? -2 : -1)
+    // 3. Leer órdenes entregadas en [dateStr - 7, dateStr] para llegadas telescópicas y estado de envío de hoy
+    let recentOrderError: { message: string } | null = null
+    const arrivedByOrderDate = new Map<string, Map<string, number>>()
+    const unreliableArrivalByOrderDate = new Map<string, Set<string>>()
+    let hasSentOrderToday = false
 
-    // Leer orden entregada ayer/hoy para saber lo que llegó de Bodega
-    const { data: recentOrderLines, error: recentOrderError } = await supabase
-        .from('inventory_order_lines')
-        .select('inventory_item_id, final_qty, adjusted_qty, calculated_qty, par_value, order_id, inventory_orders!inner(order_date, store_id, order_type, status)')
-        .eq('inventory_orders.store_id', storeId)
-        .eq('inventory_orders.order_date', yesterdayStr)
-        .eq('inventory_orders.order_type', 'daily')
-        .in('inventory_orders.status', ['sent', 'received'])
+    const trackOnlyIdsInCatalog = new Set(
+        items.filter(it => orderType === 'daily' && isTrackOnlyOrderItem(it)).map(it => it.id)
+    )
 
-    const arrivedMap = new Map<string, number>()
-    const unreliableArrivalItems = new Set<string>()
-    recentOrderLines?.forEach((l: any) => {
-        const qty = Number(l.final_qty ?? l.adjusted_qty ?? l.calculated_qty ?? 0)
-        if (isImplausibleArrivalQuantity(qty, Number(l.par_value), Number(l.calculated_qty))) {
-            unreliableArrivalItems.add(l.inventory_item_id)
-            return
+    if (orderType === 'daily') {
+        const { data: recentOrderLines, error: orderErr } = await supabase
+            .from('inventory_order_lines')
+            .select('inventory_item_id, final_qty, adjusted_qty, calculated_qty, par_value, order_id, inventory_orders!inner(order_date, store_id, order_type, status)')
+            .eq('inventory_orders.store_id', storeId)
+            .gte('inventory_orders.order_date', lookbackStartStr)
+            .lte('inventory_orders.order_date', dateStr)
+            .eq('inventory_orders.order_type', 'daily')
+            .in('inventory_orders.status', ['sent', 'received'])
+
+        if (orderErr) {
+            recentOrderError = { message: orderErr.message }
+        } else {
+            recentOrderLines?.forEach((l: any) => {
+                const ordObj = Array.isArray(l.inventory_orders) ? l.inventory_orders[0] : l.inventory_orders
+                const ordDate = String(ordObj?.order_date || '')
+                if (!ordDate) return
+                if (ordDate === dateStr) {
+                    hasSentOrderToday = true
+                    return
+                }
+                const lineItemId = String(l.inventory_item_id || '')
+                if (
+                    EXTERNAL_TRACK_ONLY_ITEM_IDS.has(lineItemId) ||
+                    trackOnlyIdsInCatalog.has(lineItemId) ||
+                    isExternalTrackOnlyDessert({ inventory_item_id: lineItemId })
+                ) {
+                    return
+                }
+                const qty = Number(l.final_qty ?? l.adjusted_qty ?? l.calculated_qty ?? 0)
+                if (isImplausibleArrivalQuantity(qty, Number(l.par_value), Number(l.calculated_qty))) {
+                    if (!unreliableArrivalByOrderDate.has(ordDate)) unreliableArrivalByOrderDate.set(ordDate, new Set())
+                    unreliableArrivalByOrderDate.get(ordDate)!.add(lineItemId)
+                    return
+                }
+                if (!arrivedByOrderDate.has(ordDate)) arrivedByOrderDate.set(ordDate, new Map())
+                const dayArrivals = arrivedByOrderDate.get(ordDate)!
+                dayArrivals.set(lineItemId, (dayArrivals.get(lineItemId) || 0) + qty)
+            })
         }
-        arrivedMap.set(l.inventory_item_id, (arrivedMap.get(l.inventory_item_id) || 0) + qty)
-    })
+    }
 
+    const todayDualBundle = dualUsageByDate.get(dateStr) || null
     const lines: CalculatedOrderLine[] = []
 
     for (const item of items) {
+        const isTrackOnly = orderType === 'daily' && isTrackOnlyOrderItem(item)
+        const isCritical = isCriticalDailyPhysicalSku(item)
+
         // Si el día seleccionado es Domingo (dayKey === 'sun') y estamos buscando 'mon_par' (Lunes),
         // el Lunes pertenece a la PRÓXIMA SEMANA. Usamos nextWeekBases si está disponible.
         let base = bases[item.id]
@@ -824,42 +1134,140 @@ export async function calculateDailyOrder(
         // PAR Ideal de referencia para ese mismo día
         const itemParIdeal = parIdeal && parIdeal[item.id] ? (parIdeal[item.id] as any)[actualTargetField] || 0 : 0
 
-        // Sobrante de hoy
+        // Sobrante de hoy en DB
         const itemCounts = counts[item.id] || {}
         const leftoverValue = itemCounts[dateStr] ?? null
+        const countSource = countSources?.[item.id]?.[dateStr] ?? (leftoverValue !== null ? 'manual' : null)
 
-        // Sobrante de ayer
-        const yesterdayLeftover = itemCounts[yesterdayStr] ?? null
-        const arrivedToday = arrivedMap.get(item.id) || 0
-        const theoreticalUsage = usageMap.get(item.id) ?? null
-        const itemTheoreticalBlocked = Boolean(
-            pilotUsage && (pilotUsage.sourceStatus === 'unavailable' || pilotUsage.allItemsBlocked ||
-                pilotUsage.blockedItemIds.has(item.id) || theoreticalUsage === null)
-        )
+        const usesMassBalance = Boolean(useDualEngine && isHistoricalMassBalanceItem(item))
+        const anchor = anchorByItemId.get(item.id) || null
 
+        let arrivedSinceAnchor = 0
+        let spanTheoreticalUsage: number | null = null
+        let itemTheoreticalBlocked = false
+        let hasUnreliableArrivalInSpan = false
+
+        if (orderType === 'daily') {
+            if (useDualEngine && anchor) {
+                let totalUsage = 0
+                for (let offset = 0; offset < anchor.spanDays; offset++) {
+                    const orderD = addDays(anchor.anchorDate, offset) // [anchorDate .. dateStr - 1]
+                    if (!isTrackOnly) {
+                        if (unreliableArrivalByOrderDate.get(orderD)?.has(item.id)) {
+                            hasUnreliableArrivalInSpan = true
+                        }
+                        arrivedSinceAnchor += arrivedByOrderDate.get(orderD)?.get(item.id) || 0
+                    }
+
+                    const usageD = addDays(anchor.anchorDate, offset + 1) // [anchorDate + 1 .. dateStr]
+                    const usageDow = new Date(`${usageD}T12:00:00Z`).getUTCDay()
+                    // El cierre dominical en getPilotTicketUsage y getHistoricalMassBalanceUsage ya integra Sáb+Dom
+                    if (usageDow === 6 && addDays(usageD, 1) <= dateStr) {
+                        continue
+                    }
+                    const bundle = dualUsageByDate.get(usageD)
+                    const posVerifiedForItem = Boolean(
+                        bundle &&
+                        !usesMassBalance &&
+                        bundle.pilotUsage.sourceStatus !== 'unavailable' &&
+                        !bundle.pilotUsage.allItemsBlocked &&
+                        !bundle.pilotUsage.blockedItemIds.has(item.id)
+                    )
+                    const rawDayUsage = bundle?.combinedMap.get(item.id)
+                    const dayItemUsage = rawDayUsage !== undefined
+                        ? rawDayUsage
+                        : (posVerifiedForItem ? 0 : null)
+                    const dayBlocked = !bundle || (
+                        usesMassBalance
+                            ? (bundle.massBalanceUsage.status === 'unavailable' && bundle.pilotUsage.sourceStatus === 'unavailable') || dayItemUsage === null
+                            : !posVerifiedForItem || dayItemUsage === null
+                    )
+                    if (dayBlocked || dayItemUsage === null) {
+                        itemTheoreticalBlocked = true
+                    } else {
+                        totalUsage += dayItemUsage
+                    }
+                }
+                spanTheoreticalUsage = itemTheoreticalBlocked ? null : Number(totalUsage.toFixed(4))
+            } else if (useDualEngine && !anchor) {
+                const todayUsageVal = todayDualBundle?.combinedMap.get(item.id) ?? null
+                spanTheoreticalUsage = todayUsageVal !== null ? Number(todayUsageVal.toFixed(4)) : null
+                const prevDay = addDays(dateStr, -1)
+                arrivedSinceAnchor = isTrackOnly ? 0 : (arrivedByOrderDate.get(prevDay)?.get(item.id) || 0)
+            } else {
+                const prevDay = addDays(dateStr, dayKey === 'sun' ? -2 : -1)
+                arrivedSinceAnchor = isTrackOnly ? 0 : (arrivedByOrderDate.get(prevDay)?.get(item.id) || 0)
+                hasUnreliableArrivalInSpan = !isTrackOnly && Boolean(unreliableArrivalByOrderDate.get(prevDay)?.has(item.id))
+                spanTheoreticalUsage = legacyUsageMap.get(item.id) ?? null
+            }
+        }
+
+        let rawSuggestedLeftover: number | null = null
         let suggestedLeftover: number | null = null
 
-        if (theoreticalUsage !== null && yesterdayLeftover !== null) {
-            // Ecuación Fundamental: Sobrante Teórico = Sobrante Ayer + Llegó Hoy - Consumo Teórico
-            const calc = yesterdayLeftover + arrivedToday - theoreticalUsage
-            suggestedLeftover = Number(calc.toFixed(2))
-        } else if (recentOrderError || itemTheoreticalBlocked || unreliableArrivalItems.has(item.id)) {
-            // No tratar una captura anómala como inventario recibido ni producir estimación comparable.
-            suggestedLeftover = null
+        if (
+            orderType === 'daily' &&
+            !recentOrderError &&
+            !itemTheoreticalBlocked &&
+            !hasUnreliableArrivalInSpan &&
+            anchor !== null &&
+            spanTheoreticalUsage !== null
+        ) {
+            // Ley Telescópica de Conservación de Masa:
+            // Sobrante(T) = Sobrante(A) + Sum_{d=A..T-1} Llegadas(d) - Sum_{d=A+1..T} Consumo(d)
+            const rawCalc = anchor.anchorQty + arrivedSinceAnchor - spanTheoreticalUsage
+            rawSuggestedLeftover = Number(rawCalc.toFixed(2))
+            // Piso físico 0 para cálculo de orden: evita pedir más que el PAR completo cuando hubo sobre-porcionado
+            suggestedLeftover = Number(Math.max(0, rawCalc).toFixed(1))
         }
 
-        // Calcular varianza: Sobrante Teórico Sugerido - Sobrante Real Capturado
+        // Regla A3 ("Físico Manda"):
+        // 1) Si el asistente o manager capturó conteo físico ('manual'), su número manda al 100%.
+        // 2) Si fue materializado automáticamente ('auto_cycle_v2'), refresca en vivo mientras no se haya enviado a QB.
+        // 3) Si aún no hay captura en DB y el modo es 'auto_order_visible', la orden ya viene lista con suggestedLeftover.
+        let effectiveLeftover: number | null = null
+        let effectiveSource: 'manual' | 'auto_cycle_v2' | 'system_auto' | null = null
+
+        if (leftoverValue !== null && countSource === 'manual') {
+            effectiveLeftover = leftoverValue
+            effectiveSource = 'manual'
+        } else if (leftoverValue !== null && countSource === 'auto_cycle_v2') {
+            effectiveLeftover = (storeMode === 'auto_order_visible' && !hasSentOrderToday && suggestedLeftover !== null)
+                ? suggestedLeftover
+                : leftoverValue
+            effectiveSource = 'auto_cycle_v2'
+        } else if (orderType === 'daily' && storeMode === 'auto_order_visible' && suggestedLeftover !== null) {
+            effectiveLeftover = suggestedLeftover
+            effectiveSource = 'system_auto'
+        }
+
+        // Calcular varianza y tolerancia en vivo cuando existe conteo en DB
         let variance: number | null = null
+        let toleranceValue: number | null = null
+        let withinTolerance: boolean | null = null
         if (suggestedLeftover !== null && leftoverValue !== null) {
+            const comp = buildPilotComparisonLine({
+                inventory_item_id: item.id,
+                item_name: item.excel_reference || item.name,
+                physical_leftover: leftoverValue,
+                automatic_leftover: suggestedLeftover,
+                par_value: parValue,
+                rounding_rule: item.order_rounding_rule,
+            })
             variance = Number((leftoverValue - suggestedLeftover).toFixed(2))
+            toleranceValue = comp.tolerance_value
+            withinTolerance = comp.within_tolerance
         }
 
-        // El pedido oficial depende solo del conteo físico. Sin captura, no hay pedido oficial.
-        // El teórico permanece separado y nunca sustituye un sobrante faltante.
-        const officialBase = leftoverValue === null ? null : Math.max(0, parValue - leftoverValue)
-        const calculatedQty = officialBase === null ? 0 : applyRounding(officialBase, item.order_rounding_rule)
+        // Los postres externos TRACK_ONLY jamás generan pedido a La Bodega (siempre 0).
+        const effectiveOrderBase = effectiveLeftover === null ? null : Math.max(0, parValue - effectiveLeftover)
+        const calculatedQty = isTrackOnly
+            ? 0
+            : (effectiveOrderBase === null ? 0 : applyRounding(effectiveOrderBase, item.order_rounding_rule))
         const suggestedBase = suggestedLeftover === null ? null : Math.max(0, parValue - suggestedLeftover)
-        const suggestedOrderQty = suggestedBase === null ? undefined : applyRounding(suggestedBase, item.order_rounding_rule)
+        const suggestedOrderQty = isTrackOnly
+            ? 0
+            : (suggestedBase === null ? undefined : applyRounding(suggestedBase, item.order_rounding_rule))
 
         lines.push({
             inventory_item_id: item.id,
@@ -869,18 +1277,29 @@ export async function calculateDailyOrder(
             par_ideal_value: itemParIdeal,
             leftover_value: leftoverValue,
             suggested_leftover: suggestedLeftover,
-            is_burn_rate: false,
+            raw_suggested_leftover: rawSuggestedLeftover,
+            effective_leftover: effectiveLeftover,
+            effective_source: effectiveSource,
+            is_burn_rate: Boolean(usesMassBalance && todayDualBundle?.massBalanceUsage.usageByItemId.has(item.id)),
             variance: variance,
+            tolerance_value: toleranceValue,
+            within_tolerance: withinTolerance,
             calculated_qty: calculatedQty,
             suggested_order_qty: suggestedOrderQty,
             rounding_rule: item.order_rounding_rule,
-            qb_item_id: item.qb_item_id,
+            qb_item_id: isTrackOnly ? 'TRACK_ONLY' : item.qb_item_id,
             purchase_unit_cost: item.purchase_unit_cost,
             unit_measure: item.unit_measure,
-            theoretical_consumption: theoreticalUsage,
-            yesterday_order_qty: arrivedToday,
-            theoretical_source_status: itemTheoreticalBlocked || recentOrderError ? 'not_certified' : pilotUsage ? 'verified_source_partial_recipe' : 'legacy_pmix_unverified',
+            theoretical_consumption: spanTheoreticalUsage,
+            yesterday_order_qty: arrivedSinceAnchor,
+            theoretical_source_status: itemTheoreticalBlocked || recentOrderError
+                ? 'not_certified'
+                : useDualEngine
+                ? 'verified_dual_engine_v2'
+                : 'legacy_pmix_unverified',
             theoretical_source_reason: recentOrderError?.message || theoreticalSource,
+            sku_tier: isCritical ? 'critical_daily' : 'cycle_stable',
+            count_source: countSource,
         })
     }
 
@@ -888,7 +1307,8 @@ export async function calculateDailyOrder(
 }
 
 /**
- * Lee el estado del piloto shadow. Solo Lynwood/Slauson + Orden Diaria participan.
+ * Lee el estado operativo de automatización de Orden Diaria en las 15 sucursales activas
+ * ('auto_order_visible', 'assisted_2tier', 'shadow_blind', 'off').
  * Si la migración aún no fue aplicada, informa schemaReady=false sin romper el módulo existente.
  */
 export async function fetchInventoryPilotSession(
@@ -897,19 +1317,60 @@ export async function fetchInventoryPilotSession(
     orderType: OrderType = 'daily'
 ): Promise<InventoryPilotSession> {
     if (orderType !== 'daily') {
-        return { enabled: false, schemaReady: true, status: 'counting', lines: [] }
+        return { enabled: false, schemaReady: true, status: 'counting', automationMode: 'off', lines: [] }
     }
 
     const { data: store, error: storeError } = await supabase
         .from('stores')
-        .select('id, name')
+        .select('id, name, external_id, inventory_automation_mode')
         .eq('id', storeId)
         .maybeSingle()
     if (storeError) throw new Error(storeError.message)
 
-    const enabled = isInventoryAutomationPilotStore(store?.name)
-    if (!enabled) return { enabled: false, schemaReady: true, status: 'counting', lines: [] }
-    const pilotStoreName = getInventoryAutomationPilotStoreName(store?.name)
+    const hasActiveToastStore = Boolean(store?.external_id) || isInventoryAutomationPilotStore(store?.name)
+    if (!hasActiveToastStore) {
+        return { enabled: false, schemaReady: true, status: 'counting', automationMode: 'off', lines: [] }
+    }
+
+    const displayStoreName = getInventoryAutomationPilotStoreName(store?.name) || store?.name || null
+    const rawMode = String((store as any)?.inventory_automation_mode || '')
+    const automationMode: InventoryAutomationMode =
+        rawMode === 'auto_order_visible' || rawMode === 'assisted_2tier' || rawMode === 'shadow_blind' || rawMode === 'off'
+            ? rawMode
+            : 'auto_order_visible'
+    const isSundayAnchor = isFullPhysicalAnchorDate(businessDate)
+
+    let canManageMode = false
+    try {
+        const user = await getServerUser()
+        if (user) {
+            const { data: userProfile } = await supabase
+                .from('users')
+                .select('*')
+                .ilike('email', user.email)
+                .maybeSingle()
+            canManageMode = canManageInventoryAutomationMode({
+                userName: (userProfile as any)?.full_name || (userProfile as any)?.name || user.name,
+                userEmail: user.email,
+                userRole: (userProfile as any)?.role || user.role,
+            })
+        }
+    } catch {
+        canManageMode = false
+    }
+
+    if (automationMode === 'off') {
+        return {
+            enabled: canManageMode,
+            schemaReady: true,
+            status: 'revealed',
+            storeName: displayStoreName,
+            automationMode: 'off',
+            isSundayAnchor,
+            canManageMode,
+            lines: [],
+        }
+    }
 
     const { data: session, error } = await supabase
         .from('inventory_automation_pilot_sessions')
@@ -922,24 +1383,43 @@ export async function fetchInventoryPilotSession(
     if (error) {
         const missingSchema = error.code === '42P01' || /does not exist|schema cache/i.test(error.message)
         if (missingSchema) {
-            return { enabled: true, schemaReady: false, status: 'counting', storeName: pilotStoreName, lines: [] }
+            return {
+                enabled: true,
+                schemaReady: false,
+                status: automationMode === 'auto_order_visible' ? 'revealed' : 'counting',
+                storeName: displayStoreName,
+                automationMode,
+                isSundayAnchor,
+                canManageMode,
+                lines: [],
+            }
         }
         throw new Error(error.message)
     }
 
+    const resolvedStatus: 'counting' | 'revealed' =
+        automationMode === 'auto_order_visible'
+            ? 'revealed'
+            : session?.status === 'revealed'
+            ? 'revealed'
+            : 'counting'
+
     return {
         enabled: true,
         schemaReady: true,
-        status: session?.status === 'revealed' ? 'revealed' : 'counting',
-        storeName: pilotStoreName,
+        status: resolvedStatus,
+        storeName: displayStoreName,
         sessionId: session?.id,
         completedAt: session?.completed_at,
         completedBy: session?.completed_by_name,
+        automationMode,
+        isSundayAnchor,
+        canManageMode,
         lines: (session?.inventory_automation_pilot_lines as any[]) || [],
     }
 }
 
-/** Cierra el conteo ciego y persiste la comparación shadow del piloto Lynwood/Slauson. */
+/** Cierra el conteo y persiste el comparativo de precisión física vs cálculo automático. */
 export async function finalizeInventoryPilotCount(
     storeId: string | number,
     businessDate: string,
@@ -950,20 +1430,20 @@ export async function finalizeInventoryPilotCount(
 
     const { data: userProfile } = await supabase
         .from('users')
-        .select('full_name, email, role, store_id, store_scope')
+        .select('*')
         .ilike('email', user.email)
         .maybeSingle()
-    const authenticatedName = userProfile?.full_name || user.name
+    const authenticatedName = (userProfile as any)?.full_name || (userProfile as any)?.name || user.name
     const { data: store, error: storeError } = await supabase
-        .from('stores').select('id, name').eq('id', storeId).single()
-    if (storeError || !store || !isInventoryAutomationPilotStore(store.name)) {
-        return { error: 'El piloto supervisado está habilitado únicamente para Lynwood y Slauson.' }
+        .from('stores').select('id, name, external_id, inventory_automation_mode').eq('id', storeId).single()
+    if (storeError || !store || (!store.external_id && !isInventoryAutomationPilotStore(store.name))) {
+        return { error: 'Sucursal no habilitada para comparación automática.' }
     }
 
-    const profileRole = String(userProfile?.role || user.role || '').trim().toLowerCase()
-    const profileScope = Array.isArray(userProfile?.store_scope) ? userProfile.store_scope : []
+    const profileRole = String((userProfile as any)?.role || user.role || '').trim().toLowerCase()
+    const profileScope = Array.isArray((userProfile as any)?.store_scope) ? (userProfile as any).store_scope : []
     const assignedStoreIds = [
-        userProfile?.store_id,
+        (userProfile as any)?.store_id,
         ...profileScope,
     ].filter(value => value !== null && value !== undefined)
 
@@ -976,12 +1456,12 @@ export async function finalizeInventoryPilotCount(
         assignedStoreIds,
     })
     if (!canClosePilot) {
-        return { error: `Solo el manager asignado a ${getInventoryAutomationPilotStoreName(store.name)} o Roque puede cerrar este piloto.` }
+        return { error: `Solo el manager o asistente asignado a ${store.name} o Administración puede cerrar este comparativo.` }
     }
 
     const missing = await getMissingDailyCounts(supabase, storeId, businessDate)
     if (missing.length) {
-        return { error: `Faltan ${missing.length} conteos físicos antes de comparar: ${missing.map(i => i.name).join(', ')}` }
+        return { error: `Faltan ${missing.length} conteos antes de comparar: ${missing.map(i => i.name).join(', ')}` }
     }
 
     const { data: storedCounts, error: countError } = await supabase
@@ -1002,6 +1482,107 @@ export async function finalizeInventoryPilotCount(
         }
     }
 
+    // Recálculo autoritativo en el servidor al instante de guardar el comparativo:
+    // evita que un estado inicial obsoleto o NULL del navegador se persista en la sesión.
+    let serverLineMap = new Map<string, CalculatedOrderLine>()
+    try {
+        const lookbackStartStr = addDays(businessDate, -7)
+        const mondayStr = getMonday(businessDate)
+        const prevMondayStr = addDays(mondayStr, -7)
+        const nextMondayStr = addDays(mondayStr, 7)
+
+        const [
+            orderableItems,
+            { data: openingCounts },
+            { data: currBases },
+            { data: prevBases },
+            { data: nextBases },
+            { data: idealBases },
+        ] = await Promise.all([
+            fetchOrderableItems(store.id, 'daily'),
+            supabase
+                .from('inventory_counts')
+                .select('inventory_item_id, count_date, quantity_on_hand')
+                .eq('store_id', String(store.id))
+                .gte('count_date', lookbackStartStr)
+                .lt('count_date', businessDate)
+                .limit(1000),
+            supabase
+                .from('inventory_weekly_bases')
+                .select('*')
+                .eq('store_id', store.id)
+                .eq('week_start_date', mondayStr),
+            supabase
+                .from('inventory_weekly_bases')
+                .select('*')
+                .eq('store_id', store.id)
+                .eq('week_start_date', prevMondayStr),
+            supabase
+                .from('inventory_weekly_bases')
+                .select('*')
+                .eq('store_id', store.id)
+                .eq('week_start_date', nextMondayStr),
+            supabase
+                .from('inventory_par_ideal')
+                .select('*')
+                .eq('store_id', store.id),
+        ])
+
+        const countsForCalc: Record<string, Record<string, number>> = {}
+        for (const row of openingCounts || []) {
+            if (!countsForCalc[row.inventory_item_id]) countsForCalc[row.inventory_item_id] = {}
+            countsForCalc[row.inventory_item_id][row.count_date] = Number(row.quantity_on_hand)
+        }
+        for (const [itemId, qty] of countMap.entries()) {
+            if (!countsForCalc[itemId]) countsForCalc[itemId] = {}
+            countsForCalc[itemId][businessDate] = qty
+        }
+
+        const basesMap: Record<string, WeeklyBaseRecord> = {}
+        for (const b of (idealBases || []) as any[]) {
+            basesMap[b.inventory_item_id] = b
+        }
+        for (const b of (prevBases || []) as any[]) {
+            basesMap[b.inventory_item_id] = b
+        }
+        for (const b of (currBases || []) as any[]) {
+            basesMap[b.inventory_item_id] = b
+        }
+        const nextBasesMap: Record<string, WeeklyBaseRecord> = {}
+        for (const b of (nextBases || []) as any[]) {
+            nextBasesMap[b.inventory_item_id] = b
+        }
+
+        const freshServerLines = await calculateDailyOrder(
+            store.id,
+            businessDate,
+            orderableItems,
+            basesMap,
+            countsForCalc,
+            mondayStr,
+            undefined,
+            'auto',
+            0,
+            'daily',
+            nextBasesMap
+        )
+        serverLineMap = new Map(freshServerLines.map(l => [l.inventory_item_id, l]))
+    } catch (recalcErr: any) {
+        console.error(`[finalizeInventoryPilotCount] Fallback a líneas cliente tras error en recálculo servidor:`, recalcErr?.message || recalcErr)
+    }
+
+    const rawMode = String((store as any)?.inventory_automation_mode || 'auto_order_visible')
+    const effectiveAutomationMode: InventoryAutomationMode =
+        rawMode === 'auto_order_visible' || rawMode === 'assisted_2tier' || rawMode === 'shadow_blind' || rawMode === 'off'
+            ? rawMode
+            : 'auto_order_visible'
+    const sessionModelVersion =
+        effectiveAutomationMode === 'auto_order_visible'
+            ? 'auto-order-visible-v3'
+            : effectiveAutomationMode === 'assisted_2tier' && !isFullPhysicalAnchorDate(businessDate)
+            ? 'assisted-2tier-v2'
+            : 'dual-engine-v2'
+
     const now = new Date().toISOString()
     const { data: session, error: sessionError } = await supabase
         .from('inventory_automation_pilot_sessions')
@@ -1010,7 +1591,7 @@ export async function finalizeInventoryPilotCount(
             business_date: businessDate,
             order_type: 'daily',
             status: 'revealed',
-            model_version: 'shadow-v1',
+            model_version: sessionModelVersion,
             completed_by_user_id: String(user.id),
             completed_by_name: authenticatedName,
             completed_at: now,
@@ -1023,7 +1604,15 @@ export async function finalizeInventoryPilotCount(
         return { error: sessionError?.message || 'No se pudo guardar la sesión del piloto.' }
     }
 
-    const comparisons = [...uniqueLines.values()].map(buildPilotComparisonLine)
+    const comparisons = [...uniqueLines.values()].map(line => {
+        const serverLine = serverLineMap.get(line.inventory_item_id)
+        return buildPilotComparisonLine({
+            ...line,
+            automatic_leftover: serverLine?.suggested_leftover ?? line.automatic_leftover ?? null,
+            par_value: serverLine ? serverLine.par_value : line.par_value,
+            rounding_rule: serverLine?.rounding_rule || line.rounding_rule,
+        })
+    })
     const payload = comparisons.map(line => ({
         session_id: session.id,
         inventory_item_id: line.inventory_item_id,
@@ -1046,6 +1635,200 @@ export async function finalizeInventoryPilotCount(
 
     revalidatePath('/inventory/orders')
     return { success: true, sessionId: session.id, comparisons }
+}
+
+/**
+ * Cambia el modo operativo de automatización de Orden Diaria en una sucursal
+ * ('auto_order_visible', 'assisted_2tier', 'shadow_blind', 'off').
+ * Restringido a Administración, Roque y Carlos Velázquez.
+ */
+export async function setStoreInventoryAutomationMode(
+    storeId: string | number,
+    mode: InventoryAutomationMode
+): Promise<{ success: boolean; mode?: InventoryAutomationMode; error?: string }> {
+    try {
+        const user = await assertUserStoreAccess(storeId)
+        if (!['off', 'shadow_blind', 'assisted_2tier', 'auto_order_visible'].includes(mode)) {
+            return { success: false, error: 'Modo de automatización inválido.' }
+        }
+
+        const { data: userProfile } = await supabase
+            .from('users')
+            .select('*')
+            .ilike('email', user.email)
+            .maybeSingle()
+
+        const allowed = canManageInventoryAutomationMode({
+            userRole: (userProfile as any)?.role || user.role,
+            userName: (userProfile as any)?.full_name || (userProfile as any)?.name || user.name,
+            userEmail: user.email,
+        })
+        if (!allowed) {
+            return {
+                success: false,
+                error: 'Solo Administración, Roque o Carlos Velázquez pueden cambiar el modo operativo.',
+            }
+        }
+
+        const { error: updateErr } = await supabase
+            .from('stores')
+            .update({ inventory_automation_mode: mode })
+            .eq('id', storeId)
+
+        if (updateErr) {
+            return { success: false, error: `No se pudo cambiar el modo: ${updateErr.message}` }
+        }
+
+        revalidatePath('/inventory/orders')
+        return { success: true, mode }
+    } catch (err: any) {
+        return {
+            success: false,
+            error: err instanceof Error ? err.message : 'Error al actualizar el modo operativo',
+        }
+    }
+}
+
+/**
+ * Pre-llena automáticamente en `inventory_counts` con `counted_by = 'AUTO_CYCLE_V2'`
+ * sin sobrescribir jamás conteos físicos manuales (`count_source === 'manual'`):
+ * - En `'assisted_2tier'`: pre-llena los 34 insumos estables (`cycle_stable`) de Lun–Vie.
+ * - En `'auto_order_visible'`: permite estampar opcionalmente en un clic los ítems aún vacíos.
+ */
+export async function applyAssistedCycleCountPrefill(
+    storeId: string | number,
+    businessDate: string
+): Promise<{
+    success: boolean
+    prefilledCount?: number
+    skippedAnomalyCount?: number
+    criticalRemainingCount?: number
+    error?: string
+}> {
+    try {
+        await assertUserStoreAccess(storeId)
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(businessDate)) {
+            return { success: false, error: 'Fecha operativa inválida.' }
+        }
+
+        const { data: store, error: storeErr } = await supabase
+            .from('stores')
+            .select('id, name, external_id, inventory_automation_mode')
+            .eq('id', storeId)
+            .maybeSingle()
+
+        if (storeErr || !store) {
+            return { success: false, error: storeErr?.message || 'Sucursal no encontrada.' }
+        }
+        if (!store.external_id && !isInventoryAutomationPilotStore(store.name)) {
+            return { success: false, error: 'Esta sucursal no tiene integración Toast activa.' }
+        }
+
+        const mode = String((store as any).inventory_automation_mode || 'auto_order_visible')
+        if (mode !== 'assisted_2tier' && mode !== 'auto_order_visible') {
+            return { success: false, error: 'Activa el Modo Orden Automática Visible o Asistido 2 Niveles para usar esta función.' }
+        }
+        if (mode === 'assisted_2tier' && isFullPhysicalAnchorDate(businessDate)) {
+            return {
+                success: false,
+                error: 'Hoy es Domingo de Ancla Física: los 51 productos requieren conteo físico completo para reiniciar el ciclo.',
+            }
+        }
+        const utcDow = new Date(`${businessDate}T12:00:00Z`).getUTCDay()
+        if (mode === 'assisted_2tier' && utcDow === 6) {
+            return {
+                success: false,
+                error: 'El sábado no lleva Orden Diaria a Bodega (PAR de domingo = 0).',
+            }
+        }
+
+        const mondayStr = getMonday(businessDate)
+        const [orderableItems, weekData] = await Promise.all([
+            fetchOrderableItems(storeId, 'daily'),
+            fetchWeeklyData(storeId, mondayStr, 'daily'),
+        ])
+
+        const serverLines = await calculateDailyOrder(
+            storeId,
+            businessDate,
+            orderableItems,
+            weekData.bases,
+            weekData.counts,
+            mondayStr,
+            weekData.parIdeal,
+            'auto',
+            0,
+            'daily',
+            weekData.nextWeekBases,
+            weekData.countSources
+        )
+
+        const upsertRows: Array<{
+            store_id: string
+            inventory_item_id: string
+            count_date: string
+            quantity_on_hand: number
+            counted_by: string
+            notes: string
+        }> = []
+        let skippedAnomalyCount = 0
+        let criticalRemainingCount = 0
+
+        for (const line of serverLines) {
+            if (mode === 'assisted_2tier') {
+                if (line.sku_tier === 'critical_daily') {
+                    if (line.leftover_value === null) criticalRemainingCount++
+                    continue
+                }
+                if (isTrackOnlyOrderItem(line)) continue
+            }
+            // REGLA DE ORO: Respetar SIEMPRE cualquier conteo físico manual ya capturado
+            if (line.leftover_value !== null && line.count_source === 'manual') continue
+
+            const suggestedVal = line.suggested_leftover
+            if (
+                suggestedVal === null ||
+                suggestedVal === undefined ||
+                !Number.isFinite(suggestedVal)
+            ) {
+                skippedAnomalyCount++
+                continue
+            }
+
+            const prefillQty = Math.max(0, Number(suggestedVal.toFixed(1)))
+            upsertRows.push({
+                store_id: String(storeId),
+                inventory_item_id: line.inventory_item_id,
+                count_date: businessDate,
+                quantity_on_hand: prefillQty,
+                counted_by: AUTO_CYCLE_COUNT_MARKER,
+                notes: 'auto_cycle_v2',
+            })
+        }
+
+        if (upsertRows.length > 0) {
+            const { error: upsertErr } = await supabase
+                .from('inventory_counts')
+                .upsert(upsertRows, { onConflict: 'store_id, inventory_item_id, count_date' })
+
+            if (upsertErr) {
+                return { success: false, error: `No se pudo guardar el pre-llenado: ${upsertErr.message}` }
+            }
+        }
+
+        revalidatePath('/inventory/orders')
+        return {
+            success: true,
+            prefilledCount: upsertRows.length,
+            skippedAnomalyCount,
+            criticalRemainingCount,
+        }
+    } catch (err: any) {
+        return {
+            success: false,
+            error: err instanceof Error ? err.message : 'Error al ejecutar pre-llenado asistido',
+        }
+    }
 }
 
 // ============================================================================
@@ -1089,7 +1872,7 @@ export async function updateDailyLeftover(
     value: number | null
 ): Promise<{ success: boolean; error?: string }> {
     try {
-        await assertUserStoreAccess(storeId)
+        const user = await assertUserStoreAccess(storeId)
         if (value !== null && (typeof value !== 'number' || !Number.isFinite(value) || value < 0)) {
             return { success: false, error: 'El sobrante debe ser un número finito no negativo.' }
         }
@@ -1102,13 +1885,16 @@ export async function updateDailyLeftover(
             return { success: true }
         }
 
+        const countedByLabel = String(user.name || user.email || 'Manager').trim() || 'Manager'
         const { error } = await supabase
             .from('inventory_counts')
             .upsert({
                 store_id: storeId.toString(),
                 inventory_item_id: itemId,
                 count_date: dateStr,
-                quantity_on_hand: value
+                quantity_on_hand: value,
+                counted_by: countedByLabel,
+                notes: null,
             }, { onConflict: 'store_id, inventory_item_id, count_date' })
 
         if (error) return { success: false, error: `No se pudo guardar el sobrante: ${error.message}` }
@@ -1245,19 +2031,162 @@ export async function linkExcelItem(itemId: string, excelName: string) {
     return { success: true }
 }
 
-/** Guarda una orden como borrador */
+/** Guarda una orden como borrador (materializando AUTO_CYCLE_V2 en ítems no tocados cuando la sucursal opera en 'auto_order_visible') */
 export async function saveOrderDraft(
     storeId: string | number,
     orderDate: string,
     weekStartDate: string,
-    lines: { inventory_item_id: string; calculated_qty: number; adjusted_qty?: number; par_value: number; leftover_value: number }[],
+    lines: {
+        inventory_item_id: string
+        calculated_qty: number
+        adjusted_qty?: number
+        par_value: number
+        leftover_value: number
+        is_auto_leftover?: boolean
+    }[],
     createdBy?: string,
     notes?: string,
-    orderType: OrderType = 'daily'
+    orderType: OrderType = 'daily',
+    autoCountsFallback?: Array<{ inventory_item_id: string; quantity_on_hand: number }>
 ) {
-    await assertUserStoreAccess(storeId)
+    const user = await assertUserStoreAccess(storeId)
+
+    // Si la orden ya existe y fue enviada o facturada en QB, proteger su integridad primero
+    let preservedStatus: string | null = null
+    const { data: existingOrder } = await supabase
+        .from('inventory_orders')
+        .select('status, qb_estimate_id, qb_estimate_number, qb_invoice_id, qb_invoice_number')
+        .eq('store_id', storeId)
+        .eq('order_date', orderDate)
+        .eq('order_type', orderType)
+        .maybeSingle()
+
+    if (existingOrder?.qb_invoice_id || existingOrder?.status === 'received') {
+        return {
+            error: `Esta orden ya fue facturada y conciliada con La Bodega (Invoice #${existingOrder.qb_invoice_number || existingOrder.qb_invoice_id || 'QBO'}) y no puede sobrescribirse.`,
+        }
+    }
+
+    if (existingOrder?.qb_estimate_id) {
+        preservedStatus = existingOrder.status // Preservar 'sent' o lo que sea
+    }
+
+    let storeMode: InventoryAutomationMode = 'off'
+    const sacredManualMap = new Map<string, number>()
+
     if (orderType === 'daily') {
         try {
+            const { data: storeRow } = await supabase
+                .from('stores')
+                .select('id, name, external_id, inventory_automation_mode')
+                .eq('id', storeId)
+                .maybeSingle()
+
+            const rawMode = String((storeRow as any)?.inventory_automation_mode || '')
+            if (rawMode === 'auto_order_visible' || rawMode === 'assisted_2tier' || rawMode === 'shadow_blind' || rawMode === 'off') {
+                storeMode = rawMode
+            } else {
+                storeMode = storeRow?.external_id ? 'auto_order_visible' : 'off'
+            }
+
+            if (storeMode === 'auto_order_visible' && !existingOrder?.qb_estimate_id) {
+                // 1. Identificar conteos físicos manuales sagrados ya guardados en DB (JAMÁS se sobrescriben)
+                const { data: existingCounts } = await supabase
+                    .from('inventory_counts')
+                    .select('inventory_item_id, quantity_on_hand, counted_by, notes')
+                    .eq('store_id', String(storeId))
+                    .eq('count_date', orderDate)
+
+                for (const c of existingCounts || []) {
+                    if (
+                        c.quantity_on_hand !== null &&
+                        c.quantity_on_hand !== undefined &&
+                        Number.isFinite(Number(c.quantity_on_hand)) &&
+                        !isAutoCycleCountRecord({ countedBy: c.counted_by, notes: c.notes })
+                    ) {
+                        sacredManualMap.set(c.inventory_item_id, Number(c.quantity_on_hand))
+                    }
+                }
+
+                // 2. Armar mapa de sobrantes automáticos candidatos para ítems NO contados manualmente
+                const candidateAutoMap = new Map<string, number>()
+                for (const fb of autoCountsFallback || []) {
+                    const id = String(fb.inventory_item_id || '')
+                    const qty = Number(fb.quantity_on_hand)
+                    if (id && !sacredManualMap.has(id) && Number.isFinite(qty) && qty >= 0) {
+                        candidateAutoMap.set(id, Number(qty.toFixed(1)))
+                    }
+                }
+                for (const l of lines) {
+                    const id = String(l.inventory_item_id || '')
+                    if (id && l.is_auto_leftover && !sacredManualMap.has(id) && !candidateAutoMap.has(id) && Number.isFinite(Number(l.leftover_value)) && Number(l.leftover_value) >= 0) {
+                        candidateAutoMap.set(id, Number(Number(l.leftover_value).toFixed(1)))
+                    }
+                }
+
+                // 3. Verificar si aún falta algún SKU requerido (ej. Flan/Cheesecake o edición desde modal)
+                const preliminaryMissing = await getMissingDailyCounts(supabase, storeId, orderDate)
+                const unresolvedMissing = preliminaryMissing.filter(
+                    m => !sacredManualMap.has(m.id) && !candidateAutoMap.has(m.id)
+                )
+
+                if (unresolvedMissing.length > 0) {
+                    const mondayForCalc = getMonday(orderDate)
+                    const [orderableItems, weekData] = await Promise.all([
+                        fetchOrderableItems(storeId, 'daily'),
+                        fetchWeeklyData(storeId, mondayForCalc, 'daily'),
+                    ])
+                    const calcLines = await calculateDailyOrder(
+                        storeId,
+                        orderDate,
+                        orderableItems,
+                        weekData.bases,
+                        weekData.counts,
+                        mondayForCalc,
+                        weekData.parIdeal,
+                        'auto',
+                        0,
+                        'daily',
+                        weekData.nextWeekBases,
+                        weekData.countSources
+                    )
+                    for (const cl of calcLines) {
+                        if (
+                            !sacredManualMap.has(cl.inventory_item_id) &&
+                            !candidateAutoMap.has(cl.inventory_item_id) &&
+                            cl.suggested_leftover !== null &&
+                            cl.suggested_leftover !== undefined &&
+                            Number.isFinite(cl.suggested_leftover)
+                        ) {
+                            candidateAutoMap.set(cl.inventory_item_id, Math.max(0, Number(cl.suggested_leftover.toFixed(1))))
+                        }
+                    }
+                }
+
+                // 4. Materializar en inventory_counts ÚNICAMENTE los ítems sin conteo físico humano (con AUTO_CYCLE_V2)
+                if (candidateAutoMap.size > 0) {
+                    const autoUpsertPayload = Array.from(candidateAutoMap.entries())
+                        .filter(([itemId]) => !sacredManualMap.has(itemId))
+                        .map(([itemId, qty]) => ({
+                            store_id: String(storeId),
+                            inventory_item_id: itemId,
+                            count_date: orderDate,
+                            quantity_on_hand: qty,
+                            counted_by: AUTO_CYCLE_COUNT_MARKER,
+                            notes: 'auto_cycle_v2',
+                        }))
+
+                    if (autoUpsertPayload.length > 0) {
+                        const { error: autoUpsertErr } = await supabase
+                            .from('inventory_counts')
+                            .upsert(autoUpsertPayload, { onConflict: 'store_id, inventory_item_id, count_date' })
+                        if (autoUpsertErr) {
+                            return { error: `No se pudieron registrar los sobrantes del sistema: ${autoUpsertErr.message}` }
+                        }
+                    }
+                }
+            }
+
             const missing = await getMissingDailyCounts(supabase, storeId, orderDate)
             if (missing.length) {
                 return { error: `Captura todos los sobrantes antes de generar la orden. Faltan ${missing.length}: ${missing.map(i => i.name).join(', ')}` }
@@ -1266,26 +2195,44 @@ export async function saveOrderDraft(
             return { error: `No se pudo verificar la captura completa: ${error instanceof Error ? error.message : 'error desconocido'}` }
         }
     }
-    for (const l of lines) {
+
+    // Excluir artículos externos TRACK_ONLY (Flan, Cheesecake) de las líneas persistibles a La Bodega
+    // Si en DB existe un conteo físico humano más reciente que un auto_leftover del cliente, el conteo físico manda al 100%.
+    const roundingLookup = new Map<string, string>()
+    if (orderType === 'daily' && sacredManualMap.size > 0) {
+        const hasStaleAutoLine = lines.some(l => l.is_auto_leftover && sacredManualMap.has(l.inventory_item_id))
+        if (hasStaleAutoLine) {
+            const { data: itemRules } = await supabase
+                .from('inventory_items')
+                .select('id, order_rounding_rule')
+                .in('id', Array.from(sacredManualMap.keys()))
+            itemRules?.forEach((r: any) => roundingLookup.set(r.id, r.order_rounding_rule || 'none'))
+        }
+    }
+
+    const sanitizedLines = (orderType === 'daily'
+        ? lines.filter(l => !isTrackOnlyOrderItem(l) && !EXTERNAL_TRACK_ONLY_ITEM_IDS.has(String(l.inventory_item_id || '')))
+        : lines
+    ).map(l => {
+        if (orderType === 'daily' && l.is_auto_leftover && sacredManualMap.has(l.inventory_item_id)) {
+            const manualLeftover = sacredManualMap.get(l.inventory_item_id)!
+            const rule = roundingLookup.get(l.inventory_item_id) || 'none'
+            const recomputedCalcQty = applyRounding(Math.max(0, l.par_value - manualLeftover), rule)
+            return {
+                ...l,
+                leftover_value: manualLeftover,
+                calculated_qty: recomputedCalcQty,
+                is_auto_leftover: false,
+            }
+        }
+        return l
+    })
+
+    for (const l of sanitizedLines) {
         const finalQty = l.adjusted_qty ?? l.calculated_qty
         if (typeof finalQty !== 'number' || !Number.isFinite(finalQty) || finalQty < 0) {
             return { error: `Cantidad final inválida (${finalQty}). La cantidad mínima permitida es 0.` }
         }
-    }
-
-    // Si la orden ya existe y fue enviada a QB, preservar su status actual
-    // (no resetear a 'draft' un pedido que ya tiene Estimate en QB)
-    let preservedStatus: string | null = null
-    const { data: existingOrder } = await supabase
-        .from('inventory_orders')
-        .select('status, qb_estimate_id, qb_estimate_number')
-        .eq('store_id', storeId)
-        .eq('order_date', orderDate)
-        .eq('order_type', orderType)
-        .maybeSingle()
-
-    if (existingOrder?.qb_estimate_id) {
-        preservedStatus = existingOrder.status // Preservar 'sent' o lo que sea
     }
 
     // Upsert la orden
@@ -1296,7 +2243,7 @@ export async function saveOrderDraft(
             order_date: orderDate,
             week_start_date: weekStartDate,
             status: preservedStatus || 'draft',
-            created_by: createdBy || 'Manager',
+            created_by: createdBy || user.name || 'Manager',
             notes: notes || null,
             order_type: orderType,
             updated_at: new Date().toISOString()
@@ -1309,8 +2256,8 @@ export async function saveOrderDraft(
     // Borrar líneas existentes y reemplazar
     await supabase.from('inventory_order_lines').delete().eq('order_id', order.id)
 
-    // Insertar nuevas líneas
-    const orderLines = lines.map(l => ({
+    // Insertar nuevas líneas (sin postres externos TRACK_ONLY)
+    const orderLines = sanitizedLines.map(l => ({
         order_id: order.id,
         inventory_item_id: l.inventory_item_id,
         calculated_qty: l.calculated_qty,
@@ -1341,20 +2288,16 @@ export async function saveOrderDraft(
  * Ejecuta el cierre de semana (equivalente al macro de Google Sheets).
  * 1. Valida que todos los items tengan sobrante de Domingo
  * 2. Clona bases a la nueva semana (o usa PAR Ideal)
- * 3. Recalcula PAR Ideal con promedio histórico
+ * 3. Recalcula PAR Ideal con promedio histórico + tendencia de ventas y clima
  */
 export async function executeWeekRollover(storeId: string | number, currentMonday: string) {
     await assertUserStoreAccess(storeId)
     const sundayDate = addDays(currentMonday, 6)
     const nextMonday = addDays(currentMonday, 7)
 
-    // 1. Obtener items que participan en órdenes
-    const { data: items } = await supabase
-        .from('inventory_items')
-        .select('id')
-        .not('excel_reference', 'is', null)
-
-    if (!items || items.length === 0) {
+    // 1. Obtener items de la plantilla diaria de la tienda
+    const orderableItems = await fetchOrderableItems(storeId, 'daily')
+    if (!orderableItems || orderableItems.length === 0) {
         return { error: 'No hay items configurados para órdenes.' }
     }
 
@@ -1366,16 +2309,16 @@ export async function executeWeekRollover(storeId: string | number, currentMonda
         .eq('count_date', sundayDate)
 
     const capturedIds = new Set(sundayCounts?.map(c => c.inventory_item_id) || [])
-    const missing = items.filter(i => !capturedIds.has(i.id))
+    const missing = orderableItems.filter(i => !capturedIds.has(i.id))
 
     if (missing.length > 0) {
         return { error: `Faltan sobrantes del domingo para ${missing.length} productos.`, missingCount: missing.length }
     }
 
     // 3. Recalcular PAR Ideal PRIMERO (incluyendo la semana que se cierra)
-    await recalculateParIdeal(storeId)
+    await recalculateStoreParIdeal(storeId, 4, currentMonday)
 
-    // 4. Clonar bases a la nueva semana (ahora usa el PAR Ideal recién recalculado)
+    // 4. Clonar bases a la nueva semana (ahora usa el PAR Ideal recién recalculado como respaldo)
     const cloneResult = await clonePreviousWeekBases(storeId, nextMonday)
     if (cloneResult.error) {
         // Si no hay bases de la semana actual, usar el PAR Ideal recién calculado
@@ -1391,141 +2334,24 @@ export async function executeWeekRollover(storeId: string | number, currentMonda
 
 /**
  * Recalcula el PAR Ideal promediando las bases de las últimas N semanas,
- * ajustadas matemáticamente según el sobrante diario de cada día.
+ * ajustadas matemáticamente según sobrantes reales + tendencia inteligente de ventas y clima.
+ * NUNCA sobrescribe `inventory_weekly_bases` (PAR Actual).
  */
-export async function recalculateParIdeal(storeId: string | number, weeksBack: number = 4) {
-    await assertUserStoreAccess(storeId)
-    const today = new Date()
-    const currentMonday = getMonday(today)
-    const startDate = addDays(currentMonday, -(weeksBack * 7))
-
-    // 1. Obtener todas las bases de las últimas N semanas
-    const { data: allBases } = await supabase
-        .from('inventory_weekly_bases')
-        .select('*')
-        .eq('store_id', storeId)
-        .gte('week_start_date', startDate)
-        .lte('week_start_date', currentMonday) // Incluir la semana actual (la que se está cerrando)
-
-    if (!allBases || allBases.length === 0) return
-
-    // 1b. Obtener las reglas de redondeo de todos los items
-    const { data: items } = await supabase
-        .from('inventory_items')
-        .select('id, order_rounding_rule')
-    const roundingMap = new Map<string, string>()
-    items?.forEach(i => roundingMap.set(i.id, i.order_rounding_rule || 'none'))
-
-    // 2. Obtener todos los sobrantes registrados en ese mismo rango
-    const { data: leftovers } = await supabase
-        .from('inventory_counts')
-        .select('inventory_item_id, count_date, quantity_on_hand')
-        .eq('store_id', storeId.toString())
-        .gte('count_date', startDate)
-        .lte('count_date', addDays(currentMonday, 6)) // Incluir toda la semana actual
-
-    // Mapa de sobrantes para búsqueda rápida
-    const leftoverMap = new Map()
-    leftovers?.forEach(l => {
-        leftoverMap.set(`${l.inventory_item_id}_${l.count_date}`, Number(l.quantity_on_hand) || 0)
-    })
-
-    const daysOfWeek = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat']
-    const itemAdjustedBases: Record<string, { count: number; sums: Record<string, number> }> = {}
-
-    // 3. Procesar y ajustar el PAR de cada día según la fórmula matemática
-    for (const b of allBases) {
-        const itemId = b.inventory_item_id
-        if (!itemAdjustedBases[itemId]) {
-            itemAdjustedBases[itemId] = { count: 0, sums: { mon: 0, tue: 0, wed: 0, thu: 0, fri: 0, sat: 0, sun: 0 } }
-        }
-        itemAdjustedBases[itemId].count++
-
-        daysOfWeek.forEach((day, index) => {
-            const parVal = Number(b[`${day}_par`]) || 0
-            let adjPar = parVal
-
-            if (day === 'sat') {
-                // Sábado se valida con el sobrante del Domingo (índice 6)
-                const sundayDateStr = addDays(b.week_start_date, 6)
-                const sundayLeftoverVal = leftoverMap.get(`${itemId}_${sundayDateStr}`)
-                
-                if (sundayLeftoverVal !== undefined && parVal >= 8) {
-                    const leftoverPct = (sundayLeftoverVal / parVal) * 100
-                    if (leftoverPct >= 40) {
-                        // ≥40% sobrante → exceso, bajar PAR
-                        if (leftoverPct >= 60) {
-                            adjPar = parVal - Math.round(parVal * 0.15)
-                        } else {
-                            adjPar = parVal - Math.round(parVal * 0.10)
-                        }
-                    } else if (leftoverPct < 15) {
-                        // <15% sobrante → riesgo de quedarse sin, subir PAR
-                        if (parVal >= 40) {
-                            adjPar = parVal + Math.round(parVal * 0.10)
-                        } else {
-                            adjPar = parVal + Math.round(parVal * 0.20)
-                        }
-                    }
-                    // 15%-40% → rango ideal, sin cambio
-                }
-            } else {
-                // Lunes a Viernes se valida con el sobrante del mismo día
-                const dateStr = addDays(b.week_start_date, index)
-                const leftoverVal = leftoverMap.get(`${itemId}_${dateStr}`)
-                
-                if (leftoverVal !== undefined && parVal >= 8) {
-                    const leftoverPct = (leftoverVal / parVal) * 100
-                    if (leftoverPct >= 60) {
-                        // ≥60% sobrante → sobra demasiado, bajar PAR
-                        if (leftoverPct >= 80) {
-                            adjPar = parVal - Math.round(parVal * 0.15)
-                        } else {
-                            adjPar = parVal - Math.round(parVal * 0.10)
-                        }
-                    } else if (leftoverPct < 20) {
-                        // <20% sobrante → riesgo de quedarse sin producto, subir PAR
-                        if (parVal >= 40) {
-                            adjPar = parVal + Math.round(parVal * 0.10)
-                        } else {
-                            adjPar = parVal + Math.round(parVal * 0.20)
-                        }
-                    }
-                    // 20%-60% → rango ideal, sin cambio
-                }
-            }
-
-            itemAdjustedBases[itemId].sums[day] += adjPar
-        })
-    }
-
-    // 4. Promediar e insertar/actualizar en la tabla de PAR Ideal
-    const parRecords = Object.entries(itemAdjustedBases).map(([itemId, data]) => {
-        const rule = roundingMap.get(itemId) || 'none'
-        const roundPar = (val: number) => {
-            const rawAvg = val / data.count
-            if (rawAvg <= 0) return 0
-            return applyRounding(rawAvg, rule)
-        }
+export async function recalculateParIdeal(
+    storeId: string | number,
+    weeksBack: number = 4
+): Promise<{ success: boolean; updatedCount?: number; error?: string }> {
+    try {
+        await assertUserStoreAccess(storeId)
+        const { updatedCount } = await recalculateStoreParIdeal(storeId, weeksBack)
+        revalidatePath('/inventory/orders')
+        return { success: true, updatedCount }
+    } catch (err: any) {
+        console.error(`[recalculateParIdeal] Error en tienda ${storeId}:`, err?.message || err)
         return {
-            store_id: storeId,
-            inventory_item_id: itemId,
-            mon_par: roundPar(data.sums.mon),
-            tue_par: roundPar(data.sums.tue),
-            wed_par: roundPar(data.sums.wed),
-            thu_par: roundPar(data.sums.thu),
-            fri_par: roundPar(data.sums.fri),
-            sat_par: roundPar(data.sums.sat),
-            sun_par: 0, // Domingo siempre es 0
-            calculated_from_weeks: data.count,
-            updated_at: new Date().toISOString()
+            success: false,
+            error: err instanceof Error ? err.message : 'No se pudo recalcular el PAR Ideal',
         }
-    })
-
-    if (parRecords.length > 0) {
-        await supabase
-            .from('inventory_par_ideal')
-            .upsert(parRecords, { onConflict: 'store_id, inventory_item_id' })
     }
 }
 
@@ -1533,8 +2359,7 @@ export async function recalculateParIdeal(storeId: string | number, weeksBack: n
  * Obtiene datos de análisis: historial de uso de las últimas N semanas
  */
 export async function fetchAnalysisData(storeId: string | number, weeksBack: number = 8) {
-    const today = new Date()
-    const currentMonday = getMonday(today)
+    const currentMonday = getMonday(getBusinessDate())
     const startDate = addDays(currentMonday, -(weeksBack * 7))
 
     // Bases históricas
@@ -1553,10 +2378,10 @@ export async function fetchAnalysisData(storeId: string | number, weeksBack: num
         .gte('count_date', startDate)
         .order('count_date', { ascending: false })
 
-    // Historial de órdenes
+    // Historial de órdenes (incluyendo conciliación de Invoice de Bodega)
     const { data: orderHistory } = await supabase
         .from('inventory_orders')
-        .select('id, order_date, week_start_date, status, qb_estimate_number, sent_at')
+        .select('id, order_date, week_start_date, status, qb_estimate_number, qb_invoice_number, qb_invoiced_at, sent_at')
         .eq('store_id', storeId)
         .gte('week_start_date', startDate)
         .order('order_date', { ascending: false })

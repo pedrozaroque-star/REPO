@@ -1,35 +1,33 @@
 /**
  * @module api/phone/simulate
- * @description Endpoint interactivo para el Simulador de Llamadas en Vivo en `/admin/llamadas`.
- * Permite probar y demostrar al dueño cómo contesta la IA en cualquiera de las 15 sucursales de Tacos Gavilan
- * usando exactamente el mismo motor (`processPhoneAgentTurn`), herramientas en vivo y voz neuronal `Kore`
- * sin requerir línea telefónica de Twilio.
+ * @description Endpoint interactivo con Streaming en Tiempo Real (NDJSON + PCM 24kHz) para el Simulador de Llamadas en `/admin/llamadas`.
+ * Permite probar y demostrar cómo contesta la IA en cualquiera de las 15 sucursales de Tacos Gavilan usando el motor oficial
+ * (`processPhoneAgentTurn`), herramientas reales en vivo y la misma voz neuronal `Kore 3.8`.
  *
  * @businessRules
- * - Soporta 3 acciones:
- *   1. `start`: Inicia una llamada simulada a la tienda elegida (`storeId`), crea el registro en `phone_calls` (`SIM-...`),
- *      y devuelve el saludo oficial con su URL de audio `/api/phone/tts`.
- *   2. `turn`: Procesa lo que dijo el usuario (por micrófono o botón rápido), ejecuta las herramientas reales contra
- *      Supabase y devuelve la respuesta hablada, herramientas invocadas y recados generados.
- *   3. `end`: Finaliza la llamada simulada actualizando la duración total en `phone_calls`.
+ * - Control de acceso RBAC (`authorizePhoneModuleRequest`): `admin`/`supervisor` pueden simular las 15 tiendas;
+ *   `manager`/`general_manager`/`asistente` únicamente su propia sucursal asignada.
+ * - Aislamiento estricto `source = 'simulator'`: cualquier recado generado durante una prueba se guarda con `source = 'simulator'`
+ *   en `phone_callback_requests`, por lo que JAMÁS enciende el banner rojo de emergencia en `/order-ready-board`.
+ * - Soporta 4 acciones: `prewarm`, `start`, `turn` (con streaming NDJSON PCM 24kHz) y `end`.
  *
  * @dataFlow
- * - Simulador Web (`/admin/llamadas`) -> `POST /api/phone/simulate` -> `processPhoneAgentTurn()` -> Respuesta JSON + URL Audio WAV.
+ * - Simulador Web (`/admin/llamadas`) -> `POST /api/phone/simulate` (`stream: true`) -> NDJSON (`turn_meta` -> `audio_pcm`* -> `done`).
  *
  * @notes
- * - Protegido con `verifyStaffAuth` para uso administrativo y gerencial.
+ * - Restringido estrictamente a `callSid` con prefijo `SIM_`.
  */
 
 import { NextRequest, NextResponse } from 'next/server'
-import { verifyStaffAuth } from '@/lib/auth-server'
+import { authorizePhoneModuleRequest } from '@/lib/phone-agent-access'
 import { supabaseAdmin } from '@/lib/supabase'
 import { getCaliforniaBusinessDate, getCaliforniaShift } from '@/lib/business-date'
-import {
-  getPhoneAgentSpeech
-} from '@/lib/order-ready-tts'
+import { getPhoneAgentSpeech, resolvePhoneFemaleVoice, streamPhoneAgentSpeechPcm, VoiceId } from '@/lib/order-ready-tts'
 import {
   buildInitialGreeting,
+  buildPhoneTtsUrl,
   getStorePhoneContext,
+  loadStoreMenuItems,
   PhoneLang,
   processPhoneAgentTurn
 } from '@/lib/phone-agent'
@@ -37,29 +35,76 @@ import {
 export const dynamic = 'force-dynamic'
 export const maxDuration = 30
 
+const STREAM_HEADERS = {
+  'Content-Type': 'application/x-ndjson; charset=utf-8',
+  'Cache-Control': 'no-cache, no-transform',
+  'X-Accel-Buffering': 'no'
+}
+
 export async function POST(request: NextRequest) {
   try {
-    const staff = await verifyStaffAuth(request)
-    if (!staff.authorized) {
-      return staff.response || NextResponse.json({ error: 'No autorizado' }, { status: 401 })
-    }
-
     const body = await request.json()
     const action = String(body?.action || 'turn')
-    const storeId = Number(body?.storeId || 14)
+    const rawStoreId = Number(body?.storeId)
+
+    // Pre-autorización para resolver sucursal por defecto si es manager de una sola tienda
+    const baseAuth = await authorizePhoneModuleRequest(request, { permission: 'simulate' })
+    if (!baseAuth.authorized || !baseAuth.user) {
+      return baseAuth.response || NextResponse.json({ error: baseAuth.error || 'No autorizado' }, { status: baseAuth.status || 401 })
+    }
+
+    const storeId =
+      Number.isFinite(rawStoreId) && rawStoreId > 0
+        ? rawStoreId
+        : baseAuth.user.assignedStoreId || 14
+
+    const auth = await authorizePhoneModuleRequest(request, {
+      permission: 'simulate',
+      targetStoreId: storeId
+    })
+    if (!auth.authorized || !auth.user) {
+      return auth.response || NextResponse.json({ error: auth.error || 'Acceso denegado a sucursal' }, { status: auth.status || 403 })
+    }
+
     const lang: PhoneLang = body?.lang === 'en' ? 'en' : 'es'
     const voiceMode = String(body?.voiceMode || 'neural_turbo')
+    const useStream = Boolean(body?.stream)
+
+    if (action === 'prewarm') {
+      const [ctx] = await Promise.all([getStorePhoneContext(storeId), loadStoreMenuItems(storeId)])
+      const voiceId: VoiceId = resolvePhoneFemaleVoice(ctx.config.voice_id)
+      const greetingText = buildInitialGreeting(
+        ctx.store.name,
+        lang,
+        ctx.config.custom_greeting_es,
+        ctx.config.custom_greeting_en,
+        { scheduleEval: ctx.scheduleEval }
+      )
+      const switchedLang: PhoneLang = lang === 'en' ? 'es' : 'en'
+      const switchedGreeting = buildInitialGreeting(
+        ctx.store.name,
+        switchedLang,
+        ctx.config.custom_greeting_es,
+        ctx.config.custom_greeting_en,
+        { includeLanguageSwitchHint: false, scheduleEval: ctx.scheduleEval }
+      )
+      void getPhoneAgentSpeech(greetingText, lang, voiceId).catch(() => null)
+      void getPhoneAgentSpeech(switchedGreeting, switchedLang, voiceId).catch(() => null)
+      return NextResponse.json({ ok: true, storeId: ctx.store.id })
+    }
 
     if (action === 'start') {
+      const reqStart = Date.now()
       const ctx = await getStorePhoneContext(storeId)
       const { store, config, scheduleEval } = ctx
       const callSid = `SIM_${store.id}_${Date.now()}`
-      const voiceId = config.voice_id || 'Kore'
+      const voiceId: VoiceId = resolvePhoneFemaleVoice(config.voice_id)
       const greetingText = buildInitialGreeting(
         store.name,
         lang,
         config.custom_greeting_es,
-        config.custom_greeting_en
+        config.custom_greeting_en,
+        { scheduleEval }
       )
 
       const initialTranscript = [
@@ -70,7 +115,95 @@ export async function POST(request: NextRequest) {
         }
       ]
 
-      // Ejecutar inserción de llamada y obtención de audio pre-cacheado en paralelo
+      const audioUrl = buildPhoneTtsUrl('', greetingText, lang, voiceId)
+
+      if (useStream) {
+        const encoder = new TextEncoder()
+        const insertPromise = supabaseAdmin
+          .from('phone_calls')
+          .insert({
+            call_sid: callSid,
+            store_id: store.id,
+            source: 'simulator',
+            caller_number: auth.user.email || 'Simulador Web',
+            to_number: store.phone,
+            language: lang,
+            status: 'in_progress',
+            resolved_by_ai: false,
+            turns_count: 0,
+            summary: `Llamada iniciada en simulador (${store.name})`,
+            transcript: initialTranscript,
+            business_date: getCaliforniaBusinessDate(),
+            shift: getCaliforniaShift()
+          })
+          .select('id')
+          .single()
+
+        const stream = new ReadableStream({
+          async start(controller) {
+            const send = (obj: Record<string, any>) => {
+              controller.enqueue(encoder.encode(`${JSON.stringify(obj)}\n`))
+            }
+            try {
+              send({
+                type: 'start_meta',
+                callSid,
+                store: {
+                  id: store.id,
+                  name: store.name,
+                  phone: store.phone,
+                  address: store.address,
+                  hasDriveThru: store.has_drive_thru
+                },
+                scheduleEval,
+                voiceId,
+                language: lang,
+                greetingText,
+                audioUrl,
+                transcript: initialTranscript,
+                textMs: Date.now() - reqStart
+              })
+
+              let firstAudioMs = -1
+              let fromCache = false
+              if (voiceMode !== 'instant_local') {
+                for await (const chunk of streamPhoneAgentSpeechPcm(greetingText, lang, voiceId, {
+                  signal: request.signal
+                })) {
+                  if (firstAudioMs === -1) {
+                    firstAudioMs = Date.now() - reqStart
+                    fromCache = chunk.fromCache
+                  }
+                  send({
+                    type: 'audio_pcm',
+                    pcmBase64: chunk.pcmChunk.toString('base64'),
+                    sampleRate: chunk.sampleRate,
+                    fromCache: chunk.fromCache
+                  })
+                }
+              }
+
+              const ins = await insertPromise
+              if (ins.error) {
+                console.error('[api/phone/simulate start] Error al insertar llamada:', ins.error.message)
+              }
+              send({
+                type: 'done',
+                callId: ins.data?.id || null,
+                totalFirstAudioMs: firstAudioMs,
+                fromCache
+              })
+            } catch (streamErr: any) {
+              send({ type: 'error', error: streamErr?.message || 'Error en saludo de llamada' })
+            } finally {
+              controller.close()
+            }
+          }
+        })
+
+        return new Response(stream, { headers: STREAM_HEADERS })
+      }
+
       const [insertRes, greetingWav] = await Promise.all([
         supabaseAdmin
           .from('phone_calls')
@@ -78,10 +211,11 @@ export async function POST(request: NextRequest) {
             call_sid: callSid,
             store_id: store.id,
             source: 'simulator',
-            caller_number: staff.user?.email || 'Simulador Web',
+            caller_number: auth.user.email || 'Simulador Web',
             to_number: store.phone,
             language: lang,
             status: 'in_progress',
+            resolved_by_ai: false,
             turns_count: 0,
             summary: `Llamada iniciada en simulador (${store.name})`,
             transcript: initialTranscript,
@@ -97,8 +231,6 @@ export async function POST(request: NextRequest) {
 
       if (insertRes.error) throw insertRes.error
       const created = insertRes.data
-
-      const audioUrl = `/api/phone/tts?lang=${lang}&voice=${encodeURIComponent(voiceId)}&text=${encodeURIComponent(greetingText)}`
       const audioDataUrl = greetingWav ? `data:audio/wav;base64,${greetingWav.toString('base64')}` : null
 
       return NextResponse.json({
@@ -124,34 +256,267 @@ export async function POST(request: NextRequest) {
 
     if (action === 'end') {
       const callSid = String(body?.callSid || '')
-      if (callSid) {
+      if (callSid.startsWith('SIM_')) {
         const { data: existing } = await supabaseAdmin
           .from('phone_calls')
-          .select('id, status, started_at')
+          .select('id, store_id, status, started_at, turns_count')
           .eq('call_sid', callSid)
           .maybeSingle()
 
         if (existing) {
+          if (!auth.user.isGlobalAdmin && !auth.user.allowedStoreIds.includes(Number(existing.store_id))) {
+            return NextResponse.json({ error: 'Acceso denegado a esta llamada' }, { status: 403 })
+          }
           const startedMs = existing.started_at ? new Date(existing.started_at).getTime() : Date.now()
-          const durationSeconds = Math.max(5, Math.round((Date.now() - startedMs) / 1000))
-          await supabaseAdmin
-            .from('phone_calls')
-            .update({
-              status: existing.status === 'callback_requested' ? 'callback_requested' : 'completed',
-              duration_seconds: durationSeconds,
-              ended_at: new Date().toISOString()
-            })
-            .eq('id', existing.id)
+          const durationSeconds = Math.min(1800, Math.max(5, Math.round((Date.now() - startedMs) / 1000)))
+          const preservedStatus =
+            existing.status === 'callback_requested' || existing.status === 'transferred'
+              ? existing.status
+              : 'completed'
+          const updateObj: Record<string, any> = {
+            status: preservedStatus,
+            duration_seconds: durationSeconds,
+            ended_at: new Date().toISOString()
+          }
+          if (Number(existing.turns_count || 0) === 0 || preservedStatus !== 'completed') {
+            updateObj.resolved_by_ai = false
+          }
+          await supabaseAdmin.from('phone_calls').update(updateObj).eq('id', existing.id)
         }
       }
       return NextResponse.json({ ok: true })
     }
 
     // Default: action === 'turn'
-    const callSid = String(body?.callSid || `SIM_${storeId}_${Date.now()}`)
-    const userText = String(body?.userText || '').trim()
-    if (!userText) {
+    const rawCallSid = String(body?.callSid || '')
+    const callSid = rawCallSid.startsWith('SIM_') ? rawCallSid : `SIM_${storeId}_${Date.now()}`
+    const rawUserText = String(body?.userText || '').trim().slice(0, 1000)
+    if (!rawUserText) {
       return NextResponse.json({ error: 'Mensaje vacío' }, { status: 400 })
+    }
+
+    // Tecla 9 (igual que en Twilio): cambiar idioma en vivo y reproducir el aviso legal completo en el nuevo idioma
+    if (rawUserText === '9') {
+      const reqStart = Date.now()
+      const switchedLang: PhoneLang = lang === 'en' ? 'es' : 'en'
+      const ctx = await getStorePhoneContext(storeId)
+      const voiceId: VoiceId = resolvePhoneFemaleVoice(ctx.config.voice_id)
+      const switchedReply = buildInitialGreeting(
+        ctx.store.name,
+        switchedLang,
+        ctx.config.custom_greeting_es,
+        ctx.config.custom_greeting_en,
+        { includeLanguageSwitchHint: false, scheduleEval: ctx.scheduleEval }
+      )
+      const audioUrl = buildPhoneTtsUrl('', switchedReply, switchedLang, voiceId)
+
+      const { data: existing } = await supabaseAdmin
+        .from('phone_calls')
+        .select('id, transcript, turns_count')
+        .eq('call_sid', callSid)
+        .maybeSingle()
+
+      const nextTranscript = [
+        ...(Array.isArray(existing?.transcript) ? existing.transcript : []),
+        { role: 'user' as const, text: '9', timestamp: new Date().toISOString() },
+        { role: 'assistant' as const, text: switchedReply, timestamp: new Date().toISOString() }
+      ]
+
+      const dbUpdatePromise = (async () => {
+        if (existing) {
+          await supabaseAdmin
+            .from('phone_calls')
+            .update({
+              language: switchedLang,
+              turns_count: Number(existing.turns_count || 0) + 1,
+              transcript: nextTranscript
+            })
+            .eq('id', existing.id)
+          return existing.id
+        }
+        return null
+      })()
+
+      if (useStream) {
+        const encoder = new TextEncoder()
+        const stream = new ReadableStream({
+          async start(controller) {
+            const send = (obj: Record<string, any>) => {
+              controller.enqueue(encoder.encode(`${JSON.stringify(obj)}\n`))
+            }
+            try {
+              send({
+                type: 'turn_meta',
+                callSid,
+                replyText: switchedReply,
+                language: switchedLang,
+                languageSwitch: true,
+                voiceId,
+                audioUrl,
+                toolsUsed: [],
+                callbackCreated: null,
+                shouldTransferToPhone: null,
+                shouldHangup: false,
+                transcript: nextTranscript,
+                textMs: Date.now() - reqStart
+              })
+
+              let firstAudioMs = -1
+              let fromCache = false
+              if (voiceMode !== 'instant_local') {
+                for await (const chunk of streamPhoneAgentSpeechPcm(switchedReply, switchedLang, voiceId, {
+                  signal: request.signal
+                })) {
+                  if (firstAudioMs === -1) {
+                    firstAudioMs = Date.now() - reqStart
+                    fromCache = chunk.fromCache
+                  }
+                  send({
+                    type: 'audio_pcm',
+                    pcmBase64: chunk.pcmChunk.toString('base64'),
+                    sampleRate: chunk.sampleRate,
+                    fromCache: chunk.fromCache
+                  })
+                }
+              }
+
+              const callId = await dbUpdatePromise
+              send({
+                type: 'done',
+                callId,
+                totalFirstAudioMs: firstAudioMs,
+                fromCache
+              })
+            } catch (err: any) {
+              send({ type: 'error', error: err?.message || 'Error al cambiar idioma con tecla 9' })
+            } finally {
+              controller.close()
+            }
+          }
+        })
+        return new Response(stream, { headers: STREAM_HEADERS })
+      }
+
+      const [callId, fullWav] = await Promise.all([
+        dbUpdatePromise,
+        voiceMode === 'instant_local'
+          ? Promise.resolve(null)
+          : getPhoneAgentSpeech(switchedReply, switchedLang, voiceId).catch(() => null)
+      ])
+      return NextResponse.json({
+        ok: true,
+        callId,
+        callSid,
+        replyText: switchedReply,
+        language: switchedLang,
+        languageSwitch: true,
+        voiceId,
+        audioUrl,
+        audioDataUrl: fullWav ? `data:audio/wav;base64,${fullWav.toString('base64')}` : null,
+        toolsUsed: [],
+        callbackCreated: null,
+        shouldTransferToPhone: null,
+        shouldHangup: false,
+        transcript: nextTranscript
+      })
+    }
+
+    const userText =
+      rawUserText === '1'
+        ? lang === 'en'
+          ? 'What are your hours today and what is the address?'
+          : '¿Cuál es el horario de hoy y la dirección?'
+        : rawUserText === '2'
+          ? lang === 'en'
+            ? 'Tell me about Fiesta Platters and prices.'
+            : '¿Cuáles son los precios y tamaños de las charolas Fiesta Platter?'
+          : rawUserText === '3'
+            ? lang === 'en'
+              ? 'I need to leave a message for the store manager.'
+              : 'Necesito dejarle un recado urgente al gerente de la sucursal.'
+            : rawUserText
+
+    if (useStream) {
+      const reqStart = Date.now()
+      const encoder = new TextEncoder()
+
+      const stream = new ReadableStream({
+        async start(controller) {
+          const send = (obj: Record<string, any>) => {
+            controller.enqueue(encoder.encode(`${JSON.stringify(obj)}\n`))
+          }
+          try {
+            const turn = await processPhoneAgentTurn({
+              callSid,
+              storeId,
+              userText,
+              source: 'simulator',
+              callerNumber: body?.callerNumber || auth.user?.email || 'Simulador Web',
+              preferredLang: body?.lang ? (body.lang === 'en' ? 'en' : 'es') : undefined,
+              deferDbFlush: true
+            })
+
+            const textMs = Date.now() - reqStart
+            const audioUrl = buildPhoneTtsUrl('', turn.replyText, turn.language, turn.voiceId)
+
+            send({
+              type: 'turn_meta',
+              callId: turn.callId,
+              callSid,
+              replyText: turn.replyText,
+              language: turn.language,
+              voiceId: turn.voiceId,
+              audioUrl,
+              toolsUsed: turn.toolsUsed,
+              callbackCreated: turn.callbackCreated,
+              shouldTransferToPhone: turn.shouldTransferToPhone,
+              shouldHangup: turn.shouldHangup,
+              transcript: turn.transcript,
+              textMs
+            })
+
+            let firstAudioMs = -1
+            let fromCache = false
+            if (voiceMode !== 'instant_local') {
+              for await (const chunk of streamPhoneAgentSpeechPcm(turn.replyText, turn.language, turn.voiceId, {
+                signal: request.signal
+              })) {
+                if (firstAudioMs === -1) {
+                  firstAudioMs = Date.now() - reqStart
+                  fromCache = chunk.fromCache
+                }
+                send({
+                  type: 'audio_pcm',
+                  pcmBase64: chunk.pcmChunk.toString('base64'),
+                  sampleRate: chunk.sampleRate,
+                  fromCache: chunk.fromCache
+                })
+              }
+            }
+
+            if (turn.flushDbPromise) {
+              await turn.flushDbPromise
+            }
+
+            send({
+              type: 'done',
+              totalFirstAudioMs: firstAudioMs,
+              textMs,
+              fromCache
+            })
+          } catch (streamErr: any) {
+            console.error('[api/phone/simulate stream] Error:', streamErr)
+            send({
+              type: 'error',
+              error: streamErr?.message || 'Error procesando turno en streaming'
+            })
+          } finally {
+            controller.close()
+          }
+        }
+      })
+
+      return new Response(stream, { headers: STREAM_HEADERS })
     }
 
     const turn = await processPhoneAgentTurn({
@@ -159,14 +524,12 @@ export async function POST(request: NextRequest) {
       storeId,
       userText,
       source: 'simulator',
-      callerNumber: body?.callerNumber || staff.user?.email || 'Simulador Web',
+      callerNumber: body?.callerNumber || auth.user.email || 'Simulador Web',
       preferredLang: body?.lang ? (body.lang === 'en' ? 'en' : 'es') : undefined
     })
 
-    const audioUrl = `/api/phone/tts?lang=${turn.language}&voice=${encodeURIComponent(turn.voiceId)}&text=${encodeURIComponent(turn.replyText)}`
-
+    const audioUrl = buildPhoneTtsUrl('', turn.replyText, turn.language, turn.voiceId)
     let audioDataUrl: string | null = null
-    const nextAudioUrl: string | null = null
 
     if (voiceMode !== 'instant_local') {
       const fullWav = await getPhoneAgentSpeech(turn.replyText, turn.language, turn.voiceId).catch(() => null)
@@ -184,17 +547,15 @@ export async function POST(request: NextRequest) {
       voiceId: turn.voiceId,
       audioUrl,
       audioDataUrl,
-      nextAudioUrl,
+      nextAudioUrl: null,
       toolsUsed: turn.toolsUsed,
       callbackCreated: turn.callbackCreated,
+      shouldTransferToPhone: turn.shouldTransferToPhone,
       shouldHangup: turn.shouldHangup,
       transcript: turn.transcript
     })
   } catch (err: any) {
     console.error('[api/phone/simulate] Error:', err)
-    return NextResponse.json(
-      { error: err?.message || 'Error procesando turno en simulador' },
-      { status: 500 }
-    )
+    return NextResponse.json({ error: err?.message || 'Error procesando turno en simulador' }, { status: 500 })
   }
 }

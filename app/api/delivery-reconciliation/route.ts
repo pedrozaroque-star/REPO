@@ -2033,12 +2033,21 @@ export async function POST(req: NextRequest) {
         )
       }
 
+      const requestedPlat =
+        body.platform && VALID_PLATFORMS.has(String(body.platform))
+          ? (String(body.platform) as 'DOORDASH' | 'UBER_EATS' | 'GRUBHUB')
+          : 'ALL'
       const result = await reconcileAndPersistDeliveryData({
         storeIds: storeId,
         startDate,
         endDate,
         syncToast: body.sync_toast !== false,
         syncGrubhubLive: body.sync_grubhub !== false,
+        syncChromePlatforms:
+          body.sync_chrome_platforms !== undefined
+            ? Boolean(body.sync_chrome_platforms)
+            : requestedPlat !== 'GRUBHUB',
+        targetPlatform: requestedPlat,
       })
 
       return NextResponse.json({

@@ -84,7 +84,7 @@
     })();
     </script>
 
-    <link rel="stylesheet" href="../css/style.css?v=117">
+    <link rel="stylesheet" href="../css/style.css?v=118">
     <link rel="stylesheet" href="../css/compliance-a11y.css?v=36">
     <style>
         .page-content-wrapper {
@@ -576,9 +576,10 @@
         </svg>
     </button>
 
-    <script src="../js/main.js?v=117" defer></script>
+    <script src="../js/main.js?v=118" defer></script>
     <script>
         document.addEventListener('DOMContentLoaded', function() {
+            const formBootedAt = Date.now();
             const form = document.getElementById('contact-page-form');
             const feedback = document.getElementById('contact-form-feedback');
             const submitBtn = document.getElementById('btn-submit-contact');
@@ -625,7 +626,9 @@
                     reason: document.getElementById('contact-type').value,
                     subject: document.getElementById('contact-type').value,
                     message: document.getElementById('contact-message').value.trim(),
-                    b_company_website: hp1 || hp2
+                    b_company_website: hp1 || hp2,
+                    _tg_dwell_ms: Math.max(0, Date.now() - formBootedAt),
+                    _tg_wd: (typeof navigator !== 'undefined' && navigator.webdriver === true) ? 1 : 0
                 };
 
                 const isSpanish = (document.documentElement.lang === 'es');
