@@ -68,6 +68,10 @@
  *   4) Debounce de 500ms + guardia `fetchingRef` en refrescos por Realtime, usando siempre `syncToast=false` para romper el ciclo Realtime -> fetch -> syncToast -> UPDATE.
  * - PARIDAD FIFO 1:1 CON TOAST KDS (2026-11-09):
  *   La columna "En Preparación" (`displayedInProgressOrders`) y la precarga de clips de voz ordenan las comandas con `compareOrdersKdsFifo` (`created_at` ascendente + desempate por `order_number`).
+ * - TIMER INTELIGENTE MANOS LIBRES POR SUCURSAL (2026-11-10):
+ *   Permite activar por tienda (gobernado por Admin en `order_ready_settings.auto_call_timer_config`, piloto activo únicamente en `SLAUSON` y las otras 14 tiendas en modo `Manual`)
+ *   el llamado automático adaptativo según complejidad de platillos (Nivel 1 Rápida 2m 45s, Nivel 2 Media 4m 15s, Nivel 3 Compleja/Al momento 5m 30s) + ajuste por fila FIFO delante (+20s/orden),
+ *   con cancelación automática si se cierra en KDS o si ya fue llamada desde tableta.
  */
 
 'use client'
@@ -106,7 +110,9 @@ import {
   Trash2,
   Pencil,
   Save,
-  RotateCcw
+  RotateCcw,
+  Bot,
+  Hand
 } from 'lucide-react'
 import { useLanguage } from '@/lib/i18n'
 import { createClient } from '@supabase/supabase-js'
@@ -115,6 +121,18 @@ import { AVAILABLE_VOICES, VoiceId, isValidVoice, isForbiddenRaulVoice } from '@
 import { getCaliforniaBusinessDate, getCaliforniaShift } from '@/lib/business-date'
 import { STORE_GUID_BY_CODE } from '@/lib/toast-stores'
 import { isDrinkOrDessertOnlyOrder, compareOrdersKdsFifo } from '@/lib/order-ready-filter'
+import {
+  AutoCallMode,
+  AutoCallTimerConfig,
+  AUTO_CALL_MAX_UNOBSERVED_OVERDUE_MS,
+  DEFAULT_AUTO_CALL_TIMER_CONFIG,
+  computeSmartOrderAutoCallPlan,
+  formatCountdownMmSs,
+  getSmartEnabledStoreCodes,
+  getStoreAutoCallMode,
+  isStoreSmartAutoCallEnabled,
+  sanitizeAutoCallTimerConfig
+} from '@/lib/order-ready-auto-timer'
 import { purgeTabletStaleCaches, getTabletNoCacheHeaders } from '@/lib/tablet-cache-cleaner'
 import PhoneCallbackAlertBanner from '@/components/PhoneCallbackAlertBanner'
 
@@ -587,7 +605,23 @@ function OrderReadyBoardContent() {
     }
   }
 
-  // Cargar configuración global de voz y plantillas desde Supabase (/api/order-ready/settings)
+  // Configuración del Timer Inteligente Manos Libres por sucursal (piloto activo únicamente en SLAUSON)
+  const [autoCallConfig, setAutoCallConfig] = useState<AutoCallTimerConfig>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const raw = localStorage.getItem('teg_order_ready_auto_call_timer_v1')
+        if (raw) return sanitizeAutoCallTimerConfig(JSON.parse(raw))
+      } catch {}
+    }
+    return sanitizeAutoCallTimerConfig(DEFAULT_AUTO_CALL_TIMER_CONFIG)
+  })
+  const [isSavingAutoTimer, setIsSavingAutoTimer] = useState<boolean>(false)
+  const [autoTimerSavedFlash, setAutoTimerSavedFlash] = useState<boolean>(false)
+  const autoTimerObservedCountingRef = useRef<Set<string>>(new Set())
+  const autoTimerClaimedIdsRef = useRef<Set<string>>(new Set())
+  const autoTimerInflightRef = useRef<boolean>(false)
+
+  // Cargar configuración global de voz, plantillas y Timer Inteligente desde Supabase (/api/order-ready/settings)
   const fetchGlobalSettings = useCallback(async () => {
     try {
       const res = await fetch('/api/order-ready/settings', { cache: 'no-store' })
@@ -604,10 +638,111 @@ function OrderReadyBoardContent() {
           localStorage.setItem('teg_order_ready_custom_presets_v1', JSON.stringify(data.presets))
         }
       }
+      if (data.success && data.autoCallTimer && typeof data.autoCallTimer === 'object') {
+        const sanitized = sanitizeAutoCallTimerConfig(data.autoCallTimer)
+        setAutoCallConfig(sanitized)
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('teg_order_ready_auto_call_timer_v1', JSON.stringify(sanitized))
+        }
+      }
     } catch (e) {
       console.warn('Error loading global order ready settings:', e)
     }
   }, [])
+
+  const saveAutoCallTimerConfig = async (nextRaw: AutoCallTimerConfig) => {
+    if (!isAdmin) return
+    const sanitized = sanitizeAutoCallTimerConfig(nextRaw)
+    setAutoCallConfig(sanitized)
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('teg_order_ready_auto_call_timer_v1', JSON.stringify(sanitized))
+    }
+    setIsSavingAutoTimer(true)
+    try {
+      // Enviar únicamente los 5 niveles numéricos para que el servidor preserve storeModes atómicamente en BD
+      const res = await fetch('/api/order-ready/settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          autoCallTimer: {
+            fastSec: sanitized.fastSec,
+            mediumSec: sanitized.mediumSec,
+            complexSec: sanitized.complexSec,
+            perOrderAheadSec: sanitized.perOrderAheadSec,
+            maxCapSec: sanitized.maxCapSec
+          }
+        })
+      })
+      const data = await res.json()
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Error saving smart timer settings')
+      }
+      if (data.autoCallTimer) {
+        const serverCfg = sanitizeAutoCallTimerConfig(data.autoCallTimer)
+        setAutoCallConfig(serverCfg)
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('teg_order_ready_auto_call_timer_v1', JSON.stringify(serverCfg))
+        }
+      }
+      setAutoTimerSavedFlash(true)
+      setTimeout(() => setAutoTimerSavedFlash(false), 3000)
+    } catch (err: any) {
+      console.error('Error saving auto call timer config:', err)
+      fetchGlobalSettings()
+    } finally {
+      setIsSavingAutoTimer(false)
+    }
+  }
+
+  const handleStoreAutoModeChange = async (mode: AutoCallMode) => {
+    if (!isAdmin) return
+    const normCode = String(selectedStore || '').toUpperCase()
+    if (!normCode) return
+    if (mode === 'smart') {
+      // Al encender el modo inteligente en vivo, reiniciar observación para no disparar avalancha sobre órdenes viejas (>45s vencidas)
+      autoTimerObservedCountingRef.current.clear()
+    }
+    const nextModes: Record<string, AutoCallMode> = { ...autoCallConfig.storeModes }
+    if (mode === 'smart') {
+      nextModes[normCode] = 'smart'
+    } else {
+      delete nextModes[normCode]
+    }
+    const optimistic = sanitizeAutoCallTimerConfig({
+      ...autoCallConfig,
+      storeModes: nextModes
+    })
+    setAutoCallConfig(optimistic)
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('teg_order_ready_auto_call_timer_v1', JSON.stringify(optimistic))
+    }
+    setIsSavingAutoTimer(true)
+    try {
+      const res = await fetch('/api/order-ready/settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ storeModePatch: { storeCode: normCode, mode } })
+      })
+      const data = await res.json()
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Error updating store smart timer mode')
+      }
+      if (data.autoCallTimer) {
+        const serverCfg = sanitizeAutoCallTimerConfig(data.autoCallTimer)
+        setAutoCallConfig(serverCfg)
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('teg_order_ready_auto_call_timer_v1', JSON.stringify(serverCfg))
+        }
+      }
+      setAutoTimerSavedFlash(true)
+      setTimeout(() => setAutoTimerSavedFlash(false), 3000)
+    } catch (err: any) {
+      console.error('Error updating store smart timer mode:', err)
+      fetchGlobalSettings()
+    } finally {
+      setIsSavingAutoTimer(false)
+    }
+  }
 
   useEffect(() => {
     fetchGlobalSettings()
@@ -676,6 +811,8 @@ function OrderReadyBoardContent() {
     lastAnnouncedAtMsRef.current.clear()
     announcedIdsRef.current.clear()
     readyIdsRef.current.clear()
+    autoTimerObservedCountingRef.current.clear()
+    autoTimerClaimedIdsRef.current.clear()
     readyOrdersRef.current = []
     inProgressOrdersRef.current = []
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
@@ -871,6 +1008,8 @@ function OrderReadyBoardContent() {
     lastImpulseTimeRef.current.clear()
     lastAnnouncedAtMsRef.current.clear()
     remindedOrderIdsRef.current.clear()
+    autoTimerObservedCountingRef.current.clear()
+    autoTimerClaimedIdsRef.current.clear()
     reminderTimersRef.current.forEach((timer) => clearTimeout(timer))
     reminderTimersRef.current.clear()
     activeStoreRef.current = null
@@ -2238,6 +2377,35 @@ function OrderReadyBoardContent() {
           }
         )
         .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'order_ready_settings',
+            filter: 'id=eq.auto_call_timer_config'
+          },
+          (payload) => {
+            if (unmounted || channelDisposed) return
+            const newRow = payload.new as any
+            if (newRow && newRow.id === 'auto_call_timer_config' && newRow.updated_by) {
+              try {
+                const nextCfg = sanitizeAutoCallTimerConfig(JSON.parse(newRow.updated_by))
+                setAutoCallConfig((prev) => {
+                  const prevSmart = isStoreSmartAutoCallEnabled(prev, normalizedStore)
+                  const nextSmart = isStoreSmartAutoCallEnabled(nextCfg, normalizedStore)
+                  if (!prevSmart && nextSmart) {
+                    autoTimerObservedCountingRef.current.clear()
+                  }
+                  return nextCfg
+                })
+                if (typeof window !== 'undefined') {
+                  localStorage.setItem('teg_order_ready_auto_call_timer_v1', JSON.stringify(nextCfg))
+                }
+              } catch {}
+            }
+          }
+        )
+        .on(
           'broadcast',
           { event: 'call_order' },
           (payload) => {
@@ -2292,6 +2460,122 @@ function OrderReadyBoardContent() {
       disposeActiveChannel()
     }
   }, [selectedStore])
+
+  // MOTOR DE TIMER INTELIGENTE MANOS LIBRES (activo exclusivamente en tiendas con modo 'smart', piloto: SLAUSON)
+  useEffect(() => {
+    if (!storeOk || !isStoreSmartAutoCallEnabled(autoCallConfig, selectedStore)) {
+      return
+    }
+    if (inProgressOrders.length === 0) {
+      return
+    }
+
+    const activeQueue = inProgressOrders
+      .filter((order) => {
+        if (order.dining_option !== 'FOR_HERE' && order.dining_option !== 'TOGO') return false
+        if (order.dining_option === 'TOGO' && !announceToGo) return false
+        if (order.dining_option === 'FOR_HERE' && !announceForHere) return false
+        if (isDrinkOrDessertOnlyOrder(order.items_summary)) return false
+        return true
+      })
+      .sort(compareOrdersKdsFifo)
+
+    for (let idx = 0; idx < activeQueue.length; idx++) {
+      const ord = activeQueue[idx]
+      if (!ord?.id) continue
+      const numStr = String(ord.order_number || '').trim()
+      if (!/^\d{1,6}$/.test(numStr)) continue
+
+      // Si la orden ya fue llamada manual o automáticamente, cancelar su timer de inmediato
+      if (ord.announced_at) {
+        autoTimerClaimedIdsRef.current.add(ord.id)
+        continue
+      }
+      if (autoTimerClaimedIdsRef.current.has(ord.id)) {
+        continue
+      }
+
+      const plan = computeSmartOrderAutoCallPlan(ord, idx, autoCallConfig, nowMs)
+      if (plan.remainingMs > 0) {
+        autoTimerObservedCountingRef.current.add(ord.id)
+        continue
+      }
+
+      // Al llegar a 0:00: protección anti-avalancha para órdenes antiguas preexistentes (>45s vencidas sin haberse visto contar)
+      const overdueMs = -plan.remainingMs
+      const wasObservedCounting = autoTimerObservedCountingRef.current.has(ord.id)
+      if (!wasObservedCounting && overdueMs > AUTO_CALL_MAX_UNOBSERVED_OVERDUE_MS) {
+        autoTimerClaimedIdsRef.current.add(ord.id)
+        continue
+      }
+
+      if (autoTimerInflightRef.current) {
+        break
+      }
+
+      autoTimerInflightRef.current = true
+      autoTimerClaimedIdsRef.current.add(ord.id)
+      const targetStoreCode = String(ord.store_code || selectedStore).toUpperCase()
+      const targetStoreName =
+        ord.store_name || STORES_LIST.find((s) => s.code === selectedStore)?.name || targetStoreCode
+
+      ;(async () => {
+        try {
+          const res = await fetch('/api/order-ready/call', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              orderId: ord.id,
+              orderNumber: numStr,
+              storeCode: targetStoreCode,
+              diningOption: ord.dining_option,
+              storeName: targetStoreName,
+              autoTimerOnlyIfUnannounced: true
+            }),
+            signal: AbortSignal.timeout(5000)
+          })
+          if (res.ok) {
+            const resJson = await res.json()
+            if (resJson?.autoTriggered && !resJson?.skippedAutoTimer) {
+              const annIso = resJson.announcedAt || new Date().toISOString()
+              setInProgressOrders((prev) => {
+                const updated = prev.map((item) => (item.id === ord.id ? { ...item, announced_at: annIso } : item))
+                inProgressOrdersRef.current = updated
+                return updated
+              })
+              handleImpulseRef.current?.({
+                order_id: ord.id,
+                order_number: numStr,
+                store_code: targetStoreCode,
+                dining_option: ord.dining_option,
+                store_name: targetStoreName,
+                called_at: annIso
+              })
+            }
+          } else if (overdueMs < 25_000) {
+            autoTimerClaimedIdsRef.current.delete(ord.id)
+          }
+        } catch {
+          if (overdueMs < 25_000) {
+            autoTimerClaimedIdsRef.current.delete(ord.id)
+          }
+        } finally {
+          autoTimerInflightRef.current = false
+        }
+      })()
+
+      // Despachar como máximo 1 llamado automático por tick de 1s
+      break
+    }
+  }, [
+    storeOk,
+    autoCallConfig,
+    selectedStore,
+    inProgressOrders,
+    nowMs,
+    announceToGo,
+    announceForHere
+  ])
 
   // Probar campanilla Ding-Dong y voz natural con la voz seleccionada
   const handleTestSound = async (voiceToTest?: VoiceId) => {
@@ -3338,6 +3622,252 @@ function OrderReadyBoardContent() {
             </div>
           </div>
 
+          {/* Sección Manos Libres: TIMER INTELIGENTE DE VOZ POR SUCURSAL (Piloto: Slauson) */}
+          {(() => {
+            const selectedStoreObj = STORES_LIST.find((s) => s.code === selectedStore)
+            const selectedStoreDisplayName = selectedStoreObj?.name || selectedStore
+            const currentStoreMode = getStoreAutoCallMode(autoCallConfig, selectedStore)
+            const smartEnabledCodes = getSmartEnabledStoreCodes(autoCallConfig)
+
+            return (
+              <div className={`mt-4 max-w-7xl mx-auto rounded-2xl p-4 md:p-5 shadow-sm border transition-colors ${
+                currentStoreMode === 'smart'
+                  ? isDark
+                    ? 'bg-emerald-950/25 border-emerald-500/40'
+                    : 'bg-emerald-50/40 border-emerald-300'
+                  : isDark
+                    ? 'bg-slate-950/70 border-slate-800/80'
+                    : 'bg-white border-slate-200'
+              }`}>
+                <div className={`flex flex-col lg:flex-row lg:items-center justify-between gap-3 pb-3 mb-3.5 border-b border-dashed ${
+                  isDark ? 'border-slate-800' : 'border-slate-200'
+                }`}>
+                  <div className="flex items-center gap-2.5">
+                    <div className={`w-8 h-8 rounded-xl flex items-center justify-center text-white shadow-sm ${
+                      currentStoreMode === 'smart'
+                        ? 'bg-gradient-to-br from-emerald-500 to-teal-600'
+                        : 'bg-gradient-to-br from-slate-600 to-slate-700'
+                    }`}>
+                      <Bot className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <h3 className={`text-xs font-black uppercase tracking-wider flex items-center gap-1.5 ${
+                        isDark ? 'text-slate-200' : 'text-slate-800'
+                      }`}>
+                        <span>{t('orderReadyBoard.smart_timer_card_title')}</span>
+                        {!isAdmin && <Lock className="w-3.5 h-3.5 text-amber-500" />}
+                      </h3>
+                      <p className={`text-[11px] ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+                        {t('orderReadyBoard.smart_timer_card_subtitle')}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Selector Manual vs Timer Inteligente para la sucursal seleccionada */}
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className={`text-xs font-bold ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
+                      {t('orderReadyBoard.smart_timer_mode_label').replace('{store}', selectedStoreDisplayName)}
+                    </span>
+                    <div className={`inline-flex rounded-xl p-1 border ${
+                      isDark ? 'bg-slate-900 border-slate-800' : 'bg-slate-100 border-slate-200'
+                    }`}>
+                      <button
+                        type="button"
+                        disabled={!isAdmin || isSavingAutoTimer}
+                        onClick={() => handleStoreAutoModeChange('manual')}
+                        className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition ${
+                          currentStoreMode === 'manual'
+                            ? isDark
+                              ? 'bg-slate-700 text-white shadow-sm'
+                              : 'bg-white text-slate-900 shadow-sm border border-slate-200'
+                            : isDark
+                              ? 'text-slate-400 hover:text-slate-200'
+                              : 'text-slate-600 hover:text-slate-900'
+                        } disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer`}
+                      >
+                        <Hand className="w-3.5 h-3.5" />
+                        <span>{t('orderReadyBoard.smart_timer_mode_manual')}</span>
+                      </button>
+                      <button
+                        type="button"
+                        disabled={!isAdmin || isSavingAutoTimer}
+                        onClick={() => handleStoreAutoModeChange('smart')}
+                        className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition ${
+                          currentStoreMode === 'smart'
+                            ? 'bg-emerald-600 text-white shadow-sm'
+                            : isDark
+                              ? 'text-slate-400 hover:text-emerald-300'
+                              : 'text-slate-600 hover:text-emerald-700'
+                        } disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer`}
+                      >
+                        <Bot className="w-3.5 h-3.5" />
+                        <span>{t('orderReadyBoard.smart_timer_mode_smart')}</span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Resumen de sucursales activas + Calibración de los 3 niveles (Admin) */}
+                <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className={`text-[11px] font-bold ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
+                      {t('orderReadyBoard.smart_timer_active_stores_label')}
+                    </span>
+                    {smartEnabledCodes.length === 0 ? (
+                      <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-md border ${
+                        isDark ? 'bg-slate-900 border-slate-800 text-slate-400' : 'bg-slate-100 border-slate-200 text-slate-600'
+                      }`}>
+                        {t('orderReadyBoard.smart_timer_no_active_stores')}
+                      </span>
+                    ) : (
+                      smartEnabledCodes.map((code) => {
+                        const stName = STORES_LIST.find((s) => s.code === code)?.name || code
+                        return (
+                          <span
+                            key={code}
+                            className="inline-flex items-center gap-1 text-[11px] font-extrabold px-2.5 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-500/40 text-emerald-600 dark:text-emerald-400"
+                          >
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                            <span>{stName}</span>
+                          </span>
+                        )
+                      })
+                    )}
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    {autoTimerSavedFlash && (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-500/15 border border-emerald-500/40 text-emerald-500 text-[11px] font-bold">
+                        <CheckCircle2 className="w-3 h-3" />
+                        <span>{t('orderReadyBoard.smart_timer_saved')}</span>
+                      </span>
+                    )}
+                    {isAdmin && (
+                      <button
+                        type="button"
+                        disabled={isSavingAutoTimer}
+                        onClick={() => void saveAutoCallTimerConfig(autoCallConfig)}
+                        className="inline-flex items-center gap-1 px-3 py-1 rounded-lg text-[11px] font-bold transition border bg-emerald-600 hover:bg-emerald-500 text-white border-emerald-500 shadow-sm disabled:opacity-50 cursor-pointer"
+                      >
+                        <Save className="w-3 h-3" />
+                        <span>
+                          {isSavingAutoTimer
+                            ? t('orderReadyBoard.smart_timer_saving')
+                            : t('orderReadyBoard.smart_timer_save_btn')}
+                        </span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Controles numéricos de calibración de niveles */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2.5">
+                  {[
+                    {
+                      key: 'fastSec' as const,
+                      label: t('orderReadyBoard.smart_timer_fast_label'),
+                      min: 45,
+                      max: 600,
+                      step: 15,
+                      value: autoCallConfig.fastSec,
+                      fmt: formatCountdownMmSs(autoCallConfig.fastSec)
+                    },
+                    {
+                      key: 'mediumSec' as const,
+                      label: t('orderReadyBoard.smart_timer_medium_label'),
+                      min: 60,
+                      max: 720,
+                      step: 15,
+                      value: autoCallConfig.mediumSec,
+                      fmt: formatCountdownMmSs(autoCallConfig.mediumSec)
+                    },
+                    {
+                      key: 'complexSec' as const,
+                      label: t('orderReadyBoard.smart_timer_complex_label'),
+                      min: 90,
+                      max: 900,
+                      step: 15,
+                      value: autoCallConfig.complexSec,
+                      fmt: formatCountdownMmSs(autoCallConfig.complexSec)
+                    },
+                    {
+                      key: 'perOrderAheadSec' as const,
+                      label: t('orderReadyBoard.smart_timer_queue_bonus_label'),
+                      min: 0,
+                      max: 120,
+                      step: 5,
+                      value: autoCallConfig.perOrderAheadSec,
+                      fmt: `+${autoCallConfig.perOrderAheadSec} ${t('orderReadyBoard.seconds_abbr')}`
+                    },
+                    {
+                      key: 'maxCapSec' as const,
+                      label: t('orderReadyBoard.smart_timer_max_cap_label'),
+                      min: 120,
+                      max: 1200,
+                      step: 30,
+                      value: autoCallConfig.maxCapSec,
+                      fmt: formatCountdownMmSs(autoCallConfig.maxCapSec)
+                    }
+                  ].map((item) => (
+                    <div
+                      key={item.key}
+                      className={`rounded-xl p-2.5 border flex flex-col justify-between ${
+                        isDark ? 'bg-slate-900/80 border-slate-800' : 'bg-slate-50 border-slate-200'
+                      }`}
+                    >
+                      <span className={`text-[10px] font-bold leading-snug mb-1.5 ${
+                        isDark ? 'text-slate-300' : 'text-slate-700'
+                      }`}>
+                        {item.label}
+                      </span>
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-xs font-black font-mono text-emerald-500">
+                          {item.fmt}
+                        </span>
+                        <div className="flex items-center gap-1">
+                          <input
+                            type="number"
+                            min={item.min}
+                            max={item.max}
+                            step={item.step}
+                            disabled={!isAdmin}
+                            value={item.value}
+                            onChange={(e) => {
+                              const v = parseInt(e.target.value, 10)
+                              if (!isNaN(v)) {
+                                setAutoCallConfig((prev) => ({ ...prev, [item.key]: v }))
+                              }
+                            }}
+                            className={`w-16 text-center font-bold text-xs py-0.5 rounded-md border focus:outline-none focus:border-emerald-500 disabled:opacity-60 ${
+                              isDark
+                                ? 'bg-slate-950 border-slate-700 text-slate-200'
+                                : 'bg-white border-slate-300 text-slate-800'
+                            }`}
+                          />
+                          <span className={`text-[10px] font-bold ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>
+                            {t('orderReadyBoard.seconds_abbr')}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="mt-2.5 flex flex-wrap items-center justify-between gap-2">
+                  <p className={`text-[10px] font-medium ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+                    {t('orderReadyBoard.smart_timer_kds_guard_note')}
+                  </p>
+                  {!isAdmin && (
+                    <p className="text-[10px] text-amber-500 flex items-center gap-1 font-medium">
+                      <Lock className="w-3 h-3 shrink-0" />
+                      <span>{t('orderReadyBoard.smart_timer_admin_only_hint')}</span>
+                    </p>
+                  )}
+                </div>
+              </div>
+            )
+          })()}
+
           {/* Sección Destacada: ANUNCIOS AL COMEDOR Y REPRODUCCIÓN PERIÓDICA */}
           <div className={`mt-4 max-w-7xl mx-auto rounded-2xl p-4 md:p-5 shadow-sm border transition-colors ${
             isDark ? 'bg-slate-950/70 border-slate-800/80' : 'bg-white border-slate-200'
@@ -3864,7 +4394,7 @@ function OrderReadyBoardContent() {
                 : 'bg-amber-50/40 border-2 border-amber-400 shadow-sm'
             }`}>
               {/* Header de la columna */}
-              <div className={`flex items-center justify-between pb-5 border-b ${
+              <div className={`flex flex-wrap items-center justify-between gap-2 pb-5 border-b ${
                 isDark ? 'border-amber-500/30' : 'border-amber-200'
               }`}>
                 <div className="flex items-center gap-3">
@@ -3889,6 +4419,13 @@ function OrderReadyBoardContent() {
                     </p>
                   </div>
                 </div>
+
+                {isStoreSmartAutoCallEnabled(autoCallConfig, selectedStore) && (
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-extrabold uppercase tracking-wider bg-emerald-500/15 border border-emerald-500/40 text-emerald-600 dark:text-emerald-400">
+                    <Bot className="w-3.5 h-3.5 shrink-0" />
+                    <span>{t('orderReadyBoard.smart_timer_active_badge')}</span>
+                  </span>
+                )}
               </div>
 
               {/* Tarjetas de Órdenes en Preparación */}
@@ -3904,7 +4441,7 @@ function OrderReadyBoardContent() {
                     </p>
                   </div>
                 ) : (
-                  displayedInProgressOrders.map((order) => {
+                  displayedInProgressOrders.map((order, queueIdx) => {
                     const elapsedSeconds = order.created_at
                       ? Math.max(0, Math.round((nowMs - new Date(order.created_at).getTime()) / 1000))
                       : 0
@@ -3913,6 +4450,15 @@ function OrderReadyBoardContent() {
                     const sentTimeStr = formatTimeOnly(order.created_at)
                     const isInProgressTabletCalled = tabletCalledOrderId === order.id || tabletCalledOrderNum === String(order.order_number)
                     const isOrderReplaying = replayingId === order.id || replayingOrderNum === String(order.order_number)
+                    const isSmartStore = isStoreSmartAutoCallEnabled(autoCallConfig, selectedStore)
+                    const smartPlan = isSmartStore ? computeSmartOrderAutoCallPlan(order, queueIdx, autoCallConfig, nowMs) : null
+                    const smartTierLabel = smartPlan
+                      ? smartPlan.tier === 'fast'
+                        ? t('orderReadyBoard.smart_timer_tier_fast')
+                        : smartPlan.tier === 'complex'
+                        ? t('orderReadyBoard.smart_timer_tier_complex')
+                        : t('orderReadyBoard.smart_timer_tier_medium')
+                      : ''
 
                     return (
                       <div
@@ -3961,6 +4507,31 @@ function OrderReadyBoardContent() {
                                 <Timer className="w-3 h-3" />
                                 <span>{formatDuration(elapsedSeconds)}</span>
                               </span>
+
+                              {/* Indicador de Timer Inteligente (solo en sucursal activa, ej. Slauson) */}
+                              {isSmartStore && smartPlan && (
+                                order.announced_at ? (
+                                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-xs font-bold border bg-emerald-500/15 border-emerald-500/40 text-emerald-600 dark:text-emerald-400">
+                                    <CheckCircle2 className="w-3 h-3" />
+                                    <span>{t('orderReadyBoard.smart_timer_called_badge')}</span>
+                                  </span>
+                                ) : (
+                                  <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-xs font-bold font-mono border ${
+                                    isDark
+                                      ? 'bg-indigo-950/60 border-indigo-500/40 text-indigo-300'
+                                      : 'bg-indigo-50 border-indigo-300 text-indigo-700'
+                                  }`}>
+                                    <Bot className="w-3 h-3" />
+                                    <span>
+                                      {t('orderReadyBoard.smart_timer_countdown').replace(
+                                        '{time}',
+                                        formatCountdownMmSs(smartPlan.remainingSec)
+                                      )}
+                                    </span>
+                                    <span className="font-sans text-[10px] opacity-80">• {smartTierLabel}</span>
+                                  </span>
+                                )
+                              )}
                             </div>
                           </div>
                         </div>

@@ -59,6 +59,7 @@ export const DRINK_DESSERT_PATTERNS: RegExp[] = [
   /\bgallon agua\b/i,
   /\bagua de\b/i,
   /\b(large|medium|small|med|lg|sm|vaso)\s+(de\s+)?pina\b/i,
+  /\bpina\s*\(?(large|medium|small|med|lg|sm|32\s*oz|22\s*oz)\)?\b/i,
   /^pina$/i,
 
   // Bebidas Calientes (Hot drinks)
