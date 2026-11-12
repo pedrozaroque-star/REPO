@@ -217,6 +217,15 @@ export async function purgeTabletStaleCaches(options: CacheCleanerOptions = {}):
         }
         continue
       }
+
+      // h) Temporizador Digital TFS4 de Frijoles: preservar SIEMPRE la sucursal activa (incluso en corte 6:00 AM si hay olla en lumbre)
+      if (key.startsWith('teg_bean_timer_active_')) {
+        const expected = activeStoreId ? `teg_bean_timer_active_${activeStoreId}` : null
+        if (expected && key !== expected) {
+          keysToRemove.push(key)
+        }
+        continue
+      }
     }
 
     for (const k of keysToRemove) {

@@ -1,17 +1,28 @@
 /**
  * @module preparador-bodega
- * @description Tableta de Cocina Trasera / Bodega que proyecta la demanda de carnes lentas y preparaciones
- *   (Cabeza, Lengua, Champurrado, Guacamole, Frijol molido, Arroz) y recibe alertas de insumos en tiempo real.
+ * @description Tableta 2 de Cocina Trasera / Bodega de Tacos Gavilan que proyecta la demanda de carnes lentas
+ *   y preparaciones (Cabeza, Lengua, Champurrado, Guacamole, Frijol Molido, Arroz), recibe alertas de insumos
+ *   en tiempo real e integra de forma permanente el Temporizador Digital Multicanal Cooper TFS4 para la cocción
+ *   exacta y bloqueada de Frijoles de la Olla (11:00 min) y Frijoles Enteros (12:00 min).
  * @businessRules
- *   - Día laboral Gavilán: 6:00 AM a 5:59 AM del siguiente día (America/Los_Angeles).
+ *   - Día laboral de Tacos Gavilan: 6:00 AM a 5:59 AM del siguiente día (`America/Los_Angeles`). Turno PM: 5:00 PM.
  *   - Champurrado: 1 galón = 8 lbs líquido / 20 porciones.
  *   - Guacamole: Demanda dividida entre 2 para indicar bolsas de 2 lbs.
- *   - Escucha en tiempo real inserciones en preparador_requests con estado PENDING.
- * @dataFlow meat_consumption_history -> /api/inventory/preparador-history -> Bodega carousel & Realtime WebSocket.
+ *   - Escucha en tiempo real inserciones en `preparador_requests` con estado `PENDING`.
+ *   - Temporizador Digital Cooper TFS4 (`BeanCookingTimerTFS4`): 4 canales independientes por color (`T1` Azul,
+ *     `T2` Verde, `T3` Amarillo, `T4` Rojo) + botón rojo superior de paro de alarma, con solo 2 botones
+ *     preconfigurados y bloqueados (`Frijoles de la Olla = 11 min` y `Frijoles Enteros = 12 min`; sin `+ H / M / S -`
+ *     para personal operativo, calibrable únicamente por `admin`).
+ * @dataFlow
+ *   - `meat_consumption_history` -> `/api/inventory/preparador-history` -> Carrusel Cocina Trasera & Realtime WebSocket.
+ *   - `bean_timer_presets` + `bean_cooking_logs` <-> `/api/preparador/bean-timer` + Supabase Realtime -> `BeanCookingTimerTFS4`.
  * @notes
  *   - FIX (2026-10-19): Reconfiguración diaria 24/7 a las 6:00 AM, avance automático de bloque cada 30 min,
- *     y Modal de Despertar Tableta tras 3 horas de inactividad que purga caché, renueva el JWT (`teg_token`) por 30 días,
- *     sincroniza fecha/día de la semana/bloque actual y recarga proyecciones y alertas pendientes.
+ *     y Modal de Despertar Tableta tras 3 horas de inactividad que purga caché y renueva el JWT (`teg_token`).
+ *   - INTEGRACIÓN TFS4 (2026-11-12): `BeanCookingTimerTFS4` permanece montado continuamente bajo la misma llave
+ *     (`key="persistent-bean-timer-tfs4"`) tanto en vista normal como durante alertas de línea (`compactDuringAlert`),
+ *     preservando su `AudioContext` Web Audio propio (con la misma alarma urgente `/sounds/alarm.mp3` de Tableta 1
+ *     amplificada a alta potencia + voz neuronal femenina oficial `Kore`, independiente del `audioRef` de línea) y su canal Realtime.
  */
 'use client'
 
@@ -23,6 +34,7 @@ import { useAuth } from '@/components/ProtectedRoute'
 import { useLanguage } from '@/lib/i18n'
 import { purgeTabletStaleCaches, safeLocalStorageSet } from '@/lib/tablet-cache-cleaner'
 import { useWakeLock } from '@/lib/use-wake-lock'
+import BeanCookingTimerTFS4 from '@/components/BeanCookingTimerTFS4'
 
 interface PrepRequest {
     id: string
@@ -270,6 +282,11 @@ export default function BodegaPWA() {
     // Pending Queue
     const [pendingRequests, setPendingRequests] = useState<PrepRequest[]>([])
     const [beverageAlerts, setBeverageAlerts] = useState<any[]>([])
+    const allAlerts = useMemo(
+        () => [...pendingRequests, ...beverageAlerts].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()),
+        [pendingRequests, beverageAlerts]
+    )
+    const hasAlert = allAlerts.length > 0
     
     // Meat Historial Data (Cabeza, Lengua)
     const [meatData, setMeatData] = useState<MeatData[]>([])
@@ -291,11 +308,12 @@ export default function BodegaPWA() {
         return () => clearTimeout(timer)
     }, [activeIndex, currentBucketIndex])
 
-    // Fullscreen Mode & Carousel Interaction Refs
+    // Fullscreen Mode, Maximized Timer & Carousel Interaction Refs
     const containerRef = useRef<HTMLDivElement>(null)
     const bodegaPanelRef = useRef<HTMLDivElement>(null)
     const bodegaCarouselRef = useRef<HTMLDivElement>(null)
     const [isFullscreen, setIsFullscreen] = useState(false)
+    const [isTimerMaximized, setIsTimerMaximized] = useState(false)
     const wheelThrottleRef = useRef<number>(0)
     const [scrollDirection, setScrollDirection] = useState<number>(1)
     
@@ -341,7 +359,7 @@ export default function BodegaPWA() {
         return () => {
             targetEl.removeEventListener('wheel', handleWheel)
         }
-    }, [carouselBuckets.length])
+    }, [carouselBuckets.length, hasAlert, isTimerMaximized])
 
     // Reiniciar siempre el scroll hacia arriba cuando cambie el intervalo para evitar tarjetas cortadas
     useEffect(() => {
@@ -401,10 +419,11 @@ export default function BodegaPWA() {
                 if (user && !isSuper && user.store_id) {
                     const assignedStoreId = String(user.store_id)
                     setStoreId(assignedStoreId)
+                    safeLocalStorageSet('teg_bodega_store', assignedStoreId)
                     safeLocalStorageSet('teg_preparador_store', assignedStoreId)
                 } else {
                     // Recordar o default si es supervisor/admin
-                    const saved = localStorage.getItem('teg_preparador_store')
+                    const saved = localStorage.getItem('teg_bodega_store') || localStorage.getItem('teg_preparador_store')
                     if (saved && data.find(s => String(s.id) === String(saved))) setStoreId(String(saved))
                     else setStoreId(String(data[0].id))
                 }
@@ -929,9 +948,6 @@ export default function BodegaPWA() {
         )
     }
 
-    const allAlerts = [...pendingRequests, ...beverageAlerts].sort((a,b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
-    const hasAlert = allAlerts.length > 0
-
     return (
         <div ref={containerRef} className={`flex flex-col overflow-hidden transition-colors duration-500 ${hasAlert ? 'bg-red-950' : 'bg-slate-950'} ${isFullscreen ? 'fixed inset-0 z-[9999] h-screen w-screen' : 'h-screen'}`}>
             <audio ref={audioRef} src="/sounds/alarm.mp3" preload="auto" className="hidden" />
@@ -1040,7 +1056,8 @@ export default function BodegaPWA() {
                                 value={storeId} 
                                 onChange={e => {
                                     setStoreId(e.target.value)
-                                    localStorage.setItem('teg_bodega_store', e.target.value)
+                                    safeLocalStorageSet('teg_bodega_store', e.target.value)
+                                    safeLocalStorageSet('teg_preparador_store', e.target.value)
                                 }}
                                 disabled={!isSuper}
                                 className={`border-none font-black text-xl focus:ring-4 focus:ring-white/20 outline-none rounded-lg py-1 ${!isSuper ? 'bg-transparent text-slate-400 cursor-not-allowed opacity-80' : 'bg-transparent text-white cursor-pointer hover:bg-white/5'}`}
@@ -1144,19 +1161,29 @@ export default function BodegaPWA() {
                 </div>
             </div>
 
-            {/* Main Alert Area */}
-            <div className="flex-1 overflow-y-auto p-4 md:p-8 flex items-center justify-center">
-                {!hasAlert ? (
-                    <div className="w-full h-full flex flex-col lg:flex-row gap-8 items-stretch justify-center max-w-[1600px] mx-auto animate-in fade-in duration-500 py-4">
-                        {/* LADO IZQUIERDO: RITMO DE COCCIÓN (Cabeza y Lengua) */}
-                        <div ref={bodegaPanelRef} className="w-full lg:w-3/5 bg-slate-900 border border-slate-800 rounded-3xl p-6 md:p-10 flex flex-col shadow-2xl relative overflow-hidden shrink-0 lg:shrink">
+            {/* Main Operational Area: Cooking Pace + Persistent Cooper TFS4 Digital Bean Timer + Line Alerts */}
+            <div className="flex-1 overflow-y-auto p-4 md:p-6 xl:p-8 flex items-stretch justify-center">
+                <div
+                    className={
+                        hasAlert
+                            ? 'w-full max-w-6xl mx-auto flex flex-col gap-6 lg:gap-8 animate-in zoom-in-95 duration-300 pb-20 my-auto'
+                            : 'w-full h-full flex flex-col lg:flex-row gap-6 xl:gap-8 items-stretch justify-center max-w-[1680px] mx-auto animate-in fade-in duration-500 py-2'
+                    }
+                >
+                    {/* LADO IZQUIERDO: RITMO DE COCCIÓN (Cabeza, Lengua, Champurrado, Guacamole, Frijol Molido, Arroz) */}
+                    {!hasAlert && !isTimerMaximized && (
+                        <div
+                            key="bodega-cooking-pace-panel"
+                            ref={bodegaPanelRef}
+                            className="w-full lg:w-[54%] bg-slate-900 border border-slate-800 rounded-3xl p-5 md:p-8 flex flex-col shadow-2xl relative overflow-hidden shrink-0 lg:shrink"
+                        >
                             {/* Decorative glow */}
                             <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-500 to-indigo-500" />
                             
-                            <div className="flex items-center gap-4 mb-8 shrink-0">
-                                <Clock className="w-10 h-10 md:w-12 md:h-12 text-blue-500" />
+                            <div className="flex items-center gap-4 mb-6 shrink-0">
+                                <Clock className="w-10 h-10 md:w-11 md:h-11 text-blue-500 shrink-0" />
                                 <div>
-                                    <h2 className="text-2xl md:text-3xl font-black text-white uppercase tracking-wider flex items-center gap-3">
+                                    <h2 className="text-xl md:text-2xl xl:text-3xl font-black text-white uppercase tracking-wider flex items-center gap-3">
                                         {t('prep.cookingPace')}
                                         {intelligenceAcelerador !== 1.0 && (
                                             <span className={`text-sm px-2 py-0.5 rounded-lg border ${intelligenceAcelerador > 1 ? 'bg-red-50 text-red-700 border-red-200 dark:bg-red-900/30 dark:text-red-300 dark:border-red-800/50 shadow-[0_0_10px_rgba(239,68,68,0.2)]' : 'bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-900/30 dark:text-blue-300 dark:border-blue-800/50'}`}>
@@ -1164,7 +1191,7 @@ export default function BodegaPWA() {
                                             </span>
                                         )}
                                     </h2>
-                                    <p className="text-slate-400 font-medium md:text-lg">Live Projection for Today (Warehouse)</p>
+                                    <p className="text-slate-400 font-medium md:text-base">{t('prep.liveProjectionSubtitle')}</p>
                                 </div>
                             </div>
 
@@ -1206,7 +1233,7 @@ export default function BodegaPWA() {
                             {fetchingMeat ? (
                                 <div className="flex flex-col items-center justify-center flex-1 text-slate-500 gap-4">
                                     <Loader2 className="w-12 h-12 animate-spin text-blue-500" />
-                                    <p className="font-bold text-lg">Calculating projections...</p>
+                                    <p className="font-bold text-lg">{t('prep.calculatingProjections')}</p>
                                 </div>
                             ) : (
                                 <div 
@@ -1255,9 +1282,9 @@ export default function BodegaPWA() {
                                                 >
                                                     <div 
                                                         onClick={() => { setShowInfoModal(true) }}
-                                                        className="rounded-3xl border border-slate-700 p-6 xl:p-8 shadow-2xl transition-all duration-300 overflow-hidden relative bg-slate-800/80 shadow-inner cursor-pointer hover:ring-2 hover:ring-blue-500/50"
+                                                        className="rounded-3xl border border-slate-700 p-5 xl:p-7 shadow-2xl transition-all duration-300 overflow-hidden relative bg-slate-800/80 shadow-inner cursor-pointer hover:ring-2 hover:ring-blue-500/50"
                                                     >
-                                                        <div className="flex justify-between items-center mb-6 pb-4 border-b border-slate-700/50">
+                                                        <div className="flex justify-between items-center mb-5 pb-3.5 border-b border-slate-700/50">
                                                             <div className="font-black tracking-tight flex items-center gap-3 text-blue-400">
                                                                 {isRealCurrent && <div className="w-4 h-4 rounded-full bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.8)] animate-pulse" />}
                                                                 <div className="flex flex-col md:flex-row md:items-center gap-1 md:gap-4">
@@ -1305,27 +1332,27 @@ export default function BodegaPWA() {
                                                                 return (
                                                                     <div key={m.meat_type} className={`rounded-xl md:rounded-2xl flex flex-col items-center justify-center border shadow-md ${
                                                                         isChampurrado 
-                                                                            ? 'bg-amber-950/30 p-3 md:p-5 border-amber-600/50 shadow-amber-500/10'
-                                                                            : 'bg-slate-950/50 p-3 md:p-5 border-slate-700/50'
+                                                                            ? 'bg-amber-950/30 p-3 md:p-4 border-amber-600/50 shadow-amber-500/10'
+                                                                            : 'bg-slate-950/50 p-3 md:p-4 border-slate-700/50'
                                                                     }`}>
                                                                         <span className={`font-black uppercase tracking-widest mb-1 md:mb-2 text-center leading-none ${
-                                                                            isChampurrado ? 'text-base xl:text-xl text-amber-300' : 'text-lg xl:text-2xl text-slate-200'
+                                                                            isChampurrado ? 'text-sm xl:text-lg text-amber-300' : 'text-base xl:text-xl text-slate-200'
                                                                         }`}>{typeLab}</span>
                                                                         {cardDisplayMode === 'manual' ? (
                                                                             <div className="flex flex-col items-center justify-center">
-                                                                                <span className={`font-black tracking-tighter flex items-baseline gap-1.5 text-5xl xl:text-7xl ${isChampurrado ? 'text-amber-400' : 'text-purple-400'}`}>
-                                                                                    {manualScheduledLbs} <span className="font-black opacity-60 text-xl xl:text-2xl text-slate-300">{unitLab}</span>
+                                                                                <span className={`font-black tracking-tighter flex items-baseline gap-1.5 text-4xl xl:text-6xl ${isChampurrado ? 'text-amber-400' : 'text-purple-400'}`}>
+                                                                                    {manualScheduledLbs} <span className="font-black opacity-60 text-lg xl:text-xl text-slate-300">{unitLab}</span>
                                                                                 </span>
                                                                             </div>
                                                                         ) : cardDisplayMode === 'basic' ? (
                                                                             <div className="flex flex-col items-center justify-center">
-                                                                                <span className={`font-black tracking-tighter flex items-baseline gap-1.5 text-5xl xl:text-7xl ${isChampurrado ? 'text-amber-200' : 'text-white'}`}>
-                                                                                    {maxVal} <span className="font-black opacity-60 text-xl xl:text-2xl text-slate-300">{unitLab}</span>
+                                                                                <span className={`font-black tracking-tighter flex items-baseline gap-1.5 text-4xl xl:text-6xl ${isChampurrado ? 'text-amber-200' : 'text-white'}`}>
+                                                                                    {maxVal} <span className="font-black opacity-60 text-lg xl:text-xl text-slate-300">{unitLab}</span>
                                                                                 </span>
                                                                             </div>
                                                                         ) : (
-                                                                            <span className={`font-black tracking-tighter flex items-baseline gap-1.5 text-4xl xl:text-6xl ${isChampurrado ? 'text-amber-200' : 'text-white'}`}>
-                                                                                {val.toFixed(1)} <span className="font-black opacity-60 text-lg xl:text-xl text-slate-400">{unitLab}</span>
+                                                                            <span className={`font-black tracking-tighter flex items-baseline gap-1.5 text-3xl xl:text-5xl ${isChampurrado ? 'text-amber-200' : 'text-white'}`}>
+                                                                                {val.toFixed(1)} <span className="font-black opacity-60 text-base xl:text-lg text-slate-400">{unitLab}</span>
                                                                             </span>
                                                                         )}
                                                                     </div>
@@ -1358,26 +1385,40 @@ export default function BodegaPWA() {
                                 </div>
                             )}
                         </div>
+                    )}
 
-                        {/* LADO DERECHO: ESTADO SISTEMA (ESPERA) */}
-                        <div className="w-full lg:w-2/5 flex flex-col items-center justify-center opacity-30 animate-pulse py-10 lg:py-0 shrink-0 lg:shrink">
-                            <CheckCircle2 size={160} className="text-white mb-6 md:mb-10 w-32 h-32 md:w-40 md:h-40 shrink-0" />
-                            <h2 className="text-3xl md:text-5xl font-black text-white tracking-widest text-center">{t('prep.systemStandby')}</h2>
-                            <p className="text-xl md:text-2xl text-white/70 mt-4 md:mt-6 text-center">No pending line orders.</p>
-                        </div>
+                    {/* LADO DERECHO (O BARRA SUPERIOR EN ALERTA): TEMPORIZADOR DIGITAL COOPER TFS4 PERMANENTE */}
+                    <div
+                        key="persistent-bean-timer-tfs4"
+                        className={
+                            hasAlert
+                                ? 'w-full shrink-0 relative z-20'
+                                : isTimerMaximized
+                                ? 'w-full max-w-4xl mx-auto flex flex-col flex-1 min-h-[560px]'
+                                : 'w-full lg:w-[46%] flex flex-col shrink-0 lg:shrink min-h-[560px]'
+                        }
+                    >
+                        <BeanCookingTimerTFS4
+                            storeId={storeId}
+                            isMuted={isMuted}
+                            userRole={user?.role}
+                            compactDuringAlert={hasAlert}
+                            isTimerMaximized={isTimerMaximized}
+                            onToggleMaximize={() => setIsTimerMaximized(prev => !prev)}
+                        />
                     </div>
-                ) : (
-                    // Render all alerts as fully visible, actionable cards in a scrollable list
-                    <div className="w-full max-w-6xl mx-auto flex flex-col gap-6 lg:gap-10 animate-in zoom-in-95 duration-300 pb-20">
-                        {allAlerts.map((req, idx) => (
+
+                    {/* TARJETAS DE ALERTA DE LÍNEA / PROYECCIÓN CUANDO hasAlert === true */}
+                    {hasAlert &&
+                        allAlerts.map((req, idx) => (
                             <div 
-                                key={req.id} 
+                                key={`line-alert-${req.id}`} 
                                 className={`rounded-[40px] border flex flex-col lg:flex-row overflow-hidden shadow-2xl shrink-0 transition-transform hover:scale-[1.01] ${(req as any).is_sys ? 'bg-orange-600 border-orange-400' : 'bg-red-600 border-red-400'} ${idx === 0 ? `ring-8 ${(req as any).is_sys ? 'ring-orange-500/50 shadow-[0_0_100px_rgba(234,88,12,0.6)]' : 'ring-red-500/50 shadow-[0_0_100px_rgba(220,38,38,0.6)]'}` : `shadow-[0_20px_50px_${(req as any).is_sys ? 'rgba(234,88,12,0.3)' : 'rgba(220,38,38,0.3)'}]`}`}
                             >
                                 {/* Peticiones (Items) */}
                                 <div className="flex-1 p-8 md:p-14 flex flex-col justify-center text-white">
                                     <h3 className={`${(req as any).is_sys ? 'text-orange-200' : 'text-red-200'} font-bold tracking-widest uppercase text-sm md:text-xl mb-6`}>
-                                        {(req as any).is_sys ? 'QUOTA REACHED (PROJECTION):' : 'MISSING ON LINE:'}
+                                        {(req as any).is_sys ? t('prep.quotaReachedProjection') : t('prep.missingOnLine')}
                                     </h3>
                                     <div className="flex flex-wrap gap-4 md:gap-6">
                                         {req.items.map((item: string, i: number) => (
@@ -1387,7 +1428,7 @@ export default function BodegaPWA() {
                                         ))}
                                     </div>
                                     <p className={`mt-8 ${(req as any).is_sys ? 'text-orange-200/60' : 'text-red-200/60'} font-medium text-lg flex items-center gap-2`}>
-                                        <Clock size={20} /> {(req as any).is_sys ? 'Alert ' : 'Order '} {new Date(req.created_at).toLocaleTimeString('en-US', {hour: '2-digit', minute:'2-digit'})}
+                                        <Clock size={20} /> {(req as any).is_sys ? t('prep.alertPrefix') : t('prep.orderPrefix')}{new Date(req.created_at).toLocaleTimeString('en-US', {hour: '2-digit', minute:'2-digit'})}
                                     </p>
                                 </div>
 
@@ -1420,8 +1461,7 @@ export default function BodegaPWA() {
                                 </div>
                             </div>
                         ))}
-                    </div>
-                )}
+                </div>
             </div>
             
             {/* Visual Flasher when Alert is active */}

@@ -47,6 +47,7 @@
  * - Conciliar Delivery y Pólizas QuickBooks (/admin/conciliar-delivery, /api/delivery-reconciliation, /api/delivery-reconciliation/quickbooks-journal): concilia Toast POS vs Uber Eats, DoorDash y Grubhub orden por orden y por corte semanal, rastrea reembolsos en cortes posteriores (ej. #650DD) y automatiza la creación de Settlement Journal Entries de 4 líneas en QuickBooks Online (100XX Banco, 50039/50036/50037 Fees, 12050/12053/12054 Receivables, 40060/40062/40063 Refunds/Error Charges) con opción de separar Sales Tax en Cuenta 24001 para reembolsos de DoorDash/Grubhub.
  * - Contabilidad Externa ERP (/admin/contabilidad-externa, /api/external-accounting, /api/external-accounting/reports): ERP contable 100% puro enfocado en las 8 empresas de Raquel en external_accounting_companies (6 ACTIVE_QBO con sync bidireccional y 2 RETIRED_FROM_QBO_LOCAL_ACTIVE — Chicken Taco Catering LLC y Elveze LLC — con lectura/escritura completa local y qbo_sync_enabled=false), sin publicidad comercial ni add-ons de Intuit (sin Activate payments, Request payment, Deposit Tracker, Lending, ProAdvisor, Referrals, Subscriptions and billing ni widgets simulados), acceso global exclusivo validado por ID y email para Raquel (45), Roberto (46) y Roque (47), cobertura ACID PostgreSQL total (fn_ext_acct_mutate_transaction_atomic, fn_ext_acct_batch_mutate_transactions_atomic, fn_ext_acct_save_reconciliation_atomic, fn_ext_acct_reopen_or_delete_reconciliation_atomic, fn_ext_acct_mutate_entity_atomic incluyendo BANK_RULE, BUDGET, COMPANY_SETTINGS y NOTE_TASK, y fn_ext_acct_apply_account_deltas), elegibilidad de sync QBO gobernada exclusivamente en servidor por companyRecord.metadata.qbo_sync_enabled (ignorando skipQboSync de cliente), candado closing_date con justificación obligatoria overrideReason >= 10 chars y bitácora PERIOD_LOCK_OVERRIDE, validación de partida doble validateBalancedTransactionPostings, integridad same-company fn_enforce_ext_acct_same_company, outbox QBO unificado external_accounting_sync_outbox (attempts, max_attempts, next_retry_at, status, last_error, synced_at, SKIPPED_LOCAL_ONLY), pull QBO paginado endurecido (fetchAllQboEntitiesPaginatedDetailed), deep links determinísticos con historial pushState/popstate y validación de los 8 realm_id en las 17 pestañas (lib/external-accounting-deep-links.ts), dashboard 100% en vivo desde homeDashboard con fechas dinámicas y vinculación real LinkedTxn Payment -> Deposit (Deposited $6,829.08 / 4 en Raquel Accounting 123145825185692, provenance meta visible con Empresa/Período/Fuente/Actualización, 5 cubetas A/R y A/P), adjuntos hasta 15 MB en Supabase Storage (external-accounting-attachments con verificación SHA-256, espejo binario TempDownloadUri de QBO y chk_ext_acct_attachments_no_binary_jsonb), sanitización HTML allowlist (lib/external-accounting-html-sanitize.ts) y 20 modos de reporte CPA fail-closed (HTTP 400/404/500, cash_flow con cuadre exacto reconciledVariance=0, inventory_valuation histórico a la fecha asOfDate, sales_tax_liability, budget_vs_actual, kpi_scorecard, qbo_archive y account_quickreport con exportación nativa .xlsx y .pdf).
  * - Auditoría Semanal Automática de Correos de Empleados Activos (/api/cron/audit-employee-emails, lib/employee-email-auditor.ts, scripts/run-weekly-email-audit.ts): ejecutada todos los sábados por la tarde hora LA California (0 22 * * 6 UTC = 2:00 PM PST / 3:00 PM PDT, con pre-escaneo local puerto 25 a la 1:30 PM), sincroniza las 15 sucursales desde Toast POS (syncToastEmployees), audita todos los correos activos (placeholders @example.com, typos de dominio, reglas de proveedor, Microsoft GetCredentialType, SMTP RCPT TO puerto 25 y caché persistente en integrations employee_email_audit_state) y notifica automáticamente a cada Store Manager involucrado (CC Supervisor) más resumen ejecutivo a carlos@tacosgavilan.com.
+ * - Temporizador Digital Cooper TFS4 de Cocción de Frijoles (/inventory/preparador/bodega, components/BeanCookingTimerTFS4.tsx, lib/bean-timer.ts, /api/preparador/bean-timer): reemplaza el temporizador físico Cooper-Atkins TFS4 en la Tableta 2 de Cocina Trasera con 4 canales por color (T1 Azul, T2 Verde, T3 Amarillo, T4 Rojo), botón rojo superior de paro de alarma y únicamente 2 botones preconfigurados y bloqueados (Frijoles de la Olla = 11:00 min / 660s y Frijoles Enteros = 12:00 min / 720s en bean_timer_presets, editables solo por admin), registrando cada tanda, turno AM/PM (corte 5:00 PM) y segundos de sobrecocción (overtime_seconds) en bean_cooking_logs bajo la regla 6:00 AM America/Los_Angeles.
  * @dataFlow
  * - Gemini Tool Calls -> executeTool() -> Database Select/Upsert / Local Forecasting Engine / AI Breaks Engine -> Formatted Markdown String Response.
  * @notes Combines multi-year lookups and weather APIs dynamically to generate instant predictive insights inside the support chat. La recuperación histórica de tickets Toast 2026 se archiva localmente y comprimida por defecto, sin PII; los snapshots no representan por sí solos consumo real ni autorizan pedidos automáticos.
@@ -636,6 +637,19 @@ export const TOOL_DECLARATIONS = [
         store_name: { type: 'STRING', description: 'Filtro opcional de sucursal.' }
       }
     }
+  },
+  {
+    name: 'query_bean_cooking_logs',
+    description: 'Consultar los tiempos oficiales bloqueados (bean_timer_presets: Frijoles de la Olla = 11:00 min y Frijoles Enteros = 12:00 min), canales T1–T4 activos en cocción o alarma y el historial de tandas cocinadas y segundos de sobrecocción (overtime_seconds) en bean_cooking_logs del Temporizador Digital Cooper TFS4 en Tableta 2 de Cocina Trasera (/inventory/preparador/bodega).',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        store_name: { type: 'STRING', description: 'Filtro opcional de sucursal (ej. "Lynwood", "Slauson", "Central").' },
+        business_date: { type: 'STRING', description: 'Fecha laboral YYYY-MM-DD (regla 6:00 AM America/Los_Angeles). Si se omite, consulta la fecha laboral actual.' },
+        status: { type: 'STRING', description: 'Filtro opcional de estado: RUNNING, ALARMING, COMPLETED, CANCELLED o ALL.' },
+        limit: { type: 'NUMBER', description: 'Máximo de registros históricos (por defecto 30, máx 100).' }
+      }
+    }
   }
 ]
 
@@ -710,6 +724,7 @@ export async function executeTool(name: string, rawArgs: any): Promise<string> {
       case 'query_delivery_reconciliation': return await queryDeliveryReconciliationTool(args)
       case 'query_training_academy': return await queryTrainingAcademyTool(args)
       case 'query_phone_agent_status': return await queryPhoneAgentStatusTool(args)
+      case 'query_bean_cooking_logs': return await queryBeanCookingLogsTool(args)
       default: return `Tool "${name}" not found.`
     }
   } catch (e: any) {
@@ -3759,6 +3774,138 @@ async function queryPhoneAgentStatusTool(args: any): Promise<string> {
     return `Error consultando Contestadora IA: ${e.message}`;
   }
 }
+
+async function queryBeanCookingLogsTool(args: any): Promise<string> {
+  try {
+    const {
+      resolveBeanBusinessContext,
+      formatPresetDurationCompact,
+      formatOvertimeLabel,
+      evaluateChannelLiveSnapshot,
+      dbLogRowToActiveSession,
+      isValidBeanChannelId,
+      sanitizeBeanPresetMap,
+    } = await import('@/lib/bean-timer');
+
+    const now = new Date();
+    const { businessDate: currentBizDate, shiftPeriod: currentShift } = resolveBeanBusinessContext(now);
+    const targetDate =
+      typeof args?.business_date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(args.business_date.trim())
+        ? args.business_date.trim()
+        : currentBizDate;
+    const limit = Math.min(100, Math.max(1, Number(args?.limit) || 30));
+
+    const [{ idToName }, { data: presetRows }, storeIdsFilter] = await Promise.all([
+      getStoreMaps(),
+      supabaseAdmin
+        .from('bean_timer_presets')
+        .select('product_key, label_es, label_en, duration_seconds, is_active, updated_by, updated_at')
+        .eq('is_active', true),
+      args?.store_name ? getStoreIdsByName(String(args.store_name)) : Promise.resolve<number[]>([]),
+    ]);
+
+    const rawPresetMap: Record<string, unknown> = {};
+    for (const row of presetRows || []) {
+      if (row?.product_key) {
+        rawPresetMap[String(row.product_key)] = row.duration_seconds;
+      }
+    }
+    const presets = sanitizeBeanPresetMap(rawPresetMap);
+
+    if (args?.store_name && storeIdsFilter.length === 0) {
+      return `No se encontró ninguna sucursal que coincida con "${args.store_name}".`;
+    }
+
+    // 1. Canales activos en este instante (independiente de cambio de 6:00 AM)
+    let activeQuery = supabaseAdmin
+      .from('bean_cooking_logs')
+      .select('id, store_id, business_date, shift_period, channel_id, product_key, target_seconds, started_at, expected_end_at, alarm_triggered_at, status, started_by')
+      .in('status', ['RUNNING', 'ALARMING'])
+      .order('started_at', { ascending: true });
+    if (storeIdsFilter.length > 0) activeQuery = activeQuery.in('store_id', storeIdsFilter);
+
+    // 2. Bitácora histórica de la fecha laboral solicitada
+    let logQuery = supabaseAdmin
+      .from('bean_cooking_logs')
+      .select('id, store_id, business_date, shift_period, channel_id, product_key, target_seconds, started_at, expected_end_at, completed_at, overtime_seconds, status, started_by, completed_by')
+      .eq('business_date', targetDate)
+      .order('started_at', { ascending: false })
+      .limit(limit);
+    if (storeIdsFilter.length > 0) logQuery = logQuery.in('store_id', storeIdsFilter);
+    if (args?.status && String(args.status).toUpperCase() !== 'ALL') {
+      logQuery = logQuery.eq('status', String(args.status).toUpperCase());
+    }
+
+    const [{ data: activeRows, error: activeErr }, { data: logRows, error: logErr }] = await Promise.all([
+      activeQuery,
+      logQuery,
+    ]);
+    if (activeErr) return `Error consultando canales activos de frijoles: ${activeErr.message}`;
+    if (logErr) return `Error consultando bitácora de cocción de frijoles: ${logErr.message}`;
+
+    const active = activeRows || [];
+    const logs = logRows || [];
+
+    const completed = logs.filter((r: any) => r.status === 'COMPLETED');
+    const ollaCount = completed.filter((r: any) => r.product_key === 'FRIJOLES_OLLA').length;
+    const enterosCount = completed.filter((r: any) => r.product_key === 'FRIJOLES_ENTEROS').length;
+    const onTimeCount = completed.filter((r: any) => Number(r.overtime_seconds || 0) <= 15).length;
+    const onTimePct = completed.length > 0 ? ((onTimeCount / completed.length) * 100).toFixed(1) : '100.0';
+
+    let out = `⏲️ **Temporizador Digital Cooper TFS4 — Cocción Exacta de Frijoles (/inventory/preparador/bodega)**\n`;
+    out += `• **Fecha Laboral Consultada**: ${targetDate} (Actual en CA: ${currentBizDate} • Turno ${currentShift})\n`;
+    out += `• **Tiempos Oficiales Bloqueados**: Frijoles de la Olla = **${formatPresetDurationCompact(presets.FRIJOLES_OLLA)}** (${presets.FRIJOLES_OLLA}s) | Frijoles Enteros = **${formatPresetDurationCompact(presets.FRIJOLES_ENTEROS)}** (${presets.FRIJOLES_ENTEROS}s)\n`;
+    out += `• **Ollas Activas Ahora (T1–T4)**: ${active.length}\n`;
+    out += `• **Tandas Completadas (${targetDate})**: ${completed.length} (Frijoles de la Olla: ${ollaCount} | Frijoles Enteros: ${enterosCount} | Apagadas puntuales ≤15s: ${onTimePct}%)\n\n`;
+
+    if (active.length > 0) {
+      out += `### 🔥 Canales en Cocción / Alarma en Vivo:\n`;
+      const nowMs = Date.now();
+      active.forEach((row: any) => {
+        const stName = idToName[row.store_id] || `Tienda #${row.store_id}`;
+        const label = row.product_key === 'FRIJOLES_ENTEROS' ? 'Frijoles Enteros' : 'Frijoles de la Olla';
+        const chId = isValidBeanChannelId(row.channel_id) ? row.channel_id : 'T1';
+        const session = dbLogRowToActiveSession(row, nowMs);
+        const snap = evaluateChannelLiveSnapshot(chId, session, nowMs);
+        const stateText =
+          snap.state === 'ALARMING'
+            ? `🚨 ¡LISTO! APAGAR LUMBRE (${formatOvertimeLabel(snap.overtimeSeconds)})`
+            : `⏳ Restan ${snap.minutesPart}:${snap.secondsPart}`;
+        out += `- **${stName}** | Canal **${row.channel_id}** | ${label} | ${stateText}\n`;
+      });
+      out += `\n`;
+    }
+
+    if (logs.length > 0) {
+      out += `### 📋 Bitácora de Tandas (${logs.length} mostradas):\n`;
+      logs.forEach((r: any) => {
+        const stName = idToName[r.store_id] || `Tienda #${r.store_id}`;
+        const label = r.product_key === 'FRIJOLES_ENTEROS' ? 'Frijoles Enteros' : 'Frijoles de la Olla';
+        const startStr = r.started_at
+          ? new Date(r.started_at).toLocaleTimeString('en-US', { timeZone: 'America/Los_Angeles', hour: '2-digit', minute: '2-digit' })
+          : '-';
+        const stopStr = r.completed_at
+          ? new Date(r.completed_at).toLocaleTimeString('en-US', { timeZone: 'America/Los_Angeles', hour: '2-digit', minute: '2-digit' })
+          : 'En curso';
+        const overtimeSec = Math.max(0, Number(r.overtime_seconds || 0));
+        const overtimeNote =
+          r.status === 'COMPLETED'
+            ? overtimeSec > 0
+              ? `Sobrecocción ${formatOvertimeLabel(overtimeSec)}`
+              : 'A tiempo (+00:00)'
+            : r.status;
+        out += `- **${stName}** (${r.shift_period}) | **${r.channel_id}** | ${label} | ${startStr} → ${stopStr} | ${overtimeNote}\n`;
+      });
+    } else {
+      out += `Sin tandas registradas para ${targetDate}${args?.store_name ? ` en ${args.store_name}` : ''}.\n`;
+    }
+
+    return out;
+  } catch (e: any) {
+    return `Error consultando Temporizador Digital TFS4: ${e.message}`;
+  }
+}
+
 
 
 
