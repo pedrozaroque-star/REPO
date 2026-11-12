@@ -126,6 +126,46 @@ export function hasValidPersistedOrderVarianceApproval(o: any): boolean {
 
 export function classifyOrderActionGroupAndExplanation(o: any, recoveryCtx?: DisputeRecoveryContext) {
   const plat = (o.platform as DeliveryPlatformCode) || 'DOORDASH'
+  const platDisplay =
+    plat === 'DOORDASH' ? 'DoorDash' : plat === 'UBER_EATS' ? 'Uber Eats' : plat === 'GRUBHUB' ? 'Grubhub' : plat
+  const fmtUsd = (val: number) => {
+    const n = Number.isFinite(Number(val)) ? Number(val) : 0
+    return n < -0.004 ? `-$${Math.abs(n).toFixed(2)}` : `$${Math.abs(n).toFixed(2)}`
+  }
+  const fmtSignedVarUsd = (val: number) => {
+    const n = Number.isFinite(Number(val)) ? Number(val) : 0
+    if (n > 0.004) return `+$${n.toFixed(2)}`
+    if (n < -0.004) return `-$${Math.abs(n).toFixed(2)}`
+    return '$0.00'
+  }
+  const fmtDisputeStatusLabel = (st: string | null | undefined, lang: 'es' | 'en') => {
+    const code = String(st || 'OPEN').toUpperCase()
+    const mapEs: Record<string, string> = {
+      NONE: 'Cargo por Disputar',
+      NEEDS_DISPUTE: 'Por Disputar',
+      OPEN: 'Disputa Abierta',
+      SUBMITTED: 'Enviada al Portal',
+      APPROVED: 'Aprobada por Plataforma',
+      REIMBURSED: 'Reembolsada',
+      COVERED: 'Cubierta / Pagada',
+      REJECTED: 'Rechazada',
+      DENIED: 'Rechazada',
+      ACCEPTED_LOSS: 'Pérdida Aceptada',
+    }
+    const mapEn: Record<string, string> = {
+      NONE: 'Needs Dispute',
+      NEEDS_DISPUTE: 'Needs Dispute',
+      OPEN: 'Open Dispute',
+      SUBMITTED: 'Submitted',
+      APPROVED: 'Approved by Platform',
+      REIMBURSED: 'Reimbursed',
+      COVERED: 'Covered / Paid',
+      REJECTED: 'Rejected',
+      DENIED: 'Rejected',
+      ACCEPTED_LOSS: 'Accepted Loss',
+    }
+    return lang === 'en' ? mapEn[code] || code : mapEs[code] || code
+  }
   const isUnassignedStore = !o.store_id || Number(o.store_id) <= 0 || o.store_code === 'UNASSIGNED_STORE'
   const isToastOnly = o.match_confidence === 'TOAST_ONLY' || o.reconciliation_status === 'MISSING_IN_PLATFORM'
   const isAmbiguous = o.match_confidence === 'AMBIGUOUS' || Boolean(o.raw_payload?.ambiguous_toast_candidates?.length)
@@ -195,19 +235,19 @@ export function classifyOrderActionGroupAndExplanation(o: any, recoveryCtx?: Dis
     {
       step: 2,
       stage: 'PLATFORM_ORDER',
-      title_es: !isToastOnly ? `Orden ${plat} #${o.platform_order_id}` : `Pendiente en ${plat}`,
-      title_en: !isToastOnly ? `${plat} Order #${o.platform_order_id}` : `Pending in ${plat}`,
+      title_es: !isToastOnly ? `Orden ${platDisplay} #${o.platform_order_id}` : `Pendiente en ${platDisplay}`,
+      title_en: !isToastOnly ? `${platDisplay} Order #${o.platform_order_id}` : `Pending in ${platDisplay}`,
       date: o.business_date || null,
       amount: round2(Number(o.platform_gross_receivable || 0)),
       detail_es: !isToastOnly
         ? plat === 'UBER_EATS'
-          ? `Subtotal: $${Number(o.platform_subtotal || 0).toFixed(2)} | Uber retiene Tax ($${Number(o.platform_tax_withheld || 0).toFixed(2)} Cta 12050, Tax a TEG $0.00)`
-          : `Subtotal: $${Number(o.platform_subtotal || 0).toFixed(2)} | Tax a TEG (Cta 24001): $${Number(o.platform_tax_paid_to_merchant || 0).toFixed(2)}`
+          ? `Subtotal: ${fmtUsd(Number(o.platform_subtotal || 0))} | Uber retiene Tax (${fmtUsd(Number(o.platform_tax_withheld || o.toast_tax || 0))} Cta 12050, Tax a TEG $0.00)`
+          : `Subtotal: ${fmtUsd(Number(o.platform_subtotal || 0))} | Tax a TEG (Cta 24001): ${fmtUsd(Number(o.platform_tax_paid_to_merchant || 0))}`
         : 'Aún no aparece en reporte/API de plataforma',
       detail_en: !isToastOnly
         ? plat === 'UBER_EATS'
-          ? `Subtotal: $${Number(o.platform_subtotal || 0).toFixed(2)} | Uber withholds Tax ($${Number(o.platform_tax_withheld || 0).toFixed(2)} Acct 12050, Tax to TEG $0.00)`
-          : `Subtotal: $${Number(o.platform_subtotal || 0).toFixed(2)} | Tax to TEG (Acct 24001): $${Number(o.platform_tax_paid_to_merchant || 0).toFixed(2)}`
+          ? `Subtotal: ${fmtUsd(Number(o.platform_subtotal || 0))} | Uber withholds Tax (${fmtUsd(Number(o.platform_tax_withheld || o.toast_tax || 0))} Acct 12050, Tax to TEG $0.00)`
+          : `Subtotal: ${fmtUsd(Number(o.platform_subtotal || 0))} | Tax to TEG (Acct 24001): ${fmtUsd(Number(o.platform_tax_paid_to_merchant || 0))}`
         : 'Not yet present in platform report/API',
       completed: !isToastOnly,
     },
@@ -219,10 +259,10 @@ export function classifyOrderActionGroupAndExplanation(o: any, recoveryCtx?: Dis
       date: o.payout_date || null,
       amount: round2(Number(o.net_payout || 0)),
       detail_es: hasPayoutRef
-        ? `Comisiones: $${(Number(o.commission_fee || 0) + Number(o.delivery_fee || 0) + Number(o.processing_fee || 0) + Number(o.marketing_fee || 0)).toFixed(2)} | Cargo/Ajuste: $${(errCharge + adjAmount).toFixed(2)} | Neto en corte: $${Number(o.net_payout || 0).toFixed(2)}`
+        ? `Comisiones: ${fmtUsd(Number(o.commission_fee || 0) + Number(o.delivery_fee || 0) + Number(o.processing_fee || 0) + Number(o.marketing_fee || 0))} | Cargo/Ajuste: ${fmtUsd(errCharge + adjAmount)} | Neto en corte: ${fmtUsd(Number(o.net_payout || 0))}`
         : 'La orden aún no tiene referencia verificable de depósito/settlement',
       detail_en: hasPayoutRef
-        ? `Fees: $${(Number(o.commission_fee || 0) + Number(o.delivery_fee || 0) + Number(o.processing_fee || 0) + Number(o.marketing_fee || 0)).toFixed(2)} | Error/Adj: $${(errCharge + adjAmount).toFixed(2)} | Net in payout: $${Number(o.net_payout || 0).toFixed(2)}`
+        ? `Fees: ${fmtUsd(Number(o.commission_fee || 0) + Number(o.delivery_fee || 0) + Number(o.processing_fee || 0) + Number(o.marketing_fee || 0))} | Error/Adj: ${fmtUsd(errCharge + adjAmount)} | Net in payout: ${fmtUsd(Number(o.net_payout || 0))}`
         : 'Order does not yet have a verifiable settlement reference',
       completed: hasPayoutRef,
     },
@@ -234,14 +274,14 @@ export function classifyOrderActionGroupAndExplanation(o: any, recoveryCtx?: Dis
         : hasPendingRecoveryClaim
         ? 'Recuperación pendiente de verificar'
         : isDisputeOrRecovery
-        ? `Disputa (${o.dispute_status || 'OPEN'})`
+        ? `Disputa (${fmtDisputeStatusLabel(o.dispute_status, 'es')})`
         : 'Sin disputa ni deducción',
       title_en: hasVerifiedRecovery
         ? `Recovered (verified) in ${verifiedCredits.length} subsequent payout(s)`
         : hasPendingRecoveryClaim
         ? 'Recovery pending verification'
         : isDisputeOrRecovery
-        ? `Dispute (${o.dispute_status || 'OPEN'})`
+        ? `Dispute (${fmtDisputeStatusLabel(o.dispute_status, 'en')})`
         : 'No dispute or deduction',
       date: recoveryEval?.reimbursementDepositDate || reimbDate || o.payout_date || null,
       amount: hasVerifiedRecovery ? round2(recoveryEval!.verifiedRecoveredAmount) : round2(errCharge),
@@ -250,14 +290,14 @@ export function classifyOrderActionGroupAndExplanation(o: any, recoveryCtx?: Dis
         : hasPendingRecoveryClaim
         ? `Original disputado: $${(recoveryEval?.originalDeductionAbs || Math.abs(errCharge)).toFixed(2)}. Se registró una recuperación de $${(recoveryEval?.claimedUnverifiedAmount || reimbAmt).toFixed(2)} en corte #${reimbRef || pendingCredits[0]?.payout_reference_id || 'N/A'}, pero no se localizó el crédito de la orden en ese settlement.`
         : isDisputeOrRecovery
-        ? `Cargo deducido por plataforma: $${errCharge.toFixed(2)}. Motivo: ${o.dispute_reason || 'Deducción / Reembolso de cliente'}`
+        ? `Cargo deducido por plataforma: ${fmtUsd(errCharge)}. Motivo: ${o.dispute_reason || 'Deducción / Reembolso de cliente'}`
         : 'Orden cobrada sin cargos por error ni contracargos',
       detail_en: hasVerifiedRecovery
         ? `Original disputed: $${recoveryEval!.originalDeductionAbs.toFixed(2)} in payout #${o.payout_reference_id || 'N/A'} → Verified recovery: ${creditsDetailEn} (total +$${recoveryEval!.verifiedRecoveredAmount.toFixed(2)}) → Remaining: $${recoveryEval!.unrecoveredAmount.toFixed(2)}`
         : hasPendingRecoveryClaim
         ? `Original disputed: $${(recoveryEval?.originalDeductionAbs || Math.abs(errCharge)).toFixed(2)}. A $${(recoveryEval?.claimedUnverifiedAmount || reimbAmt).toFixed(2)} recovery was recorded in payout #${reimbRef || pendingCredits[0]?.payout_reference_id || 'N/A'}, but the order credit was not found in that settlement.`
         : isDisputeOrRecovery
-        ? `Platform error deduction: $${errCharge.toFixed(2)}. Reason: ${o.dispute_reason || 'Customer refund / chargeback'}`
+        ? `Platform error deduction: ${fmtUsd(errCharge)}. Reason: ${o.dispute_reason || 'Customer refund / chargeback'}`
         : 'Order settled without error charges or chargebacks',
       completed: recoveryEval?.recoveryClassification === 'FULL_RECOVERY' || !isDisputeOrRecovery,
     },
@@ -316,8 +356,8 @@ export function classifyOrderActionGroupAndExplanation(o: any, recoveryCtx?: Dis
       what_happened_en: 'Same date and similar subtotal in Toast, but missing platform order ID on the check.',
       cause_es: 'Prohibido conciliar automáticamente solo por fecha + subtotal parecido.',
       cause_en: 'Auto-reconciling solely by date + similar subtotal is prohibited.',
-      evidence_es: `Toast #${candNum} ($${candExpGross.toFixed(2)}, Sub $${candNet.toFixed(2)}) vs ${plat} #${o.platform_order_id} ($${Number(o.platform_gross_receivable || o.platform_subtotal || 0).toFixed(2)})`,
-      evidence_en: `Toast #${candNum} ($${candExpGross.toFixed(2)}, Sub $${candNet.toFixed(2)}) vs ${plat} #${o.platform_order_id} ($${Number(o.platform_gross_receivable || o.platform_subtotal || 0).toFixed(2)})`,
+      evidence_es: `Toast #${candNum} ($${candExpGross.toFixed(2)}, Sub $${candNet.toFixed(2)}) vs ${platDisplay} #${o.platform_order_id} ($${Number(o.platform_gross_receivable || o.platform_subtotal || 0).toFixed(2)})`,
+      evidence_en: `Toast #${candNum} ($${candExpGross.toFixed(2)}, Sub $${candNet.toFixed(2)}) vs ${platDisplay} #${o.platform_order_id} ($${Number(o.platform_gross_receivable || o.platform_subtotal || 0).toFixed(2)})`,
       next_action_es: 'Verificar la comanda física o tablet y aprobar revisión manual.',
       next_action_en: 'Verify physical slip or tablet and approve manual review.',
       lifecycle_trace: lifecycleTrace,
@@ -334,8 +374,8 @@ export function classifyOrderActionGroupAndExplanation(o: any, recoveryCtx?: Dis
       what_happened_en: 'The platform did not provide the atomic Sales Tax breakdown for this order.',
       cause_es: 'Prohibido estimar impuestos con tasa fija (10.25%). Se requiere el impuesto real.',
       cause_en: 'Estimating tax with a fixed rate (10.25%) is prohibited. Real tax is required.',
-      evidence_es: `Subtotal ${plat}: $${Number(o.platform_subtotal || 0).toFixed(2)} | Tax reportado: N/D`,
-      evidence_en: `${plat} Subtotal: $${Number(o.platform_subtotal || 0).toFixed(2)} | Reported tax: N/A`,
+      evidence_es: `Subtotal ${platDisplay}: $${Number(o.platform_subtotal || 0).toFixed(2)} | Tax reportado: N/D`,
+      evidence_en: `${platDisplay} Subtotal: $${Number(o.platform_subtotal || 0).toFixed(2)} | Reported tax: N/A`,
       next_action_es: 'Sincronizar transacciones detalladas del payout o importar CSV con columna Tax.',
       next_action_en: 'Sync detailed payout transactions or import CSV with Tax column.',
       lifecycle_trace: lifecycleTrace,
@@ -349,14 +389,14 @@ export function classifyOrderActionGroupAndExplanation(o: any, recoveryCtx?: Dis
         status_code: 'UNPAID_IN_PLATFORM',
         status_label_es: 'En Toast POS • Sin Pago en Plataforma',
         status_label_en: 'In Toast POS • Unpaid in Platform',
-        what_happened_es: `Orden cerrada en Toast POS ($${Number(o.toast_expected_gross || 0).toFixed(2)}) que NO aparece pagada en las órdenes de ${plat} de esta sucursal.`,
-        what_happened_en: `Order closed in Toast POS ($${Number(o.toast_expected_gross || 0).toFixed(2)}) that does NOT appear paid in ${plat} orders for this store.`,
-        cause_es: `La sucursal ya tiene órdenes sincronizadas de ${plat} en este periodo, pero este ticket de Toast no fue incluido ni pagado por la plataforma.`,
-        cause_en: `This store already has synced ${plat} orders in this period, but this Toast check was not included or paid by the platform.`,
+        what_happened_es: `Orden cerrada en Toast POS ($${Number(o.toast_expected_gross || 0).toFixed(2)}) que NO aparece pagada en las órdenes de ${platDisplay} de esta sucursal.`,
+        what_happened_en: `Order closed in Toast POS ($${Number(o.toast_expected_gross || 0).toFixed(2)}) that does NOT appear paid in ${platDisplay} orders for this store.`,
+        cause_es: `La sucursal ya tiene órdenes sincronizadas de ${platDisplay} en este periodo, pero este ticket de Toast no fue incluido ni pagado por la plataforma.`,
+        cause_en: `This store already has synced ${platDisplay} orders in this period, but this Toast check was not included or paid by the platform.`,
         evidence_es: `Toast #${o.toast_display_number || 'S/N'} (${o.toast_tab_name || 'Sin nombre'}) del ${o.business_date}`,
         evidence_en: `Toast #${o.toast_display_number || 'N/A'} (${o.toast_tab_name || 'No tab'}) on ${o.business_date}`,
-        next_action_es: `Verificar en el portal de ${plat} si la orden fue cancelada sin pago o levantar reclamo por orden no pagada.`,
-        next_action_en: `Verify in the ${plat} portal if the order was cancelled unpaid or file a claim for the unpaid order.`,
+        next_action_es: `Verificar en el portal de ${platDisplay} si la orden fue cancelada sin pago o levantar reclamo por orden no pagada.`,
+        next_action_en: `Verify in the ${platDisplay} portal if the order was cancelled unpaid or file a claim for the unpaid order.`,
         lifecycle_trace: lifecycleTrace,
       }
     }
@@ -365,8 +405,8 @@ export function classifyOrderActionGroupAndExplanation(o: any, recoveryCtx?: Dis
       status_code: 'PENDING_PLATFORM_SETTLEMENT',
       status_label_es: 'En Toast (Pendiente sincronizar tienda)',
       status_label_en: 'In Toast (Pending store sync)',
-      what_happened_es: `Orden registrada en Toast POS ($${Number(o.toast_expected_gross || 0).toFixed(2)}) aún sin órdenes descargadas de ${plat} en esta tienda.`,
-      what_happened_en: `Order recorded in Toast POS ($${Number(o.toast_expected_gross || 0).toFixed(2)}) pending ${plat} order download for this store.`,
+      what_happened_es: `Orden registrada en Toast POS ($${Number(o.toast_expected_gross || 0).toFixed(2)}) aún sin órdenes descargadas de ${platDisplay} en esta tienda.`,
+      what_happened_en: `Order recorded in Toast POS ($${Number(o.toast_expected_gross || 0).toFixed(2)}) pending ${platDisplay} order download for this store.`,
       cause_es: 'Falta sincronizar el detalle de órdenes de esta sucursal o el corte semanal aún no cierra.',
       cause_en: 'Store order detail sync is pending for this period or weekly payout has not closed yet.',
       evidence_es: `Toast #${o.toast_display_number || 'S/N'} (${o.toast_tab_name || 'Sin nombre'}) del ${o.business_date}`,
@@ -388,10 +428,10 @@ export function classifyOrderActionGroupAndExplanation(o: any, recoveryCtx?: Dis
     const origTxtEn = recEval.originalAmountVerified ? `$${recEval.originalDeductionAbs.toFixed(2)}` : 'unverified'
 
     let statusCode = 'DISPUTE_DEDUCTED'
-    let statusLabelEs = `Con Payout, en Disputa / Cargo por Error ($${errCharge.toFixed(2)})`
-    let statusLabelEn = `In Payout, Disputed / Error Charge ($${errCharge.toFixed(2)})`
-    let whatHappenedEs = `La plataforma descontó $${errCharge.toFixed(2)} por reembolso/error en la orden #${o.platform_order_id}.`
-    let whatHappenedEn = `Platform deducted $${errCharge.toFixed(2)} for refund/error on order #${o.platform_order_id}.`
+    let statusLabelEs = `Con Payout, en Disputa / Cargo por Error (${fmtUsd(errCharge)})`
+    let statusLabelEn = `In Payout, Disputed / Error Charge (${fmtUsd(errCharge)})`
+    let whatHappenedEs = `La plataforma descontó ${fmtUsd(errCharge)} por reembolso/error en la orden #${o.platform_order_id}.`
+    let whatHappenedEn = `Platform deducted ${fmtUsd(errCharge)} for refund/error on order #${o.platform_order_id}.`
     let nextActionEs = 'Presentar disputa en el portal de la plataforma y registrar el corte de reembolso.'
     let nextActionEn = 'Submit dispute in platform portal and record reimbursement payout reference.'
 
@@ -668,24 +708,24 @@ export function classifyOrderActionGroupAndExplanation(o: any, recoveryCtx?: Dis
         : 'AMOUNT_MISMATCH',
       status_label_es: isMissingToast
         ? 'Con Payout, sin orden en Toast POS'
-        : `Con Payout, pendiente de revisión (Dif: $${grossVar.toFixed(2)})`,
+        : `Con Payout, pendiente de revisión (Dif: ${fmtSignedVarUsd(grossVar)})`,
       status_label_en: isMissingToast
         ? 'With Payout, missing in Toast POS'
-        : `With Payout, pending review (Var: $${grossVar.toFixed(2)})`,
+        : `With Payout, pending review (Var: ${fmtSignedVarUsd(grossVar)})`,
       what_happened_es: isMissingToast
-        ? `La plataforma reportó la orden #${o.platform_order_id} ($${Number(o.platform_gross_receivable || 0).toFixed(2)}), pero no existe ticket en Toast POS.`
-        : `Diferencia bruta de $${grossVar.toFixed(2)} entre Toast ($${Number(o.toast_expected_gross || 0).toFixed(2)}) y ${plat} ($${Number(o.platform_gross_receivable || 0).toFixed(2)}).`,
+        ? `La plataforma reportó la orden #${o.platform_order_id} (${fmtUsd(Number(o.platform_gross_receivable || 0))}), pero no existe ticket en Toast POS.`
+        : `Diferencia bruta de ${fmtSignedVarUsd(grossVar)} entre Toast (${fmtUsd(Number(o.toast_expected_gross || 0))}) y ${platDisplay} (${fmtUsd(Number(o.platform_gross_receivable || 0))}).`,
       what_happened_en: isMissingToast
-        ? `Platform reported order #${o.platform_order_id} ($${Number(o.platform_gross_receivable || 0).toFixed(2)}), but no check exists in Toast POS.`
-        : `Gross variance of $${grossVar.toFixed(2)} between Toast ($${Number(o.toast_expected_gross || 0).toFixed(2)}) and ${plat} ($${Number(o.platform_gross_receivable || 0).toFixed(2)}).`,
+        ? `Platform reported order #${o.platform_order_id} (${fmtUsd(Number(o.platform_gross_receivable || 0))}), but no check exists in Toast POS.`
+        : `Gross variance of ${fmtSignedVarUsd(grossVar)} between Toast (${fmtUsd(Number(o.toast_expected_gross || 0))}) and ${platDisplay} (${fmtUsd(Number(o.platform_gross_receivable || 0))}).`,
       cause_es: isMissingToast
         ? 'Orden cancelada en POS, ingresada en fecha operativa distinta o sincronización de Toast incompleta.'
-        : `Variación de subtotal ($${subVar.toFixed(2)}) o variación de Sales Tax ($${taxVar.toFixed(2)}).`,
+        : `Variación de subtotal (${fmtSignedVarUsd(subVar)}) o variación de Sales Tax (${fmtSignedVarUsd(taxVar)}).`,
       cause_en: isMissingToast
         ? 'Order cancelled in POS, entered on different business date, or incomplete Toast sync.'
-        : `Subtotal variance ($${subVar.toFixed(2)}) or Sales Tax variance ($${taxVar.toFixed(2)}).`,
-      evidence_es: `Toast #${o.toast_display_number || 'N/A'} vs ${plat} #${o.platform_order_id} | Corte: #${o.payout_reference_id || 'Pendiente'}`,
-      evidence_en: `Toast #${o.toast_display_number || 'N/A'} vs ${plat} #${o.platform_order_id} | Payout: #${o.payout_reference_id || 'Pending'}`,
+        : `Subtotal variance (${fmtSignedVarUsd(subVar)}) or Sales Tax variance (${fmtSignedVarUsd(taxVar)}).`,
+      evidence_es: `Toast #${o.toast_display_number || 'N/A'} vs ${platDisplay} #${o.platform_order_id} | Corte: #${o.payout_reference_id || 'Pendiente'}`,
+      evidence_en: `Toast #${o.toast_display_number || 'N/A'} vs ${platDisplay} #${o.platform_order_id} | Payout: #${o.payout_reference_id || 'Pending'}`,
       next_action_es: 'Investigar diferencia de precio/impuesto o documentar aprobación de revisión.',
       next_action_en: 'Investigate price/tax variance or document review approval.',
       lifecycle_trace: lifecycleTrace,
@@ -705,12 +745,12 @@ export function classifyOrderActionGroupAndExplanation(o: any, recoveryCtx?: Dis
         status_code: 'CONCILIATED_NEXT_PAYOUT',
         status_label_es: 'Cobrada y cuadrada • En tránsito al siguiente corte',
         status_label_en: 'Paid & matched • Queued for next weekly payout',
-        what_happened_es: `Orden #${o.platform_order_id} cobrada y cuadrada al centavo entre Toast POS ($${Number(o.toast_expected_gross || 0).toFixed(2)}) y ${plat} ($${Number(o.platform_gross_receivable || 0).toFixed(2)}, Neto: $${Number(o.net_payout || 0).toFixed(2)}).`,
-        what_happened_en: `Order #${o.platform_order_id} paid and matched to the cent between Toast POS ($${Number(o.toast_expected_gross || 0).toFixed(2)}) and ${plat} ($${Number(o.platform_gross_receivable || 0).toFixed(2)}, Net: $${Number(o.net_payout || 0).toFixed(2)}).`,
-        cause_es: `Transacción verificada en ${plat} (Tx #${o.platform_transaction_id}) correspondiente al ciclo semanal en curso o posterior al horario de corte semanal; se deposita en el siguiente corte semanal.`,
-        cause_en: `Verified transaction in ${plat} (Tx #${o.platform_transaction_id}) belonging to the open weekly cycle or placed after the weekly cutoff; deposited in the next weekly payout.`,
-        evidence_es: `Toast #${o.toast_display_number} ↔ ${plat} #${o.platform_order_id} ($${Number(o.platform_gross_receivable || 0).toFixed(2)} | Neto $${Number(o.net_payout || 0).toFixed(2)}) ↔ Tx #${o.platform_transaction_id} (Siguiente corte semanal)`,
-        evidence_en: `Toast #${o.toast_display_number} ↔ ${plat} #${o.platform_order_id} ($${Number(o.platform_gross_receivable || 0).toFixed(2)} | Net $${Number(o.net_payout || 0).toFixed(2)}) ↔ Tx #${o.platform_transaction_id} (Next weekly payout)`,
+        what_happened_es: `Orden #${o.platform_order_id} cobrada y cuadrada al centavo entre Toast POS ($${Number(o.toast_expected_gross || 0).toFixed(2)}) y ${platDisplay} ($${Number(o.platform_gross_receivable || 0).toFixed(2)}, Neto: ${fmtUsd(Number(o.net_payout || 0))}).`,
+        what_happened_en: `Order #${o.platform_order_id} paid and matched to the cent between Toast POS ($${Number(o.toast_expected_gross || 0).toFixed(2)}) and ${platDisplay} ($${Number(o.platform_gross_receivable || 0).toFixed(2)}, Net: ${fmtUsd(Number(o.net_payout || 0))}).`,
+        cause_es: `Transacción verificada en ${platDisplay} (Tx #${o.platform_transaction_id}) correspondiente al ciclo semanal en curso o posterior al horario de corte semanal; se deposita en el siguiente corte semanal.`,
+        cause_en: `Verified transaction in ${platDisplay} (Tx #${o.platform_transaction_id}) belonging to the open weekly cycle or placed after the weekly cutoff; deposited in the next weekly payout.`,
+        evidence_es: `Toast #${o.toast_display_number} ↔ ${platDisplay} #${o.platform_order_id} ($${Number(o.platform_gross_receivable || 0).toFixed(2)} | Neto ${fmtUsd(Number(o.net_payout || 0))}) ↔ Tx #${o.platform_transaction_id} (Siguiente corte semanal)`,
+        evidence_en: `Toast #${o.toast_display_number} ↔ ${platDisplay} #${o.platform_order_id} ($${Number(o.platform_gross_receivable || 0).toFixed(2)} | Net ${fmtUsd(Number(o.net_payout || 0))}) ↔ Tx #${o.platform_transaction_id} (Next weekly payout)`,
         next_action_es: 'Conciliada operativamente ($0.00 diferencia). Se incluirá en la póliza QBO del corte semanal al cerrar.',
         next_action_en: 'Operationally reconciled ($0.00 variance). Will be included in the weekly payout QBO entry once closed.',
         lifecycle_trace: lifecycleTrace,
@@ -725,8 +765,8 @@ export function classifyOrderActionGroupAndExplanation(o: any, recoveryCtx?: Dis
       what_happened_en: `Order #${o.platform_order_id} matches Toast to the cent ($${Number(o.toast_expected_gross || 0).toFixed(2)}), but has no linked payout reference ID yet.`,
       cause_es: 'No se permite incluir en póliza de QuickBooks sin un payout_reference_id verificable.',
       cause_en: 'Cannot include in QuickBooks Journal Entry without a verifiable payout_reference_id.',
-      evidence_es: `Toast #${o.toast_display_number} = ${plat} #${o.platform_order_id} ($${Number(o.platform_gross_receivable || 0).toFixed(2)})`,
-      evidence_en: `Toast #${o.toast_display_number} = ${plat} #${o.platform_order_id} ($${Number(o.platform_gross_receivable || 0).toFixed(2)})`,
+      evidence_es: `Toast #${o.toast_display_number} = ${platDisplay} #${o.platform_order_id} ($${Number(o.platform_gross_receivable || 0).toFixed(2)})`,
+      evidence_en: `Toast #${o.toast_display_number} = ${platDisplay} #${o.platform_order_id} ($${Number(o.platform_gross_receivable || 0).toFixed(2)})`,
       next_action_es: 'Sincronizar el corte de pago (settlement) donde se depositó esta orden.',
       next_action_en: 'Sync the payout settlement where this order was deposited.',
       lifecycle_trace: lifecycleTrace,
@@ -739,12 +779,12 @@ export function classifyOrderActionGroupAndExplanation(o: any, recoveryCtx?: Dis
     status_code: 'CONCILIATED',
     status_label_es: 'Conciliado y listo para contabilizar',
     status_label_en: 'Reconciled and ready to post',
-    what_happened_es: `Orden #${o.platform_order_id} conciliada al centavo entre Toast POS, ${plat} y el corte #${o.payout_reference_id}.`,
-    what_happened_en: `Order #${o.platform_order_id} reconciled to the cent across Toast POS, ${plat}, and payout #${o.payout_reference_id}.`,
+    what_happened_es: `Orden #${o.platform_order_id} conciliada al centavo entre Toast POS, ${platDisplay} y el corte #${o.payout_reference_id}.`,
+    what_happened_en: `Order #${o.platform_order_id} reconciled to the cent across Toast POS, ${platDisplay}, and payout #${o.payout_reference_id}.`,
     cause_es: 'Sin diferencias ($0.00). Identificador exacto y reglas fiscales verificadas.',
     cause_en: 'Zero variance ($0.00). Exact ID and fiscal rules verified.',
-    evidence_es: `Toast #${o.toast_display_number} ↔ ${plat} #${o.platform_order_id} ↔ Corte #${o.payout_reference_id}`,
-    evidence_en: `Toast #${o.toast_display_number} ↔ ${plat} #${o.platform_order_id} ↔ Payout #${o.payout_reference_id}`,
+    evidence_es: `Toast #${o.toast_display_number} ↔ ${platDisplay} #${o.platform_order_id} ↔ Corte #${o.payout_reference_id}`,
+    evidence_en: `Toast #${o.toast_display_number} ↔ ${platDisplay} #${o.platform_order_id} ↔ Payout #${o.payout_reference_id}`,
     next_action_es: 'Listo para publicar en póliza contable (Journal Entry) de QuickBooks.',
     next_action_en: 'Ready to publish in QuickBooks Journal Entry.',
     lifecycle_trace: lifecycleTrace,
@@ -1381,8 +1421,17 @@ export async function GET(req: NextRequest) {
         courierName: rp.courierName ?? undefined,
         canceledBy: rp.canceledBy ?? undefined,
       }
+      const itemsSummary = Array.isArray(o.items_summary)
+        ? o.items_summary
+        : Array.isArray(rp.items_summary)
+        ? rp.items_summary
+        : Array.isArray(rp.items)
+        ? rp.items
+        : undefined
       return {
         ...enrichedBase,
+        tip_amount: round2(Number(o.tip_amount ?? rp.tip_amount ?? 0)),
+        items_summary: itemsSummary,
         raw_payload: slimRawPayload,
         ...audit,
       }
@@ -1666,6 +1715,8 @@ export async function GET(req: NextRequest) {
     let varianceInvestigateAmount = 0
     let disputeRecoveryCount = 0
     let disputeRecoveryAmount = 0
+    let openDisputeRecoveryCount = 0
+    let disputePendingRecoveryAmount = 0
     let blockedMissingInfoCount = 0
     let blockedMissingInfoAmount = 0
 
@@ -1725,9 +1776,25 @@ export async function GET(req: NextRequest) {
       periodToastNet: 0,
       periodToastTax: 0,
       periodToastExpectedGross: 0,
+      periodPlatformOrdersCount: 0,
+      periodPlatformSubtotal: 0,
+      periodPlatformTaxToMerchant: 0,
+      periodPlatformTaxWithheld: 0,
+      periodPlatformGross: 0,
+      periodPlatformFees: 0,
+      periodPlatformErrors: 0,
+      periodPlatformNetPayout: 0,
       varianceBreakdown: null as {
-        mode: 'FULL_ORDER_BRIDGE' | 'SUMMARY_ONLY_PENDING_ORDER_SYNC' | 'NO_ACTIVITY'
-        diagnosticStatus: 'OK_TIMING_OR_FAVORABLE' | 'NEEDS_REVIEW' | 'PENDING_ORDER_SYNC'
+        mode:
+          | 'FULL_ORDER_BRIDGE'
+          | 'SUMMARY_ONLY_PENDING_ORDER_SYNC'
+          | 'OPEN_PERIOD_NO_PAYOUT'
+          | 'NO_ACTIVITY'
+        diagnosticStatus:
+          | 'OK_TIMING_OR_FAVORABLE'
+          | 'NEEDS_REVIEW'
+          | 'PENDING_ORDER_SYNC'
+          | 'OPEN_PERIOD_NO_PAYOUT'
         payoutRefs: string[]
         toastBaseGross: number
         payoutTargetGross: number
@@ -1873,6 +1940,13 @@ export async function GET(req: NextRequest) {
       errorAndAdjustmentTotal += errAdj
       netPayoutOrdersTotal += netPay
 
+      const isDisputeClosedOrRecovered =
+        o.status_code === 'DISPUTE_RECOVERED' || o.dispute_status === 'ACCEPTED_LOSS'
+      const hasOrderPayoutRef = Boolean(o.payout_reference_id && String(o.payout_reference_id).trim())
+      const inSelectedPeriod = isSpecificOrderOrPayoutQuery
+        ? true
+        : Boolean(o.business_date && o.business_date >= startDate && o.business_date <= endDate)
+
       if (group === 'CONCILIATED_READY') {
         conciliatedReadyCount++
         conciliatedReadyGross = round2(conciliatedReadyGross + pGross)
@@ -1881,7 +1955,21 @@ export async function GET(req: NextRequest) {
         varianceInvestigateAmount = round2(varianceInvestigateAmount + Math.abs(Number(o.gross_variance || 0)))
       } else if (group === 'DISPUTE_RECOVERY') {
         disputeRecoveryCount++
-        disputeRecoveryAmount = round2(disputeRecoveryAmount + Math.abs(Number(o.error_charge || 0)))
+        const origDedAbs = Math.max(
+          Math.abs(Number(o.error_charge || 0)),
+          Number(o.original_deduction_abs || 0)
+        )
+        const pendingDedAbs =
+          typeof o.unrecovered_amount === 'number'
+            ? Math.max(0, Number(o.unrecovered_amount))
+            : isDisputeClosedOrRecovered
+            ? 0
+            : origDedAbs
+        disputeRecoveryAmount = round2(disputeRecoveryAmount + origDedAbs)
+        if (!isDisputeClosedOrRecovered) {
+          openDisputeRecoveryCount++
+          disputePendingRecoveryAmount = round2(disputePendingRecoveryAmount + pendingDedAbs)
+        }
       } else {
         blockedMissingInfoCount++
         blockedMissingInfoAmount = round2(blockedMissingInfoAmount + (tExp || pGross))
@@ -1891,10 +1979,11 @@ export async function GET(req: NextRequest) {
         pendingToastOnlyCount++
         pendingToastOnlyGross = round2(pendingToastOnlyGross + tExp)
       } else {
-        // Solo contar como "conciliada" real cuando está en CONCILIATED_READY; de lo contrario es "Con payout, pendiente de revisión"
+        // Solo contar como "conciliada" real cuando está en CONCILIATED_READY;
+        // "Con payout, pendiente de revisión" requiere tener corte (payout_reference_id) y NO estar ya 100% recuperada/cerrada.
         if (group === 'CONCILIATED_READY') {
           settledOrdersCount++
-        } else {
+        } else if (hasOrderPayoutRef && !isDisputeClosedOrRecovered && Number(o.store_id) > 0) {
           withPayoutPendingReviewCount++
         }
         if (isMatchedBothSides) {
@@ -1905,7 +1994,7 @@ export async function GET(req: NextRequest) {
 
       if (group === 'CONCILIATED_READY') {
         matchedOrdersCount++
-      } else if (!isToastOnly) {
+      } else if (!isToastOnly && !isDisputeClosedOrRecovered) {
         discrepancyOrdersCount++
       }
 
@@ -1927,20 +2016,43 @@ export async function GET(req: NextRequest) {
         byPlatform[plat].netPayout = round2(byPlatform[plat].netPayout + netPay)
         byPlatform[plat].variance = round2(byPlatform[plat].platformGross - byPlatform[plat].toastExpectedGross)
 
+        if (!isToastOnly && inSelectedPeriod) {
+          byPlatform[plat].periodPlatformOrdersCount++
+          byPlatform[plat].periodPlatformSubtotal = round2(byPlatform[plat].periodPlatformSubtotal + pSub)
+          byPlatform[plat].periodPlatformTaxToMerchant = round2(
+            byPlatform[plat].periodPlatformTaxToMerchant + pTaxMerch
+          )
+          byPlatform[plat].periodPlatformTaxWithheld = round2(
+            byPlatform[plat].periodPlatformTaxWithheld + pTaxWithheld
+          )
+          byPlatform[plat].periodPlatformGross = round2(byPlatform[plat].periodPlatformGross + pGross)
+          byPlatform[plat].periodPlatformFees = round2(
+            byPlatform[plat].periodPlatformFees + commDel + procMkt
+          )
+          byPlatform[plat].periodPlatformErrors = round2(byPlatform[plat].periodPlatformErrors + errAdj)
+          byPlatform[plat].periodPlatformNetPayout = round2(
+            byPlatform[plat].periodPlatformNetPayout + netPay
+          )
+        }
+
         if (group === 'CONCILIATED_READY') {
           byPlatform[plat].conciliatedReadyCount++
           byPlatform[plat].settledOrdersCount++
           byPlatform[plat].matchedCount++
         } else if (group === 'VARIANCE_INVESTIGATE') {
           byPlatform[plat].varianceInvestigateCount++
-          byPlatform[plat].withPayoutPendingReviewCount++
+          if (hasOrderPayoutRef && Number(o.store_id) > 0) {
+            byPlatform[plat].withPayoutPendingReviewCount++
+          }
         } else if (group === 'DISPUTE_RECOVERY') {
           byPlatform[plat].disputeRecoveryCount++
           byPlatform[plat].disputedCount++
-          byPlatform[plat].withPayoutPendingReviewCount++
+          if (hasOrderPayoutRef && !isDisputeClosedOrRecovered && Number(o.store_id) > 0) {
+            byPlatform[plat].withPayoutPendingReviewCount++
+          }
         } else {
           byPlatform[plat].blockedMissingInfoCount++
-          if (!isToastOnly) {
+          if (!isToastOnly && hasOrderPayoutRef && Number(o.store_id) > 0) {
             byPlatform[plat].withPayoutPendingReviewCount++
           }
         }
@@ -1959,9 +2071,6 @@ export async function GET(req: NextRequest) {
         const toastGuid = o.toast_order_guid ? String(o.toast_order_guid).trim() : ''
         const toastDedupKey =
           toastGuid || (Math.abs(tExp) > 0.001 || Math.abs(tNet) > 0.001 ? `row:${o.id}` : '')
-        const inSelectedPeriod = isSpecificOrderOrPayoutQuery
-          ? true
-          : Boolean(o.business_date && o.business_date >= startDate && o.business_date <= endDate)
         if (toastDedupKey && inSelectedPeriod && !seenToastGuidsByPlat[plat].has(toastDedupKey)) {
           seenToastGuidsByPlat[plat].add(toastDedupKey)
           if (o.raw_payload?.toast_voided) {
@@ -2055,9 +2164,7 @@ export async function GET(req: NextRequest) {
     for (const plat of ['DOORDASH', 'UBER_EATS', 'GRUBHUB'] as DeliveryPlatformCode[]) {
       const pSum = byPlatform[plat]
       const hasPayouts = pSum.payoutsCount > 0
-      const targetGross = hasPayouts
-        ? pSum.payoutsGrossTotal
-        : pSum.platformGross || pSum.settledPlatformGross || 0
+      const targetGross = hasPayouts ? pSum.payoutsGrossTotal : pSum.periodPlatformGross
       const baseToastGross = pSum.periodToastExpectedGross
       const totalGrossDiff = round2(targetGross - baseToastGross)
 
@@ -2170,7 +2277,7 @@ export async function GET(req: NextRequest) {
           : Boolean(r.business_date && r.business_date >= startDate && r.business_date <= endDate)
         const inPayout = hasPayouts
           ? Boolean(pRef) && payoutTupleSetByPlat[plat].has(`${Number(r.store_id || 0)}:${pRef}`)
-          : !isToastOnly
+          : !isToastOnly && inPeriod
 
         if (inPayout) {
           payoutMatchedRowCount++
@@ -2392,7 +2499,7 @@ export async function GET(req: NextRequest) {
             grossDelta: b.grossDelta,
             refs: Array.from(b.refsSet),
             dates: Array.from(b.datesSet).sort(),
-            orders: b.rawOrders.slice(0, 100).map(({ sortTs: _unused, ...rest }) => rest),
+            orders: b.rawOrders.slice(0, 250).map(({ sortTs: _unused, ...rest }) => rest),
           }
         })
 
@@ -2402,11 +2509,17 @@ export async function GET(req: NextRequest) {
         'FROM_OUTSIDE_PERIOD_IN_PAYOUT',
         'VOIDED_IN_TOAST_PAID_IN_PAYOUT',
       ])
+      const isOpenPeriodNoPayout =
+        !hasPayouts && pSum.periodPlatformOrdersCount === 0 && baseToastGross > 0.01
       const allTimingOrFavorable = itemsOut.every((it) => safeCodes.has(it.code))
 
       pSum.varianceBreakdown = {
-        mode: 'FULL_ORDER_BRIDGE',
-        diagnosticStatus: allTimingOrFavorable ? 'OK_TIMING_OR_FAVORABLE' : 'NEEDS_REVIEW',
+        mode: isOpenPeriodNoPayout ? 'OPEN_PERIOD_NO_PAYOUT' : 'FULL_ORDER_BRIDGE',
+        diagnosticStatus: isOpenPeriodNoPayout
+          ? 'OPEN_PERIOD_NO_PAYOUT'
+          : allTimingOrFavorable
+          ? 'OK_TIMING_OR_FAVORABLE'
+          : 'NEEDS_REVIEW',
         payoutRefs: payoutRefsListByPlat[plat],
         toastBaseGross: baseToastGross,
         payoutTargetGross: targetGross,
@@ -2446,7 +2559,7 @@ export async function GET(req: NextRequest) {
           inToastPendingStoreSyncGross = round2(inToastPendingStoreSyncGross + tExp)
           if (Number(o.store_id) > 0) pendingSyncStoreIdsSet.add(Number(o.store_id))
         }
-      } else if (o.platform_missing_toast_synced) {
+      } else if (o.platform_missing_toast_synced && !o.raw_payload?.toast_voided) {
         inPlatformNotInToastCount++
         inPlatformNotInToastGross = round2(inPlatformNotInToastGross + pGross)
       } else if (o.action_group === 'BLOCKED_MISSING_INFO') {
@@ -2458,12 +2571,14 @@ export async function GET(req: NextRequest) {
     const bidirectionalSummary = {
       paidAndMatchedCount: conciliatedReadyCount,
       paidAndMatchedGross: round2(conciliatedReadyGross),
-      underpaidOrDisputedCount: varianceInvestigateCount + disputeRecoveryCount,
-      underpaidOrDisputedAmount: round2(varianceInvestigateAmount + disputeRecoveryAmount),
+      underpaidOrDisputedCount: varianceInvestigateCount + openDisputeRecoveryCount,
+      underpaidOrDisputedAmount: round2(varianceInvestigateAmount + disputePendingRecoveryAmount),
       varianceInvestigateCount,
       varianceInvestigateAmount: round2(varianceInvestigateAmount),
       disputeRecoveryCount,
       disputeRecoveryAmount: round2(disputeRecoveryAmount),
+      openDisputeRecoveryCount,
+      disputePendingRecoveryAmount: round2(disputePendingRecoveryAmount),
       inToastUnpaidSyncedStoreCount,
       inToastUnpaidSyncedStoreGross: round2(inToastUnpaidSyncedStoreGross),
       inToastPendingStoreSyncCount,
@@ -2484,6 +2599,8 @@ export async function GET(req: NextRequest) {
       varianceInvestigateAmount: round2(varianceInvestigateAmount),
       disputeRecoveryCount,
       disputeRecoveryAmount: round2(disputeRecoveryAmount),
+      openDisputeRecoveryCount,
+      disputePendingRecoveryAmount: round2(disputePendingRecoveryAmount),
       blockedMissingInfoCount,
       blockedMissingInfoAmount: round2(blockedMissingInfoAmount),
       bidirectionalSummary,
@@ -3031,11 +3148,13 @@ export async function POST(req: NextRequest) {
       }
 
       if (review_decision === 'CONFIRM_TOAST_MATCH' && selected_toast_guid) {
-        const candidates = Array.isArray(existingOrd.raw_payload?.ambiguous_toast_candidates)
-          ? existingOrd.raw_payload.ambiguous_toast_candidates
-          : existingOrd.raw_payload?.suggested_toast_candidate
-            ? [existingOrd.raw_payload.suggested_toast_candidate]
-            : []
+        const candidates =
+          Array.isArray(existingOrd.raw_payload?.ambiguous_toast_candidates) &&
+          existingOrd.raw_payload.ambiguous_toast_candidates.length > 0
+            ? existingOrd.raw_payload.ambiguous_toast_candidates
+            : existingOrd.raw_payload?.suggested_toast_candidate
+              ? [existingOrd.raw_payload.suggested_toast_candidate]
+              : []
         const chosen = candidates.find(
           (c: any) => (c.toastOrderGuid || c.toastGuid) === selected_toast_guid
         )

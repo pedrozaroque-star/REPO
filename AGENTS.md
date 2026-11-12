@@ -43,6 +43,14 @@ Antes de modificar, analizar o trabajar con cualquier módulo del sistema, **el 
    - Ninguna revisión se considerará finalizada ni aprobada sin la salida exitosa en terminal de dicha simulación.
 6. **Cero Mocks y Cero Pruebas a Medias**:
    - Todo análisis debe ser real, ejecutado contra la lógica del sistema, identificando los números de línea exactos del problema y su impacto operativo concreto.
+7. **Disciplina de Edición Quirúrgica y Parches Atómicos en Archivos Grandes (+1,500 líneas)**:
+   - **Separación Estricta entre Auditoría y Edición**: La lectura exhaustiva línea por línea en archivos grandes (`page.tsx`, `lib/i18n.tsx`, `lib/chat-tools.ts`, etc.) se delega a subagentes en la fase de auditoría. Una vez auditado, queda **PROHIBIDO** releer miles de líneas seguidas en la conversación principal (*context window* / ventana de contexto).
+   - **Búsquedas Quirúrgicas de Anclas**: Para ubicar puntos de edición y saltos de línea (`LF` vs `CRLF`), usar búsquedas puntuales en terminal (`Select-String` / `node -e`) y lecturas acotadas (`read_file` de 30–80 líneas alrededor del cambio).
+   - **Prohibición de Bloques `edit_file` Masivos**: NUNCA enviar reemplazos gigantes (`>120` líneas) en una sola llamada de `edit_file`, ya que provocan cortes de transmisión (*stream interrupted* / *stream timeout*) y colisiones con la recarga en caliente de Next.js en Windows (*HMR*: `user-mapped section open`).
+   - **Parches Atómicos Autoverificados para Lotes Grandes**: Cuando deban aplicarse múltiples correcciones (`8+` cambios) sobre un archivo grande (`>1,500` líneas):
+     1. Crear un script temporal de Node en `<Artifact Directory Path>/scratch/` con una función validadora `rep(from, to, expected = 1)` que compruebe en memoria el conteo exacto de cada fragmento objetivo (abortando con `throw new Error(...)` sin tocar el disco si alguno no coincide).
+     2. Escribir el resultado en **una sola operación atómica** (`fs.writeFileSync`), evitando archivos a medias y bloqueos de *HMR*.
+     3. Ejecutar en seguida `npx tsc --noEmit` y la simulación real (`npx tsx`) para certificar cero regresiones.
 
 ---
 

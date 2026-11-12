@@ -33,14 +33,21 @@
  * - Ejecuta mutaciones autenticadas vía `POST /api/delivery-reconciliation` y `POST /api/delivery-reconciliation/quickbooks-journal`.
  *
  * @notes
- * - Soporte 100% bilingüe (ES/EN) mediante `useLanguage()` (`deliveryReconciliation.*`).
- * - Las tarjetas de resumen por plataforma (`DOORDASH`, `UBER_EATS`, `GRUBHUB`) presentan comparativa financiera lado a lado (`Corte Plat.` vs `Toast POS`) incluyendo Ventas Brutas, Subtotal sin Tax, Sales Tax (`Cta 24001` o `MFT Info` en Uber), Comisiones reales, Cargos por Error, Depósito Neto Esperado y `Δ Diferencia (Corte − Toast)`.
+ * - Soporte 100% bilingüe (ES/EN) mediante `useLanguage()` (`deliveryReconciliation.*`), sin recargar API al alternar idioma.
+ * - Las tarjetas de resumen por plataforma (`DOORDASH`, `UBER_EATS`, `GRUBHUB`) presentan comparativa financiera lado a lado (`Corte Plat.` vs `Toast POS`) aislada estrictamente al periodo seleccionado (sin contaminar semanas abiertas con recuperaciones históricas) e incorporan Puente Contable explicativo línea por línea.
+ * - Selector unificado de periodo (`DeliveryPeriodFilter` estilo módulo de Ventas) con selección por Semana (`Lun → Dom`), por Día operativo (`6:00 AM – 5:59 AM PT`) o Rango, inicializando por defecto en `"Semana pasada"` (`last_week`).
+ * - Respeta estrictamente el día laboral de Tacos Gavilan (`6:00 AM – 5:59 AM PT` en `America/Los_Angeles`), limpieza de estado/selecciones al cambiar filtros, banners de validación visibles dentro de modales (`z-50`), cierre con `Escape` y matriz real 15×3 `byStorePlatform` editable en modo soporte.
  */
 
 'use client'
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useLanguage } from '@/lib/i18n'
+import DeliveryPeriodFilter, {
+  classifyDeliveryPeriod,
+  getPresetBounds,
+  type DeliveryPeriodPreset,
+} from '@/components/delivery/DeliveryPeriodFilter'
 import {
   ShieldCheck,
   RefreshCw,
@@ -65,6 +72,14 @@ import {
 
 type DeliveryPlatform = 'DOORDASH' | 'UBER_EATS' | 'GRUBHUB'
 type ActionGroup = 'CONCILIATED_READY' | 'VARIANCE_INVESTIGATE' | 'DISPUTE_RECOVERY' | 'BLOCKED_MISSING_INFO'
+type OrderSubFilter =
+  | 'NONE'
+  | 'UNDERPAID_OR_DISPUTE'
+  | 'WITH_PAYOUT_PENDING_REVIEW'
+  | 'TOAST_ONLY'
+  | 'TOAST_UNPAID_SYNCED'
+  | 'TOAST_PENDING_SYNC'
+  | 'PLATFORM_MISSING_TOAST'
 
 interface LifecycleStage {
   step: number
@@ -211,12 +226,31 @@ interface StoreMapping {
   grubhub_cust_id?: string | null
   grubhub_merchant_id?: string | null
   ubereats_store_uuid: string | null
+  qbo_location_id?: string | null
+  qbo_department_name?: string | null
+}
+
+const formatPlatformDisplayName = (plat: string | null | undefined): string => {
+  if (plat === 'DOORDASH') return 'DoorDash'
+  if (plat === 'UBER_EATS') return 'Uber Eats'
+  if (plat === 'GRUBHUB') return 'Grubhub'
+  return plat || '—'
+}
+
+const shortenRef = (ref: string | null | undefined, maxLen = 16): string => {
+  const s = String(ref || '').trim()
+  if (!s) return '—'
+  if (s.length <= maxLen) return s
+  const head = Math.max(6, Math.floor((maxLen - 1) * 0.6))
+  const tail = Math.max(4, maxLen - 1 - head)
+  return `${s.slice(0, head)}…${s.slice(-tail)}`
 }
 
 const fmtMoney = (val: number | null | undefined) => {
   const n = Number(val || 0)
-  const sign = n < -0.004 ? '-' : ''
-  return `${sign}$${Math.abs(n).toLocaleString('en-US', {
+  const safe = Number.isFinite(n) ? n : 0
+  const sign = safe < -0.004 ? '-' : ''
+  return `${sign}$${Math.abs(safe).toLocaleString('en-US', {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   })}`
@@ -225,7 +259,8 @@ const fmtMoney = (val: number | null | undefined) => {
 const fmtDateMDY = (dateStr: string | null | undefined): string => {
   if (!dateStr) return '-'
   const raw = String(dateStr).trim()
-  const m = raw.match(/^(\d{4})-(\d{2})-(\d{2})/)
+  // Solo coincidencias exactas YYYY-MM-DD se formatean directo; ISO con hora UTC se convierte a America/Los_Angeles
+  const m = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/)
   if (m) {
     return `${m[2]}/${m[3]}/${m[1]}`
   }
@@ -258,46 +293,77 @@ const fmtLaTimestamp = (iso: string | null | undefined): string => {
   )
 }
 
-const getLaCurrentWeekBounds = (): { start: string; end: string } => {
-  const nowLa = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
-  const dayOfWeek = nowLa.getDay() // 0 = Sun, 1 = Mon ...
-  const diffToMonday = dayOfWeek === 0 ? -6 : 1 - dayOfWeek
-  const monday = new Date(nowLa)
-  monday.setDate(nowLa.getDate() + diffToMonday)
-  const sunday = new Date(monday)
-  sunday.setDate(monday.getDate() + 6)
-  const toYmd = (d: Date) => {
-    const y = d.getFullYear()
-    const m = String(d.getMonth() + 1).padStart(2, '0')
-    const day = String(d.getDate()).padStart(2, '0')
-    return `${y}-${m}-${day}`
+/**
+ * Obtiene la fecha operativa actual en `America/Los_Angeles` respetando estrictamente
+ * la regla del día laboral de Tacos Gavilan (6:00 AM a 5:59 AM del día siguiente),
+ * independiente del timezone del navegador o servidor.
+ */
+const getLaBusinessDateUtc = (now: Date = new Date()): Date => {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/Los_Angeles',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(now)
+  const getNum = (t: string) => Number(parts.find((p) => p.type === t)?.value || 0)
+  const year = getNum('year')
+  const month = getNum('month')
+  const day = getNum('day')
+  const hour = getNum('hour')
+  const baseUtc = new Date(Date.UTC(year, month - 1, day))
+  if (hour < 6) {
+    baseUtc.setUTCDate(baseUtc.getUTCDate() - 1)
   }
-  return { start: toYmd(monday), end: toYmd(sunday) }
+  return baseUtc
+}
+
+const utcDateToYmd = (d: Date): string => {
+  const y = d.getUTCFullYear()
+  const m = String(d.getUTCMonth() + 1).padStart(2, '0')
+  const day = String(d.getUTCDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
+const getLaCurrentWeekBounds = (now: Date = new Date()): { start: string; end: string } => {
+  const bizUtc = getLaBusinessDateUtc(now)
+  const dayOfWeek = bizUtc.getUTCDay() // 0 = Sun, 1 = Mon ...
+  const diffToMonday = dayOfWeek === 0 ? -6 : 1 - dayOfWeek
+  const monday = new Date(bizUtc)
+  monday.setUTCDate(bizUtc.getUTCDate() + diffToMonday)
+  const sunday = new Date(monday)
+  sunday.setUTCDate(monday.getUTCDate() + 6)
+  return { start: utcDateToYmd(monday), end: utcDateToYmd(sunday) }
+}
+
+const escapeCsvCell = (val: unknown): string => {
+  const raw = String(val ?? '')
+    .replace(/\r?\n|\r/g, ' ')
+    .trim()
+  // Evitar CSV Formula Injection en Excel (=, +, -, @ al inicio de texto no numérico)
+  const safe =
+    /^[=+\-@]/.test(raw) && !/^[-+]?\d+(\.\d+)?$/.test(raw) ? `'${raw}` : raw
+  return `"${safe.replace(/"/g, '""')}"`
 }
 
 export default function ConciliarDeliveryPage() {
   const { t, language } = useLanguage()
   const isEn = language === 'en'
 
-  // P1 #14: Inicializar dinámicamente en la semana actual de America/Los_Angeles (prohibido hardcodear octubre 2026)
-  const initialWeek = useMemo(() => getLaCurrentWeekBounds(), [])
+  // Por defecto inicia en "Semana pasada" (last_week, Lunes -> Domingo cerrado previo en 6AM-5:59AM PT)
+  const initialWeek = useMemo(() => getPresetBounds('last_week'), [])
   const [startDate, setStartDate] = useState<string>(initialWeek.start)
   const [endDate, setEndDate] = useState<string>(initialWeek.end)
-  const [activePreset, setActivePreset] = useState<'THIS_WEEK' | 'PREV_WEEK' | 'CURRENT_MONTH' | 'CUSTOM'>('THIS_WEEK')
+  const [selectedPeriod, setSelectedPeriod] = useState<DeliveryPeriodPreset>('last_week')
   const [selectedStore, setSelectedStore] = useState<string>('ALL')
   const [selectedPlatform, setSelectedPlatform] = useState<string>('ALL')
   const [selectedStatus, setSelectedStatus] = useState<string>('ALL')
   const [activePayoutRef, setActivePayoutRef] = useState<string>('')
   // P1 #13: Abrir por defecto en "Atención requerida" (orders), NO en QuickBooks
   const [selectedActionGroup, setSelectedActionGroup] = useState<'ALL' | ActionGroup>('ALL')
-  const [selectedOrderSubFilter, setSelectedOrderSubFilter] = useState<
-    | 'NONE'
-    | 'WITH_PAYOUT_PENDING_REVIEW'
-    | 'TOAST_ONLY'
-    | 'TOAST_UNPAID_SYNCED'
-    | 'TOAST_PENDING_SYNC'
-    | 'PLATFORM_MISSING_TOAST'
-  >('NONE')
+  const [selectedOrderSubFilter, setSelectedOrderSubFilter] = useState<OrderSubFilter>('NONE')
+  const [disputesSubFilter, setDisputesSubFilter] = useState<'ALL' | 'PENDING' | 'RECOVERED'>('ALL')
   const [searchInput, setSearchInput] = useState<string>('')
   const [searchQuery, setSearchQuery] = useState<string>('')
   const [activeTab, setActiveTab] = useState<'orders' | 'qb_journals' | 'disputes' | 'payouts' | 'mappings'>('orders')
@@ -315,14 +381,34 @@ export default function ConciliarDeliveryPage() {
   >({})
   const [currentUserLabel, setCurrentUserLabel] = useState<string>('Admin / Contador')
 
-  // Cola progresiva tienda por tienda (1/15 -> 15/15) para evitar rate limits HTTP 429
+  // Edición inline de IDs de plataforma por sucursal (en modo soporte de Tab 3)
+  const [editingMappingStoreId, setEditingMappingStoreId] = useState<number | null>(null)
+  const [mappingDraft, setMappingDraft] = useState<{
+    doordash_store_id: string
+    doordash_merchant_store_id: string
+    grubhub_cust_id: string
+    grubhub_merchant_id: string
+    ubereats_store_uuid: string
+  }>({
+    doordash_store_id: '',
+    doordash_merchant_store_id: '',
+    grubhub_cust_id: '',
+    grubhub_merchant_id: '',
+    ubereats_store_uuid: '',
+  })
+  const [savingMapping, setSavingMapping] = useState<boolean>(false)
+
+  // Cola progresiva tienda por tienda para evitar rate limits HTTP 429
   const [syncQueueProgress, setSyncQueueProgress] = useState<{
     active: boolean
+    completed: number
     current: number
     total: number
     currentStoreName: string
   } | null>(null)
+  const [syncQueueCancelling, setSyncQueueCancelling] = useState<boolean>(false)
   const cancelSyncQueueRef = useRef<boolean>(false)
+  const syncQueueAbortRef = useRef<AbortController | null>(null)
 
   // P1 #15: Control de secuencias y AbortController para evitar condiciones de carrera (race conditions)
   const fetchSeqRef = useRef<number>(0)
@@ -333,7 +419,10 @@ export default function ConciliarDeliveryPage() {
   const [loading, setLoading] = useState<boolean>(true)
   const [syncing, setSyncing] = useState<boolean>(false)
   const [fetchError, setFetchError] = useState<string | null>(null)
-  const [bannerMessage, setBannerMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+  const [bannerMessage, setBannerMessage] = useState<{
+    type: 'success' | 'error' | 'warning'
+    text: string
+  } | null>(null)
 
   const [mappings, setMappings] = useState<StoreMapping[]>([])
   const [orders, setOrders] = useState<ReconciledOrder[]>([])
@@ -410,19 +499,75 @@ export default function ConciliarDeliveryPage() {
     return () => clearTimeout(timer)
   }, [searchInput])
 
-  // P1 #15: Limpiar selección de payouts y órdenes siempre que cambien filtros, tienda, plataforma, fechas o búsqueda
+  // P1 #15: Limpiar selección de payouts, órdenes y página siempre que cambien filtros, subfiltros o búsqueda
   useEffect(() => {
     setSelectedQbPayoutIds(new Set())
     setSelectedOrderIds(new Set())
     setShowBatchConfirmModal(false)
     setBatchOrderConfirmModal(null)
     setOrdersPage(1)
-  }, [selectedStore, selectedPlatform, selectedStatus, startDate, endDate, searchQuery, qbQuickFilter, activePayoutRef, selectedActionGroup])
+  }, [
+    selectedStore,
+    selectedPlatform,
+    selectedStatus,
+    startDate,
+    endDate,
+    searchQuery,
+    qbQuickFilter,
+    activePayoutRef,
+    selectedActionGroup,
+    selectedOrderSubFilter,
+  ])
+
+  useEffect(() => {
+    setConfirmImportStoreAssignment(false)
+  }, [selectedStore])
 
   useEffect(() => {
     setVarianceBridgeOpenMap({})
     setExpandedVarianceBucketOrders({})
   }, [selectedStore, startDate, endDate, activePayoutRef])
+
+  // Cerrar modal activo o popover con tecla Escape (deshabilitado mientras una mutación está en curso)
+  useEffect(() => {
+    const handleKeyDown = (ev: KeyboardEvent) => {
+      if (ev.key !== 'Escape') return
+      if (publishingQb || resolvingQboCandidate || savingBatch || savingDispute || importing) return
+      if (showAssignStoreConfirmModal) {
+        setShowAssignStoreConfirmModal(false)
+      } else if (batchOrderConfirmModal) {
+        setBatchOrderConfirmModal(null)
+      } else if (showBatchConfirmModal) {
+        setShowBatchConfirmModal(false)
+      } else if (selectedOrder) {
+        setSelectedOrder(null)
+      } else if (selectedQbRecord) {
+        setSelectedQbRecord(null)
+      } else if (showImportModal) {
+        setShowImportModal(false)
+        setImportText('')
+        setImportFileName('')
+        setConfirmImportStoreAssignment(false)
+      } else if (showTaxRulesPopover) {
+        setShowTaxRulesPopover(false)
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [
+    publishingQb,
+    resolvingQboCandidate,
+    savingBatch,
+    savingDispute,
+    importing,
+    showAssignStoreConfirmModal,
+    batchOrderConfirmModal,
+    showBatchConfirmModal,
+    selectedOrder,
+    selectedQbRecord,
+    showImportModal,
+    showTaxRulesPopover,
+  ])
 
   const authFetch = useCallback((url: string, init?: RequestInit) => {
     const token = typeof window !== 'undefined' ? localStorage.getItem('teg_token') : null
@@ -437,110 +582,150 @@ export default function ConciliarDeliveryPage() {
     })
   }, [])
 
+  const tRef = useRef(t)
+  tRef.current = t
+
   const isDateRangeValid = useMemo(() => {
     if (!startDate || !endDate) return false
     return endDate >= startDate
   }, [startDate, endDate])
 
-  const fetchData = useCallback(async () => {
-    if (!isDateRangeValid) {
-      setFetchError(t('deliveryReconciliation.date_range_invalid_error'))
-      return
-    }
-    fetchAbortRef.current?.abort()
-    const controller = new AbortController()
-    fetchAbortRef.current = controller
-    const seq = ++fetchSeqRef.current
+  type FetchFilterOverride = {
+    storeId?: string
+    platform?: string
+    status?: string
+    startDate?: string
+    endDate?: string
+    search?: string
+    payoutRef?: string
+  }
 
-    setLoading(true)
-    setFetchError(null)
-    setSelectedQbPayoutIds(new Set())
-    setSelectedOrderIds(new Set())
-    try {
-      const qs = new URLSearchParams({
-        store_id: selectedStore,
-        platform: selectedPlatform,
-        status: selectedStatus,
-        start_date: startDate,
-        end_date: endDate,
-        search: searchQuery,
-      })
-      if (activePayoutRef) {
-        qs.set('payout_reference_id', activePayoutRef)
+  const fetchData = useCallback(
+    async (override?: FetchFilterOverride) => {
+      const effStore = override?.storeId ?? selectedStore
+      const effPlatform = override?.platform ?? selectedPlatform
+      const effStatus = override?.status ?? selectedStatus
+      const effStart = override?.startDate ?? startDate
+      const effEnd = override?.endDate ?? endDate
+      const effSearch = override?.search ?? searchQuery
+      const effPayoutRef = override?.payoutRef !== undefined ? override.payoutRef : activePayoutRef
+
+      if (!effStart || !effEnd || effEnd < effStart) {
+        setFetchError(tRef.current('deliveryReconciliation.date_range_invalid_error'))
+        return
       }
-      const res = await authFetch(`/api/delivery-reconciliation?${qs.toString()}`, {
-        signal: controller.signal,
-      })
-      const data = await res.json()
-      if (seq !== fetchSeqRef.current) return
-      if (!res.ok || !data.success) {
-        throw new Error(data.error || `HTTP ${res.status}`)
+      fetchAbortRef.current?.abort()
+      const controller = new AbortController()
+      fetchAbortRef.current = controller
+      const seq = ++fetchSeqRef.current
+
+      setLoading(true)
+      setFetchError(null)
+      setSelectedQbPayoutIds(new Set())
+      setSelectedOrderIds(new Set())
+      try {
+        const qs = new URLSearchParams({
+          store_id: effStore,
+          platform: effPlatform,
+          status: effStatus,
+          start_date: effStart,
+          end_date: effEnd,
+          search: effSearch,
+        })
+        if (effPayoutRef) {
+          qs.set('payout_reference_id', effPayoutRef)
+        }
+        const res = await authFetch(`/api/delivery-reconciliation?${qs.toString()}`, {
+          signal: controller.signal,
+        })
+        const data = await res.json()
+        if (seq !== fetchSeqRef.current) return
+        if (!res.ok || !data.success) {
+          throw new Error(data.error || `HTTP ${res.status}`)
+        }
+        setMappings(data.mappings || [])
+        setOrders(data.orders || [])
+        setPayouts(data.payouts || [])
+        setSummary(data.summary || null)
+        setSyncStatus(data.syncStatus || null)
+        setCoverageReport(data.coverageReport || null)
+      } catch (err: any) {
+        if (err?.name === 'AbortError' || seq !== fetchSeqRef.current) return
+        console.error('Error loading delivery reconciliation:', err)
+        setFetchError(err.message || 'Error de conexión al cargar conciliación')
+      } finally {
+        if (seq === fetchSeqRef.current) {
+          setLoading(false)
+        }
       }
-      setMappings(data.mappings || [])
-      setOrders(data.orders || [])
-      setPayouts(data.payouts || [])
-      setSummary(data.summary || null)
-      setSyncStatus(data.syncStatus || null)
-      setCoverageReport(data.coverageReport || null)
-    } catch (err: any) {
-      if (err?.name === 'AbortError' || seq !== fetchSeqRef.current) return
-      console.error('Error loading delivery reconciliation:', err)
-      setFetchError(err.message || 'Error de conexión al cargar conciliación')
-    } finally {
-      if (seq === fetchSeqRef.current) {
-        setLoading(false)
-      }
-    }
-  }, [selectedStore, selectedPlatform, selectedStatus, startDate, endDate, searchQuery, activePayoutRef, authFetch, isDateRangeValid, t])
+    },
+    [selectedStore, selectedPlatform, selectedStatus, startDate, endDate, searchQuery, activePayoutRef, authFetch]
+  )
 
   useEffect(() => {
     fetchData()
+    return () => {
+      fetchAbortRef.current?.abort()
+    }
   }, [fetchData])
 
-  const fetchQbJournalRecords = useCallback(async () => {
-    if (!isDateRangeValid) return
-    qbAbortRef.current?.abort()
-    const controller = new AbortController()
-    qbAbortRef.current = controller
-    const seq = ++qbFetchSeqRef.current
+  const fetchQbJournalRecords = useCallback(
+    async (override?: FetchFilterOverride) => {
+      const effStore = override?.storeId ?? selectedStore
+      const effPlatform = override?.platform ?? selectedPlatform
+      const effStatus = override?.status ?? selectedStatus
+      const effStart = override?.startDate ?? startDate
+      const effEnd = override?.endDate ?? endDate
+      const effSearch = override?.search ?? searchQuery
 
-    setQbLoading(true)
-    setSelectedQbPayoutIds(new Set())
-    try {
-      const qs = new URLSearchParams({
-        store_id: selectedStore,
-        platform: selectedPlatform,
-        status: selectedStatus,
-        start_date: startDate,
-        end_date: endDate,
-      })
-      if (searchQuery.trim()) qs.set('search', searchQuery.trim())
-      const res = await authFetch(`/api/delivery-reconciliation/quickbooks-journal?${qs.toString()}`, {
-        signal: controller.signal,
-      })
-      const data = await res.json()
-      if (seq !== qbFetchSeqRef.current) return
-      if (!res.ok || !data.success) {
-        throw new Error(data.error || `HTTP ${res.status}`)
+      if (!effStart || !effEnd || effEnd < effStart) return
+      qbAbortRef.current?.abort()
+      const controller = new AbortController()
+      qbAbortRef.current = controller
+      const seq = ++qbFetchSeqRef.current
+
+      setQbLoading(true)
+      setSelectedQbPayoutIds(new Set())
+      try {
+        const qs = new URLSearchParams({
+          store_id: effStore,
+          platform: effPlatform,
+          status: effStatus,
+          start_date: effStart,
+          end_date: effEnd,
+        })
+        if (effSearch.trim()) qs.set('search', effSearch.trim())
+        const res = await authFetch(`/api/delivery-reconciliation/quickbooks-journal?${qs.toString()}`, {
+          signal: controller.signal,
+        })
+        const data = await res.json()
+        if (seq !== qbFetchSeqRef.current) return
+        if (!res.ok || !data.success) {
+          throw new Error(data.error || `HTTP ${res.status}`)
+        }
+        setQbRecords(data.records || [])
+        setQbSummary(data.summary || null)
+        setQbAuthError(Boolean(data.isAuthError))
+        if (data.reauthUrl) setQbReauthUrl(data.reauthUrl)
+        if (data.nextSuggestedDocNumber) setQbNextDocNumber(data.nextSuggestedDocNumber)
+      } catch (err: any) {
+        if (err?.name === 'AbortError' || seq !== qbFetchSeqRef.current) return
+        console.error('Error loading QB Journal Entries:', err)
+        setFetchError((prev) => prev || err.message || 'Error al cargar pólizas de QuickBooks')
+      } finally {
+        if (seq === qbFetchSeqRef.current) {
+          setQbLoading(false)
+        }
       }
-      setQbRecords(data.records || [])
-      setQbSummary(data.summary || null)
-      setQbAuthError(Boolean(data.isAuthError))
-      if (data.reauthUrl) setQbReauthUrl(data.reauthUrl)
-      if (data.nextSuggestedDocNumber) setQbNextDocNumber(data.nextSuggestedDocNumber)
-    } catch (err: any) {
-      if (err?.name === 'AbortError' || seq !== qbFetchSeqRef.current) return
-      console.error('Error loading QB Journal Entries:', err)
-      setFetchError((prev) => prev || err.message || 'Error al cargar pólizas de QuickBooks')
-    } finally {
-      if (seq === qbFetchSeqRef.current) {
-        setQbLoading(false)
-      }
-    }
-  }, [selectedStore, selectedPlatform, selectedStatus, startDate, endDate, searchQuery, authFetch, isDateRangeValid])
+    },
+    [selectedStore, selectedPlatform, selectedStatus, startDate, endDate, searchQuery, authFetch]
+  )
 
   useEffect(() => {
     fetchQbJournalRecords()
+    return () => {
+      qbAbortRef.current?.abort()
+    }
   }, [fetchQbJournalRecords])
 
   const handleQuickBooksReauth = () => {
@@ -563,6 +748,7 @@ export default function ConciliarDeliveryPage() {
   }
 
   const handleOpenQbModal = (rec: any) => {
+    setBannerMessage(null)
     setSelectedQbRecord(rec)
     setJeModalDate(rec.qbJournalEntry?.txnDate || rec.journalPreview?.txnDate || rec.period_end || rec.payout_date || '')
     setJeModalDocNumber(rec.qbJournalEntry?.docNumber || qbNextDocNumber || '')
@@ -726,25 +912,43 @@ export default function ConciliarDeliveryPage() {
           text: recErr || 'Estado de recuperación requerido: verifica en QuickBooks antes de reintentar.',
         })
         setShowBatchConfirmModal(false)
-        await fetchQbJournalRecords()
+        await Promise.all([fetchData(), fetchQbJournalRecords()])
         return
       }
-      if (!data.success) {
-        const firstErr = data.results?.find((r: any) => !r.success)?.error
+      const resultsArr: any[] = Array.isArray(data.results) ? data.results : []
+      const succeededItems = resultsArr.filter((r: any) => r.success)
+      const failedItems = resultsArr.filter((r: any) => !r.success)
+      if (!data.success || (succeededItems.length === 0 && failedItems.length > 0)) {
+        const firstErr = failedItems[0]?.error
         throw new Error(firstErr || data.error || 'Error al publicar Journal Entry en QuickBooks Online')
       }
-      const createdList = (data.results || [])
-        .filter((r: any) => r.success)
-        .map((r: any) => `#${r.journalEntry?.docNumber} (${r.storeName} - ${r.platform} #${r.payoutRef})`)
+      const createdList = succeededItems
+        .map((r: any) => `#${r.journalEntry?.docNumber} (${r.storeName} - ${formatPlatformDisplayName(r.platform)} #${r.payoutRef})`)
         .join(', ')
-      setBannerMessage({
-        type: 'success',
-        text: t('deliveryReconciliation.qb_published_toast', { list: createdList }),
-      })
+      if (failedItems.length > 0) {
+        const errDetails = failedItems
+          .slice(0, 3)
+          .map((r: any) => `${r.storeName || ''} #${r.payoutRef || ''}: ${r.error || 'Error'}`)
+          .join(' | ')
+        setBannerMessage({
+          type: 'warning',
+          text: t('deliveryReconciliation.qb_partial_publish_warning', {
+            ok: succeededItems.length,
+            list: createdList,
+            failed: failedItems.length,
+            errors: errDetails,
+          }),
+        })
+      } else {
+        setBannerMessage({
+          type: 'success',
+          text: t('deliveryReconciliation.qb_published_toast', { list: createdList }),
+        })
+      }
       setSelectedQbPayoutIds(new Set())
       setShowBatchConfirmModal(false)
       setSelectedQbRecord(null)
-      await fetchQbJournalRecords()
+      await Promise.all([fetchData(), fetchQbJournalRecords()])
     } catch (err: any) {
       setBannerMessage({ type: 'error', text: err.message })
     } finally {
@@ -760,11 +964,13 @@ export default function ConciliarDeliveryPage() {
     payoutRef?: string
     openOrdersTab?: boolean
   }) => {
-    const targetStore = override?.storeId || selectedStore
+    const rawTargetStore = override?.storeId || selectedStore
+    const targetStore = rawTargetStore === '0' ? 'ALL' : rawTargetStore
     const targetPlatform = override?.platform || selectedPlatform
     const targetStart = override?.startDate || startDate
     const targetEnd = override?.endDate || endDate
     const targetPayoutRef = override?.payoutRef !== undefined ? override.payoutRef : activePayoutRef
+    const targetSearch = override?.payoutRef !== undefined ? '' : searchQuery
 
     if (!targetStart || !targetEnd || targetEnd < targetStart) {
       const msg = t('deliveryReconciliation.date_range_invalid_error')
@@ -784,6 +990,7 @@ export default function ConciliarDeliveryPage() {
     }
     if (override?.openOrdersTab) {
       setSelectedActionGroup('ALL')
+      setSelectedOrderSubFilter('NONE')
       setActiveTab('orders')
     }
 
@@ -823,10 +1030,18 @@ export default function ConciliarDeliveryPage() {
             })}`
           : ''
       setBannerMessage({
-        type: syncErrors.length > 0 ? 'error' : 'success',
+        type: syncErrors.length > 0 ? 'warning' : 'success',
         text: `${baseMsg}${warnSuffix}`,
       })
-      await Promise.all([fetchData(), fetchQbJournalRecords()])
+      const refreshOverride: FetchFilterOverride = {
+        storeId: override?.storeId || selectedStore,
+        platform: targetPlatform,
+        startDate: targetStart,
+        endDate: targetEnd,
+        payoutRef: targetPayoutRef,
+        search: targetSearch,
+      }
+      await Promise.all([fetchData(refreshOverride), fetchQbJournalRecords(refreshOverride)])
     } catch (err: any) {
       setFetchError(err.message)
       setBannerMessage({ type: 'error', text: err.message })
@@ -853,6 +1068,7 @@ export default function ConciliarDeliveryPage() {
     }
 
     cancelSyncQueueRef.current = false
+    setSyncQueueCancelling(false)
     setSyncing(true)
     setBannerMessage(null)
     setFetchError(null)
@@ -867,14 +1083,18 @@ export default function ConciliarDeliveryPage() {
         const batchNames = batch.map((st) => st.store_name).join(', ')
         setSyncQueueProgress({
           active: true,
+          completed: completedCount,
           current: Math.min(i + batch.length, storesList.length),
           total: storesList.length,
           currentStoreName: batchNames,
         })
+        const batchAbort = new AbortController()
+        syncQueueAbortRef.current = batchAbort
         try {
           const res = await authFetch('/api/delivery-reconciliation', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
+            signal: batchAbort.signal,
             body: JSON.stringify({
               action: 'sync_live',
               store_ids: batch.map((st) => Number(st.store_id)),
@@ -890,6 +1110,13 @@ export default function ConciliarDeliveryPage() {
             if (data?.error) collectedSyncErrors.add(String(data.error))
           } else {
             completedCount += batch.length
+            setSyncQueueProgress({
+              active: true,
+              completed: completedCount,
+              current: Math.min(i + batch.length, storesList.length),
+              total: storesList.length,
+              currentStoreName: batchNames,
+            })
             if (Array.isArray(data.syncErrors)) {
               for (const errStr of data.syncErrors) {
                 if (errStr) collectedSyncErrors.add(String(errStr))
@@ -897,37 +1124,99 @@ export default function ConciliarDeliveryPage() {
             }
           }
         } catch (batchErr: any) {
+          if (batchErr?.name === 'AbortError' || cancelSyncQueueRef.current) {
+            break
+          }
           if (batchErr?.message) collectedSyncErrors.add(String(batchErr.message))
         }
       }
 
       const uniqueErrs = Array.from(collectedSyncErrors)
-      const doneText = t('deliveryReconciliation.sync_queue_done_toast', { count: completedCount })
-      const warnSuffix =
-        uniqueErrs.length > 0
-          ? ` ${t('deliveryReconciliation.sync_warnings_suffix', {
-              count: uniqueErrs.length,
-              details: uniqueErrs.slice(0, 2).join(' | '),
-            })}`
-          : ''
-      setBannerMessage({
-        type: uniqueErrs.length > 0 ? 'error' : 'success',
-        text: `${doneText}${warnSuffix}`,
-      })
+      if (cancelSyncQueueRef.current) {
+        setBannerMessage({
+          type: 'warning',
+          text: t('deliveryReconciliation.sync_queue_cancelled_toast', {
+            done: completedCount,
+            total: storesList.length,
+          }),
+        })
+      } else {
+        const doneText = t('deliveryReconciliation.sync_queue_done_toast', { count: completedCount })
+        const warnSuffix =
+          uniqueErrs.length > 0
+            ? ` ${t('deliveryReconciliation.sync_warnings_suffix', {
+                count: uniqueErrs.length,
+                details: uniqueErrs.slice(0, 2).join(' | '),
+              })}`
+            : ''
+        setBannerMessage({
+          type: uniqueErrs.length > 0 ? 'warning' : 'success',
+          text: `${doneText}${warnSuffix}`,
+        })
+      }
       await Promise.all([fetchData(), fetchQbJournalRecords()])
     } catch (err: any) {
       setBannerMessage({ type: 'error', text: err.message })
     } finally {
+      syncQueueAbortRef.current = null
+      setSyncQueueCancelling(false)
       setSyncQueueProgress(null)
       setSyncing(false)
     }
   }
 
   const handleLiveSync = () => {
-    if (selectedStore === 'ALL' && mappings.length > 1) {
+    if ((selectedStore === 'ALL' || selectedStore === '0') && mappings.length > 1) {
       return handleProgressiveStoreQueueSync()
     }
     return handleLiveSyncForStore()
+  }
+
+  const handleStartEditMapping = (m: StoreMapping) => {
+    setEditingMappingStoreId(m.store_id)
+    setMappingDraft({
+      doordash_store_id: m.doordash_store_id || '',
+      doordash_merchant_store_id: m.doordash_merchant_store_id || '',
+      grubhub_cust_id: m.grubhub_cust_id || '',
+      grubhub_merchant_id: m.grubhub_merchant_id || '',
+      ubereats_store_uuid: m.ubereats_store_uuid || '',
+    })
+  }
+
+  const handleSaveStoreMapping = async (store: StoreMapping) => {
+    setSavingMapping(true)
+    setBannerMessage(null)
+    try {
+      const res = await authFetch('/api/delivery-reconciliation', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'update_mapping',
+          store_id: store.store_id,
+          updates: {
+            doordash_store_id: mappingDraft.doordash_store_id.trim() || null,
+            doordash_merchant_store_id: mappingDraft.doordash_merchant_store_id.trim() || null,
+            grubhub_cust_id: mappingDraft.grubhub_cust_id.trim() || null,
+            grubhub_merchant_id: mappingDraft.grubhub_merchant_id.trim() || null,
+            ubereats_store_uuid: mappingDraft.ubereats_store_uuid.trim() || null,
+          },
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Error updating store mapping')
+      }
+      setEditingMappingStoreId(null)
+      setBannerMessage({
+        type: 'success',
+        text: t('deliveryReconciliation.mapping_saved_toast', { store: store.store_name }),
+      })
+      await fetchData()
+    } catch (err: any) {
+      setBannerMessage({ type: 'error', text: err.message })
+    } finally {
+      setSavingMapping(false)
+    }
   }
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -984,11 +1273,23 @@ export default function ConciliarDeliveryPage() {
   }
 
   const handleOpenOrderModal = (ord: ReconciledOrder) => {
+    setBannerMessage(null)
     setSelectedOrder(ord)
     // P0 #5: Siempre iniciar sin tienda destino seleccionada (jamás preseleccionar Lynwood #14)
     setAssignTargetStoreId('')
     setShowAssignStoreConfirmModal(false)
-    setDisputeStatusInput(ord.dispute_status || 'NONE')
+    const rawDisp = String(ord.dispute_status || 'NONE').toUpperCase()
+    const normalizedForSelect =
+      rawDisp === 'NEEDS_DISPUTE'
+        ? 'OPEN'
+        : rawDisp === 'DENIED' || rawDisp === 'ACCEPTED_LOSS'
+        ? 'REJECTED'
+        : rawDisp === 'DISPUTE_RECOVERED' || ord.status_code === 'DISPUTE_RECOVERED'
+        ? 'REIMBURSED'
+        : ['NONE', 'OPEN', 'SUBMITTED', 'APPROVED', 'REIMBURSED', 'REJECTED'].includes(rawDisp)
+        ? rawDisp
+        : 'OPEN'
+    setDisputeStatusInput(normalizedForSelect)
     setDisputeNotesInput(ord.dispute_notes || ord.raw_payload?.variance_approval?.reason || '')
     // Si ya existen créditos en `recovery_credits_evaluated`, dejar el formulario limpio para permitir agregar un nuevo crédito en otro corte sin sobrescribir el primero
     const hasExistingCredits = Array.isArray(ord.recovery_credits_evaluated) && ord.recovery_credits_evaluated.length > 0
@@ -1009,7 +1310,8 @@ export default function ConciliarDeliveryPage() {
     const anyInputEntered =
       reimbursementRefInput.trim().length > 0 ||
       reimbursementAmountInput.trim().length > 0 ||
-      reimbursementDateInput.trim().length > 0
+      reimbursementDateInput.trim().length > 0 ||
+      reimbursementDescInput.trim().length > 0
     if (hasExistingCredits && !anyInputEntered) return true
     const hasRef = reimbursementRefInput.trim().length > 0
     const amt = Number(reimbursementAmountInput)
@@ -1037,6 +1339,7 @@ export default function ConciliarDeliveryPage() {
       return
     }
     setSavingDispute(true)
+    setBannerMessage(null)
     try {
       const statusMap: Record<string, string> = {
         NONE: 'NONE',
@@ -1047,6 +1350,7 @@ export default function ConciliarDeliveryPage() {
         REIMBURSED: 'REIMBURSED',
         DENIED: 'REJECTED',
         REJECTED: 'REJECTED',
+        ACCEPTED_LOSS: 'REJECTED',
       }
       const normalizedStatus = statusMap[disputeStatusInput] || 'OPEN'
       const res = await authFetch('/api/delivery-reconciliation', {
@@ -1071,7 +1375,7 @@ export default function ConciliarDeliveryPage() {
         throw new Error(data.error || 'Error guardando disputa')
       }
       if (data.warning) {
-        setBannerMessage({ type: 'error', text: data.warning })
+        setBannerMessage({ type: 'warning', text: data.warning })
       } else if (data.recovery_verification?.verified) {
         setBannerMessage({
           type: 'success',
@@ -1089,8 +1393,14 @@ export default function ConciliarDeliveryPage() {
     }
   }
 
-  const handleApproveReviewOrder = async (ord: ReconciledOrder, candidateToastGuid?: string) => {
-    if (!candidateToastGuid && disputeNotesInput.trim().length < 5) {
+  const handleApproveReviewOrder = async (
+    ord: ReconciledOrder,
+    candidateToastGuid?: string,
+    notesOverride?: string
+  ) => {
+    const effectiveNotes =
+      notesOverride !== undefined ? notesOverride.trim() : disputeNotesInput.trim()
+    if (!candidateToastGuid && effectiveNotes.length < 5) {
       setBannerMessage({
         type: 'error',
         text: t('deliveryReconciliation.variance_reason_required_error'),
@@ -1098,6 +1408,7 @@ export default function ConciliarDeliveryPage() {
       return
     }
     setSavingDispute(true)
+    setBannerMessage(null)
     try {
       const res = await authFetch('/api/delivery-reconciliation', {
         method: 'POST',
@@ -1107,7 +1418,7 @@ export default function ConciliarDeliveryPage() {
           id: ord.id,
           review_decision: candidateToastGuid ? 'CONFIRM_TOAST_MATCH' : 'APPROVE_VARIANCE',
           selected_toast_guid: candidateToastGuid,
-          review_notes: disputeNotesInput.trim(),
+          review_notes: effectiveNotes,
         }),
       })
       const data = await res.json()
@@ -1126,6 +1437,7 @@ export default function ConciliarDeliveryPage() {
   const handleAssignUnassignedStore = async (ord: ReconciledOrder) => {
     if (!assignTargetStoreId) return
     setSavingDispute(true)
+    setBannerMessage(null)
     try {
       const res = await authFetch('/api/delivery-reconciliation', {
         method: 'POST',
@@ -1231,48 +1543,78 @@ export default function ConciliarDeliveryPage() {
 
   const handleExportBatchEvidencePackage = (targetOrders: ReconciledOrder[]) => {
     if (targetOrders.length === 0) return
-    const headers = [
-      'Business Date',
-      'Store',
-      'Platform',
-      'Platform Order ID',
-      'Toast Check #',
-      'Toast Tab Name',
-      'Toast Net Sales',
-      'Toast Tax',
-      'Toast Expected Gross',
-      'Platform Subtotal',
-      'Platform Tax to Merchant (24001)',
-      'Platform Tax Withheld (12050)',
-      'Platform Gross Receivable',
-      'Error Charge / Deduction',
-      'Net Payout',
-      'Original Deduction Payout Ref',
-      'Dispute Status',
-      'Dispute Reason',
-      'Original Disputed Amount',
-      'Recovery Payout Ref',
-      'Verified Recovery Amount',
-      'Pending Unrecovered Amount',
-      'Items Summary (Toast POS)',
-      'Audit Evidence',
-    ]
+    const headers = isEn
+      ? [
+          'Business Date',
+          'Store',
+          'Platform',
+          'Platform Order ID',
+          'Toast Check #',
+          'Toast Tab Name',
+          'Toast Net Sales',
+          'Toast Tax',
+          'Toast Expected Gross',
+          'Platform Subtotal',
+          'Platform Tax to Merchant (24001)',
+          'Platform Tax Withheld (12050)',
+          'Platform Gross Receivable',
+          'Error Charge / Deduction',
+          'Net Payout',
+          'Original Deduction Payout Ref',
+          'Dispute Status',
+          'Dispute Reason',
+          'Original Disputed Amount',
+          'Recovery Payout Ref',
+          'Verified Recovery Amount',
+          'Pending Unrecovered Amount',
+          'Items Summary (Toast POS)',
+          'Audit Evidence',
+        ]
+      : [
+          'Fecha Operativa',
+          'Sucursal',
+          'Plataforma',
+          'ID Orden Plataforma',
+          'Cheque Toast #',
+          'Nombre Cuenta Toast',
+          'Venta Neta Toast',
+          'Tax Toast',
+          'Bruto Esperado Toast',
+          'Subtotal Plataforma',
+          'Tax a Tacos Gavilan (24001)',
+          'Tax Retenido MFT (12050)',
+          'Bruto Reconocido Plataforma',
+          'Cargo por Error / Deducción',
+          'Neto Pagado',
+          'Corte Deducción Original',
+          'Estado Disputa',
+          'Motivo Disputa',
+          'Monto Original Disputado',
+          'Corte(s) de Recuperación',
+          'Recuperado Verificado',
+          'Saldo Pendiente',
+          'Platillos (Toast POS)',
+          'Evidencia de Auditoría',
+        ]
     const csvLines = [
-      headers.join(','),
+      headers.map(escapeCsvCell).join(','),
       ...targetOrders.map((o) => {
         const itemsText = Array.isArray(o.items_summary)
-          ? o.items_summary.map((it: any) => `${it.quantity || 1}x ${it.name} ($${Number(it.price || 0).toFixed(2)})`).join(' | ')
+          ? o.items_summary
+              .map((it: any) => `${it.quantity || 1}x ${it.name} ($${Number(it.price || 0).toFixed(2)})`)
+              .join(' | ')
           : ''
-        const recRefs = Array.isArray(o.recovery_credits_evaluated) && o.recovery_credits_evaluated.length > 0
-          ? Array.from(new Set(o.recovery_credits_evaluated.map((c) => c.payout_reference_id))).join(' + ')
-          : o.raw_payload?.reimbursement_payout_ref || ''
+        const recRefs =
+          Array.isArray(o.recovery_credits_evaluated) && o.recovery_credits_evaluated.length > 0
+            ? Array.from(new Set(o.recovery_credits_evaluated.map((c) => c.payout_reference_id))).join(' + ')
+            : o.raw_payload?.reimbursement_payout_ref || ''
         return [
-          fmtDateMDY(o.business_date),
-          `"${o.store_name}"`,
-          o.platform,
-          `"${o.platform_order_id}"`,
-          `"${o.toast_display_number || ''}"`,
-          `"${(o.toast_tab_name || '').replace(/"/g, '""')}"`,
+          escapeCsvCell(fmtDateMDY(o.business_date)),
+          escapeCsvCell(o.store_name),
+          escapeCsvCell(formatPlatformDisplayName(o.platform)),
+          escapeCsvCell(o.platform_order_id),
+          escapeCsvCell(o.toast_display_number || ''),
+          escapeCsvCell(o.toast_tab_name || ''),
           Number(o.toast_net_sales || 0).toFixed(2),
           Number(o.toast_tax || 0).toFixed(2),
           Number(o.toast_expected_gross || 0).toFixed(2),
@@ -1282,19 +1624,19 @@ export default function ConciliarDeliveryPage() {
           Number(o.platform_gross_receivable || 0).toFixed(2),
           Number(o.error_charge || 0).toFixed(2),
           Number(o.net_payout || 0).toFixed(2),
-          `"${o.payout_reference_id || ''}"`,
-          `"${o.dispute_status || 'NONE'}"`,
-          `"${(o.dispute_reason || '').replace(/"/g, '""')}"`,
+          escapeCsvCell(o.payout_reference_id || ''),
+          escapeCsvCell(o.dispute_status || 'NONE'),
+          escapeCsvCell(o.dispute_reason || ''),
           Number(o.original_deduction_abs ?? o.dispute_amount ?? Math.abs(Number(o.error_charge || 0))).toFixed(2),
-          `"${recRefs}"`,
+          escapeCsvCell(recRefs),
           Number(o.recovered_amount ?? 0).toFixed(2),
           Number(o.unrecovered_amount ?? 0).toFixed(2),
-          `"${itemsText.replace(/"/g, '""')}"`,
-          `"${((isEn ? o.evidence_en : o.evidence_es) || '').replace(/"/g, '""')}"`,
+          escapeCsvCell(itemsText),
+          escapeCsvCell((isEn ? o.evidence_en : o.evidence_es) || ''),
         ].join(',')
       }),
     ]
-    const blob = new Blob([csvLines.join('\n')], { type: 'text/csv;charset=utf-8;' })
+    const blob = new Blob(['\uFEFF' + csvLines.join('\n')], { type: 'text/csv;charset=utf-8;' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
@@ -1303,81 +1645,7 @@ export default function ConciliarDeliveryPage() {
     URL.revokeObjectURL(url)
   }
 
-  const handleExportCsv = () => {
-    if (orders.length === 0) return
-    const headers = [
-      'Business Date',
-      'Store',
-      'Platform',
-      'Action Group',
-      'Status Label',
-      'Platform Order ID',
-      'Toast Order #',
-      'Toast Net Sales',
-      'Toast Tax',
-      'Toast Expected Gross',
-      'Platform Subtotal',
-      'Platform Tax Passed to TEG (24001)',
-      'Platform Tax Withheld (12050)',
-      'Platform Gross Receivable',
-      'Total Fees',
-      'Error Charge / Adj',
-      'Net Payout',
-      'Gross Variance',
-      'What Happened',
-      'Cause',
-      'Evidence',
-      'Next Action',
-      'Payout Reference ID',
-      'Reimbursement Payout Ref',
-    ]
-    const csvLines = [
-      headers.join(','),
-      ...orders.map((o) => {
-        const varVal = Number(o.gross_variance ?? o.gross_diff ?? 0)
-        const feesVal =
-          Number(o.commission_fee || 0) +
-          Number(o.delivery_fee || 0) +
-          Number(o.processing_fee || 0) +
-          Number(o.marketing_fee || 0)
-        return [
-          fmtDateMDY(o.business_date),
-          `"${o.store_name}"`,
-          o.platform,
-          o.action_group || '',
-          `"${(isEn ? o.status_label_en : o.status_label_es) || o.reconciliation_status}"`,
-          `"${o.platform_order_id}"`,
-          `"${o.toast_display_number || ''}"`,
-          Number(o.toast_net_sales || 0).toFixed(2),
-          Number(o.toast_tax || 0).toFixed(2),
-          Number(o.toast_expected_gross || 0).toFixed(2),
-          Number(o.platform_subtotal || 0).toFixed(2),
-          Number(o.platform_tax_paid_to_merchant || 0).toFixed(2),
-          Number(o.platform_tax_withheld || 0).toFixed(2),
-          Number(o.platform_gross_receivable || 0).toFixed(2),
-          feesVal.toFixed(2),
-          (Number(o.error_charge || 0) + Number(o.adjustment_amount || 0)).toFixed(2),
-          Number(o.net_payout || 0).toFixed(2),
-          varVal.toFixed(2),
-          `"${((isEn ? o.what_happened_en : o.what_happened_es) || '').replace(/"/g, '""')}"`,
-          `"${((isEn ? o.cause_en : o.cause_es) || '').replace(/"/g, '""')}"`,
-          `"${((isEn ? o.evidence_en : o.evidence_es) || '').replace(/"/g, '""')}"`,
-          `"${((isEn ? o.next_action_en : o.next_action_es) || '').replace(/"/g, '""')}"`,
-          `"${o.payout_reference_id || ''}"`,
-          `"${o.raw_payload?.reimbursement_payout_ref || ''}"`,
-        ].join(',')
-      }),
-    ]
-    const blob = new Blob([csvLines.join('\n')], { type: 'text/csv;charset=utf-8;' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `conciliacion_delivery_${startDate}_${endDate}.csv`
-    a.click()
-    URL.revokeObjectURL(url)
-  }
-
-  // Agrupación de órdenes en los 4 grupos mutuamente claros
+  // Agrupación de órdenes en los 4 grupos mutuamente claros + subfiltros 1:1
   const group1Conciliated = useMemo(
     () => orders.filter((o) => o.action_group === 'CONCILIATED_READY'),
     [orders]
@@ -1390,6 +1658,50 @@ export default function ConciliarDeliveryPage() {
     () => orders.filter((o) => o.action_group === 'DISPUTE_RECOVERY'),
     [orders]
   )
+  const openDisputeOrders = useMemo(
+    () =>
+      group3Disputes.filter(
+        (o) => o.status_code !== 'DISPUTE_RECOVERED' && o.dispute_status !== 'ACCEPTED_LOSS'
+      ),
+    [group3Disputes]
+  )
+  const recoveredDisputeOrders = useMemo(
+    () =>
+      group3Disputes.filter(
+        (o) => o.status_code === 'DISPUTE_RECOVERED' || o.dispute_status === 'ACCEPTED_LOSS'
+      ),
+    [group3Disputes]
+  )
+  const filteredDisputes = useMemo(() => {
+    if (disputesSubFilter === 'PENDING') return openDisputeOrders
+    if (disputesSubFilter === 'RECOVERED') return recoveredDisputeOrders
+    return group3Disputes
+  }, [disputesSubFilter, group3Disputes, openDisputeOrders, recoveredDisputeOrders])
+  const disputesKpi = useMemo(() => {
+    let original = 0
+    let recovered = 0
+    let pending = 0
+    for (const o of group3Disputes) {
+      const orig = Number(o.original_deduction_abs ?? o.dispute_amount ?? Math.abs(Number(o.error_charge || 0)))
+      original += Number.isFinite(orig) ? orig : 0
+      const rec = Number(o.recovered_amount ?? 0)
+      recovered += Number.isFinite(rec) ? rec : 0
+      const pen = Number(o.unrecovered_amount ?? 0)
+      pending += Number.isFinite(pen) ? pen : 0
+    }
+    return { original, recovered, pending }
+  }, [group3Disputes])
+  const underpaidOrDisputeOrders = useMemo(
+    () =>
+      orders.filter(
+        (o) =>
+          o.action_group === 'VARIANCE_INVESTIGATE' ||
+          (o.action_group === 'DISPUTE_RECOVERY' &&
+            o.status_code !== 'DISPUTE_RECOVERED' &&
+            o.dispute_status !== 'ACCEPTED_LOSS')
+      ),
+    [orders]
+  )
   const group4Blocked = useMemo(
     () => orders.filter((o) => o.action_group === 'BLOCKED_MISSING_INFO'),
     [orders]
@@ -1400,7 +1712,11 @@ export default function ConciliarDeliveryPage() {
         (o) =>
           o.match_confidence !== 'TOAST_ONLY' &&
           o.reconciliation_status !== 'MISSING_IN_PLATFORM' &&
-          o.action_group !== 'CONCILIATED_READY'
+          o.action_group !== 'CONCILIATED_READY' &&
+          Boolean(o.payout_reference_id && String(o.payout_reference_id).trim()) &&
+          Number(o.store_id) > 0 &&
+          o.status_code !== 'DISPUTE_RECOVERED' &&
+          o.dispute_status !== 'ACCEPTED_LOSS'
       ),
     [orders]
   )
@@ -1412,13 +1728,11 @@ export default function ConciliarDeliveryPage() {
     [orders]
   )
   const toastUnpaidSyncedOrders = useMemo(
-    () =>
-      toastOnlyOrders.filter((o) => Boolean(o.toast_only_store_synced)),
+    () => toastOnlyOrders.filter((o) => Boolean(o.toast_only_store_synced)),
     [toastOnlyOrders]
   )
   const toastPendingSyncOrders = useMemo(
-    () =>
-      toastOnlyOrders.filter((o) => !o.toast_only_store_synced),
+    () => toastOnlyOrders.filter((o) => !o.toast_only_store_synced),
     [toastOnlyOrders]
   )
   const platformMissingToastOrders = useMemo(
@@ -1437,6 +1751,7 @@ export default function ConciliarDeliveryPage() {
   )
 
   const displayedOrders = useMemo(() => {
+    if (selectedOrderSubFilter === 'UNDERPAID_OR_DISPUTE') return underpaidOrDisputeOrders
     if (selectedOrderSubFilter === 'WITH_PAYOUT_PENDING_REVIEW') return withPayoutPendingReviewOrders
     if (selectedOrderSubFilter === 'TOAST_ONLY') return toastOnlyOrders
     if (selectedOrderSubFilter === 'TOAST_UNPAID_SYNCED') return toastUnpaidSyncedOrders
@@ -1450,6 +1765,7 @@ export default function ConciliarDeliveryPage() {
   }, [
     orders,
     selectedOrderSubFilter,
+    underpaidOrDisputeOrders,
     withPayoutPendingReviewOrders,
     toastOnlyOrders,
     toastUnpaidSyncedOrders,
@@ -1461,6 +1777,112 @@ export default function ConciliarDeliveryPage() {
     group3Disputes,
     group4Blocked,
   ])
+
+  const handleExportCsv = () => {
+    const sourceRows = displayedOrders.length > 0 ? displayedOrders : orders
+    if (sourceRows.length === 0) return
+    const headers = isEn
+      ? [
+          'Business Date',
+          'Store',
+          'Platform',
+          'Action Group',
+          'Status Label',
+          'Platform Order ID',
+          'Toast Order #',
+          'Toast Net Sales',
+          'Toast Tax',
+          'Toast Expected Gross',
+          'Platform Subtotal',
+          'Platform Tax Passed to TEG (24001)',
+          'Platform Tax Withheld (12050)',
+          'Platform Gross Receivable',
+          'Total Fees',
+          'Error Charge / Adj',
+          'Net Payout',
+          'Gross Variance',
+          'What Happened',
+          'Cause',
+          'Evidence',
+          'Next Action',
+          'Payout Reference ID',
+          'Reimbursement Payout Ref',
+        ]
+      : [
+          'Fecha Operativa',
+          'Sucursal',
+          'Plataforma',
+          'Grupo Operativo',
+          'Estado',
+          'ID Orden Plataforma',
+          'Ticket Toast #',
+          'Venta Neta Toast',
+          'Tax Toast',
+          'Bruto Esperado Toast',
+          'Subtotal Plataforma',
+          'Tax a Tacos Gavilan (24001)',
+          'Tax Retenido MFT (12050)',
+          'Bruto Reconocido Plataforma',
+          'Total Comisiones',
+          'Cargo Error / Ajuste',
+          'Neto Pagado',
+          'Diferencia Bruta',
+          'Qué Pasó',
+          'Causa',
+          'Evidencia',
+          'Siguiente Acción',
+          'ID Corte (Payout)',
+          'Corte(s) de Reembolso',
+        ]
+    const csvLines = [
+      headers.map(escapeCsvCell).join(','),
+      ...sourceRows.map((o) => {
+        const varVal = Number(o.gross_variance ?? o.gross_diff ?? 0)
+        const feesVal =
+          Number(o.commission_fee || 0) +
+          Number(o.delivery_fee || 0) +
+          Number(o.processing_fee || 0) +
+          Number(o.marketing_fee || 0)
+        const recRefs =
+          Array.isArray(o.recovery_credits_evaluated) && o.recovery_credits_evaluated.length > 0
+            ? Array.from(new Set(o.recovery_credits_evaluated.map((c) => c.payout_reference_id))).join(' + ')
+            : o.raw_payload?.reimbursement_payout_ref || ''
+        return [
+          escapeCsvCell(fmtDateMDY(o.business_date)),
+          escapeCsvCell(o.store_name),
+          escapeCsvCell(formatPlatformDisplayName(o.platform)),
+          escapeCsvCell(o.action_group || ''),
+          escapeCsvCell((isEn ? o.status_label_en : o.status_label_es) || o.reconciliation_status),
+          escapeCsvCell(o.platform_order_id),
+          escapeCsvCell(o.toast_display_number || ''),
+          Number(o.toast_net_sales || 0).toFixed(2),
+          Number(o.toast_tax || 0).toFixed(2),
+          Number(o.toast_expected_gross || 0).toFixed(2),
+          Number(o.platform_subtotal || 0).toFixed(2),
+          Number(o.platform_tax_paid_to_merchant || 0).toFixed(2),
+          Number(o.platform_tax_withheld || 0).toFixed(2),
+          Number(o.platform_gross_receivable || 0).toFixed(2),
+          feesVal.toFixed(2),
+          (Number(o.error_charge || 0) + Number(o.adjustment_amount || 0)).toFixed(2),
+          Number(o.net_payout || 0).toFixed(2),
+          varVal.toFixed(2),
+          escapeCsvCell((isEn ? o.what_happened_en : o.what_happened_es) || ''),
+          escapeCsvCell((isEn ? o.cause_en : o.cause_es) || ''),
+          escapeCsvCell((isEn ? o.evidence_en : o.evidence_es) || ''),
+          escapeCsvCell((isEn ? o.next_action_en : o.next_action_es) || ''),
+          escapeCsvCell(o.payout_reference_id || ''),
+          escapeCsvCell(recRefs),
+        ].join(',')
+      }),
+    ]
+    const blob = new Blob(['\uFEFF' + csvLines.join('\n')], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `TacosGavilan_Conciliacion_Delivery_${startDate}_${endDate}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
 
   const totalOrderPages = useMemo(
     () => Math.max(1, Math.ceil(displayedOrders.length / ordersPageSize)),
@@ -1478,42 +1900,11 @@ export default function ConciliarDeliveryPage() {
     return displayedOrders.filter((o) => selectedOrderIds.has(o.id))
   }, [displayedOrders, selectedOrderIds])
 
-  const applyDynamicDatePreset = (preset: 'THIS_WEEK' | 'PREV_WEEK' | 'CURRENT_MONTH' | 'CUSTOM') => {
-    setActivePayoutRef('')
-    setActivePreset(preset)
-    if (preset === 'CUSTOM') return
-    const nowLa = new Date(
-      new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles' })
-    )
-    const toYmd = (d: Date) => {
-      const y = d.getFullYear()
-      const m = String(d.getMonth() + 1).padStart(2, '0')
-      const day = String(d.getDate()).padStart(2, '0')
-      return `${y}-${m}-${day}`
-    }
-    const dayOfWeek = nowLa.getDay()
-    const diffToMonday = dayOfWeek === 0 ? -6 : 1 - dayOfWeek
-    if (preset === 'THIS_WEEK') {
-      const monday = new Date(nowLa)
-      monday.setDate(nowLa.getDate() + diffToMonday)
-      const sunday = new Date(monday)
-      sunday.setDate(monday.getDate() + 6)
-      setStartDate(toYmd(monday))
-      setEndDate(toYmd(sunday))
-    } else if (preset === 'PREV_WEEK') {
-      const monday = new Date(nowLa)
-      monday.setDate(nowLa.getDate() + diffToMonday - 7)
-      const sunday = new Date(monday)
-      sunday.setDate(monday.getDate() + 6)
-      setStartDate(toYmd(monday))
-      setEndDate(toYmd(sunday))
-    } else if (preset === 'CURRENT_MONTH') {
-      const start = new Date(nowLa.getFullYear(), nowLa.getMonth(), 1)
-      const end = new Date(nowLa.getFullYear(), nowLa.getMonth() + 1, 0)
-      setStartDate(toYmd(start))
-      setEndDate(toYmd(end))
-    }
-  }
+  useEffect(() => {
+    if (!startDate || !endDate) return
+    const detected = classifyDeliveryPeriod(startDate, endDate)
+    setSelectedPeriod((prev) => (prev === detected ? prev : detected))
+  }, [startDate, endDate])
 
   // P0 #7: Separar selección según acción: solo VARIANCE_INVESTIGATE o DISPUTE_RECOVERY, sin mezclar
   const activeSelectedBatchGroup = useMemo<'VARIANCE_INVESTIGATE' | 'DISPUTE_RECOVERY' | null>(() => {
@@ -1547,7 +1938,11 @@ export default function ConciliarDeliveryPage() {
 
   const getStorePlatformCoverageEntry = useCallback(
     (storeId: number, platform: DeliveryPlatform) => {
-      const matrix = coverageReport?.storePlatformMatrix || syncStatus?.storePlatformCoverage || []
+      const matrix =
+        coverageReport?.byStorePlatform ||
+        coverageReport?.storePlatformMatrix ||
+        syncStatus?.storePlatformCoverage ||
+        []
       if (Array.isArray(matrix)) {
         const match = matrix.find(
           (item: any) => Number(item.store_id ?? item.storeId) === Number(storeId) && item.platform === platform
@@ -1557,6 +1952,7 @@ export default function ConciliarDeliveryPage() {
             status: match.status || 'NOT_CONNECTED',
             orders_count: match.orders_count ?? match.ordersCount ?? 0,
             payouts_count: match.payouts_count ?? match.payoutsCount ?? 0,
+            toast_only_count: match.toast_only_count ?? match.toastOnlyCount ?? 0,
             last_sync_at: match.last_sync_at ?? match.lastSyncAt ?? null,
             cause_es: match.cause_es ?? match.causeEs ?? '',
             cause_en: match.cause_en ?? match.causeEn ?? '',
@@ -1566,18 +1962,6 @@ export default function ConciliarDeliveryPage() {
         }
       }
       const stSync = syncStatus?.byStore?.[storeId]
-      const ordersCount =
-        platform === 'DOORDASH'
-          ? stSync?.ddOrders || 0
-          : platform === 'GRUBHUB'
-          ? stSync?.ghOrders || 0
-          : stSync?.ueOrders || 0
-      const payoutsCount =
-        platform === 'DOORDASH'
-          ? stSync?.ddPayouts || 0
-          : platform === 'GRUBHUB'
-          ? stSync?.ghPayouts || 0
-          : stSync?.uePayouts || 0
       const lastSyncAt =
         platform === 'DOORDASH'
           ? stSync?.ddLastSync || null
@@ -1585,9 +1969,10 @@ export default function ConciliarDeliveryPage() {
           ? stSync?.ghLastSync || null
           : stSync?.ueLastSync || null
       return {
-        status: ordersCount > 0 || payoutsCount > 0 ? 'COMPLETE' : 'NOT_CONNECTED',
-        orders_count: ordersCount,
-        payouts_count: payoutsCount,
+        status: 'NOT_SYNCED_IN_RANGE',
+        orders_count: 0,
+        payouts_count: 0,
+        toast_only_count: 0,
         last_sync_at: lastSyncAt,
         cause_es: '',
         cause_en: '',
@@ -1675,9 +2060,39 @@ export default function ConciliarDeliveryPage() {
 
   const hasActionNeeded =
     group2Variance.length > 0 ||
-    group3Disputes.some((o) => o.status_code !== 'DISPUTE_RECOVERED') ||
+    openDisputeOrders.length > 0 ||
     group4Blocked.length > 0 ||
     !coverageReport?.isCoverageComplete
+
+  const isAnyModalOpen =
+    showBatchConfirmModal ||
+    Boolean(selectedQbRecord) ||
+    Boolean(batchOrderConfirmModal) ||
+    Boolean(selectedOrder) ||
+    showImportModal
+
+  const renderBannerAlert = () => {
+    if (!bannerMessage) return null
+    const styleClass =
+      bannerMessage.type === 'success'
+        ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-700 dark:text-emerald-300'
+        : bannerMessage.type === 'warning'
+        ? 'bg-amber-500/15 border-amber-500/40 text-amber-800 dark:text-amber-200'
+        : 'bg-rose-500/10 border-rose-500/30 text-rose-700 dark:text-rose-300'
+    return (
+      <div className={`p-3 rounded-xl border flex items-center justify-between gap-2 ${styleClass}`}>
+        <span className="text-xs md:text-sm font-semibold">{bannerMessage.text}</span>
+        <button
+          type="button"
+          onClick={() => setBannerMessage(null)}
+          className="p-1 hover:opacity-75 shrink-0"
+          aria-label={t('deliveryReconciliation.modal_close')}
+        >
+          <X className="w-4 h-4" />
+        </button>
+      </div>
+    )
+  }
 
   return (
     <div className="w-full text-slate-900 dark:text-slate-100 space-y-3.5">
@@ -1689,18 +2104,19 @@ export default function ConciliarDeliveryPage() {
             <span>{t('deliveryReconciliation.stale_data_warning_banner', { error: fetchError })}</span>
           </div>
           <button
+            type="button"
             onClick={() => {
               fetchData()
               fetchQbJournalRecords()
             }}
             className="px-3 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-extrabold shrink-0"
           >
-            {isEn ? 'Retry' : 'Reintentar'}
+            {t('deliveryReconciliation.retry_btn')}
           </button>
         </div>
       )}
 
-      {/* 1. CABECERA SIMPLIFICADA: ALCANCE, COBERTURA, ÚLTIMA SINCRONIZACIÓN Y ACCIÓN REQUERIDA (P1 #14) */}
+      {/* 1. CABECERA SIMPLIFICADA: ALCANCE, COBERTURA, ÚLTIMA SINCRONIZACIÓN Y SELECTOR UNIFICADO SEMANA/DÍA */}
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm space-y-4">
         <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 pb-3 border-b border-slate-100 dark:border-slate-800">
           <div>
@@ -1730,6 +2146,7 @@ export default function ConciliarDeliveryPage() {
             {Array.isArray(summary?.bidirectionalSummary?.pendingSyncStoreIds) &&
               summary.bidirectionalSummary.pendingSyncStoreIds.length > 0 && (
                 <button
+                  type="button"
                   onClick={() => handleProgressiveStoreQueueSync(summary.bidirectionalSummary.pendingSyncStoreIds)}
                   disabled={syncing || !isDateRangeValid}
                   className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 disabled:opacity-60 text-white font-extrabold text-xs md:text-sm shadow-sm transition"
@@ -1742,8 +2159,9 @@ export default function ConciliarDeliveryPage() {
               )}
 
             <button
+              type="button"
               onClick={handleLiveSync}
-              disabled={syncing || !isDateRangeValid}
+              disabled={syncing || !isDateRangeValid || selectedStore === '0'}
               className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 text-white font-bold text-xs md:text-sm shadow-sm transition"
             >
               <RefreshCw className={`w-4 h-4 ${syncing ? 'animate-spin' : ''}`} />
@@ -1755,7 +2173,11 @@ export default function ConciliarDeliveryPage() {
             </button>
 
             <button
-              onClick={() => setShowImportModal(true)}
+              type="button"
+              onClick={() => {
+                setBannerMessage(null)
+                setShowImportModal(true)
+              }}
               className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-semibold text-xs md:text-sm border border-slate-200 dark:border-slate-700 transition"
             >
               <Upload className="w-4 h-4" />
@@ -1763,8 +2185,10 @@ export default function ConciliarDeliveryPage() {
             </button>
 
             <button
+              type="button"
               onClick={handleExportCsv}
-              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-semibold text-xs md:text-sm border border-slate-200 dark:border-slate-700 transition"
+              disabled={orders.length === 0}
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 disabled:opacity-50 text-slate-700 dark:text-slate-200 font-semibold text-xs md:text-sm border border-slate-200 dark:border-slate-700 transition"
             >
               <Download className="w-4 h-4" />
               {t('deliveryReconciliation.export_csv_short')}
@@ -1778,8 +2202,10 @@ export default function ConciliarDeliveryPage() {
             <div className="flex items-center justify-between font-extrabold text-indigo-800 dark:text-indigo-300">
               <span>{t('deliveryReconciliation.tax_rule_banner_title')}</span>
               <button
+                type="button"
                 onClick={() => setShowTaxRulesPopover(false)}
                 className="p-1 rounded hover:bg-indigo-500/10"
+                aria-label={t('deliveryReconciliation.modal_close')}
               >
                 <X className="w-3.5 h-3.5" />
               </button>
@@ -1793,7 +2219,7 @@ export default function ConciliarDeliveryPage() {
         <div className="flex flex-wrap items-center justify-between gap-2 px-3.5 py-2.5 rounded-xl bg-slate-100/80 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700 text-xs">
           <div className="flex flex-wrap items-center gap-3">
             <span>
-              <strong className="text-slate-500">{t('deliveryReconciliation.scope_bar_stores')}</strong>{' '}
+              <strong className="text-slate-500 dark:text-slate-400">{t('deliveryReconciliation.scope_bar_stores')}</strong>{' '}
               <span className="font-extrabold text-slate-900 dark:text-white">
                 {selectedStore === 'ALL'
                   ? t('deliveryReconciliation.all_stores')
@@ -1804,30 +2230,40 @@ export default function ConciliarDeliveryPage() {
             </span>
             <span>•</span>
             <span>
-              <strong className="text-slate-500">{t('deliveryReconciliation.scope_bar_platforms')}</strong>{' '}
+              <strong className="text-slate-500 dark:text-slate-400">{t('deliveryReconciliation.scope_bar_platforms')}</strong>{' '}
               <span className="font-extrabold text-slate-900 dark:text-white">
-                {selectedPlatform === 'ALL' ? t('deliveryReconciliation.all_platforms') : selectedPlatform}
+                {selectedPlatform === 'ALL'
+                  ? t('deliveryReconciliation.all_platforms')
+                  : formatPlatformDisplayName(selectedPlatform)}
               </span>
             </span>
             <span>•</span>
             <span>
-              <strong className="text-slate-500">{t('deliveryReconciliation.scope_bar_period')}</strong>{' '}
+              <strong className="text-slate-500 dark:text-slate-400">{t('deliveryReconciliation.scope_bar_period')}</strong>{' '}
               <span className="font-mono font-extrabold text-indigo-600 dark:text-indigo-400">
-                {fmtDateMDY(startDate)} → {fmtDateMDY(endDate)}
+                {startDate === endDate
+                  ? fmtDateMDY(startDate)
+                  : `${fmtDateMDY(startDate)} → ${fmtDateMDY(endDate)}`}
               </span>
             </span>
             <span>•</span>
             <span>
-              <strong className="text-slate-500">{t('deliveryReconciliation.scope_bar_last_sync')}</strong>{' '}
+              <strong className="text-slate-500 dark:text-slate-400">{t('deliveryReconciliation.scope_bar_last_sync')}</strong>{' '}
               <span className="font-mono font-semibold">{fmtLaTimestamp(latestSyncTimestamp)}</span>
             </span>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
             {activePayoutRef && (
-              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-indigo-600 text-white font-mono text-xs font-extrabold">
-                {t('deliveryReconciliation.scope_active_payout_filter', { ref: activePayoutRef })}
+              <span
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-indigo-600 text-white font-mono text-xs font-extrabold"
+                title={activePayoutRef}
+              >
+                {t('deliveryReconciliation.scope_active_payout_filter', {
+                  ref: shortenRef(activePayoutRef, 20),
+                })}
                 <button
+                  type="button"
                   onClick={() => setActivePayoutRef('')}
                   title={t('deliveryReconciliation.scope_clear_payout_filter', { ref: activePayoutRef })}
                   className="hover:opacity-80"
@@ -1866,17 +2302,24 @@ export default function ConciliarDeliveryPage() {
           </div>
         </div>
 
-        {/* FILTROS */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+        {/* BARRA DE 4 FILTROS CON SELECTOR UNIFICADO DE PERIODO (POR SEMANA / POR DÍA, DEFAULT: SEMANA PASADA) */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 items-end">
           <div>
-            <label className="block text-[11px] font-bold text-slate-500 dark:text-slate-400 mb-1">
+            <label
+              htmlFor="conciliar-filter-store"
+              className="block text-[11px] font-bold text-slate-500 dark:text-slate-400 mb-1"
+            >
               {t('deliveryReconciliation.filter_1_store')}
             </label>
             <select
+              id="conciliar-filter-store"
+              name="store"
+              aria-label={t('deliveryReconciliation.filter_1_store')}
               value={selectedStore}
               onChange={(e) => {
                 setSelectedStore(e.target.value)
                 setActivePayoutRef('')
+                setSelectedOrderSubFilter('NONE')
               }}
               className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 text-xs md:text-sm font-bold"
             >
@@ -1893,14 +2336,21 @@ export default function ConciliarDeliveryPage() {
           </div>
 
           <div>
-            <label className="block text-[11px] font-bold text-slate-500 dark:text-slate-400 mb-1">
+            <label
+              htmlFor="conciliar-filter-platform"
+              className="block text-[11px] font-bold text-slate-500 dark:text-slate-400 mb-1"
+            >
               {t('deliveryReconciliation.filter_2_platform')}
             </label>
             <select
+              id="conciliar-filter-platform"
+              name="platform"
+              aria-label={t('deliveryReconciliation.filter_2_platform')}
               value={selectedPlatform}
               onChange={(e) => {
                 setSelectedPlatform(e.target.value)
                 setActivePayoutRef('')
+                setSelectedOrderSubFilter('NONE')
               }}
               className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 text-xs md:text-sm font-bold"
             >
@@ -1912,74 +2362,41 @@ export default function ConciliarDeliveryPage() {
           </div>
 
           <div>
-            <label className="block text-[11px] font-bold text-slate-500 dark:text-slate-400 mb-1">
-              {t('deliveryReconciliation.filter_3_start_date')}
+            <label
+              htmlFor="conciliar-filter-period"
+              className="block text-[11px] font-bold text-slate-500 dark:text-slate-400 mb-1"
+            >
+              {t('deliveryReconciliation.filter_3_period')}
             </label>
-            <div className="relative">
-              <div className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 text-xs md:text-sm font-semibold flex items-center justify-between pointer-events-none">
-                <span>{fmtDateMDY(startDate)}</span>
-                <Calendar className="w-4 h-4 text-slate-400" />
-              </div>
-              <input
-                type="date"
-                value={startDate}
-                onChange={(e) => {
-                  setStartDate(e.target.value)
-                  setActivePreset('CUSTOM')
-                  setActivePayoutRef('')
-                }}
-                onClick={(e) => {
-                  try {
-                    ;(e.currentTarget as HTMLInputElement).showPicker?.()
-                  } catch {}
-                }}
-                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-              />
-            </div>
+            <DeliveryPeriodFilter
+              period={selectedPeriod}
+              startDate={startDate}
+              endDate={endDate}
+              disabled={syncing}
+              onChange={(nextPeriod, nextStart, nextEnd) => {
+                setSelectedPeriod(nextPeriod)
+                setStartDate(nextStart)
+                setEndDate(nextEnd)
+                setActivePayoutRef('')
+                setSelectedOrderSubFilter('NONE')
+              }}
+            />
           </div>
 
           <div>
-            <label className="block text-[11px] font-bold text-slate-500 dark:text-slate-400 mb-1">
-              {t('deliveryReconciliation.filter_4_end_date')}
+            <label
+              htmlFor="conciliar-filter-search"
+              className="block text-[11px] font-bold text-slate-500 dark:text-slate-400 mb-1"
+            >
+              {t('deliveryReconciliation.filter_4_search')}
             </label>
             <div className="relative">
-              <div
-                className={`w-full rounded-xl border px-3 py-2 text-xs md:text-sm font-semibold flex items-center justify-between pointer-events-none ${
-                  !isDateRangeValid
-                    ? 'border-rose-500 bg-rose-500/10 text-rose-700'
-                    : 'border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800'
-                }`}
-              >
-                <span>{fmtDateMDY(endDate)}</span>
-                <Calendar className="w-4 h-4 text-slate-400" />
-              </div>
+              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5 pointer-events-none" />
               <input
-                type="date"
-                value={endDate}
-                min={startDate}
-                onChange={(e) => {
-                  setEndDate(e.target.value)
-                  setActivePreset('CUSTOM')
-                  setActivePayoutRef('')
-                }}
-                onClick={(e) => {
-                  try {
-                    ;(e.currentTarget as HTMLInputElement).showPicker?.()
-                  } catch {}
-                }}
-                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-              />
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-[11px] font-bold text-slate-500 dark:text-slate-400 mb-1">
-              {t('deliveryReconciliation.filter_5_search')}
-            </label>
-            <div className="relative">
-              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
-              <input
+                id="conciliar-filter-search"
+                name="search"
                 type="text"
+                aria-label={t('deliveryReconciliation.filter_4_search')}
                 value={searchInput}
                 onChange={(e) => setSearchInput(e.target.value)}
                 placeholder={t('deliveryReconciliation.filter_5_placeholder')}
@@ -1987,11 +2404,13 @@ export default function ConciliarDeliveryPage() {
               />
               {searchInput && (
                 <button
+                  type="button"
                   onClick={() => {
                     setSearchInput('')
                     setSearchQuery('')
                   }}
-                  className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600"
+                  className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                  aria-label={t('deliveryReconciliation.batch_clear_selection')}
                 >
                   <X className="w-3.5 h-3.5" />
                 </button>
@@ -1999,69 +2418,9 @@ export default function ConciliarDeliveryPage() {
             </div>
           </div>
         </div>
-
-        {/* P1 #14: REDUCIR PRESETS EXACTAMENTE A 4: ESTA SEMANA, SEMANA ANTERIOR, MES ACTUAL, PERSONALIZADO */}
-        <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-100 dark:border-slate-800 text-xs">
-          <span className="text-[11px] font-extrabold text-slate-400 uppercase">
-            {t('deliveryReconciliation.quick_weeks_label')}
-          </span>
-          <button
-            onClick={() => applyDynamicDatePreset('THIS_WEEK')}
-            className={`px-3 py-1.5 rounded-lg font-bold transition border ${
-              activePreset === 'THIS_WEEK' && !activePayoutRef
-                ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
-                : 'bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-100'
-            }`}
-          >
-            {t('deliveryReconciliation.preset_this_week')}
-          </button>
-          <button
-            onClick={() => applyDynamicDatePreset('PREV_WEEK')}
-            className={`px-3 py-1.5 rounded-lg font-bold transition border ${
-              activePreset === 'PREV_WEEK' && !activePayoutRef
-                ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
-                : 'bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-100'
-            }`}
-          >
-            {t('deliveryReconciliation.preset_prev_week')}
-          </button>
-          <button
-            onClick={() => applyDynamicDatePreset('CURRENT_MONTH')}
-            className={`px-3 py-1.5 rounded-lg font-bold transition border ${
-              activePreset === 'CURRENT_MONTH' && !activePayoutRef
-                ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
-                : 'bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-100'
-            }`}
-          >
-            {t('deliveryReconciliation.preset_current_month')}
-          </button>
-          <button
-            onClick={() => applyDynamicDatePreset('CUSTOM')}
-            className={`px-3 py-1.5 rounded-lg font-bold transition border ${
-              activePreset === 'CUSTOM'
-                ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
-                : 'bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-100'
-            }`}
-          >
-            {t('deliveryReconciliation.preset_custom')}
-          </button>
-        </div>
       </div>
 
-      {bannerMessage && (
-        <div
-          className={`p-3 rounded-xl border flex items-center justify-between ${
-            bannerMessage.type === 'success'
-              ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-700 dark:text-emerald-300'
-              : 'bg-rose-500/10 border-rose-500/30 text-rose-700 dark:text-rose-300'
-          }`}
-        >
-          <span className="text-xs md:text-sm font-semibold">{bannerMessage.text}</span>
-          <button onClick={() => setBannerMessage(null)} className="p-1 hover:opacity-75">
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-      )}
+      {!isAnyModalOpen && renderBannerAlert()}
 
       {syncQueueProgress?.active && (
         <div className="p-3.5 rounded-2xl bg-indigo-500/10 border-2 border-indigo-500/30 space-y-2 shadow-sm">
@@ -2069,8 +2428,8 @@ export default function ConciliarDeliveryPage() {
             <div className="flex items-center gap-2">
               <RefreshCw className="w-4 h-4 animate-spin text-indigo-600 shrink-0" />
               <span>
-                {t('deliveryReconciliation.sync_queue_progress', {
-                  current: syncQueueProgress.current,
+                {t('deliveryReconciliation.sync_queue_progress_done', {
+                  done: syncQueueProgress.completed,
                   total: syncQueueProgress.total,
                   store: syncQueueProgress.currentStoreName,
                 })}
@@ -2078,26 +2437,34 @@ export default function ConciliarDeliveryPage() {
             </div>
             <button
               type="button"
+              disabled={syncQueueCancelling}
               onClick={() => {
                 cancelSyncQueueRef.current = true
+                setSyncQueueCancelling(true)
+                syncQueueAbortRef.current?.abort()
               }}
-              className="px-3 py-1 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-xs font-extrabold"
+              className="px-3 py-1 rounded-lg bg-rose-600 hover:bg-rose-700 disabled:opacity-60 text-white text-xs font-extrabold"
             >
-              {t('deliveryReconciliation.sync_queue_cancel_btn')}
+              {syncQueueCancelling
+                ? t('deliveryReconciliation.sync_queue_cancelling_btn')
+                : t('deliveryReconciliation.sync_queue_cancel_btn')}
             </button>
           </div>
           <div className="w-full h-2.5 rounded-full bg-indigo-200/60 dark:bg-indigo-950 overflow-hidden">
             <div
               className="h-full bg-indigo-600 transition-all duration-300"
               style={{
-                width: `${Math.round((syncQueueProgress.current / Math.max(1, syncQueueProgress.total)) * 100)}%`,
+                width: `${Math.min(
+                  100,
+                  Math.round((syncQueueProgress.completed / Math.max(1, syncQueueProgress.total)) * 100)
+                )}%`,
               }}
             />
           </div>
         </div>
       )}
 
-      {/* 2. PREGUNTA PRINCIPAL + LOS 4 GRUPOS EN ORDEN DE PRIORIDAD VISUAL (P1 #13: 1. BLOQUEADOS -> 2. DIFERENCIAS -> 3. DISPUTAS -> 4. LISTOS) */}
+      {/* 2. PREGUNTA PRINCIPAL + LOS 4 GRUPOS EN ORDEN DE PRIORIDAD VISUAL (1. BLOQUEADOS -> 2. DIFERENCIAS -> 3. DISPUTAS -> 4. LISTOS) */}
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm space-y-3.5">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-2 pb-2 border-b border-slate-100 dark:border-slate-800">
           <div>
@@ -2115,11 +2482,12 @@ export default function ConciliarDeliveryPage() {
           </div>
           {(selectedActionGroup !== 'ALL' || selectedOrderSubFilter !== 'NONE') && (
             <button
+              type="button"
               onClick={() => {
                 setSelectedActionGroup('ALL')
                 setSelectedOrderSubFilter('NONE')
               }}
-              className="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-xs font-bold"
+              className="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-xs font-bold"
             >
               {t('deliveryReconciliation.group_all_title')} ({orders.length})
             </button>
@@ -2153,22 +2521,23 @@ export default function ConciliarDeliveryPage() {
                 {fmtMoney(summary?.conciliatedReadyGross || 0)}
               </span>
             </div>
-            <div className="text-[10px] text-slate-500 mt-0.5">{t('deliveryReconciliation.bidir_card_paid_ok_desc')}</div>
+            <div className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">
+              {t('deliveryReconciliation.bidir_card_paid_ok_desc')}
+            </div>
           </button>
 
           <button
             type="button"
             onClick={() => {
-              setSelectedOrderSubFilter('NONE')
-              setSelectedActionGroup(
-                group2Variance.length > 0 ? 'VARIANCE_INVESTIGATE' : 'DISPUTE_RECOVERY'
+              setSelectedActionGroup('ALL')
+              setSelectedOrderSubFilter(
+                selectedOrderSubFilter === 'UNDERPAID_OR_DISPUTE' ? 'NONE' : 'UNDERPAID_OR_DISPUTE'
               )
               setOrdersPage(1)
               setActiveTab('orders')
             }}
             className={`text-left rounded-xl border p-2.5 transition ${
-              (selectedActionGroup === 'VARIANCE_INVESTIGATE' || selectedActionGroup === 'DISPUTE_RECOVERY') &&
-              selectedOrderSubFilter === 'NONE'
+              selectedOrderSubFilter === 'UNDERPAID_OR_DISPUTE'
                 ? 'ring-2 ring-amber-500 border-amber-500 bg-amber-500/10'
                 : 'border-amber-500/25 bg-amber-500/5 hover:border-amber-500/50'
             }`}
@@ -2178,15 +2547,18 @@ export default function ConciliarDeliveryPage() {
             </div>
             <div className="flex items-baseline justify-between mt-1">
               <span className="text-lg font-extrabold font-mono text-amber-700 dark:text-amber-300">
-                {group2Variance.length + group3Disputes.length}
+                {underpaidOrDisputeOrders.length}
               </span>
               <span className="font-mono font-bold text-amber-700 dark:text-amber-400">
                 {fmtMoney(
-                  Number(summary?.varianceInvestigateAmount || 0) + Number(summary?.disputeRecoveryAmount || 0)
+                  Number(summary?.varianceInvestigateAmount || 0) +
+                    Number(summary?.disputePendingRecoveryAmount ?? 0)
                 )}
               </span>
             </div>
-            <div className="text-[10px] text-slate-500 mt-0.5">{t('deliveryReconciliation.bidir_card_underpaid_desc')}</div>
+            <div className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">
+              {t('deliveryReconciliation.bidir_card_underpaid_desc')}
+            </div>
           </button>
 
           <button
@@ -2216,7 +2588,9 @@ export default function ConciliarDeliveryPage() {
                 {fmtMoney(summary?.bidirectionalSummary?.inToastUnpaidSyncedStoreGross || 0)}
               </span>
             </div>
-            <div className="text-[10px] text-slate-500 mt-0.5">{t('deliveryReconciliation.bidir_card_toast_unpaid_desc')}</div>
+            <div className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">
+              {t('deliveryReconciliation.bidir_card_toast_unpaid_desc')}
+            </div>
           </button>
 
           <button
@@ -2251,7 +2625,9 @@ export default function ConciliarDeliveryPage() {
                 )}
               </span>
             </div>
-            <div className="text-[10px] text-slate-500 mt-0.5">{t('deliveryReconciliation.bidir_card_platform_only_desc')}</div>
+            <div className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">
+              {t('deliveryReconciliation.bidir_card_platform_only_desc')}
+            </div>
           </button>
         </div>
 
@@ -2275,7 +2651,11 @@ export default function ConciliarDeliveryPage() {
                   setOrdersPage(1)
                   setActiveTab('orders')
                 }}
-                className="px-2.5 py-1 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 font-bold hover:bg-slate-50"
+                className={`px-2.5 py-1 rounded-lg border font-bold transition ${
+                  selectedOrderSubFilter === 'TOAST_PENDING_SYNC'
+                    ? 'bg-slate-800 text-white border-slate-800 dark:bg-slate-200 dark:text-slate-900'
+                    : 'border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800'
+                }`}
               >
                 {t('deliveryReconciliation.filter_toast_pending_sync', { count: toastPendingSyncOrders.length })}
               </button>
@@ -2301,13 +2681,15 @@ export default function ConciliarDeliveryPage() {
         {/* TARJETAS DE LOS 4 GRUPOS EN ORDEN DE PRIORIDAD: 1. BLOQUEADOS -> 2. DIFERENCIAS -> 3. DISPUTAS -> 4. LISTOS */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
           {/* PRIORIDAD 1: BLOQUEADOS (BLOCKED_MISSING_INFO) */}
-          <div
+          <button
+            type="button"
             onClick={() => {
               setSelectedOrderSubFilter('NONE')
               setSelectedActionGroup(selectedActionGroup === 'BLOCKED_MISSING_INFO' ? 'ALL' : 'BLOCKED_MISSING_INFO')
+              setOrdersPage(1)
               setActiveTab('orders')
             }}
-            className={`cursor-pointer rounded-2xl border p-3.5 transition ${
+            className={`text-left w-full rounded-2xl border p-3.5 transition ${
               selectedActionGroup === 'BLOCKED_MISSING_INFO' && selectedOrderSubFilter === 'NONE'
                 ? 'ring-2 ring-slate-600 border-slate-600 bg-slate-500/15'
                 : 'border-slate-300 dark:border-slate-700 bg-slate-100/70 dark:bg-slate-800/50 hover:border-slate-400'
@@ -2330,16 +2712,18 @@ export default function ConciliarDeliveryPage() {
             <p className="text-[11px] text-slate-600 dark:text-slate-400 mt-1">
               {t('deliveryReconciliation.group_4_desc')}
             </p>
-          </div>
+          </button>
 
           {/* PRIORIDAD 2: DIFERENCIAS POR INVESTIGAR (VARIANCE_INVESTIGATE) */}
-          <div
+          <button
+            type="button"
             onClick={() => {
               setSelectedOrderSubFilter('NONE')
               setSelectedActionGroup(selectedActionGroup === 'VARIANCE_INVESTIGATE' ? 'ALL' : 'VARIANCE_INVESTIGATE')
+              setOrdersPage(1)
               setActiveTab('orders')
             }}
-            className={`cursor-pointer rounded-2xl border p-3.5 transition ${
+            className={`text-left w-full rounded-2xl border p-3.5 transition ${
               selectedActionGroup === 'VARIANCE_INVESTIGATE' && selectedOrderSubFilter === 'NONE'
                 ? 'ring-2 ring-amber-500 border-amber-500 bg-amber-500/10'
                 : 'border-amber-500/30 bg-amber-500/5 hover:border-amber-500/60'
@@ -2356,22 +2740,24 @@ export default function ConciliarDeliveryPage() {
                 {group2Variance.length}
               </span>
               <span className="text-xs font-mono font-bold text-amber-700 dark:text-amber-400">
-                {isEn ? 'Var:' : 'Dif:'} {fmtMoney(summary?.varianceInvestigateAmount || 0)}
+                {fmtMoney(summary?.varianceInvestigateAmount || 0)}
               </span>
             </div>
             <p className="text-[11px] text-slate-600 dark:text-slate-400 mt-1">
               {t('deliveryReconciliation.group_2_desc')}
             </p>
-          </div>
+          </button>
 
           {/* PRIORIDAD 3: DISPUTAS / RECUPERACIONES (DISPUTE_RECOVERY) */}
-          <div
+          <button
+            type="button"
             onClick={() => {
               setSelectedOrderSubFilter('NONE')
               setSelectedActionGroup(selectedActionGroup === 'DISPUTE_RECOVERY' ? 'ALL' : 'DISPUTE_RECOVERY')
+              setOrdersPage(1)
               setActiveTab('orders')
             }}
-            className={`cursor-pointer rounded-2xl border p-3.5 transition ${
+            className={`text-left w-full rounded-2xl border p-3.5 transition ${
               selectedActionGroup === 'DISPUTE_RECOVERY' && selectedOrderSubFilter === 'NONE'
                 ? 'ring-2 ring-rose-500 border-rose-500 bg-rose-500/10'
                 : 'border-rose-500/30 bg-rose-500/5 hover:border-rose-500/60'
@@ -2388,22 +2774,24 @@ export default function ConciliarDeliveryPage() {
                 {group3Disputes.length}
               </span>
               <span className="text-xs font-mono font-bold text-rose-700 dark:text-rose-400">
-                {fmtMoney(summary?.disputeRecoveryAmount || 0)}
+                {fmtMoney(summary?.disputePendingRecoveryAmount ?? summary?.disputeRecoveryAmount ?? 0)}
               </span>
             </div>
             <p className="text-[11px] text-slate-600 dark:text-slate-400 mt-1">
               {t('deliveryReconciliation.group_3_desc')}
             </p>
-          </div>
+          </button>
 
           {/* PRIORIDAD 4: LISTOS PARA CONTABILIZAR (CONCILIATED_READY) */}
-          <div
+          <button
+            type="button"
             onClick={() => {
               setSelectedOrderSubFilter('NONE')
               setSelectedActionGroup(selectedActionGroup === 'CONCILIATED_READY' ? 'ALL' : 'CONCILIATED_READY')
+              setOrdersPage(1)
               setActiveTab('orders')
             }}
-            className={`cursor-pointer rounded-2xl border p-3.5 transition ${
+            className={`text-left w-full rounded-2xl border p-3.5 transition ${
               selectedActionGroup === 'CONCILIATED_READY' && selectedOrderSubFilter === 'NONE'
                 ? 'ring-2 ring-emerald-500 border-emerald-500 bg-emerald-500/10'
                 : 'border-emerald-500/30 bg-emerald-500/5 hover:border-emerald-500/60'
@@ -2426,16 +2814,17 @@ export default function ConciliarDeliveryPage() {
             <p className="text-[11px] text-slate-600 dark:text-slate-400 mt-1">
               {t('deliveryReconciliation.group_1_desc')}
             </p>
-          </div>
+          </button>
         </div>
       </div>
 
-      {/* 3. RESUMEN POR PLATAFORMA EN EL CONTEXTO SELECCIONADO */}
+      {/* 3. RESUMEN POR PLATAFORMA EN EL CONTEXTO SELECCIONADO (AISLADO AL PERIODO, SIN CONTAMINACIÓN DE RECUPERACIONES EXTERNAS) */}
       {summary?.byPlatform && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-3.5">
           {(['DOORDASH', 'UBER_EATS', 'GRUBHUB'] as DeliveryPlatform[]).map((plat) => {
             const pData = summary.byPlatform[plat] || {}
             const isSelected = selectedPlatform === plat
+            const isFilteredOut = selectedPlatform !== 'ALL' && !isSelected
             const isUber = plat === 'UBER_EATS'
             const borderClass =
               plat === 'DOORDASH'
@@ -2445,40 +2834,43 @@ export default function ConciliarDeliveryPage() {
                 : 'border-orange-500/30 bg-white dark:bg-slate-900'
 
             const hasPayouts = (pData.payoutsCount || 0) > 0
+            // En periodos abiertos sin payout semanal cerrado, leer exclusivamente métricas periodPlatform* del periodo
             const grossCut = hasPayouts
               ? Number(pData.payoutsGrossTotal || 0)
-              : Number(pData.platformGross || pData.settledPlatformGross || 0)
+              : Number(pData.periodPlatformGross ?? pData.settledPlatformGross ?? 0)
             const subCut = hasPayouts
               ? Number(pData.payoutsSubtotalTotal || 0)
-              : Number(pData.platformSubtotal || 0)
+              : Number(pData.periodPlatformSubtotal ?? 0)
             const taxCut = isUber
               ? hasPayouts
                 ? Number(pData.payoutsTaxWithheld || 0)
-                : Number(pData.platformTaxWithheld || 0)
+                : Number(pData.periodPlatformTaxWithheld ?? 0)
               : hasPayouts
               ? Number(pData.payoutsTaxToMerchant || 0)
-              : Number(pData.platformTaxToMerchant || 0)
-            const hasCutTaxBreakdown = hasPayouts
-              ? (pData.payoutsWithTaxBreakdownCount || 0) === (pData.payoutsCount || 0) &&
-                (pData.payoutsCount || 0) > 0
-              : Math.abs(subCut) > 0.009 || Math.abs(grossCut) <= 0.009
+              : Number(pData.periodPlatformTaxToMerchant ?? 0)
 
             const feesCut = hasPayouts
               ? Number(pData.payoutsFeesTotal || 0)
-              : Number(pData.totalFees || 0)
+              : Number(pData.periodPlatformFees ?? 0)
             const errorsCut = hasPayouts
               ? Number(pData.payoutsErrorTotal || 0)
-              : Number(pData.errorCharges || 0)
+              : Number(pData.periodPlatformErrors ?? 0)
             const netBankCut = hasPayouts
               ? Number(pData.payoutsNetTotal || 0)
-              : Number(pData.netPayout || 0)
+              : Number(pData.periodPlatformNetPayout ?? 0)
 
             const hasPlatformCutActivity =
               hasPayouts ||
+              Number(pData.periodPlatformOrdersCount ?? 0) > 0 ||
               Math.abs(grossCut) > 0.009 ||
               Math.abs(netBankCut) > 0.009 ||
               Math.abs(feesCut) > 0.009 ||
               Math.abs(errorsCut) > 0.009
+
+            const hasCutTaxBreakdown = hasPayouts
+              ? (pData.payoutsWithTaxBreakdownCount || 0) === (pData.payoutsCount || 0) &&
+                (pData.payoutsCount || 0) > 0
+              : hasPlatformCutActivity && (Math.abs(subCut) > 0.009 || Math.abs(grossCut) <= 0.009)
 
             const otherCutAdj = hasPlatformCutActivity
               ? Number((netBankCut - (grossCut + feesCut + errorsCut)).toFixed(2))
@@ -2491,6 +2883,7 @@ export default function ConciliarDeliveryPage() {
             )
             const toastOrdersCount = Number(pData.periodToastOrdersCount ?? 0)
             const hasToastActivity = toastOrdersCount > 0 || Math.abs(toastGrossPeriod) > 0.009
+            const isOpenPeriodWithoutCut = !hasPlatformCutActivity && hasToastActivity
 
             const toastExpectedNet = hasPlatformCutActivity
               ? Number((toastGrossPeriod + (netBankCut - grossCut)).toFixed(2))
@@ -2499,6 +2892,8 @@ export default function ConciliarDeliveryPage() {
 
             const conciliatedCount = pData.conciliatedReadyCount || 0
             const pendingReviewCount = pData.withPayoutPendingReviewCount || 0
+            const rowGridClass =
+              'grid grid-cols-[minmax(0,1fr)_80px_80px] xl:grid-cols-[minmax(0,1fr)_88px_88px] gap-x-1.5 items-baseline'
 
             return (
               <div
@@ -2521,21 +2916,31 @@ export default function ConciliarDeliveryPage() {
                     }
                   }
                 }}
-                className={`cursor-pointer rounded-2xl border p-4 transition shadow-sm ${borderClass} ${
-                  isSelected ? 'ring-2 ring-indigo-500' : 'hover:border-slate-400'
+                className={`cursor-pointer rounded-2xl border p-3.5 transition shadow-sm ${borderClass} ${
+                  isSelected
+                    ? 'ring-2 ring-indigo-500'
+                    : isFilteredOut
+                    ? 'opacity-60 hover:opacity-95 border-dashed'
+                    : 'hover:border-slate-400'
                 }`}
               >
-                <div className="flex items-center justify-between gap-2 mb-3">
-                  <div className="flex items-center gap-2">
+                <div className="flex items-center justify-between gap-2 mb-2.5">
+                  <div className="flex items-center gap-1.5 flex-wrap">
                     {renderPlatformBadge(plat)}
+                    {isFilteredOut && (
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400">
+                        {t('deliveryReconciliation.card_filtered_out_hint', {
+                          platform: formatPlatformDisplayName(selectedPlatform),
+                        })}
+                      </span>
+                    )}
                   </div>
                   <div className="flex items-center gap-1.5 flex-wrap justify-end">
                     {toastOrdersCount > 0 && (
                       <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200/70 dark:border-indigo-800/70">
-                        {t('deliveryReconciliation.card_toast_orders_badge').replace(
-                          '{count}',
-                          String(toastOrdersCount)
-                        )}
+                        {t('deliveryReconciliation.card_toast_orders_badge', {
+                          count: toastOrdersCount,
+                        })}
                       </span>
                     )}
                     <span className="px-2.5 py-0.5 rounded-full text-xs font-extrabold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
@@ -2547,9 +2952,11 @@ export default function ConciliarDeliveryPage() {
                   </div>
                 </div>
 
-                <div className="space-y-1.5 bg-slate-50 dark:bg-slate-800/60 rounded-xl p-3 border border-slate-200/80 dark:border-slate-800 text-xs">
+                <div className="space-y-1.5 bg-slate-50 dark:bg-slate-800/60 rounded-xl p-2.5 border border-slate-200/80 dark:border-slate-800 text-[11px]">
                   {/* Encabezado de Columnas: Concepto | Corte Plat. | Toast POS */}
-                  <div className="grid grid-cols-[minmax(0,1fr)_86px_86px] sm:grid-cols-[minmax(0,1fr)_96px_96px] gap-x-2 items-baseline pb-1.5 mb-0.5 border-b border-slate-200/80 dark:border-slate-700/80 text-[10px] uppercase tracking-wider font-extrabold">
+                  <div
+                    className={`${rowGridClass} pb-1.5 mb-0.5 border-b border-slate-200/80 dark:border-slate-700/80 text-[10px] uppercase tracking-wider font-extrabold`}
+                  >
                     <span className="text-slate-400 truncate">
                       {t('deliveryReconciliation.card_col_concept')}
                     </span>
@@ -2562,8 +2969,15 @@ export default function ConciliarDeliveryPage() {
                   </div>
 
                   {/* (+) Ventas Brutas */}
-                  <div className="grid grid-cols-[minmax(0,1fr)_86px_86px] sm:grid-cols-[minmax(0,1fr)_96px_96px] gap-x-2 items-baseline">
-                    <span className="text-slate-600 dark:text-slate-300 font-semibold truncate" title={`${t('deliveryReconciliation.card_gross_sales')} ${isUber ? t('deliveryReconciliation.card_without_tax') : t('deliveryReconciliation.card_with_tax')}`}>
+                  <div className={rowGridClass}>
+                    <span
+                      className="text-slate-600 dark:text-slate-300 font-semibold truncate"
+                      title={`${t('deliveryReconciliation.card_gross_sales')} ${
+                        isUber
+                          ? t('deliveryReconciliation.card_without_tax')
+                          : t('deliveryReconciliation.card_with_tax')
+                      }`}
+                    >
                       {t('deliveryReconciliation.card_gross_short')}{' '}
                       {isUber
                         ? t('deliveryReconciliation.card_without_tax')
@@ -2571,7 +2985,7 @@ export default function ConciliarDeliveryPage() {
                       :
                     </span>
                     <span className="font-mono tabular-nums font-bold text-slate-900 dark:text-white text-right whitespace-nowrap">
-                      {fmtMoney(grossCut)}
+                      {isOpenPeriodWithoutCut ? '—' : fmtMoney(grossCut)}
                     </span>
                     <span className="font-mono tabular-nums font-bold text-indigo-700 dark:text-indigo-300 text-right whitespace-nowrap">
                       {fmtMoney(toastGrossPeriod)}
@@ -2581,7 +2995,7 @@ export default function ConciliarDeliveryPage() {
                   {/* Desglose Subtotal + Sales Tax */}
                   {(hasPlatformCutActivity || hasToastActivity) && (
                     <div className="space-y-0.5 pb-1">
-                      <div className="grid grid-cols-[minmax(0,1fr)_86px_86px] sm:grid-cols-[minmax(0,1fr)_96px_96px] gap-x-2 items-baseline text-[11px]">
+                      <div className={`${rowGridClass} text-[10.5px]`}>
                         <span className="pl-2 text-slate-400 dark:text-slate-500 truncate">
                           {t('deliveryReconciliation.card_sub_net_no_tax')}
                         </span>
@@ -2592,7 +3006,7 @@ export default function ConciliarDeliveryPage() {
                           {fmtMoney(toastSubPeriod)}
                         </span>
                       </div>
-                      <div className="grid grid-cols-[minmax(0,1fr)_86px_86px] sm:grid-cols-[minmax(0,1fr)_96px_96px] gap-x-2 items-baseline text-[11px]">
+                      <div className={`${rowGridClass} text-[10.5px]`}>
                         <span className="pl-2 text-slate-400 dark:text-slate-500 truncate">
                           {isUber
                             ? t('deliveryReconciliation.card_sub_uber_tax_info')
@@ -2609,12 +3023,15 @@ export default function ConciliarDeliveryPage() {
                   )}
 
                   {/* (-) Comisiones y Tarifas */}
-                  <div className="grid grid-cols-[minmax(0,1fr)_86px_86px] sm:grid-cols-[minmax(0,1fr)_96px_96px] gap-x-2 items-baseline">
-                    <span className="text-slate-500 font-semibold truncate">
+                  <div className={rowGridClass}>
+                    <span
+                      className="text-slate-500 dark:text-slate-400 font-semibold truncate"
+                      title={t('deliveryReconciliation.card_platform_fees')}
+                    >
                       {t('deliveryReconciliation.card_fees_short')}
                     </span>
                     <span className="font-mono tabular-nums font-bold text-amber-600 dark:text-amber-400 text-right whitespace-nowrap">
-                      {fmtMoney(feesCut)}
+                      {isOpenPeriodWithoutCut ? '—' : fmtMoney(feesCut)}
                     </span>
                     <span className="font-mono tabular-nums font-bold text-amber-600/90 dark:text-amber-400/90 text-right whitespace-nowrap">
                       {hasPlatformCutActivity || !hasToastActivity ? fmtMoney(feesCut) : '—'}
@@ -2623,22 +3040,33 @@ export default function ConciliarDeliveryPage() {
 
                   {/* (-) Cargos por Error / Reembolsos */}
                   {Math.abs(errorsCut) > 0.01 && (
-                    <div className="grid grid-cols-[minmax(0,1fr)_86px_86px] sm:grid-cols-[minmax(0,1fr)_96px_96px] gap-x-2 items-baseline">
-                      <span className="text-slate-500 font-semibold truncate">
+                    <div className={rowGridClass}>
+                      <span
+                        className="text-slate-500 dark:text-slate-400 font-semibold truncate"
+                        title={
+                          errorsCut > 0
+                            ? t('deliveryReconciliation.card_reimbursements_won')
+                            : t('deliveryReconciliation.card_error_charges')
+                        }
+                      >
                         {errorsCut > 0
                           ? t('deliveryReconciliation.card_reimbursements_won')
                           : t('deliveryReconciliation.card_error_charges')}
                       </span>
                       <span
                         className={`font-mono tabular-nums font-bold text-right whitespace-nowrap ${
-                          errorsCut > 0 ? 'text-emerald-600' : 'text-rose-600'
+                          errorsCut > 0
+                            ? 'text-emerald-600 dark:text-emerald-400'
+                            : 'text-rose-600 dark:text-rose-400'
                         }`}
                       >
                         {errorsCut > 0 ? `+${fmtMoney(errorsCut)}` : fmtMoney(errorsCut)}
                       </span>
                       <span
                         className={`font-mono tabular-nums font-bold text-right whitespace-nowrap ${
-                          errorsCut > 0 ? 'text-emerald-600/90' : 'text-rose-600/90'
+                          errorsCut > 0
+                            ? 'text-emerald-600/90 dark:text-emerald-400/90'
+                            : 'text-rose-600/90 dark:text-rose-400/90'
                         }`}
                       >
                         {errorsCut > 0 ? `+${fmtMoney(errorsCut)}` : fmtMoney(errorsCut)}
@@ -2648,20 +3076,24 @@ export default function ConciliarDeliveryPage() {
 
                   {/* (+/-) Propinas / Ajustes (ej. Grubhub tips o ajuste MFT Uber) */}
                   {Math.abs(otherCutAdj) > 0.01 && (
-                    <div className="grid grid-cols-[minmax(0,1fr)_86px_86px] sm:grid-cols-[minmax(0,1fr)_96px_96px] gap-x-2 items-baseline">
-                      <span className="text-slate-500 font-semibold truncate">
+                    <div className={rowGridClass}>
+                      <span className="text-slate-500 dark:text-slate-400 font-semibold truncate">
                         {t('deliveryReconciliation.card_tips_or_tax_adj')}
                       </span>
                       <span
                         className={`font-mono tabular-nums font-bold text-right whitespace-nowrap ${
-                          otherCutAdj > 0 ? 'text-emerald-600' : 'text-rose-600'
+                          otherCutAdj > 0
+                            ? 'text-emerald-600 dark:text-emerald-400'
+                            : 'text-rose-600 dark:text-rose-400'
                         }`}
                       >
                         {otherCutAdj > 0 ? `+${fmtMoney(otherCutAdj)}` : fmtMoney(otherCutAdj)}
                       </span>
                       <span
                         className={`font-mono tabular-nums font-bold text-right whitespace-nowrap ${
-                          otherCutAdj > 0 ? 'text-emerald-600/90' : 'text-rose-600/90'
+                          otherCutAdj > 0
+                            ? 'text-emerald-600/90 dark:text-emerald-400/90'
+                            : 'text-rose-600/90 dark:text-rose-400/90'
                         }`}
                       >
                         {otherCutAdj > 0 ? `+${fmtMoney(otherCutAdj)}` : fmtMoney(otherCutAdj)}
@@ -2670,12 +3102,17 @@ export default function ConciliarDeliveryPage() {
                   )}
 
                   {/* (=) Depósito Neto en Banco vs Calculado desde Toast */}
-                  <div className="grid grid-cols-[minmax(0,1fr)_86px_86px] sm:grid-cols-[minmax(0,1fr)_96px_96px] gap-x-2 items-baseline pt-1.5 border-t border-slate-200 dark:border-slate-700 text-xs sm:text-sm">
-                    <span className="font-extrabold text-emerald-700 dark:text-emerald-400 truncate">
+                  <div
+                    className={`${rowGridClass} pt-1.5 border-t border-slate-200 dark:border-slate-700 text-xs`}
+                  >
+                    <span
+                      className="font-extrabold text-emerald-700 dark:text-emerald-400 truncate"
+                      title={t('deliveryReconciliation.card_net_bank_deposit')}
+                    >
                       {t('deliveryReconciliation.card_net_deposit_short')}
                     </span>
                     <span className="font-mono tabular-nums font-extrabold text-emerald-600 dark:text-emerald-400 text-right whitespace-nowrap">
-                      {fmtMoney(netBankCut)}
+                      {isOpenPeriodWithoutCut ? '—' : fmtMoney(netBankCut)}
                     </span>
                     <span className="font-mono tabular-nums font-extrabold text-indigo-700 dark:text-indigo-300 text-right whitespace-nowrap">
                       {hasPlatformCutActivity || !hasToastActivity
@@ -2690,24 +3127,33 @@ export default function ConciliarDeliveryPage() {
                     const hasBridgeContent = Boolean(
                       vBridge &&
                         vBridge.mode !== 'NO_ACTIVITY' &&
-                        (Math.abs(grossVsToastDiff) > 0.01 || (vBridge.items?.length || 0) > 0)
+                        (vBridge.mode === 'OPEN_PERIOD_NO_PAYOUT' ||
+                          Math.abs(grossVsToastDiff) > 0.01 ||
+                          (vBridge.items?.length || 0) > 0)
                     )
                     const isVarianceBridgeOpen =
                       varianceBridgeOpenMap[plat] !== undefined
                         ? Boolean(varianceBridgeOpenMap[plat])
-                        : Boolean(isSelected && hasBridgeContent)
+                        : Boolean(isSelected && hasBridgeContent && !isOpenPeriodWithoutCut)
 
                     const fmtSignedMoney = (val: number) =>
                       val > 0.005 ? `+${fmtMoney(val)}` : fmtMoney(val)
 
-                    const formatRefsLabel = (refs?: string[]) =>
-                      refs && refs.length > 0
-                        ? refs.map((r) => `#${r}`).join(', ')
-                        : '#—'
+                    const formatRefsLabel = (refs?: string[]) => {
+                      if (!refs || refs.length === 0) return '#—'
+                      const visible = refs.slice(0, 3).map((r) => `#${shortenRef(r, 14)}`)
+                      const extra =
+                        refs.length > 3
+                          ? ` ${t('deliveryReconciliation.var_more_refs_chip', {
+                              count: refs.length - 3,
+                            })}`
+                          : ''
+                      return `${visible.join(', ')}${extra}`
+                    }
 
                     const formatDatesLabel = (dates?: string[]) =>
                       dates && dates.length > 0
-                        ? dates.map((d) => fmtDateMDY(d)).join(', ')
+                        ? dates.slice(0, 4).map((d) => fmtDateMDY(d)).join(', ')
                         : '—'
 
                     return (
@@ -2735,19 +3181,25 @@ export default function ConciliarDeliveryPage() {
                               </button>
                             )}
                           </div>
-                          <span
-                            className={`font-mono tabular-nums font-extrabold whitespace-nowrap ${
-                              Math.abs(grossVsToastDiff) <= 0.01
-                                ? 'text-emerald-600 dark:text-emerald-400'
-                                : grossVsToastDiff < 0
-                                ? 'text-rose-600 dark:text-rose-400'
-                                : 'text-amber-600 dark:text-amber-400'
-                            }`}
-                          >
-                            {Math.abs(grossVsToastDiff) <= 0.01
-                              ? `${fmtMoney(0)} ✓`
-                              : fmtSignedMoney(grossVsToastDiff)}
-                          </span>
+                          {isOpenPeriodWithoutCut ? (
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-200/80 dark:bg-slate-700/80 text-slate-700 dark:text-slate-200 whitespace-nowrap">
+                              {t('deliveryReconciliation.card_open_period_badge')}
+                            </span>
+                          ) : (
+                            <span
+                              className={`font-mono tabular-nums font-extrabold whitespace-nowrap ${
+                                Math.abs(grossVsToastDiff) <= 0.01
+                                  ? 'text-emerald-600 dark:text-emerald-400'
+                                  : grossVsToastDiff < 0
+                                  ? 'text-rose-600 dark:text-rose-400'
+                                  : 'text-amber-600 dark:text-amber-400'
+                              }`}
+                            >
+                              {Math.abs(grossVsToastDiff) <= 0.01
+                                ? `${fmtMoney(0)} ✓`
+                                : fmtSignedMoney(grossVsToastDiff)}
+                            </span>
+                          )}
                         </div>
 
                         {hasBridgeContent && isVarianceBridgeOpen && vBridge && (
@@ -2760,7 +3212,19 @@ export default function ConciliarDeliveryPage() {
                             </div>
 
                             {/* Banner de Diagnóstico Contable */}
-                            {vBridge.mode === 'SUMMARY_ONLY_PENDING_ORDER_SYNC' ? (
+                            {vBridge.mode === 'OPEN_PERIOD_NO_PAYOUT' ? (
+                              <div className="rounded-lg p-2 bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 space-y-1">
+                                <div className="font-extrabold text-slate-800 dark:text-slate-100">
+                                  {t('deliveryReconciliation.var_diag_open_period_title')}
+                                </div>
+                                <p className="text-slate-600 dark:text-slate-300 leading-snug">
+                                  {t('deliveryReconciliation.var_diag_open_period_desc', {
+                                    toastCount: toastOrdersCount,
+                                    toastGross: fmtMoney(toastGrossPeriod),
+                                  })}
+                                </p>
+                              </div>
+                            ) : vBridge.mode === 'SUMMARY_ONLY_PENDING_ORDER_SYNC' ? (
                               <div className="rounded-lg p-2 bg-amber-50 dark:bg-amber-950/40 border border-amber-200/80 dark:border-amber-800/60 space-y-1">
                                 <div className="font-extrabold text-amber-800 dark:text-amber-300">
                                   {t('deliveryReconciliation.var_diag_pending_sync_title')}
@@ -2799,10 +3263,9 @@ export default function ConciliarDeliveryPage() {
                               <div className="space-y-1.5 pt-0.5">
                                 <div className="flex items-baseline justify-between gap-2 pb-1 border-b border-slate-100 dark:border-slate-800">
                                   <span className="font-bold text-indigo-700 dark:text-indigo-300">
-                                    {t('deliveryReconciliation.var_bridge_start_toast').replace(
-                                      '{count}',
-                                      String(toastOrdersCount)
-                                    )}
+                                    {t('deliveryReconciliation.var_bridge_start_toast', {
+                                      count: toastOrdersCount,
+                                    })}
                                   </span>
                                   <span className="font-mono tabular-nums font-extrabold text-indigo-700 dark:text-indigo-300 whitespace-nowrap">
                                     {fmtMoney(vBridge.toastBaseGross)}
@@ -2811,9 +3274,10 @@ export default function ConciliarDeliveryPage() {
 
                                 {vBridge.matchedExactCount > 0 && (
                                   <div className="text-[10.5px] font-semibold text-emerald-700 dark:text-emerald-400 px-1">
-                                    {t('deliveryReconciliation.var_bridge_matched_note')
-                                      .replace('{count}', String(vBridge.matchedExactCount))
-                                      .replace('{amount}', fmtMoney(vBridge.matchedExactGross))}
+                                    {t('deliveryReconciliation.var_bridge_matched_note', {
+                                      count: vBridge.matchedExactCount,
+                                      amount: fmtMoney(vBridge.matchedExactGross),
+                                    })}
                                   </div>
                                 )}
 
@@ -2863,9 +3327,10 @@ export default function ConciliarDeliveryPage() {
                                         <span>
                                           {isUber
                                             ? `Sub: ${fmtSignedMoney(item.subtotalDelta)}`
-                                            : t('deliveryReconciliation.var_sub_tax_chip')
-                                                .replace('{sub}', fmtSignedMoney(item.subtotalDelta))
-                                                .replace('{tax}', fmtSignedMoney(item.taxDelta))}
+                                            : t('deliveryReconciliation.var_sub_tax_chip', {
+                                                sub: fmtSignedMoney(item.subtotalDelta),
+                                                tax: fmtSignedMoney(item.taxDelta),
+                                              })}
                                         </span>
                                         {item.orders && item.orders.length > 0 && (
                                           <button
@@ -2881,9 +3346,12 @@ export default function ConciliarDeliveryPage() {
                                           >
                                             {isOrdersExpanded
                                               ? t('deliveryReconciliation.var_hide_orders_btn')
-                                              : t(
-                                                  'deliveryReconciliation.var_view_orders_btn'
-                                                ).replace('{count}', String(item.orders.length))}
+                                              : t('deliveryReconciliation.var_view_orders_btn', {
+                                                  count:
+                                                    item.count > item.orders.length
+                                                      ? `${item.orders.length}/${item.count}`
+                                                      : item.orders.length,
+                                                })}
                                           </button>
                                         )}
                                       </div>
@@ -2894,50 +3362,62 @@ export default function ConciliarDeliveryPage() {
 
                                       {isOrdersExpanded && item.orders && item.orders.length > 0 && (
                                         <div className="mt-1.5 pt-1.5 border-t border-slate-200 dark:border-slate-700 max-h-48 overflow-y-auto space-y-1">
-                                          {item.orders.map((ordSample: any) => (
-                                            <div
-                                              key={ordSample.id}
-                                              className="flex items-center justify-between gap-2 text-[10px] py-0.5 px-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800"
-                                            >
-                                              <div className="min-w-0 truncate text-slate-700 dark:text-slate-300">
-                                                <span className="font-mono font-bold">
-                                                  #{ordSample.platform_order_id}
-                                                </span>
-                                                {ordSample.toast_display_number && (
-                                                  <span className="text-indigo-600 dark:text-indigo-400 font-semibold">
-                                                    {' '}
-                                                    • Toast #{ordSample.toast_display_number}
-                                                  </span>
-                                                )}
-                                                {ordSample.placed_pt ? (
-                                                  <span className="text-slate-400">
-                                                    {' '}
-                                                    • {ordSample.placed_pt}
-                                                  </span>
-                                                ) : ordSample.business_date ? (
-                                                  <span className="text-slate-400">
-                                                    {' '}
-                                                    • {fmtDateMDY(ordSample.business_date)}
-                                                  </span>
-                                                ) : null}
-                                                {ordSample.payout_reference_id && (
-                                                  <span className="text-slate-500 font-mono">
-                                                    {' '}
-                                                    • #{ordSample.payout_reference_id}
-                                                  </span>
-                                                )}
-                                              </div>
-                                              <span
-                                                className={`font-mono tabular-nums font-bold whitespace-nowrap ${
-                                                  ordSample.delta > 0
-                                                    ? 'text-emerald-600 dark:text-emerald-400'
-                                                    : 'text-rose-600 dark:text-rose-400'
+                                          {item.orders.map((ordSample: any) => {
+                                            const matchedOrd = orders.find(
+                                              (o) => o.id === ordSample.id
+                                            )
+                                            return (
+                                              <div
+                                                key={ordSample.id}
+                                                onClick={() => {
+                                                  if (matchedOrd) handleOpenOrderModal(matchedOrd)
+                                                }}
+                                                className={`flex items-center justify-between gap-2 text-[10px] py-0.5 px-1 rounded ${
+                                                  matchedOrd
+                                                    ? 'cursor-pointer hover:bg-indigo-50 dark:hover:bg-slate-800'
+                                                    : 'hover:bg-slate-100 dark:hover:bg-slate-800'
                                                 }`}
                                               >
-                                                {fmtSignedMoney(ordSample.delta)}
-                                              </span>
-                                            </div>
-                                          ))}
+                                                <div className="min-w-0 truncate text-slate-700 dark:text-slate-300">
+                                                  <span className="font-mono font-bold">
+                                                    #{ordSample.platform_order_id}
+                                                  </span>
+                                                  {ordSample.toast_display_number && (
+                                                    <span className="text-indigo-600 dark:text-indigo-400 font-semibold">
+                                                      {' '}
+                                                      • Toast #{ordSample.toast_display_number}
+                                                    </span>
+                                                  )}
+                                                  {ordSample.placed_pt ? (
+                                                    <span className="text-slate-400">
+                                                      {' '}
+                                                      • {ordSample.placed_pt}
+                                                    </span>
+                                                  ) : ordSample.business_date ? (
+                                                    <span className="text-slate-400">
+                                                      {' '}
+                                                      • {fmtDateMDY(ordSample.business_date)}
+                                                    </span>
+                                                  ) : null}
+                                                  {ordSample.payout_reference_id && (
+                                                    <span className="text-slate-500 font-mono">
+                                                      {' '}
+                                                      • #{shortenRef(ordSample.payout_reference_id, 14)}
+                                                    </span>
+                                                  )}
+                                                </div>
+                                                <span
+                                                  className={`font-mono tabular-nums font-bold whitespace-nowrap ${
+                                                    ordSample.delta > 0
+                                                      ? 'text-emerald-600 dark:text-emerald-400'
+                                                      : 'text-rose-600 dark:text-rose-400'
+                                                  }`}
+                                                >
+                                                  {fmtSignedMoney(ordSample.delta)}
+                                                </span>
+                                              </div>
+                                            )
+                                          })}
                                         </div>
                                       )}
                                     </div>
@@ -2975,7 +3455,7 @@ export default function ConciliarDeliveryPage() {
                     }}
                     className="px-2 py-0.5 rounded-lg hover:bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 font-bold transition"
                   >
-                    ✓ {conciliatedCount} {isEn ? 'reconciled' : 'conciliadas'}
+                    {t('deliveryReconciliation.card_reconciled_chip', { count: conciliatedCount })}
                   </button>
                   {pendingReviewCount > 0 && (
                     <button
@@ -3013,7 +3493,7 @@ export default function ConciliarDeliveryPage() {
                       className={`px-2 py-0.5 rounded-lg font-semibold transition ${
                         isSelected && selectedOrderSubFilter === 'TOAST_ONLY'
                           ? 'bg-slate-700 text-white'
-                          : 'hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500'
+                          : 'hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 dark:text-slate-400'
                       }`}
                     >
                       ⏳ {pData.pendingToastCount} Toast
@@ -3026,12 +3506,13 @@ export default function ConciliarDeliveryPage() {
         </div>
       )}
 
-      {/* 4. PESTAÑAS DE NAVEGACIÓN REORDENADAS (P1 #13: ATENCIÓN REQUERIDA PRIMERO, QUICKBOOKS PASO FINAL) */}
+      {/* 4. PESTAÑAS DE NAVEGACIÓN COMPACTAS SIN TRUNCAMIENTO EN ESCRITORIO */}
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-1.5 shadow-sm">
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-1.5">
           <button
+            type="button"
             onClick={() => setActiveTab('orders')}
-            className={`flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs md:text-sm font-extrabold transition ${
+            className={`flex items-center justify-center gap-1.5 px-2.5 py-2.5 rounded-xl text-xs font-extrabold transition ${
               activeTab === 'orders'
                 ? 'bg-indigo-600 text-white shadow-sm'
                 : 'text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800'
@@ -3040,7 +3521,7 @@ export default function ConciliarDeliveryPage() {
             <Receipt className="w-4 h-4 shrink-0" />
             <span className="truncate">{t('deliveryReconciliation.nav_step_attention')}</span>
             <span
-              className={`px-2 py-0.5 rounded-full text-xs font-extrabold ${
+              className={`px-2 py-0.5 rounded-full text-[11px] font-extrabold shrink-0 ${
                 activeTab === 'orders'
                   ? 'bg-white/20 text-white'
                   : 'bg-indigo-500/15 text-indigo-600 dark:text-indigo-400'
@@ -3051,8 +3532,9 @@ export default function ConciliarDeliveryPage() {
           </button>
 
           <button
+            type="button"
             onClick={() => setActiveTab('disputes')}
-            className={`flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs md:text-sm font-extrabold transition ${
+            className={`flex items-center justify-center gap-1.5 px-2.5 py-2.5 rounded-xl text-xs font-extrabold transition ${
               activeTab === 'disputes'
                 ? 'bg-rose-600 text-white shadow-sm'
                 : 'text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800'
@@ -3061,19 +3543,20 @@ export default function ConciliarDeliveryPage() {
             <AlertTriangle className="w-4 h-4 shrink-0" />
             <span className="truncate">{t('deliveryReconciliation.nav_step_disputes')}</span>
             <span
-              className={`px-2 py-0.5 rounded-full text-xs font-extrabold ${
+              className={`px-2 py-0.5 rounded-full text-[11px] font-extrabold shrink-0 ${
                 activeTab === 'disputes'
                   ? 'bg-white/20 text-white'
                   : 'bg-rose-500/15 text-rose-600 dark:text-rose-400'
               }`}
             >
-              {group3Disputes.length}
+              {openDisputeOrders.length > 0 ? openDisputeOrders.length : group3Disputes.length}
             </span>
           </button>
 
           <button
+            type="button"
             onClick={() => setActiveTab('mappings')}
-            className={`flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs md:text-sm font-extrabold transition ${
+            className={`flex items-center justify-center gap-1.5 px-2.5 py-2.5 rounded-xl text-xs font-extrabold transition ${
               activeTab === 'mappings'
                 ? 'bg-slate-800 text-white dark:bg-slate-200 dark:text-slate-900 shadow-sm'
                 : 'text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800'
@@ -3084,8 +3567,12 @@ export default function ConciliarDeliveryPage() {
           </button>
 
           <button
-            onClick={() => setActiveTab('qb_journals')}
-            className={`flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs md:text-sm font-extrabold transition ${
+            type="button"
+            onClick={() => {
+              setCutsSubView('qb')
+              setActiveTab('qb_journals')
+            }}
+            className={`flex items-center justify-center gap-1.5 px-2.5 py-2.5 rounded-xl text-xs font-extrabold transition ${
               activeTab === 'qb_journals' || activeTab === 'payouts'
                 ? 'bg-emerald-600 text-white shadow-sm'
                 : 'text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800'
@@ -3094,7 +3581,7 @@ export default function ConciliarDeliveryPage() {
             <Landmark className="w-4 h-4 shrink-0" />
             <span className="truncate">{t('deliveryReconciliation.nav_step_qbo_final')}</span>
             <span
-              className={`px-2 py-0.5 rounded-full text-xs font-extrabold ${
+              className={`px-2 py-0.5 rounded-full text-[11px] font-extrabold shrink-0 ${
                 activeTab === 'qb_journals' || activeTab === 'payouts'
                   ? 'bg-white/20 text-white'
                   : 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
@@ -3127,7 +3614,7 @@ export default function ConciliarDeliveryPage() {
               >
                 📋 {t('deliveryReconciliation.quick_filter_all')} ({orders.length})
               </button>
-              {withPayoutPendingReviewOrders.length > 0 && (
+              {(withPayoutPendingReviewOrders.length > 0 || selectedOrderSubFilter === 'WITH_PAYOUT_PENDING_REVIEW') && (
                 <button
                   onClick={() => {
                     setSelectedActionGroup('ALL')
@@ -3147,7 +3634,9 @@ export default function ConciliarDeliveryPage() {
               <button
                 onClick={() => {
                   setSelectedOrderSubFilter('NONE')
-                  setSelectedActionGroup('BLOCKED_MISSING_INFO')
+                  setSelectedActionGroup(
+                    selectedActionGroup === 'BLOCKED_MISSING_INFO' && selectedOrderSubFilter === 'NONE' ? 'ALL' : 'BLOCKED_MISSING_INFO'
+                  )
                 }}
                 className={`px-3 py-1.5 rounded-xl text-xs font-bold transition border ${
                   selectedActionGroup === 'BLOCKED_MISSING_INFO' && selectedOrderSubFilter === 'NONE'
@@ -3160,7 +3649,9 @@ export default function ConciliarDeliveryPage() {
               <button
                 onClick={() => {
                   setSelectedOrderSubFilter('NONE')
-                  setSelectedActionGroup('VARIANCE_INVESTIGATE')
+                  setSelectedActionGroup(
+                    selectedActionGroup === 'VARIANCE_INVESTIGATE' && selectedOrderSubFilter === 'NONE' ? 'ALL' : 'VARIANCE_INVESTIGATE'
+                  )
                 }}
                 className={`px-3 py-1.5 rounded-xl text-xs font-bold transition border ${
                   selectedActionGroup === 'VARIANCE_INVESTIGATE' && selectedOrderSubFilter === 'NONE'
@@ -3173,7 +3664,9 @@ export default function ConciliarDeliveryPage() {
               <button
                 onClick={() => {
                   setSelectedOrderSubFilter('NONE')
-                  setSelectedActionGroup('DISPUTE_RECOVERY')
+                  setSelectedActionGroup(
+                    selectedActionGroup === 'DISPUTE_RECOVERY' && selectedOrderSubFilter === 'NONE' ? 'ALL' : 'DISPUTE_RECOVERY'
+                  )
                 }}
                 className={`px-3 py-1.5 rounded-xl text-xs font-bold transition border ${
                   selectedActionGroup === 'DISPUTE_RECOVERY' && selectedOrderSubFilter === 'NONE'
@@ -3186,7 +3679,9 @@ export default function ConciliarDeliveryPage() {
               <button
                 onClick={() => {
                   setSelectedOrderSubFilter('NONE')
-                  setSelectedActionGroup('CONCILIATED_READY')
+                  setSelectedActionGroup(
+                    selectedActionGroup === 'CONCILIATED_READY' && selectedOrderSubFilter === 'NONE' ? 'ALL' : 'CONCILIATED_READY'
+                  )
                 }}
                 className={`px-3 py-1.5 rounded-xl text-xs font-bold transition border ${
                   selectedActionGroup === 'CONCILIATED_READY' && selectedOrderSubFilter === 'NONE'
@@ -3196,7 +3691,56 @@ export default function ConciliarDeliveryPage() {
               >
                 ✅ {t('deliveryReconciliation.group_1_title')} ({group1Conciliated.length})
               </button>
-              {toastUnpaidSyncedOrders.length > 0 && (
+              {(underpaidOrDisputeOrders.length > 0 || selectedOrderSubFilter === 'UNDERPAID_OR_DISPUTE') && (
+                <button
+                  onClick={() => {
+                    setSelectedActionGroup('ALL')
+                    setSelectedOrderSubFilter(
+                      selectedOrderSubFilter === 'UNDERPAID_OR_DISPUTE' ? 'NONE' : 'UNDERPAID_OR_DISPUTE'
+                    )
+                  }}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition border ${
+                    selectedOrderSubFilter === 'UNDERPAID_OR_DISPUTE'
+                      ? 'bg-amber-700 text-white border-amber-700'
+                      : 'bg-white dark:bg-slate-900 text-amber-700 dark:text-amber-400 border-amber-500/30'
+                  }`}
+                >
+                  {t('deliveryReconciliation.filter_underpaid_or_dispute', { count: underpaidOrDisputeOrders.length })}
+                </button>
+              )}
+              {(toastOnlyOrders.length > 0 || selectedOrderSubFilter === 'TOAST_ONLY') && (
+                <button
+                  onClick={() => {
+                    setSelectedActionGroup('ALL')
+                    setSelectedOrderSubFilter(selectedOrderSubFilter === 'TOAST_ONLY' ? 'NONE' : 'TOAST_ONLY')
+                  }}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition border ${
+                    selectedOrderSubFilter === 'TOAST_ONLY'
+                      ? 'bg-slate-700 text-white border-slate-700'
+                      : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-300 dark:border-slate-700'
+                  }`}
+                >
+                  {t('deliveryReconciliation.filter_toast_only_all', { count: toastOnlyOrders.length })}
+                </button>
+              )}
+              {(toastPendingSyncOrders.length > 0 || selectedOrderSubFilter === 'TOAST_PENDING_SYNC') && (
+                <button
+                  onClick={() => {
+                    setSelectedActionGroup('ALL')
+                    setSelectedOrderSubFilter(
+                      selectedOrderSubFilter === 'TOAST_PENDING_SYNC' ? 'NONE' : 'TOAST_PENDING_SYNC'
+                    )
+                  }}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition border ${
+                    selectedOrderSubFilter === 'TOAST_PENDING_SYNC'
+                      ? 'bg-sky-600 text-white border-sky-600'
+                      : 'bg-white dark:bg-slate-900 text-sky-700 dark:text-sky-400 border-sky-500/30'
+                  }`}
+                >
+                  {t('deliveryReconciliation.filter_toast_pending_sync', { count: toastPendingSyncOrders.length })}
+                </button>
+              )}
+              {(toastUnpaidSyncedOrders.length > 0 || selectedOrderSubFilter === 'TOAST_UNPAID_SYNCED') && (
                 <button
                   onClick={() => {
                     setSelectedActionGroup('ALL')
@@ -3215,7 +3759,7 @@ export default function ConciliarDeliveryPage() {
                   })}
                 </button>
               )}
-              {platformMissingToastOrders.length > 0 && (
+              {(platformMissingToastOrders.length > 0 || selectedOrderSubFilter === 'PLATFORM_MISSING_TOAST') && (
                 <button
                   onClick={() => {
                     setSelectedActionGroup('ALL')
@@ -3305,40 +3849,26 @@ export default function ConciliarDeliveryPage() {
           )}
 
           {loading ? (
-            <div className="p-12 text-center text-slate-500">{t('deliveryReconciliation.syncing_btn')}</div>
+            <div className="p-12 text-center text-slate-500">{t('deliveryReconciliation.loading_records')}</div>
           ) : displayedOrders.length === 0 ? (
             <div className="p-12 text-center text-slate-500">{t('deliveryReconciliation.empty_orders')}</div>
           ) : (
             <div className="overflow-x-auto">
               {/* BARRA DE PAGINACIÓN SUPERIOR PARA ALTO VOLUMEN DE ÓRDENES (9,400+ ÓRDENES SIN LAG EN DOM) */}
               <div className="px-4 py-2.5 bg-slate-50 dark:bg-slate-900/80 border-b border-slate-200 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2 text-xs">
-                <div className="text-slate-600 dark:text-slate-300 font-semibold">
-                  {isEn ? (
-                    <>
-                      Showing{' '}
-                      <strong className="font-mono text-slate-900 dark:text-white">
-                        {(safeOrdersPage - 1) * ordersPageSize + 1}–
-                        {Math.min(safeOrdersPage * ordersPageSize, displayedOrders.length)}
-                      </strong>{' '}
-                      of <strong className="font-mono text-slate-900 dark:text-white">{displayedOrders.length}</strong>{' '}
-                      orders
-                    </>
-                  ) : (
-                    <>
-                      Mostrando{' '}
-                      <strong className="font-mono text-slate-900 dark:text-white">
-                        {(safeOrdersPage - 1) * ordersPageSize + 1}–
-                        {Math.min(safeOrdersPage * ordersPageSize, displayedOrders.length)}
-                      </strong>{' '}
-                      de <strong className="font-mono text-slate-900 dark:text-white">{displayedOrders.length}</strong>{' '}
-                      órdenes
-                    </>
-                  )}
+                <div className="text-slate-600 dark:text-slate-300 font-semibold font-mono">
+                  {t('deliveryReconciliation.pagination_showing', {
+                    from: (safeOrdersPage - 1) * ordersPageSize + 1,
+                    to: Math.min(safeOrdersPage * ordersPageSize, displayedOrders.length),
+                    total: displayedOrders.length,
+                  })}
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
-                  <label className="flex items-center gap-1.5 text-slate-500 font-semibold">
-                    <span>{isEn ? 'Rows per page:' : 'Filas por página:'}</span>
+                  <label htmlFor="orders-page-size" className="flex items-center gap-1.5 text-slate-500 font-semibold">
+                    <span>{t('deliveryReconciliation.pagination_rows_per_page')}</span>
                     <select
+                      id="orders-page-size"
+                      name="orders-page-size"
                       value={ordersPageSize}
                       onChange={(e) => {
                         setOrdersPageSize(Number(e.target.value))
@@ -3365,19 +3895,17 @@ export default function ConciliarDeliveryPage() {
                       disabled={safeOrdersPage <= 1}
                       className="px-2.5 py-1 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 disabled:opacity-40 font-bold hover:bg-slate-100 dark:hover:bg-slate-700"
                     >
-                      {isEn ? 'Prev' : 'Ant.'}
+                      {t('deliveryReconciliation.pagination_prev')}
                     </button>
                     <span className="px-2.5 py-1 font-mono font-extrabold text-slate-800 dark:text-slate-200">
-                      {isEn
-                        ? `Page ${safeOrdersPage} of ${totalOrderPages}`
-                        : `Pág. ${safeOrdersPage} de ${totalOrderPages}`}
+                      {t('deliveryReconciliation.pagination_page_of', { page: safeOrdersPage, total: totalOrderPages })}
                     </span>
                     <button
                       onClick={() => setOrdersPage((p) => Math.min(totalOrderPages, p + 1))}
                       disabled={safeOrdersPage >= totalOrderPages}
                       className="px-2.5 py-1 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 disabled:opacity-40 font-bold hover:bg-slate-100 dark:hover:bg-slate-700"
                     >
-                      {isEn ? 'Next' : 'Sig.'}
+                      {t('deliveryReconciliation.pagination_next')}
                     </button>
                     <button
                       onClick={() => setOrdersPage(totalOrderPages)}
@@ -3415,6 +3943,7 @@ export default function ConciliarDeliveryPage() {
                           }
                           setSelectedOrderIds(next)
                         }}
+                        aria-label={t('deliveryReconciliation.batch_select_all')}
                         className="rounded border-slate-300"
                       />
                     </th>
@@ -3453,13 +3982,8 @@ export default function ConciliarDeliveryPage() {
                           <input
                             type="checkbox"
                             disabled={!isSelectable}
-                            title={
-                              !isSelectable
-                                ? isEn
-                                  ? 'Only Variance or Dispute orders of the same group can be selected for batch actions'
-                                  : 'Solo órdenes con Diferencia o Disputa del mismo grupo pueden seleccionarse en lote'
-                                : undefined
-                            }
+                            title={!isSelectable ? t('deliveryReconciliation.batch_checkbox_hint') : undefined}
+                            aria-label={t('deliveryReconciliation.batch_checkbox_hint')}
                             checked={isOrderSelected}
                             onChange={(e) => {
                               if (!isSelectable) return
@@ -3490,19 +4014,23 @@ export default function ConciliarDeliveryPage() {
                           </div>
                           {ord.toast_display_number && (
                             <div className="text-[10px] text-slate-500 leading-tight">
-                              <div className="truncate" title={`Toast #${ord.toast_display_number} • ${ord.toast_tab_name}`}>
-                                Toast #{ord.toast_display_number} • {ord.toast_tab_name}
+                              <div
+                                className="truncate"
+                                title={`Toast #${ord.toast_display_number}${ord.toast_tab_name ? ` • ${ord.toast_tab_name}` : ''}`}
+                              >
+                                Toast #{ord.toast_display_number}
+                                {ord.toast_tab_name ? ` • ${ord.toast_tab_name}` : ''}
                               </div>
                               {(ord.raw_payload as any)?.toast_voided && (
                                 <span className="inline-block mt-0.5 px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30 text-[9px] font-extrabold">
-                                  {isEn ? 'VOIDED IN POS' : 'ANULADO EN POS'}
+                                  {t('deliveryReconciliation.voided_in_pos_badge')}
                                 </span>
                               )}
                             </div>
                           )}
                           {ord.payout_reference_id && (
                             <div className="text-[10px] font-mono text-indigo-600 dark:text-indigo-400 truncate" title={ord.payout_reference_id}>
-                              {t('deliveryReconciliation.cut_prefix')}: #{ord.payout_reference_id}
+                              {t('deliveryReconciliation.cut_prefix')}: #{shortenRef(ord.payout_reference_id, 18)}
                             </div>
                           )}
                         </td>
@@ -3520,7 +4048,7 @@ export default function ConciliarDeliveryPage() {
                           {(ord.raw_payload as any)?.toast_voided &&
                             Number((ord.raw_payload as any)?.toast_voided_original_subtotal || 0) > 0 && (
                               <div className="text-[10px] font-bold text-amber-700 dark:text-amber-400">
-                                {isEn ? 'VOID orig:' : 'Orig. VOID:'}{' '}
+                                {t('deliveryReconciliation.void_orig_prefix')}{' '}
                                 {fmtMoney(Number((ord.raw_payload as any)?.toast_voided_original_subtotal || 0))}
                               </div>
                             )}
@@ -3645,7 +4173,7 @@ export default function ConciliarDeliveryPage() {
                             return (
                               <button
                                 type="button"
-                                onClick={() => handleApproveReviewOrder(ord, sugGuid)}
+                                onClick={() => handleApproveReviewOrder(ord, sugGuid, '')}
                                 disabled={savingDispute}
                                 className="mt-1 inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-[11px] font-extrabold shadow-sm transition"
                               >
@@ -3674,28 +4202,12 @@ export default function ConciliarDeliveryPage() {
 
               {/* BARRA DE PAGINACIÓN INFERIOR */}
               <div className="px-4 py-2.5 bg-slate-50 dark:bg-slate-900/80 border-t border-slate-200 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2 text-xs">
-                <div className="text-slate-600 dark:text-slate-300 font-semibold">
-                  {isEn ? (
-                    <>
-                      Showing{' '}
-                      <strong className="font-mono text-slate-900 dark:text-white">
-                        {(safeOrdersPage - 1) * ordersPageSize + 1}–
-                        {Math.min(safeOrdersPage * ordersPageSize, displayedOrders.length)}
-                      </strong>{' '}
-                      of <strong className="font-mono text-slate-900 dark:text-white">{displayedOrders.length}</strong>{' '}
-                      orders
-                    </>
-                  ) : (
-                    <>
-                      Mostrando{' '}
-                      <strong className="font-mono text-slate-900 dark:text-white">
-                        {(safeOrdersPage - 1) * ordersPageSize + 1}–
-                        {Math.min(safeOrdersPage * ordersPageSize, displayedOrders.length)}
-                      </strong>{' '}
-                      de <strong className="font-mono text-slate-900 dark:text-white">{displayedOrders.length}</strong>{' '}
-                      órdenes
-                    </>
-                  )}
+                <div className="text-slate-600 dark:text-slate-300 font-semibold font-mono">
+                  {t('deliveryReconciliation.pagination_showing', {
+                    from: (safeOrdersPage - 1) * ordersPageSize + 1,
+                    to: Math.min(safeOrdersPage * ordersPageSize, displayedOrders.length),
+                    total: displayedOrders.length,
+                  })}
                 </div>
                 <div className="flex items-center gap-1">
                   <button
@@ -3710,19 +4222,17 @@ export default function ConciliarDeliveryPage() {
                     disabled={safeOrdersPage <= 1}
                     className="px-2.5 py-1 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 disabled:opacity-40 font-bold hover:bg-slate-100 dark:hover:bg-slate-700"
                   >
-                    {isEn ? 'Prev' : 'Ant.'}
+                    {t('deliveryReconciliation.pagination_prev')}
                   </button>
                   <span className="px-2.5 py-1 font-mono font-extrabold text-slate-800 dark:text-slate-200">
-                    {isEn
-                      ? `Page ${safeOrdersPage} of ${totalOrderPages}`
-                      : `Pág. ${safeOrdersPage} de ${totalOrderPages}`}
+                    {t('deliveryReconciliation.pagination_page_of', { page: safeOrdersPage, total: totalOrderPages })}
                   </span>
                   <button
                     onClick={() => setOrdersPage((p) => Math.min(totalOrderPages, p + 1))}
                     disabled={safeOrdersPage >= totalOrderPages}
                     className="px-2.5 py-1 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 disabled:opacity-40 font-bold hover:bg-slate-100 dark:hover:bg-slate-700"
                   >
-                    {isEn ? 'Next' : 'Sig.'}
+                    {t('deliveryReconciliation.pagination_next')}
                   </button>
                   <button
                     onClick={() => setOrdersPage(totalOrderPages)}
@@ -3753,7 +4263,7 @@ export default function ConciliarDeliveryPage() {
                 }}
                 className="px-3 py-1 rounded-lg text-slate-600 dark:text-slate-400 hover:text-slate-900 transition"
               >
-                🧾 {t('deliveryReconciliation.view_mode_qb')}
+                {t('deliveryReconciliation.qb_subview_accounting')}
               </button>
               <button
                 onClick={() => {
@@ -3762,11 +4272,13 @@ export default function ConciliarDeliveryPage() {
                 }}
                 className="px-3 py-1 rounded-lg bg-white dark:bg-slate-900 text-indigo-700 dark:text-indigo-300 shadow-sm transition"
               >
-                🏦 {t('deliveryReconciliation.view_mode_bank')}
+                {t('deliveryReconciliation.qb_subview_bank')}
               </button>
             </div>
           </div>
-          {payouts.length === 0 ? (
+          {loading ? (
+            <div className="p-12 text-center text-slate-500">{t('deliveryReconciliation.loading_records')}</div>
+          ) : payouts.length === 0 ? (
             <div className="p-12 text-center text-slate-500">{t('deliveryReconciliation.empty_payouts')}</div>
           ) : (
             <div className="overflow-x-auto">
@@ -3806,8 +4318,10 @@ export default function ConciliarDeliveryPage() {
                           if (p.period_start) setStartDate(p.period_start)
                           if (p.period_end) setEndDate(p.period_end)
                           setActivePayoutRef(p.payout_reference_id)
+                          setSearchInput('')
                           setSearchQuery('')
                           setSelectedActionGroup('ALL')
+                          setSelectedOrderSubFilter('NONE')
                           setActiveTab('orders')
                         }}
                         className="hover:bg-slate-50 dark:hover:bg-slate-800/40 cursor-pointer transition"
@@ -3843,7 +4357,7 @@ export default function ConciliarDeliveryPage() {
                           {p.linked_orders_count ?? p.orders_count}
                           {!p.coverage_complete && (
                             <span className="block text-[10px] text-amber-600 font-semibold">
-                              {isEn ? 'Incomplete coverage' : 'Cobertura incompleta'}
+                              {t('deliveryReconciliation.incomplete_coverage_short')}
                             </span>
                           )}
                         </td>
@@ -3864,7 +4378,13 @@ export default function ConciliarDeliveryPage() {
                         >
                           {fmtMoney(errTotal)}
                         </td>
-                        <td className="p-3 text-right font-mono font-extrabold text-emerald-600 dark:text-emerald-400">
+                        <td
+                          className={`p-3 text-right font-mono font-extrabold ${
+                            Number(p.net_payout_amount || 0) < 0
+                              ? 'text-rose-600 dark:text-rose-400'
+                              : 'text-emerald-600 dark:text-emerald-400'
+                          }`}
+                        >
                           {fmtMoney(p.net_payout_amount)}
                         </td>
                         <td className="p-3 text-center whitespace-nowrap">
@@ -3876,7 +4396,10 @@ export default function ConciliarDeliveryPage() {
                               if (p.period_start) setStartDate(p.period_start)
                               if (p.period_end) setEndDate(p.period_end)
                               setActivePayoutRef(p.payout_reference_id)
+                              setSearchInput('')
+                              setSearchQuery('')
                               setSelectedActionGroup('ALL')
+                              setSelectedOrderSubFilter('NONE')
                               setActiveTab('orders')
                             }}
                             className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-extrabold shadow-sm transition"
@@ -3897,27 +4420,78 @@ export default function ConciliarDeliveryPage() {
       {/* TAB: DISPUTAS Y RECUPERACIONES (CON TRAZABILIDAD DE 4 ETAPAS ENTRE CORTES) */}
       {activeTab === 'disputes' && (
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm overflow-hidden">
-          {group3Disputes.length > 0 && (
-            <div className="p-3.5 bg-rose-500/5 border-b border-slate-200 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2">
-              <span className="text-xs font-extrabold text-rose-700 dark:text-rose-300">
-                🚨 {t('deliveryReconciliation.group_3_title')} ({group3Disputes.length})
-              </span>
-              <button
-                onClick={() => handleExportBatchEvidencePackage(group3Disputes)}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-extrabold shadow-sm transition"
-              >
-                <Download className="w-3.5 h-3.5" />
-                {t('deliveryReconciliation.batch_export_evidence_btn')} ({group3Disputes.length})
-              </button>
+          {!loading && group3Disputes.length > 0 && (
+            <div className="p-3.5 bg-rose-500/5 border-b border-slate-200 dark:border-slate-800 space-y-3">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                <div className="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-3">
+                  <div className="text-[10px] font-extrabold uppercase text-slate-500">
+                    {t('deliveryReconciliation.disputes_kpi_original')}
+                  </div>
+                  <div className="font-mono font-extrabold text-lg text-slate-900 dark:text-white">
+                    {fmtMoney(disputesKpi.original)}
+                  </div>
+                </div>
+                <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-3">
+                  <div className="text-[10px] font-extrabold uppercase text-emerald-700 dark:text-emerald-400">
+                    {t('deliveryReconciliation.disputes_kpi_recovered')}
+                  </div>
+                  <div className="font-mono font-extrabold text-lg text-emerald-700 dark:text-emerald-400">
+                    {fmtMoney(disputesKpi.recovered)}
+                  </div>
+                </div>
+                <div className="rounded-xl border border-rose-500/30 bg-rose-500/5 p-3">
+                  <div className="text-[10px] font-extrabold uppercase text-rose-700 dark:text-rose-400">
+                    {t('deliveryReconciliation.disputes_kpi_pending')}
+                  </div>
+                  <div className="font-mono font-extrabold text-lg text-rose-700 dark:text-rose-400">
+                    {fmtMoney(disputesKpi.pending)}
+                  </div>
+                </div>
+              </div>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {(
+                    [
+                      ['ALL', t('deliveryReconciliation.disputes_subfilter_all', { count: group3Disputes.length })],
+                      ['PENDING', t('deliveryReconciliation.disputes_subfilter_pending', { count: openDisputeOrders.length })],
+                      ['RECOVERED', t('deliveryReconciliation.disputes_subfilter_recovered', { count: recoveredDisputeOrders.length })],
+                    ] as Array<['ALL' | 'PENDING' | 'RECOVERED', string]>
+                  ).map(([key, label]) => (
+                    <button
+                      key={key}
+                      type="button"
+                      onClick={() => setDisputesSubFilter(key)}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-bold transition border ${
+                        disputesSubFilter === key
+                          ? 'bg-rose-600 text-white border-rose-600'
+                          : 'bg-white dark:bg-slate-900 text-rose-700 dark:text-rose-300 border-rose-500/30'
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleExportBatchEvidencePackage(filteredDisputes)}
+                  disabled={filteredDisputes.length === 0}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-xs font-extrabold shadow-sm transition"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  {t('deliveryReconciliation.batch_export_evidence_btn', { count: filteredDisputes.length })}
+                </button>
+              </div>
             </div>
           )}
-          {group3Disputes.length === 0 ? (
+          {loading ? (
+            <div className="p-12 text-center text-slate-500">{t('deliveryReconciliation.loading_records')}</div>
+          ) : filteredDisputes.length === 0 ? (
             <div className="p-12 text-center text-emerald-600 dark:text-emerald-400 font-semibold">
               {t('deliveryReconciliation.empty_disputes')}
             </div>
           ) : (
             <div className="divide-y divide-slate-200 dark:divide-slate-800">
-              {group3Disputes.map((ord) => (
+              {filteredDisputes.map((ord) => (
                 <div key={ord.id} className="p-4 space-y-3 hover:bg-slate-50/70 dark:hover:bg-slate-800/30 transition">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div className="flex flex-wrap items-center gap-2">
@@ -3973,18 +4547,16 @@ export default function ConciliarDeliveryPage() {
                   <div className="flex flex-wrap items-center justify-between gap-2 pt-1 text-xs">
                     <div className="flex flex-wrap items-center gap-3 font-mono text-[11px]">
                       <span className="px-2 py-0.5 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 font-bold">
-                        {isEn ? 'Original disputed:' : 'Original disputado:'}{' '}
+                        {t('deliveryReconciliation.modal_original_disputed')}:{' '}
                         {ord.original_amount_verified === false
-                          ? isEn
-                            ? 'Pending verification'
-                            : 'Pendiente de verificar'
+                          ? t('deliveryReconciliation.modal_pending_verification_val')
                           : fmtMoney(ord.original_deduction_abs ?? ord.dispute_amount ?? Math.abs(Number(ord.error_charge || 0)))}
                       </span>
                       <span className="px-2 py-0.5 rounded-lg bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 font-bold">
-                        {isEn ? 'Verified recovered:' : 'Recuperado verificado:'} {fmtMoney(ord.recovered_amount ?? 0)}
+                        {t('deliveryReconciliation.disputes_kpi_recovered')}: {fmtMoney(ord.recovered_amount ?? 0)}
                       </span>
                       <span className="px-2 py-0.5 rounded-lg bg-rose-500/10 text-rose-700 dark:text-rose-300 font-bold">
-                        {isEn ? 'Pending balance:' : 'Saldo pendiente:'} {fmtMoney(ord.unrecovered_amount ?? 0)}
+                        {t('deliveryReconciliation.disputes_kpi_pending')}: {fmtMoney(ord.unrecovered_amount ?? 0)}
                       </span>
                     </div>
                     {Array.isArray(ord.recovery_credits_evaluated) && ord.recovery_credits_evaluated.length > 0 && (
@@ -4060,6 +4632,8 @@ export default function ConciliarDeliveryPage() {
                           ? 'bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/30'
                           : status === 'FAILED'
                           ? 'bg-rose-500/15 text-rose-700 dark:text-rose-300 border-rose-500/30'
+                          : status === 'NOT_SYNCED_IN_RANGE'
+                          ? 'bg-sky-500/15 text-sky-700 dark:text-sky-300 border-sky-500/30'
                           : 'bg-slate-200/70 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-300 dark:border-slate-700'
 
                       const badgeLabel =
@@ -4069,6 +4643,8 @@ export default function ConciliarDeliveryPage() {
                           ? t('deliveryReconciliation.coverage_status_PARTIAL')
                           : status === 'FAILED'
                           ? t('deliveryReconciliation.coverage_status_FAILED')
+                          : status === 'NOT_SYNCED_IN_RANGE'
+                          ? t('deliveryReconciliation.coverage_status_NOT_SYNCED_IN_RANGE')
                           : t('deliveryReconciliation.coverage_status_NOT_CONNECTED')
 
                       return (
@@ -4150,6 +4726,55 @@ export default function ConciliarDeliveryPage() {
                             <RefreshCw className={`w-3 h-3 ${syncing ? 'animate-spin' : ''}`} />
                             {t('deliveryReconciliation.sync_this_store_btn')}
                           </button>
+                          {showAdvancedSupport && editingMappingStoreId !== m.store_id && (
+                            <button
+                              type="button"
+                              onClick={() => handleStartEditMapping(m)}
+                              className="mt-1.5 flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-bold text-slate-700 dark:text-slate-200 transition"
+                            >
+                              ✏️ {t('deliveryReconciliation.mapping_edit_btn')}
+                            </button>
+                          )}
+                          {showAdvancedSupport && editingMappingStoreId === m.store_id && (
+                            <div className="mt-2 space-y-1.5 min-w-[220px]">
+                              {(
+                                [
+                                  ['doordash_store_id', 'DoorDash Store ID'],
+                                  ['grubhub_cust_id', 'Grubhub Cust ID'],
+                                  ['ubereats_store_uuid', 'Uber Eats Store UUID'],
+                                ] as Array<[keyof typeof mappingDraft, string]>
+                              ).map(([field, label]) => (
+                                <label key={field} className="block">
+                                  <span className="block text-[10px] font-bold text-slate-500">{label}</span>
+                                  <input
+                                    type="text"
+                                    name={`${field}-${m.store_id}`}
+                                    value={mappingDraft[field]}
+                                    onChange={(e) => setMappingDraft((prev) => ({ ...prev, [field]: e.target.value }))}
+                                    className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-2 py-1 text-[11px] font-mono"
+                                  />
+                                </label>
+                              ))}
+                              <div className="flex gap-1.5 pt-0.5">
+                                <button
+                                  type="button"
+                                  onClick={() => handleSaveStoreMapping(m)}
+                                  disabled={savingMapping}
+                                  className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-[11px] font-extrabold"
+                                >
+                                  {t('deliveryReconciliation.mapping_save_btn')}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setEditingMappingStoreId(null)}
+                                  disabled={savingMapping}
+                                  className="px-2.5 py-1 rounded-lg border border-slate-300 dark:border-slate-700 text-[11px] font-semibold"
+                                >
+                                  {t('deliveryReconciliation.mapping_cancel_btn')}
+                                </button>
+                              </div>
+                            </div>
+                          )}
                         </td>
                       </tr>
                     )
@@ -4283,7 +4908,7 @@ export default function ConciliarDeliveryPage() {
           </div>
 
           {qbLoading ? (
-            <div className="p-12 text-center text-slate-500">{t('deliveryReconciliation.syncing_btn')}</div>
+            <div className="p-12 text-center text-slate-500">{t('deliveryReconciliation.loading_qb_records')}</div>
           ) : displayedQbRecords.length === 0 ? (
             <div className="p-12 text-center text-slate-500">{t('deliveryReconciliation.empty_payouts')}</div>
           ) : (
@@ -4311,6 +4936,7 @@ export default function ConciliarDeliveryPage() {
                             setSelectedQbPayoutIds(new Set())
                           }
                         }}
+                        aria-label={t('deliveryReconciliation.batch_select_all')}
                         className="rounded border-slate-300"
                       />
                     </th>
@@ -4325,8 +4951,8 @@ export default function ConciliarDeliveryPage() {
                       {t('deliveryReconciliation.qb_col_bank_deposit')}
                     </th>
                     <th className="px-1.5 py-2">{t('deliveryReconciliation.qb_col_policy_status')}</th>
-                    <th className="px-1.5 py-2">{isEn ? 'Order Audit Status' : 'Estado de Auditoría'}</th>
-                    <th className="px-1.5 py-2">{isEn ? 'Dispute / Recovery' : 'Disputa / Recuperación'}</th>
+                    <th className="px-1.5 py-2">{t('deliveryReconciliation.qb_col_audit_status')}</th>
+                    <th className="px-1.5 py-2">{t('deliveryReconciliation.qb_col_dispute_recovery')}</th>
                     <th className="px-1.5 py-2 text-center">{t('deliveryReconciliation.qb_col_actions')}</th>
                   </tr>
                 </thead>
@@ -4358,6 +4984,7 @@ export default function ConciliarDeliveryPage() {
                               else next.delete(r.id)
                               setSelectedQbPayoutIds(next)
                             }}
+                            aria-label={`#${r.payout_reference_id}`}
                             className="rounded border-slate-300 disabled:opacity-40"
                           />
                         </td>
@@ -4439,8 +5066,18 @@ export default function ConciliarDeliveryPage() {
                             ))}
                         </td>
                         <td className="px-1.5 py-2 text-right font-mono whitespace-nowrap">
-                          <div className="font-extrabold text-emerald-600 dark:text-emerald-400">
-                            {fmtMoney(line1?.amount || r.net_payout_amount)}
+                          <div
+                            className={`font-extrabold ${
+                              Number(r.net_payout_amount || 0) < 0
+                                ? 'text-rose-600 dark:text-rose-400'
+                                : 'text-emerald-600 dark:text-emerald-400'
+                            }`}
+                          >
+                            {fmtMoney(
+                              Number(r.net_payout_amount || 0) < 0
+                                ? r.net_payout_amount
+                                : line1?.amount || r.net_payout_amount
+                            )}
                           </div>
                           {showQbAccountCodes && (
                             <div className="text-[10px] text-slate-400 max-w-[85px] 2xl:max-w-[125px] ml-auto truncate" title={line1?.accountName}>
@@ -4457,11 +5094,7 @@ export default function ConciliarDeliveryPage() {
                           {r.bankVerification?.status === 'JE_POSTED_IN_TRANSIT' && (
                             <div className="mt-1">
                               <span
-                                title={
-                                  isEn
-                                    ? 'Journal Entry posted in QBO; bank feed deposit confirmation is independent.'
-                                    : 'Póliza registrada en QBO; la confirmación del depósito en banco es independiente.'
-                                }
+                                title={t('deliveryReconciliation.qb_bank_transit_tooltip')}
                                 className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 border border-indigo-500/30"
                               >
                                 🧾 {t('deliveryReconciliation.bank_je_posted_badge')}
@@ -4478,9 +5111,7 @@ export default function ConciliarDeliveryPage() {
                                 {t('deliveryReconciliation.qb_badge_recovery')}
                               </span>
                               <span className="text-[10px] text-rose-600 dark:text-rose-400">
-                                {isEn
-                                  ? 'Check QBO before retrying.'
-                                  : 'Consultar QBO antes de reintentar.'}
+                                {t('deliveryReconciliation.qb_check_before_retry')}
                               </span>
                             </div>
                           ) : r.hasJournalEntry ? (
@@ -4499,9 +5130,7 @@ export default function ConciliarDeliveryPage() {
                             <div className="flex flex-col gap-1 items-start">
                               <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-500/15 text-rose-700 dark:text-rose-300 border border-rose-500/30">
                                 {r.qboMatchEvaluation?.classification === 'HISTORICAL_CANDIDATE_PENDING_REVIEW'
-                                  ? isEn
-                                    ? 'Historical Candidate'
-                                    : 'Candidato Histórico QBO'
+                                  ? t('deliveryReconciliation.qb_historical_candidate_badge')
                                   : t('deliveryReconciliation.qb_badge_blocked')}
                               </span>
                               {blockers[0] && (
@@ -4521,7 +5150,7 @@ export default function ConciliarDeliveryPage() {
                                 {t('deliveryReconciliation.qb_badge_pending')}
                               </span>
                               <span className="text-[10px] text-emerald-700 dark:text-emerald-400 font-semibold">
-                                {isEn ? 'Ready to post 4-line JE' : 'Listo para crear póliza'}
+                                {t('deliveryReconciliation.qb_ready_4line_hint')}
                               </span>
                             </div>
                           )}
@@ -4535,18 +5164,20 @@ export default function ConciliarDeliveryPage() {
                               onClick={() => handleOpenQbModal(r)}
                               className="mb-1 inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-extrabold bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-700 dark:text-indigo-300 border border-indigo-500/25 transition"
                             >
-                              {t('deliveryReconciliation.qb_included_orders_badge', {
-                                linked:
-                                  r.toastCrossCheckSummary.linkedOrdersCount ||
-                                  r.toastCrossCheckSummary.declaredOrdersCount ||
-                                  0,
-                                ok: r.toastCrossCheckSummary.matchedOkCount || 0,
-                              })}
+                              {(r.toastCrossCheckSummary.linkedOrdersCount || 0) === 0 &&
+                              (r.toastCrossCheckSummary.declaredOrdersCount || 0) > 0
+                                ? t('deliveryReconciliation.qb_included_orders_pending_sync_badge', {
+                                    declared: r.toastCrossCheckSummary.declaredOrdersCount,
+                                  })
+                                : t('deliveryReconciliation.qb_included_orders_badge', {
+                                    linked: r.toastCrossCheckSummary.linkedOrdersCount || 0,
+                                    ok: r.toastCrossCheckSummary.matchedOkCount || 0,
+                                  })}
                             </button>
                           )}
                           {warnings.length === 0 ? (
                             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/25">
-                              ✓ {isEn ? 'Order audit clean' : 'Auditoría sin alertas'}
+                              {t('deliveryReconciliation.qb_audit_clean_badge')}
                             </span>
                           ) : (
                             <div
@@ -4558,10 +5189,7 @@ export default function ConciliarDeliveryPage() {
                               }`}
                             >
                               <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30">
-                                ⚠{' '}
-                                {isEn
-                                  ? `${warnings.length} audit alert(s) pending`
-                                  : `${warnings.length} alerta(s) de auditoría`}
+                                {t('deliveryReconciliation.qb_audit_alerts_count', { count: warnings.length })}
                               </span>
                               <div className="text-[10px] text-amber-800 dark:text-amber-300 max-w-[170px] leading-tight space-y-0.5">
                                 <div className="line-clamp-2">{isEn ? warnings[0].message_en : warnings[0].message_es}</div>
@@ -4591,7 +5219,7 @@ export default function ConciliarDeliveryPage() {
                             </span>
                           ) : (
                             <span className="text-[11px] text-slate-400">
-                              {isEn ? 'No disputes' : 'Sin disputas'}
+                              {t('deliveryReconciliation.qb_no_disputes_label')}
                             </span>
                           )}
                         </td>
@@ -4607,7 +5235,10 @@ export default function ConciliarDeliveryPage() {
                                   setEndDate(r.period_end)
                                 }
                                 setActivePayoutRef(r.payout_reference_id)
+                                setSearchInput('')
+                                setSearchQuery('')
                                 setSelectedActionGroup('ALL')
+                                setSelectedOrderSubFilter('NONE')
                                 setActiveTab('orders')
                               }}
                               title={t('deliveryReconciliation.qb_audit_orders_tooltip')}
@@ -4652,7 +5283,7 @@ export default function ConciliarDeliveryPage() {
 
         return (
           <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
-            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-xl w-full p-6 space-y-4 shadow-2xl">
+            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-xl w-full p-6 space-y-4 shadow-2xl max-h-[92vh] overflow-y-auto">
               <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3">
                 <h3 className="text-lg font-extrabold">{t('deliveryReconciliation.batch_confirm_modal_title')}</h3>
                 <button
@@ -4663,6 +5294,7 @@ export default function ConciliarDeliveryPage() {
                 </button>
               </div>
 
+              {renderBannerAlert()}
               <p className="text-xs text-slate-600 dark:text-slate-300">
                 {t('deliveryReconciliation.batch_confirm_modal_desc')}
               </p>
@@ -4678,7 +5310,7 @@ export default function ConciliarDeliveryPage() {
                 </div>
                 <div className="flex justify-between gap-4">
                   <span className="font-bold text-slate-500 shrink-0">{t('deliveryReconciliation.batch_confirm_platforms')}</span>
-                  <span className="font-semibold text-right">{uniquePlatforms.join(', ')}</span>
+                  <span className="font-semibold text-right">{uniquePlatforms.map((pl) => formatPlatformDisplayName(pl)).join(', ')}</span>
                 </div>
                 <div>
                   <span className="font-bold text-slate-500 block mb-1">
@@ -4734,10 +5366,16 @@ export default function ConciliarDeliveryPage() {
         const warnings: any[] = selectedQbRecord.auditWarnings || prev.auditWarnings || []
         const qboCandidates: any[] = selectedQbRecord.qboMatchEvaluation?.candidates || []
         const dispStat = selectedQbRecord.disputeRecoveryStatus || {}
+        // Misma condición que el servidor para separar Sales Tax real (24001) en reembolsos
+        const canSplitTax =
+          selectedQbRecord.platform !== 'UBER_EATS' &&
+          embeddedTax > 0.01 &&
+          rawErrAdj < -0.01 &&
+          embeddedTax < Math.abs(rawErrAdj)
 
         const modalLines = (() => {
           const baseLines: any[] = prev.lines || []
-          if (!jeModalSplitTax || selectedQbRecord.platform === 'UBER_EATS' || embeddedTax <= 0.01 || rawErrAdj >= 0) {
+          if (!jeModalSplitTax || !canSplitTax) {
             return baseLines
           }
           const firstThree = baseLines.slice(0, 3)
@@ -4765,6 +5403,16 @@ export default function ConciliarDeliveryPage() {
             },
           ]
         })()
+        // Totales en vivo calculados sobre las líneas visibles (incluye la línea 5 si se separa el tax)
+        const modalDebits = modalLines.reduce(
+          (acc: number, l: any) => acc + (l.postingType === 'Debit' ? Number(l.amount || 0) : 0),
+          0
+        )
+        const modalCredits = modalLines.reduce(
+          (acc: number, l: any) => acc + (l.postingType === 'Credit' ? Number(l.amount || 0) : 0),
+          0
+        )
+        const modalBalanced = modalLines.length > 0 && Math.abs(modalDebits - modalCredits) < 0.005
 
         return (
           <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
@@ -4792,11 +5440,13 @@ export default function ConciliarDeliveryPage() {
                 </button>
               </div>
 
+              {renderBannerAlert()}
+
               {/* TRES ESTADOS INDEPENDIENTES DEL CORTE: (1) PÓLIZA QBO Y BANCO, (2) AUDITORÍA DE ÓRDENES, (3) DISPUTAS Y RECUPERACIÓN */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
                 <div className="p-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/70 dark:bg-slate-800/50 space-y-1">
                   <div className="text-[10px] font-extrabold uppercase text-slate-500">
-                    {isEn ? '1. Payout / QBO Entry Status' : '1. Estado del Payout / Póliza QBO'}
+                    {t('deliveryReconciliation.qb_modal_status_1_title')}
                   </div>
                   <div className="font-extrabold text-slate-900 dark:text-white">
                     {isEn
@@ -4814,7 +5464,7 @@ export default function ConciliarDeliveryPage() {
 
                 <div className="p-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/70 dark:bg-slate-800/50 space-y-1">
                   <div className="text-[10px] font-extrabold uppercase text-slate-500">
-                    {isEn ? '2. Order Audit Status (Independent)' : '2. Estado de Auditoría de Órdenes'}
+                    {t('deliveryReconciliation.qb_modal_status_2_title')}
                   </div>
                   <div
                     className={`font-extrabold ${
@@ -4830,15 +5480,13 @@ export default function ConciliarDeliveryPage() {
                         (warnings.length === 0 ? 'Auditoría sin alertas' : `${warnings.length} alerta(s) pendiente(s)`)}
                   </div>
                   <div className="text-[11px] text-slate-500">
-                    {isEn
-                      ? 'Publishing a QBO entry does not erase pending order alerts.'
-                      : 'Publicar la póliza no borra ni da por conciliadas las alertas de órdenes.'}
+                    {t('deliveryReconciliation.qb_modal_status_2_sub')}
                   </div>
                 </div>
 
                 <div className="p-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/70 dark:bg-slate-800/50 space-y-1">
                   <div className="text-[10px] font-extrabold uppercase text-slate-500">
-                    {isEn ? '3. Dispute / Recovery Status' : '3. Estado de Disputa / Recuperación'}
+                    {t('deliveryReconciliation.qb_modal_status_3_title')}
                   </div>
                   <div
                     className={`font-extrabold ${
@@ -4849,10 +5497,10 @@ export default function ConciliarDeliveryPage() {
                         : 'text-emerald-700 dark:text-emerald-400'
                     }`}
                   >
-                    {isEn ? dispStat.label_en || 'No disputes' : dispStat.label_es || 'Sin disputas'}
+                    {(isEn ? dispStat.label_en : dispStat.label_es) || t('deliveryReconciliation.qb_no_disputes_label')}
                   </div>
                   <div className="text-[11px] text-slate-500 font-mono">
-                    {isEn ? 'Net Refunds / Error Charges:' : 'Reembolsos / Cargos por Error:'}{' '}
+                    {t('deliveryReconciliation.card_error_charges')}{' '}
                     {fmtMoney(rawErrAdj)}
                   </div>
                 </div>
@@ -4897,7 +5545,7 @@ export default function ConciliarDeliveryPage() {
                   <div className="font-mono font-extrabold text-right shrink-0">
                     <div>{fmtMoney(selectedQbRecord.bankVerification.expectedDepositAmount)}</div>
                     <div className="text-[10px] opacity-80">
-                      {isEn ? 'Acct' : 'Cta'} {selectedQbRecord.bankVerification.bankAccountNum}
+                      {t('deliveryReconciliation.qb_modal_acct_short')} {selectedQbRecord.bankVerification.bankAccountNum}
                     </div>
                   </div>
                 </div>
@@ -4908,10 +5556,7 @@ export default function ConciliarDeliveryPage() {
                 <div className="p-4 rounded-xl bg-rose-500/10 border-2 border-rose-500/40 space-y-2.5 text-xs">
                   <div className="font-extrabold text-rose-800 dark:text-rose-200 flex items-center justify-between gap-2">
                     <span>
-                      ⚠️{' '}
-                      {isEn
-                        ? 'Recovery State Required (RECOVERY_REQUIRED): Verify QuickBooks Online before retrying'
-                        : 'Estado de Recuperación (RECOVERY_REQUIRED): Consultar QuickBooks Online antes de reintentar'}
+                      {t('deliveryReconciliation.qb_modal_recovery_banner')}
                     </span>
                     <button
                       onClick={() => handleVerifyQboRecoveryStatus(selectedQbRecord.id)}
@@ -4919,12 +5564,8 @@ export default function ConciliarDeliveryPage() {
                       className="px-3.5 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white font-extrabold shadow-sm"
                     >
                       {resolvingQboCandidate
-                        ? isEn
-                          ? 'Checking QBO...'
-                          : 'Consultando QBO...'
-                        : isEn
-                        ? 'Verify Status in QBO Now'
-                        : 'Verificar Estado en QBO Ahora'}
+                        ? t('deliveryReconciliation.qb_modal_checking_btn')
+                        : t('deliveryReconciliation.qb_modal_verify_now_btn')}
                     </button>
                   </div>
                 </div>
@@ -4934,31 +5575,24 @@ export default function ConciliarDeliveryPage() {
               {!selectedQbRecord.hasJournalEntry && qboCandidates.length > 0 && (
                 <div className="p-4 rounded-xl bg-amber-500/10 border-2 border-amber-500/40 space-y-3 text-xs">
                   <div className="font-extrabold text-amber-900 dark:text-amber-200">
-                    🔍{' '}
-                    {isEn
-                      ? `Historical QuickBooks Journal Entry Candidate(s) Found (${qboCandidates.length}) — Confirm Link or Discard:`
-                      : `Posible(s) Póliza(s) Histórica(s) en QuickBooks Detectada(s) (${qboCandidates.length}) — Confirmar Vínculo o Descartar:`}
+                    {t('deliveryReconciliation.qb_modal_candidates_title', { count: qboCandidates.length })}
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                     <div>
                       <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300 mb-1">
-                        {isEn ? 'Reason (Mandatory, min 5 chars):' : 'Motivo (Obligatorio, mín. 5 caracteres):'}
+                        {t('deliveryReconciliation.qb_modal_reason_label')}
                       </label>
                       <input
                         type="text"
                         value={qboCandidateReason}
                         onChange={(e) => setQboCandidateReason(e.target.value)}
-                        placeholder={
-                          isEn
-                            ? 'e.g. Verified historical settlement entry posted by accounting'
-                            : 'Ej. Póliza histórica verificada por contabilidad para este corte'
-                        }
+                        placeholder={t('deliveryReconciliation.qb_modal_reason_placeholder')}
                         className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs"
                       />
                     </div>
                     <div>
                       <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300 mb-1">
-                        {isEn ? 'Verifiable Evidence (DocNumber / Date / Bank):' : 'Evidencia Verificable (DocNumber / Fecha / Banco):'}
+                        {t('deliveryReconciliation.qb_modal_evidence_label')}
                       </label>
                       <input
                         type="text"
@@ -5003,7 +5637,7 @@ export default function ConciliarDeliveryPage() {
                             disabled={resolvingQboCandidate}
                             className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-extrabold"
                           >
-                            {isEn ? 'Confirm & Link' : 'Confirmar y Vincular'}
+                            {t('deliveryReconciliation.qb_modal_confirm_link_btn')}
                           </button>
                           <button
                             onClick={() =>
@@ -5018,7 +5652,7 @@ export default function ConciliarDeliveryPage() {
                             disabled={resolvingQboCandidate}
                             className="px-3 py-1.5 rounded-lg border border-rose-500/40 bg-rose-500/10 hover:bg-rose-500/20 disabled:opacity-50 text-rose-700 dark:text-rose-300 font-bold"
                           >
-                            {isEn ? 'Discard Candidate' : 'Descartar Candidato'}
+                            {t('deliveryReconciliation.qb_modal_discard_cand_btn')}
                           </button>
                         </div>
                       </div>
@@ -5031,19 +5665,19 @@ export default function ConciliarDeliveryPage() {
                 <div className="p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/30 space-y-2 text-rose-800 dark:text-rose-200 text-xs">
                   <div className="font-extrabold flex items-center gap-1.5">
                     <Lock className="w-4 h-4 text-rose-600" />
-                    {isEn ? 'Publication blocked by accounting safety rules:' : 'Publicación bloqueada por seguridad contable:'}
+                    {t('deliveryReconciliation.qb_modal_blocked_safety_title')}
                   </div>
                   {blockers.map((b, idx) => (
                     <div key={idx} className="pl-5 space-y-0.5">
                       <div className="font-bold">• {isEn ? b.message_en : b.message_es}</div>
                       {(b.cause_es || b.cause_en) && (
                         <div className="text-[11px] opacity-90">
-                          <strong>{isEn ? 'Cause:' : 'Causa:'}</strong> {isEn ? b.cause_en : b.cause_es}
+                          <strong>{t('deliveryReconciliation.label_cause')}</strong> {isEn ? b.cause_en : b.cause_es}
                         </div>
                       )}
                       {(b.next_action_es || b.next_action_en) && (
                         <div className="text-[11px] font-bold text-rose-700 dark:text-rose-300">
-                          → <strong>{isEn ? 'Next action:' : 'Siguiente acción:'}</strong>{' '}
+                          → <strong>{t('deliveryReconciliation.label_next_action')}</strong>{' '}
                           {isEn ? b.next_action_en : b.next_action_es}
                         </div>
                       )}
@@ -5057,21 +5691,19 @@ export default function ConciliarDeliveryPage() {
                 <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/30 space-y-2 text-amber-800 dark:text-amber-200 text-xs">
                   <div className="font-extrabold flex items-center gap-1.5">
                     <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
-                    {isEn
-                      ? 'Informative order-by-order audit alerts (independent from QBO Journal Entry status):'
-                      : 'Alertas informativas de auditoría de órdenes (independientes del estado de la póliza QBO):'}
+                    {t('deliveryReconciliation.qb_modal_audit_alerts_title')}
                   </div>
                   {warnings.map((w, idx) => (
                     <div key={idx} className="pl-5 space-y-0.5">
                       <div className="font-bold">• {isEn ? w.message_en : w.message_es}</div>
                       {(w.cause_es || w.cause_en) && (
                         <div className="text-[11px] opacity-90">
-                          <strong>{isEn ? 'Cause:' : 'Causa:'}</strong> {isEn ? w.cause_en : w.cause_es}
+                          <strong>{t('deliveryReconciliation.label_cause')}</strong> {isEn ? w.cause_en : w.cause_es}
                         </div>
                       )}
                       {(w.next_action_es || w.next_action_en) && (
                         <div className="text-[11px] font-bold text-indigo-700 dark:text-indigo-300">
-                          → <strong>{isEn ? 'Next action:' : 'Siguiente acción:'}</strong>{' '}
+                          → <strong>{t('deliveryReconciliation.label_next_action')}</strong>{' '}
                           {isEn ? w.next_action_en : w.next_action_es}
                         </div>
                       )}
@@ -5106,7 +5738,7 @@ export default function ConciliarDeliveryPage() {
                   />
                 </div>
                 <div className="flex flex-col justify-center">
-                  {selectedQbRecord.platform !== 'UBER_EATS' && embeddedTax > 0.01 && rawErrAdj < 0 ? (
+                  {canSplitTax ? (
                     <label className="flex items-start gap-2 cursor-pointer text-xs">
                       <input
                         type="checkbox"
@@ -5130,7 +5762,7 @@ export default function ConciliarDeliveryPage() {
                     <div className="text-xs text-slate-500">
                       <span className="font-bold text-slate-700 dark:text-slate-200 block">
                         {t('deliveryReconciliation.qb_modal_tax_rule_label', {
-                          platform: selectedQbRecord.platform,
+                          platform: formatPlatformDisplayName(selectedQbRecord.platform),
                         })}
                       </span>
                       {selectedQbRecord.platform === 'UBER_EATS'
@@ -5148,13 +5780,13 @@ export default function ConciliarDeliveryPage() {
                   </h4>
                   <span
                     className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-extrabold ${
-                      prev.isBalanced
+                      modalBalanced
                         ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
                         : 'bg-rose-500/15 text-rose-700'
                     }`}
                   >
-                    {prev.isBalanced ? '✓' : '✗'} Total Debits ({fmtMoney(prev.totalDebits)}) = Total Credits (
-                    {fmtMoney(prev.totalCredits)})
+                    {modalBalanced ? '✓' : '✗'} Total Debits ({fmtMoney(modalDebits)}) {modalBalanced ? '=' : '≠'} Total Credits (
+                    {fmtMoney(modalCredits)})
                   </span>
                 </div>
 
@@ -5229,6 +5861,8 @@ export default function ConciliarDeliveryPage() {
                             setEndDate(pEnd)
                           }
                           setActivePayoutRef(targetRef)
+                          setSearchInput('')
+                          setSearchQuery('')
                           setSelectedActionGroup('ALL')
                           setSelectedOrderSubFilter('NONE')
                           setActiveTab('orders')
@@ -5242,9 +5876,7 @@ export default function ConciliarDeliveryPage() {
                     {incOrders.length === 0 ? (
                       <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-xs text-amber-800 dark:text-amber-200 flex items-center justify-between gap-2">
                         <span>
-                          {isEn
-                            ? 'Individual orders for this settlement have not been downloaded for this store yet.'
-                            : 'Aún no se han descargado las órdenes individuales de este corte para esta sucursal.'}
+                          {t('deliveryReconciliation.qb_modal_orders_not_synced')}
                         </span>
                         <button
                           type="button"
@@ -5383,7 +6015,7 @@ export default function ConciliarDeliveryPage() {
 
         return (
           <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
-            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-xl w-full p-6 space-y-4 shadow-2xl">
+            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-xl w-full p-6 space-y-4 shadow-2xl max-h-[92vh] overflow-y-auto">
               <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3">
                 <h3 className="text-lg font-extrabold">
                   {t('deliveryReconciliation.batch_action_confirm_title')}
@@ -5396,6 +6028,7 @@ export default function ConciliarDeliveryPage() {
                 </button>
               </div>
 
+              {renderBannerAlert()}
               <p className="text-xs text-slate-600 dark:text-slate-300 font-semibold">
                 {isVarianceBatch
                   ? t('deliveryReconciliation.batch_action_effect_variance')
@@ -5419,7 +6052,7 @@ export default function ConciliarDeliveryPage() {
                   <span className="font-bold text-slate-500 shrink-0">
                     {t('deliveryReconciliation.batch_confirm_platforms')}
                   </span>
-                  <span className="font-semibold text-right">{uniquePlatforms.join(', ')}</span>
+                  <span className="font-semibold text-right">{uniquePlatforms.map((pl) => formatPlatformDisplayName(pl)).join(', ')}</span>
                 </div>
                 <div className="flex justify-between gap-4">
                   <span className="font-bold text-slate-500 shrink-0">
@@ -5431,7 +6064,7 @@ export default function ConciliarDeliveryPage() {
                 </div>
                 <div className="pt-2 border-t border-slate-200 dark:border-slate-700">
                   <div className="font-bold text-slate-500 mb-1">
-                    {isEn ? 'Selected orders:' : 'Órdenes seleccionadas:'}
+                    {t('deliveryReconciliation.batch_order_confirm_orders_list')}
                   </div>
                   <div className="max-h-36 overflow-y-auto space-y-1 font-mono text-[11px] bg-white dark:bg-slate-900 p-2 rounded-lg border border-slate-200 dark:border-slate-700">
                     {selectedVisibleOrders.map((o) => (
@@ -5461,22 +6094,22 @@ export default function ConciliarDeliveryPage() {
                 </button>
                 <button
                   onClick={async () => {
+                    // Los handlers cierran el modal solo en éxito; si fallan, el banner queda visible dentro del modal
                     const targetOrderIds = selectedVisibleOrders.map((o) => o.id)
-                    setBatchOrderConfirmModal(null)
                     if (isVarianceBatch) {
                       await handleBatchApproveVariance(targetOrderIds)
                     } else {
                       await handleBatchMarkDisputeSubmitted(targetOrderIds)
                     }
                   }}
-                  disabled={savingDispute}
-                  className={`px-5 py-2 rounded-xl text-white text-sm font-extrabold shadow-sm ${
+                  disabled={savingBatch}
+                  className={`px-5 py-2 rounded-xl text-white text-sm font-extrabold shadow-sm disabled:opacity-50 ${
                     isVarianceBatch ? 'bg-amber-600 hover:bg-amber-700' : 'bg-rose-600 hover:bg-rose-700'
                   }`}
                 >
                   {isVarianceBatch
-                    ? t('deliveryReconciliation.batch_approve_variance_btn')
-                    : t('deliveryReconciliation.batch_mark_submitted_btn')}
+                    ? t('deliveryReconciliation.batch_approve_variance_btn', { count: selectedVisibleOrders.length })
+                    : t('deliveryReconciliation.batch_mark_submitted_btn', { count: selectedVisibleOrders.length })}
                 </button>
               </div>
             </div>
@@ -5505,6 +6138,128 @@ export default function ConciliarDeliveryPage() {
                 <X className="w-5 h-5" />
               </button>
             </div>
+
+            {renderBannerAlert()}
+
+            {/* DESGLOSE FINANCIERO LADO A LADO: TOAST POS vs PLATAFORMA vs DIFERENCIA */}
+            {(() => {
+              const so = selectedOrder
+              const isUber = so.platform === 'UBER_EATS'
+              const commAbs = Math.abs(Number(so.commission_fee || 0)) + Math.abs(Number(so.delivery_fee || 0))
+              const procAbs = Math.abs(Number(so.processing_fee || 0)) + Math.abs(Number(so.marketing_fee || 0))
+              const errAdjVal = Number(so.error_charge || 0) + Number(so.adjustment_amount || 0)
+              const hasToast = Boolean(so.toast_order_guid) || Number(so.toast_expected_gross || 0) !== 0
+              const rows: Array<{ key: string; label: string; toast: number | null; plat: number | null; strong?: boolean }> = [
+                { key: 'sub', label: t('deliveryReconciliation.modal_row_subtotal'), toast: hasToast ? Number(so.toast_net_sales || 0) : null, plat: Number(so.platform_subtotal || 0) },
+                { key: 'tax', label: t('deliveryReconciliation.modal_row_sales_tax'), toast: hasToast && !isUber ? Number(so.toast_tax || 0) : null, plat: isUber ? null : Number(so.platform_tax_paid_to_merchant || 0) },
+                { key: 'gross', label: t('deliveryReconciliation.modal_row_gross_expected'), toast: hasToast ? Number(so.toast_expected_gross || 0) : null, plat: Number(so.platform_gross_receivable || 0), strong: true },
+                { key: 'comm', label: t('deliveryReconciliation.modal_row_commissions'), toast: null, plat: -commAbs },
+                { key: 'proc', label: t('deliveryReconciliation.modal_row_proc_mktg'), toast: null, plat: -procAbs },
+                { key: 'err', label: t('deliveryReconciliation.modal_row_error_adj'), toast: null, plat: errAdjVal },
+                { key: 'tip', label: t('deliveryReconciliation.modal_row_tips'), toast: null, plat: Number(so.tip_amount || 0) },
+                { key: 'net', label: t('deliveryReconciliation.modal_row_net_payout'), toast: null, plat: Number(so.net_payout || 0), strong: true },
+              ]
+              return (
+                <div className="space-y-2">
+                  <div className="text-xs font-extrabold uppercase text-indigo-600 dark:text-indigo-400">
+                    {t('deliveryReconciliation.modal_financial_comparison_title')}
+                  </div>
+                  <div className="overflow-x-auto border border-slate-200 dark:border-slate-700 rounded-xl">
+                    <table className="w-full text-left border-collapse text-xs">
+                      <thead>
+                        <tr className="bg-slate-100 dark:bg-slate-800 font-bold text-slate-600 dark:text-slate-300 border-b border-slate-200 dark:border-slate-700">
+                          <th className="p-2">{t('deliveryReconciliation.modal_col_concept')}</th>
+                          <th className="p-2 text-right">{t('deliveryReconciliation.modal_col_toast')}</th>
+                          <th className="p-2 text-right">{t('deliveryReconciliation.modal_col_platform')}</th>
+                          <th className="p-2 text-right">{t('deliveryReconciliation.modal_col_diff')}</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-200 dark:divide-slate-800 font-mono">
+                        {rows.map((row) => {
+                          const diff = row.toast !== null && row.plat !== null ? row.plat - row.toast : null
+                          return (
+                            <tr key={row.key} className={row.strong ? 'bg-slate-50 dark:bg-slate-800/40 font-extrabold' : ''}>
+                              <td className="p-2 font-sans font-semibold text-slate-700 dark:text-slate-200">{row.label}</td>
+                              <td className="p-2 text-right text-slate-700 dark:text-slate-200">
+                                {row.toast === null ? '—' : fmtMoney(row.toast)}
+                              </td>
+                              <td className="p-2 text-right text-indigo-700 dark:text-indigo-300">
+                                {row.plat === null ? '—' : fmtMoney(row.plat)}
+                              </td>
+                              <td
+                                className={`p-2 text-right ${
+                                  diff === null
+                                    ? 'text-slate-400'
+                                    : Math.abs(diff) <= 0.05
+                                    ? 'text-emerald-600 dark:text-emerald-400'
+                                    : 'text-rose-600 dark:text-rose-400'
+                                }`}
+                              >
+                                {diff === null ? '—' : fmtMoney(diff)}
+                              </td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )
+            })()}
+
+            {/* DIAGNÓSTICO COMPLETO: QUÉ PASÓ, CAUSA, EVIDENCIA Y SIGUIENTE ACCIÓN */}
+            {(selectedOrder.what_happened_es || selectedOrder.cause_es || selectedOrder.evidence_es || selectedOrder.next_action_es) && (
+              <div className="rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/70 dark:bg-slate-800/40 p-3 space-y-1.5 text-xs">
+                <div className="text-xs font-extrabold uppercase text-indigo-600 dark:text-indigo-400">
+                  {t('deliveryReconciliation.modal_audit_diagnosis_title')}
+                </div>
+                {(isEn ? selectedOrder.what_happened_en : selectedOrder.what_happened_es) && (
+                  <div>
+                    <strong>{t('deliveryReconciliation.label_what_happened')}</strong>{' '}
+                    {isEn ? selectedOrder.what_happened_en : selectedOrder.what_happened_es}
+                  </div>
+                )}
+                {(isEn ? selectedOrder.cause_en : selectedOrder.cause_es) && (
+                  <div>
+                    <strong>{t('deliveryReconciliation.label_cause')}</strong>{' '}
+                    {isEn ? selectedOrder.cause_en : selectedOrder.cause_es}
+                  </div>
+                )}
+                {(isEn ? selectedOrder.evidence_en : selectedOrder.evidence_es) && (
+                  <div>
+                    <strong>{t('deliveryReconciliation.label_evidence')}</strong>{' '}
+                    <span className="font-mono text-indigo-600 dark:text-indigo-400">
+                      {isEn ? selectedOrder.evidence_en : selectedOrder.evidence_es}
+                    </span>
+                  </div>
+                )}
+                {(isEn ? selectedOrder.next_action_en : selectedOrder.next_action_es) && (
+                  <div className="font-bold text-emerald-700 dark:text-emerald-400">
+                    → {t('deliveryReconciliation.label_next_action')}{' '}
+                    {isEn ? selectedOrder.next_action_en : selectedOrder.next_action_es}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* PLATILLOS DE LA ORDEN EN TOAST POS */}
+            {Array.isArray(selectedOrder.items_summary) && selectedOrder.items_summary.length > 0 && (
+              <div className="space-y-1.5">
+                <div className="text-xs font-extrabold uppercase text-indigo-600 dark:text-indigo-400">
+                  {t('deliveryReconciliation.modal_toast_items_title')}
+                </div>
+                <div className="max-h-40 overflow-y-auto rounded-xl border border-slate-200 dark:border-slate-700 divide-y divide-slate-200 dark:divide-slate-800 text-xs">
+                  {selectedOrder.items_summary.map((it, idx) => (
+                    <div key={`${it.name}-${idx}`} className="flex justify-between gap-2 px-3 py-1.5">
+                      <span className="font-semibold text-slate-700 dark:text-slate-200">
+                        {Number(it.quantity || 1)}× {it.name}
+                      </span>
+                      <span className="font-mono text-slate-600 dark:text-slate-300">{fmtMoney(Number(it.price || 0))}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* TRAZABILIDAD COMPLETA DE 4 ETAPAS (ORDEN ORIGINAL -> ORDEN PLATAFORMA -> PAYOUT -> DISPUTA/RECUPERACIÓN) */}
             {Array.isArray(selectedOrder.lifecycle_trace) && (
@@ -5547,9 +6302,7 @@ export default function ConciliarDeliveryPage() {
             {(selectedOrder.store_id === 0 || selectedOrder.store_code === 'UNASSIGNED_STORE') && (
               <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/30 space-y-2.5 text-xs">
                 <div className="font-extrabold text-amber-800 dark:text-amber-200">
-                  {isEn
-                    ? 'Manually assign this transaction to a Tacos Gavilan store:'
-                    : 'Asignar manualmente esta transacción a una sucursal de Tacos Gavilan:'}
+                  {t('deliveryReconciliation.modal_assign_store_prompt')}
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                   <select
@@ -5574,7 +6327,7 @@ export default function ConciliarDeliveryPage() {
                     disabled={savingDispute || !assignTargetStoreId}
                     className="px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 disabled:opacity-40 text-white font-extrabold"
                   >
-                    {isEn ? 'Assign Store & Reconcile' : 'Asignar Sucursal y Conciliar'}
+                    {t('deliveryReconciliation.modal_assign_store_btn')}
                   </button>
                 </div>
 
@@ -5603,7 +6356,7 @@ export default function ConciliarDeliveryPage() {
                           <span className="font-bold text-slate-500">
                             {t('deliveryReconciliation.unassigned_confirm_platform')}:{' '}
                           </span>
-                          <span className="font-extrabold">{selectedOrder.platform}</span>
+                          <span className="font-extrabold">{formatPlatformDisplayName(selectedOrder.platform)}</span>
                         </div>
                         <div>
                           <span className="font-bold text-slate-500">
@@ -5661,9 +6414,7 @@ export default function ConciliarDeliveryPage() {
               return (
                 <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/30 space-y-2 text-xs">
                   <div className="font-extrabold text-amber-800 dark:text-amber-200">
-                    {isEn
-                      ? 'Suggested / candidate Toast POS check(s) (select the correct check):'
-                      : 'Ticket(s) candidato(s) en Toast POS (selecciona el ticket correcto para vincular):'}
+                    {t('deliveryReconciliation.modal_candidates_toast_prompt')}
                   </div>
                   <div className="space-y-1.5">
                     {candList.map((cand: any) => {
@@ -5677,11 +6428,11 @@ export default function ConciliarDeliveryPage() {
                             Toast #{cand.toastDisplayNumber || cand.displayNumber} • Net: {fmtMoney(cand.netSales)} • Tax: {fmtMoney(cand.taxAmount)}
                           </span>
                           <button
-                            onClick={() => handleApproveReviewOrder(selectedOrder, candGuid)}
+                            onClick={() => handleApproveReviewOrder(selectedOrder, candGuid, '')}
                             disabled={savingDispute}
                             className="px-3 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold"
                           >
-                            {isEn ? 'Confirm this Check' : 'Confirmar este Ticket'}
+                            {t('deliveryReconciliation.modal_confirm_check_btn')}
                           </button>
                         </div>
                       )
@@ -5691,7 +6442,24 @@ export default function ConciliarDeliveryPage() {
               )
             })()}
 
-            {/* SEGUIMIENTO DE DISPUTA Y REEMBOLSO EN CORTE POSTERIOR */}
+            {/* SEGUIMIENTO DE DISPUTA Y REEMBOLSO EN CORTE POSTERIOR (solo lectura si la orden solo existe en Toast POS) */}
+            {selectedOrder.match_confidence === 'TOAST_ONLY' || selectedOrder.store_id <= 0 ? (
+              <div className="space-y-3 border-t border-slate-200 dark:border-slate-800 pt-4">
+                {selectedOrder.match_confidence === 'TOAST_ONLY' && (
+                  <div className="p-3 rounded-xl bg-sky-500/10 border border-sky-500/30 text-xs text-sky-800 dark:text-sky-200 font-semibold">
+                    ℹ️ {t('deliveryReconciliation.modal_toast_only_readonly_note')}
+                  </div>
+                )}
+                <div className="flex justify-end">
+                  <button
+                    onClick={() => setSelectedOrder(null)}
+                    className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-sm font-semibold"
+                  >
+                    {t('deliveryReconciliation.modal_close')}
+                  </button>
+                </div>
+              </div>
+            ) : (
             <div className="space-y-3 border-t border-slate-200 dark:border-slate-800 pt-4">
               {/* SEPARACIÓN ESTRICTA: IMPORTE ORIGINAL DISPUTADO, RECUPERACIONES VERIFICADAS Y SALDO PENDIENTE */}
               {(selectedOrder.action_group === 'DISPUTE_RECOVERY' ||
@@ -5703,13 +6471,11 @@ export default function ConciliarDeliveryPage() {
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                     <div className="rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 p-2">
                       <div className="text-[10px] font-bold uppercase text-slate-500">
-                        {isEn ? 'Original Disputed Amount' : 'Importe Original Disputado'}
+                        {t('deliveryReconciliation.modal_original_disputed')}
                       </div>
                       <div className="font-mono font-extrabold text-sm text-slate-900 dark:text-slate-100 mt-0.5">
                         {selectedOrder.original_amount_verified === false
-                          ? isEn
-                            ? 'Pending verification'
-                            : 'Pendiente de verificar'
+                          ? t('deliveryReconciliation.modal_pending_verification_val')
                           : fmtMoney(
                               selectedOrder.original_deduction_abs ??
                                 selectedOrder.dispute_amount ??
@@ -5719,7 +6485,7 @@ export default function ConciliarDeliveryPage() {
                     </div>
                     <div className="rounded-lg bg-emerald-500/5 border border-emerald-500/20 p-2">
                       <div className="text-[10px] font-bold uppercase text-emerald-700 dark:text-emerald-400">
-                        {isEn ? 'Verified Recovered' : 'Recuperado Verificado'}
+                        {t('deliveryReconciliation.disputes_kpi_recovered')}
                       </div>
                       <div className="font-mono font-extrabold text-sm text-emerald-700 dark:text-emerald-400 mt-0.5">
                         {fmtMoney(selectedOrder.recovered_amount ?? 0)}
@@ -5727,7 +6493,7 @@ export default function ConciliarDeliveryPage() {
                     </div>
                     <div className="rounded-lg bg-rose-500/5 border border-rose-500/20 p-2">
                       <div className="text-[10px] font-bold uppercase text-rose-700 dark:text-rose-400">
-                        {isEn ? 'Pending Balance' : 'Saldo Pendiente'}
+                        {t('deliveryReconciliation.disputes_kpi_pending')}
                       </div>
                       <div className="font-mono font-extrabold text-sm text-rose-700 dark:text-rose-400 mt-0.5">
                         {fmtMoney(selectedOrder.unrecovered_amount ?? 0)}
@@ -5739,9 +6505,9 @@ export default function ConciliarDeliveryPage() {
                     selectedOrder.recovery_credits_evaluated.length > 0 && (
                       <div className="space-y-1.5 pt-1 border-t border-slate-200 dark:border-slate-700">
                         <div className="text-[11px] font-extrabold text-slate-600 dark:text-slate-300">
-                          {isEn
-                            ? `Recovery movements by payout (${selectedOrder.recovery_credits_evaluated.length}):`
-                            : `Movimientos de recuperación por corte (${selectedOrder.recovery_credits_evaluated.length}):`}
+                          {t('deliveryReconciliation.modal_recovery_movements_title', {
+                            count: selectedOrder.recovery_credits_evaluated.length,
+                          })}
                         </div>
                         <div className="space-y-1">
                           {selectedOrder.recovery_credits_evaluated.map((cr) => (
@@ -5758,12 +6524,8 @@ export default function ConciliarDeliveryPage() {
                                   }`}
                                 >
                                   {cr.verified
-                                    ? isEn
-                                      ? '✅ Verified in settlement'
-                                      : '✅ Verificado en settlement'
-                                    : isEn
-                                    ? '⏳ Recovery pending verification'
-                                    : '⏳ Recuperación pendiente de verificar'}
+                                    ? t('deliveryReconciliation.modal_verified_in_settlement')
+                                    : `⏳ ${t('deliveryReconciliation.recovery_pending_verification_badge')}`}
                                 </span>
                                 <span className="font-bold text-indigo-600 dark:text-indigo-400">
                                   #{cr.payout_reference_id}
@@ -5785,10 +6547,12 @@ export default function ConciliarDeliveryPage() {
                                     setReimbursementRefInput(cr.payout_reference_id || '')
                                     setReimbursementAmountInput(String(cr.amount ?? ''))
                                     setReimbursementDateInput(cr.deposit_date || '')
+                                    setReimbursementDescInput((cr as any).description || '')
+                                    setDisputeStatusInput('REIMBURSED')
                                   }}
                                   className="px-2 py-0.5 rounded border border-slate-300 dark:border-slate-700 font-sans text-[10px] font-bold hover:bg-slate-100 dark:hover:bg-slate-800"
                                 >
-                                  {isEn ? 'Edit' : 'Editar'}
+                                  {t('deliveryReconciliation.modal_edit_credit_btn')}
                                 </button>
                               </div>
                             </div>
@@ -5823,9 +6587,7 @@ export default function ConciliarDeliveryPage() {
                 <option value="OPEN">{t('deliveryReconciliation.dispute_NEEDS_DISPUTE')}</option>
                 <option value="SUBMITTED">{t('deliveryReconciliation.dispute_SUBMITTED')}</option>
                 <option value="APPROVED">{t('deliveryReconciliation.dispute_APPROVED')}</option>
-                <option value="REIMBURSED">
-                  {isEn ? 'Reimbursed in Subsequent Payout' : 'Reembolsada en Payout Posterior'}
-                </option>
+                <option value="REIMBURSED">{t('deliveryReconciliation.dispute_REIMBURSED')}</option>
                 <option value="REJECTED">{t('deliveryReconciliation.dispute_DENIED')}</option>
               </select>
 
@@ -5841,7 +6603,7 @@ export default function ConciliarDeliveryPage() {
                     type="text"
                     value={reimbursementRefInput}
                     onChange={(e) => setReimbursementRefInput(e.target.value)}
-                    placeholder={isEn ? 'e.g. Payout reference ID' : 'Ej. ID de referencia del payout'}
+                    placeholder={t('deliveryReconciliation.modal_reimb_ref_placeholder')}
                     className="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-2.5 py-1.5 text-xs font-mono"
                   />
                 </div>
@@ -5877,11 +6639,7 @@ export default function ConciliarDeliveryPage() {
                     type="text"
                     value={reimbursementDescInput}
                     onChange={(e) => setReimbursementDescInput(e.target.value)}
-                    placeholder={
-                      isEn
-                        ? 'e.g. Approved dispute reimbursement in subsequent settlement'
-                        : 'Ej. Reembolso de disputa aprobado en liquidación posterior'
-                    }
+                    placeholder={t('deliveryReconciliation.modal_reimb_desc_placeholder')}
                     className="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-2.5 py-1.5 text-xs"
                   />
                 </div>
@@ -5917,6 +6675,7 @@ export default function ConciliarDeliveryPage() {
                 </button>
               </div>
             </div>
+            )}
           </div>
         </div>
       )}
@@ -5924,17 +6683,24 @@ export default function ConciliarDeliveryPage() {
       {/* MODAL IMPORTAR REPORTE CSV / JSON (P1 #10: CONFIRMACIÓN EXPLÍCITA DE SUCURSAL) */}
       {showImportModal && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-xl w-full p-6 space-y-4 shadow-2xl">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-xl w-full p-6 space-y-4 shadow-2xl max-h-[92vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3">
               <h3 className="text-lg font-extrabold">{t('deliveryReconciliation.import_modal_title')}</h3>
               <button
-                onClick={() => setShowImportModal(false)}
+                onClick={() => {
+                  if (importing) return
+                  setShowImportModal(false)
+                  setImportText('')
+                  setImportFileName('')
+                  setConfirmImportStoreAssignment(false)
+                }}
                 className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
+            {renderBannerAlert()}
             <p className="text-xs md:text-sm text-slate-500 dark:text-slate-400">
               {t('deliveryReconciliation.import_modal_desc')}
             </p>
@@ -5991,7 +6757,13 @@ export default function ConciliarDeliveryPage() {
 
             <div className="flex justify-end gap-2 pt-3 border-t border-slate-200 dark:border-slate-800">
               <button
-                onClick={() => setShowImportModal(false)}
+                onClick={() => {
+                  if (importing) return
+                  setShowImportModal(false)
+                  setImportText('')
+                  setImportFileName('')
+                  setConfirmImportStoreAssignment(false)
+                }}
                 className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-sm font-semibold"
               >
                 {t('deliveryReconciliation.modal_close')}

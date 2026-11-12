@@ -196,11 +196,16 @@ export function evaluateHistoricalQboJournalMatch(params: {
     autoLinkAccountingSingleCandidate = false,
   } = params
 
-  const discardedList: any[] = Array.isArray(payout?.raw_payload?.qbo_discarded_candidates)
+  const discardedListA: any[] = Array.isArray(payout?.raw_payload?.qbo_discarded_candidates)
     ? payout.raw_payload.qbo_discarded_candidates
     : []
+  const discardedListB: any[] = Array.isArray(payout?.raw_payload?.discarded_qbo_je_ids)
+    ? payout.raw_payload.discarded_qbo_je_ids
+    : []
   const discardedIds = new Set<string>(
-    discardedList.map((d: any) => String(d?.je_id ?? d ?? '').trim()).filter(Boolean)
+    [...discardedListA, ...discardedListB]
+      .map((d: any) => String(d?.je_id ?? d ?? '').trim())
+      .filter(Boolean)
   )
 
   const payoutIdStr = String(payout?.id || '').trim()
@@ -271,7 +276,10 @@ export function evaluateHistoricalQboJournalMatch(params: {
         : ''
       const hasExplicitRef =
         (idempKey && pNote.includes(idempKey)) || (payoutRef.length >= 4 && pNote.includes(`#${payoutRef}`))
-      const isUserConfirmed = Boolean(payout?.raw_payload?.qbo_candidate_confirmation?.confirmed)
+      const isUserConfirmed = Boolean(
+        payout?.raw_payload?.qbo_candidate_confirmation?.confirmed ||
+          payout?.raw_payload?.qbo_candidate_resolution?.action === 'CONFIRMED'
+      )
       return {
         classification: isUserConfirmed
           ? 'USER_CONFIRMED'
@@ -2314,6 +2322,10 @@ export async function POST(req: NextRequest) {
             qb_publish_status: 'PUBLISHED',
             qbo_shared_je_approved: allowSharedJe ? true : currentRaw.qbo_shared_je_approved,
             qbo_candidate_resolution: resolutionEntry,
+            qbo_candidate_confirmation: {
+              confirmed: true,
+              ...resolutionEntry,
+            },
             qbo_candidate_audit_log: [
               ...(Array.isArray(currentRaw.qbo_candidate_audit_log) ? currentRaw.qbo_candidate_audit_log : []),
               resolutionEntry,
@@ -2349,10 +2361,13 @@ export async function POST(req: NextRequest) {
         } else {
           // discard_qbo_candidate
           const currentRaw = targetPayout.raw_payload || {}
-          const existingDiscarded: string[] = Array.isArray(currentRaw.discarded_qbo_je_ids)
-            ? currentRaw.discarded_qbo_je_ids.map((x: any) => String(x))
+          const existingDiscardedA: string[] = Array.isArray(currentRaw.discarded_qbo_je_ids)
+            ? currentRaw.discarded_qbo_je_ids.map((x: any) => String(x?.je_id ?? x ?? '').trim()).filter(Boolean)
             : []
-          const nextDiscarded = Array.from(new Set([...existingDiscarded, candidateJeId]))
+          const existingDiscardedB: string[] = Array.isArray(currentRaw.qbo_discarded_candidates)
+            ? currentRaw.qbo_discarded_candidates.map((x: any) => String(x?.je_id ?? x ?? '').trim()).filter(Boolean)
+            : []
+          const nextDiscarded = Array.from(new Set([...existingDiscardedA, ...existingDiscardedB, candidateJeId]))
           const discardEntry = {
             action: 'DISCARDED',
             je_id: candidateJeId,
@@ -2363,9 +2378,27 @@ export async function POST(req: NextRequest) {
             resolved_by_role: auth.user.role || null,
             resolved_at: new Date().toISOString(),
           }
+          const existingCandidateObjs: any[] = Array.isArray(currentRaw.qbo_discarded_candidates)
+            ? currentRaw.qbo_discarded_candidates
+            : []
+          const nextCandidateObjs = existingCandidateObjs.some(
+            (x: any) => String(x?.je_id ?? x ?? '').trim() === candidateJeId
+          )
+            ? existingCandidateObjs
+            : [...existingCandidateObjs, discardEntry]
+          const wasSavedId = String(currentRaw.qb_journal_entry_id || '').trim() === candidateJeId
           const updatedRaw = {
             ...currentRaw,
+            ...(wasSavedId
+              ? {
+                  qb_journal_entry_id: null,
+                  qb_doc_number: null,
+                  qb_txn_date: null,
+                  qb_publish_status: null,
+                }
+              : {}),
             discarded_qbo_je_ids: nextDiscarded,
+            qbo_discarded_candidates: nextCandidateObjs,
             qbo_candidate_resolution: discardEntry,
             qbo_candidate_audit_log: [
               ...(Array.isArray(currentRaw.qbo_candidate_audit_log) ? currentRaw.qbo_candidate_audit_log : []),
