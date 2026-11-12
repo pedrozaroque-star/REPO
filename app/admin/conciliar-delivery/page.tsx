@@ -34,6 +34,7 @@
  *
  * @notes
  * - Soporte 100% bilingüe (ES/EN) mediante `useLanguage()` (`deliveryReconciliation.*`).
+ * - Las tarjetas de resumen por plataforma (`DOORDASH`, `UBER_EATS`, `GRUBHUB`) presentan comparativa financiera lado a lado (`Corte Plat.` vs `Toast POS`) incluyendo Ventas Brutas, Subtotal sin Tax, Sales Tax (`Cta 24001` o `MFT Info` en Uber), Comisiones reales, Cargos por Error, Depósito Neto Esperado y `Δ Diferencia (Corte − Toast)`.
  */
 
 'use client'
@@ -306,6 +307,12 @@ export default function ConciliarDeliveryPage() {
   const [showTaxRulesPopover, setShowTaxRulesPopover] = useState<boolean>(false)
   const [showAdvancedSupport, setShowAdvancedSupport] = useState<boolean>(false)
   const [showQbAccountCodes, setShowQbAccountCodes] = useState<boolean>(false)
+  const [varianceBridgeOpenMap, setVarianceBridgeOpenMap] = useState<
+    Partial<Record<DeliveryPlatform, boolean>>
+  >({})
+  const [expandedVarianceBucketOrders, setExpandedVarianceBucketOrders] = useState<
+    Record<string, boolean>
+  >({})
   const [currentUserLabel, setCurrentUserLabel] = useState<string>('Admin / Contador')
 
   // Cola progresiva tienda por tienda (1/15 -> 15/15) para evitar rate limits HTTP 429
@@ -411,6 +418,11 @@ export default function ConciliarDeliveryPage() {
     setBatchOrderConfirmModal(null)
     setOrdersPage(1)
   }, [selectedStore, selectedPlatform, selectedStatus, startDate, endDate, searchQuery, qbQuickFilter, activePayoutRef, selectedActionGroup])
+
+  useEffect(() => {
+    setVarianceBridgeOpenMap({})
+    setExpandedVarianceBucketOrders({})
+  }, [selectedStore, startDate, endDate, activePayoutRef])
 
   const authFetch = useCallback((url: string, init?: RequestInit) => {
     const token = typeof window !== 'undefined' ? localStorage.getItem('teg_token') : null
@@ -803,12 +815,16 @@ export default function ConciliarDeliveryPage() {
         ghOrders: data.platformOrdersSynced || 0,
         ghPayouts: data.payoutsSynced || 0,
       })
+      const warnSuffix =
+        syncErrors.length > 0
+          ? ` ${t('deliveryReconciliation.sync_warnings_suffix', {
+              count: syncErrors.length,
+              details: syncErrors.slice(0, 2).join(' | '),
+            })}`
+          : ''
       setBannerMessage({
         type: syncErrors.length > 0 ? 'error' : 'success',
-        text:
-          syncErrors.length > 0
-            ? `${baseMsg} ⚠️ (${syncErrors.length} advertencia(s)/fallo(s): ${syncErrors.slice(0, 2).join(' | ')})`
-            : baseMsg,
+        text: `${baseMsg}${warnSuffix}`,
       })
       await Promise.all([fetchData(), fetchQbJournalRecords()])
     } catch (err: any) {
@@ -841,6 +857,7 @@ export default function ConciliarDeliveryPage() {
     setBannerMessage(null)
     setFetchError(null)
     let completedCount = 0
+    const collectedSyncErrors = new Set<string>()
 
     try {
       const batchSize = 3
@@ -855,7 +872,7 @@ export default function ConciliarDeliveryPage() {
           currentStoreName: batchNames,
         })
         try {
-          await authFetch('/api/delivery-reconciliation', {
+          const res = await authFetch('/api/delivery-reconciliation', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -868,15 +885,34 @@ export default function ConciliarDeliveryPage() {
               sync_grubhub: selectedPlatform === 'ALL' || selectedPlatform === 'GRUBHUB',
             }),
           })
-          completedCount += batch.length
-        } catch {
-          // Continuar con el siguiente lote en la cola progresiva
+          const data = await res.json().catch(() => ({}))
+          if (!res.ok || !data?.success) {
+            if (data?.error) collectedSyncErrors.add(String(data.error))
+          } else {
+            completedCount += batch.length
+            if (Array.isArray(data.syncErrors)) {
+              for (const errStr of data.syncErrors) {
+                if (errStr) collectedSyncErrors.add(String(errStr))
+              }
+            }
+          }
+        } catch (batchErr: any) {
+          if (batchErr?.message) collectedSyncErrors.add(String(batchErr.message))
         }
       }
 
+      const uniqueErrs = Array.from(collectedSyncErrors)
+      const doneText = t('deliveryReconciliation.sync_queue_done_toast', { count: completedCount })
+      const warnSuffix =
+        uniqueErrs.length > 0
+          ? ` ${t('deliveryReconciliation.sync_warnings_suffix', {
+              count: uniqueErrs.length,
+              details: uniqueErrs.slice(0, 2).join(' | '),
+            })}`
+          : ''
       setBannerMessage({
-        type: 'success',
-        text: t('deliveryReconciliation.sync_queue_done_toast', { count: completedCount }),
+        type: uniqueErrs.length > 0 ? 'error' : 'success',
+        text: `${doneText}${warnSuffix}`,
       })
       await Promise.all([fetchData(), fetchQbJournalRecords()])
     } catch (err: any) {
@@ -2408,10 +2444,59 @@ export default function ConciliarDeliveryPage() {
                 ? 'border-emerald-500/30 bg-white dark:bg-slate-900'
                 : 'border-orange-500/30 bg-white dark:bg-slate-900'
 
-            const grossCut = pData.payoutsGrossTotal || pData.settledPlatformGross || pData.platformGross || 0
-            const feesCut = pData.payoutsFeesTotal || pData.totalFees || 0
-            const errorsCut = pData.payoutsErrorTotal || pData.errorCharges || 0
-            const netBankCut = pData.payoutsNetTotal || pData.netPayout || 0
+            const hasPayouts = (pData.payoutsCount || 0) > 0
+            const grossCut = hasPayouts
+              ? Number(pData.payoutsGrossTotal || 0)
+              : Number(pData.platformGross || pData.settledPlatformGross || 0)
+            const subCut = hasPayouts
+              ? Number(pData.payoutsSubtotalTotal || 0)
+              : Number(pData.platformSubtotal || 0)
+            const taxCut = isUber
+              ? hasPayouts
+                ? Number(pData.payoutsTaxWithheld || 0)
+                : Number(pData.platformTaxWithheld || 0)
+              : hasPayouts
+              ? Number(pData.payoutsTaxToMerchant || 0)
+              : Number(pData.platformTaxToMerchant || 0)
+            const hasCutTaxBreakdown = hasPayouts
+              ? (pData.payoutsWithTaxBreakdownCount || 0) === (pData.payoutsCount || 0) &&
+                (pData.payoutsCount || 0) > 0
+              : Math.abs(subCut) > 0.009 || Math.abs(grossCut) <= 0.009
+
+            const feesCut = hasPayouts
+              ? Number(pData.payoutsFeesTotal || 0)
+              : Number(pData.totalFees || 0)
+            const errorsCut = hasPayouts
+              ? Number(pData.payoutsErrorTotal || 0)
+              : Number(pData.errorCharges || 0)
+            const netBankCut = hasPayouts
+              ? Number(pData.payoutsNetTotal || 0)
+              : Number(pData.netPayout || 0)
+
+            const hasPlatformCutActivity =
+              hasPayouts ||
+              Math.abs(grossCut) > 0.009 ||
+              Math.abs(netBankCut) > 0.009 ||
+              Math.abs(feesCut) > 0.009 ||
+              Math.abs(errorsCut) > 0.009
+
+            const otherCutAdj = hasPlatformCutActivity
+              ? Number((netBankCut - (grossCut + feesCut + errorsCut)).toFixed(2))
+              : 0
+
+            const toastSubPeriod = Number(pData.periodToastNet ?? pData.toastNet ?? 0)
+            const toastTaxPeriod = Number(pData.periodToastTax ?? pData.toastTax ?? 0)
+            const toastGrossPeriod = Number(
+              pData.periodToastExpectedGross ?? pData.toastExpectedGross ?? 0
+            )
+            const toastOrdersCount = Number(pData.periodToastOrdersCount ?? 0)
+            const hasToastActivity = toastOrdersCount > 0 || Math.abs(toastGrossPeriod) > 0.009
+
+            const toastExpectedNet = hasPlatformCutActivity
+              ? Number((toastGrossPeriod + (netBankCut - grossCut)).toFixed(2))
+              : 0
+            const grossVsToastDiff = Number((grossCut - toastGrossPeriod).toFixed(2))
+
             const conciliatedCount = pData.conciliatedReadyCount || 0
             const pendingReviewCount = pData.withPayoutPendingReviewCount || 0
 
@@ -2444,59 +2529,436 @@ export default function ConciliarDeliveryPage() {
                   <div className="flex items-center gap-2">
                     {renderPlatformBadge(plat)}
                   </div>
-                  <span className="px-2.5 py-0.5 rounded-full text-xs font-extrabold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
-                    {pData.payoutsCount || 0}{' '}
-                    {(pData.payoutsCount || 0) === 1
-                      ? t('deliveryReconciliation.weekly_cut_singular')
-                      : t('deliveryReconciliation.weekly_cut_plural')}
-                  </span>
+                  <div className="flex items-center gap-1.5 flex-wrap justify-end">
+                    {toastOrdersCount > 0 && (
+                      <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200/70 dark:border-indigo-800/70">
+                        {t('deliveryReconciliation.card_toast_orders_badge').replace(
+                          '{count}',
+                          String(toastOrdersCount)
+                        )}
+                      </span>
+                    )}
+                    <span className="px-2.5 py-0.5 rounded-full text-xs font-extrabold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
+                      {pData.payoutsCount || 0}{' '}
+                      {(pData.payoutsCount || 0) === 1
+                        ? t('deliveryReconciliation.weekly_cut_singular')
+                        : t('deliveryReconciliation.weekly_cut_plural')}
+                    </span>
+                  </div>
                 </div>
 
                 <div className="space-y-1.5 bg-slate-50 dark:bg-slate-800/60 rounded-xl p-3 border border-slate-200/80 dark:border-slate-800 text-xs">
-                  <div className="flex items-center justify-between">
-                    <span className="text-slate-500 font-semibold">
-                      {t('deliveryReconciliation.card_gross_sales')}{' '}
+                  {/* Encabezado de Columnas: Concepto | Corte Plat. | Toast POS */}
+                  <div className="grid grid-cols-[minmax(0,1fr)_86px_86px] sm:grid-cols-[minmax(0,1fr)_96px_96px] gap-x-2 items-baseline pb-1.5 mb-0.5 border-b border-slate-200/80 dark:border-slate-700/80 text-[10px] uppercase tracking-wider font-extrabold">
+                    <span className="text-slate-400 truncate">
+                      {t('deliveryReconciliation.card_col_concept')}
+                    </span>
+                    <span className="text-right text-slate-600 dark:text-slate-300 whitespace-nowrap">
+                      {t('deliveryReconciliation.card_col_payout')}
+                    </span>
+                    <span className="text-right text-indigo-600 dark:text-indigo-400 whitespace-nowrap">
+                      {t('deliveryReconciliation.card_col_toast')}
+                    </span>
+                  </div>
+
+                  {/* (+) Ventas Brutas */}
+                  <div className="grid grid-cols-[minmax(0,1fr)_86px_86px] sm:grid-cols-[minmax(0,1fr)_96px_96px] gap-x-2 items-baseline">
+                    <span className="text-slate-600 dark:text-slate-300 font-semibold truncate" title={`${t('deliveryReconciliation.card_gross_sales')} ${isUber ? t('deliveryReconciliation.card_without_tax') : t('deliveryReconciliation.card_with_tax')}`}>
+                      {t('deliveryReconciliation.card_gross_short')}{' '}
                       {isUber
                         ? t('deliveryReconciliation.card_without_tax')
                         : t('deliveryReconciliation.card_with_tax')}
                       :
                     </span>
-                    <span className="font-mono font-bold text-slate-900 dark:text-white">
+                    <span className="font-mono tabular-nums font-bold text-slate-900 dark:text-white text-right whitespace-nowrap">
                       {fmtMoney(grossCut)}
                     </span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-slate-500 font-semibold">
-                      {t('deliveryReconciliation.card_platform_fees')}
+                    <span className="font-mono tabular-nums font-bold text-indigo-700 dark:text-indigo-300 text-right whitespace-nowrap">
+                      {fmtMoney(toastGrossPeriod)}
                     </span>
-                    <span className="font-mono font-bold text-amber-600 dark:text-amber-400">
+                  </div>
+
+                  {/* Desglose Subtotal + Sales Tax */}
+                  {(hasPlatformCutActivity || hasToastActivity) && (
+                    <div className="space-y-0.5 pb-1">
+                      <div className="grid grid-cols-[minmax(0,1fr)_86px_86px] sm:grid-cols-[minmax(0,1fr)_96px_96px] gap-x-2 items-baseline text-[11px]">
+                        <span className="pl-2 text-slate-400 dark:text-slate-500 truncate">
+                          {t('deliveryReconciliation.card_sub_net_no_tax')}
+                        </span>
+                        <span className="font-mono tabular-nums text-slate-500 dark:text-slate-400 text-right whitespace-nowrap">
+                          {hasCutTaxBreakdown ? fmtMoney(subCut) : '—'}
+                        </span>
+                        <span className="font-mono tabular-nums text-indigo-600/80 dark:text-indigo-400/80 text-right whitespace-nowrap">
+                          {fmtMoney(toastSubPeriod)}
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-[minmax(0,1fr)_86px_86px] sm:grid-cols-[minmax(0,1fr)_96px_96px] gap-x-2 items-baseline text-[11px]">
+                        <span className="pl-2 text-slate-400 dark:text-slate-500 truncate">
+                          {isUber
+                            ? t('deliveryReconciliation.card_sub_uber_tax_info')
+                            : t('deliveryReconciliation.card_sub_sales_tax_teg')}
+                        </span>
+                        <span className="font-mono tabular-nums text-slate-500 dark:text-slate-400 text-right whitespace-nowrap">
+                          {hasCutTaxBreakdown ? fmtMoney(taxCut) : '—'}
+                        </span>
+                        <span className="font-mono tabular-nums text-indigo-600/80 dark:text-indigo-400/80 text-right whitespace-nowrap">
+                          {fmtMoney(toastTaxPeriod)}
+                        </span>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* (-) Comisiones y Tarifas */}
+                  <div className="grid grid-cols-[minmax(0,1fr)_86px_86px] sm:grid-cols-[minmax(0,1fr)_96px_96px] gap-x-2 items-baseline">
+                    <span className="text-slate-500 font-semibold truncate">
+                      {t('deliveryReconciliation.card_fees_short')}
+                    </span>
+                    <span className="font-mono tabular-nums font-bold text-amber-600 dark:text-amber-400 text-right whitespace-nowrap">
                       {fmtMoney(feesCut)}
                     </span>
+                    <span className="font-mono tabular-nums font-bold text-amber-600/90 dark:text-amber-400/90 text-right whitespace-nowrap">
+                      {hasPlatformCutActivity || !hasToastActivity ? fmtMoney(feesCut) : '—'}
+                    </span>
                   </div>
+
+                  {/* (-) Cargos por Error / Reembolsos */}
                   {Math.abs(errorsCut) > 0.01 && (
-                    <div className="flex items-center justify-between">
-                      <span className="text-slate-500 font-semibold">
+                    <div className="grid grid-cols-[minmax(0,1fr)_86px_86px] sm:grid-cols-[minmax(0,1fr)_96px_96px] gap-x-2 items-baseline">
+                      <span className="text-slate-500 font-semibold truncate">
                         {errorsCut > 0
                           ? t('deliveryReconciliation.card_reimbursements_won')
                           : t('deliveryReconciliation.card_error_charges')}
                       </span>
                       <span
-                        className={`font-mono font-bold ${
+                        className={`font-mono tabular-nums font-bold text-right whitespace-nowrap ${
                           errorsCut > 0 ? 'text-emerald-600' : 'text-rose-600'
+                        }`}
+                      >
+                        {errorsCut > 0 ? `+${fmtMoney(errorsCut)}` : fmtMoney(errorsCut)}
+                      </span>
+                      <span
+                        className={`font-mono tabular-nums font-bold text-right whitespace-nowrap ${
+                          errorsCut > 0 ? 'text-emerald-600/90' : 'text-rose-600/90'
                         }`}
                       >
                         {errorsCut > 0 ? `+${fmtMoney(errorsCut)}` : fmtMoney(errorsCut)}
                       </span>
                     </div>
                   )}
-                  <div className="flex items-center justify-between pt-1.5 border-t border-slate-200 dark:border-slate-700 text-sm">
-                    <span className="font-extrabold text-emerald-700 dark:text-emerald-400">
-                      {t('deliveryReconciliation.card_net_bank_deposit')}
+
+                  {/* (+/-) Propinas / Ajustes (ej. Grubhub tips o ajuste MFT Uber) */}
+                  {Math.abs(otherCutAdj) > 0.01 && (
+                    <div className="grid grid-cols-[minmax(0,1fr)_86px_86px] sm:grid-cols-[minmax(0,1fr)_96px_96px] gap-x-2 items-baseline">
+                      <span className="text-slate-500 font-semibold truncate">
+                        {t('deliveryReconciliation.card_tips_or_tax_adj')}
+                      </span>
+                      <span
+                        className={`font-mono tabular-nums font-bold text-right whitespace-nowrap ${
+                          otherCutAdj > 0 ? 'text-emerald-600' : 'text-rose-600'
+                        }`}
+                      >
+                        {otherCutAdj > 0 ? `+${fmtMoney(otherCutAdj)}` : fmtMoney(otherCutAdj)}
+                      </span>
+                      <span
+                        className={`font-mono tabular-nums font-bold text-right whitespace-nowrap ${
+                          otherCutAdj > 0 ? 'text-emerald-600/90' : 'text-rose-600/90'
+                        }`}
+                      >
+                        {otherCutAdj > 0 ? `+${fmtMoney(otherCutAdj)}` : fmtMoney(otherCutAdj)}
+                      </span>
+                    </div>
+                  )}
+
+                  {/* (=) Depósito Neto en Banco vs Calculado desde Toast */}
+                  <div className="grid grid-cols-[minmax(0,1fr)_86px_86px] sm:grid-cols-[minmax(0,1fr)_96px_96px] gap-x-2 items-baseline pt-1.5 border-t border-slate-200 dark:border-slate-700 text-xs sm:text-sm">
+                    <span className="font-extrabold text-emerald-700 dark:text-emerald-400 truncate">
+                      {t('deliveryReconciliation.card_net_deposit_short')}
                     </span>
-                    <span className="font-mono font-extrabold text-emerald-600 dark:text-emerald-400">
+                    <span className="font-mono tabular-nums font-extrabold text-emerald-600 dark:text-emerald-400 text-right whitespace-nowrap">
                       {fmtMoney(netBankCut)}
                     </span>
+                    <span className="font-mono tabular-nums font-extrabold text-indigo-700 dark:text-indigo-300 text-right whitespace-nowrap">
+                      {hasPlatformCutActivity || !hasToastActivity
+                        ? fmtMoney(toastExpectedNet)
+                        : '—'}
+                    </span>
                   </div>
+
+                  {/* Δ Diferencia (Corte − Toast POS) + Puente Contable Explicativo */}
+                  {(hasPlatformCutActivity || hasToastActivity) && (() => {
+                    const vBridge = pData.varianceBreakdown
+                    const hasBridgeContent = Boolean(
+                      vBridge &&
+                        vBridge.mode !== 'NO_ACTIVITY' &&
+                        (Math.abs(grossVsToastDiff) > 0.01 || (vBridge.items?.length || 0) > 0)
+                    )
+                    const isVarianceBridgeOpen =
+                      varianceBridgeOpenMap[plat] !== undefined
+                        ? Boolean(varianceBridgeOpenMap[plat])
+                        : Boolean(isSelected && hasBridgeContent)
+
+                    const fmtSignedMoney = (val: number) =>
+                      val > 0.005 ? `+${fmtMoney(val)}` : fmtMoney(val)
+
+                    const formatRefsLabel = (refs?: string[]) =>
+                      refs && refs.length > 0
+                        ? refs.map((r) => `#${r}`).join(', ')
+                        : '#—'
+
+                    const formatDatesLabel = (dates?: string[]) =>
+                      dates && dates.length > 0
+                        ? dates.map((d) => fmtDateMDY(d)).join(', ')
+                        : '—'
+
+                    return (
+                      <div className="pt-1 border-t border-dashed border-slate-200/80 dark:border-slate-700/70 space-y-2">
+                        <div className="flex items-center justify-between gap-2 text-[11px]">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="font-bold text-slate-600 dark:text-slate-300">
+                              {t('deliveryReconciliation.card_variance_vs_toast')}
+                            </span>
+                            {hasBridgeContent && (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  setVarianceBridgeOpenMap((prev) => ({
+                                    ...prev,
+                                    [plat]: !isVarianceBridgeOpen,
+                                  }))
+                                }}
+                                className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-700 dark:text-indigo-300 border border-indigo-500/25 transition"
+                              >
+                                {isVarianceBridgeOpen
+                                  ? t('deliveryReconciliation.var_btn_hide')
+                                  : t('deliveryReconciliation.var_btn_show')}
+                              </button>
+                            )}
+                          </div>
+                          <span
+                            className={`font-mono tabular-nums font-extrabold whitespace-nowrap ${
+                              Math.abs(grossVsToastDiff) <= 0.01
+                                ? 'text-emerald-600 dark:text-emerald-400'
+                                : grossVsToastDiff < 0
+                                ? 'text-rose-600 dark:text-rose-400'
+                                : 'text-amber-600 dark:text-amber-400'
+                            }`}
+                          >
+                            {Math.abs(grossVsToastDiff) <= 0.01
+                              ? `${fmtMoney(0)} ✓`
+                              : fmtSignedMoney(grossVsToastDiff)}
+                          </span>
+                        </div>
+
+                        {hasBridgeContent && isVarianceBridgeOpen && vBridge && (
+                          <div
+                            onClick={(e) => e.stopPropagation()}
+                            className="cursor-default rounded-xl bg-white dark:bg-slate-900/90 border border-slate-200 dark:border-slate-700/80 p-2.5 space-y-2 text-[11px] shadow-inner"
+                          >
+                            <div className="font-extrabold text-[10px] uppercase tracking-wider text-indigo-700 dark:text-indigo-300">
+                              {t('deliveryReconciliation.var_panel_title')}
+                            </div>
+
+                            {/* Banner de Diagnóstico Contable */}
+                            {vBridge.mode === 'SUMMARY_ONLY_PENDING_ORDER_SYNC' ? (
+                              <div className="rounded-lg p-2 bg-amber-50 dark:bg-amber-950/40 border border-amber-200/80 dark:border-amber-800/60 space-y-1">
+                                <div className="font-extrabold text-amber-800 dark:text-amber-300">
+                                  {t('deliveryReconciliation.var_diag_pending_sync_title')}
+                                </div>
+                                <p className="text-amber-700 dark:text-amber-200/90 leading-snug">
+                                  {t('deliveryReconciliation.var_diag_pending_sync_desc')
+                                    .replace('{refs}', formatRefsLabel(vBridge.payoutRefs))
+                                    .replace('{cutGross}', fmtMoney(grossCut))
+                                    .replace('{toastCount}', String(toastOrdersCount))
+                                    .replace('{toastGross}', fmtMoney(toastGrossPeriod))
+                                    .replace('{diff}', fmtSignedMoney(grossVsToastDiff))}
+                                </p>
+                              </div>
+                            ) : vBridge.diagnosticStatus === 'OK_TIMING_OR_FAVORABLE' ? (
+                              <div className="rounded-lg p-2 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200/80 dark:border-emerald-800/60 space-y-1">
+                                <div className="font-extrabold text-emerald-800 dark:text-emerald-300">
+                                  {t('deliveryReconciliation.var_diag_ok_title')}
+                                </div>
+                                <p className="text-emerald-700 dark:text-emerald-200/90 leading-snug">
+                                  {t('deliveryReconciliation.var_diag_ok_desc')}
+                                </p>
+                              </div>
+                            ) : (
+                              <div className="rounded-lg p-2 bg-amber-50 dark:bg-amber-950/40 border border-amber-200/80 dark:border-amber-800/60 space-y-1">
+                                <div className="font-extrabold text-amber-800 dark:text-amber-300">
+                                  {t('deliveryReconciliation.var_diag_review_title')}
+                                </div>
+                                <p className="text-amber-700 dark:text-amber-200/90 leading-snug">
+                                  {t('deliveryReconciliation.var_diag_review_desc')}
+                                </p>
+                              </div>
+                            )}
+
+                            {/* Ecuación Paso a Paso cuando hay desglose de órdenes */}
+                            {vBridge.mode === 'FULL_ORDER_BRIDGE' && (
+                              <div className="space-y-1.5 pt-0.5">
+                                <div className="flex items-baseline justify-between gap-2 pb-1 border-b border-slate-100 dark:border-slate-800">
+                                  <span className="font-bold text-indigo-700 dark:text-indigo-300">
+                                    {t('deliveryReconciliation.var_bridge_start_toast').replace(
+                                      '{count}',
+                                      String(toastOrdersCount)
+                                    )}
+                                  </span>
+                                  <span className="font-mono tabular-nums font-extrabold text-indigo-700 dark:text-indigo-300 whitespace-nowrap">
+                                    {fmtMoney(vBridge.toastBaseGross)}
+                                  </span>
+                                </div>
+
+                                {vBridge.matchedExactCount > 0 && (
+                                  <div className="text-[10.5px] font-semibold text-emerald-700 dark:text-emerald-400 px-1">
+                                    {t('deliveryReconciliation.var_bridge_matched_note')
+                                      .replace('{count}', String(vBridge.matchedExactCount))
+                                      .replace('{amount}', fmtMoney(vBridge.matchedExactGross))}
+                                  </div>
+                                )}
+
+                                {vBridge.items.map((item: any) => {
+                                  const bucketKey = `${plat}:${item.code}`
+                                  const isOrdersExpanded = Boolean(
+                                    expandedVarianceBucketOrders[bucketKey]
+                                  )
+                                  const refsLabel = formatRefsLabel(
+                                    item.refs?.length ? item.refs : vBridge.payoutRefs
+                                  )
+                                  const datesLabel = formatDatesLabel(item.dates)
+                                  const rawTitle = t(
+                                    `deliveryReconciliation.var_item_${item.code}_title`
+                                  )
+                                    .replace('{count}', String(item.count))
+                                    .replace('{refs}', refsLabel)
+                                    .replace('{dates}', datesLabel)
+                                  const rawDesc = t(
+                                    `deliveryReconciliation.var_item_${item.code}_desc`
+                                  )
+                                    .replace(/\{count\}/g, String(item.count))
+                                    .replace(/\{refs\}/g, refsLabel)
+                                    .replace(/\{dates\}/g, datesLabel)
+
+                                  return (
+                                    <div
+                                      key={item.code}
+                                      className="rounded-lg border border-slate-200/90 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-800/50 p-2 space-y-1"
+                                    >
+                                      <div className="flex items-start justify-between gap-2">
+                                        <span className="font-bold text-slate-800 dark:text-slate-100 leading-snug">
+                                          {rawTitle}
+                                        </span>
+                                        <span
+                                          className={`font-mono tabular-nums font-extrabold whitespace-nowrap ${
+                                            item.grossDelta > 0
+                                              ? 'text-emerald-600 dark:text-emerald-400'
+                                              : 'text-rose-600 dark:text-rose-400'
+                                          }`}
+                                        >
+                                          {fmtSignedMoney(item.grossDelta)}
+                                        </span>
+                                      </div>
+
+                                      <div className="flex items-center justify-between gap-2 flex-wrap text-[10px] text-slate-500 dark:text-slate-400 font-mono">
+                                        <span>
+                                          {isUber
+                                            ? `Sub: ${fmtSignedMoney(item.subtotalDelta)}`
+                                            : t('deliveryReconciliation.var_sub_tax_chip')
+                                                .replace('{sub}', fmtSignedMoney(item.subtotalDelta))
+                                                .replace('{tax}', fmtSignedMoney(item.taxDelta))}
+                                        </span>
+                                        {item.orders && item.orders.length > 0 && (
+                                          <button
+                                            type="button"
+                                            onClick={(e) => {
+                                              e.stopPropagation()
+                                              setExpandedVarianceBucketOrders((prev) => ({
+                                                ...prev,
+                                                [bucketKey]: !isOrdersExpanded,
+                                              }))
+                                            }}
+                                            className="font-sans px-1.5 py-0.5 rounded bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-indigo-700 dark:text-indigo-300 font-bold hover:bg-indigo-50 dark:hover:bg-slate-800 transition"
+                                          >
+                                            {isOrdersExpanded
+                                              ? t('deliveryReconciliation.var_hide_orders_btn')
+                                              : t(
+                                                  'deliveryReconciliation.var_view_orders_btn'
+                                                ).replace('{count}', String(item.orders.length))}
+                                          </button>
+                                        )}
+                                      </div>
+
+                                      <p className="text-[10.5px] text-slate-600 dark:text-slate-300 leading-snug">
+                                        {rawDesc}
+                                      </p>
+
+                                      {isOrdersExpanded && item.orders && item.orders.length > 0 && (
+                                        <div className="mt-1.5 pt-1.5 border-t border-slate-200 dark:border-slate-700 max-h-48 overflow-y-auto space-y-1">
+                                          {item.orders.map((ordSample: any) => (
+                                            <div
+                                              key={ordSample.id}
+                                              className="flex items-center justify-between gap-2 text-[10px] py-0.5 px-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800"
+                                            >
+                                              <div className="min-w-0 truncate text-slate-700 dark:text-slate-300">
+                                                <span className="font-mono font-bold">
+                                                  #{ordSample.platform_order_id}
+                                                </span>
+                                                {ordSample.toast_display_number && (
+                                                  <span className="text-indigo-600 dark:text-indigo-400 font-semibold">
+                                                    {' '}
+                                                    • Toast #{ordSample.toast_display_number}
+                                                  </span>
+                                                )}
+                                                {ordSample.placed_pt ? (
+                                                  <span className="text-slate-400">
+                                                    {' '}
+                                                    • {ordSample.placed_pt}
+                                                  </span>
+                                                ) : ordSample.business_date ? (
+                                                  <span className="text-slate-400">
+                                                    {' '}
+                                                    • {fmtDateMDY(ordSample.business_date)}
+                                                  </span>
+                                                ) : null}
+                                                {ordSample.payout_reference_id && (
+                                                  <span className="text-slate-500 font-mono">
+                                                    {' '}
+                                                    • #{ordSample.payout_reference_id}
+                                                  </span>
+                                                )}
+                                              </div>
+                                              <span
+                                                className={`font-mono tabular-nums font-bold whitespace-nowrap ${
+                                                  ordSample.delta > 0
+                                                    ? 'text-emerald-600 dark:text-emerald-400'
+                                                    : 'text-rose-600 dark:text-rose-400'
+                                                }`}
+                                              >
+                                                {fmtSignedMoney(ordSample.delta)}
+                                              </span>
+                                            </div>
+                                          ))}
+                                        </div>
+                                      )}
+                                    </div>
+                                  )
+                                })}
+
+                                <div className="flex items-baseline justify-between gap-2 pt-1.5 border-t border-slate-200 dark:border-slate-700">
+                                  <span className="font-extrabold text-slate-900 dark:text-white">
+                                    {t('deliveryReconciliation.var_bridge_end_payout')}
+                                  </span>
+                                  <span className="font-mono tabular-nums font-extrabold text-slate-900 dark:text-white whitespace-nowrap">
+                                    {fmtMoney(vBridge.payoutTargetGross)}
+                                  </span>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })()}
                 </div>
 
                 <div className="mt-2.5 pt-2 flex flex-wrap items-center justify-between gap-1 text-[11px]">

@@ -70,7 +70,9 @@
  *     al cliente Server-to-Server con header `Cookie` aislado por sucursal para jamás desfasar la sucursal visualizada en el navegador.
  *   * Corregida la paginación de `getHistoricOrders` para propagar dinámicamente `paginationResult.nextTable` (`liveOrders` -> `historyOrders`)
  *     y vinculados los `enrichedPeriods` de Fase 1 a Fase 2 (`s2sEnrichedPeriodsByStore`) preservando metadatos de payouts existentes.
- * - Fix 2026-11-11 (Soporte Prefijo Caviar `CAV`/`CAVIAR`): `parseToastTabPlatformOrderId` extrae códigos hexadecimales de órdenes Caviar (`CAV <hex8>`) liquidadas dentro de DoorDash Payouts.
+ * - Fix 2026-11-11 (Soporte Prefijo Caviar `CAV`/`CAVIAR` & Detección Explícita de Sesión Expirada `HTTP 401/403`):
+ *   * `parseToastTabPlatformOrderId` extrae códigos hexadecimales de órdenes Caviar (`CAV <hex8>`) liquidadas dentro de DoorDash Payouts.
+ *   * Detección inmediata de `HTTP 401/403` en DoorDash Merchant y Uber Eats Manager (evitando sobrescribir `integrations` con cookies sin sesión activa) y propagación de `syncErrors` hacia la UI.
  */
 
 import crypto from 'crypto'
@@ -3492,6 +3494,8 @@ async function fetchChromeLiveDoorDashAndUberForStores(
   let doordashError: string | undefined
   let uberPartialReason: string | undefined
   let doordashPartialReason: string | undefined
+  let uberAuthFailed = false
+  let doordashAuthFailed = false
   const lookbackStartDate = startDate
   const payoutQueryEndDate = addDaysToDateStr(endDate, 8)
   const wantUber = targetPlatform === 'ALL' || targetPlatform === 'UBER_EATS'
@@ -3577,183 +3581,220 @@ async function fetchChromeLiveDoorDashAndUberForStores(
               const storesForOrders = new Set(targetMappings.map((m) => m.store_id))
 
               if (uberTab && wantUber) {
-                const { sessionId: uberSession } = await send('Target.attachToTarget', {
-                  targetId: uberTab.targetId,
-                  flatten: true,
-                })
+                const uberTabUrlLower = String(uberTab.url || '').toLowerCase()
+                const uberTabIsLogin =
+                  uberTabUrlLower.includes('auth.uber.com') || uberTabUrlLower.includes('/login')
+                if (uberTabIsLogin) {
+                  uberAuthFailed = true
+                  uberError =
+                    'Sesión de Uber Eats Manager cerrada en Chrome. Inicia sesión nuevamente en tu pestaña abierta de Uber Eats Manager y vuelve a sincronizar.'
+                } else {
+                  const { sessionId: uberSession } = await send('Target.attachToTarget', {
+                    targetId: uberTab.targetId,
+                    flatten: true,
+                  })
 
-                if (Date.now() - cookieSavedMemCache.uberTs > 180000) {
-                  const ckRes = await send(
-                    'Network.getCookies',
-                    { urls: ['https://merchants.ubereats.com'] },
-                    uberSession
-                  ).catch(() => null)
-                  if (Array.isArray(ckRes?.cookies) && ckRes.cookies.length > 0) {
-                    cookieSavedMemCache.uberTs = Date.now()
-                    const cookieHeader = ckRes.cookies
-                      .filter((c: any) => c.name !== 'selectedRestaurant')
-                      .map((c: any) => `${c.name}=${c.value}`)
-                      .join('; ')
-                    const encryptedCookie = encryptIntegrationSecret(cookieHeader)
-                    const maxExp = Math.max(...ckRes.cookies.map((c: any) => c.expires || 0))
-                    const expiresAt =
-                      maxExp > 0
-                        ? new Date(maxExp * 1000).toISOString()
-                        : new Date(Date.now() + 7 * 86400000).toISOString()
-                    const { data: existingInt } = await supabaseAdmin
-                      .from('integrations')
-                      .select('id')
-                      .eq('service_name', 'ubereats_merchant')
-                      .maybeSingle()
-                    if (existingInt?.id) {
-                      await supabaseAdmin
+                  if (Date.now() - cookieSavedMemCache.uberTs > 180000) {
+                    const ckRes = await send(
+                      'Network.getCookies',
+                      { urls: ['https://merchants.ubereats.com'] },
+                      uberSession
+                    ).catch(() => null)
+                    if (Array.isArray(ckRes?.cookies) && ckRes.cookies.length > 0) {
+                      cookieSavedMemCache.uberTs = Date.now()
+                      const cookieHeader = ckRes.cookies
+                        .filter((c: any) => c.name !== 'selectedRestaurant')
+                        .map((c: any) => `${c.name}=${c.value}`)
+                        .join('; ')
+                      const encryptedCookie = encryptIntegrationSecret(cookieHeader)
+                      const maxExp = Math.max(...ckRes.cookies.map((c: any) => c.expires || 0))
+                      const expiresAt =
+                        maxExp > 0
+                          ? new Date(maxExp * 1000).toISOString()
+                          : new Date(Date.now() + 7 * 86400000).toISOString()
+                      const { data: existingInt } = await supabaseAdmin
                         .from('integrations')
-                        .update({
+                        .select('id')
+                        .eq('service_name', 'ubereats_merchant')
+                        .maybeSingle()
+                      if (existingInt?.id) {
+                        await supabaseAdmin
+                          .from('integrations')
+                          .update({
+                            access_token: encryptedCookie,
+                            expires_at: expiresAt,
+                            updated_at: new Date().toISOString(),
+                          })
+                          .eq('id', existingInt.id)
+                      } else {
+                        await supabaseAdmin.from('integrations').insert({
+                          service_name: 'ubereats_merchant',
+                          realm_id: 'all_15_stores',
                           access_token: encryptedCookie,
+                          refresh_token: 'encrypted_cookie_session',
+                          token_type: 'Cookie',
                           expires_at: expiresAt,
                           updated_at: new Date().toISOString(),
                         })
-                        .eq('id', existingInt.id)
-                    } else {
-                      await supabaseAdmin.from('integrations').insert({
-                        service_name: 'ubereats_merchant',
-                        realm_id: 'all_15_stores',
-                        access_token: encryptedCookie,
-                        refresh_token: 'encrypted_cookie_session',
-                        token_type: 'Cookie',
-                        expires_at: expiresAt,
-                        updated_at: new Date().toISOString(),
-                      })
+                      }
                     }
                   }
-                }
 
-                // Restaurar `selectedRestaurant` si la URL de la pestaña de Uber Eats tiene `?restaurantUUID=` para no desfasar nunca la vista del usuario en Chrome.
-                // Las llamadas de sincronización de Uber Eats se ejecutan abajo vía Server-to-Server con headers `Cookie` aislados por petición, sin tocar `document.cookie` del navegador.
-                const urlRestMatch = String(uberTab.url || '').match(/[?&]restaurantUUID=([0-9a-f-]{36})/i)
-                if (urlRestMatch?.[1]) {
-                  await send(
-                    'Network.setCookie',
-                    {
-                      name: 'selectedRestaurant',
-                      value: urlRestMatch[1],
-                      domain: 'merchants.ubereats.com',
-                      path: '/',
-                    },
-                    uberSession
-                  ).catch(() => null)
+                  // Restaurar `selectedRestaurant` si la URL de la pestaña de Uber Eats tiene `?restaurantUUID=` para no desfasar nunca la vista del usuario en Chrome.
+                  // Las llamadas de sincronización de Uber Eats se ejecutan abajo vía Server-to-Server con headers `Cookie` aislados por petición, sin tocar `document.cookie` del navegador.
+                  const urlRestMatch = String(uberTab.url || '').match(/[?&]restaurantUUID=([0-9a-f-]{36})/i)
+                  if (urlRestMatch?.[1]) {
+                    await send(
+                      'Network.setCookie',
+                      {
+                        name: 'selectedRestaurant',
+                        value: urlRestMatch[1],
+                        domain: 'merchants.ubereats.com',
+                        path: '/',
+                      },
+                      uberSession
+                    ).catch(() => null)
+                  }
                 }
               }
 
               if (ddTab && wantDd) {
-                const { sessionId: ddSession } = await send('Target.attachToTarget', {
-                  targetId: ddTab.targetId,
-                  flatten: true,
-                })
+                const ddTabUrlLower = String(ddTab.url || '').toLowerCase()
+                const ddTabIsLogin =
+                  ddTabUrlLower.includes('/identity/') ||
+                  ddTabUrlLower.includes('/login') ||
+                  ddTabUrlLower.includes('/authn')
+                if (ddTabIsLogin) {
+                  doordashAuthFailed = true
+                  doordashError =
+                    'Sesión de DoorDash Merchant cerrada en Chrome. Inicia sesión nuevamente en tu pestaña abierta de DoorDash Merchant Portal y vuelve a sincronizar.'
+                  await supabaseAdmin
+                    .from('integrations')
+                    .update({ expires_at: new Date(0).toISOString(), updated_at: new Date().toISOString() })
+                    .eq('service_name', 'doordash_merchant')
+                } else {
+                  const { sessionId: ddSession } = await send('Target.attachToTarget', {
+                    targetId: ddTab.targetId,
+                    flatten: true,
+                  })
 
-                if (Date.now() - cookieSavedMemCache.ddTs > 180000) {
-                  const ddCkRes = await send(
-                    'Network.getCookies',
-                    { urls: ['https://merchant-portal.doordash.com', 'https://www.doordash.com'] },
-                    ddSession
-                  ).catch(() => null)
-                  if (Array.isArray(ddCkRes?.cookies) && ddCkRes.cookies.length > 0) {
-                    cookieSavedMemCache.ddTs = Date.now()
-                    const ddCookieHeader = ddCkRes.cookies.map((c: any) => `${c.name}=${c.value}`).join('; ')
-                    const encryptedDdCookie = encryptIntegrationSecret(ddCookieHeader)
-                    const maxDdExp = Math.max(...ddCkRes.cookies.map((c: any) => c.expires || 0))
-                    const ddExpiresAt =
-                      maxDdExp > 0
-                        ? new Date(maxDdExp * 1000).toISOString()
-                        : new Date(Date.now() + 7 * 86400000).toISOString()
-                    const { data: existingDdInt } = await supabaseAdmin
-                      .from('integrations')
-                      .select('id')
-                      .eq('service_name', 'doordash_merchant')
-                      .maybeSingle()
-                    if (existingDdInt?.id) {
+                  // 1. Obtener en lote paginado completo los `payout_summaries` de DoorDash PRIMERO (antes de guardar cookies) para verificar que la sesión esté autenticada
+                  const ddCacheKey = `${lookbackStartDate}_${payoutQueryEndDate}`
+                  const cachedDd = ddSummariesMemCache.get(ddCacheKey)
+                  let allDdSummaries: any[] = []
+                  let cdpDdHttpStatus = 200
+                  if (cachedDd && Date.now() - cachedDd.ts < 90000 && cachedDd.summariesList.length > 0) {
+                    allDdSummaries = cachedDd.summariesList
+                    if (cachedDd.truncated) {
+                      doordashPartialReason = 'Límite técnico de paginación alcanzado en payout_summaries de DoorDash.'
+                    }
+                  } else {
+                    const ddSummariesEval = await send(
+                      'Runtime.evaluate',
+                      {
+                        expression: `(async () => {
+                      const summariesList = [];
+                      let truncated = false;
+                      for (let offset = 0; offset < 500; offset += 50) {
+                        const sumRes = await fetch('https://merchant-portal.doordash.com/merchant-analytics-service/api/v2/payout_summaries', {
+                          method: 'POST',
+                          credentials: 'include',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({
+                            storeIds: [],
+                            businessIds: [137616],
+                            organizations: [],
+                            dateRange: {
+                              startDate: ${JSON.stringify(`${lookbackStartDate}T07:00:00.000Z`)},
+                              endDate: ${JSON.stringify(`${payoutQueryEndDate}T23:59:59.999Z`)}
+                            },
+                            filtersList: [{ channelsList: [3] }],
+                            storeFilterGranularity: null,
+                            page: { offset, limit: 50 }
+                          })
+                        });
+                        if (!sumRes.ok) {
+                          return { summariesList, truncated, httpStatus: sumRes.status };
+                        }
+                        const sumJson = await sumRes.json().catch(() => ({}));
+                        const batch = sumJson?.summariesList || [];
+                        summariesList.push(...batch);
+                        if (batch.length < 50) break;
+                        if (offset + 50 >= 500) truncated = true;
+                      }
+                      return { summariesList, truncated, httpStatus: 200 };
+                    })()`,
+                        awaitPromise: true,
+                        returnByValue: true,
+                      },
+                      ddSession
+                    ).catch(() => null)
+
+                    cdpDdHttpStatus = Number(ddSummariesEval?.result?.value?.httpStatus || 200)
+                    if (cdpDdHttpStatus === 401 || cdpDdHttpStatus === 403) {
+                      doordashAuthFailed = true
+                      doordashError = `Sesión de DoorDash Merchant expirada o cerrada (HTTP ${cdpDdHttpStatus}). Inicia sesión nuevamente en tu pestaña abierta de DoorDash Merchant Portal y vuelve a sincronizar.`
                       await supabaseAdmin
                         .from('integrations')
-                        .update({
+                        .update({ expires_at: new Date(0).toISOString(), updated_at: new Date().toISOString() })
+                        .eq('service_name', 'doordash_merchant')
+                    } else {
+                      const tr = Boolean(ddSummariesEval?.result?.value?.truncated)
+                      if (tr) {
+                        doordashPartialReason = 'Límite técnico de paginación alcanzado en payout_summaries de DoorDash.'
+                      }
+                      allDdSummaries = ddSummariesEval?.result?.value?.summariesList || []
+                      if (allDdSummaries.length > 0) {
+                        ddSummariesMemCache.set(ddCacheKey, { ts: Date.now(), summariesList: allDdSummaries, truncated: tr })
+                      }
+                    }
+                  }
+
+                  if (!doordashAuthFailed && Date.now() - cookieSavedMemCache.ddTs > 180000) {
+                    const ddCkRes = await send(
+                      'Network.getCookies',
+                      { urls: ['https://merchant-portal.doordash.com', 'https://www.doordash.com'] },
+                      ddSession
+                    ).catch(() => null)
+                    if (Array.isArray(ddCkRes?.cookies) && ddCkRes.cookies.length > 0) {
+                      cookieSavedMemCache.ddTs = Date.now()
+                      const ddCookieHeader = ddCkRes.cookies.map((c: any) => `${c.name}=${c.value}`).join('; ')
+                      const encryptedDdCookie = encryptIntegrationSecret(ddCookieHeader)
+                      const maxDdExp = Math.max(...ddCkRes.cookies.map((c: any) => c.expires || 0))
+                      const ddExpiresAt =
+                        maxDdExp > 0
+                          ? new Date(maxDdExp * 1000).toISOString()
+                          : new Date(Date.now() + 7 * 86400000).toISOString()
+                      const { data: existingDdInt } = await supabaseAdmin
+                        .from('integrations')
+                        .select('id')
+                        .eq('service_name', 'doordash_merchant')
+                        .maybeSingle()
+                      if (existingDdInt?.id) {
+                        await supabaseAdmin
+                          .from('integrations')
+                          .update({
+                            access_token: encryptedDdCookie,
+                            expires_at: ddExpiresAt,
+                            updated_at: new Date().toISOString(),
+                          })
+                          .eq('id', existingDdInt.id)
+                      } else {
+                        await supabaseAdmin.from('integrations').insert({
+                          service_name: 'doordash_merchant',
+                          realm_id: 'all_15_stores',
                           access_token: encryptedDdCookie,
+                          refresh_token: 'encrypted_cookie_session',
+                          token_type: 'Cookie',
                           expires_at: ddExpiresAt,
                           updated_at: new Date().toISOString(),
                         })
-                        .eq('id', existingDdInt.id)
-                    } else {
-                      await supabaseAdmin.from('integrations').insert({
-                        service_name: 'doordash_merchant',
-                        realm_id: 'all_15_stores',
-                        access_token: encryptedDdCookie,
-                        refresh_token: 'encrypted_cookie_session',
-                        token_type: 'Cookie',
-                        expires_at: ddExpiresAt,
-                        updated_at: new Date().toISOString(),
-                      })
+                      }
                     }
                   }
-                }
 
-                // 1. Obtener en lote paginado completo los `payout_summaries` de DoorDash para el rango solicitado (con caché en memoria de 90s para colas de sucursales)
-                const ddCacheKey = `${lookbackStartDate}_${payoutQueryEndDate}`
-                const cachedDd = ddSummariesMemCache.get(ddCacheKey)
-                let allDdSummaries: any[] = []
-                if (cachedDd && Date.now() - cachedDd.ts < 90000 && cachedDd.summariesList.length > 0) {
-                  allDdSummaries = cachedDd.summariesList
-                  if (cachedDd.truncated) {
-                    doordashPartialReason = 'Límite técnico de paginación alcanzado en payout_summaries de DoorDash.'
-                  }
-                } else {
-                  const ddSummariesEval = await send(
-                    'Runtime.evaluate',
-                    {
-                      expression: `(async () => {
-                    const summariesList = [];
-                    let truncated = false;
-                    for (let offset = 0; offset < 500; offset += 50) {
-                      const sumRes = await fetch('https://merchant-portal.doordash.com/merchant-analytics-service/api/v2/payout_summaries', {
-                        method: 'POST',
-                        credentials: 'include',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                          storeIds: [],
-                          businessIds: [137616],
-                          organizations: [],
-                          dateRange: {
-                            startDate: ${JSON.stringify(`${lookbackStartDate}T07:00:00.000Z`)},
-                            endDate: ${JSON.stringify(`${payoutQueryEndDate}T23:59:59.999Z`)}
-                          },
-                          filtersList: [{ channelsList: [3] }],
-                          storeFilterGranularity: null,
-                          page: { offset, limit: 50 }
-                        })
-                      });
-                      const sumJson = await sumRes.json().catch(() => ({}));
-                      const batch = sumJson?.summariesList || [];
-                      summariesList.push(...batch);
-                      if (batch.length < 50) break;
-                      if (offset + 50 >= 500) truncated = true;
-                    }
-                    return { summariesList, truncated };
-                  })()`,
-                      awaitPromise: true,
-                      returnByValue: true,
-                    },
-                    ddSession
-                  ).catch(() => null)
-
-                  const tr = Boolean(ddSummariesEval?.result?.value?.truncated)
-                  if (tr) {
-                    doordashPartialReason = 'Límite técnico de paginación alcanzado en payout_summaries de DoorDash.'
-                  }
-                  allDdSummaries = ddSummariesEval?.result?.value?.summariesList || []
-                  if (allDdSummaries.length > 0) {
-                    ddSummariesMemCache.set(ddCacheKey, { ts: Date.now(), summariesList: allDdSummaries, truncated: tr })
-                  }
-                }
-
-                // 2. Obtener `payout_transactions` únicamente para los payouts cuyo periodo se solapa con `[startDate, endDate]`
-                for (const m of targetMappings) {
+                  // 2. Obtener `payout_transactions` únicamente para los payouts cuyo periodo se solapa con `[startDate, endDate]`
+                  for (const m of doordashAuthFailed ? [] : targetMappings) {
                   if (!m.doordash_store_id || !storesForOrders.has(m.store_id)) continue
                   const ddStoreId = String(m.doordash_store_id).trim()
                   const storeSummaries = allDdSummaries.filter((s: any) => {
@@ -3872,6 +3913,7 @@ async function fetchChromeLiveDoorDashAndUberForStores(
                     syncedDdStoreIds.add(m.store_id)
                   }
                 }
+                }
               }
             } catch (chromeInnerErr: any) {
               // Registrar error si falla extracción Chrome
@@ -3897,9 +3939,10 @@ async function fetchChromeLiveDoorDashAndUberForStores(
   }
 
   // Fallback Headless Server-to-Server para Uber Eats con sesión cifrada (`integrations.service_name = 'ubereats_merchant'`)
-  const pendingUberMappings = wantUber
-    ? targetMappings.filter((m) => Boolean(m.ubereats_store_uuid) && !syncedUberStoreIds.has(m.store_id))
-    : []
+  const pendingUberMappings =
+    wantUber && !uberAuthFailed
+      ? targetMappings.filter((m) => Boolean(m.ubereats_store_uuid) && !syncedUberStoreIds.has(m.store_id))
+      : []
   if (pendingUberMappings.length > 0) {
     try {
       const { data: uberInt } = await supabaseAdmin
@@ -3979,7 +4022,16 @@ async function fetchChromeLiveDoorDashAndUberForStores(
                     pagination: { pageSize: 25, offset },
                   })
                   if (payRes?.__httpError) {
-                    uberError = `Uber Eats API devolvió HTTP ${payRes.__httpError} en listPayoutsHistory.`
+                    if (payRes.__httpError === 401 || payRes.__httpError === 403) {
+                      uberAuthFailed = true
+                      uberError = `Sesión de Uber Eats Manager expirada o cerrada (HTTP ${payRes.__httpError}). Inicia sesión nuevamente en tu pestaña abierta de Uber Eats Manager y vuelve a sincronizar.`
+                      await supabaseAdmin
+                        .from('integrations')
+                        .update({ expires_at: new Date(0).toISOString(), updated_at: new Date().toISOString() })
+                        .eq('service_name', 'ubereats_merchant')
+                    } else {
+                      uberError = `Uber Eats API devolvió HTTP ${payRes.__httpError} en listPayoutsHistory.`
+                    }
                     break
                   }
                   const batch: any[] = Array.isArray(payRes?.data?.payPeriods) ? payRes.data.payPeriods : []
@@ -4184,9 +4236,10 @@ async function fetchChromeLiveDoorDashAndUberForStores(
   }
 
   // Fallback Headless Server-to-Server para DoorDash con sesión cifrada (`integrations.service_name = 'doordash_merchant'`)
-  const pendingDdMappings = wantDd
-    ? targetMappings.filter((m) => Boolean(m.doordash_store_id) && !syncedDdStoreIds.has(m.store_id))
-    : []
+  const pendingDdMappings =
+    wantDd && !doordashAuthFailed
+      ? targetMappings.filter((m) => Boolean(m.doordash_store_id) && !syncedDdStoreIds.has(m.store_id))
+      : []
   if (pendingDdMappings.length > 0) {
     try {
       const { data: ddInt } = await supabaseAdmin
@@ -4252,7 +4305,16 @@ async function fetchChromeLiveDoorDashAndUberForStores(
                 ).catch(() => null)
                 if (!sumRes || !sumRes.ok) {
                   if (sumRes && !sumRes.ok && offset === 0) {
-                    doordashError = `DoorDash API devolvió HTTP ${sumRes.status} en payout_summaries.`
+                    if (sumRes.status === 401 || sumRes.status === 403) {
+                      doordashAuthFailed = true
+                      doordashError = `Sesión de DoorDash Merchant expirada o cerrada (HTTP ${sumRes.status}). Inicia sesión nuevamente en tu pestaña abierta de DoorDash Merchant Portal y vuelve a sincronizar.`
+                      await supabaseAdmin
+                        .from('integrations')
+                        .update({ expires_at: new Date(0).toISOString(), updated_at: new Date().toISOString() })
+                        .eq('service_name', 'doordash_merchant')
+                    } else {
+                      doordashError = `DoorDash API devolvió HTTP ${sumRes.status} en payout_summaries.`
+                    }
                   }
                   break
                 }
@@ -4277,7 +4339,7 @@ async function fetchChromeLiveDoorDashAndUberForStores(
               .gte('period_end', startDate)
               .lte('period_start', endDate)
 
-            for (const m of pendingDdMappings) {
+            for (const m of doordashAuthFailed ? [] : pendingDdMappings) {
               if (!m.doordash_store_id) continue
               const ddStoreId = String(m.doordash_store_id).trim()
               const storeSummaries = allDdSummaries.filter((s: any) => {
@@ -5016,6 +5078,7 @@ export async function reconcileAndPersistDeliveryData(params: {
   unassignedOrdersQuarantined?: number
   unassignedPayoutsQuarantined?: number
   encryptionKeyMissing?: boolean
+  syncErrors?: string[]
   platformCoverage?: PlatformStoreCoverageItem[]
   storeProgress?: Array<{
     storeId: number
@@ -5300,11 +5363,26 @@ export async function reconcileAndPersistDeliveryData(params: {
           row.payout_reference_id && String(row.payout_reference_id).trim() !== '--'
             ? row.payout_reference_id
             : null
+        let restoredBusinessDate = row.business_date
+        let restoredPlacedAt = row.placed_at
+        if (
+          row.platform === 'DOORDASH' &&
+          isCreditOnlyRecoveryRow(row) &&
+          Array.isArray(row.raw_payload?.cells)
+        ) {
+          const cellDate = row.raw_payload.cells.find((c: any) => c && c.name === 2)?.value
+          const cellTime = row.raw_payload.cells.find((c: any) => c && c.name === 3)?.value
+          if (cellDate) {
+            const parsedCellDt = parseLocalLaDateTime(String(cellDate), String(cellTime || ''))
+            if (parsedCellDt.businessDate) restoredBusinessDate = parsedCellDt.businessDate
+            if (parsedCellDt.placedIso) restoredPlacedAt = parsedCellDt.placedIso
+          }
+        }
         platformMap.set(txKey, {
           storeId: row.store_id,
           platform: row.platform as DeliveryPlatformCode,
-          businessDate: row.business_date,
-          placedAt: row.placed_at,
+          businessDate: restoredBusinessDate,
+          placedAt: restoredPlacedAt,
           platformOrderId: row.platform_order_id,
           platformTransactionId: row.platform_transaction_id,
           payoutReferenceId: cleanPrevRef,
@@ -5566,6 +5644,44 @@ export async function reconcileAndPersistDeliveryData(params: {
         .range(from, to)
     )
 
+    // Enriquecer `cross_payout_refunds` en cortes DoorDash existentes a partir de filas `ADJUSTMENT` de crédito ($0 subtotal, ajuste positivo)
+    for (const sp of storePayouts || []) {
+      if (
+        sp.platform === 'DOORDASH' &&
+        sp.payout_reference_id &&
+        !Array.isArray(sp.raw_payload?.cross_payout_refunds)
+      ) {
+        const { data: creditAdjRows } = await supabaseAdmin
+          .from('delivery_platform_orders')
+          .select('platform_order_id, platform_transaction_id, business_date, platform_subtotal, error_charge, adjustment_amount, transaction_type, dispute_reason')
+          .eq('store_id', mapping.store_id)
+          .eq('platform', 'DOORDASH')
+          .eq('payout_reference_id', sp.payout_reference_id)
+          .eq('transaction_type', 'ADJUSTMENT')
+          .gt('adjustment_amount', 0)
+        const derivedCredits = (creditAdjRows || [])
+          .filter((cr: any) => isCreditOnlyRecoveryRow(cr) && String(cr.platform_order_id || '').trim().length >= 4)
+          .map((cr: any) => ({
+            orderCode: String(cr.platform_order_id).trim(),
+            transactionId: cr.platform_transaction_id ? String(cr.platform_transaction_id).trim() : null,
+            payoutRef: String(sp.payout_reference_id).trim(),
+            depositDate: sp.payout_date || cr.business_date || null,
+            amount: round2(Number(cr.adjustment_amount || 0)),
+            description: cr.dispute_reason || 'DoorDash Credit / Dispute Recovery',
+          }))
+        if (derivedCredits.length > 0) {
+          sp.raw_payload = {
+            ...(sp.raw_payload || {}),
+            cross_payout_refunds: derivedCredits,
+          }
+          await supabaseAdmin
+            .from('delivery_platform_payouts')
+            .update({ raw_payload: sp.raw_payload, updated_at: new Date().toISOString() })
+            .eq('id', sp.id)
+        }
+      }
+    }
+
     // Defectos 1, 2 y 4: vincular créditos de recuperación de cortes posteriores al libro `recovery_credits`
     // (idempotente por credit_id, verificado contra el settlement, sin sobrescribir el importe original disputado)
     await linkCrossPayoutRecoveryCreditsForStore({
@@ -5761,15 +5877,24 @@ export async function reconcileAndPersistDeliveryData(params: {
       })
     )
 
+    const platErrParts: string[] = []
+    if ((targetPlatform === 'ALL' || targetPlatform === 'DOORDASH') && mapping.doordash_store_id && doordashSyncError) {
+      platErrParts.push(doordashSyncError)
+    }
+    if ((targetPlatform === 'ALL' || targetPlatform === 'UBER_EATS') && mapping.ubereats_store_uuid && uberSyncError) {
+      platErrParts.push(uberSyncError)
+    }
+    const combinedStoreErr = [storeErrorMsg, ...platErrParts].filter(Boolean).join(' | ')
+
     storeProgress.push({
       storeId: mapping.store_id,
       storeName: mapping.store_name,
       toastOrders: toastOrders.length,
       platformOrders: storePlatformOrders.length,
       payouts: (storePayouts || []).length + storeGhPayoutsCnt,
-      status: storeErrorMsg || encryptionKeyMissing ? 'PARTIAL' : 'COMPLETE',
+      status: combinedStoreErr || encryptionKeyMissing ? 'PARTIAL' : 'COMPLETE',
       errorMessage:
-        storeErrorMsg ||
+        combinedStoreErr ||
         (encryptionKeyMissing ? 'INTEGRATION_ENCRYPTION_KEY no configurada para sesiones DD/Uber.' : undefined),
     })
   }
@@ -5822,6 +5947,22 @@ export async function reconcileAndPersistDeliveryData(params: {
     grubhubErrorsByStore,
   })
 
+  const syncErrorsSet = new Set<string>()
+  if (encryptionKeyMissing) {
+    syncErrorsSet.add('INTEGRATION_ENCRYPTION_KEY no está configurada en el servidor para sesiones DD/Uber.')
+  }
+  if ((targetPlatform === 'ALL' || targetPlatform === 'DOORDASH') && doordashSyncError) {
+    syncErrorsSet.add(doordashSyncError)
+  }
+  if ((targetPlatform === 'ALL' || targetPlatform === 'UBER_EATS') && uberSyncError) {
+    syncErrorsSet.add(uberSyncError)
+  }
+  if (doordashPartialReason) syncErrorsSet.add(doordashPartialReason)
+  if (uberPartialReason) syncErrorsSet.add(uberPartialReason)
+  for (const [, ghErr] of grubhubErrorsByStore.entries()) {
+    if (ghErr) syncErrorsSet.add(ghErr)
+  }
+
   return {
     toastOrdersSynced,
     platformOrdersSynced,
@@ -5831,6 +5972,7 @@ export async function reconcileAndPersistDeliveryData(params: {
     unassignedOrdersQuarantined: unassignedOrders.length,
     unassignedPayoutsQuarantined: unassignedPayouts.length,
     encryptionKeyMissing,
+    syncErrors: Array.from(syncErrorsSet),
     platformCoverage,
     storeProgress,
   }

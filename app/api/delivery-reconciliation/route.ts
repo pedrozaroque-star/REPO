@@ -36,6 +36,7 @@
  *
  * @notes
  * - No incluye ninguna columna autogenerada (`GENERATED ALWAYS AS`) en mutaciones SQL.
+ * - `summary.byPlatform` expone métricas deduplicadas de Toast POS acotadas estrictamente al periodo consultado (`periodToastNet`, `periodToastTax`, `periodToastExpectedGross`, `periodToastOrdersCount`) junto con el desglose real del corte (`payoutsSubtotalTotal`, `payoutsTaxToMerchant`, `payoutsTaxWithheld`, `payoutsTipsTotal`, `payoutsWithTaxBreakdownCount`) para comparación lado a lado Corte vs Toast POS sin contaminación de disputas de semanas previas.
  */
 
 import { NextRequest, NextResponse } from 'next/server'
@@ -1707,12 +1708,62 @@ export async function GET(req: NextRequest) {
       settledVariance: 0,
       payoutsCount: 0,
       payoutsOrdersCount: 0,
+      payoutsSubtotalTotal: 0,
       payoutsGrossTotal: 0,
       payoutsFeesTotal: 0,
       payoutsErrorTotal: 0,
+      payoutsTipsTotal: 0,
       payoutsTaxToMerchant: 0,
       payoutsTaxWithheld: 0,
       payoutsNetTotal: 0,
+      payoutsToastNetTotal: 0,
+      payoutsToastTaxTotal: 0,
+      payoutsToastExpectedTotal: 0,
+      payoutsWithTaxBreakdownCount: 0,
+      periodToastOrdersCount: 0,
+      periodToastVoidedCount: 0,
+      periodToastNet: 0,
+      periodToastTax: 0,
+      periodToastExpectedGross: 0,
+      varianceBreakdown: null as {
+        mode: 'FULL_ORDER_BRIDGE' | 'SUMMARY_ONLY_PENDING_ORDER_SYNC' | 'NO_ACTIVITY'
+        diagnosticStatus: 'OK_TIMING_OR_FAVORABLE' | 'NEEDS_REVIEW' | 'PENDING_ORDER_SYNC'
+        payoutRefs: string[]
+        toastBaseGross: number
+        payoutTargetGross: number
+        totalGrossDiff: number
+        matchedExactCount: number
+        matchedExactGross: number
+        items: Array<{
+          code:
+            | 'PAID_IN_OTHER_PAYOUT'
+            | 'IN_TRANSIT_NEXT_PAYOUT'
+            | 'FROM_OUTSIDE_PERIOD_IN_PAYOUT'
+            | 'VOIDED_IN_TOAST_PAID_IN_PAYOUT'
+            | 'IN_PAYOUT_MISSING_IN_TOAST'
+            | 'ORDER_PRICE_OR_TAX_DIFF'
+            | 'TOAST_UNPAID_IN_PLATFORM'
+            | 'TOAST_PENDING_STORE_SYNC'
+            | 'PAYOUT_HEADER_ADJUSTMENT'
+          count: number
+          subtotalDelta: number
+          taxDelta: number
+          grossDelta: number
+          refs: string[]
+          dates: string[]
+          orders: Array<{
+            id: string
+            platform_order_id: string
+            toast_display_number: string | null
+            business_date: string | null
+            placed_pt: string | null
+            payout_reference_id: string | null
+            platform_gross: number
+            toast_gross: number
+            delta: number
+          }>
+        }>
+      } | null,
     })
 
     const byPlatform: Record<DeliveryPlatformCode, ReturnType<typeof initPlatSummary>> = {
@@ -1730,24 +1781,58 @@ export async function GET(req: NextRequest) {
           Number(p.processing_fees || 0) +
           Number(p.marketing_fees || 0)
         const pErr = Number(p.error_charges || 0) + Number(p.adjustments_amount || 0)
+        const pSubSales = Number(p.subtotal_sales || 0)
+        const pTaxMerch = Number(p.tax_paid_to_merchant || 0)
+        const pTaxRemit = Number(p.tax_remitted_by_platform || 0)
+        const pGrossRec = Number(p.platform_gross_receivable || 0)
+        const pHasTaxBreakdown =
+          p.raw_payload?.tax_breakdown_verified === true ||
+          pSubSales > 0 ||
+          pTaxMerch > 0 ||
+          pTaxRemit > 0 ||
+          Math.abs(pGrossRec) <= 0.01
+
         byPlatform[plat].payoutsCount++
+        if (pHasTaxBreakdown) {
+          byPlatform[plat].payoutsWithTaxBreakdownCount++
+        }
         byPlatform[plat].payoutsOrdersCount += Number(p.orders_count || 0)
+        byPlatform[plat].payoutsSubtotalTotal = round2(byPlatform[plat].payoutsSubtotalTotal + pSubSales)
         byPlatform[plat].payoutsGrossTotal = round2(
-          byPlatform[plat].payoutsGrossTotal + Number(p.platform_gross_receivable || 0)
+          byPlatform[plat].payoutsGrossTotal + pGrossRec
         )
         byPlatform[plat].payoutsFeesTotal = round2(byPlatform[plat].payoutsFeesTotal + pFees)
         byPlatform[plat].payoutsErrorTotal = round2(byPlatform[plat].payoutsErrorTotal + pErr)
+        byPlatform[plat].payoutsTipsTotal = round2(
+          byPlatform[plat].payoutsTipsTotal + Number(p.tips_amount || 0)
+        )
         byPlatform[plat].payoutsTaxToMerchant = round2(
-          byPlatform[plat].payoutsTaxToMerchant + Number(p.tax_paid_to_merchant || 0)
+          byPlatform[plat].payoutsTaxToMerchant + pTaxMerch
         )
         byPlatform[plat].payoutsTaxWithheld = round2(
-          byPlatform[plat].payoutsTaxWithheld + Number(p.tax_remitted_by_platform || 0)
+          byPlatform[plat].payoutsTaxWithheld + pTaxRemit
         )
         byPlatform[plat].payoutsNetTotal = round2(
           byPlatform[plat].payoutsNetTotal + Number(p.net_payout_amount || 0)
         )
+        byPlatform[plat].payoutsToastNetTotal = round2(
+          byPlatform[plat].payoutsToastNetTotal + Number(p.toast_net_sales || 0)
+        )
+        byPlatform[plat].payoutsToastTaxTotal = round2(
+          byPlatform[plat].payoutsToastTaxTotal + Number(p.toast_tax_amount || 0)
+        )
+        byPlatform[plat].payoutsToastExpectedTotal = round2(
+          byPlatform[plat].payoutsToastExpectedTotal + Number(p.toast_expected_gross || 0)
+        )
       }
     }
+
+    const seenToastGuidsByPlat: Record<DeliveryPlatformCode, Set<string>> = {
+      DOORDASH: new Set<string>(),
+      UBER_EATS: new Set<string>(),
+      GRUBHUB: new Set<string>(),
+    }
+    const isSpecificOrderOrPayoutQuery = Boolean(payoutRefParam) || Boolean(search && search.length >= 2)
 
     for (const o of orders) {
       const plat = (o.platform as DeliveryPlatformCode) || 'DOORDASH'
@@ -1870,6 +1955,465 @@ export async function GET(req: NextRequest) {
             byPlatform[plat].settledPlatformGross - byPlatform[plat].settledToastExpected
           )
         }
+
+        const toastGuid = o.toast_order_guid ? String(o.toast_order_guid).trim() : ''
+        const toastDedupKey =
+          toastGuid || (Math.abs(tExp) > 0.001 || Math.abs(tNet) > 0.001 ? `row:${o.id}` : '')
+        const inSelectedPeriod = isSpecificOrderOrPayoutQuery
+          ? true
+          : Boolean(o.business_date && o.business_date >= startDate && o.business_date <= endDate)
+        if (toastDedupKey && inSelectedPeriod && !seenToastGuidsByPlat[plat].has(toastDedupKey)) {
+          seenToastGuidsByPlat[plat].add(toastDedupKey)
+          if (o.raw_payload?.toast_voided) {
+            byPlatform[plat].periodToastVoidedCount++
+          } else {
+            byPlatform[plat].periodToastOrdersCount++
+          }
+          byPlatform[plat].periodToastNet = round2(byPlatform[plat].periodToastNet + tNet)
+          byPlatform[plat].periodToastTax = round2(byPlatform[plat].periodToastTax + tTax)
+          byPlatform[plat].periodToastExpectedGross = round2(
+            byPlatform[plat].periodToastExpectedGross + tExp
+          )
+        }
+      }
+    }
+
+    // Puente Contable Exacto (Corte Plataforma vs Toast POS) por Plataforma
+    const payoutTupleSetByPlat: Record<DeliveryPlatformCode, Set<string>> = {
+      DOORDASH: new Set<string>(),
+      UBER_EATS: new Set<string>(),
+      GRUBHUB: new Set<string>(),
+    }
+    const payoutRefsListByPlat: Record<DeliveryPlatformCode, string[]> = {
+      DOORDASH: [],
+      UBER_EATS: [],
+      GRUBHUB: [],
+    }
+    const activePayoutRefsSet = new Set<string>()
+    for (const p of payouts) {
+      const plat = ((p.platform as DeliveryPlatformCode) || 'DOORDASH')
+      const ref = String(p.payout_reference_id || '').trim()
+      if (ref && payoutTupleSetByPlat[plat]) {
+        payoutTupleSetByPlat[plat].add(`${Number(p.store_id || 0)}:${ref}`)
+        if (!payoutRefsListByPlat[plat].includes(ref)) {
+          payoutRefsListByPlat[plat].push(ref)
+        }
+        activePayoutRefsSet.add(ref)
+      }
+    }
+
+    const isSafeIsoDate = (val: string) => /^\d{4}-\d{2}-\d{2}$/.test(val)
+    const boundaryPayoutOrders: any[] = []
+    if (
+      !isSpecificOrderOrPayoutQuery &&
+      activePayoutRefsSet.size > 0 &&
+      isSafeIsoDate(startDate) &&
+      isSafeIsoDate(endDate)
+    ) {
+      const refArr = Array.from(activePayoutRefsSet)
+      for (let i = 0; i < refArr.length; i += 80) {
+        const chunk = refArr.slice(i, i + 80)
+        const chunkRows = await fetchAllSupabaseRows<any>((from, to) => {
+          let q = supabaseAdmin
+            .from('delivery_platform_orders')
+            .select(
+              'id, store_id, platform, business_date, placed_at, platform_order_id, toast_order_guid, toast_display_number, payout_reference_id, match_confidence, reconciliation_status, platform_subtotal, platform_tax_paid_to_merchant, platform_tax_withheld, platform_gross_receivable, toast_net_sales, toast_tax, toast_expected_gross, raw_payload'
+            )
+            .in('payout_reference_id', chunk)
+            .or(`business_date.lt.${startDate},business_date.gt.${endDate},business_date.is.null`)
+            .order('placed_at', { ascending: true })
+            .order('id', { ascending: true })
+          if (selectedStoreNum !== null && selectedStoreNum > 0) {
+            q = q.eq('store_id', selectedStoreNum)
+          }
+          if (platformParam && platformParam !== 'ALL') {
+            q = q.eq('platform', platformParam)
+          }
+          if (statusParam && statusParam !== 'ALL') {
+            q = q.eq('reconciliation_status', statusParam)
+          }
+          return q.range(from, to)
+        })
+        boundaryPayoutOrders.push(...chunkRows)
+      }
+    }
+
+    const fmtPlacedPtShort = (iso: string | null | undefined): string | null => {
+      if (!iso) return null
+      const d = new Date(iso)
+      if (Number.isNaN(d.getTime())) return null
+      return d.toLocaleString('en-US', {
+        timeZone: 'America/Los_Angeles',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: true,
+      })
+    }
+
+    for (const plat of ['DOORDASH', 'UBER_EATS', 'GRUBHUB'] as DeliveryPlatformCode[]) {
+      const pSum = byPlatform[plat]
+      const hasPayouts = pSum.payoutsCount > 0
+      const targetGross = hasPayouts
+        ? pSum.payoutsGrossTotal
+        : pSum.platformGross || pSum.settledPlatformGross || 0
+      const baseToastGross = pSum.periodToastExpectedGross
+      const totalGrossDiff = round2(targetGross - baseToastGross)
+
+      if (!hasPayouts && Math.abs(targetGross) <= 0.009 && Math.abs(baseToastGross) <= 0.009) {
+        pSum.varianceBreakdown = {
+          mode: 'NO_ACTIVITY',
+          diagnosticStatus: 'OK_TIMING_OR_FAVORABLE',
+          payoutRefs: [],
+          toastBaseGross: 0,
+          payoutTargetGross: 0,
+          totalGrossDiff: 0,
+          matchedExactCount: 0,
+          matchedExactGross: 0,
+          items: [],
+        }
+        continue
+      }
+
+      const seenRowIds = new Set<string>()
+      const unionRows: any[] = []
+      for (const o of orders) {
+        if (((o.platform as DeliveryPlatformCode) || 'DOORDASH') !== plat) continue
+        seenRowIds.add(String(o.id))
+        unionRows.push(o)
+      }
+      for (const b of boundaryPayoutOrders) {
+        if (((b.platform as DeliveryPlatformCode) || 'DOORDASH') !== plat) continue
+        const ref = String(b.payout_reference_id || '').trim()
+        if (!ref || !payoutTupleSetByPlat[plat].has(`${Number(b.store_id || 0)}:${ref}`)) continue
+        if (seenRowIds.has(String(b.id))) continue
+        seenRowIds.add(String(b.id))
+        unionRows.push(b)
+      }
+
+      type BridgeCode =
+        | 'PAID_IN_OTHER_PAYOUT'
+        | 'IN_TRANSIT_NEXT_PAYOUT'
+        | 'FROM_OUTSIDE_PERIOD_IN_PAYOUT'
+        | 'VOIDED_IN_TOAST_PAID_IN_PAYOUT'
+        | 'IN_PAYOUT_MISSING_IN_TOAST'
+        | 'ORDER_PRICE_OR_TAX_DIFF'
+        | 'TOAST_UNPAID_IN_PLATFORM'
+        | 'TOAST_PENDING_STORE_SYNC'
+        | 'PAYOUT_HEADER_ADJUSTMENT'
+
+      const bucketMap = new Map<
+        BridgeCode,
+        {
+          code: BridgeCode
+          count: number
+          subtotalDelta: number
+          taxDelta: number
+          grossDelta: number
+          refsSet: Set<string>
+          datesSet: Set<string>
+          rawOrders: Array<{
+            sortTs: string
+            id: string
+            platform_order_id: string
+            toast_display_number: string | null
+            business_date: string | null
+            placed_pt: string | null
+            payout_reference_id: string | null
+            platform_gross: number
+            toast_gross: number
+            delta: number
+          }>
+        }
+      >()
+
+      const ensureBucket = (code: BridgeCode) => {
+        let b = bucketMap.get(code)
+        if (!b) {
+          b = {
+            code,
+            count: 0,
+            subtotalDelta: 0,
+            taxDelta: 0,
+            grossDelta: 0,
+            refsSet: new Set<string>(),
+            datesSet: new Set<string>(),
+            rawOrders: [],
+          }
+          bucketMap.set(code, b)
+        }
+        return b
+      }
+
+      const seenToastDedupBridge = new Set<string>()
+      let payoutMatchedRowCount = 0
+      let sumOfPayoutOrderGross = 0
+      let sumOfPayoutOrderSub = 0
+      let sumOfPayoutOrderTax = 0
+      let matchedExactCount = 0
+      let matchedExactGross = 0
+
+      for (const r of unionRows) {
+        const isToastOnly =
+          r.match_confidence === 'TOAST_ONLY' || r.reconciliation_status === 'MISSING_IN_PLATFORM'
+        const tNet = Number(r.toast_net_sales || 0)
+        const tTax = Number(r.toast_tax || 0)
+        const tExp = Number(r.toast_expected_gross || 0)
+        const pSub = Number(r.platform_subtotal || 0)
+        const pTaxMerch = Number(r.platform_tax_paid_to_merchant || 0)
+        const pGross = Number(r.platform_gross_receivable || 0)
+        const pRef = String(r.payout_reference_id || '').trim()
+
+        const inPeriod = isSpecificOrderOrPayoutQuery
+          ? true
+          : Boolean(r.business_date && r.business_date >= startDate && r.business_date <= endDate)
+        const inPayout = hasPayouts
+          ? Boolean(pRef) && payoutTupleSetByPlat[plat].has(`${Number(r.store_id || 0)}:${pRef}`)
+          : !isToastOnly
+
+        if (inPayout) {
+          payoutMatchedRowCount++
+          sumOfPayoutOrderGross = round2(sumOfPayoutOrderGross + pGross)
+          sumOfPayoutOrderSub = round2(sumOfPayoutOrderSub + pSub)
+          sumOfPayoutOrderTax = round2(
+            sumOfPayoutOrderTax + (plat === 'UBER_EATS' ? 0 : pTaxMerch)
+          )
+        }
+
+        let effTNet = 0
+        let effTTax = 0
+        let effTExp = 0
+        if (inPeriod) {
+          const toastGuid = r.toast_order_guid ? String(r.toast_order_guid).trim() : ''
+          const toastDedupKey =
+            toastGuid || (Math.abs(tExp) > 0.001 || Math.abs(tNet) > 0.001 ? `row:${r.id}` : '')
+          if (toastDedupKey && !seenToastDedupBridge.has(toastDedupKey)) {
+            seenToastDedupBridge.add(toastDedupKey)
+            effTNet = tNet
+            effTTax = plat === 'UBER_EATS' ? 0 : tTax
+            effTExp = tExp
+          }
+        }
+
+        const pushToBucket = (
+          code: BridgeCode,
+          subDelta: number,
+          taxDelta: number,
+          grossDelta: number,
+          refForTag?: string | null,
+          dateForTag?: string | null,
+          platGrossSample = 0,
+          toastGrossSample = 0
+        ) => {
+          const b = ensureBucket(code)
+          b.count++
+          b.subtotalDelta = round2(b.subtotalDelta + subDelta)
+          b.taxDelta = round2(b.taxDelta + taxDelta)
+          b.grossDelta = round2(b.grossDelta + grossDelta)
+          if (refForTag) b.refsSet.add(refForTag)
+          if (dateForTag) b.datesSet.add(dateForTag)
+          b.rawOrders.push({
+            sortTs: String(r.placed_at || r.business_date || ''),
+            id: String(r.id),
+            platform_order_id: String(r.platform_order_id || ''),
+            toast_display_number: r.toast_display_number ? String(r.toast_display_number) : null,
+            business_date: r.business_date ? String(r.business_date) : null,
+            placed_pt: fmtPlacedPtShort(r.placed_at),
+            payout_reference_id: pRef || null,
+            platform_gross: round2(platGrossSample),
+            toast_gross: round2(toastGrossSample),
+            delta: round2(grossDelta),
+          })
+        }
+
+        if (inPeriod && !inPayout) {
+          const gDelta = round2(-effTExp)
+          if (Math.abs(gDelta) >= 0.005) {
+            const sDelta = round2(-effTNet)
+            const txDelta = round2(-effTTax)
+            if (!isToastOnly && pRef) {
+              pushToBucket(
+                'PAID_IN_OTHER_PAYOUT',
+                sDelta,
+                txDelta,
+                gDelta,
+                pRef,
+                r.business_date,
+                pGross,
+                effTExp
+              )
+            } else if (!isToastOnly) {
+              pushToBucket(
+                'IN_TRANSIT_NEXT_PAYOUT',
+                sDelta,
+                txDelta,
+                gDelta,
+                null,
+                r.business_date,
+                pGross,
+                effTExp
+              )
+            } else if (r.toast_only_store_synced) {
+              pushToBucket(
+                'TOAST_UNPAID_IN_PLATFORM',
+                sDelta,
+                txDelta,
+                gDelta,
+                null,
+                r.business_date,
+                0,
+                effTExp
+              )
+            } else {
+              pushToBucket(
+                'TOAST_PENDING_STORE_SYNC',
+                sDelta,
+                txDelta,
+                gDelta,
+                null,
+                r.business_date,
+                0,
+                effTExp
+              )
+            }
+          }
+        } else if (!inPeriod && inPayout) {
+          const gDelta = round2(pGross)
+          if (Math.abs(gDelta) >= 0.005) {
+            const sDelta = round2(pSub)
+            const txDelta = round2(plat === 'UBER_EATS' ? 0 : pTaxMerch)
+            pushToBucket(
+              'FROM_OUTSIDE_PERIOD_IN_PAYOUT',
+              sDelta,
+              txDelta,
+              gDelta,
+              pRef,
+              r.business_date,
+              pGross,
+              0
+            )
+          }
+        } else if (inPeriod && inPayout) {
+          const gDelta = round2(pGross - effTExp)
+          const sDelta = round2(pSub - effTNet)
+          const txDelta = round2((plat === 'UBER_EATS' ? 0 : pTaxMerch) - effTTax)
+          if (Math.abs(gDelta) < 0.005) {
+            if (Math.abs(pGross) > 0.005) {
+              matchedExactCount++
+              matchedExactGross = round2(matchedExactGross + pGross)
+            }
+          } else if (r.raw_payload?.toast_voided) {
+            pushToBucket(
+              'VOIDED_IN_TOAST_PAID_IN_PAYOUT',
+              sDelta,
+              txDelta,
+              gDelta,
+              pRef,
+              r.business_date,
+              pGross,
+              effTExp
+            )
+          } else if (!r.toast_order_guid) {
+            pushToBucket(
+              'IN_PAYOUT_MISSING_IN_TOAST',
+              sDelta,
+              txDelta,
+              gDelta,
+              pRef,
+              r.business_date,
+              pGross,
+              0
+            )
+          } else {
+            pushToBucket(
+              'ORDER_PRICE_OR_TAX_DIFF',
+              sDelta,
+              txDelta,
+              gDelta,
+              pRef,
+              r.business_date,
+              pGross,
+              effTExp
+            )
+          }
+        }
+      }
+
+      if (hasPayouts && payoutMatchedRowCount === 0 && Math.abs(targetGross) > 0.01) {
+        pSum.varianceBreakdown = {
+          mode: 'SUMMARY_ONLY_PENDING_ORDER_SYNC',
+          diagnosticStatus: 'PENDING_ORDER_SYNC',
+          payoutRefs: payoutRefsListByPlat[plat],
+          toastBaseGross: baseToastGross,
+          payoutTargetGross: targetGross,
+          totalGrossDiff,
+          matchedExactCount: 0,
+          matchedExactGross: 0,
+          items: [],
+        }
+        continue
+      }
+
+      const headerResidual = round2(targetGross - sumOfPayoutOrderGross)
+      if (Math.abs(headerResidual) >= 0.01) {
+        const b = ensureBucket('PAYOUT_HEADER_ADJUSTMENT')
+        b.count = Math.max(1, pSum.payoutsCount)
+        b.subtotalDelta = round2(pSum.payoutsSubtotalTotal - sumOfPayoutOrderSub)
+        b.taxDelta = round2(
+          (plat === 'UBER_EATS' ? 0 : pSum.payoutsTaxToMerchant) - sumOfPayoutOrderTax
+        )
+        b.grossDelta = headerResidual
+        for (const ref of payoutRefsListByPlat[plat]) b.refsSet.add(ref)
+      }
+
+      const orderedCodes: BridgeCode[] = [
+        'PAID_IN_OTHER_PAYOUT',
+        'IN_TRANSIT_NEXT_PAYOUT',
+        'FROM_OUTSIDE_PERIOD_IN_PAYOUT',
+        'VOIDED_IN_TOAST_PAID_IN_PAYOUT',
+        'IN_PAYOUT_MISSING_IN_TOAST',
+        'ORDER_PRICE_OR_TAX_DIFF',
+        'TOAST_UNPAID_IN_PLATFORM',
+        'TOAST_PENDING_STORE_SYNC',
+        'PAYOUT_HEADER_ADJUSTMENT',
+      ]
+
+      const itemsOut = orderedCodes
+        .map((c) => bucketMap.get(c))
+        .filter((b): b is NonNullable<typeof b> => Boolean(b && Math.abs(b.grossDelta) >= 0.005))
+        .map((b) => {
+          b.rawOrders.sort((x, y) => x.sortTs.localeCompare(y.sortTs))
+          return {
+            code: b.code,
+            count: b.count,
+            subtotalDelta: b.subtotalDelta,
+            taxDelta: b.taxDelta,
+            grossDelta: b.grossDelta,
+            refs: Array.from(b.refsSet),
+            dates: Array.from(b.datesSet).sort(),
+            orders: b.rawOrders.slice(0, 100).map(({ sortTs: _unused, ...rest }) => rest),
+          }
+        })
+
+      const safeCodes = new Set<BridgeCode>([
+        'PAID_IN_OTHER_PAYOUT',
+        'IN_TRANSIT_NEXT_PAYOUT',
+        'FROM_OUTSIDE_PERIOD_IN_PAYOUT',
+        'VOIDED_IN_TOAST_PAID_IN_PAYOUT',
+      ])
+      const allTimingOrFavorable = itemsOut.every((it) => safeCodes.has(it.code))
+
+      pSum.varianceBreakdown = {
+        mode: 'FULL_ORDER_BRIDGE',
+        diagnosticStatus: allTimingOrFavorable ? 'OK_TIMING_OR_FAVORABLE' : 'NEEDS_REVIEW',
+        payoutRefs: payoutRefsListByPlat[plat],
+        toastBaseGross: baseToastGross,
+        payoutTargetGross: targetGross,
+        totalGrossDiff,
+        matchedExactCount,
+        matchedExactGross,
+        items: itemsOut,
       }
     }
 
