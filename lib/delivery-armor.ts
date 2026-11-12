@@ -22,6 +22,7 @@
  *     1) saveAuditProgress y confirmHandoffToDriver jamás descartan la acción de una cajera con PIN válido en RONOS aunque la sesión en order_ready_settings haya expirado por desfase de heartbeat; renuevan la sesión automáticamente y guardan la orden.
  *     2) fetchOffPremiseOrders consulta delivery_packing_audits filtrado explícitamente por los GUIDs activos (.in('toast_order_guid', chunk)) para nunca truncar por el límite de 1,000 filas de PostgREST, y mantiene caché de respaldo (lastKnownAuditsByGuid) ante micro-cortes de red.
  *     3) Ninguna orden con estatus DELIVERED o con historial everDeliveredAt puede regresarse a EMPACANDO ni eliminarse con undoPackingAudit.
+ *   - Fix 2026-11-11 (Soporte Prefijo Caviar `CAV`): `extractPlatformOrderIdentity` reconoce órdenes del canal hermano Caviar (`CAV <hex8>`) junto con `DD` y `SF` para empate determinístico contra DoorDash Payouts.
  */
 
 import { supabaseAdmin } from './supabase'
@@ -391,7 +392,7 @@ export function extractPlatformOrderIdentity(params: {
 
   const tabCustomerFallback = tab
     .replace(/^\s*UBER[-_\s]*[A-Z0-9]{4,8}\b\s*/i, '')
-    .replace(/^\s*(DD|SF)\s+[a-f0-9]{6,10}\b\s*/i, '')
+    .replace(/^\s*(DD|SF|CAV)\s+[a-f0-9]{6,10}\b\s*/i, '')
     .replace(/^\s*Grubhub\s*#?\d+\s*/i, '')
     .replace(/^pickup-\s*/i, '')
     .trim()
@@ -427,7 +428,7 @@ export function extractPlatformOrderIdentity(params: {
   }
 
   if (params.platform === 'DOORDASH') {
-    const tabMatch = tab.match(/^\s*(DD|SF)\s+([a-f0-9]{6,10})\b/i)
+    const tabMatch = tab.match(/^\s*(DD|SF|CAV)\s+([a-f0-9]{6,10})\b/i)
     const emailMatch = email.match(/orders_([a-f0-9]{8})-/i)
     const prefix = (tabMatch?.[1] || 'DD').toUpperCase()
     const code = (tabMatch?.[2] || emailMatch?.[1] || '').toUpperCase()

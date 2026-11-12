@@ -70,6 +70,7 @@
  *     al cliente Server-to-Server con header `Cookie` aislado por sucursal para jamás desfasar la sucursal visualizada en el navegador.
  *   * Corregida la paginación de `getHistoricOrders` para propagar dinámicamente `paginationResult.nextTable` (`liveOrders` -> `historyOrders`)
  *     y vinculados los `enrichedPeriods` de Fase 1 a Fase 2 (`s2sEnrichedPeriodsByStore`) preservando metadatos de payouts existentes.
+ * - Fix 2026-11-11 (Soporte Prefijo Caviar `CAV`/`CAVIAR`): `parseToastTabPlatformOrderId` extrae códigos hexadecimales de órdenes Caviar (`CAV <hex8>`) liquidadas dentro de DoorDash Payouts.
  */
 
 import crypto from 'crypto'
@@ -709,7 +710,7 @@ export function parseToastTabPlatformOrderId(
   }
 
   if (platform === 'DOORDASH') {
-    const ddHex = cleanTab.match(/\b(?:DD|DOORDASH|SF|STOREFRONT)\s*#?([A-Za-z0-9]{5,16})\b/i)
+    const ddHex = cleanTab.match(/\b(?:DD|DOORDASH|SF|STOREFRONT|CAV|CAVIAR)\s*#?([A-Za-z0-9]{5,16})\b/i)
     if (ddHex) return ddHex[1].toUpperCase()
     const ddDigits = cleanTab.match(/#(\d{6,20})/) || cleanExt.match(/(\d{6,20})/)
     if (ddDigits) return ddDigits[1]
