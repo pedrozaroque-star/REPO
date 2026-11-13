@@ -519,9 +519,9 @@ export const STORY_SLIDE_VISUALS: StorySlideVisualMeta[] = [
   },
   {
     id: 'locations',
-    image: '/app-v2/slide-4-hero.jpg',
-    imageFilterClass: 'brightness-[1.34] contrast-[1.05]',
-    overlayGradientClass: 'bg-gradient-to-b from-black/25 via-transparent to-black/62',
+    image: '/app-v2/fondo_light.jpg',
+    imageFilterClass: 'brightness-[1.12] contrast-[1.03]',
+    overlayGradientClass: 'bg-gradient-to-b from-black/50 via-transparent to-black/68',
     accentLineIndex: 1,
     lightLeakSide: 'right',
     tagKey: 'mobile_legal.v2_story_4_tag',
