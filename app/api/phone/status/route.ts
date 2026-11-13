@@ -14,6 +14,7 @@
  *
  * @notes
  * - Registra `duration_seconds` real reportado por Twilio sin inflar llamadas de 0 s con valores ficticios.
+ * - Incluye `maxDuration = 15` y escritura condicional cuando una llamada ya tiene estado terminal (`callback_requested` / `transferred`).
  */
 
 import { NextResponse } from 'next/server'
@@ -21,6 +22,7 @@ import { supabaseAdmin } from '@/lib/supabase'
 import { verifyTwilioWebhookSignature } from '@/lib/phone-agent'
 
 export const dynamic = 'force-dynamic'
+export const maxDuration = 15
 
 const NON_TERMINAL_TWILIO_STATUSES = new Set(['queued', 'initiated', 'ringing', 'in-progress'])
 
@@ -79,7 +81,12 @@ export async function POST(request: Request) {
         updatePayload.resolved_by_ai = false
       }
 
-      await supabaseAdmin.from('phone_calls').update(updatePayload).eq('id', existing.id)
+      let q = supabaseAdmin.from('phone_calls').update(updatePayload).eq('id', existing.id)
+      // Si la llamada sigue 'in_progress', proteger estados más específicos escritos en paralelo durante este último segundo
+      if (existing.status === 'in_progress' && preservedStatus === 'completed') {
+        q = q.eq('status', 'in_progress')
+      }
+      await q
     }
 
     return NextResponse.json({ ok: true })

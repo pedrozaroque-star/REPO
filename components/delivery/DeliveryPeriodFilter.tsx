@@ -28,6 +28,7 @@
  * @notes
  * - 100% bilingüe (ES/EN) mediante `useLanguage()` (`deliveryReconciliation.*` y `sales.*`) y `date-fns/locale`.
  * - Incluye soporte móvil en pantalla completa vía `createPortal` y cierre con tecla `Escape` o clic externo.
+ * - Fix 2026-11-12: `parseLocalYmd` con rollover calendar-overflow rechazado (`2026-02-30` -> `null`), rangos comparados por string local `YYYY-MM-DD` sin desfase `00:00:00`/`12:00:00`, paso `<`/`>` funcional en `Mes`, bloqueo de rango futuro, `resetDraftAndClose()` completo y accesibilidad ARIA/inputs móviles.
  */
 
 'use client'
@@ -76,6 +77,7 @@ interface DeliveryPeriodFilterProps {
   onChange: (period: DeliveryPeriodPreset, start: string, end: string) => void
   disabled?: boolean
   className?: string
+  align?: 'left' | 'right'
 }
 
 /**
@@ -114,8 +116,19 @@ export function parseLocalYmd(str: string): Date | null {
   if (!str) return null
   const m = str.trim().match(/^(\d{4})-(\d{2})-(\d{2})$/)
   if (!m) return null
-  const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 12, 0, 0)
-  return isNaN(d.getTime()) ? null : d
+  const year = Number(m[1])
+  const month = Number(m[2])
+  const day = Number(m[3])
+  const d = new Date(year, month - 1, day, 12, 0, 0)
+  if (
+    isNaN(d.getTime()) ||
+    d.getFullYear() !== year ||
+    d.getMonth() !== month - 1 ||
+    d.getDate() !== day
+  ) {
+    return null
+  }
+  return d
 }
 
 export function getPresetBounds(
@@ -198,6 +211,7 @@ export default function DeliveryPeriodFilter({
   onChange,
   disabled = false,
   className = '',
+  align = 'right',
 }: DeliveryPeriodFilterProps) {
   const { t, language } = useLanguage()
   const localeObj = language === 'es' ? es : enUS
@@ -213,12 +227,12 @@ export default function DeliveryPeriodFilter({
   const [hoverDate, setHoverDate] = useState<Date | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
 
-  // Sincronizar selección temporal y modo sugerido al cambiar props externas
-  useEffect(() => {
+  const syncDraftFromCommitted = React.useCallback(() => {
     const ps = parseLocalYmd(startDate)
     const pe = parseLocalYmd(endDate)
-    if (ps) setTempStart(ps)
-    if (pe) setTempEnd(pe)
+    setTempStart(ps)
+    setTempEnd(pe)
+    setHoverDate(null)
     if (ps && pe) {
       if (startDate === endDate) {
         setSelectionMode('day')
@@ -227,25 +241,41 @@ export default function DeliveryPeriodFilter({
       } else {
         setSelectionMode('range')
       }
-      // En vista dual (viewDate + viewDate+1 mes), mostrar el mes previo y el mes del inicio seleccionado o el mes del inicio
       setViewDate(startOfMonth(ps))
     }
   }, [startDate, endDate])
 
-  // Cerrar con clic fuera o tecla Escape
+  const resetDraftAndClose = React.useCallback(() => {
+    syncDraftFromCommitted()
+    setIsOpen(false)
+  }, [syncDraftFromCommitted])
+
+  // Sincronizar selección temporal y modo sugerido al cambiar props externas
+  useEffect(() => {
+    syncDraftFromCommitted()
+  }, [syncDraftFromCommitted])
+
+  // Si se deshabilita el selector (ej. sincronización en curso), descartar borradores y cerrar
+  useEffect(() => {
+    if (disabled && isOpen) {
+      resetDraftAndClose()
+    }
+  }, [disabled, isOpen, resetDraftAndClose])
+
+  // Cerrar con clic fuera o tecla Escape descartando cambios no aplicados
   useEffect(() => {
     if (!isOpen) return
     function handleClickOutside(event: MouseEvent) {
       const target = event.target as HTMLElement
       if (target.closest?.('[data-delivery-date-portal]')) return
       if (containerRef.current && !containerRef.current.contains(target)) {
-        setIsOpen(false)
+        resetDraftAndClose()
       }
     }
     function handleKeyDown(event: KeyboardEvent) {
       if (event.key === 'Escape') {
         event.stopPropagation()
-        setIsOpen(false)
+        resetDraftAndClose()
       }
     }
     document.addEventListener('mousedown', handleClickOutside)
@@ -254,7 +284,7 @@ export default function DeliveryPeriodFilter({
       document.removeEventListener('mousedown', handleClickOutside)
       window.removeEventListener('keydown', handleKeyDown, true)
     }
-  }, [isOpen])
+  }, [isOpen, resetDraftAndClose])
 
   const isDayView = startDate === endDate
   const isWeekView = useMemo(() => {
@@ -262,26 +292,56 @@ export default function DeliveryPeriodFilter({
     const e = parseLocalYmd(endDate)
     return Boolean(s && e && s.getDay() === 1 && e.getDay() === 0 && differenceInCalendarDays(e, s) === 6)
   }, [startDate, endDate])
+  const isMonthView = useMemo(() => {
+    const s = parseLocalYmd(startDate)
+    const e = parseLocalYmd(endDate)
+    if (!s || !e || s.getDate() !== 1 || !isSameMonth(s, e)) return false
+    const todayYmd = getPresetBounds('today').end
+    const monthEndYmd = formatLocalYmd(endOfMonth(s))
+    return endDate === monthEndYmd || (endDate === todayYmd && !isDayView)
+  }, [startDate, endDate, isDayView])
 
-  // Determinar si el botón ">" (siguiente periodo) debe deshabilitarse al llegar a Hoy / Esta semana
+  // Determinar si el botón ">" (siguiente periodo) debe deshabilitarse al llegar al periodo actual
   const canStepForward = useMemo(() => {
     const currentWeekEnd = getPresetBounds('week').end
     const todayYmd = getPresetBounds('today').end
     if (isDayView) {
       return endDate < todayYmd
     }
-    return endDate < currentWeekEnd
-  }, [endDate, isDayView])
+    if (isMonthView) {
+      const currentMonthStart = getPresetBounds('month').start
+      return startDate < currentMonthStart
+    }
+    if (isWeekView) {
+      return endDate < currentWeekEnd
+    }
+    return endDate < todayYmd
+  }, [startDate, endDate, isDayView, isMonthView, isWeekView])
 
   const handleStepPeriod = (direction: -1 | 1) => {
     const s = parseLocalYmd(startDate)
     const e = parseLocalYmd(endDate)
     if (!s || !e) return
+    const todayYmd = getPresetBounds('today').end
+    if (isMonthView) {
+      const targetMonthStart = startOfMonth(direction > 0 ? addMonths(s, 1) : subMonths(s, 1))
+      const nextStartStr = formatLocalYmd(targetMonthStart)
+      if (direction > 0 && nextStartStr > todayYmd) return
+      const fullMonthEndStr = formatLocalYmd(endOfMonth(targetMonthStart))
+      const nextEndStr = fullMonthEndStr > todayYmd ? todayYmd : fullMonthEndStr
+      const nextPeriod = classifyDeliveryPeriod(nextStartStr, nextEndStr)
+      onChange(nextPeriod, nextStartStr, nextEndStr)
+      return
+    }
     const spanDays = isWeekView ? 7 : isDayView ? 1 : Math.max(1, differenceInCalendarDays(e, s) + 1)
     const nextStart = addDays(s, direction * spanDays)
     const nextEnd = addDays(e, direction * spanDays)
     const nextStartStr = formatLocalYmd(nextStart)
-    const nextEndStr = formatLocalYmd(nextEnd)
+    let nextEndStr = formatLocalYmd(nextEnd)
+    if (direction > 0 && !isWeekView && nextStartStr > todayYmd) return
+    if (direction > 0 && !isWeekView && nextEndStr > todayYmd) {
+      nextEndStr = todayYmd
+    }
     const nextPeriod = classifyDeliveryPeriod(nextStartStr, nextEndStr)
     onChange(nextPeriod, nextStartStr, nextEndStr)
   }
@@ -297,28 +357,29 @@ export default function DeliveryPeriodFilter({
   }
 
   const handleCalendarDayClick = (day: Date) => {
+    const normalizedDay = new Date(day.getFullYear(), day.getMonth(), day.getDate(), 12, 0, 0)
     if (selectionMode === 'week') {
-      const weekMonday = startOfWeek(day, { weekStartsOn: 1 })
-      const weekSunday = endOfWeek(day, { weekStartsOn: 1 })
+      const weekMonday = startOfWeek(normalizedDay, { weekStartsOn: 1 })
+      const weekSunday = endOfWeek(normalizedDay, { weekStartsOn: 1 })
       setTempStart(weekMonday)
       setTempEnd(weekSunday)
       return
     }
     if (selectionMode === 'day') {
-      setTempStart(day)
-      setTempEnd(day)
+      setTempStart(normalizedDay)
+      setTempEnd(normalizedDay)
       return
     }
-    // Modo 'range' (Rango libre de dos clics, igual que en Ventas)
+    // Modo 'range' (Rango libre de dos clics, comparando YMD local para evitar diferencias 00:00 vs 12:00)
     if (!tempStart || (tempStart && tempEnd)) {
-      setTempStart(day)
+      setTempStart(normalizedDay)
       setTempEnd(null)
     } else if (tempStart && !tempEnd) {
-      if (day.getTime() < tempStart.getTime()) {
-        setTempStart(day)
+      if (formatLocalYmd(normalizedDay) < formatLocalYmd(tempStart)) {
+        setTempStart(normalizedDay)
         setTempEnd(null)
       } else {
-        setTempEnd(day)
+        setTempEnd(normalizedDay)
       }
     }
   }
@@ -350,45 +411,45 @@ export default function DeliveryPeriodFilter({
     const endDateGrid = endOfWeek(monthEnd, { weekStartsOn: 1 })
     const days = eachDayOfInterval({ start: startDateGrid, end: endDateGrid })
 
+    const tempStartYmd = tempStart ? formatLocalYmd(tempStart) : null
+    const tempEndYmd = tempEnd ? formatLocalYmd(tempEnd) : null
+    const hoverYmd = hoverDate ? formatLocalYmd(hoverDate) : null
     const hoveredWeekBounds =
       selectionMode === 'week' && hoverDate
         ? {
-            start: startOfWeek(hoverDate, { weekStartsOn: 1 }),
-            end: endOfWeek(hoverDate, { weekStartsOn: 1 }),
+            start: formatLocalYmd(startOfWeek(hoverDate, { weekStartsOn: 1 })),
+            end: formatLocalYmd(endOfWeek(hoverDate, { weekStartsOn: 1 })),
           }
         : null
 
     return (
       <div className="grid grid-cols-7 gap-y-1 gap-x-0.5">
         {days.map((day, idx) => {
+          const dayYmd = formatLocalYmd(day)
           const isCurrentMonth = isSameMonth(day, monthDate)
-          const isStart = Boolean(tempStart && isSameDay(day, tempStart))
-          const isEnd = Boolean(tempEnd && isSameDay(day, tempEnd))
-          const isInSelectedRange = Boolean(
-            tempStart &&
-              tempEnd &&
-              isWithinInterval(day, {
-                start: tempStart.getTime() <= tempEnd.getTime() ? tempStart : tempEnd,
-                end: tempStart.getTime() <= tempEnd.getTime() ? tempEnd : tempStart,
-              })
-          )
+          const isStart = Boolean(tempStartYmd && dayYmd === tempStartYmd)
+          const isEnd = Boolean(tempEndYmd && dayYmd === tempEndYmd)
+          const rangeMinYmd =
+            tempStartYmd && tempEndYmd ? (tempStartYmd <= tempEndYmd ? tempStartYmd : tempEndYmd) : null
+          const rangeMaxYmd =
+            tempStartYmd && tempEndYmd ? (tempStartYmd <= tempEndYmd ? tempEndYmd : tempStartYmd) : null
+          const isInSelectedRange = Boolean(rangeMinYmd && rangeMaxYmd && dayYmd >= rangeMinYmd && dayYmd <= rangeMaxYmd)
           const isHoveredWeek = Boolean(
-            hoveredWeekBounds &&
-              isWithinInterval(day, {
-                start: hoveredWeekBounds.start,
-                end: hoveredWeekBounds.end,
-              })
+            hoveredWeekBounds && dayYmd >= hoveredWeekBounds.start && dayYmd <= hoveredWeekBounds.end
           )
-          const isHoveredRange = Boolean(
-            selectionMode === 'range' &&
-              tempStart &&
-              !tempEnd &&
-              hoverDate &&
-              isWithinInterval(day, {
-                start: tempStart.getTime() < hoverDate.getTime() ? tempStart : hoverDate,
-                end: tempStart.getTime() < hoverDate.getTime() ? hoverDate : tempStart,
-              })
-          )
+          const hoverMinYmd =
+            selectionMode === 'range' && tempStartYmd && !tempEndYmd && hoverYmd
+              ? tempStartYmd <= hoverYmd
+                ? tempStartYmd
+                : hoverYmd
+              : null
+          const hoverMaxYmd =
+            selectionMode === 'range' && tempStartYmd && !tempEndYmd && hoverYmd
+              ? tempStartYmd <= hoverYmd
+                ? hoverYmd
+                : tempStartYmd
+              : null
+          const isHoveredRange = Boolean(hoverMinYmd && hoverMaxYmd && dayYmd >= hoverMinYmd && dayYmd <= hoverMaxYmd)
 
           // En modo semana permitimos también ver/clicar los días de borde de la semana aunque caigan en el mes contiguo
           const mutedOutOfMonth = !isCurrentMonth && !isInSelectedRange && !isHoveredWeek
@@ -399,16 +460,21 @@ export default function DeliveryPeriodFilter({
               type="button"
               onClick={() => handleCalendarDayClick(day)}
               onDoubleClick={() => {
-                handleCalendarDayClick(day)
+                if (selectionMode === 'range') return
                 if (selectionMode === 'week') {
                   const wm = startOfWeek(day, { weekStartsOn: 1 })
                   const ws = endOfWeek(day, { weekStartsOn: 1 })
                   const sStr = formatLocalYmd(wm)
                   const eStr = formatLocalYmd(ws)
+                  setTempStart(wm)
+                  setTempEnd(ws)
                   onChange(classifyDeliveryPeriod(sStr, eStr), sStr, eStr)
                   setIsOpen(false)
                 } else if (selectionMode === 'day') {
-                  const dStr = formatLocalYmd(day)
+                  const norm = new Date(day.getFullYear(), day.getMonth(), day.getDate(), 12, 0, 0)
+                  const dStr = formatLocalYmd(norm)
+                  setTempStart(norm)
+                  setTempEnd(norm)
                   onChange(classifyDeliveryPeriod(dStr, dStr), dStr, dStr)
                   setIsOpen(false)
                 }
@@ -558,14 +624,18 @@ export default function DeliveryPeriodFilter({
           title={
             isDayView
               ? t('deliveryReconciliation.picker_prev_day_tooltip')
+              : isMonthView
+              ? t('deliveryReconciliation.picker_prev_month_tooltip')
               : t('deliveryReconciliation.picker_prev_week_tooltip')
           }
           aria-label={
             isDayView
               ? t('deliveryReconciliation.picker_prev_day_tooltip')
+              : isMonthView
+              ? t('deliveryReconciliation.picker_prev_month_tooltip')
               : t('deliveryReconciliation.picker_prev_week_tooltip')
           }
-          className="p-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 disabled:opacity-40 transition shrink-0"
+          className="p-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed transition shrink-0"
         >
           <ChevronLeft className="w-4 h-4" />
         </button>
@@ -574,10 +644,18 @@ export default function DeliveryPeriodFilter({
           type="button"
           id="conciliar-filter-period"
           disabled={disabled}
-          onClick={() => setIsOpen((v) => !v)}
+          onClick={() => {
+            if (isOpen) {
+              resetDraftAndClose()
+            } else {
+              syncDraftFromCommitted()
+              setIsOpen(true)
+            }
+          }}
           aria-expanded={isOpen}
+          aria-haspopup="dialog"
           aria-label={t('deliveryReconciliation.filter_3_period')}
-          className="flex-1 min-w-0 flex items-center justify-between gap-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:border-indigo-400 dark:hover:border-indigo-500 rounded-xl px-2.5 py-1.5 shadow-xs transition-colors"
+          className="flex-1 min-w-0 flex items-center justify-between gap-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:border-indigo-400 dark:hover:border-indigo-500 rounded-xl px-2.5 py-1.5 shadow-xs disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         >
           <div className="flex items-center gap-2 min-w-0">
             <div className="p-1.5 bg-white dark:bg-slate-900 rounded-lg border border-slate-200/80 dark:border-slate-700 shrink-0">
@@ -599,11 +677,15 @@ export default function DeliveryPeriodFilter({
           title={
             isDayView
               ? t('deliveryReconciliation.picker_next_day_tooltip')
+              : isMonthView
+              ? t('deliveryReconciliation.picker_next_month_tooltip')
               : t('deliveryReconciliation.picker_next_week_tooltip')
           }
           aria-label={
             isDayView
               ? t('deliveryReconciliation.picker_next_day_tooltip')
+              : isMonthView
+              ? t('deliveryReconciliation.picker_next_month_tooltip')
               : t('deliveryReconciliation.picker_next_week_tooltip')
           }
           className="p-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 disabled:opacity-30 disabled:cursor-not-allowed transition shrink-0"
@@ -619,6 +701,9 @@ export default function DeliveryPeriodFilter({
             createPortal(
               <div
                 data-delivery-date-portal
+                role="dialog"
+                aria-modal="true"
+                aria-label={t('deliveryReconciliation.picker_dialog_aria')}
                 className="md:hidden fixed inset-0 z-[9999] bg-white dark:bg-slate-900 flex flex-col"
               >
                 <div className="shrink-0 flex items-center justify-between px-4 py-3 border-b border-slate-200 dark:border-slate-800">
@@ -628,14 +713,15 @@ export default function DeliveryPeriodFilter({
                   </h2>
                   <button
                     type="button"
-                    onClick={() => setIsOpen(false)}
+                    onClick={resetDraftAndClose}
+                    aria-label={t('deliveryReconciliation.modal_close')}
                     className="p-2 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800"
                   >
                     <X className="w-5 h-5 text-slate-500" />
                   </button>
                 </div>
 
-                <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
+                <div className="flex-1 overflow-y-auto overscroll-contain px-4 py-4 space-y-4">
                   <div className="grid grid-cols-3 gap-2">
                     {presetGroups
                       .flatMap((g) => g.items)
@@ -686,12 +772,66 @@ export default function DeliveryPeriodFilter({
                     </div>
                     {renderMonth(viewDate)}
                   </div>
+
+                  <div className="grid grid-cols-2 gap-2.5 pt-2 border-t border-slate-100 dark:border-slate-800">
+                    <div className="flex flex-col gap-1">
+                      <label htmlFor="delivery-picker-mobile-start" className="text-[10px] uppercase font-bold text-slate-400">
+                        {t('sales.start_date')}
+                      </label>
+                      <input
+                        id="delivery-picker-mobile-start"
+                        name="mobile_start_date"
+                        type="date"
+                        aria-label={t('deliveryReconciliation.picker_from_date_aria')}
+                        value={tempStart ? formatLocalYmd(tempStart) : ''}
+                        onChange={(e) => {
+                          const parsed = parseLocalYmd(e.target.value)
+                          if (!parsed) return
+                          if (selectionMode === 'day') {
+                            setTempStart(parsed)
+                            setTempEnd(parsed)
+                          } else if (selectionMode === 'week') {
+                            setTempStart(startOfWeek(parsed, { weekStartsOn: 1 }))
+                            setTempEnd(endOfWeek(parsed, { weekStartsOn: 1 }))
+                          } else {
+                            setTempStart(parsed)
+                            if (tempEnd && formatLocalYmd(parsed) > formatLocalYmd(tempEnd)) {
+                              setTempEnd(parsed)
+                            }
+                          }
+                        }}
+                        className="border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1.5 text-xs font-mono bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white"
+                      />
+                    </div>
+                    {selectionMode !== 'day' && (
+                      <div className="flex flex-col gap-1">
+                        <label htmlFor="delivery-picker-mobile-end" className="text-[10px] uppercase font-bold text-slate-400">
+                          {t('sales.end_date')}
+                        </label>
+                        <input
+                          id="delivery-picker-mobile-end"
+                          name="mobile_end_date"
+                          type="date"
+                          aria-label={t('deliveryReconciliation.picker_to_date_aria')}
+                          min={tempStart ? formatLocalYmd(tempStart) : undefined}
+                          value={tempEnd ? formatLocalYmd(tempEnd) : ''}
+                          onChange={(e) => {
+                            const parsed = parseLocalYmd(e.target.value)
+                            if (!parsed) return
+                            setSelectionMode('range')
+                            setTempEnd(parsed)
+                          }}
+                          className="border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1.5 text-xs font-mono bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white"
+                        />
+                      </div>
+                    )}
+                  </div>
                 </div>
 
                 <div className="shrink-0 flex gap-3 px-4 py-3.5 border-t border-slate-200 dark:border-slate-800">
                   <button
                     type="button"
-                    onClick={() => setIsOpen(false)}
+                    onClick={resetDraftAndClose}
                     className="flex-1 px-4 py-3 rounded-xl text-sm font-bold text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800"
                   >
                     {t('deliveryReconciliation.picker_cancel_btn')}
@@ -709,7 +849,12 @@ export default function DeliveryPeriodFilter({
             )}
 
           {/* Dropdown de Escritorio Dual-Month estilo Ventas */}
-          <div className="hidden md:flex absolute top-full left-0 lg:left-auto lg:right-0 mt-2 z-50 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-2xl flex-row overflow-hidden">
+          <div
+            role="dialog"
+            aria-modal="false"
+            aria-label={t('deliveryReconciliation.picker_dialog_aria')}
+            className={`hidden md:flex absolute top-full ${align === 'left' ? 'left-0' : 'right-0'} mt-2 z-50 max-w-[calc(100vw-1.5rem)] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-2xl flex-row overflow-x-auto`}
+          >
             {/* Columna izquierda de Presets */}
             <div className="w-44 border-r border-slate-100 dark:border-slate-800 p-2.5 flex flex-col gap-2 bg-slate-50/70 dark:bg-slate-900/70 shrink-0">
               {presetGroups.map((group, gIdx) => (
@@ -805,7 +950,9 @@ export default function DeliveryPeriodFilter({
                     </label>
                     <input
                       id="delivery-picker-start"
+                      name="start_date"
                       type="date"
+                      aria-label={t('deliveryReconciliation.picker_from_date_aria')}
                       value={tempStart ? formatLocalYmd(tempStart) : ''}
                       onChange={(e) => {
                         const parsed = parseLocalYmd(e.target.value)
@@ -818,7 +965,7 @@ export default function DeliveryPeriodFilter({
                           setTempEnd(endOfWeek(parsed, { weekStartsOn: 1 }))
                         } else {
                           setTempStart(parsed)
-                          if (tempEnd && parsed.getTime() > tempEnd.getTime()) {
+                          if (tempEnd && formatLocalYmd(parsed) > formatLocalYmd(tempEnd)) {
                             setTempEnd(parsed)
                           }
                         }
@@ -836,7 +983,9 @@ export default function DeliveryPeriodFilter({
                       </label>
                       <input
                         id="delivery-picker-end"
+                        name="end_date"
                         type="date"
+                        aria-label={t('deliveryReconciliation.picker_to_date_aria')}
                         min={tempStart ? formatLocalYmd(tempStart) : undefined}
                         value={tempEnd ? formatLocalYmd(tempEnd) : ''}
                         onChange={(e) => {
@@ -854,7 +1003,7 @@ export default function DeliveryPeriodFilter({
                 <div className="flex gap-2 self-end">
                   <button
                     type="button"
-                    onClick={() => setIsOpen(false)}
+                    onClick={resetDraftAndClose}
                     className="px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
                   >
                     {t('deliveryReconciliation.picker_cancel_btn')}

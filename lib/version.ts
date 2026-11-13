@@ -20,20 +20,38 @@ export interface VersionMilestone {
 }
 
 export const SYSTEM_VERSION = {
-    version: 'v2.25.0',
-    versionNumber: '2.25.0',
+    version: 'v2.26.0',
+    versionNumber: '2.26.0',
     releaseMonthEs: 'Noviembre 2026',
     releaseMonthEn: 'November 2026',
     stage: 'Producción',
     stageEn: 'Production',
     year: '2026',
-    labelEs: 'Noviembre 2026 • SM TEG v2.25.0',
-    labelEn: 'November 2026 • SM TEG v2.25.0',
+    labelEs: 'Noviembre 2026 • SM TEG v2.26.0',
+    labelEn: 'November 2026 • SM TEG v2.26.0',
     brand: 'SM TEG',
-    lastUpdated: '2026-11-11'
+    lastUpdated: '2026-11-13'
 } as const;
 
 export const VERSION_HISTORY: readonly VersionMilestone[] = [
+    {
+        version: 'v2.26.0',
+        date: '13-Nov-2026',
+        titleEs: 'Contabilidad Externa Wave P0/P1 Zero-Trust (8 Empresas + Cron 15m), Tacos Gavilan App Paridad V1↔V2 + OTP HMAC, Temporizador Digital Frijoles Cooper TFS4, Conciliar Delivery Selector Semana/Día + Puente Variación Exacta y Contestadora IA phone_v6',
+        titleEn: 'External Accounting Wave P0/P1 Zero-Trust (8 Companies + 15m Cron), Tacos Gavilan App V1↔V2 Parity + HMAC OTP, Cooper TFS4 Digital Bean Timer, Delivery Reconciliation Week/Day Selector + Exact Variance Bridge & AI Receptionist phone_v6',
+        highlightsEs: [
+            'Contabilidad Externa Certificación Integral Step 0 + Wave P0 + Wave P1 (/admin/contabilidad-externa, /api/cron/sync-external-accounting y lib/external-accounting-*): revocación Zero-Trust de acceso anon/authenticated en las 24 tablas external_accounting_*, RPCs y bucket external-accounting-attachments, JWT HS256 con expiración real y lista blanca de 3 usuarios, OAuth HMAC y tokens cifrados, nuevo cron cada 15 minutos en vercel.json, paginación determinista >1,000 filas, carga firmada directa de PDFs hasta 15 MB y paridad 1:1 con QuickBooks Online ($0.00 de variación en Accrual y Cash Basis en las 8 empresas, restaurando WELLS FARGO en Govegu LLC a $218,530.34)',
+            'Tacos Gavilan App Paridad V1↔V2 y Blindaje de Seguridad (com.tacosgavilan.mobile, /app, components/customer-app-v2/*, gavilan-app commit 3fd12cc y 20261112160000_harden_mobile_otp_and_rls.sql): protección de borde en middleware.ts y <ProtectedRoute> en /app, /app/v1, /app/v2 y /ordenar manteniendo públicas las páginas legales y /api/mobile/*; tabla app_mobile_otp_challenges con hash HMAC-SHA256, bloqueo al 5.º intento y búsqueda O(1) sin cuentas fantasma; cierre RLS anon en stores, customer_feedback y app_users (/api/stores y /api/feedback); y modularización de Versión 2 en 16 componentes conectada en vivo a /api/mobile/menu, favoritos, Camino 1 DoorDash Storefront, respaldo order.online e iluminación de Slides 1–5',
+            'Tableta 2 de Cocina Trasera — Temporizador Digital Multicanal Cooper TFS4 (/inventory/preparador/bodega, BeanCookingTimerTFS4 y lib/bean-timer.ts, commit 817956c8) & Orden Diaria ("🤖 Sobrante Teórico"): reemplazo digital 1:1 del reloj físico Cooper-Atkins TFS4 en las 15 sucursales con 4 canales por color (T1–T4), 2 botones oficiales bloqueados de 1 toque (Frijoles de la Olla = 11:00 min y Frijoles Enteros = 12:00 min), alarma amplificada 3.4x con sidechain ducking y voz femenina oficial Kore ("Apagar Frijoles de la Olla" / "Apagar Frijoles Enteros") y bitácora en bean_cooking_logs; más renombrado bilingüe a "🤖 Sobrante Teórico" en /inventory/orders',
+            'Conciliar Delivery Selector Semana/Día + Puente Contable Exacto + Auditoría CPA Ronda 2 (/admin/conciliar-delivery, commits fa45b3b3, 7f519ac2 y 2dd6fe30) & Contestadora IA phone_v6 (/admin/llamadas y lib/phone-agent.ts): soporte de prefijo Caviar (CAV), columna lado a lado contra Toast POS, desglose varianceBreakdown a $0.00 (incluyendo cancelled_paid_by_platform e impuestos reales), cuenta dinámica 11510/11520/11530, recálculo server-side recomputeJournalTotals y selector unificado Semana/Día; más pre-caché phone_v6 (118+ audios Kore en 15 tiendas), diferenciación Regular vs Super Quesadilla/Burrito + Torta Cubana, comparador multi-sucursal buildCrossStoreHoursComparison y 64.9 horas consolidadas en Noviembre 2026'
+        ],
+        highlightsEn: [
+            'External Accounting End-to-End Step 0 + Wave P0 + Wave P1 Certification (/admin/contabilidad-externa, /api/cron/sync-external-accounting & lib/external-accounting-*): Zero-Trust revocation of direct anon/authenticated access across all 24 external_accounting_* tables, RPCs, and external-accounting-attachments bucket, strict HS256 JWT expiration + 3-user whitelist, HMAC OAuth state and encrypted tokens, new 15-minute sync cron in vercel.json, >1,000-row deterministic pagination, signed direct PDF uploads up to 15 MB, and 1:1 QuickBooks Online parity ($0.00 variance in Accrual and Cash Basis across all 8 companies, restoring Govegu LLC WELLS FARGO to $218,530.34)',
+            'Tacos Gavilan App V1↔V2 Parity & Security Hardening (com.tacosgavilan.mobile, /app, components/customer-app-v2/*, gavilan-app commit 3fd12cc & 20261112160000_harden_mobile_otp_and_rls.sql): HS256 JWT edge protection in middleware.ts and <ProtectedRoute> across /app, /app/v1, /app/v2, and /ordenar while keeping legal pages and /api/mobile/* public; app_mobile_otp_challenges with HMAC-SHA256 hashing, 5-attempt lockout, and O(1) lookup with zero ghost accounts; locked-down anon RLS on stores, customer_feedback, and app_users (/api/stores and /api/feedback); and 16-module Version 2 refactor wired live to /api/mobile/menu, favorites, DoorDash Storefront Path 1, order.online fallback, and brightened Slides 1–5',
+            'Back-Kitchen Tablet 2 — Cooper TFS4 Multi-Channel Digital Bean Timer (/inventory/preparador/bodega, BeanCookingTimerTFS4 & lib/bean-timer.ts, commit 817956c8) & Daily Order ("🤖 Theoretical Leftover"): 1:1 digital replacement for the physical Cooper-Atkins TFS4 timer across all 15 branches with 4 color-coded channels (T1–T4), 2 locked 1-tap official presets (Frijoles de la Olla = 11:00 min & Frijoles Enteros = 12:00 min), 3.4x high-gain alarm interleaved via sidechain ducking with official female Kore voice ("Apagar Frijoles de la Olla" / "Apagar Frijoles Enteros"), and bean_cooking_logs tracking; plus bilingual rename to "🤖 Theoretical Leftover" in /inventory/orders',
+            'Delivery Reconciliation Week/Day Selector + Exact Variance Bridge + Round-2 CPA Hardening (/admin/conciliar-delivery, commits fa45b3b3, 7f519ac2 & 2dd6fe30) & AI Phone Receptionist phone_v6 (/admin/llamadas & lib/phone-agent.ts): Caviar (CAV) prefix matching, side-by-side Toast POS comparison, $0.00 varianceBreakdown bridge (including cancelled_paid_by_platform and real tax totals), dynamic 11510/11520/11530 platform accounts, server-side recomputeJournalTotals, and unified Week/Day selector; plus phone_v6 prewarm (118+ Kore clips across 15 stores), Regular vs Super Quesadilla/Burrito + Torta Cubana differentiation, buildCrossStoreHoursComparison, and 64.9 hours consolidated in November 2026'
+        ]
+    },
     {
         version: 'v2.25.0',
         date: '11-Nov-2026',

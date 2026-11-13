@@ -170,9 +170,10 @@ export default function TiendasPage() {
     setSaving(true)
 
     try {
-      const supabase = await getSupabaseClient()
+      const token = localStorage.getItem('teg_token') || ''
 
       const payload = {
+        id: editingStore.id || undefined,
         name: editingStore.name,
         code: editingStore.code,
         city: editingStore.city,
@@ -191,22 +192,16 @@ export default function TiendasPage() {
         zip_code: editingStore.zip_code || null
       }
 
-      if (editingStore.id) {
-        // Update
-        const { error } = await supabase
-          .from('stores')
-          .update(payload)
-          .eq('id', editingStore.id)
-
-        if (error) throw error
-      } else {
-        // Create
-        const { error } = await supabase
-          .from('stores')
-          .insert([payload])
-
-        if (error) throw error
-      }
+      const res = await fetch('/api/stores', {
+        method: editingStore.id ? 'PUT' : 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify(payload),
+      })
+      const result = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(result?.error || 'Error saving location')
 
       setIsEditing(false)
       fetchData()

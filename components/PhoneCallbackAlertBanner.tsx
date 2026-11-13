@@ -80,9 +80,12 @@ export default function PhoneCallbackAlertBanner({
   const [notesById, setNotesById] = useState<Record<string, string>>({})
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
 
-  const inFlightRef = useRef(false)
+  const fetchAbortRef = useRef<AbortController | null>(null)
+  const fetchSeqRef = useRef(0)
   const seenIdsRef = useRef<Set<string>>(new Set())
   const initializedStoreRef = useRef<number | null>(null)
+  const activeStoreIdRef = useRef<number | null>(storeId)
+  activeStoreIdRef.current = storeId
 
   const getAuthHeaders = useCallback((): Record<string, string> => {
     const token = typeof window !== 'undefined' ? localStorage.getItem('teg_token') : null
@@ -121,25 +124,35 @@ export default function PhoneCallbackAlertBanner({
   }, [])
 
   const fetchPending = useCallback(async () => {
-    if (!ready || !storeId || inFlightRef.current) return
+    const targetStoreId = storeId
+    if (!ready || !targetStoreId) return
     if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
 
-    inFlightRef.current = true
+    if (fetchAbortRef.current) {
+      fetchAbortRef.current.abort()
+    }
+    const ctrl = new AbortController()
+    fetchAbortRef.current = ctrl
+    const seq = ++fetchSeqRef.current
+
     try {
       const res = await fetch(
-        `/api/phone/dashboard?callbacksOnly=true&storeId=${storeId}&status=pending`,
+        `/api/phone/dashboard?callbacksOnly=true&storeId=${targetStoreId}&status=pending`,
         {
           headers: getAuthHeaders(),
           credentials: 'same-origin',
-          cache: 'no-store'
+          cache: 'no-store',
+          signal: ctrl.signal
         }
       )
       if (!res.ok) return
       const data = await res.json()
+      if (activeStoreIdRef.current !== targetStoreId || seq !== fetchSeqRef.current) return
+
       const list: CallbackAlert[] = Array.isArray(data.callbacks) ? data.callbacks : []
 
       let hasBrandNew = false
-      const wasInitializedForStore = initializedStoreRef.current === storeId
+      const wasInitializedForStore = initializedStoreRef.current === targetStoreId
       for (const item of list) {
         if (!seenIdsRef.current.has(item.id)) {
           seenIdsRef.current.add(item.id)
@@ -148,26 +161,36 @@ export default function PhoneCallbackAlertBanner({
           }
         }
       }
-      initializedStoreRef.current = storeId
+      initializedStoreRef.current = targetStoreId
 
       if (hasBrandNew) {
         playCallbackChime()
       }
 
       setPendingCallbacks(list)
-    } catch {
+    } catch (err: any) {
+      if (err?.name === 'AbortError') return
       // Ignorar intermitencias de red temporales
-    } finally {
-      inFlightRef.current = false
     }
   }, [ready, storeId, getAuthHeaders, playCallbackChime])
 
-  // Limpiar estado al cambiar de tienda o mientras `ready` sea falso
+  // Limpiar estado y abortar polling previo al cambiar de tienda o mientras `ready` sea falso
   useEffect(() => {
+    if (fetchAbortRef.current) {
+      fetchAbortRef.current.abort()
+      fetchAbortRef.current = null
+    }
+    fetchSeqRef.current += 1
     setPendingCallbacks([])
     setErrorMsg(null)
     seenIdsRef.current.clear()
     initializedStoreRef.current = null
+    return () => {
+      if (fetchAbortRef.current) {
+        fetchAbortRef.current.abort()
+        fetchAbortRef.current = null
+      }
+    }
   }, [storeId, ready])
 
   // Polling autenticado cada 6s + recarga inmediata al volver a la pestaña o recuperar red
@@ -203,11 +226,13 @@ export default function PhoneCallbackAlertBanner({
     if (norm === 'employee') return t('phone_agent.caller_type_employee')
     if (norm === 'vendor') return t('phone_agent.caller_type_vendor')
     if (norm === 'delivery_driver') return t('phone_agent.caller_type_driver')
+    if (norm === 'corporate') return t('phone_agent.caller_type_corporate')
     return t('phone_agent.caller_type_customer')
   }
 
   const getUrgencyLabel = (urgency: string): string => {
     const norm = String(urgency || '').toLowerCase()
+    if (norm === 'critical') return t('phone_agent.urgency_critical')
     if (norm === 'urgent') return t('phone_agent.urgency_urgent')
     if (norm === 'high') return t('phone_agent.urgency_high')
     return t('phone_agent.urgency_normal')

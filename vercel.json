@@ -131,6 +131,10 @@
         {
             "path": "/api/cron/audit-employee-emails",
             "schedule": "0 22 * * 6"
+        },
+        {
+            "path": "/api/cron/sync-external-accounting",
+            "schedule": "*/15 * * * *"
         }
     ]
 }

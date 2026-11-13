@@ -11,6 +11,7 @@
  * - App Móvil GET/POST `/api/mobile/favorites` -> `getAuthUser` -> `public.app_favorite_orders`.
  *
  * @notes
+ * - Valida existencia de tienda activa, cantidad entera (1..99), precio no negativo y máximo 50 líneas por favorito; soporta DELETE autenticado con ownership check (`user_id`).
  * - Los registros se eliminan permanentemente cuando el usuario ejecuta `/api/mobile/user/delete`.
  */
 
@@ -136,22 +137,36 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     }
 
     // Validar items
-    if (!body.items || !Array.isArray(body.items) || body.items.length === 0) {
-      return jsonError('El campo "items" es requerido y debe tener al menos un ítem', 400)
+    if (!body.items || !Array.isArray(body.items) || body.items.length === 0 || body.items.length > 50) {
+      return jsonError('El campo "items" es requerido y debe contener entre 1 y 50 ítems', 400)
     }
 
     // Validar storeId
-    if (!body.storeId || typeof body.storeId !== 'number' || body.storeId <= 0) {
-      return jsonError('El campo "storeId" es requerido y debe ser un número positivo', 400)
+    if (!body.storeId || typeof body.storeId !== 'number' || !Number.isInteger(body.storeId) || body.storeId <= 0) {
+      return jsonError('El campo "storeId" es requerido y debe ser un entero positivo', 400)
+    }
+
+    const { data: activeStore, error: storeErr } = await supabaseAdmin
+      .from('stores')
+      .select('id')
+      .eq('id', body.storeId)
+      .eq('is_active', true)
+      .maybeSingle()
+
+    if (storeErr || !activeStore) {
+      return jsonError(`Sucursal #${body.storeId} no válida o inactiva`, 400)
     }
 
     // Validar estructura de cada ítem
     for (const item of body.items) {
-      if (!item.itemGuid || typeof item.itemGuid !== 'string') {
+      if (!item || typeof item.itemGuid !== 'string' || item.itemGuid.trim().length === 0) {
         return jsonError('Cada ítem requiere un "itemGuid" válido', 400)
       }
-      if (typeof item.quantity !== 'number' || item.quantity < 1) {
+      if (typeof item.quantity !== 'number' || !Number.isInteger(item.quantity) || item.quantity < 1 || item.quantity > 99) {
         return jsonError(`Cantidad inválida para el ítem "${item.name || item.itemGuid}"`, 400)
+      }
+      if (typeof item.price !== 'number' || !Number.isFinite(item.price) || item.price < 0) {
+        return jsonError(`Precio inválido para el ítem "${item.name || item.itemGuid}"`, 400)
       }
     }
 
@@ -201,6 +216,59 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Error desconocido'
     console.error('❌ [mobile/favorites] POST Error inesperado:', message)
+    return jsonError('Error interno del servidor', 500)
+  }
+}
+
+// ============================================================================
+// DELETE — Eliminar una combinación favorita propia del usuario autenticado
+// ============================================================================
+export async function DELETE(request: NextRequest): Promise<NextResponse> {
+  try {
+    const auth = await getAuthUser(request)
+    if (!isAuthSuccess(auth)) {
+      return jsonError(auth.error, 401)
+    }
+
+    const { searchParams } = new URL(request.url)
+    let favoriteId = searchParams.get('id')?.trim() || ''
+
+    if (!favoriteId) {
+      try {
+        const body = (await request.json()) as { id?: unknown }
+        if (typeof body?.id === 'string') {
+          favoriteId = body.id.trim()
+        }
+      } catch {
+        // Query param o JSON id faltante se valida abajo
+      }
+    }
+
+    if (!favoriteId || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(favoriteId)) {
+      return jsonError('Se requiere un "id" UUID válido para eliminar el favorito', 400)
+    }
+
+    const { data: deletedRow, error } = await supabaseAdmin
+      .from('app_favorite_orders')
+      .delete()
+      .eq('id', favoriteId)
+      .eq('user_id', auth.userId)
+      .select('id')
+      .maybeSingle()
+
+    if (error) {
+      console.error('❌ [mobile/favorites] Error al eliminar favorito:', error.message)
+      return jsonError('Error al eliminar el favorito', 500)
+    }
+
+    if (!deletedRow) {
+      return jsonError('Favorito no encontrado o sin permisos para eliminarlo', 404)
+    }
+
+    return jsonOk({ deletedId: deletedRow.id })
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Error desconocido'
+    console.error('❌ [mobile/favorites] DELETE Error inesperado:', message)
     return jsonError('Error interno del servidor', 500)
   }
 }

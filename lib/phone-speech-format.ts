@@ -152,16 +152,22 @@ const DIRECTIONAL_MAP: Record<string, string> = {
 }
 
 const STREET_TYPE_ENTRIES: Array<[RegExp, string]> = [
+  [/\bAve\.(?=\s+(?:Hoy|Mañana|También|Además|Si|Por|Gracias|Recuerda|Puedes|Abierto|Cerrado|Today|Tomorrow|We|Our|You|Please|Thank|If|Open|Closed)\b|\s*$)/gi, 'Avenue.'],
   [/\bAve\.(?=\s*[,;:.!?)]|\s|$)/gi, 'Avenue'],
   [/\bAve(?=\s*[,;:.!?)]|\s+(?:in|en|suite|ste|apt|unit|local|[A-Z])|$)/g, 'Avenue'],
+  [/\bBlvd\.(?=\s+(?:Hoy|Mañana|También|Además|Si|Por|Gracias|Recuerda|Puedes|Abierto|Cerrado|Today|Tomorrow|We|Our|You|Please|Thank|If|Open|Closed)\b|\s*$)/gi, 'Boulevard.'],
   [/\bBlvd\.(?=\s*[,;:.!?)]|\s|$)/gi, 'Boulevard'],
   [/\bBlvd(?=\s*[,;:.!?)]|\s|$)/gi, 'Boulevard'],
+  [/\bRd\.(?=\s+(?:Hoy|Mañana|También|Además|Si|Por|Gracias|Recuerda|Puedes|Abierto|Cerrado|Today|Tomorrow|We|Our|You|Please|Thank|If|Open|Closed)\b|\s*$)/gi, 'Road.'],
   [/\bRd\.(?=\s*[,;:.!?)]|\s|$)/gi, 'Road'],
   [/\bRd(?=\s*[,;:.!?)]|\s|$)/g, 'Road'],
+  [/\bHwy\.(?=\s+(?:Hoy|Mañana|También|Además|Si|Por|Gracias|Recuerda|Puedes|Abierto|Cerrado|Today|Tomorrow|We|Our|You|Please|Thank|If|Open|Closed)\b|\s*$)/gi, 'Highway.'],
   [/\bHwy\.(?=\s*[,;:.!?)]|\s|$)/gi, 'Highway'],
   [/\bHwy(?=\s*[,;:.!?)]|\s|$)/gi, 'Highway'],
+  [/\bPkwy\.(?=\s+(?:Hoy|Mañana|También|Además|Si|Por|Gracias|Recuerda|Puedes|Abierto|Cerrado|Today|Tomorrow|We|Our|You|Please|Thank|If|Open|Closed)\b|\s*$)/gi, 'Parkway.'],
   [/\bPkwy\.(?=\s*[,;:.!?)]|\s|$)/gi, 'Parkway'],
   [/\bPkwy(?=\s*[,;:.!?)]|\s|$)/gi, 'Parkway'],
+  [/\bFwy\.(?=\s+(?:Hoy|Mañana|También|Además|Si|Por|Gracias|Recuerda|Puedes|Abierto|Cerrado|Today|Tomorrow|We|Our|You|Please|Thank|If|Open|Closed)\b|\s*$)/gi, 'Freeway.'],
   [/\bFwy\.(?=\s*[,;:.!?)]|\s|$)/gi, 'Freeway'],
   [/\bFwy(?=\s*[,;:.!?)]|\s|$)/gi, 'Freeway'],
   [/\bLn\.(?=\s*[,;:.!?)]|\s|$)/gi, 'Lane'],
@@ -200,9 +206,13 @@ export function expandStreetAbbreviationsInText(
     (_m, num: string, dir: string) => `${num} ${DIRECTIONAL_MAP[dir.toUpperCase()] || dir}`
   )
 
-  // También cuando se menciona la calle sin número pero con inicial cardinal y punto antes del nombre vial (ej. "por E. Florence Ave.")
+  // También cuando se menciona la calle sin número únicamente en contexto vial (después de preposición o seguida de tipo de vía, evitando iniciales como "Juan S. Hernández")
   out = out.replace(
-    /(?:^|(\s))(NE|NW|SE|SW|N|S|E|W)\.\s+(?=(?:[A-Z][a-z]{2,}|\d{1,3}(?:st|nd|rd|th)\b))/g,
+    /(\b(?:en|por|sobre|calle|esquina|on|at|near|off|from)\s+)(NE|NW|SE|SW|N|S|E|W)\.\s+(?=[A-Z][a-z]{2,}|\d{1,3}(?:st|nd|rd|th)\b)/gi,
+    (_m, prep: string, dir: string) => `${prep}${DIRECTIONAL_MAP[dir.toUpperCase()] || dir} `
+  )
+  out = out.replace(
+    /(?:^|(\s))(NE|NW|SE|SW|N|S|E|W)\.\s+(?=(?:[A-Z][a-z]{2,}|\d{1,3}(?:st|nd|rd|th)\b)\s+(?:Ave\.?|St\.?|Blvd\.?|Rd\.?|Hwy\.?|Fwy\.?|Pkwy\.?|Ln\.?|Ct\.?|Cir\.?|Pl\.?|Dr\.?|Avenue|Street|Boulevard|Road|Highway|Freeway|Parkway|Lane|Court|Circle|Place|Drive)\b)/g,
     (_m, space: string | undefined, dir: string) => `${space || ''}${DIRECTIONAL_MAP[dir.toUpperCase()] || dir} `
   )
 
@@ -212,6 +222,10 @@ export function expandStreetAbbreviationsInText(
   }
 
   // 4. Expandir `St.` / `St` ÚNICAMENTE cuando va DESPUÉS del nombre u ordinal de calle (no "St. Jude")
+  out = out.replace(
+    /\b(\d{1,3}(?:st|nd|rd|th)|[A-Z][a-zA-Z0-9'-]{1,24})\s+St\.(?=\s+(?:Hoy|Mañana|También|Además|Si|Por|Gracias|Today|Tomorrow|We|Our|You|Please|Thank)\b|\s*$)/g,
+    '$1 Street.'
+  )
   out = out.replace(
     /\b(\d{1,3}(?:st|nd|rd|th)|[A-Z][a-zA-Z0-9'-]{1,24})\s+St\.(?=\s*[,;:.!?)]|\s|$)/g,
     '$1 Street'
@@ -250,12 +264,11 @@ export function expandStreetAbbreviationsInText(
   // 8. Limpiar doble puntuación residual que quedaba de `Ave.,` o `Rd..`
   out = out.replace(/\.,/g, ',').replace(/,\s*,/g, ',')
 
-  // 9. Expandir `, CA 91791` o `, CA` -> `, California`
+  // 9. Expandir `, CA 91791` y `, CA` -> `, California` (incluso cuando stripZipAfterState es true y no venía ZIP)
   if (options?.stripZipAfterState) {
     out = out.replace(/,\s*CA\s+\d{5}(?:-\d{4})?\b/g, ', California')
-  } else {
-    out = out.replace(/,\s*CA(?=\s+\d{5}\b|\s*[,;:.!?)]|\s|$)/g, ', California')
   }
+  out = out.replace(/,\s*CA(?=\s+\d{5}\b|\s*[,;:.!?)]|\s|$)/g, ', California')
 
   // 10. En español, asegurar tilde en `Los Ángeles` para acentuación esdrújula natural
   if (lang === 'es') {
@@ -347,14 +360,14 @@ export function normalizeTextForPhoneSpeech(rawText: string, lang: SpeechLang): 
     })
   }
 
-  // 3. Pronunciar números telefónicos de 10 dígitos dígito por dígito en cadencia 3-3-4
+  // 3. Pronunciar números telefónicos de 10 dígitos dígito por dígito en cadencia 3-3-4 (incluyendo +1E164 corrido)
   text = text.replace(
-    /(?:\+1[-.\s]?)?\(([2-9]\d{2})\)\s*(\d{3})[-.\s](\d{4})\b/g,
-    (_m, a: string, b: string, c: string) => formatPhoneForSpeech(`${a}${b}${c}`, lang)
+    /(^|[^\w+])(?:\+1[-.\s]?)?\(([2-9]\d{2})\)\s*([2-9]\d{2})[-.\s](\d{4})\b/g,
+    (_m, lead: string, a: string, b: string, c: string) => `${lead}${formatPhoneForSpeech(`${a}${b}${c}`, lang)}`
   )
   text = text.replace(
-    /\b(?:\+?1[-.\s])?([2-9]\d{2})[-.\s](\d{3})[-.\s](\d{4})\b/g,
-    (_m, a: string, b: string, c: string) => formatPhoneForSpeech(`${a}${b}${c}`, lang)
+    /(^|[^\w+])(?:\+?1[-.\s]?)?([2-9]\d{2})[-.\s]?([2-9]\d{2})[-.\s]?(\d{4})\b/g,
+    (_m, lead: string, a: string, b: string, c: string) => `${lead}${formatPhoneForSpeech(`${a}${b}${c}`, lang)}`
   )
 
   // 4. Evitar que se deletreen URLs técnicas largas y pronunciar `tacosgavilan.com` con naturalidad
@@ -369,15 +382,15 @@ export function normalizeTextForPhoneSpeech(rawText: string, lang: SpeechLang): 
   // 5. En español, convertir precios con `$` a dólares hablados naturales para que jamás diga "pesos"
   if (lang === 'es') {
     let priceIndex = 0
-    text = text.replace(/\$(\d{1,4})(?:\.(\d{2}))?\b/g, (_m, dollarsStr: string, centsStr?: string) => {
+    text = text.replace(/\$(\d{1,3}(?:,\d{3})+|\d{1,5})(?:\.(\d{2}))?\b/g, (_m, dollarsStr: string, centsStr?: string) => {
       priceIndex++
-      const dollars = Number(dollarsStr)
+      const dollars = Number(dollarsStr.replace(/,/g, ''))
       const dollarWord = dollars === 1 ? 'dólar' : 'dólares'
       if (!centsStr || centsStr === '00') {
         return `${dollars} ${dollarWord}`
       }
       const cents = Number(centsStr)
-      if (priceIndex === 1) {
+      if (priceIndex === 1 || (cents > 0 && cents < 10)) {
         return `${dollars} ${dollarWord} con ${cents} centavos`
       }
       return `${dollars} con ${cents}`

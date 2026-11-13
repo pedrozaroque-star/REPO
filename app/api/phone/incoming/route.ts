@@ -18,6 +18,8 @@
  * @notes
  * - El `<Redirect>` de respaldo tras el primer `<Gather>` envía `&silence=1` (no `retry=1`) para que el primer silencio
  *   pregunte amablemente `"¿Sigues en la línea?"` antes de colgar.
+ * - Cachea el mapa de teléfonos de las 15 sucursales (60 s TTL), usa `buildTwilioGatherAttrs` (`speechTimeout="1" speechModel="phone_call" enhanced="true"`
+ *   + `hints`) y difiere el `upsert` inicial de `phone_calls` a `after()` junto con `awaitStoragePersist: true` en los clips de saludo.
  */
 
 import { after } from 'next/server'
@@ -27,6 +29,8 @@ import { getPhoneAgentSpeech, resolvePhoneFemaleVoice } from '@/lib/order-ready-
 import {
   buildInitialGreeting,
   buildPhoneTtsUrl,
+  buildTwilioGatherAttrs,
+  cleanPhoneStoreName,
   escapeXml,
   getPostDisclosurePrompt,
   getStorePhoneContext,
@@ -37,6 +41,38 @@ import {
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 30
+
+interface RoutingDirectoryCacheEntry {
+  fetchedAt: number
+  configs: Array<{ store_id: number; twilio_phone_number: string | null }>
+  activeStores: Array<{ id: number; phone: string | null; is_active: boolean | null }>
+}
+
+const ROUTING_DIR_TTL_MS = 60_000
+let routingDirectoryCache: RoutingDirectoryCacheEntry | null = null
+
+async function getRoutingDirectory(): Promise<RoutingDirectoryCacheEntry> {
+  const now = Date.now()
+  if (routingDirectoryCache && now - routingDirectoryCache.fetchedAt < ROUTING_DIR_TTL_MS) {
+    return routingDirectoryCache
+  }
+  const [{ data: configs, error: cfgErr }, { data: stores, error: storeErr }] = await Promise.all([
+    supabaseAdmin.from('phone_agent_config').select('store_id, twilio_phone_number'),
+    supabaseAdmin.from('stores').select('id, phone, is_active')
+  ])
+  if ((cfgErr || storeErr) && routingDirectoryCache) {
+    return routingDirectoryCache
+  }
+  const entry: RoutingDirectoryCacheEntry = {
+    fetchedAt: now,
+    configs: (configs || []) as Array<{ store_id: number; twilio_phone_number: string | null }>,
+    activeStores: ((stores || []) as Array<{ id: number; phone: string | null; is_active: boolean | null }>).filter(
+      (s) => s.is_active !== false
+    )
+  }
+  routingDirectoryCache = entry
+  return entry
+}
 
 function normalizeDigits10(phone: string | null | undefined): string {
   const digits = String(phone || '').replace(/\D/g, '')
@@ -58,12 +94,7 @@ async function resolveStoreFromCall(
   toNumber: string,
   forwardedFrom: string
 ): Promise<{ storeId: number | null; matchedStorePhone: string | null }> {
-  const [{ data: configs }, { data: stores }] = await Promise.all([
-    supabaseAdmin.from('phone_agent_config').select('store_id, twilio_phone_number'),
-    supabaseAdmin.from('stores').select('id, phone, is_active')
-  ])
-
-  const activeStores = (stores || []).filter((s: any) => s.is_active !== false)
+  const { configs, activeStores } = await getRoutingDirectory()
   const storeById = new Map<number, any>(activeStores.map((s: any) => [Number(s.id), s]))
 
   if (queryStoreId && Number.isFinite(Number(queryStoreId))) {
@@ -169,34 +200,38 @@ export async function POST(request: Request) {
     }
 
     if (!config.is_enabled) {
+      const spokenStoreName = cleanPhoneStoreName(store.name) || store.name
       const disabledMsg =
         lang === 'en'
-          ? `Thank you for calling Tacos Gavilan ${store.name}. ${scheduleEval.statusMessageEn} You can also order online at tacosgavilan.com.`
-          : `Gracias por llamar a Tacos Gavilan sucursal ${store.name}. ${scheduleEval.statusMessageEs} También puedes ordenar en línea en tacosgavilan.com.`
+          ? `Thank you for calling Tacos Gavilan ${spokenStoreName}. ${scheduleEval.statusMessageEn} You can also order online at tacosgavilan.com.`
+          : `Gracias por llamar a Tacos Gavilan sucursal ${spokenStoreName}. ${scheduleEval.statusMessageEs} También puedes ordenar en línea en tacosgavilan.com.`
       const ttsUrl = buildPhoneTtsUrl(baseUrl, disabledMsg, lang, voice)
-      scheduleBackgroundTask(() => getPhoneAgentSpeech(disabledMsg, lang, voice))
-
-      await supabaseAdmin.from('phone_calls').upsert(
-        {
-          call_sid: callSid,
-          store_id: store.id,
-          source: 'twilio',
-          caller_number: fromNumber || null,
-          to_number: toNumber || null,
-          forwarded_from: forwardedFrom || null,
-          language: lang,
-          status: 'completed',
-          resolved_by_ai: false,
-          turns_count: 0,
-          duration_seconds: 5,
-          summary: `Contestadora apagada en sucursal (${store.name})`,
-          transcript: [{ role: 'assistant', text: disabledMsg, timestamp: new Date().toISOString() }],
-          business_date: getCaliforniaBusinessDate(),
-          shift: getCaliforniaShift(),
-          ended_at: new Date().toISOString()
-        },
-        { onConflict: 'call_sid' }
-      )
+      scheduleBackgroundTask(async () => {
+        await Promise.all([
+          getPhoneAgentSpeech(disabledMsg, lang, voice, false, { awaitStoragePersist: true }),
+          supabaseAdmin.from('phone_calls').upsert(
+            {
+              call_sid: callSid,
+              store_id: store.id,
+              source: 'twilio',
+              caller_number: fromNumber || null,
+              to_number: toNumber || null,
+              forwarded_from: forwardedFrom || null,
+              language: lang,
+              status: 'completed',
+              resolved_by_ai: false,
+              turns_count: 0,
+              duration_seconds: 5,
+              summary: `Contestadora apagada en sucursal (${spokenStoreName})`,
+              transcript: [{ role: 'assistant', text: disabledMsg, timestamp: new Date().toISOString() }],
+              business_date: getCaliforniaBusinessDate(),
+              shift: getCaliforniaShift(),
+              ended_at: new Date().toISOString()
+            },
+            { onConflict: 'call_sid' }
+          )
+        ])
+      })
 
       const twimlDisabled = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
@@ -225,39 +260,37 @@ export async function POST(request: Request) {
     )
     const questionOnlyText = getPostDisclosurePrompt(lang, scheduleEval)
 
-    // Pre-calentar en paralelo los dos clips de bienvenida para que Twilio los descargue en ~0 ms
+    // Pre-calentar en paralelo los dos clips de bienvenida (persistiendo en Storage) y registrar la llamada en `after()` sin frenar el primer <Play>
     scheduleBackgroundTask(async () => {
       await Promise.all([
-        getPhoneAgentSpeech(disclosureOnlyText, lang, voice),
-        getPhoneAgentSpeech(questionOnlyText, lang, voice)
+        getPhoneAgentSpeech(disclosureOnlyText, lang, voice, false, { awaitStoragePersist: true }),
+        getPhoneAgentSpeech(questionOnlyText, lang, voice, false, { awaitStoragePersist: true }),
+        supabaseAdmin.from('phone_calls').upsert(
+          {
+            call_sid: callSid,
+            store_id: store.id,
+            source: 'twilio',
+            caller_number: fromNumber || null,
+            to_number: toNumber || null,
+            forwarded_from: forwardedFrom || null,
+            language: lang,
+            status: 'in_progress',
+            resolved_by_ai: false,
+            turns_count: 0,
+            transcript: [
+              {
+                role: 'assistant',
+                text: greetingText,
+                timestamp: new Date().toISOString()
+              }
+            ],
+            business_date: getCaliforniaBusinessDate(),
+            shift: getCaliforniaShift()
+          },
+          { onConflict: 'call_sid' }
+        )
       ])
     })
-
-    // Registrar inicio de llamada en `phone_calls` con `resolved_by_ai: false` hasta que ocurra un turno real
-    await supabaseAdmin.from('phone_calls').upsert(
-      {
-        call_sid: callSid,
-        store_id: store.id,
-        source: 'twilio',
-        caller_number: fromNumber || null,
-        to_number: toNumber || null,
-        forwarded_from: forwardedFrom || null,
-        language: lang,
-        status: 'in_progress',
-        resolved_by_ai: false,
-        turns_count: 0,
-        transcript: [
-          {
-            role: 'assistant',
-            text: greetingText,
-            timestamp: new Date().toISOString()
-          }
-        ],
-        business_date: getCaliforniaBusinessDate(),
-        shift: getCaliforniaShift()
-      },
-      { onConflict: 'call_sid' }
-    )
 
     // REGLA CIPA CALIFORNIA (§§ 631, 632 y 632.7 — "Before Interception Rule"):
     // El aviso legal de IA + grabación/transcripción DEBE reproducirse completo SIN activar `input="speech"` (solo `dtmf`
@@ -266,14 +299,13 @@ export async function POST(request: Request) {
     const questionAudioUrl = buildPhoneTtsUrl(baseUrl, questionOnlyText, lang, voice)
     const preconsentUrl = `${baseUrl}/api/phone/respond?storeId=${store.id}&lang=${lang}&preconsent=1`
     const respondUrl = `${baseUrl}/api/phone/respond?storeId=${store.id}&lang=${lang}`
-    const gatherLang = lang === 'en' ? 'en-US' : 'es-US'
 
     const twiml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Gather input="dtmf" numDigits="1" timeout="1" action="${escapeXml(preconsentUrl)}" method="POST">
     <Play>${escapeXml(disclosureAudioUrl)}</Play>
   </Gather>
-  <Gather input="speech dtmf" numDigits="1" language="${gatherLang}" speechTimeout="auto" action="${escapeXml(respondUrl)}" method="POST">
+  <Gather ${buildTwilioGatherAttrs(lang, respondUrl)}>
     <Play>${escapeXml(questionAudioUrl)}</Play>
   </Gather>
   <Redirect method="POST">${escapeXml(respondUrl)}&amp;silence=1</Redirect>

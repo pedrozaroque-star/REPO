@@ -48,7 +48,7 @@ const toOz = (quantity: number, unit: string) => {
 
 export const MEAT_COOKING_YIELDS: Record<keyof typeof ACTIVE_PROTEIN_IDS, number> = {
   asada: 0.615,    // 61.5% merma parrilla
-  pastor: 0.615,   // 61.5% merma trompo y cocción
+  pastor: 0.615,   // 61.5% merma parrilla y cocción
   pollo: 0.650,    // 65.0% merma cocción
   cabeza: 0.870,   // 87.0% cocción vapor
   lengua: 1.000,   // 100.0% procesada

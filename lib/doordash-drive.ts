@@ -19,7 +19,7 @@
  * 
  * @notes
  * - La autenticación con DoorDash Drive requiere tokens JWT firmados con algoritmo HS256, header 'dd-ver': 'DD-JWT-V1'
- *   y decodificación del signing_secret en formato 'base64url'.
+ *   y decodificación del signing_secret en formato 'base64url'; usa `formatDoorDashAddress` preservando unidad/depto, `AbortSignal.timeout(15_000)` y parsing seguro de respuesta.
  */
 
 import jwt from 'jsonwebtoken'
@@ -93,6 +93,13 @@ export interface DoorDashQuoteResult {
   details?: Record<string, unknown>
 }
 
+export function formatDoorDashAddress(addr: DoorDashAddress): string {
+  const streetWithUnit = addr.unit ? `${addr.street}, ${addr.unit}` : addr.street
+  return `${streetWithUnit}, ${addr.city}, ${addr.state} ${addr.zip_code}`
+}
+
+const DOORDASH_DRIVE_TIMEOUT_MS = 15_000
+
 /**
  * Solicita una cotización de costo de entrega y tiempo estimado a DoorDash Drive API v2 (/drive/v2/quotes).
  */
@@ -111,10 +118,10 @@ export async function createDoorDashQuote(
 
   const body = {
     external_delivery_id: params.externalDeliveryId,
-    pickup_address: `${params.pickupAddress.street}, ${params.pickupAddress.city}, ${params.pickupAddress.state} ${params.pickupAddress.zip_code}`,
+    pickup_address: formatDoorDashAddress(params.pickupAddress),
     pickup_phone_number: params.pickupPhoneNumber,
     pickup_business_name: params.pickupBusinessName,
-    dropoff_address: `${params.dropoffAddress.street}, ${params.dropoffAddress.city}, ${params.dropoffAddress.state} ${params.dropoffAddress.zip_code}`,
+    dropoff_address: formatDoorDashAddress(params.dropoffAddress),
     dropoff_phone_number: params.dropoffPhoneNumber,
     order_value: params.orderValueCents,
   }
@@ -127,18 +134,19 @@ export async function createDoorDashQuote(
         Authorization: `Bearer ${token}`,
       },
       body: JSON.stringify(body),
+      signal: AbortSignal.timeout(DOORDASH_DRIVE_TIMEOUT_MS),
     })
 
+    const rawText = await res.text()
     if (!res.ok) {
-      const errText = await res.text()
-      console.warn(`[DoorDash Drive] Error en cotización (HTTP ${res.status}):`, errText)
+      console.warn(`[DoorDash Drive] Error en cotización (HTTP ${res.status}):`, rawText)
       return {
         ok: false,
-        error: `DoorDash Drive rechazó la cotización (HTTP ${res.status}): ${errText}`,
+        error: `DoorDash Drive rechazó la cotización (HTTP ${res.status}): ${rawText}`,
       }
     }
 
-    const data = await res.json()
+    const data = JSON.parse(rawText) as Record<string, any>
     return {
       ok: true,
       feeCents: data.fee,
@@ -189,11 +197,12 @@ export async function dispatchDoorDashDelivery(
 
   const body = {
     external_delivery_id: params.externalDeliveryId,
-    pickup_address: `${params.pickupAddress.street}, ${params.pickupAddress.city}, ${params.pickupAddress.state} ${params.pickupAddress.zip_code}`,
+    pickup_address: formatDoorDashAddress(params.pickupAddress),
     pickup_phone_number: params.pickupPhoneNumber,
     pickup_business_name: params.pickupBusinessName,
     pickup_instructions: 'Dirígete al mostrador de entrega y solicita la orden para la app Tacos Gavilan.',
-    dropoff_address: `${params.dropoffAddress.street}, ${params.dropoffAddress.city}, ${params.dropoffAddress.state} ${params.dropoffAddress.zip_code}`,
+    dropoff_address: formatDoorDashAddress(params.dropoffAddress),
+    dropoff_address_unit: params.dropoffAddress.unit || undefined,
     dropoff_phone_number: params.dropoffPhoneNumber,
     dropoff_instructions: params.dropoffInstructions || 'Entregar en mano al cliente.',
     order_value: params.orderValueCents,
@@ -209,18 +218,19 @@ export async function dispatchDoorDashDelivery(
         Authorization: `Bearer ${token}`,
       },
       body: JSON.stringify(body),
+      signal: AbortSignal.timeout(DOORDASH_DRIVE_TIMEOUT_MS),
     })
 
+    const rawText = await res.text()
     if (!res.ok) {
-      const errText = await res.text()
-      console.warn(`[DoorDash Drive] Error al despachar entrega (HTTP ${res.status}):`, errText)
+      console.warn(`[DoorDash Drive] Error al despachar entrega (HTTP ${res.status}):`, rawText)
       return {
         ok: false,
-        error: `DoorDash Drive rechazó la orden de despacho (HTTP ${res.status}): ${errText}`,
+        error: `DoorDash Drive rechazó la orden de despacho (HTTP ${res.status}): ${rawText}`,
       }
     }
 
-    const data = await res.json()
+    const data = JSON.parse(rawText) as Record<string, any>
     return {
       ok: true,
       deliveryId: data.external_delivery_id || data.id || data.delivery_id,

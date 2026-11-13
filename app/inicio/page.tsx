@@ -391,7 +391,7 @@ function InicioHubContent() {
                     path: '/admin/llamadas',
                     icon: <PhoneCall size={20} />,
                     iconColorClass: 'bg-indigo-500/10 text-indigo-600 dark:bg-indigo-500/20 dark:text-indigo-400 border-indigo-500/20',
-                    roles: ['admin', 'supervisor', 'manager', 'asistente'],
+                    roles: ['admin', 'supervisor', 'regional_manager', 'manager', 'gerente', 'asistente', 'assistant'],
                     badgeType: 'new',
                     badgeLabel: 'new',
                 },
@@ -767,7 +767,7 @@ function InicioHubContent() {
         const isPlanificadorOnly = userEmailNorm === 'stephany@cingularhr.com' || user?.role?.toLowerCase() === 'planificador'
         const userRole = (user?.role || user?.user_type || '').toLowerCase()
         const canAccessExternalAccounting =
-            ['raquel@tacosgavilan.com', 'roberto@tacosgavilan.com', 'roque@tacosgavilan.com', 'rvelasquez95@yahoo.com'].includes(userEmailNorm) ||
+            ['raquel@tacosgavilan.com', 'roberto@tacosgavilan.com', 'roque@tacosgavilan.com'].includes(userEmailNorm) &&
             [45, 46, 47].includes(Number(user?.id))
 
         return moduleGroups
@@ -1214,7 +1214,7 @@ function InicioHubContent() {
 
 export default function InicioPage() {
     return (
-        <ProtectedRoute allowedRoles={['admin', 'supervisor', 'manager', 'asistente', 'auditor']}>
+        <ProtectedRoute allowedRoles={['admin', 'supervisor', 'regional_manager', 'manager', 'gerente', 'asistente', 'assistant', 'auditor']}>
             <InicioHubContent />
         </ProtectedRoute>
     )

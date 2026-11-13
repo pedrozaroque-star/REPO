@@ -21,8 +21,8 @@
  *   consulta cacheada (30 s) a `public.users` + `public.stores` -> resultado tipado `{ authorized, user, response }`.
  *
  * @notes
- * - Bloquea números internacionales fuera de EE. UU./Canadá (`+1` + 10 dígitos válidos) en `<Dial>` para
- *   impedir fraude telefónico (*Toll Fraud*).
+ * - Bloquea números internacionales fuera de EE. UU./Canadá (`+1` + 10 dígitos válidos), números premium (`900`/`976`) e islas NANP de riesgo en `<Dial>` para impedir fraude telefónico (*Toll Fraud*).
+ * - `loadUserAndStores` ejecuta `users` y el catálogo cacheado de `stores` en paralelo; `store_scope` se combina aditivamente con `store_id`.
  */
 
 import { NextResponse } from 'next/server'
@@ -63,7 +63,17 @@ interface CachedAccessEntry {
 }
 
 const ACCESS_CACHE_TTL_MS = 30_000
+const STORES_CACHE_TTL_MS = 5 * 60_000
 const userAccessCache = new Map<string, CachedAccessEntry>()
+let activeStoresCache: { at: number; stores: Array<{ id: number; code: string; name: string }> } | null = null
+
+// Bloqueo de tarifa premium (900/976) e islas NANP de alto riesgo de Toll Fraud internacional bajo +1
+const BLOCKED_NANP_AREA_CODES = new Set([
+  '900', '976',
+  '242', '246', '264', '268', '284', '345', '441', '473',
+  '649', '658', '664', '721', '758', '767', '784',
+  '809', '829', '849', '868', '869', '876'
+])
 
 function normalizeStoreToken(raw: string): string {
   return String(raw || '')
@@ -122,13 +132,22 @@ export function normalizeUsPhoneE164(raw: string | null | undefined): {
     }
   }
 
-  // Validar código de área NXX (primer dígito 2-9)
-  if (!/^[2-9]\d{9}$/.test(tenDigits)) {
+  // Validar código de área NPA y central NXX (ambos inician en 2-9) + bloqueo anti-Toll-Fraud (900/976/islas NANP)
+  if (!/^[2-9]\d{2}[2-9]\d{6}$/.test(tenDigits)) {
     return {
       valid: false,
       normalized: null,
       tenDigits: null,
-      error: 'Código de área inválido para EE. UU.'
+      error: 'Código de área o central inválido para EE. UU.'
+    }
+  }
+  const areaCode = tenDigits.slice(0, 3)
+  if (BLOCKED_NANP_AREA_CODES.has(areaCode)) {
+    return {
+      valid: false,
+      normalized: null,
+      tenDigits: null,
+      error: `El código de área (${areaCode}) no está permitido por seguridad anti-fraude telefónico.`
     }
   }
 
@@ -183,33 +202,11 @@ export function validateNoForwardingLoop(
 const GLOBAL_ADMIN_ROLES = new Set(['admin', 'administrador', 'supervisor'])
 const STORE_SCOPED_ROLES = new Set(['manager', 'general_manager', 'asistente', 'assistant'])
 
-async function loadUserAndStores(userId: string | number, fallbackEmail?: string) {
-  const cacheKey = `${userId}:${fallbackEmail || ''}`
-  const hit = userAccessCache.get(cacheKey)
-  if (hit && Date.now() - hit.at < ACCESS_CACHE_TTL_MS) {
-    return hit
+async function getCachedActiveStores() {
+  const now = Date.now()
+  if (activeStoresCache && now - activeStoresCache.at < STORES_CACHE_TTL_MS) {
+    return activeStoresCache.stores
   }
-
-  const numericId = Number(userId)
-  let userRow: any = null
-  if (Number.isFinite(numericId) && numericId > 0) {
-    const { data } = await supabaseAdmin
-      .from('users')
-      .select('id, email, full_name, role, store_id, store_scope, is_active')
-      .eq('id', numericId)
-      .maybeSingle()
-    userRow = data
-  }
-
-  if (!userRow && fallbackEmail) {
-    const { data } = await supabaseAdmin
-      .from('users')
-      .select('id, email, full_name, role, store_id, store_scope, is_active')
-      .ilike('email', fallbackEmail.trim())
-      .maybeSingle()
-    userRow = data
-  }
-
   const { data: storesData } = await supabaseAdmin
     .from('stores')
     .select('id, code, name, is_active')
@@ -222,6 +219,40 @@ async function loadUserAndStores(userId: string | number, fallbackEmail?: string
       code: String(s.code || ''),
       name: String(s.name || '')
     }))
+  if (activeStores.length > 0 || !activeStoresCache) {
+    activeStoresCache = { at: now, stores: activeStores }
+  }
+  return activeStoresCache.stores
+}
+
+async function loadUserAndStores(userId: string | number, fallbackEmail?: string) {
+  const cacheKey = `${userId}:${fallbackEmail || ''}`
+  const hit = userAccessCache.get(cacheKey)
+  if (hit && Date.now() - hit.at < ACCESS_CACHE_TTL_MS) {
+    return hit
+  }
+
+  const numericId = Number(userId)
+  const [userPrimaryRes, activeStores] = await Promise.all([
+    Number.isFinite(numericId) && numericId > 0
+      ? supabaseAdmin
+          .from('users')
+          .select('id, email, full_name, role, store_id, store_scope, is_active')
+          .eq('id', numericId)
+          .maybeSingle()
+      : Promise.resolve({ data: null }),
+    getCachedActiveStores()
+  ])
+
+  let userRow: any = userPrimaryRes.data
+  if (!userRow && fallbackEmail) {
+    const { data } = await supabaseAdmin
+      .from('users')
+      .select('id, email, full_name, role, store_id, store_scope, is_active')
+      .ilike('email', fallbackEmail.trim())
+      .maybeSingle()
+    userRow = data
+  }
 
   const entry: CachedAccessEntry = {
     at: Date.now(),
@@ -362,7 +393,8 @@ export async function authorizePhoneModuleRequest(
     if (assignedStoreId && activeStores.some((s) => s.id === assignedStoreId)) {
       allowedSet.add(assignedStoreId)
     }
-    if (allowedSet.size === 0 && Array.isArray(userRow.store_scope)) {
+    // Combinar store_id + store_scope para soportar general_manager o manager multitienda
+    if (Array.isArray(userRow.store_scope)) {
       const scopeNorm = new Set(userRow.store_scope.map(normalizeStoreToken).filter(Boolean))
       for (const s of activeStores) {
         if (scopeNorm.has(normalizeStoreToken(s.code)) || scopeNorm.has(normalizeStoreToken(s.name))) {

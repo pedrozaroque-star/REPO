@@ -1,22 +1,25 @@
 /**
  * @module app/api/mobile/auth/verify-otp/route
  * @description Endpoint de verificación de código OTP de 6 dígitos (vía Correo Electrónico Real +
- * soporte de números de prueba NANPA/FCC para Apple/Google App Review) y emisión de sesión autenticada
+ * soporte acotado de cuentas de Apple/Google App Review) y emisión de sesión autenticada
  * de Supabase Auth (`auth.users` + `public.app_users`) para Tacos Gavilan App.
  *
  * @businessRules
  * - Acepta correo electrónico (`email` / `identifier` / `phone` con `@`) o teléfono de 10 dígitos (`2135550199`) + código de 6 dígitos.
- * - Verifica criptográficamente el código de 6 dígitos enviado por correo (`verifyEmailOtpAndSignIn`), lo invalida tras su uso
- *   y emite una sesión JWT real de Supabase Auth (`access_token`, `refresh_token`, `expires_at`).
- * - Conserva soporte determinístico para números oficiales de prueba NANPA/FCC (`^\d{3}55501\d{2}$` con código `123456`)
- *   para revisiones de Apple App Store Review y Google Play Review.
- * - Sincroniza el perfil del comensal en `public.app_users` usando el `auth.users.id` autoritativo.
+ * - Verifica criptográficamente el código de 6 dígitos contra `public.app_mobile_otp_challenges` (`verifyEmailOtpAndSignIn`),
+ *   bloquea tras 5 intentos fallidos (`HTTP 429 LOCKED`), crea/recupera la cuenta en `auth.users` solo tras verificación real,
+ *   e invalida el challenge tras su consumo atómico emitiendo una sesión JWT real de Supabase Auth.
+ * - Soporta cuentas restringidas de revisión (`APP_REVIEW_ALLOWED_PHONES`, default `2135550199`, y `reviewer@tacosgavilan.com`
+ *   con código `123456` cuando `ENABLE_APP_REVIEW_TEST_ACCOUNTS !== 'false'`).
+ * - Sincroniza el perfil del comensal en `public.app_users` usando el `auth.users.id` autoritativo y falla explícitamente (`500`)
+ *   si la escritura de perfil falla.
  *
  * @dataFlow
  * - App Móvil POST `/api/mobile/auth/verify-otp` -> `verifyEmailOtpAndSignIn` / `supabaseAdmin.auth` -> `public.app_users` -> Retorna `session`, `token` y `user`.
  *
  * @notes
  * - Normaliza `user.phone` en la respuesta para ocultar el prefijo interno `em_` cuando el usuario aún no ha registrado teléfono.
+ * - Nov 2026: Endurecido sin secretos hardcodeados de respaldo, con bloqueo `429 LOCKED` y manejo estricto de errores en `app_users`.
  */
 
 import crypto from 'crypto'
@@ -85,8 +88,18 @@ interface VerifyErrorResponse {
   error: string
 }
 
-const APP_REVIEW_TEST_PHONE_REGEX = /^\d{3}55501\d{2}$/
+const APP_REVIEW_ALLOWED_PHONES = new Set(
+  (process.env.APP_REVIEW_TEST_PHONES || '2135550199')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean)
+)
 const APP_REVIEW_TEST_CODE = '123456'
+
+function isAllowedAppReviewPhone(phone10: string): boolean {
+  if (process.env.ENABLE_APP_REVIEW_TEST_ACCOUNTS === 'false') return false
+  return APP_REVIEW_ALLOWED_PHONES.has(phone10)
+}
 
 function normalizeUsPhone10(raw?: string): string {
   if (!raw) return ''
@@ -99,8 +112,14 @@ function normalizeUsPhone10(raw?: string): string {
 
 function buildReviewerCredentials(phone10: string): { email: string; password: string } {
   const email = `app.reviewer.${phone10}@tacosgavilan.test`
-  const secretSeed = process.env.SUPABASE_SERVICE_ROLE_KEY || 'tacos-gavilan-app-review'
-  const hash = crypto.createHmac('sha256', secretSeed).update(`reviewer:${phone10}`).digest('hex')
+  const secretSeed =
+    process.env.MOBILE_OTP_SECRET ||
+    process.env.SUPABASE_SERVICE_ROLE_KEY ||
+    process.env.SUPABASE_JWT_SECRET
+  if (!secretSeed || !secretSeed.trim()) {
+    throw new Error('Configuración de seguridad faltante: MOBILE_OTP_SECRET / SUPABASE_SERVICE_ROLE_KEY.')
+  }
+  const hash = crypto.createHmac('sha256', secretSeed.trim()).update(`reviewer:${phone10}`).digest('hex')
   const password = `TG!${hash.slice(0, 24)}#9a`
   return { email, password }
 }
@@ -183,14 +202,19 @@ export async function POST(request: Request): Promise<NextResponse> {
 
       const emailAuthRes = await verifyEmailOtpAndSignIn(cleanEmail, code)
       if (!emailAuthRes.ok || !emailAuthRes.authUserId || !emailAuthRes.accessToken) {
+        const isLocked = emailAuthRes.errorCode === 'LOCKED'
         return NextResponse.json<VerifyErrorResponse>(
           {
             ok: false,
-            error: isEn
-              ? 'Invalid or expired 6-digit verification code. Please request a new one.'
-              : 'Código de verificación de 6 dígitos inválido o expirado. Solicita uno nuevo.',
+            error: isLocked
+              ? isEn
+                ? 'Too many failed verification attempts. Please wait 15 minutes and request a new code.'
+                : 'Demasiados intentos fallidos. Espera 15 minutos y solicita un nuevo código.'
+              : isEn
+                ? 'Invalid or expired 6-digit verification code. Please request a new one.'
+                : 'Código de verificación de 6 dígitos inválido o expirado. Solicita uno nuevo.',
           },
-          { status: 401, headers }
+          { status: isLocked ? 429 : 401, headers }
         )
       }
 
@@ -219,7 +243,7 @@ export async function POST(request: Request): Promise<NextResponse> {
 
       verifiedPhone = phone
 
-      if (APP_REVIEW_TEST_PHONE_REGEX.test(phone)) {
+      if (isAllowedAppReviewPhone(phone)) {
         if (code !== APP_REVIEW_TEST_CODE) {
           return NextResponse.json<VerifyErrorResponse>(
             {
@@ -320,7 +344,7 @@ export async function POST(request: Request): Promise<NextResponse> {
         }
       } else {
         const defaultFirstName = verifiedEmail.split('@')[0].replace(/[^a-zA-Z0-9]/g, ' ').trim().slice(0, 30)
-        const { data: created } = await supabaseAdmin
+        const { data: created, error: createProfileErr } = await supabaseAdmin
           .from('app_users')
           .upsert(
             {
@@ -336,17 +360,14 @@ export async function POST(request: Request): Promise<NextResponse> {
           .select('*')
           .single()
 
-        userProfile =
-          (created as AppUserProfile) || {
-            id: authUserId,
-            phone: '',
-            first_name: '',
-            last_name: '',
-            email: verifiedEmail,
-            avatar_url: null,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-          }
+        if (createProfileErr || !created) {
+          console.error('[MOBILE AUTH] Error sincronizando perfil app_users por correo:', createProfileErr?.message)
+          return NextResponse.json<VerifyErrorResponse>(
+            { ok: false, error: 'Error sincronizando perfil de usuario. Intenta de nuevo.' },
+            { status: 500, headers }
+          )
+        }
+        userProfile = created as AppUserProfile
       }
     } else {
       const candidatePhones = [verifiedPhone, `+1${verifiedPhone}`, `1${verifiedPhone}`]
@@ -377,7 +398,7 @@ export async function POST(request: Request): Promise<NextResponse> {
           }
         }
       } else {
-        const { data: createdUser } = await supabaseAdmin
+        const { data: createdUser, error: createPhoneErr } = await supabaseAdmin
           .from('app_users')
           .upsert(
             {
@@ -393,17 +414,15 @@ export async function POST(request: Request): Promise<NextResponse> {
           .select('*')
           .single()
 
-        userProfile =
-          (createdUser as AppUserProfile) || {
-            id: authUserId,
-            phone: verifiedPhone,
-            first_name: '',
-            last_name: '',
-            email: null,
-            avatar_url: null,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-          }
+        if (createPhoneErr || !createdUser) {
+          console.error('[MOBILE AUTH] Error sincronizando perfil app_users por teléfono:', createPhoneErr?.message)
+          return NextResponse.json<VerifyErrorResponse>(
+            { ok: false, error: 'Error sincronizando perfil de usuario. Intenta de nuevo.' },
+            { status: 500, headers }
+          )
+        }
+
+        userProfile = createdUser as AppUserProfile
       }
     }
 

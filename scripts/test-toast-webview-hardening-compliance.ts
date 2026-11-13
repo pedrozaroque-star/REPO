@@ -25,6 +25,7 @@ import fs from 'fs'
 import path from 'path'
 import assert from 'assert'
 import Module from 'module'
+import { createClient } from '@supabase/supabase-js'
 import { supabaseAdmin } from '../lib/supabase'
 import {
   evaluateWebViewNavigationRequest,
@@ -808,13 +809,15 @@ async function runComplianceSuite(): Promise<void> {
   }
 
   const requiredLegalRoutes = [
-    '/app',
     '/app/privacy',
     '/app/terms',
     '/app/support',
     '/app/delete-account',
+    '/clientes',
     '/api/mobile/stores',
   ]
+
+  const protectedAppRoutes = ['/app', '/app/v1', '/app/v2', '/ordenar']
 
   try {
     const probe = await fetch(`${LOCAL_WEB_BASE}/api/mobile/stores`, { signal: AbortSignal.timeout(2500) })
@@ -831,6 +834,17 @@ async function runComplianceSuite(): Promise<void> {
       res.status === 200,
       `Ruta pública ${route} debe responder HTTP 200 (recibido: ${res.status})`
     )
+  }
+
+  if (LOCAL_WEB_BASE.startsWith('http://localhost')) {
+    for (const protectedRoute of protectedAppRoutes) {
+      const res = await fetch(`${LOCAL_WEB_BASE}${protectedRoute}`, { redirect: 'manual' })
+      const location = res.headers.get('location') || ''
+      check(
+        res.status === 307 && location.includes('/login'),
+        `Ruta protegida ${protectedRoute} sin sesión debe responder HTTP 307 -> /login (recibido: ${res.status} -> ${location})`
+      )
+    }
   }
 
   const indexHtmlRes = await fetch(`${LOCAL_WEB_BASE}/app/index.html`)
@@ -872,9 +886,20 @@ async function runComplianceSuite(): Promise<void> {
   )
   const authUserId = authCreateData!.user.id
 
-  // 6.2 Iniciar sesión para obtener JWT real de Supabase Auth
+  // 6.2 Iniciar sesión con cliente efímero (nunca mutar el singleton supabaseAdmin con sesión de usuario)
+  const ephemeralSignInClient = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      auth: {
+        persistSession: false,
+        autoRefreshToken: false,
+        detectSessionInUrl: false,
+      },
+    }
+  )
   const { data: signInData, error: signInErr } =
-    await supabaseAdmin.auth.signInWithPassword({
+    await ephemeralSignInClient.auth.signInWithPassword({
       email: testEmail,
       password: testPassword,
     })

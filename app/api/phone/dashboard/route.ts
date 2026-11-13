@@ -22,6 +22,8 @@
  * @notes
  * - Incluye acción `dismiss_unanswered` en `PATCH` para descartar preguntas irrelevantes sin ensuciar la Base de Conocimiento,
  *   y soporte completo `PATCH` para `special_hours`.
+ * - Blindaje 2026-11-12: limpieza de sesiones colgadas con throttle 5 min en RAM, ordenamiento de recados `pending` por urgencia (`critical`>`high`>`normal`),
+ *   `resolvedByAiPct` real sobre llamadas Twilio, validación estricta UUID/fecha/tienda/anti-bucle de `stores.phone` y rechazo 400/409 limpio.
  */
 
 import { NextRequest, NextResponse } from 'next/server'
@@ -59,13 +61,33 @@ function sanitizeNestedStore<T extends Record<string, any>>(row: T): T {
 
 const TIME_HHMM_RE = /^([01]\d|2[0-3]):[0-5]\d$/
 const DATE_YYYYMMDD_RE = /^\d{4}-\d{2}-\d{2}$/
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+const STALE_SWEEP_INTERVAL_MS = 5 * 60_000
+let lastStaleSweepAt = 0
+
+function isRealCalendarDate(dateStr: string): boolean {
+  if (!DATE_YYYYMMDD_RE.test(dateStr)) return false
+  const [y, m, d] = dateStr.split('-').map(Number)
+  const dt = new Date(Date.UTC(y, m - 1, d))
+  return dt.getUTCFullYear() === y && dt.getUTCMonth() === m - 1 && dt.getUTCDate() === d
+}
+
+function parseOptionalStoreIdParam(raw: string | null): { valid: boolean; value: number | null } {
+  if (raw === null || raw === '' || raw === 'all') return { valid: true, value: null }
+  const n = Number(raw)
+  if (!Number.isFinite(n) || n <= 0 || Math.trunc(n) !== n) return { valid: false, value: null }
+  return { valid: true, value: n }
+}
 
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url)
     const callbacksOnly = searchParams.get('callbacksOnly') === 'true'
-    const storeIdParam = searchParams.get('storeId')
-    const parsedStoreParam = storeIdParam && storeIdParam !== 'all' ? Number(storeIdParam) : null
+    const storeIdCheck = parseOptionalStoreIdParam(searchParams.get('storeId'))
+    if (!storeIdCheck.valid) {
+      return NextResponse.json({ error: 'storeId inválido' }, { status: 400 })
+    }
+    const parsedStoreParam = storeIdCheck.value
 
     if (callbacksOnly) {
       const auth = await authorizePhoneModuleRequest(request, {
@@ -104,8 +126,11 @@ export async function GET(request: NextRequest) {
     }
 
     // Filtros independientes de la pestaña Bitácora (Tab 4): no alteran los KPIs globales ni las preguntas de Tab 2
-    const callsStoreParam = searchParams.get('callsStoreId') ?? storeIdParam
-    const filterCallsStoreId = callsStoreParam && callsStoreParam !== 'all' ? Number(callsStoreParam) : null
+    const callsStoreCheck = parseOptionalStoreIdParam(searchParams.get('callsStoreId') ?? searchParams.get('storeId'))
+    if (!callsStoreCheck.valid) {
+      return NextResponse.json({ error: 'callsStoreId inválido' }, { status: 400 })
+    }
+    const filterCallsStoreId = callsStoreCheck.value
     const callsSourceFilter = searchParams.get('callsSource') || 'all'
 
     const auth = await authorizePhoneModuleRequest(request, {
@@ -129,13 +154,18 @@ export async function GET(request: NextRequest) {
       return q
     }
 
-    // Cerrar automáticamente sesiones huérfanas (> 20 min en `in_progress`, ej. pestañas del simulador cerradas sin colgar)
-    const staleCutoffIso = new Date(Date.now() - 20 * 60 * 1000).toISOString()
-    await supabaseAdmin
-      .from('phone_calls')
-      .update({ status: 'completed', ended_at: new Date().toISOString() })
-      .eq('status', 'in_progress')
-      .lt('started_at', staleCutoffIso)
+    // Cerrar automáticamente sesiones huérfanas (> 25 min en `in_progress`) con throttle cada 5 min para no mutar en cada polling de 12 s
+    const sweepNow = Date.now()
+    if (sweepNow - lastStaleSweepAt >= STALE_SWEEP_INTERVAL_MS) {
+      lastStaleSweepAt = sweepNow
+      const staleCutoffIso = new Date(sweepNow - 25 * 60 * 1000).toISOString()
+      void supabaseAdmin
+        .from('phone_calls')
+        .update({ status: 'completed', ended_at: new Date(sweepNow).toISOString() })
+        .eq('status', 'in_progress')
+        .lt('started_at', staleCutoffIso)
+        .then(() => null, () => null)
+    }
 
     const [
       storesRes,
@@ -163,7 +193,11 @@ export async function GET(request: NextRequest) {
         }
         return q
       })(),
-      supabaseAdmin.from('phone_agent_config').select('*').order('store_id', { ascending: true }),
+      (() => {
+        let q = supabaseAdmin.from('phone_agent_config').select('*').order('store_id', { ascending: true })
+        if (scopeStoreIds) q = q.in('store_id', scopeStoreIds)
+        return q
+      })(),
       supabaseAdmin
         .from('phone_knowledge_base')
         .select('*, stores(id, name)')
@@ -309,7 +343,20 @@ export async function GET(request: NextRequest) {
     })
 
     const calls = (callsRes.data || []).map(sanitizeNestedStore)
-    const callbacks = (callbacksRes.data || []).map(sanitizeNestedStore)
+    const urgencyRank = (u: string | null | undefined) => (u === 'critical' || u === 'urgent' ? 0 : u === 'high' ? 1 : 2)
+    const callbacks = (callbacksRes.data || [])
+      .map(sanitizeNestedStore)
+      .sort((a: any, b: any) => {
+        const aPend = a.status === 'pending' ? 0 : 1
+        const bPend = b.status === 'pending' ? 0 : 1
+        if (aPend !== bPend) return aPend - bPend
+        if (aPend === 0) {
+          const ua = urgencyRank(a.urgency)
+          const ub = urgencyRank(b.urgency)
+          if (ua !== ub) return ua - ub
+        }
+        return new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime()
+      })
 
     const realCallsCount = Number(realCallsCountRes.count || 0)
     const simulatorCallsCount = Number(simCallsCountRes.count || 0)
@@ -318,7 +365,11 @@ export async function GET(request: NextRequest) {
     const resolvedByAiCount = Number(resolvedCallsCountRes.count || 0)
     const realResolvedByAiCount = Number(realResolvedCallsCountRes.count || 0)
     const resolvedByAiPct =
-      evaluatedCallsCount > 0 ? Math.round((resolvedByAiCount / evaluatedCallsCount) * 1000) / 10 : 100
+      realCallsCount > 0
+        ? Math.round((realResolvedByAiCount / realCallsCount) * 1000) / 10
+        : evaluatedCallsCount > 0
+          ? Math.round((resolvedByAiCount / evaluatedCallsCount) * 1000) / 10
+          : 0
     const pendingCallbacksCount = Number(pendingRealCbCountRes.count || 0)
     const pendingSimulatorCallbacksCount = Number(pendingSimCbCountRes.count || 0)
     const estimatedCashierMinutesSaved = Math.round(
@@ -389,17 +440,35 @@ export async function POST(request: NextRequest) {
       return auth.response || NextResponse.json({ error: auth.error || 'No autorizado' }, { status: auth.status || 403 })
     }
 
-    const body = await request.json()
+    const body = await request.json().catch(() => null)
+    if (!body || typeof body !== 'object') {
+      return NextResponse.json({ error: 'Cuerpo JSON inválido' }, { status: 400 })
+    }
     const entity = String(body?.entity || '')
 
+    const parseStoreFk = async (raw: any): Promise<{ ok: true; storeId: number | null } | { ok: false; res: NextResponse }> => {
+      if (raw === null || raw === undefined || raw === '') return { ok: true, storeId: null }
+      const n = Number(raw)
+      if (!Number.isFinite(n) || n <= 0 || Math.trunc(n) !== n) {
+        return { ok: false, res: NextResponse.json({ error: 'store_id inválido' }, { status: 400 }) }
+      }
+      const { data: st } = await supabaseAdmin.from('stores').select('id').eq('id', n).maybeSingle()
+      if (!st) {
+        return { ok: false, res: NextResponse.json({ error: `Sucursal #${n} no existe` }, { status: 404 }) }
+      }
+      return { ok: true, storeId: n }
+    }
+
     if (entity === 'knowledge_base') {
-      const storeId = body?.store_id ? Number(body.store_id) : null
-      const category = String(body?.category || 'general').trim()
-      const title = String(body?.title || '').trim()
-      const questionKeywords = body?.question_keywords ? String(body.question_keywords).trim() : null
-      const answerEs = String(body?.answer_es || '').trim()
+      const fk = await parseStoreFk(body?.store_id)
+      if (!fk.ok) return fk.res
+      const storeId = fk.storeId
+      const category = String(body?.category || 'general').trim().slice(0, 80) || 'general'
+      const title = String(body?.title || '').trim().slice(0, 180)
+      const questionKeywords = body?.question_keywords ? String(body.question_keywords).trim().slice(0, 500) : null
+      const answerEs = String(body?.answer_es || '').trim().slice(0, 1500)
       // Si no se captura traducción al inglés, se guarda cadena vacía (Gemini traduce en vivo desde answer_es)
-      const answerEn = body?.answer_en ? String(body.answer_en).trim() : ''
+      const answerEn = body?.answer_en ? String(body.answer_en).trim().slice(0, 1500) : ''
       const priority = Number.isFinite(Number(body?.priority))
         ? Math.max(0, Math.min(1000, Math.round(Number(body.priority))))
         : 50
@@ -437,17 +506,19 @@ export async function POST(request: NextRequest) {
     }
 
     if (entity === 'special_hours') {
-      const storeId = body?.store_id ? Number(body.store_id) : null
+      const fk = await parseStoreFk(body?.store_id)
+      if (!fk.ok) return fk.res
+      const storeId = fk.storeId
       const eventDate = String(body?.event_date || '').trim()
-      const holidayName = String(body?.holiday_name || '').trim()
+      const holidayName = String(body?.holiday_name || '').trim().slice(0, 140)
       const isClosed = Boolean(body?.is_closed)
       const rawOpen = body?.open_time ? String(body.open_time).trim().slice(0, 5) : ''
       const rawClose = body?.close_time ? String(body.close_time).trim().slice(0, 5) : ''
       const openTime = isClosed ? null : rawOpen || null
       const closeTime = isClosed ? null : rawClose || null
 
-      if (!DATE_YYYYMMDD_RE.test(eventDate) || !holidayName) {
-        return NextResponse.json({ error: 'Fecha (YYYY-MM-DD) y nombre del día festivo son requeridos' }, { status: 400 })
+      if (!isRealCalendarDate(eventDate) || !holidayName) {
+        return NextResponse.json({ error: 'Fecha calendario válida (YYYY-MM-DD) y nombre del día festivo son requeridos' }, { status: 400 })
       }
       if (!isClosed && !openTime && !closeTime) {
         return NextResponse.json(
@@ -530,13 +601,16 @@ export async function POST(request: NextRequest) {
 
 export async function PATCH(request: NextRequest) {
   try {
-    const body = await request.json()
+    const body = await request.json().catch(() => null)
+    if (!body || typeof body !== 'object') {
+      return NextResponse.json({ error: 'Cuerpo JSON inválido' }, { status: 400 })
+    }
     const entity = String(body?.entity || '')
 
     if (entity === 'callback_request') {
       const id = String(body?.id || '').trim()
-      if (!id) {
-        return NextResponse.json({ error: 'ID de recado requerido' }, { status: 400 })
+      if (!UUID_RE.test(id)) {
+        return NextResponse.json({ error: 'ID de recado inválido' }, { status: 400 })
       }
 
       const { data: existingCb, error: fetchErr } = await supabaseAdmin
@@ -563,7 +637,7 @@ export async function PATCH(request: NextRequest) {
       const rawStatus = String(body?.status || 'resolved').trim().toLowerCase()
       const status = allowedStatuses.has(rawStatus) ? rawStatus : 'resolved'
 
-      const resolverIdentity = String(body?.resolved_by_name || auth.user.name || auth.user.email || 'Manager').trim()
+      const resolverIdentity = String(body?.resolved_by_name || auth.user.name || auth.user.email || 'Manager').trim().slice(0, 120)
       const updates: Record<string, any> = {
         status,
         resolved_by: status === 'pending' ? null : resolverIdentity,
@@ -592,8 +666,8 @@ export async function PATCH(request: NextRequest) {
 
     if (entity === 'dismiss_unanswered') {
       const callId = String(body?.callId || body?.id || '').trim()
-      if (!callId) {
-        return NextResponse.json({ error: 'callId requerido' }, { status: 400 })
+      if (!UUID_RE.test(callId)) {
+        return NextResponse.json({ error: 'callId inválido' }, { status: 400 })
       }
       const { error } = await supabaseAdmin
         .from('phone_calls')
@@ -627,7 +701,9 @@ export async function PATCH(request: NextRequest) {
       }
 
       if (body.is_enabled !== undefined) updates.is_enabled = Boolean(body.is_enabled)
-      if (body.routing_mode !== undefined) updates.routing_mode = String(body.routing_mode || 'conditional_forward')
+      if (body.routing_mode !== undefined) {
+        updates.routing_mode = body.routing_mode === 'direct_twilio' ? 'direct_twilio' : 'conditional_forward'
+      }
       if (body.carrier_type !== undefined) {
         updates.carrier_type = body.carrier_type === 'spectrum_landline' ? 'spectrum_landline' : 'att_wireless'
       }
@@ -659,6 +735,17 @@ export async function PATCH(request: NextRequest) {
           return NextResponse.json({ error: `Número Twilio inválido: ${parsedTw.error}` }, { status: 400 })
         }
         if (parsedTw.tenDigits) {
+          const storeConflict = (allStores || []).find(
+            (s: any) => s.phone && extractPhoneDigits(s.phone).slice(-10) === parsedTw.tenDigits
+          )
+          if (storeConflict) {
+            return NextResponse.json(
+              {
+                error: `El número Twilio no puede coincidir con la línea pública de la sucursal ${storeConflict.name || '#' + storeConflict.id}.`
+              },
+              { status: 400 }
+            )
+          }
           const duplicateCfg = (allConfigs || []).find(
             (c: any) =>
               Number(c.store_id) !== storeId &&
@@ -725,6 +812,17 @@ export async function PATCH(request: NextRequest) {
         }
         updates.manager_transfer_phone = parsedMgr.normalized
         effectiveTransferPhone = parsedMgr.normalized
+      } else if (body.twilio_phone_number !== undefined && effectiveTransferPhone) {
+        const simulatedConfigs = (allConfigs || []).map((c: any) =>
+          Number(c.store_id) === storeId ? { ...c, twilio_phone_number: effectiveTwilioPhone } : c
+        )
+        const loopCheck = validateNoForwardingLoop(effectiveTransferPhone, allStores || [], simulatedConfigs)
+        if (!loopCheck.safe) {
+          return NextResponse.json(
+            { error: loopCheck.conflictDescription || 'Conflicto anti-bucle entre el nuevo número Twilio y el teléfono de transferencia.' },
+            { status: 400 }
+          )
+        }
       }
 
       const effectiveAllowTransfer =
@@ -749,19 +847,37 @@ export async function PATCH(request: NextRequest) {
 
     if (entity === 'knowledge_base') {
       const id = String(body?.id || '').trim()
-      if (!id) {
-        return NextResponse.json({ error: 'ID de regla requerido' }, { status: 400 })
+      if (!UUID_RE.test(id)) {
+        return NextResponse.json({ error: 'ID de regla inválido' }, { status: 400 })
       }
 
       const updates: Record<string, any> = { updated_at: new Date().toISOString() }
-      if (body.store_id !== undefined) updates.store_id = body.store_id ? Number(body.store_id) : null
-      if (body.category !== undefined) updates.category = String(body.category || 'general').trim()
-      if (body.title !== undefined) updates.title = String(body.title || '').trim()
-      if (body.question_keywords !== undefined) {
-        updates.question_keywords = body.question_keywords ? String(body.question_keywords).trim() : null
+      if (body.store_id !== undefined) {
+        if (body.store_id === null || body.store_id === '') {
+          updates.store_id = null
+        } else {
+          const n = Number(body.store_id)
+          if (!Number.isFinite(n) || n <= 0 || Math.trunc(n) !== n) {
+            return NextResponse.json({ error: 'store_id inválido' }, { status: 400 })
+          }
+          updates.store_id = n
+        }
       }
-      if (body.answer_es !== undefined) updates.answer_es = String(body.answer_es || '').trim()
-      if (body.answer_en !== undefined) updates.answer_en = body.answer_en ? String(body.answer_en).trim() : ''
+      if (body.category !== undefined) updates.category = String(body.category || 'general').trim().slice(0, 80) || 'general'
+      if (body.title !== undefined) {
+        const t = String(body.title || '').trim().slice(0, 180)
+        if (!t) return NextResponse.json({ error: 'El título de la regla no puede quedar vacío' }, { status: 400 })
+        updates.title = t
+      }
+      if (body.question_keywords !== undefined) {
+        updates.question_keywords = body.question_keywords ? String(body.question_keywords).trim().slice(0, 500) : null
+      }
+      if (body.answer_es !== undefined) {
+        const aes = String(body.answer_es || '').trim().slice(0, 1500)
+        if (!aes) return NextResponse.json({ error: 'La respuesta en español no puede quedar vacía' }, { status: 400 })
+        updates.answer_es = aes
+      }
+      if (body.answer_en !== undefined) updates.answer_en = body.answer_en ? String(body.answer_en).trim().slice(0, 1500) : ''
       if (body.is_active !== undefined) updates.is_active = Boolean(body.is_active)
       if (body.priority !== undefined && Number.isFinite(Number(body.priority))) {
         updates.priority = Math.max(0, Math.min(1000, Math.round(Number(body.priority))))
@@ -774,10 +890,13 @@ export async function PATCH(request: NextRequest) {
         .select('*, stores(id, name)')
         .single()
 
-      if (error) throw error
+      if (error) {
+        if (error.code === 'PGRST116') return NextResponse.json({ error: 'Regla no encontrada' }, { status: 404 })
+        throw error
+      }
       invalidateStorePhoneContextCache()
 
-      if (body?.resolveCallId) {
+      if (body?.resolveCallId && UUID_RE.test(String(body.resolveCallId))) {
         await supabaseAdmin
           .from('phone_calls')
           .update({ unanswered_question: null })
@@ -789,35 +908,70 @@ export async function PATCH(request: NextRequest) {
 
     if (entity === 'special_hours') {
       const id = String(body?.id || '').trim()
-      if (!id) {
-        return NextResponse.json({ error: 'ID de horario festivo requerido' }, { status: 400 })
+      if (!UUID_RE.test(id)) {
+        return NextResponse.json({ error: 'ID de horario festivo inválido' }, { status: 400 })
       }
 
+      const { data: currentSh, error: shFetchErr } = await supabaseAdmin
+        .from('phone_special_hours')
+        .select('id, is_closed, open_time, close_time, holiday_name')
+        .eq('id', id)
+        .maybeSingle()
+      if (shFetchErr) throw shFetchErr
+      if (!currentSh) return NextResponse.json({ error: 'Horario festivo no encontrado' }, { status: 404 })
+
       const updates: Record<string, any> = {}
-      if (body.store_id !== undefined) updates.store_id = body.store_id ? Number(body.store_id) : null
+      if (body.store_id !== undefined) {
+        if (body.store_id === null || body.store_id === '') {
+          updates.store_id = null
+        } else {
+          const n = Number(body.store_id)
+          if (!Number.isFinite(n) || n <= 0 || Math.trunc(n) !== n) {
+            return NextResponse.json({ error: 'store_id inválido' }, { status: 400 })
+          }
+          updates.store_id = n
+        }
+      }
       if (body.event_date !== undefined) {
         const d = String(body.event_date).trim()
-        if (!DATE_YYYYMMDD_RE.test(d)) {
-          return NextResponse.json({ error: 'Fecha inválida (YYYY-MM-DD)' }, { status: 400 })
+        if (!isRealCalendarDate(d)) {
+          return NextResponse.json({ error: 'Fecha calendario inválida (YYYY-MM-DD)' }, { status: 400 })
         }
         updates.event_date = d
       }
-      if (body.holiday_name !== undefined) updates.holiday_name = String(body.holiday_name || '').trim()
-      if (body.is_closed !== undefined) updates.is_closed = Boolean(body.is_closed)
+      if (body.holiday_name !== undefined) {
+        const hn = String(body.holiday_name || '').trim().slice(0, 140)
+        if (!hn) return NextResponse.json({ error: 'El nombre del día festivo no puede quedar vacío' }, { status: 400 })
+        updates.holiday_name = hn
+      }
+      const nextClosed = body.is_closed !== undefined ? Boolean(body.is_closed) : Boolean(currentSh.is_closed)
+      if (body.is_closed !== undefined) updates.is_closed = nextClosed
+
+      let nextOpen = currentSh.open_time ? String(currentSh.open_time).slice(0, 5) : null
+      let nextClose = currentSh.close_time ? String(currentSh.close_time).slice(0, 5) : null
       if (body.open_time !== undefined) {
         const o = body.open_time ? String(body.open_time).trim().slice(0, 5) : null
         if (o && !TIME_HHMM_RE.test(o)) {
           return NextResponse.json({ error: 'Hora de apertura inválida (HH:MM)' }, { status: 400 })
         }
-        updates.open_time = updates.is_closed ? null : o
+        nextOpen = o
+        updates.open_time = o
       }
       if (body.close_time !== undefined) {
         const c = body.close_time ? String(body.close_time).trim().slice(0, 5) : null
         if (c && !TIME_HHMM_RE.test(c)) {
           return NextResponse.json({ error: 'Hora de cierre inválida (HH:MM)' }, { status: 400 })
         }
-        updates.close_time = updates.is_closed ? null : c
+        nextClose = c
+        updates.close_time = c
       }
+      if (nextClosed) {
+        updates.open_time = null
+        updates.close_time = null
+      } else if (!nextOpen && !nextClose) {
+        return NextResponse.json({ error: 'Si no está cerrado todo el día, indica hora de apertura o cierre especial' }, { status: 400 })
+      }
+
       if (body.notes_es !== undefined) updates.notes_es = body.notes_es || null
       if (body.notes_en !== undefined) updates.notes_en = body.notes_en || null
 
@@ -828,7 +982,12 @@ export async function PATCH(request: NextRequest) {
         .select('*, stores(id, name)')
         .single()
 
-      if (error) throw error
+      if (error) {
+        if (error.code === '23505') {
+          return NextResponse.json({ error: 'Ya existe un horario festivo registrado para esa fecha y sucursal' }, { status: 409 })
+        }
+        throw error
+      }
       invalidateStorePhoneContextCache()
       return NextResponse.json({ ok: true, item: sanitizeNestedStore(updated) })
     }
@@ -851,8 +1010,8 @@ export async function DELETE(request: NextRequest) {
     const entity = searchParams.get('entity')
     const id = searchParams.get('id')
 
-    if (!entity || !id) {
-      return NextResponse.json({ error: 'entity e id requeridos' }, { status: 400 })
+    if (!entity || !id || !UUID_RE.test(id)) {
+      return NextResponse.json({ error: 'entity e id UUID válido requeridos' }, { status: 400 })
     }
 
     if (entity === 'knowledge_base') {

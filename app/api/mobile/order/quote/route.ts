@@ -20,12 +20,14 @@
  *
  * @notes
  * - Unificado con `validateCartLineAgainstMenuV3` y removido `STORE_TAX_RATES` de producción.
+ * - Aplica rate limiting (30 req/min), parsing seguro JSON 400, filtro `is_active = true` en sucursal y `pickup_method: 'delivery'` cuando `channel === 'DELIVERY'`.
  */
 
 import { type NextRequest, NextResponse } from 'next/server'
 import crypto from 'crypto'
 import { supabaseAdmin } from '@/lib/supabase'
 import { corsResponse, jsonOk, getAuthUser, isAuthSuccess, corsHeaders } from '../../_helpers'
+import { checkRateLimit, getClientIp } from '@/lib/storefront/rate-limit'
 import { calculateToastPrices } from '@/lib/toast/prices-client'
 import {
   UUID_REGEX,
@@ -127,7 +129,28 @@ interface QuoteRequestBody {
 export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
     const authUser = await getAuthUser(request)
-    const body = (await request.json()) as QuoteRequestBody
+    const rateKey = isAuthSuccess(authUser)
+      ? `quote:user:${authUser.userId}`
+      : `quote:ip:${getClientIp(request.headers)}`
+    const rl = checkRateLimit(rateKey, 30, 60_000)
+    if (!rl.allowed) {
+      return quoteError(
+        `Demasiadas solicitudes de cotización. Intenta en ${rl.retryAfterSeconds}s.`,
+        429,
+        'RATE_LIMITED',
+        { retryable: true }
+      )
+    }
+
+    let body: QuoteRequestBody
+    try {
+      body = (await request.json()) as QuoteRequestBody
+    } catch {
+      return quoteError('Cuerpo JSON inválido', 400, 'VALIDATION_ERROR', {
+        retryable: false,
+      })
+    }
+
     const {
       storeId,
       channel = 'PICKUP',
@@ -174,6 +197,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       .from('stores')
       .select('id, name, address, phone, external_id')
       .eq('id', storeId)
+      .eq('is_active', true)
       .single()
 
     if (storeErr || !store) {
@@ -467,7 +491,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         user_id: validAppUserId,
         store_id: storeId,
         channel,
-        pickup_method: pickupSubType === 'CURBSIDE' ? 'curbside' : 'in_store',
+        pickup_method:
+          channel === 'DELIVERY'
+            ? 'delivery'
+            : pickupSubType === 'CURBSIDE'
+            ? 'curbside'
+            : 'in_store',
         delivery_address:
           channel === 'DELIVERY' && deliveryAddress ? deliveryAddress : null,
         items_json: validatedItems,

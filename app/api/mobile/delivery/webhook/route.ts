@@ -19,7 +19,7 @@
  *   Notificación en vivo a la app móvil.
  * 
  * @notes
- * - Guarda detalles del Dasher (nombre, teléfono de contacto y foto de entrega) en app_orders.items_json.deliveryLogistics.
+ * - Guarda detalles del Dasher (nombre, teléfono de contacto y foto de entrega) en app_orders.items_json.deliveryLogistics; normaliza prefijo `sha256=` en HMAC, mapea eventos `DASHER_*`/`DELIVERY_*` y marca `CANCELLED`/`FAILED` ante cancelación.
  */
 
 import { NextRequest, NextResponse } from 'next/server'
@@ -70,12 +70,13 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     }
 
     // 3. Validación de firma criptográfica HMAC-SHA256
+    const normalizedSignature = signature.trim().replace(/^sha256=/i, '').toLowerCase()
     const expectedSignature = crypto
       .createHmac('sha256', webhookSecret)
       .update(rawBody)
       .digest('hex')
 
-    const signatureBuffer = Buffer.from(signature)
+    const signatureBuffer = Buffer.from(normalizedSignature)
     const expectedBuffer = Buffer.from(expectedSignature)
 
     if (
@@ -116,23 +117,51 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       .from('app_orders')
       .select('id, status, items_json')
       .eq('id', external_delivery_id)
-      .single()
+      .maybeSingle()
 
-    if (orderErr || !order) {
+    if (orderErr) {
+      console.error('[DoorDash Webhook] Error consultando app_orders:', orderErr.message)
+      return NextResponse.json({ ok: false, error: 'Error consultando base de datos.' }, { status: 500 })
+    }
+
+    if (!order) {
       console.warn(`[DoorDash Webhook] Orden ${external_delivery_id} no encontrada en DB`)
       return NextResponse.json({ ok: false, error: 'Orden no encontrada.' }, { status: 404 })
     }
 
-    // 6. Mapear estado logístico de entrega
+    // 6. Normalizar y mapear estado logístico de entrega (camelCase deliveryStatus)
     const currentItemsJson = typeof order.items_json === 'object' && order.items_json !== null
       ? (order.items_json as Record<string, any>)
       : {}
+
+    const mapEventToDeliveryStatus = (): string => {
+      switch (event_type) {
+        case 'DASHER_CONFIRMED':
+        case 'DASHER_EN_ROUTE_TO_PICKUP':
+          return 'DRIVER_ASSIGNED'
+        case 'DASHER_PICKED_UP':
+          return 'OUT_FOR_DELIVERY'
+        case 'DELIVERY_COMPLETED':
+          return 'DELIVERED'
+        case 'DELIVERY_CANCELLED':
+          return 'CANCELLED'
+        default:
+          return (
+            delivery_status ||
+            currentItemsJson.deliveryLogistics?.deliveryStatus ||
+            event_type
+          )
+      }
+    }
+
+    const normalizedDeliveryStatus = mapEventToDeliveryStatus()
 
     const updatedLogistics = {
       ...(currentItemsJson.deliveryLogistics || {}),
       doordashDeliveryId: delivery_id || currentItemsJson.deliveryLogistics?.doordashDeliveryId,
       lastEvent: event_type,
-      deliveryStatus: delivery_status,
+      deliveryStatus: normalizedDeliveryStatus,
+      rawDeliveryStatus: delivery_status || currentItemsJson.deliveryLogistics?.rawDeliveryStatus || null,
       dasherName: dasher_name || currentItemsJson.deliveryLogistics?.dasherName,
       dasherPhone: dasher_phone_number || currentItemsJson.deliveryLogistics?.dasherPhone,
       estimatedDeliveryTime: estimated_delivery_time || currentItemsJson.deliveryLogistics?.estimatedDeliveryTime,
@@ -153,6 +182,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       updatePayload.status = 'READY'
     } else if (event_type === 'DELIVERY_COMPLETED') {
       updatePayload.status = 'COMPLETED'
+    } else if (event_type === 'DELIVERY_CANCELLED') {
+      updatePayload.status = 'CANCELLED'
     }
 
     const { error: updateErr } = await supabaseAdmin
@@ -166,10 +197,15 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     }
 
     // 7. Sincronizar app_order_outbox si existe tarea de entrega
-    await supabaseAdmin
+    const { error: outboxErr } = await supabaseAdmin
       .from('app_order_outbox')
       .update({
-        status: event_type === 'DELIVERY_COMPLETED' ? 'SUCCEEDED' : 'PROCESSING',
+        status:
+          event_type === 'DELIVERY_COMPLETED'
+            ? 'SUCCEEDED'
+            : event_type === 'DELIVERY_CANCELLED'
+              ? 'FAILED'
+              : 'PROCESSING',
         external_reference: delivery_id,
         response_payload: payload,
         updated_at: new Date().toISOString(),
@@ -177,7 +213,16 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       .eq('order_id', external_delivery_id)
       .eq('integration', 'doordash_drive')
 
-    return NextResponse.json({ ok: true, received: true, eventType: event_type })
+    if (outboxErr) {
+      console.error('[DoorDash Webhook] Error actualizando app_order_outbox:', outboxErr.message)
+    }
+
+    return NextResponse.json({
+      ok: true,
+      received: true,
+      eventType: event_type,
+      deliveryStatus: normalizedDeliveryStatus,
+    })
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : 'Error desconocido en webhook'
     console.error('[DoorDash Webhook] Excepción:', msg)

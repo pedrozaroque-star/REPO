@@ -57,6 +57,9 @@
  *   cerrar una recuperación parcial como total; (2) bastaba que existiera el payout + nota para confirmar dinero recuperado;
  *   (3) el filtro `period_end > startDate` excluía cortes que terminan el primer día consultado; (4) Grubhub sumaba todos los
  *   créditos bajo el primer payout (`recoveryTxs[0]`); (5) las filas Grubhub se borraban ANTES de guardar la orden consolidada.
+ * - Audit Fix 2026-11-12 (Contabilidad Estricta y Ciclo de Disputas): `computePayoutAccountingAmounts` centraliza el CxC/Bruto contable QBO;
+ *   `isZeroImpactDisputeOrder` evita clasificar eventos de $0.00 (`FLEX_SPENDS` / `NEVER_RECEIVED` / `CANCEL` sin pérdida) como disputas;
+ *   `evaluateDisputeRecovery` soporta cierres sin recuperación (`ACCEPTED_LOSS`, `REJECTED`, `DENIED`) con saldo pendiente $0.00.
  * - Upgrade 2026-11-07 (Paridad 3 Plataformas & Velocidad de Sincronización):
  *   * Paridad en las 3 plataformas (`DOORDASH`, `UBER_EATS`, `GRUBHUB`) para órdenes ya cobradas y cuadradas al centavo con Toast POS
  *     que pertenecen a una semana abierta o posteriores al corte (`pending_next_payout: true` -> `CONCILIATED_NEXT_PAYOUT`).
@@ -6064,8 +6067,8 @@ export function buildReconciledOrderRow(
 
   if (
     pOrd.errorCharge < -0.01 ||
-    pOrd.transactionType === 'REFUND' ||
-    pOrd.transactionType === 'ERROR_CHARGE'
+    ((pOrd.transactionType === 'REFUND' || pOrd.transactionType === 'ERROR_CHARGE') &&
+      Math.abs(pOrd.errorCharge) > 0.01)
   ) {
     status = 'REFUNDED_OR_DISPUTED'
     isDisputed = true
@@ -6594,9 +6597,173 @@ export function resolveOriginalDisputedAmount(o: any): { amount: number | null; 
   if (err > 0.01) return { amount: err, source: 'PLATFORM_SETTLEMENT_DEDUCTION' }
   const hasRecoveryData =
     getOrderRecoveryCredits(o).length > 0 || String(o?.dispute_status || '').toUpperCase() === 'REIMBURSED'
+  const grossVarAbs = round2(Math.abs(Number(o?.gross_diff ?? o?.gross_variance ?? 0)))
   const da = round2(Math.abs(Number(o?.dispute_amount || 0)))
-  if (da > 0 && !hasRecoveryData) return { amount: da, source: 'DISPUTE_AMOUNT_PRE_RECOVERY' }
+  // Evitar tomar dispute_amount de ajustes positivos a favor (platform > 0 y Toast $0) cuando no hubo deducción real
+  const isFavorablePlatformMismatch =
+    Number(o?.toast_expected_gross || 0) <= 0.01 &&
+    Number(o?.platform_gross_receivable || 0) > 0 &&
+    Number(o?.gross_diff ?? o?.gross_variance ?? 0) > 0.05 &&
+    Number(o?.error_charge || 0) >= -0.01 &&
+    Number(o?.adjustment_amount || 0) >= -0.01
+  if (da > 0 && !hasRecoveryData && !isFavorablePlatformMismatch && (grossVarAbs > 0.05 || Number(o?.error_charge || 0) < -0.01 || Number(o?.adjustment_amount || 0) < -0.01)) {
+    return { amount: da, source: 'DISPUTE_AMOUNT_PRE_RECOVERY' }
+  }
   return { amount: null, source: null }
+}
+
+const CLOSED_LOSS_DISPUTE_STATUSES = new Set(['REJECTED', 'DENIED', 'ACCEPTED_LOSS'])
+
+export function isClosedUnrecoveredDisputeStatus(status: string | null | undefined): boolean {
+  return CLOSED_LOSS_DISPUTE_STATUSES.has(String(status || '').trim().toUpperCase())
+}
+
+/**
+ * Eventos de $0.00 sin pérdida financiera real (ej. FLEX_SPENDS absorbido por Uber, CANCEL de $0 o error_charge=$0
+ * con Toast pagado / sin varianza negativa ni deducción) no deben contaminar "Por Disputar".
+ */
+export function isZeroImpactDisputeOrder(o: any): boolean {
+  if (!o) return false
+  const errCharge = Number(o.error_charge || 0)
+  const adjAmount = Number(o.adjustment_amount || 0)
+  const netPay = Number(o.net_payout || 0)
+  if (errCharge < -0.01 || adjAmount < -0.01 || netPay < -0.01) return false
+
+  const status = String(o.dispute_status || '').trim().toUpperCase()
+  if (['SUBMITTED', 'APPROVED', 'REIMBURSED', 'REJECTED', 'DENIED', 'ACCEPTED_LOSS'].includes(status)) {
+    return false
+  }
+  if (getOrderRecoveryCredits(o).length > 0 || Boolean(o?.raw_payload?.reimbursement_payout_ref)) {
+    return false
+  }
+
+  const grossDiff = round2(Number(o.gross_diff ?? o.gross_variance ?? 0))
+  if (grossDiff < -0.05) return false
+
+  const disputeAmt = Number(o.dispute_amount || 0)
+  const isFavorablePlatformMismatch =
+    Number(o.toast_expected_gross || 0) <= 0.01 &&
+    Number(o.platform_gross_receivable || 0) > 0 &&
+    grossDiff > 0.05
+
+  return disputeAmt <= 0.01 || isFavorablePlatformMismatch
+}
+
+export interface PayoutAccountingAmounts {
+  netPayout: number
+  totalFees: number
+  grossEarnings: number | null
+  facTax: number
+  declaredGrossVal: number
+  declaredSubVal: number
+  declaredTipsVal: number
+  hasOfficialGrossOrEarnings: boolean
+  receivableCredit: number
+  rawErrAdj: number
+}
+
+/**
+ * Fuente única de verdad contable para QuickBooks Journal Entries y Tab 4b (Vista Toast vs Corte Bancario).
+ * Garantiza paridad al centavo entre el crédito a Cuentas por Cobrar (CxC) de QBO y el Bruto Reconocido mostrado.
+ */
+export function computePayoutAccountingAmounts(payout: any): PayoutAccountingAmounts {
+  const rawPlat = String(payout?.platform || '').trim().toUpperCase()
+  const plat = (['UBER_EATS', 'DOORDASH', 'GRUBHUB'].includes(rawPlat) ? rawPlat : 'UBER_EATS') as DeliveryPlatformCode
+
+  const parseRawMoney = (val: any): number | null => {
+    if (typeof val === 'number' && Number.isFinite(val)) return round2(val)
+    if (typeof val === 'string' && val.trim()) {
+      const cleaned = val.replace(/[^0-9.-]/g, '')
+      const n = Number(cleaned)
+      if (Number.isFinite(n)) return round2(n)
+    }
+    return null
+  }
+
+  const hasNetPayoutField =
+    payout?.net_payout_amount !== null &&
+    payout?.net_payout_amount !== undefined &&
+    String(payout.net_payout_amount).trim() !== '' &&
+    Number.isFinite(Number(payout.net_payout_amount))
+
+  const netPayout = hasNetPayoutField ? round2(Number(payout.net_payout_amount)) : 0
+
+  let totalFees = round2(
+    Math.abs(
+      Number(payout?.commission_fees || 0) +
+        Number(payout?.delivery_fees || 0) +
+        Number(payout?.processing_fees || 0) +
+        Number(payout?.marketing_fees || 0)
+    )
+  )
+  if (plat === 'UBER_EATS' && payout?.raw_payload?.uberFees !== undefined) {
+    const uFees = Math.abs(parseRawMoney(payout.raw_payload.uberFees) ?? 0)
+    const uMkt = Math.abs(parseRawMoney(payout.raw_payload.marketing) ?? 0)
+    if (uFees + uMkt > 0) {
+      totalFees = round2(uFees + uMkt)
+    }
+  }
+
+  const grossEarnings = plat === 'UBER_EATS' ? parseRawMoney(payout?.raw_payload?.earnings) : null
+  const facTax = Number(payout?.tax_remitted_by_platform || 0)
+  const declaredGrossVal = round2(Number(payout?.platform_gross_receivable || 0))
+  const declaredSubVal = round2(Number(payout?.subtotal_sales || 0))
+  const declaredTipsVal = round2(Number(payout?.tips_amount || 0))
+  const hasOfficialGrossOrEarnings =
+    (grossEarnings !== null && grossEarnings > 0) ||
+    declaredGrossVal > 0.005 ||
+    declaredSubVal > 0.005
+
+  let receivableCredit = 0
+  let rawErrAdj = round2(Number(payout?.error_charges || 0) + Number(payout?.adjustments_amount || 0))
+
+  if (payout?.raw_payload?.official_receivable_credit !== undefined) {
+    receivableCredit = round2(Number(payout.raw_payload.official_receivable_credit || 0))
+  } else if (plat === 'UBER_EATS') {
+    if (grossEarnings !== null && grossEarnings > 0 && facTax > 0) {
+      receivableCredit = round2(grossEarnings - facTax)
+      rawErrAdj = round2(netPayout + totalFees - receivableCredit)
+    } else if (hasOfficialGrossOrEarnings) {
+      receivableCredit = round2((declaredGrossVal > 0 ? declaredGrossVal : declaredSubVal) + declaredTipsVal)
+    } else {
+      receivableCredit = 0
+    }
+  } else if (plat === 'GRUBHUB') {
+    if (payout?.raw_payload?.totals !== undefined && hasOfficialGrossOrEarnings) {
+      receivableCredit = round2(netPayout + totalFees - rawErrAdj)
+    } else if (hasOfficialGrossOrEarnings) {
+      receivableCredit = round2((declaredGrossVal > 0 ? declaredGrossVal : declaredSubVal) + declaredTipsVal)
+    } else {
+      receivableCredit = 0
+    }
+  } else {
+    if (hasOfficialGrossOrEarnings) {
+      const expectedFromComponents = round2(netPayout + totalFees - rawErrAdj)
+      const officialGrossWithTips = round2(
+        (declaredGrossVal > 0 ? declaredGrossVal : declaredSubVal + Number(payout?.tax_paid_to_merchant || 0)) +
+          declaredTipsVal
+      )
+      receivableCredit =
+        Math.abs(officialGrossWithTips - expectedFromComponents) <= 0.05
+          ? expectedFromComponents
+          : officialGrossWithTips
+    } else {
+      receivableCredit = 0
+    }
+  }
+
+  return {
+    netPayout,
+    totalFees,
+    grossEarnings,
+    facTax,
+    declaredGrossVal,
+    declaredSubVal,
+    declaredTipsVal,
+    hasOfficialGrossOrEarnings,
+    receivableCredit,
+    rawErrAdj,
+  }
 }
 
 export interface EvaluatedRecoveryCredit extends RecoveryCredit {
@@ -6628,6 +6795,7 @@ export interface DisputeRecoveryEvaluation {
     | 'UNVERIFIED_RECOVERY'
     | 'PARTIAL_RECOVERY'
     | 'FULL_RECOVERY'
+    | 'CLOSED_LOSS'
   /** Saldo pendiente = original − recuperado verificado (0 si el original no está comprobado). */
   unrecoveredAmount: number
 }
@@ -6657,12 +6825,16 @@ export function evaluateDisputeRecovery(o: any, ctx?: DisputeRecoveryContext): D
   ).trim()
   const reimbEvidence = evidenceRaw.length > 0 ? evidenceRaw : null
 
+  const zeroImpact = isZeroImpactDisputeOrder(o)
+  const isClosedLoss = isClosedUnrecoveredDisputeStatus(status)
   const isDisputed =
-    Boolean(o?.is_disputed) ||
-    o?.reconciliation_status === 'REFUNDED_OR_DISPUTED' ||
-    errChargeAbs > 0.01 ||
-    credits.length > 0 ||
-    status === 'REIMBURSED'
+    !zeroImpact &&
+    (Boolean(o?.is_disputed) ||
+      o?.reconciliation_status === 'REFUNDED_OR_DISPUTED' ||
+      errChargeAbs > 0.01 ||
+      credits.length > 0 ||
+      status === 'REIMBURSED' ||
+      isClosedLoss)
 
   const empty: DisputeRecoveryEvaluation = {
     isDisputed: false,
@@ -6779,6 +6951,15 @@ export function evaluateDisputeRecovery(o: any, ctx?: DisputeRecoveryContext): D
   }
 
   const claimsRecovery = credits.length > 0 || status === 'REIMBURSED'
+  if (isClosedLoss && verifiedTotal <= 0) {
+    return {
+      ...base,
+      hasVerifiableRecoveryEvidence: false,
+      recoveryClassification: 'CLOSED_LOSS',
+      unrecoveredAmount: 0,
+    }
+  }
+
   if (!claimsRecovery) {
     return {
       ...base,
@@ -6792,8 +6973,8 @@ export function evaluateDisputeRecovery(o: any, ctx?: DisputeRecoveryContext): D
     return {
       ...base,
       hasVerifiableRecoveryEvidence: false,
-      recoveryClassification: 'UNVERIFIED_RECOVERY',
-      unrecoveredAmount: original.amount === null ? 0 : originalAbs,
+      recoveryClassification: isClosedLoss ? 'CLOSED_LOSS' : 'UNVERIFIED_RECOVERY',
+      unrecoveredAmount: isClosedLoss || original.amount === null ? 0 : originalAbs,
     }
   }
 
@@ -6801,8 +6982,8 @@ export function evaluateDisputeRecovery(o: any, ctx?: DisputeRecoveryContext): D
   return {
     ...base,
     hasVerifiableRecoveryEvidence: true,
-    recoveryClassification: isPartial ? 'PARTIAL_RECOVERY' : 'FULL_RECOVERY',
-    unrecoveredAmount: isPartial ? round2(Math.max(0, originalAbs - verifiedTotal)) : 0,
+    recoveryClassification: isClosedLoss ? 'CLOSED_LOSS' : isPartial ? 'PARTIAL_RECOVERY' : 'FULL_RECOVERY',
+    unrecoveredAmount: isClosedLoss ? 0 : isPartial ? round2(Math.max(0, originalAbs - verifiedTotal)) : 0,
   }
 }
 

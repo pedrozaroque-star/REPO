@@ -875,11 +875,21 @@ function OrderReadyBoardContent() {
   // Fullscreen container and state (Modo TV)
   const containerRef = useRef<HTMLDivElement | null>(null)
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false)
-  const [isKioskTvQuery, setIsKioskTvQuery] = useState<boolean>(false)
+  const [isKioskTvQuery, setIsKioskTvQuery] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false
+    const params = new URLSearchParams(window.location.search)
+    return (
+      params.get('tv') === '1' ||
+      params.get('kiosk') === '1' ||
+      params.get('fullscreen') === '1'
+    )
+  })
+  const [isWindowKioskFullscreen, setIsWindowKioskFullscreen] = useState<boolean>(false)
 
-  // Sincronizar estado con eventos nativos del navegador (F11, ESC) y banderas de URL para TV de comedor (?tv=1 / ?kiosk=1 / ?fullscreen=1)
+  // Sincronizar estado con eventos nativos del navegador (F11, ESC), modo TV URL (?tv=1 / ?kiosk=1 / ?fullscreen=1) y viewport completo
   useEffect(() => {
-    if (typeof window !== 'undefined') {
+    const checkKioskState = () => {
+      if (typeof window === 'undefined') return
       const params = new URLSearchParams(window.location.search)
       if (
         params.get('tv') === '1' ||
@@ -888,16 +898,24 @@ function OrderReadyBoardContent() {
       ) {
         setIsKioskTvQuery(true)
       }
-    }
-    const handleFsChange = () => {
       const doc = document as any
       setIsFullscreen(!!(doc.fullscreenElement || doc.webkitFullscreenElement))
+      const displayFs = typeof window.matchMedia === 'function' && window.matchMedia('(display-mode: fullscreen)').matches
+      const fillsScreen =
+        window.screen &&
+        window.outerHeight >= window.screen.height - 8 &&
+        window.outerWidth >= window.screen.width - 8 &&
+        window.innerHeight >= window.screen.height - 40
+      setIsWindowKioskFullscreen(Boolean(displayFs || fillsScreen))
     }
-    document.addEventListener('fullscreenchange', handleFsChange)
-    document.addEventListener('webkitfullscreenchange', handleFsChange)
+    checkKioskState()
+    document.addEventListener('fullscreenchange', checkKioskState)
+    document.addEventListener('webkitfullscreenchange', checkKioskState)
+    window.addEventListener('resize', checkKioskState)
     return () => {
-      document.removeEventListener('fullscreenchange', handleFsChange)
-      document.removeEventListener('webkitfullscreenchange', handleFsChange)
+      document.removeEventListener('fullscreenchange', checkKioskState)
+      document.removeEventListener('webkitfullscreenchange', checkKioskState)
+      window.removeEventListener('resize', checkKioskState)
     }
   }, [])
 
@@ -2943,8 +2961,8 @@ function OrderReadyBoardContent() {
         </div>
       )}
 
-      {/* Banner de Recados Telefónicos Prioritarios (Contestadora IA — Oculto en Modo TV de clientes para proteger PII) */}
-      {!isFullscreen && !isKioskTvQuery && (
+      {/* Banner de Recados Telefónicos Prioritarios (Contestadora IA — Oculto en Modo TV/F11 de clientes para proteger PII) */}
+      {!isFullscreen && !isKioskTvQuery && !isWindowKioskFullscreen && (
         <PhoneCallbackAlertBanner storeCode={selectedStore} ready={storeOk} />
       )}
 

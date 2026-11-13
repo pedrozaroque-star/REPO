@@ -16,7 +16,7 @@
 
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, Suspense } from 'react'
 import { motion } from 'framer-motion'
 import { useSearchParams } from 'next/navigation'
 
@@ -32,7 +32,7 @@ interface Store {
   city?: string
 }
 
-export default function ClientesFeedbackPage() {
+function ClientesFeedbackContent() {
   const searchParams = useSearchParams()
   const storeParam = searchParams.get('store')
 
@@ -117,7 +117,7 @@ export default function ClientesFeedbackPage() {
 
   const detectLocation = () => {
     if (!navigator.geolocation) {
-      alert('Tu navegador no soporta geolocalización')
+      alert(t.geoUnsupported)
       return
     }
 
@@ -152,9 +152,10 @@ export default function ClientesFeedbackPage() {
       (error) => {
         let errorMsg = ''
         switch (error.code) {
-          case 1: errorMsg = 'Permiso denegado.'; break
-          case 2: errorMsg = 'Ubicación no disponible.'; break
-          case 3: errorMsg = 'Tiempo agotado.'; break
+          case 1: errorMsg = t.geoDenied; break
+          case 2: errorMsg = t.geoUnavailable; break
+          case 3: errorMsg = t.geoTimeout; break
+          default: errorMsg = t.geoUnavailable
         }
         if (errorMsg) alert(errorMsg)
         setDetectingLocation(false)
@@ -163,8 +164,15 @@ export default function ClientesFeedbackPage() {
     )
   }
 
+  useEffect(() => {
+    return () => {
+      photoPreviews.forEach(url => URL.revokeObjectURL(url))
+    }
+  }, [photoPreviews])
+
   const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files) return
+    photoPreviews.forEach(url => URL.revokeObjectURL(url))
     const files = Array.from(e.target.files).slice(0, 5)
     setFormData({ ...formData, photos: files })
 
@@ -269,7 +277,14 @@ export default function ClientesFeedbackPage() {
       errSucursal: 'Selecciona una sucursal',
       errPreguntas: 'Por favor califica todos los aspectos.',
       errNPS: 'Por favor selecciona una calificación del 0 al 10.',
-      submitError: 'Error al enviar chavo.'
+      submitError: 'No pudimos enviar tu opinión. Inténtalo de nuevo.',
+      areYouHere: '¿Estás aquí?',
+      addPhoto: 'Agregar',
+      maxPhotosShort: 'Máx 5',
+      geoUnsupported: 'Tu navegador no soporta geolocalización.',
+      geoDenied: 'Permiso de ubicación denegado.',
+      geoUnavailable: 'Ubicación no disponible.',
+      geoTimeout: 'Tiempo de espera agotado.'
     },
     en: {
       title: 'Your Experience Matters',
@@ -298,7 +313,14 @@ export default function ClientesFeedbackPage() {
       errSucursal: 'Select a location',
       errPreguntas: 'Please rate all aspects.',
       errNPS: 'Please recommend from 0 to 10.',
-      submitError: 'Error submitting.'
+      submitError: 'Could not submit your feedback. Please try again.',
+      areYouHere: 'Are you here?',
+      addPhoto: 'Add',
+      maxPhotosShort: 'Max 5',
+      geoUnsupported: 'Your browser does not support geolocation.',
+      geoDenied: 'Location permission denied.',
+      geoUnavailable: 'Location unavailable.',
+      geoTimeout: 'Location request timed out.'
     }
   }
 
@@ -467,7 +489,7 @@ export default function ClientesFeedbackPage() {
               <div className="mt-3 flex items-start gap-2 px-3 py-2 bg-blue-50 rounded-lg border border-blue-200">
                 <span className="text-base">📍</span>
                 <div className="text-xs text-blue-700 leading-relaxed">
-                  <span className="block font-bold text-blue-800">¿Estás aquí?</span>
+                  <span className="block font-bold text-blue-800">{t.areYouHere}</span>
                   {currentStoreInfo.address}<br />
                   {currentStoreInfo.city}
                 </div>
@@ -480,7 +502,7 @@ export default function ClientesFeedbackPage() {
               disabled={detectingLocation}
               className="w-full mt-3 py-2.5 rounded-lg bg-gray-100 border border-gray-300 text-gray-700 font-bold text-sm hover:bg-gray-200 active:scale-95 transition-all disabled:opacity-50"
             >
-              {detectingLocation ? '📍 Detectando...' : `📍 ${t.detectBtn}`}
+              {detectingLocation ? `📍 ${t.detecting}` : `📍 ${t.detectBtn}`}
             </button>
           </div>
         </div>
@@ -584,18 +606,7 @@ export default function ClientesFeedbackPage() {
               />
             </div>
 
-            <div>
-              <label className="block text-sm font-bold text-gray-700 dark:text-slate-300 mb-2">
-                👤 {t.customerNick}
-              </label>
-              <input
-                type="text"
-                value={formData.clienteNick}
-                onChange={(e) => setFormData({ ...formData, clienteNick: e.target.value })}
-                className="w-full px-4 py-3 bg-gray-50 dark:bg-slate-800 border border-gray-300 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-red-600 focus:border-transparent outline-none transition text-gray-900 dark:text-white"
-                placeholder={t.namePlaceholder}
-              />
-            </div>
+
           </div>
         </div>
 
@@ -607,7 +618,7 @@ export default function ClientesFeedbackPage() {
             <div>
               <label className="block text-sm font-bold text-gray-700 dark:text-slate-300 mb-3 flex justify-between">
                 <span>📷 {t.photos}</span>
-                <span className="text-gray-400 text-xs font-normal">Max 5</span>
+                <span className="text-gray-400 text-xs font-normal">{t.maxPhotosShort}</span>
               </label>
               <div className="grid grid-cols-4 gap-2">
                 {photoPreviews.map((src, i) => {
@@ -624,7 +635,7 @@ export default function ClientesFeedbackPage() {
                 })}
                 <label className="aspect-square rounded-lg border-2 border-dashed border-gray-300 bg-gray-50 flex flex-col items-center justify-center cursor-pointer hover:bg-gray-100 hover:border-red-400 transition-all group">
                   <span className="text-2xl mb-1 group-hover:scale-110 transition-transform">📷</span>
-                  <span className="text-[9px] text-gray-500">Agregar</span>
+                  <span className="text-[9px] text-gray-500">{t.addPhoto}</span>
                   <input type="file" multiple accept="image/*,video/*" className="hidden" onChange={handlePhotoChange} />
                 </label>
               </div>
@@ -657,5 +668,13 @@ export default function ClientesFeedbackPage() {
         </div>
       </form>
     </div>
+  )
+}
+
+export default function ClientesFeedbackPage() {
+  return (
+    <Suspense fallback={null}>
+      <ClientesFeedbackContent />
+    </Suspense>
   )
 }

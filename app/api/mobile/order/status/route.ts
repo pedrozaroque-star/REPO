@@ -16,7 +16,7 @@
  * - App Móvil GET /api/mobile/order/status?orderId=X (Bearer JWT) -> Consulta app_orders -> Formatea 3-State -> Retorna JSON.
  * 
  * @notes
- * - Soporta tanto canales PICKUP (mostrador / curbside) como DELIVERY (con DoorDash Drive tracking_url y dasher info).
+ * - Soporta tanto canales PICKUP (mostrador / curbside) como DELIVERY (`pickup_method === 'delivery'`), leyendo `items_json.deliveryLogistics.deliveryStatus` (camelCase de DoorDash) con fallback seguro.
  */
 
 import { NextRequest, NextResponse } from 'next/server'
@@ -74,7 +74,10 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       ? (order.items_json as Record<string, any>)
       : {}
 
-    const isDelivery = itemsJsonObj.channel === 'DELIVERY' || order.curbside_stall === 'DOORDASH_DELIVERY'
+    const isDelivery =
+      itemsJsonObj.channel === 'DELIVERY' ||
+      order.pickup_method === 'delivery' ||
+      order.curbside_stall === 'DOORDASH_DELIVERY'
     const channel: 'PICKUP' | 'DELIVERY' = isDelivery ? 'DELIVERY' : 'PICKUP'
     const deliveryAddress = itemsJsonObj.deliveryAddress || null
 
@@ -103,11 +106,19 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
           deliveryStatus = 'AWAITING_ARRIVAL'
       }
     } else {
-      // Canal DELIVERY: Prohibido inventar estados de chofer (DRIVER_ASSIGNED, OUT_FOR_DELIVERY)
-      // a partir de kitchenStatus. Solo se reporta el estado oficial recibido por webhook de DoorDash.
-      const officialDeliveryStatus = itemsJsonObj.deliveryTracking?.status
-      if (typeof officialDeliveryStatus === 'string' && officialDeliveryStatus.trim().length > 0) {
-        deliveryStatus = officialDeliveryStatus
+      // Canal DELIVERY: Prohibido inventar estados de chofer a partir de kitchenStatus.
+      // Lee deliveryLogistics.deliveryStatus (camelCase autoritativo de delivery/webhook) con compatibilidad legacy.
+      const logisticsObj =
+        typeof itemsJsonObj.deliveryLogistics === 'object' && itemsJsonObj.deliveryLogistics !== null
+          ? (itemsJsonObj.deliveryLogistics as Record<string, unknown>)
+          : null
+      const officialDeliveryStatus =
+        (typeof logisticsObj?.deliveryStatus === 'string' && logisticsObj.deliveryStatus) ||
+        (typeof itemsJsonObj.deliveryTracking?.status === 'string' && itemsJsonObj.deliveryTracking.status) ||
+        (typeof logisticsObj?.delivery_status === 'string' && logisticsObj.delivery_status) ||
+        ''
+      if (officialDeliveryStatus.trim().length > 0) {
+        deliveryStatus = officialDeliveryStatus.trim()
       } else if (kitchenStatus === 'CANCELLED') {
         deliveryStatus = 'CANCELLED'
       } else if (kitchenStatus === 'COMPLETED') {
@@ -126,6 +137,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       kitchenStatus,
       paymentStatus,
       deliveryStatus,
+      deliveryLogistics: itemsJsonObj.deliveryLogistics || null,
       channel,
       deliveryAddress,
       total_amount: Number(order.total_amount),

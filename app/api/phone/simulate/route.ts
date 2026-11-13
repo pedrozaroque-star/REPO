@@ -16,9 +16,10 @@
  *
  * @notes
  * - Restringido estrictamente a `callSid` con prefijo `SIM_`.
+ * - Validación RBAC en una sola llamada, prewarm persistente en `after()`, validación de propiedad de `store_id` sobre `SIM_` `callSid` y Key 9 limpia antes o durante llamada.
  */
 
-import { NextRequest, NextResponse } from 'next/server'
+import { after, NextRequest, NextResponse } from 'next/server'
 import { authorizePhoneModuleRequest } from '@/lib/phone-agent-access'
 import { supabaseAdmin } from '@/lib/supabase'
 import { getCaliforniaBusinessDate, getCaliforniaShift } from '@/lib/business-date'
@@ -43,27 +44,29 @@ const STREAM_HEADERS = {
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json()
+    const body = await request.json().catch(() => null)
+    if (!body || typeof body !== 'object') {
+      return NextResponse.json({ error: 'Cuerpo JSON inválido' }, { status: 400 })
+    }
     const action = String(body?.action || 'turn')
     const rawStoreId = Number(body?.storeId)
 
-    // Pre-autorización para resolver sucursal por defecto si es manager de una sola tienda
-    const baseAuth = await authorizePhoneModuleRequest(request, { permission: 'simulate' })
-    if (!baseAuth.authorized || !baseAuth.user) {
-      return baseAuth.response || NextResponse.json({ error: baseAuth.error || 'No autorizado' }, { status: baseAuth.status || 401 })
+    // Autorización RBAC en una sola llamada; luego validamos pertenencia exacta sobre storeId
+    const auth = await authorizePhoneModuleRequest(request, { permission: 'simulate' })
+    if (!auth.authorized || !auth.user) {
+      return auth.response || NextResponse.json({ error: auth.error || 'No autorizado' }, { status: auth.status || 401 })
     }
 
     const storeId =
       Number.isFinite(rawStoreId) && rawStoreId > 0
         ? rawStoreId
-        : baseAuth.user.assignedStoreId || 14
+        : auth.user.assignedStoreId || 14
 
-    const auth = await authorizePhoneModuleRequest(request, {
-      permission: 'simulate',
-      targetStoreId: storeId
-    })
-    if (!auth.authorized || !auth.user) {
-      return auth.response || NextResponse.json({ error: auth.error || 'Acceso denegado a sucursal' }, { status: auth.status || 403 })
+    if (!auth.user.isGlobalAdmin && !auth.user.allowedStoreIds.includes(storeId)) {
+      return NextResponse.json(
+        { error: `Acceso denegado: Tu cuenta solo tiene autorización sobre la sucursal #${auth.user.assignedStoreId}.` },
+        { status: 403 }
+      )
     }
 
     const lang: PhoneLang = body?.lang === 'en' ? 'en' : 'es'
@@ -81,15 +84,21 @@ export async function POST(request: NextRequest) {
         { scheduleEval: ctx.scheduleEval }
       )
       const switchedLang: PhoneLang = lang === 'en' ? 'es' : 'en'
-      const switchedGreeting = buildInitialGreeting(
-        ctx.store.name,
-        switchedLang,
-        ctx.config.custom_greeting_es,
-        ctx.config.custom_greeting_en,
-        { includeLanguageSwitchHint: false, scheduleEval: ctx.scheduleEval }
-      )
-      void getPhoneAgentSpeech(greetingText, lang, voiceId).catch(() => null)
-      void getPhoneAgentSpeech(switchedGreeting, switchedLang, voiceId).catch(() => null)
+      const conciseSwitch =
+        switchedLang === 'en'
+          ? 'Of course, we can continue in English! How can I help you today?'
+          : 'Con gusto continuamos en español. ¿En qué te puedo ayudar?'
+      const prewarmTask = async () => {
+        await Promise.all([
+          getPhoneAgentSpeech(greetingText, lang, voiceId, false, { awaitStoragePersist: true }),
+          getPhoneAgentSpeech(conciseSwitch, switchedLang, voiceId, false, { awaitStoragePersist: true })
+        ])
+      }
+      try {
+        after(() => prewarmTask().catch(() => null))
+      } catch {
+        void prewarmTask().catch(() => null)
+      }
       return NextResponse.json({ ok: true, storeId: ctx.store.id })
     }
 
@@ -288,33 +297,47 @@ export async function POST(request: NextRequest) {
     }
 
     // Default: action === 'turn'
-    const rawCallSid = String(body?.callSid || '')
+    const rawCallSid = String(body?.callSid || '').trim()
     const callSid = rawCallSid.startsWith('SIM_') ? rawCallSid : `SIM_${storeId}_${Date.now()}`
+    if (rawCallSid.startsWith('SIM_')) {
+      const { data: ownerCheck } = await supabaseAdmin
+        .from('phone_calls')
+        .select('store_id')
+        .eq('call_sid', callSid)
+        .maybeSingle()
+      if (ownerCheck && Number(ownerCheck.store_id) !== storeId) {
+        if (!auth.user.isGlobalAdmin && !auth.user.allowedStoreIds.includes(Number(ownerCheck.store_id))) {
+          return NextResponse.json({ error: 'Acceso denegado a esta llamada simulada' }, { status: 403 })
+        }
+      }
+    }
     const rawUserText = String(body?.userText || '').trim().slice(0, 1000)
     if (!rawUserText) {
       return NextResponse.json({ error: 'Mensaje vacío' }, { status: 400 })
     }
 
-    // Tecla 9 (igual que en Twilio): cambiar idioma en vivo y reproducir el aviso legal completo en el nuevo idioma
+    // Tecla 9 (igual que en Twilio): si ya inició la conversación, cambio ágil de idioma; si es inicio pre-llamada, aviso CIPA completo
     if (rawUserText === '9') {
       const reqStart = Date.now()
       const switchedLang: PhoneLang = lang === 'en' ? 'es' : 'en'
-      const ctx = await getStorePhoneContext(storeId)
+      const [ctx, { data: existing }] = await Promise.all([
+        getStorePhoneContext(storeId),
+        supabaseAdmin.from('phone_calls').select('id, store_id, transcript, turns_count').eq('call_sid', callSid).maybeSingle()
+      ])
       const voiceId: VoiceId = resolvePhoneFemaleVoice(ctx.config.voice_id)
-      const switchedReply = buildInitialGreeting(
-        ctx.store.name,
-        switchedLang,
-        ctx.config.custom_greeting_es,
-        ctx.config.custom_greeting_en,
-        { includeLanguageSwitchHint: false, scheduleEval: ctx.scheduleEval }
-      )
+      const isMidCall = Boolean(existing && Number(existing.turns_count || 0) >= 1)
+      const switchedReply = isMidCall
+        ? switchedLang === 'en'
+          ? 'Of course, we can continue in English! How can I help you today?'
+          : 'Con gusto continuamos en español. ¿En qué te puedo ayudar?'
+        : buildInitialGreeting(
+            ctx.store.name,
+            switchedLang,
+            ctx.config.custom_greeting_es,
+            ctx.config.custom_greeting_en,
+            { includeLanguageSwitchHint: false, scheduleEval: ctx.scheduleEval }
+          )
       const audioUrl = buildPhoneTtsUrl('', switchedReply, switchedLang, voiceId)
-
-      const { data: existing } = await supabaseAdmin
-        .from('phone_calls')
-        .select('id, transcript, turns_count')
-        .eq('call_sid', callSid)
-        .maybeSingle()
 
       const nextTranscript = [
         ...(Array.isArray(existing?.transcript) ? existing.transcript : []),
@@ -334,7 +357,29 @@ export async function POST(request: NextRequest) {
             .eq('id', existing.id)
           return existing.id
         }
-        return null
+        const { data: createdRow } = await supabaseAdmin
+          .from('phone_calls')
+          .upsert(
+            {
+              call_sid: callSid,
+              store_id: storeId,
+              source: 'simulator',
+              caller_number: auth.user?.email || 'Simulador Web',
+              to_number: ctx.store.phone,
+              language: switchedLang,
+              status: 'in_progress',
+              resolved_by_ai: false,
+              turns_count: 1,
+              summary: `Cambio de idioma (Tecla 9) en simulador (${ctx.store.name})`,
+              transcript: nextTranscript,
+              business_date: getCaliforniaBusinessDate(),
+              shift: getCaliforniaShift()
+            },
+            { onConflict: 'call_sid' }
+          )
+          .select('id')
+          .maybeSingle()
+        return createdRow?.id || null
       })()
 
       if (useStream) {

@@ -28,6 +28,10 @@
  * - Fase 8 (ERP Contable Puro): Depurado al 100% de publicidad, captación comercial, préstamos (Lending),
  *   ProAdvisor, encuestas, referidos y widgets simulados de Intuit. Enfocado exclusivamente en el libro mayor,
  *   20 reportes CPA reales, conciliación, auditoría y portafolio de las 8 entidades.
+ * - 2026-11-12 (Wave P0/P1 Hardening):
+ *   1) Guardas contra condiciones de carrera (`AbortController` + secuencia monótona) en `fetchWorkspaceData` y `fetchReport` al cambiar entre las 8 empresas.
+ *   2) Subida directa firmada hasta 15 MB hacia Supabase Storage (`create_attachment_upload_url` -> `PUT` binario -> `finalize_attachment_upload`), superando el límite de 4.5 MB de Vercel.
+ *   3) Controles CPA de personalización de reportes (`comparePeriod`, `only1099`, `hideZeroRows`, `showCents`) sincronizados con pantalla, PDF y Excel.
  */
 
 'use client'
@@ -42,6 +46,7 @@ import {
     buildAccountingDeepLinkSearch,
 } from '@/lib/external-accounting-deep-links'
 import { sanitizeEmailPreviewHtml } from '@/lib/external-accounting-html-sanitize'
+import { ensureFreshTabletAuth } from '@/lib/tablet-cache-cleaner'
 import {
     Building2, DollarSign, ArrowUpRight, ArrowDownRight, Plus, Printer, Download,
     Search, RefreshCw, CheckCircle2, XCircle, FileText, Repeat, Landmark, Users,
@@ -58,17 +63,44 @@ const ALLOWED_EMAILS = [
 ]
 const ALLOWED_USER_IDS = [45, 46, 47]
 
+function isLocalJwtNearExpiry(token: string | null): boolean {
+    if (!token) return false
+    try {
+        const payload = JSON.parse(atob(token.split('.')[1]))
+        const expMs = Number(payload?.exp || 0) * 1000
+        return !expMs || Date.now() + 60_000 >= expMs
+    } catch {
+        return true
+    }
+}
+
 async function authFetch(url: string, options: RequestInit = {}): Promise<Response> {
-    const token = typeof window !== 'undefined' ? localStorage.getItem('teg_token') : null
+    let token = typeof window !== 'undefined' ? localStorage.getItem('teg_token') : null
+    if (typeof window !== 'undefined' && token && isLocalJwtNearExpiry(token)) {
+        token = (await ensureFreshTabletAuth(true).catch(() => token)) || token
+    }
     const headers = new Headers(options.headers || {})
     if (token && !headers.has('Authorization')) {
         headers.set('Authorization', `Bearer ${token}`)
     }
-    return fetch(url, {
+    const res = await fetch(url, {
         ...options,
         headers,
         credentials: 'include',
     })
+    if (res.status === 401 && typeof window !== 'undefined') {
+        const refreshed = await ensureFreshTabletAuth(true).catch(() => null)
+        if (refreshed && refreshed !== token) {
+            const retryHeaders = new Headers(options.headers || {})
+            retryHeaders.set('Authorization', `Bearer ${refreshed}`)
+            return fetch(url, {
+                ...options,
+                headers: retryHeaders,
+                credentials: 'include',
+            })
+        }
+    }
+    return res
 }
 
 function escapeHtml(str: any): string {
@@ -465,7 +497,7 @@ interface LineItemDraft {
 }
 
 function ExternalAccountingContent() {
-    const { user } = useAuth()
+    const { user, loading: authLoading } = useAuth()
     const { t } = useLanguage()
     /** Bilingual labels of the QBO P&L structure (used by screen, PDF, .XLS and .CSV). */
     const pnlLabels = () => ({
@@ -490,7 +522,7 @@ function ExternalAccountingContent() {
         const emailNorm = (user.email || '').trim().toLowerCase()
         const idNum = Number(user.id)
         if (!ALLOWED_EMAILS.includes(emailNorm)) return false
-        if (Number.isFinite(idNum) && idNum > 0 && !ALLOWED_USER_IDS.includes(idNum)) return false
+        if (!Number.isFinite(idNum) || !ALLOWED_USER_IDS.includes(idNum)) return false
         return true
     }, [user])
 
@@ -780,7 +812,7 @@ function ExternalAccountingContent() {
     const [recUpToEndDateOnly, setRecUpToEndDateOnly] = useState<boolean>(true)
     const [recSearch, setRecSearch] = useState<string>('')
     // Live Reconcile Payment & Deposit Quick-Capture State
-    const [recQuickType, setRecQuickType] = useState<'Check' | 'Expense' | 'Deposit'>('Check')
+    const [recQuickType, setRecQuickType] = useState<'Check' | 'Expense' | 'Deposit' | 'CreditCardCredit'>('Check')
     const [recQuickDate, setRecQuickDate] = useState<string>('')
     const [recQuickDocNum, setRecQuickDocNum] = useState<string>('EFT')
     const [recQuickPayee, setRecQuickPayee] = useState<string>('')
@@ -1039,12 +1071,20 @@ function ExternalAccountingContent() {
     const [recFormMemo, setRecFormMemo] = useState<string>('')
     const [recFormAmount, setRecFormAmount] = useState<string>('0')
 
-    // Reports State
+    // Reports State & CPA Customization Controls
     const [reportType, setReportType] = useState<string>(() => initialDeepLink.report || 'pnl')
     const [reportBasis, setReportBasis] = useState<'Accrual' | 'Cash'>(() => initialDeepLink.basis || 'Accrual')
     const [reportQboKey, setReportQboKey] = useState<string>('ProfitAndLoss_ByYear_Accrual')
+    const [reportComparePeriod, setReportComparePeriod] = useState<'none' | 'previous_period' | 'previous_year'>('none')
+    const [reportOnly1099, setReportOnly1099] = useState<boolean>(false)
+    const [reportHideZeroRows, setReportHideZeroRows] = useState<boolean>(false)
+    const [reportShowCents, setReportShowCents] = useState<boolean>(true)
     const [reportLoading, setReportLoading] = useState<boolean>(false)
     const [reportData, setReportData] = useState<any | null>(null)
+    const workspaceReqSeqRef = useRef<number>(0)
+    const workspaceAbortRef = useRef<AbortController | null>(null)
+    const reportReqSeqRef = useRef<number>(0)
+    const reportAbortRef = useRef<AbortController | null>(null)
 
     useEffect(() => {
         try {
@@ -1140,6 +1180,12 @@ function ExternalAccountingContent() {
 
     const fetchWorkspaceData = useCallback(async () => {
         if (!isAuthorized) return
+        if (workspaceAbortRef.current) {
+            workspaceAbortRef.current.abort()
+        }
+        const ctrl = new AbortController()
+        workspaceAbortRef.current = ctrl
+        const reqSeq = ++workspaceReqSeqRef.current
         setLoading(true)
         try {
             const params = new URLSearchParams({
@@ -1156,8 +1202,10 @@ function ExternalAccountingContent() {
             if (startDate) params.set('startDate', startDate)
             if (endDate) params.set('endDate', endDate)
 
-            const res = await authFetch(`/api/external-accounting?${params.toString()}`)
+            const res = await authFetch(`/api/external-accounting?${params.toString()}`, { signal: ctrl.signal })
+            if (reqSeq !== workspaceReqSeqRef.current || ctrl.signal.aborted) return
             const json = await res.json()
+            if (reqSeq !== workspaceReqSeqRef.current || ctrl.signal.aborted) return
             if (!res.ok) throw new Error(json.error || 'Error loading external accounting')
 
             const loadedCompanies = json.companies || []
@@ -1309,9 +1357,12 @@ function ExternalAccountingContent() {
             setEmailLogs(json.emailLogs || [])
             setDepositedPaymentQbIds((json.depositedPaymentQbIds || []).map(String))
         } catch (err: any) {
+            if (err?.name === 'AbortError' || ctrl.signal.aborted || reqSeq !== workspaceReqSeqRef.current) return
             notify('err', err.message || 'Error')
         } finally {
-            setLoading(false)
+            if (reqSeq === workspaceReqSeqRef.current) {
+                setLoading(false)
+            }
         }
     }, [isAuthorized, activeRealmId, filterType, filterDirection, filterAccountId, startDate, endDate, searchQuery, page, pageSize, checkbookPage, reconcileAccountId])
 
@@ -1321,6 +1372,12 @@ function ExternalAccountingContent() {
 
     const fetchReport = useCallback(async () => {
         if (!isAuthorized || activeTab !== 'reports') return
+        if (reportAbortRef.current) {
+            reportAbortRef.current.abort()
+        }
+        const ctrl = new AbortController()
+        reportAbortRef.current = ctrl
+        const reqSeq = ++reportReqSeqRef.current
         setReportLoading(true)
         try {
             const params = new URLSearchParams({
@@ -1329,20 +1386,29 @@ function ExternalAccountingContent() {
                 basis: reportBasis,
                 accountId: filterAccountId,
                 qboArchiveKey: reportQboKey,
+                comparePeriod: reportComparePeriod,
+                only1099: String(reportOnly1099),
+                hideZeroRows: String(reportHideZeroRows),
+                showCents: String(reportShowCents),
             })
             if (startDate) params.set('startDate', startDate)
             if (endDate) params.set('endDate', endDate)
 
-            const res = await authFetch(`/api/external-accounting/reports?${params.toString()}`)
+            const res = await authFetch(`/api/external-accounting/reports?${params.toString()}`, { signal: ctrl.signal })
+            if (reqSeq !== reportReqSeqRef.current || ctrl.signal.aborted) return
             const json = await res.json()
+            if (reqSeq !== reportReqSeqRef.current || ctrl.signal.aborted) return
             if (!res.ok) throw new Error(json.error || 'Error loading report')
             setReportData(json)
         } catch (err: any) {
+            if (err?.name === 'AbortError' || ctrl.signal.aborted || reqSeq !== reportReqSeqRef.current) return
             notify('err', err.message || 'Error')
         } finally {
-            setReportLoading(false)
+            if (reqSeq === reportReqSeqRef.current) {
+                setReportLoading(false)
+            }
         }
-    }, [isAuthorized, activeTab, activeRealmId, reportType, reportBasis, filterAccountId, reportQboKey, startDate, endDate])
+    }, [isAuthorized, activeTab, activeRealmId, reportType, reportBasis, filterAccountId, reportQboKey, reportComparePeriod, reportOnly1099, reportHideZeroRows, reportShowCents, startDate, endDate])
 
     useEffect(() => {
         if (activeTab === 'reports') {
@@ -1529,8 +1595,14 @@ function ExternalAccountingContent() {
                 String(a.account_sub_type || '').toLowerCase() === 'undepositedfunds' ||
                 String(a.name || '').toLowerCase().includes('undeposited funds')
             )
+            const recAccForModal = activeTab === 'reconcile' && reconcileAccountId
+                ? accounts.find(a => a.qb_account_id === reconcileAccountId)
+                : null
+            const isRecAccCc = String(recAccForModal?.account_type || '').toLowerCase().includes('credit card')
             const bankId = activeTab === 'reconcile' && reconcileAccountId
-                ? reconcileAccountId
+                ? ((mode === 'PayDownCreditCard' || mode === 'Deposit') && isRecAccCc
+                    ? (primaryDefaultAcc?.qb_account_id || '')
+                    : reconcileAccountId)
                 : (mode === 'Payment' || mode === 'SalesReceipt') && ufAccount
                 ? ufAccount.qb_account_id
                 : (primaryDefaultAcc?.qb_account_id || '')
@@ -1546,7 +1618,13 @@ function ExternalAccountingContent() {
                     ? 'CHECK'
                     : ''
             )
-            setFormToAccountQbId(mode === 'PayDownCreditCard' ? (defaultCard?.qb_account_id || expenseAndGlAccounts[1]?.qb_account_id || '') : (expenseAndGlAccounts[1]?.qb_account_id || ''))
+            setFormToAccountQbId(
+                mode === 'PayDownCreditCard'
+                    ? ((activeTab === 'reconcile' && isRecAccCc && reconcileAccountId)
+                        ? reconcileAccountId
+                        : (defaultCard?.qb_account_id || expenseAndGlAccounts[1]?.qb_account_id || ''))
+                    : (expenseAndGlAccounts[1]?.qb_account_id || '')
+            )
             setFormPayeeName('')
             setFormPaymentMethod(
                 mode === 'Check' || mode === 'Deposit' || mode === 'Payment' || mode === 'BillPayment'
@@ -1960,8 +2038,8 @@ function ExternalAccountingContent() {
         }
     }
 
-    const handleUploadContactAttachment = async (tenant: any, file: File) => {
-        if (!tenant || !activeRealmId || !file) return
+    const handleUploadContactAttachment = async (tenant: any | null, file: File) => {
+        if (!activeRealmId || !file) return
         const MAX_BYTES = 15 * 1024 * 1024
         if (file.size > MAX_BYTES) {
             notify('err', `${file.name} excede el límite máximo de 15 MB (${Math.round(file.size / 1024 / 1024)} MB).`)
@@ -1981,34 +2059,60 @@ function ExternalAccountingContent() {
                     .map((b) => b.toString(16).padStart(2, '0'))
                     .join('')
             }
-            const reader = new FileReader()
-            const dataUrl: string = await new Promise((resolve, reject) => {
-                reader.onload = () => resolve(String(reader.result || ''))
-                reader.onerror = () => reject(new Error('File read failed'))
-                reader.readAsDataURL(file)
-            })
-            const b64Part = dataUrl.includes(',') ? dataUrl.split(',').slice(1).join(',') : dataUrl
-            const res = await authFetch('/api/external-accounting', {
+            const resolvedMime = file.type || 'application/pdf'
+
+            // Step 1: Request pre-validated Signed Upload URL from backend (tiny JSON payload, zero binary in Vercel body)
+            const signRes = await authFetch('/api/external-accounting', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    action: 'save_contact_attachment',
+                    action: 'create_attachment_upload_url',
                     realmId: activeRealmId,
-                    contactId: tenant.id,
-                    qb_contact_id: tenant.qb_contact_id,
-                    entity_name: tenant.display_name,
+                    contactId: tenant?.id || null,
                     file_name: file.name,
-                    content_type: file.type || 'application/octet-stream',
+                    content_type: resolvedMime,
                     size_bytes: file.size,
-                    file_size: file.size,
-                    file_base64: b64Part,
-                    sha256_hash: clientSha256,
-                    uploaded_by: user?.name || user?.email || 'Raquel Velazquez',
                 }),
             })
-            const json = await res.json()
-            if (!res.ok) throw new Error(json.error || 'Error saving attachment')
-            notify('ok', `Uploaded: ${file.name}${clientSha256 ? ` (SHA-256 ${clientSha256.slice(0, 8)}…)` : ''}`)
+            const signJson = await signRes.json()
+            if (!signRes.ok || !signJson.signedUrl) {
+                throw new Error(signJson.error || 'Error creating signed upload URL')
+            }
+
+            // Step 2: PUT raw binary directly to Supabase Storage signed URL (supports up to 15 MB)
+            const putRes = await fetch(signJson.signedUrl, {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': signJson.contentType || resolvedMime,
+                    'x-upsert': 'true',
+                },
+                body: arrayBuf,
+            })
+            if (!putRes.ok) {
+                const putErrTxt = await putRes.text().catch(() => '')
+                throw new Error(`Storage upload failed (${putRes.status}): ${putErrTxt.slice(0, 140)}`)
+            }
+
+            // Step 3: Atomically finalize relational row + audit + QBO outbox
+            const finRes = await authFetch('/api/external-accounting', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    action: 'finalize_attachment_upload',
+                    realmId: activeRealmId,
+                    storage_path: signJson.storagePath,
+                    contactId: tenant?.id || null,
+                    qb_contact_id: tenant?.qb_contact_id || null,
+                    entity_name: tenant?.display_name || null,
+                    file_name: file.name,
+                    content_type: signJson.contentType || resolvedMime,
+                    size_bytes: file.size,
+                    sha256_hash: clientSha256,
+                }),
+            })
+            const finJson = await finRes.json()
+            if (!finRes.ok) throw new Error(finJson.error || 'Error finalizing attachment')
+            notify('ok', `${file.name}${clientSha256 ? ` (SHA-256 ${clientSha256.slice(0, 8)}…)` : ''}`)
             await fetchWorkspaceData()
         } catch (err: any) {
             notify('err', err.message || 'Error uploading file')
@@ -3496,6 +3600,10 @@ function ExternalAccountingContent() {
                 basis: reportBasis,
                 accountId: filterAccountId,
                 qboArchiveKey: reportQboKey,
+                comparePeriod: reportComparePeriod,
+                only1099: String(reportOnly1099),
+                hideZeroRows: String(reportHideZeroRows),
+                showCents: String(reportShowCents),
                 format: 'pdf',
             })
             if (startDate) pdfParams.set('startDate', startDate)
@@ -3631,6 +3739,10 @@ function ExternalAccountingContent() {
                 basis: reportBasis,
                 accountId: filterAccountId,
                 qboArchiveKey: reportQboKey,
+                comparePeriod: reportComparePeriod,
+                only1099: String(reportOnly1099),
+                hideZeroRows: String(reportHideZeroRows),
+                showCents: String(reportShowCents),
                 format: 'xlsx',
             })
             if (startDate) xlsxParams.set('startDate', startDate)
@@ -4505,10 +4617,22 @@ function ExternalAccountingContent() {
     )
 
     const isTxnPaymentForAccount = useCallback((txn: any, bankQbId: string): boolean => {
-        if (txn.txn_type === 'Transfer') {
-            return txn.account_qb_id === bankQbId
+        if (txn.txn_type === 'Transfer' || txn.txn_type === 'PayDownCreditCard') {
+            return String(txn.account_qb_id || '') === String(bankQbId || '')
         }
-        return ['Check', 'Expense', 'CreditCardExpense', 'BillPayment', 'RefundReceipt', 'PayDownCreditCard'].includes(txn.txn_type) || txn.direction === 'OUT'
+        if (txn.txn_type === 'CreditCardCredit') {
+            return false
+        }
+        if (txn.txn_type === 'JournalEntry' && Array.isArray(txn.line_items)) {
+            const netDebit = txn.line_items
+                .filter((l: any) => String(l?.account_qb_id || '') === String(bankQbId || ''))
+                .reduce((acc: number, l: any) => {
+                    const amt = Number(l?.amount || 0)
+                    return String(l?.posting_type || 'Debit') === 'Credit' ? acc - amt : acc + amt
+                }, 0)
+            return netDebit < 0
+        }
+        return ['Check', 'Expense', 'CreditCardExpense', 'BillPayment', 'RefundReceipt'].includes(txn.txn_type) || txn.direction === 'OUT'
     }, [])
 
     const reconcileAccountRows = useMemo(() => {
@@ -4704,6 +4828,25 @@ function ExternalAccountingContent() {
             notify('ok', t('external_accounting.qbo_rec_diff_zero_ready'))
             return
         }
+        if (reconcileMath.isCc) {
+            if (diff > 0) {
+                // Ending CC Balance > Cleared CC Balance -> Need CC Charge (Expense) to increase CC liability
+                setRecQuickType('Expense')
+                setRecQuickAmount(Math.abs(diff).toFixed(2))
+                setRecQuickDocNum('CC-CHG')
+            } else {
+                // Ending CC Balance < Cleared CC Balance -> Need CC Credit (CreditCardCredit) to reduce CC liability
+                setRecQuickType('CreditCardCredit')
+                setRecQuickAmount(Math.abs(diff).toFixed(2))
+                setRecQuickDocNum('CC-CRD')
+            }
+            if (!recQuickDate) setRecQuickDate(recEndingDate)
+            if (!recQuickGlAccountId) {
+                const defaultGl = expenseAndGlAccounts.find(a => a.classification === 'Expense' || a.account_type === 'Expense')
+                if (defaultGl) setRecQuickGlAccountId(defaultGl.qb_account_id)
+            }
+            return
+        }
         if (diff < 0) {
             // Ending Balance < Cleared Balance -> Need Payment(s) (Check / Expense) to reduce Cleared Balance
             setRecQuickType('Check')
@@ -4737,9 +4880,16 @@ function ExternalAccountingContent() {
         const bankObj = accounts.find(a => a.qb_account_id === reconcileAccountId)
         const defaultExpense = expenseAndGlAccounts.find(a => a.classification === 'Expense' || a.account_type === 'Expense') || expenseAndGlAccounts[0]
         const defaultIncome = expenseAndGlAccounts.find(a => a.classification === 'Revenue' || a.account_type === 'Income') || expenseAndGlAccounts[0]
-        const selectedGl = accounts.find(a => a.qb_account_id === recQuickGlAccountId) || (recQuickType === 'Deposit' ? defaultIncome : defaultExpense)
+        const isBankCc = String(bankObj?.account_type || '').toLowerCase().includes('credit card')
+        const effectiveQuickType =
+            isBankCc && recQuickType === 'Deposit'
+                ? 'CreditCardCredit'
+                : isBankCc && recQuickType === 'Check'
+                ? 'Expense'
+                : recQuickType
+        const selectedGl = accounts.find(a => a.qb_account_id === recQuickGlAccountId) || (effectiveQuickType === 'Deposit' ? defaultIncome : defaultExpense)
         const effectiveDate = recQuickDate || recEndingDate || new Date().toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' })
-        const effectivePayee = recQuickPayee.trim() || (recQuickType === 'Deposit' ? 'Bank Deposit' : 'Vendor Payment')
+        const effectivePayee = recQuickPayee.trim() || (effectiveQuickType === 'Deposit' ? 'Bank Deposit' : 'Vendor Payment')
         const matchedContact = contacts.find(c => (c.display_name || '').toLowerCase() === effectivePayee.toLowerCase())
 
         setSaving(true)
@@ -4750,10 +4900,19 @@ function ExternalAccountingContent() {
                 body: JSON.stringify({
                     action: 'save_transaction',
                     realmId: activeRealmId,
-                    txn_type: recQuickType,
+                    txn_type: effectiveQuickType,
                     txn_date: effectiveDate,
-                    doc_number: recQuickDocNum.trim() || (recQuickType === 'Check' ? (nextCheckNumberByBank[reconcileAccountId] || '') : ''),
-                    payment_type: recQuickType === 'Check' ? 'Check' : recQuickType === 'Deposit' ? 'Deposit' : 'Cash',
+                    doc_number: recQuickDocNum.trim() || (effectiveQuickType === 'Check' ? (nextCheckNumberByBank[reconcileAccountId] || '') : ''),
+                    payment_type:
+                        effectiveQuickType === 'Check'
+                            ? 'Check'
+                            : effectiveQuickType === 'Deposit'
+                            ? 'Deposit'
+                            : effectiveQuickType === 'CreditCardCredit'
+                            ? 'CreditCardCredit'
+                            : isBankCc
+                            ? 'CreditCard'
+                            : 'Cash',
                     account_qb_id: reconcileAccountId,
                     account_name: bankObj?.name || '',
                     to_account_qb_id: selectedGl?.qb_account_id || null,
@@ -4768,7 +4927,7 @@ function ExternalAccountingContent() {
                             account_name: selectedGl?.name || '',
                             description: recQuickMemo.trim() || effectivePayee,
                             amount: amt,
-                            posting_type: recQuickType === 'Deposit' ? 'Credit' : 'Debit',
+                            posting_type: (effectiveQuickType === 'Deposit' || effectiveQuickType === 'CreditCardCredit') ? 'Credit' : 'Debit',
                             entity_name: effectivePayee,
                         },
                     ],
@@ -4790,7 +4949,7 @@ function ExternalAccountingContent() {
             if (recQuickDocNum && /^\d+$/.test(recQuickDocNum.trim())) {
                 setRecQuickDocNum(String(Number(recQuickDocNum.trim()) + 1))
             }
-            notify('ok', `${recQuickType === 'Deposit' ? 'Depósito' : 'Pago'} por ${formatCurrency(amt)} registrado y marcado (✓) en la conciliación.`)
+            notify('ok', `${(recQuickType === 'Deposit' || recQuickType === 'CreditCardCredit') ? 'Abono/Depósito' : 'Cargo/Pago'} por ${formatCurrency(amt)} registrado y marcado (✓) en la conciliación.`)
             await fetchWorkspaceData()
         } catch (err: any) {
             notify('err', err.message || 'Error')
@@ -4844,7 +5003,17 @@ function ExternalAccountingContent() {
                     interest_account_qb_id: recInterestAccId || undefined,
                     auto_adjust_difference: autoAdjust,
                     adjustment_reason: adjustmentReason || undefined,
-                    reconciled_txn_ids: recSelectedIds,
+                    reconciled_txn_ids: (() => {
+                        const rowById = new Map(reconcileAccountRows.map(r => [String(r.id), r]))
+                        return recSelectedIds.filter(idStr => {
+                            const r = rowById.get(String(idStr))
+                            if (!r) return false
+                            if ((status === 'Completed' || recUpToEndDateOnly) && recEndingDate && r.txn_date > recEndingDate) {
+                                return false
+                            }
+                            return true
+                        })
+                    })(),
                     status,
                     notes: recNotes,
                 })
@@ -4854,11 +5023,17 @@ function ExternalAccountingContent() {
             if (!silent) {
                 notify('ok', status === 'Completed' ? 'Conciliación bancaria finalizada oficialmente ($0.00).' : 'Borrador de conciliación guardado (Save for later).')
             }
-            setEditingReconciliationId(json.reconciliation?.id || null)
             setRecSaveMenuOpen(false)
             if (status === 'Completed') {
+                setEditingReconciliationId(null)
+                setRecSelectedIds([])
+                setRecServiceCharge('0')
+                setRecInterestEarned('0')
+                setRecNotes('')
                 setReconcileWorkspaceOpen(false)
                 setReconcileSubView('history')
+            } else {
+                setEditingReconciliationId(json.reconciliation?.id || null)
             }
             await fetchWorkspaceData()
         } catch (err: any) {
@@ -5926,6 +6101,14 @@ function ExternalAccountingContent() {
         }
     }
 
+    if (authLoading) {
+        return (
+            <div className="min-h-[80vh] flex items-center justify-center p-6">
+                <RefreshCw className="animate-spin text-emerald-600" size={28} />
+            </div>
+        )
+    }
+
     if (!isAuthorized) {
         return (
             <div className="min-h-[80vh] flex items-center justify-center p-6">
@@ -6534,12 +6717,12 @@ function ExternalAccountingContent() {
                                     {[
                                         { id: 'pnl', label: t('external_accounting.report_pnl') },
                                         { id: 'balance_sheet', label: t('external_accounting.report_balance_sheet') },
-                                        { id: 'cash_flow', label: 'Statement of Cash Flows' },
+                                        { id: 'cash_flow', label: t('external_accounting_phase8.report_cash_flow') },
                                         { id: 'trial_balance', label: t('external_accounting.report_trial_balance') },
                                         { id: 'general_ledger', label: t('external_accounting.report_general_ledger') },
-                                        { id: 'ar_aging', label: 'A/R Aging Summary & Detail' },
-                                        { id: 'ap_aging', label: 'A/P Aging Summary & Detail' },
-                                        { id: 'tax_summary', label: 'Tax & 1099 Summary' },
+                                        { id: 'ar_aging', label: t('external_accounting_phase8.report_ar_aging') },
+                                        { id: 'ap_aging', label: t('external_accounting_phase8.report_ap_aging') },
+                                        { id: 'tax_summary', label: t('external_accounting_phase8.report_tax_summary') },
                                         { id: 'sales_tax_liability', label: t('external_accounting_phase7.report_sales_tax_liability') },
                                         { id: 'inventory_valuation', label: t('external_accounting_phase7.report_inventory_valuation') },
                                         { id: 'budget_vs_actual', label: t('external_accounting_phase7.report_budget_vs_actual') },
@@ -7947,7 +8130,7 @@ function ExternalAccountingContent() {
                                     badgeColor: 'bg-[#003b32]',
                                     children: [
                                         { id: 'sales_tax_rep', label: t('external_accounting_phase7.report_sales_tax_liability'), run: () => { setReportType('sales_tax_liability'); setActiveTab('reports') } },
-                                        { id: 'tax_summary_rep', label: 'Tax & 1099 Summary', run: () => { setReportType('tax_summary'); setActiveTab('reports') } },
+                                        { id: 'tax_summary_rep', label: t('external_accounting_phase8.report_tax_summary'), run: () => { setReportType('tax_summary'); setActiveTab('reports') } },
                                     ],
                                 },
                                 {
@@ -7955,7 +8138,7 @@ function ExternalAccountingContent() {
                                     label: t('external_accounting.qbo_all_apps_business_tax'),
                                     badgeColor: 'bg-[#003b32]',
                                     children: [
-                                        { id: 'biz_tax_summary', label: 'Tax & 1099 Summary Report', run: () => { setReportType('tax_summary'); setActiveTab('reports') } },
+                                        { id: 'biz_tax_summary', label: t('external_accounting_phase8.report_tax_summary'), run: () => { setReportType('tax_summary'); setActiveTab('reports') } },
                                         { id: 'tax_prep', label: t('external_accounting.qbo_ias_work_tax_prep'), run: () => { setWorkSubView('tax_prep'); setActiveTab('books_review') } },
                                         { id: 'tax_1099s', label: t('external_accounting.qbo_ias_work_1099s'), run: () => { setWorkSubView('1099s'); setActiveTab('books_review') } },
                                     ],
@@ -8599,13 +8782,13 @@ function ExternalAccountingContent() {
                             {/* Centered Row of Pure Accounting App Pills */}
                             <div className="flex flex-wrap items-center justify-center gap-2.5">
                                 {[
-                                    { label: 'Accounting', badgeBg: 'bg-[#003b32] text-[#2ca01c]', icon: '∞', run: () => setActiveTab('accounts') },
-                                    { label: 'Expenses & Pay Bills', badgeBg: 'bg-[#003b32] text-[#2ca01c]', icon: '$', run: () => { setTxnViewMode('expenses'); setActiveTab('transactions') } },
-                                    { label: 'Sales & Get Paid', badgeBg: 'bg-[#003b32] text-[#2ca01c]', icon: '↗', run: () => { setTxnViewMode('invoices'); setActiveTab('transactions') } },
-                                    { label: 'Customer Hub', badgeBg: 'bg-[#003b32] text-[#00a6a0]', icon: '✦', run: () => { setSelectedTenantDetail(null); setContactFilterType('Customer'); setActiveTab('contacts') } },
-                                    { label: 'Inventory', badgeBg: 'bg-[#003b32] text-[#3b82f6]', icon: '📦', run: () => { setReportType('inventory_valuation'); setActiveTab('reports') } },
-                                    { label: 'Sales Tax', badgeBg: 'bg-[#003b32] text-[#f43f5e]', icon: '%', run: () => { setReportType('sales_tax_liability'); setActiveTab('reports') } },
-                                    { label: 'Business Tax', badgeBg: 'bg-[#003b32] text-[#f43f5e]', icon: '📋', run: () => { setReportType('tax_summary'); setActiveTab('reports') } },
+                                    { label: t('external_accounting_phase8.pill_accounting'), badgeBg: 'bg-[#003b32] text-[#2ca01c]', icon: '∞', run: () => setActiveTab('accounts') },
+                                    { label: t('external_accounting_phase8.pill_expenses_pay_bills'), badgeBg: 'bg-[#003b32] text-[#2ca01c]', icon: '$', run: () => { setTxnViewMode('expenses'); setActiveTab('transactions') } },
+                                    { label: t('external_accounting_phase8.pill_sales_get_paid'), badgeBg: 'bg-[#003b32] text-[#2ca01c]', icon: '↗', run: () => { setTxnViewMode('invoices'); setActiveTab('transactions') } },
+                                    { label: t('external_accounting_phase8.pill_customer_hub'), badgeBg: 'bg-[#003b32] text-[#00a6a0]', icon: '✦', run: () => { setSelectedTenantDetail(null); setContactFilterType('Customer'); setActiveTab('contacts') } },
+                                    { label: t('external_accounting_phase8.pill_inventory'), badgeBg: 'bg-[#003b32] text-[#3b82f6]', icon: '📦', run: () => { setReportType('inventory_valuation'); setActiveTab('reports') } },
+                                    { label: t('external_accounting_phase8.pill_sales_tax'), badgeBg: 'bg-[#003b32] text-[#f43f5e]', icon: '%', run: () => { setReportType('sales_tax_liability'); setActiveTab('reports') } },
+                                    { label: t('external_accounting_phase8.pill_business_tax'), badgeBg: 'bg-[#003b32] text-[#f43f5e]', icon: '📋', run: () => { setReportType('tax_summary'); setActiveTab('reports') } },
                                 ].map((pill, i) => (
                                     <button
                                         key={i}
@@ -13311,17 +13494,18 @@ function ExternalAccountingContent() {
                                             <div className="flex flex-wrap items-center justify-between gap-3">
                                                 <div>
                                                     <h4 className="text-sm font-black text-slate-900 dark:text-white">{t('external_accounting.qbo_tenant_docs_media_tab')} — {tenant.display_name}</h4>
-                                                    <p className="text-slate-500 mt-0.5">Lease agreements, W-9s, insurance certificates, and official PDF invoices ({contactAttachments.length} files).</p>
+                                                    <p className="text-slate-500 mt-0.5">{t('external_accounting_phase8.docs_media_subtitle')} ({contactAttachments.length} {t('external_accounting_phase8.files_count_suffix')}).</p>
                                                 </div>
                                                 <div className="flex items-center gap-2">
                                                     <label className="px-3.5 py-1.5 rounded-lg bg-[#00675b] hover:bg-[#004f46] text-white font-bold cursor-pointer inline-flex items-center gap-1.5">
-                                                        <span>+ Upload Document</span>
+                                                        <span>{t('external_accounting_phase8.btn_upload_document')}</span>
                                                         <input
                                                             type="file"
                                                             className="hidden"
                                                             onChange={(e) => {
                                                                 const f = e.target.files?.[0]
                                                                 if (f) handleUploadContactAttachment(tenant, f)
+                                                                e.target.value = ''
                                                             }}
                                                         />
                                                     </label>
@@ -13330,7 +13514,7 @@ function ExternalAccountingContent() {
                                                         onClick={() => handleDownloadStatementPdf(tenant)}
                                                         className="px-3.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 font-bold cursor-pointer"
                                                     >
-                                                        Download Statement PDF
+                                                        {t('external_accounting_phase8.btn_download_statement_pdf')}
                                                     </button>
                                                 </div>
                                             </div>
@@ -13979,11 +14163,12 @@ function ExternalAccountingContent() {
                             >
                                 <option value="pnl">{t('external_accounting.report_pnl')}</option>
                                 <option value="balance_sheet">{t('external_accounting.report_balance_sheet')}</option>
-                                <option value="cash_flow">Statement of Cash Flows</option>
-                                <option value="ar_aging">A/R Aging Summary</option>
-                                <option value="ap_aging">A/P Aging Summary</option>
-                                <option value="tax_summary">Tax &amp; 1099 Contractor Summary</option>
-                                <option value="transaction_list_by_date">Transaction List by Date</option>
+                                <option value="cash_flow">{t('external_accounting_phase8.report_cash_flow')}</option>
+                                <option value="ar_aging">{t('external_accounting_phase8.report_ar_aging')}</option>
+                                <option value="ap_aging">{t('external_accounting_phase8.report_ap_aging')}</option>
+                                <option value="tax_summary">{t('external_accounting_phase8.report_tax_summary')}</option>
+                                <option value="transaction_list_by_date">{t('external_accounting_phase8.report_transaction_list_by_date')}</option>
+                                <option value="estimates_progress">{t('external_accounting_phase8.report_estimates_progress')}</option>
                                 <option value="bank_register">{t('external_accounting.report_bank_register')}</option>
                                 <option value="general_ledger">{t('external_accounting.report_general_ledger')}</option>
                                 <option value="trial_balance">{t('external_accounting.report_trial_balance')}</option>
@@ -14105,6 +14290,71 @@ function ExternalAccountingContent() {
                         </div>
                     </div>
 
+                    {/* CPA Report Customization Bar (Compare Period · 1099 Only · Hide $0 Rows · Cents) */}
+                    {reportType !== 'qbo_archive' && (
+                        <div className="flex flex-wrap items-center justify-between gap-2.5 px-3.5 py-2 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200/80 dark:border-slate-800 text-xs">
+                            <div className="flex flex-wrap items-center gap-2">
+                                {(reportType === 'pnl' || reportType === 'balance_sheet' || reportType === 'balance_sheet_comparison') && (
+                                    <div className="flex items-center gap-1.5">
+                                        <span className="text-[10px] font-black uppercase text-slate-500">{t('external_accounting_phase8.compare_label')}:</span>
+                                        <select
+                                            value={reportComparePeriod}
+                                            onChange={(e) => setReportComparePeriod(e.target.value as 'none' | 'previous_period' | 'previous_year')}
+                                            className="px-2.5 py-1 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 font-bold text-xs"
+                                        >
+                                            <option value="none">{t('external_accounting_phase8.compare_none')}</option>
+                                            <option value="previous_period">{t('external_accounting_phase8.compare_previous_period')}</option>
+                                            <option value="previous_year">{t('external_accounting_phase8.compare_previous_year')}</option>
+                                        </select>
+                                    </div>
+                                )}
+                                {(reportType === 'vendor_expenses' || reportType === 'expenses_by_vendor' || reportType === 'tax_summary') && (
+                                    <button
+                                        type="button"
+                                        onClick={() => setReportOnly1099(v => !v)}
+                                        className={`px-2.5 py-1 rounded-lg border text-xs font-bold cursor-pointer transition-colors ${
+                                            reportOnly1099
+                                                ? 'bg-amber-500/20 border-amber-500/50 text-amber-800 dark:text-amber-300'
+                                                : 'bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300'
+                                        }`}
+                                    >
+                                        {t('external_accounting_phase8.filter_only_1099')}
+                                    </button>
+                                )}
+                                <button
+                                    type="button"
+                                    onClick={() => setReportHideZeroRows(v => !v)}
+                                    className={`px-2.5 py-1 rounded-lg border text-xs font-bold cursor-pointer transition-colors ${
+                                        reportHideZeroRows
+                                            ? 'bg-emerald-600/20 border-emerald-500/50 text-emerald-800 dark:text-emerald-300'
+                                            : 'bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300'
+                                    }`}
+                                >
+                                    {t('external_accounting_phase8.filter_hide_zero_rows')}
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setReportShowCents(v => !v)}
+                                    className={`px-2.5 py-1 rounded-lg border text-xs font-bold cursor-pointer transition-colors ${
+                                        reportShowCents
+                                            ? 'bg-emerald-600/20 border-emerald-500/50 text-emerald-800 dark:text-emerald-300'
+                                            : 'bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300'
+                                    }`}
+                                >
+                                    {t('external_accounting_phase8.filter_show_cents')}
+                                </button>
+                            </div>
+                            {(reportData?.pnl?.comparison || reportData?.balanceSheet?.comparison) && (
+                                <div className="text-[11px] font-bold text-emerald-700 dark:text-emerald-300">
+                                    {t('external_accounting_phase8.comparison_banner_vs')}{' '}
+                                    {reportData?.pnl?.comparison
+                                        ? `${reportData.pnl.comparison.startDate || ''} — ${reportData.pnl.comparison.endDate} (Δ ${formatCurrency(reportData.pnl.comparison.deltaAmount)}${reportData.pnl.comparison.deltaPct !== null ? `, ${reportData.pnl.comparison.deltaPct}%` : ''})`
+                                        : `${reportData.balanceSheet.comparison.asOfDate} (Δ ${formatCurrency(reportData.balanceSheet.comparison.deltaAssets)})`}
+                                </div>
+                            )}
+                        </div>
+                    )}
+
                     {reportLoading ? (
                         <div className="py-12 text-center text-sm text-slate-400">{t('external_accounting.loading_data')}</div>
                     ) : (
@@ -14115,28 +14365,29 @@ function ExternalAccountingContent() {
                                     {activeCompany?.legal_name || activeCompany?.company_name}
                                 </h2>
                                 <p className="text-sm font-bold text-emerald-600 dark:text-emerald-400 mt-0.5">
-                                    {reportType === 'pnl' && t('external_accounting.report_pnl')}
-                                    {reportType === 'balance_sheet' && t('external_accounting.report_balance_sheet')}
-                                    {reportType === 'cash_flow' && 'Statement of Cash Flows'}
-                                    {reportType === 'ar_aging' && 'A/R Aging Summary'}
-                                    {reportType === 'ap_aging' && 'A/P Aging Summary'}
-                                    {reportType === 'tax_summary' && 'Tax & 1099 Contractor Summary'}
-                                    {reportType === 'transaction_list_by_date' && 'Transaction List by Date'}
+                                    {(reportType === 'pnl' || reportType === 'pnl_by_month' || reportType === 'pnl_by_customer' || reportType === 'pnl_by_class') && t('external_accounting.report_pnl')}
+                                    {(reportType === 'balance_sheet' || reportType === 'balance_sheet_comparison') && t('external_accounting.report_balance_sheet')}
+                                    {reportType === 'cash_flow' && t('external_accounting_phase8.report_cash_flow')}
+                                    {(reportType === 'ar_aging' || reportType === 'unbilled_charges') && t('external_accounting_phase8.report_ar_aging')}
+                                    {reportType === 'ap_aging' && t('external_accounting_phase8.report_ap_aging')}
+                                    {reportType === 'tax_summary' && t('external_accounting_phase8.report_tax_summary')}
+                                    {(reportType === 'transaction_list_by_date' || reportType === 'time_activities' || reportType === 'audit_log') && t('external_accounting_phase8.report_transaction_list_by_date')}
+                                    {reportType === 'estimates_progress' && t('external_accounting_phase8.report_estimates_progress')}
                                     {reportType === 'bank_register' && t('external_accounting.report_bank_register')}
                                     {reportType === 'general_ledger' && t('external_accounting.report_general_ledger')}
                                     {reportType === 'trial_balance' && t('external_accounting.report_trial_balance')}
-                                    {reportType === 'vendor_expenses' && t('external_accounting.report_vendor_expenses')}
-                                    {reportType === 'customer_income' && t('external_accounting.report_customer_income')}
+                                    {(reportType === 'vendor_expenses' || reportType === 'expenses_by_vendor' || reportType === 'payroll_summary') && t('external_accounting.report_vendor_expenses')}
+                                    {(reportType === 'customer_income' || reportType === 'sales_by_customer') && t('external_accounting.report_customer_income')}
                                     {reportType === 'check_detail' && t('external_accounting.report_check_detail')}
                                     {reportType === 'deposit_detail' && t('external_accounting.report_deposit_detail')}
                                     {reportType === 'sales_tax_liability' && t('external_accounting_phase7.report_sales_tax_liability')}
-                                    {reportType === 'inventory_valuation' && t('external_accounting_phase7.report_inventory_valuation')}
-                                    {reportType === 'budget_vs_actual' && t('external_accounting_phase7.report_budget_vs_actual')}
+                                    {(reportType === 'inventory_valuation' || reportType === 'sales_by_item') && t('external_accounting_phase7.report_inventory_valuation')}
+                                    {(reportType === 'budget_vs_actual' || reportType === 'budget_vs_actuals' || reportType === 'budget_overview') && t('external_accounting_phase7.report_budget_vs_actual')}
                                     {reportType === 'kpi_scorecard' && t('external_accounting_phase7.report_kpi_scorecard')}
                                     {reportType === 'qbo_archive' && (reportData?.archiveReport?.title || t('external_accounting.report_qbo_archive'))}
                                 </p>
                                 <p className="text-xs text-slate-400 mt-0.5">
-                                    {reportBasis} · {startDate || 'All Dates'} — {endDate || 'Present'}
+                                    {reportBasis} · {startDate || t('external_accounting_phase8.all_dates_label')} — {endDate || t('external_accounting_phase8.present_date_label')}
                                 </p>
                             </div>
 
@@ -14923,36 +15174,36 @@ function ExternalAccountingContent() {
                                                 <div className="text-lg font-black font-mono mt-1">{formatCurrency(txSum.totalExpenses || 0)}</div>
                                             </div>
                                             <div className="p-3.5 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
-                                                <div className="text-[10px] font-black uppercase text-slate-500">Net Taxable Profit</div>
+                                                <div className="text-[10px] font-black uppercase text-slate-500">{t('external_accounting_phase8.tax_net_taxable_profit')}</div>
                                                 <div className="text-lg font-black font-mono mt-1">{formatCurrency(txSum.netTaxableIncome || 0)}</div>
                                             </div>
                                             <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/30">
-                                                <div className="text-[10px] font-black uppercase text-amber-700 dark:text-amber-300">1099 Contractor Total ({txSum.eligible1099Count || 0} ≥ $600)</div>
+                                                <div className="text-[10px] font-black uppercase text-amber-700 dark:text-amber-300">{t('external_accounting_phase8.tax_1099_contractor_total')} ({txSum.eligible1099Count || 0} ≥ $600)</div>
                                                 <div className="text-lg font-black font-mono mt-1">{formatCurrency(txSum.total1099Paid || 0)}</div>
                                             </div>
                                         </div>
 
                                         <div className="rounded-xl border border-slate-200 dark:border-slate-800 overflow-hidden">
-                                            <div className="bg-slate-100 dark:bg-slate-800 px-4 py-2 text-xs font-black uppercase">1099-NEC / 1099-MISC Contractor Payments</div>
+                                            <div className="bg-slate-100 dark:bg-slate-800 px-4 py-2 text-xs font-black uppercase">{t('external_accounting_phase8.tax_1099_table_title')}</div>
                                             <table className="w-full text-xs border-collapse">
                                                 <thead>
                                                     <tr className="border-b border-slate-200 dark:border-slate-700 text-[10px] uppercase text-slate-400">
-                                                        <th className="py-2 px-3 text-left">Vendor / Contractor</th>
-                                                        <th className="py-2 px-3 text-left">Tax ID / EIN</th>
-                                                        <th className="py-2 px-3 text-center">1099 Tracked</th>
-                                                        <th className="py-2 px-3 text-center">Filing Status</th>
-                                                        <th className="py-2 px-3 text-right">Total Paid</th>
+                                                        <th className="py-2 px-3 text-left">{t('external_accounting_phase8.tax_col_vendor')}</th>
+                                                        <th className="py-2 px-3 text-left">{t('external_accounting_phase8.tax_col_ein')}</th>
+                                                        <th className="py-2 px-3 text-center">{t('external_accounting_phase8.tax_col_tracked')}</th>
+                                                        <th className="py-2 px-3 text-center">{t('external_accounting_phase8.tax_col_filing_status')}</th>
+                                                        <th className="py-2 px-3 text-right">{t('external_accounting_phase8.tax_col_total_paid')}</th>
                                                     </tr>
                                                 </thead>
                                                 <tbody className="divide-y divide-slate-200/70 dark:divide-slate-800">
                                                     {(txSum.contractors1099 || []).map((c: any) => (
                                                         <tr key={c.name} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
                                                             <td className="py-2 px-3 font-bold">{c.name}</td>
-                                                            <td className="py-2 px-3 font-mono">{c.tax_id || 'Missing W-9'}</td>
-                                                            <td className="py-2 px-3 text-center">{c.vendor_1099 ? '✓ Yes' : '—'}</td>
+                                                            <td className="py-2 px-3 font-mono">{c.tax_id || t('external_accounting_phase8.tax_missing_w9')}</td>
+                                                            <td className="py-2 px-3 text-center">{c.vendor_1099 ? t('external_accounting_phase8.tax_yes') : '—'}</td>
                                                             <td className="py-2 px-3 text-center">
                                                                 <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${c.eligible_1099 ? 'bg-amber-500/20 text-amber-700 dark:text-amber-300' : 'bg-slate-100 dark:bg-slate-800 text-slate-500'}`}>
-                                                                    {c.eligible_1099 ? '1099 Required (≥$600)' : 'Below $600'}
+                                                                    {c.eligible_1099 ? t('external_accounting_phase8.tax_1099_required') : t('external_accounting_phase8.tax_below_600')}
                                                                 </span>
                                                             </td>
                                                             <td className="py-2 px-3 text-right font-mono font-black">{formatCurrency(c.total_paid || 0)}</td>
@@ -15804,12 +16055,12 @@ function ExternalAccountingContent() {
                                         <button
                                             type="button"
                                             onClick={() => {
-                                                setRecQuickType('Check')
+                                                setRecQuickType(reconcileMath.isCc ? 'Expense' : 'Check')
                                                 if (!recQuickDate) setRecQuickDate(recEndingDate)
-                                                if (!recQuickDocNum) setRecQuickDocNum(nextCheckNumberByBank[reconcileAccountId] || '1001')
+                                                if (!recQuickDocNum) setRecQuickDocNum(reconcileMath.isCc ? 'CC-CHG' : (nextCheckNumberByBank[reconcileAccountId] || '1001'))
                                             }}
                                             className={`px-2.5 py-1 rounded-lg text-[11px] font-bold cursor-pointer border ${
-                                                recQuickType !== 'Deposit'
+                                                recQuickType !== 'Deposit' && recQuickType !== 'CreditCardCredit'
                                                     ? 'bg-red-600 text-white border-red-600'
                                                     : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-300 dark:border-slate-700'
                                             }`}
@@ -15819,12 +16070,12 @@ function ExternalAccountingContent() {
                                         <button
                                             type="button"
                                             onClick={() => {
-                                                setRecQuickType('Deposit')
+                                                setRecQuickType(reconcileMath.isCc ? 'CreditCardCredit' : 'Deposit')
                                                 if (!recQuickDate) setRecQuickDate(recEndingDate)
-                                                setRecQuickDocNum('DEP')
+                                                setRecQuickDocNum(reconcileMath.isCc ? 'CC-CRD' : 'DEP')
                                             }}
                                             className={`px-2.5 py-1 rounded-lg text-[11px] font-bold cursor-pointer border ${
-                                                recQuickType === 'Deposit'
+                                                recQuickType === 'Deposit' || recQuickType === 'CreditCardCredit'
                                                     ? 'bg-emerald-600 text-white border-emerald-600'
                                                     : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-300 dark:border-slate-700'
                                             }`}
@@ -15845,7 +16096,15 @@ function ExternalAccountingContent() {
                                         )}
                                         <button
                                             type="button"
-                                            onClick={() => openTransactionModal(recQuickType === 'Deposit' ? 'Deposit' : 'Check')}
+                                            onClick={() =>
+                                                openTransactionModal(
+                                                    recQuickType === 'CreditCardCredit'
+                                                        ? 'CreditCardCredit'
+                                                        : recQuickType === 'Deposit'
+                                                        ? (reconcileMath.isCc ? 'CreditCardCredit' : 'Deposit')
+                                                        : (reconcileMath.isCc ? 'Expense' : 'Check')
+                                                )
+                                            }
                                             className="px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-700 dark:text-slate-300 text-[11px] font-bold cursor-pointer"
                                         >
                                             Formulario Completo ↗
@@ -15861,12 +16120,16 @@ function ExternalAccountingContent() {
                                         </label>
                                         <select
                                             value={recQuickType}
-                                            onChange={(e) => setRecQuickType(e.target.value as 'Check' | 'Expense' | 'Deposit')}
+                                            onChange={(e) => setRecQuickType(e.target.value as 'Check' | 'Expense' | 'Deposit' | 'CreditCardCredit')}
                                             className="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 font-bold"
                                         >
-                                            <option value="Check">Check (Pago)</option>
+                                            {!reconcileMath.isCc && <option value="Check">Check (Pago)</option>}
                                             <option value="Expense">Expense (Cargo/Salida)</option>
-                                            <option value="Deposit">Deposit (Depósito)</option>
+                                            {reconcileMath.isCc ? (
+                                                <option value="CreditCardCredit">CC Credit (Abono TC)</option>
+                                            ) : (
+                                                <option value="Deposit">Deposit (Depósito)</option>
+                                            )}
                                         </select>
                                     </div>
                                     <div className="lg:col-span-2">
@@ -17096,7 +17359,7 @@ function ExternalAccountingContent() {
                                 {t('external_accounting.tab_lists')} — {activeCompany?.legal_name || activeCompany?.company_name}
                             </h2>
                             <p className="text-xs text-slate-500 dark:text-slate-400">
-                                QuickBooks Online `/app/lists` Relational Master Tables (Chart of Accounts · Products & Services · Categories · Locations/Properties · Classes · Payment Methods · Terms · Custom Fields · Attachments · Cost Groups)
+                                {t('external_accounting_phase8.lists_master_subtitle')}
                             </p>
                         </div>
                         <div className="flex flex-wrap items-center gap-2">
@@ -17144,29 +17407,45 @@ function ExternalAccountingContent() {
                                 </button>
                             ))}
                         </div>
-                        <button
-                            type="button"
-                            onClick={() => {
-                                setEditingListItemId(null)
-                                setListItemName('')
-                                setListItemDesc('')
-                                setListItemPrice('0')
-                                setListItemPurchaseCost('0')
-                                setListItemSku('')
-                                setListItemType('Service')
-                                setListItemAccountId(accounts.find(a => a.account_type === 'Income')?.qb_account_id || accounts[0]?.qb_account_id || '')
-                                setListItemExpenseAccountId(accounts.find(a => a.account_type === 'Expense' || a.account_type === 'Cost of Goods Sold')?.qb_account_id || '')
-                                setListItemCategoryId('')
-                                setListItemClassCode('')
-                                setListItemPaymentType('NON_CREDIT_CARD')
-                                setListItemDueDays('30')
-                                setListItemDiscountPct('0')
-                                setListItemModalOpen(true)
-                            }}
-                            className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold cursor-pointer"
-                        >
-                            {t('external_accounting.lists_btn_new_item')}
-                        </button>
+                        <div className="flex items-center gap-2">
+                            {activeListKey === 'attachments' && (
+                                <label className="px-4 py-2 rounded-xl bg-[#00675b] hover:bg-[#004f46] text-white text-xs font-bold cursor-pointer inline-flex items-center gap-1.5">
+                                    <span>{t('external_accounting_phase8.btn_upload_document')}</span>
+                                    <input
+                                        type="file"
+                                        className="hidden"
+                                        onChange={(e) => {
+                                            const f = e.target.files?.[0]
+                                            if (f) handleUploadContactAttachment(null, f)
+                                            e.target.value = ''
+                                        }}
+                                    />
+                                </label>
+                            )}
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setEditingListItemId(null)
+                                    setListItemName('')
+                                    setListItemDesc('')
+                                    setListItemPrice('0')
+                                    setListItemPurchaseCost('0')
+                                    setListItemSku('')
+                                    setListItemType('Service')
+                                    setListItemAccountId(accounts.find(a => a.account_type === 'Income')?.qb_account_id || accounts[0]?.qb_account_id || '')
+                                    setListItemExpenseAccountId(accounts.find(a => a.account_type === 'Expense' || a.account_type === 'Cost of Goods Sold')?.qb_account_id || '')
+                                    setListItemCategoryId('')
+                                    setListItemClassCode('')
+                                    setListItemPaymentType('NON_CREDIT_CARD')
+                                    setListItemDueDays('30')
+                                    setListItemDiscountPct('0')
+                                    setListItemModalOpen(true)
+                                }}
+                                className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold cursor-pointer"
+                            >
+                                {t('external_accounting.lists_btn_new_item')}
+                            </button>
+                        </div>
                     </div>
 
                     <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800">

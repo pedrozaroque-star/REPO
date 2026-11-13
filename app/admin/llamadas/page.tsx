@@ -530,6 +530,22 @@ const QUICK_SCENARIOS: Array<{
     textEn: 'Hello, I am calling to offer the business owner Google listing SEO services, commercial solar panels, and a pre-approved merchant cash advance.'
   },
   {
+    id: 'drinks_cup_oz',
+    group: 'menu',
+    labelEs: '🥤 Bebidas: tamaños en onzas (22/32 oz), galón 128 oz y Champurrado 96 oz',
+    labelEn: '🥤 Drinks: exact cup ounces (22/32 oz), 128 oz gallon & 96 oz Champurrado box',
+    textEs: '¿De cuántas onzas son las aguas frescas mediana, grande y el galón, y qué tamaño trae la caja de champurrado para llevar?',
+    textEn: 'How many ounces are the medium and large aguas frescas, the gallon, and what size is the to-go champurrado box?'
+  },
+  {
+    id: 'quesadilla_lengua_super',
+    group: 'menu',
+    labelEs: '🧀 Quesadilla de Lengua vs Súper Quesadilla y Súper Burrito',
+    labelEn: '🧀 Beef Tongue Quesadilla vs Super Quesadilla & Super Burrito',
+    textEs: '¿Qué diferencia hay entre una quesadilla regular de lengua y una súper quesadilla, y qué trae el súper burrito?',
+    textEn: 'What is the difference between a regular beef tongue quesadilla and a super quesadilla, and what comes on a super burrito?'
+  },
+  {
     id: 'unanswered_probe',
     group: 'staff',
     labelEs: '❓ Pregunta no registrada (Prueba detector de Nuevas Preguntas)',
@@ -620,7 +636,12 @@ export default function ContestadoraIaPage() {
   const streamAbortRef = useRef<AbortController | null>(null)
   const recognitionRef = useRef<any>(null)
   const transcriptContainerRef = useRef<HTMLDivElement | null>(null)
-  const fetchInFlightRef = useRef(false)
+  const fetchSeqRef = useRef(0)
+  const dirtyStoreIdsRef = useRef<Set<number>>(new Set())
+  const simStoreIdRef = useRef<number>(simStoreId)
+  simStoreIdRef.current = simStoreId
+  const simCallSidRef = useRef<string | null>(simCallSid)
+  simCallSidRef.current = simCallSid
 
   // Knowledge Base Editor state
   const [editingRule, setEditingRule] = useState<Partial<KnowledgeRule> | null>(null)
@@ -650,6 +671,9 @@ export default function ContestadoraIaPage() {
   const [selectedStoreIdForForwarding, setSelectedStoreIdForForwarding] = useState<number | null>(null)
   const [expandedStoreId, setExpandedStoreId] = useState<number | null>(null)
   const [savingStoreId, setSavingStoreId] = useState<number | null>(null)
+  const [togglingRuleId, setTogglingRuleId] = useState<string | null>(null)
+  const [deletingRuleId, setDeletingRuleId] = useState<string | null>(null)
+  const [deletingHolidayId, setDeletingHolidayId] = useState<string | null>(null)
   const [copiedCode, setCopiedCode] = useState<string | null>(null)
 
   // Calls & Callbacks filter (decoupled from global KPIs)
@@ -659,7 +683,7 @@ export default function ContestadoraIaPage() {
   const [callbackNotes, setCallbackNotes] = useState<Record<string, string>>({})
   const [replayingMsgIdx, setReplayingMsgIdx] = useState<number | null>(null)
 
-  const isGlobalAdmin = viewer ? viewer.isGlobalAdmin : true
+  const isGlobalAdmin = viewer ? viewer.isGlobalAdmin : false
 
   const showFeedback = useCallback((kind: 'ok' | 'err', text: string) => {
     setFeedbackBanner({ kind, text })
@@ -679,8 +703,12 @@ export default function ContestadoraIaPage() {
   const stopMicrophone = useCallback(() => {
     if (recognitionRef.current) {
       try {
+        recognitionRef.current.onstart = null
         recognitionRef.current.onresult = null
-        recognitionRef.current.stop()
+        recognitionRef.current.onerror = null
+        recognitionRef.current.onend = null
+        recognitionRef.current.abort?.()
+        recognitionRef.current.stop?.()
       } catch {}
       recognitionRef.current = null
     }
@@ -689,8 +717,7 @@ export default function ContestadoraIaPage() {
 
   const fetchDashboard = useCallback(
     async (silent = false) => {
-      if (fetchInFlightRef.current) return
-      fetchInFlightRef.current = true
+      const seq = ++fetchSeqRef.current
       if (!silent) setLoading(true)
       try {
         const params = new URLSearchParams({
@@ -701,10 +728,26 @@ export default function ContestadoraIaPage() {
           headers: getAuthHeaders(),
           cache: 'no-store'
         })
-        if (!res.ok) return
+        if (!res.ok) {
+          if (!silent) showFeedback('err', t('phone_agent.dashboard_load_error'))
+          return
+        }
         const data = await res.json()
+        if (seq !== fetchSeqRef.current) return
         const loadedStores: StoreRow[] = data.stores || []
-        setStores(loadedStores)
+        setStores((prev) => {
+          if (dirtyStoreIdsRef.current.size === 0 || prev.length === 0) return loadedStores
+          const prevById = new Map(prev.map((s) => [s.id, s]))
+          return loadedStores.map((incoming) => {
+            if (dirtyStoreIdsRef.current.has(incoming.id)) {
+              const localEdited = prevById.get(incoming.id)
+              if (localEdited) {
+                return { ...incoming, config: localEdited.config }
+              }
+            }
+            return incoming
+          })
+        })
         if (data.viewer) {
           setViewer(data.viewer)
           if (!data.viewer.isGlobalAdmin && loadedStores.length > 0) {
@@ -728,12 +771,14 @@ export default function ContestadoraIaPage() {
         }
       } catch (e) {
         console.error('[ContestadoraIA] Error cargando datos:', e)
+        if (!silent) showFeedback('err', t('phone_agent.dashboard_load_error'))
       } finally {
-        fetchInFlightRef.current = false
-        setLoading(false)
+        if (seq === fetchSeqRef.current) {
+          setLoading(false)
+        }
       }
     },
-    [callsFilterStoreId, callsFilterSource, getAuthHeaders]
+    [callsFilterStoreId, callsFilterSource, getAuthHeaders, showFeedback, t]
   )
 
   useEffect(() => {
@@ -892,8 +937,24 @@ export default function ContestadoraIaPage() {
     return () => {
       stopMicrophone()
       stopAllSimAudio(true)
+      if (simCallSidRef.current) {
+        void fetch('/api/phone/simulate', {
+          method: 'POST',
+          keepalive: true,
+          headers: getAuthHeaders(),
+          body: JSON.stringify({
+            action: 'end',
+            callSid: simCallSidRef.current,
+            storeId: simStoreIdRef.current
+          })
+        }).catch(() => null)
+      }
+      if (audioCtxRef.current && audioCtxRef.current.state !== 'closed') {
+        void audioCtxRef.current.close().catch(() => {})
+        audioCtxRef.current = null
+      }
     }
-  }, [stopMicrophone, stopAllSimAudio])
+  }, [stopMicrophone, stopAllSimAudio, getAuthHeaders])
 
   const createPcmStreamPlayer = useCallback(
     (onPlaybackComplete?: () => void) => {
@@ -988,9 +1049,9 @@ export default function ContestadoraIaPage() {
   )
 
   // Pre-calentar en RAM el contexto, menú en vivo y saludo al cambiar de tienda o idioma
+  const hasSimStoreLoaded = stores.some((s) => s.id === simStoreId)
   useEffect(() => {
-    if (loading || activeTab !== 'simulator' || stores.length === 0) return
-    if (!stores.some((s) => s.id === simStoreId)) return
+    if (loading || activeTab !== 'simulator' || !hasSimStoreLoaded) return
     const ctrl = new AbortController()
     fetch('/api/phone/simulate', {
       method: 'POST',
@@ -1003,7 +1064,7 @@ export default function ContestadoraIaPage() {
       })
     }).catch(() => null)
     return () => ctrl.abort()
-  }, [loading, activeTab, simStoreId, simLang, stores, getAuthHeaders])
+  }, [loading, activeTab, simStoreId, simLang, hasSimStoreLoaded, getAuthHeaders])
 
   const playVoiceUrl = useCallback(
     async (
@@ -1085,42 +1146,42 @@ export default function ContestadoraIaPage() {
           }
         }
 
-        const audio = new Audio(primarySrc)
-        audioRef.current = audio
-        let preloadedNext: HTMLAudioElement | null = null
-        if (nextAudioUrl) {
-          preloadedNext = new Audio(nextAudioUrl)
-          preloadedNext.preload = 'auto'
-          nextAudioRef.current = preloadedNext
-        }
-
-        audio.onended = () => {
-          if (preloadedNext) {
-            audioRef.current = preloadedNext
-            preloadedNext.onended = () => {
-              setSimSpeaking(false)
-              onComplete?.()
-            }
-            preloadedNext.onerror = () => {
-              setSimSpeaking(false)
-              onComplete?.()
-            }
-            preloadedNext.play().catch(() => {
-              setSimSpeaking(false)
-              onComplete?.()
-            })
-          } else {
+        await new Promise<void>((resolve) => {
+          let done = false
+          const finish = () => {
+            if (done) return
+            done = true
             setSimSpeaking(false)
             onComplete?.()
+            resolve()
           }
-        }
-        audio.onerror = () => {
-          speakWithFemaleBrowserVoice(fallbackText, lang)
-          onComplete?.()
-        }
-        audio.play().catch(() => {
-          speakWithFemaleBrowserVoice(fallbackText, lang)
-          onComplete?.()
+          const audio = new Audio(primarySrc)
+          audioRef.current = audio
+          let preloadedNext: HTMLAudioElement | null = null
+          if (nextAudioUrl) {
+            preloadedNext = new Audio(nextAudioUrl)
+            preloadedNext.preload = 'auto'
+            nextAudioRef.current = preloadedNext
+          }
+
+          audio.onended = () => {
+            if (preloadedNext) {
+              audioRef.current = preloadedNext
+              preloadedNext.onended = finish
+              preloadedNext.onerror = finish
+              preloadedNext.play().catch(finish)
+            } else {
+              finish()
+            }
+          }
+          audio.onerror = () => {
+            speakWithFemaleBrowserVoice(fallbackText, lang)
+            finish()
+          }
+          audio.play().catch(() => {
+            speakWithFemaleBrowserVoice(fallbackText, lang)
+            finish()
+          })
         })
       } catch {
         setSimSpeaking(false)
@@ -1458,8 +1519,15 @@ export default function ContestadoraIaPage() {
   ) => {
     if (!text.trim() || replayingMsgIdx !== null) return
     setReplayingMsgIdx(idx)
-    const langNorm: 'es' | 'en' = String(langStr || '').toLowerCase() === 'en' ? 'en' : 'es'
+    const callLang: 'es' | 'en' = String(langStr || '').toLowerCase() === 'en' ? 'en' : 'es'
+    const msgLang: 'es' | 'en' =
+      /[¿¡áéíóúñ]|(\b(gracias|hola|abierto|cerrado|tienda|sucursal|precio|cuesta|tacos)\b)/i.test(text)
+        ? 'es'
+        : /\b(thank you|we are|open|closed|price|how can i|tacos gavilan|address|dollars)\b/i.test(text)
+          ? 'en'
+          : callLang
     const storeVoice = stores.find((s) => s.id === storeId)?.config.voice_id || 'Kore'
+    let blobUrl: string | null = null
     try {
       ensureUnlockedAudioCtx()
       const res = await fetch('/api/phone/tts', {
@@ -1467,19 +1535,18 @@ export default function ContestadoraIaPage() {
         headers: getAuthHeaders(),
         body: JSON.stringify({
           text,
-          lang: langNorm,
+          lang: msgLang,
           voice: storeVoice
         })
       })
       if (!res.ok) throw new Error('TTS failed')
       const blob = await res.blob()
-      const blobUrl = URL.createObjectURL(blob)
-      await playVoiceUrl(blobUrl, text, langNorm, null, () => {
-        URL.revokeObjectURL(blobUrl)
-        setReplayingMsgIdx(null)
-      })
+      blobUrl = URL.createObjectURL(blob)
+      await playVoiceUrl(blobUrl, text, msgLang, null)
     } catch {
-      speakWithFemaleBrowserVoice(text, langNorm)
+      speakWithFemaleBrowserVoice(text, msgLang)
+    } finally {
+      if (blobUrl) URL.revokeObjectURL(blobUrl)
       setReplayingMsgIdx(null)
     }
   }
@@ -1536,6 +1603,8 @@ export default function ContestadoraIaPage() {
   }
 
   const handleToggleRuleActive = async (rule: KnowledgeRule) => {
+    if (togglingRuleId === rule.id) return
+    setTogglingRuleId(rule.id)
     try {
       const res = await fetch('/api/phone/dashboard', {
         method: 'PATCH',
@@ -1553,13 +1622,17 @@ export default function ContestadoraIaPage() {
       await fetchDashboard(true)
     } catch (e: any) {
       showFeedback('err', e.message)
+    } finally {
+      setTogglingRuleId(null)
     }
   }
 
   const handleDeleteRule = async (id: string) => {
+    if (deletingRuleId === id) return
     if (typeof window !== 'undefined' && !window.confirm(t('phone_agent.kb_confirm_delete_rule'))) {
       return
     }
+    setDeletingRuleId(id)
     try {
       const res = await fetch(`/api/phone/dashboard?entity=knowledge_base&id=${id}`, {
         method: 'DELETE',
@@ -1572,6 +1645,8 @@ export default function ContestadoraIaPage() {
       await fetchDashboard(true)
     } catch (e: any) {
       showFeedback('err', e.message)
+    } finally {
+      setDeletingRuleId(null)
     }
   }
 
@@ -1650,9 +1725,11 @@ export default function ContestadoraIaPage() {
   }
 
   const handleDeleteHoliday = async (id: string) => {
+    if (deletingHolidayId === id) return
     if (typeof window !== 'undefined' && !window.confirm(t('phone_agent.holidays_confirm_delete'))) {
       return
     }
+    setDeletingHolidayId(id)
     try {
       const res = await fetch(`/api/phone/dashboard?entity=special_hours&id=${id}`, {
         method: 'DELETE',
@@ -1668,6 +1745,8 @@ export default function ContestadoraIaPage() {
       await fetchDashboard(true)
     } catch (e: any) {
       showFeedback('err', e.message)
+    } finally {
+      setDeletingHolidayId(null)
     }
   }
 
@@ -1693,6 +1772,7 @@ export default function ContestadoraIaPage() {
         const err = await res.json().catch(() => ({}))
         throw new Error(err.error || 'Error')
       }
+      dirtyStoreIdsRef.current.delete(storeRow.id)
       showFeedback('ok', `#${storeRow.id} ${storeRow.name}: ${t('phone_agent.stores_saved_ok')}`)
       await fetchDashboard(true)
       return true
@@ -1705,6 +1785,7 @@ export default function ContestadoraIaPage() {
   }
 
   const updateLocalStoreConfig = (storeId: number, field: string, value: any) => {
+    dirtyStoreIdsRef.current.add(storeId)
     setStores((prev) =>
       prev.map((s) => (s.id === storeId ? { ...s, config: { ...s.config, [field]: value } } : s))
     )
@@ -1749,14 +1830,37 @@ export default function ContestadoraIaPage() {
     if (norm === 'employee') return t('phone_agent.caller_type_employee')
     if (norm === 'vendor') return t('phone_agent.caller_type_vendor')
     if (norm === 'delivery_driver') return t('phone_agent.caller_type_driver')
+    if (norm === 'corporate') return t('phone_agent.caller_type_corporate')
     return t('phone_agent.caller_type_customer')
   }
 
   const getUrgencyLabel = (urgency: string): string => {
     const norm = String(urgency || '').toLowerCase()
+    if (norm === 'critical') return t('phone_agent.urgency_critical')
     if (norm === 'urgent') return t('phone_agent.urgency_urgent')
     if (norm === 'high') return t('phone_agent.urgency_high')
     return t('phone_agent.urgency_normal')
+  }
+
+  const getIntentLabel = (intent: string): string => {
+    const norm = String(intent || 'general').toLowerCase()
+    const knownIntents = new Set([
+      'spam',
+      'employee_callout',
+      'complaint_missing_item',
+      'job_inquiry',
+      'lost_and_found',
+      'vendor_service',
+      'delivery_driver',
+      'order_by_phone',
+      'fiesta_platters',
+      'payment_ebt',
+      'menu_prices',
+      'location_drivethru',
+      'hours',
+      'general'
+    ])
+    return knownIntents.has(norm) ? t(`phone_agent.intent_${norm}`) : intent
   }
 
   const currentSimStore = stores.find((s) => s.id === simStoreId) || stores[0]
@@ -1776,7 +1880,18 @@ export default function ContestadoraIaPage() {
   )
 
   return (
-    <ProtectedRoute allowedRoles={['admin', 'supervisor', 'manager', 'asistente']}>
+    <ProtectedRoute
+      allowedRoles={[
+        'admin',
+        'supervisor',
+        'manager',
+        'general_manager',
+        'regional_manager',
+        'gerente',
+        'asistente',
+        'assistant'
+      ]}
+    >
       <div className="min-h-screen bg-slate-50 dark:bg-slate-950 p-4 md:p-6 space-y-6">
         {/* HEADER */}
         <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-5 shadow-sm flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
@@ -1824,10 +1939,10 @@ export default function ContestadoraIaPage() {
           </div>
         )}
 
-        {/* GLOBAL FEEDBACK BANNER */}
+        {/* GLOBAL FEEDBACK BANNER (Floating high-z toast visible across scrolled tabs) */}
         {feedbackBanner && (
           <div
-            className={`rounded-2xl border px-4 py-3 flex items-center justify-between gap-3 text-xs font-bold shadow-sm ${
+            className={`fixed top-4 right-4 z-[60] max-w-md rounded-2xl border px-4 py-3 flex items-center justify-between gap-3 text-xs font-bold shadow-xl ${
               feedbackBanner.kind === 'ok'
                 ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-300 dark:border-emerald-800 text-emerald-900 dark:text-emerald-200'
                 : 'bg-rose-50 dark:bg-rose-950/40 border-rose-300 dark:border-rose-800 text-rose-900 dark:text-rose-200'
@@ -2024,6 +2139,7 @@ export default function ContestadoraIaPage() {
                       onChange={(e) => {
                         const nextId = Number(e.target.value)
                         stopMicrophone()
+                        stopAllSimAudio(true)
                         if (simActive) {
                           void handleEndSimCall()
                         }
@@ -2054,6 +2170,7 @@ export default function ContestadoraIaPage() {
                       onChange={(e) => {
                         const nextLang = e.target.value as 'es' | 'en'
                         stopMicrophone()
+                        stopAllSimAudio(true)
                         if (simActive) {
                           void handleEndSimCall()
                         }
@@ -2724,6 +2841,7 @@ export default function ContestadoraIaPage() {
                         <div className="flex items-center gap-1 shrink-0">
                           <button
                             type="button"
+                            disabled={togglingRuleId === rule.id}
                             onClick={() => void handleToggleRuleActive(rule)}
                             className={`px-2 py-1 rounded-lg text-[10px] font-black ${
                               rule.is_active
@@ -2748,6 +2866,7 @@ export default function ContestadoraIaPage() {
                           </button>
                           <button
                             type="button"
+                            disabled={deletingRuleId === rule.id}
                             onClick={() => void handleDeleteRule(rule.id)}
                             title={t('phone_agent.kb_delete')}
                             className="p-1.5 rounded-lg hover:bg-rose-50 dark:hover:bg-rose-950/40 text-rose-600"
@@ -2953,8 +3072,9 @@ export default function ContestadoraIaPage() {
                         </button>
                         <button
                           type="button"
+                          disabled={deletingHolidayId === sh.id}
                           onClick={() => void handleDeleteHoliday(sh.id)}
-                          className="text-rose-600 hover:text-rose-700"
+                          className="text-rose-600 hover:text-rose-700 disabled:opacity-40"
                         >
                           <X size={14} />
                         </button>
@@ -3106,6 +3226,11 @@ export default function ContestadoraIaPage() {
                           <option value={25}>25 s</option>
                           <option value={30}>30 s</option>
                         </select>
+                        {s.config.carrier_type === 'spectrum_landline' && (
+                          <p className="mt-1 text-[10px] leading-tight text-blue-700 dark:text-blue-300">
+                            {t('phone_agent.spectrum_fixed_ring_note')}
+                          </p>
+                        )}
                       </div>
 
                       <div>
@@ -3241,6 +3366,7 @@ export default function ContestadoraIaPage() {
                             <textarea
                               rows={2}
                               value={s.config.custom_greeting_en || ''}
+                              placeholder={t('phone_agent.stores_greeting_en_placeholder')}
                               onChange={(e) =>
                                 updateLocalStoreConfig(s.id, 'custom_greeting_en', e.target.value)
                               }
@@ -3531,7 +3657,15 @@ export default function ContestadoraIaPage() {
                         <div className="flex items-start justify-between gap-2">
                           <div className="space-y-1">
                             <div className="flex items-center gap-1.5 flex-wrap">
-                              <span className="px-2 py-0.5 rounded-md text-[10px] font-black uppercase bg-rose-600 text-white">
+                              <span
+                                className={`px-2 py-0.5 rounded-md text-[10px] font-black uppercase ${
+                                  cb.urgency === 'critical' || cb.urgency === 'urgent'
+                                    ? 'bg-rose-600 text-white'
+                                    : cb.urgency === 'high'
+                                      ? 'bg-amber-600 text-white'
+                                      : 'bg-slate-600 text-white'
+                                }`}
+                              >
                                 {cb.stores?.name || `#${cb.store_id}`} •{' '}
                                 {getCallerTypeLabel(cb.caller_type)} • {getUrgencyLabel(cb.urgency)}
                               </span>
@@ -3701,7 +3835,9 @@ export default function ContestadoraIaPage() {
                             <td className="py-2.5 px-3 font-mono text-[11px] whitespace-nowrap">
                               {c.caller_number && c.caller_number !== 'SIMULATOR_WEB'
                                 ? c.caller_number
-                                : t('phone_agent.calls_unknown_caller')}
+                                : isSim
+                                  ? t('phone_agent.calls_unknown_caller')
+                                  : t('phone_agent.calls_anonymous_caller')}
                             </td>
                             <td className="py-2.5 px-3 whitespace-nowrap">
                               <span
@@ -3722,7 +3858,7 @@ export default function ContestadoraIaPage() {
                               {t('phone_agent.calls_turns_short')}
                             </td>
                             <td className="py-2.5 px-3 font-bold text-slate-700 dark:text-slate-300">
-                              {c.primary_intent}
+                              {getIntentLabel(c.primary_intent)}
                             </td>
                             <td className="py-2.5 px-3 max-w-xs truncate text-slate-600 dark:text-slate-400">
                               {c.summary || '—'}

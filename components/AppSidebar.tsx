@@ -344,7 +344,7 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
                     plainName: 'Contestadora IA',
                     path: '/admin/llamadas',
                     icon: <PhoneCall size={20} />,
-                    roles: ['admin', 'supervisor', 'manager', 'asistente'],
+                    roles: ['admin', 'supervisor', 'regional_manager', 'manager', 'gerente', 'asistente', 'assistant'],
                     badgeText: 'new',
                     tooltip: t('home_hub.desc.phone_agent')
                 },
@@ -695,6 +695,7 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
                     path: '/app',
                     icon: <Smartphone size={20} />,
                     roles: ['asistente', 'manager', 'supervisor', 'admin'],
+                    openInNewTab: true,
                     badgeIcon: <HazardTapeIcon size={16} />,
                     tooltip: language === 'en'
                         ? 'Opens in a new tab: Customer mobile ordering app preview and menu consultation (App móvil de pedidos y consulta para clientes)'
@@ -748,7 +749,7 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
         const userEmailNorm = (user?.email || '').trim().toLowerCase()
         const isPlanificadorOnly = userEmailNorm === 'stephany@cingularhr.com' || user?.role?.toLowerCase() === 'planificador'
         const canAccessExternalAccounting =
-            ['raquel@tacosgavilan.com', 'roberto@tacosgavilan.com', 'roque@tacosgavilan.com', 'rvelasquez95@yahoo.com'].includes(userEmailNorm) ||
+            ['raquel@tacosgavilan.com', 'roberto@tacosgavilan.com', 'roque@tacosgavilan.com'].includes(userEmailNorm) &&
             [45, 46, 47].includes(Number(user?.id))
         return menuGroups.map(group => {
             if (isVikesh && (group.id === 'inventario' || group.id === 'food_cost')) {

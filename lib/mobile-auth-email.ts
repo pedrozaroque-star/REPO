@@ -5,16 +5,18 @@
  *
  * @businessRules
  * - Nombre oficial de la marca: estrictamente **Tacos Gavilan** (nunca "Tacos El Gavilan").
- * - Emite códigos numéricos reales de 6 dígitos con vigencia de 10 minutos.
+ * - Emite códigos numéricos reales de 6 dígitos con vigencia de 10 minutos en `public.app_mobile_otp_challenges`.
+ * - No crea cuentas en `auth.users` ni `public.app_users` hasta que el código OTP es verificado exitosamente (cero cuentas fantasma).
+ * - Exige secreto criptográfico real (`MOBILE_OTP_SECRET` o `SUPABASE_SERVICE_ROLE_KEY`), búsqueda O(1) vía `get_auth_user_id_by_email` y bloqueo tras 5 intentos fallidos.
  * - Envía un correo HTML bilingüe (Inglés / Español) mediante la cuenta SMTP oficial (`SMTP_EMAIL` / `SMTP_PASSWORD`).
- * - Soporta cuentas de revisión y pruebas automatizadas (`@tacosgavilan.test` y `reviewer@tacosgavilan.com`) con código `123456`.
+ * - Soporta cuentas de revisión y pruebas automatizadas (`@tacosgavilan.test`, `reviewer@tacosgavilan.com`, `apple@tacosgavilan.com`, `google@tacosgavilan.com`) con código `123456`.
  *
  * @dataFlow
- * - `POST /api/mobile/auth/send-otp` -> `generateEmailOtpCode` + `hashEmailOtpCode` -> `supabaseAdmin.auth.admin` (`user_metadata`) -> `sendMobileOtpEmail` (Nodemailer Gmail SMTP).
- * - `POST /api/mobile/auth/verify-otp` -> `hashEmailOtpCode` -> Verificación constante (`crypto.timingSafeEqual`) -> Emisión de JWT real de Supabase Auth.
+ * - `POST /api/mobile/auth/send-otp` -> `checkEmailOtpRateLimit` + `issueEmailOtpChallenge` -> `sendMobileOtpEmail` (Nodemailer Gmail SMTP).
+ * - `POST /api/mobile/auth/verify-otp` -> Verificación constante (`crypto.timingSafeEqual`) + bloqueo -> `findOrCreateEmailAuthUser` -> Emisión de JWT real de Supabase Auth.
  *
  * @notes
- * - Cero dependencias de proveedores SMS no contratados; entrega inmediata en < 2 segundos al buzón real del comensal.
+ * - [2026-11-12] Migrado OTP desde `auth.users.user_metadata` hacia `public.app_mobile_otp_challenges`, eliminados fallbacks de secretos hardcodeados y reemplazado `listUsers(1000)` por RPC `get_auth_user_id_by_email`.
  */
 
 import crypto from 'crypto'
@@ -41,6 +43,19 @@ function createEphemeralAuthClient() {
   })
 }
 
+function requireMobileOtpSecret(): string {
+  const secret =
+    process.env.MOBILE_OTP_SECRET ||
+    process.env.SUPABASE_SERVICE_ROLE_KEY ||
+    process.env.SUPABASE_JWT_SECRET
+  if (!secret || !secret.trim()) {
+    throw new Error(
+      'Configuración de seguridad faltante: MOBILE_OTP_SECRET o SUPABASE_SERVICE_ROLE_KEY es requerido.'
+    )
+  }
+  return secret.trim()
+}
+
 export function buildUniqueEmailPhonePlaceholder(authUserId: string): string {
   return `em_${authUserId.replace(/-/g, '').slice(0, 14)}`
 }
@@ -51,7 +66,7 @@ export function normalizeDisplayPhone(phone?: string | null): string {
   return phone
 }
 
-export async function findOrCreateEmailAuthUser(cleanEmail: string): Promise<string> {
+async function findExistingEmailAuthUserId(cleanEmail: string): Promise<string | null> {
   // 1. Buscar primero en public.app_users por email (O(1))
   const { data: existingAppUser } = await supabaseAdmin
     .from('app_users')
@@ -64,7 +79,45 @@ export async function findOrCreateEmailAuthUser(cleanEmail: string): Promise<str
     return existingAppUser.id
   }
 
-  // 2. Intentar crear en auth.users
+  // 2. Búsqueda O(1) en auth.users vía RPC indexado (evita tope de listUsers 1000)
+  const { data: rpcUserId, error: rpcErr } = await supabaseAdmin.rpc('get_auth_user_id_by_email', {
+    p_email: cleanEmail,
+  })
+  if (rpcErr) {
+    throw new Error(rpcErr.message)
+  }
+  if (typeof rpcUserId === 'string' && rpcUserId.trim()) {
+    const authId = rpcUserId.trim()
+    await supabaseAdmin
+      .from('app_users')
+      .upsert(
+        {
+          id: authId,
+          phone: buildUniqueEmailPhonePlaceholder(authId),
+          first_name: '',
+          last_name: '',
+          email: cleanEmail,
+          avatar_url: null,
+        },
+        { onConflict: 'id' }
+      )
+    return authId
+  }
+
+  return null
+}
+
+/**
+ * Crea o recupera el usuario autenticado en Supabase Auth y `public.app_users`
+ * ÚNICAMENTE después de verificar el código OTP o aprobar cuenta oficial de App Review.
+ */
+export async function findOrCreateEmailAuthUser(cleanEmail: string): Promise<string> {
+  const existingId = await findExistingEmailAuthUserId(cleanEmail)
+  if (existingId) {
+    return existingId
+  }
+
+  // Intentar crear en auth.users
   const password = buildDeterministicEmailAuthPassword(cleanEmail)
   const { data: createdAuth, error: createErr } = await supabaseAdmin.auth.admin.createUser({
     email: cleanEmail,
@@ -75,7 +128,7 @@ export async function findOrCreateEmailAuthUser(cleanEmail: string): Promise<str
 
   if (!createErr && createdAuth?.user?.id) {
     const authUserId = createdAuth.user.id
-    await supabaseAdmin
+    const { error: upsertErr } = await supabaseAdmin
       .from('app_users')
       .upsert(
         {
@@ -88,61 +141,138 @@ export async function findOrCreateEmailAuthUser(cleanEmail: string): Promise<str
         },
         { onConflict: 'id' }
       )
+    if (upsertErr) {
+      await supabaseAdmin.auth.admin.deleteUser(authUserId).catch(() => {})
+      throw new Error(upsertErr.message)
+    }
     return authUserId
   }
 
-  // 3. Si ya existía en auth.users pero no tenía email sincronizado en app_users
-  const { data: listData, error: listErr } = await supabaseAdmin.auth.admin.listUsers({
-    page: 1,
-    perPage: 1000,
-  })
-  if (listErr) {
-    throw new Error(listErr.message)
-  }
-  const matched = listData.users.find((u) => (u.email || '').toLowerCase() === cleanEmail)
-  if (!matched) {
+  // Si ya existía en auth.users por condición de carrera concurrente
+  const racedId = await findExistingEmailAuthUserId(cleanEmail)
+  if (!racedId) {
     throw new Error(createErr?.message || 'Unable to locate or create auth user.')
   }
 
-  await supabaseAdmin
-    .from('app_users')
-    .upsert(
-      {
-        id: matched.id,
-        phone: buildUniqueEmailPhonePlaceholder(matched.id),
-        first_name: '',
-        last_name: '',
-        email: cleanEmail,
-        avatar_url: null,
-      },
-      { onConflict: 'id' }
-    )
-
-  return matched.id
+  return racedId
 }
 
-export async function saveEmailOtpForUser(cleanEmail: string, code: string): Promise<string> {
-  const authUserId = await findOrCreateEmailAuthUser(cleanEmail)
-  const otpHash = hashEmailOtpCode(cleanEmail, code)
-  const otpExpiresAt = Date.now() + EMAIL_OTP_TTL_MS
+export async function checkEmailOtpRateLimit(
+  cleanEmail: string,
+  clientIp?: string | null
+): Promise<{
+  allowed: boolean
+  reason?: 'locked' | 'cooldown' | 'email_quota' | 'ip_quota'
+  retryAfterSec?: number
+}> {
+  const nowMs = Date.now()
+  const nowIso = new Date(nowMs).toISOString()
+  const window15mIso = new Date(nowMs - 15 * 60 * 1000).toISOString()
+  const isReviewer = isAppReviewTestEmail(cleanEmail)
 
-  const { data: userRes } = await supabaseAdmin.auth.admin.getUserById(authUserId)
-  const currentMeta = (userRes?.user?.user_metadata as Record<string, unknown>) || {}
+  const { data: recentForEmail } = await supabaseAdmin
+    .from('app_mobile_otp_challenges')
+    .select('created_at, locked_until')
+    .ilike('email', cleanEmail)
+    .gte('created_at', window15mIso)
+    .order('created_at', { ascending: false })
+    .limit(10)
 
-  const { error: updateErr } = await supabaseAdmin.auth.admin.updateUserById(authUserId, {
-    email_confirm: true,
-    user_metadata: {
-      ...currentMeta,
-      otp_hash: otpHash,
-      otp_expires_at: otpExpiresAt,
-    },
-  })
+  if (recentForEmail && recentForEmail.length > 0) {
+    const latest = recentForEmail[0]
+    if (latest.locked_until) {
+      const lockedUntilMs = Date.parse(latest.locked_until)
+      if (!Number.isNaN(lockedUntilMs) && lockedUntilMs > nowMs) {
+        return {
+          allowed: false,
+          reason: 'locked',
+          retryAfterSec: Math.max(1, Math.ceil((lockedUntilMs - nowMs) / 1000)),
+        }
+      }
+    }
 
-  if (updateErr) {
-    throw new Error(updateErr.message)
+    if (!isReviewer) {
+      const latestMs = Date.parse(latest.created_at)
+      if (!Number.isNaN(latestMs) && nowMs - latestMs < 45 * 1000) {
+        return {
+          allowed: false,
+          reason: 'cooldown',
+          retryAfterSec: Math.max(1, Math.ceil((45 * 1000 - (nowMs - latestMs)) / 1000)),
+        }
+      }
+      if (recentForEmail.length >= 5) {
+        return {
+          allowed: false,
+          reason: 'email_quota',
+          retryAfterSec: 15 * 60,
+        }
+      }
+    }
   }
 
-  return authUserId
+  if (clientIp && !isReviewer) {
+    const { count } = await supabaseAdmin
+      .from('app_mobile_otp_challenges')
+      .select('id', { count: 'exact', head: true })
+      .eq('client_ip', clientIp)
+      .gte('created_at', window15mIso)
+      .lte('created_at', nowIso)
+
+    if ((count || 0) >= 20) {
+      return {
+        allowed: false,
+        reason: 'ip_quota',
+        retryAfterSec: 15 * 60,
+      }
+    }
+  }
+
+  return { allowed: true }
+}
+
+/**
+ * Registra un reto OTP pendiente en `public.app_mobile_otp_challenges`
+ * SIN crear cuentas en `auth.users` ni `app_users` hasta verificar el código.
+ */
+export async function issueEmailOtpChallenge(
+  cleanEmail: string,
+  code: string,
+  clientIp?: string | null
+): Promise<string> {
+  const otpHash = hashEmailOtpCode(cleanEmail, code)
+  const expiresAtIso = new Date(Date.now() + EMAIL_OTP_TTL_MS).toISOString()
+
+  const { data, error } = await supabaseAdmin
+    .from('app_mobile_otp_challenges')
+    .insert({
+      email: cleanEmail,
+      code_hash: otpHash,
+      client_ip: clientIp || null,
+      attempts: 0,
+      max_attempts: 5,
+      expires_at: expiresAtIso,
+    })
+    .select('id')
+    .single()
+
+  if (error || !data?.id) {
+    throw new Error(error?.message || 'Unable to store OTP challenge')
+  }
+
+  return data.id
+}
+
+export async function revokeEmailOtpChallenge(challengeId: string): Promise<void> {
+  if (!challengeId) return
+  await supabaseAdmin.from('app_mobile_otp_challenges').delete().eq('id', challengeId)
+}
+
+export async function saveEmailOtpForUser(
+  cleanEmail: string,
+  code: string,
+  clientIp?: string | null
+): Promise<string> {
+  return issueEmailOtpChallenge(cleanEmail, code, clientIp)
 }
 
 export async function verifyEmailOtpAndSignIn(
@@ -154,8 +284,68 @@ export async function verifyEmailOtpAndSignIn(
   accessToken?: string
   refreshToken?: string
   expiresAt?: number
-  errorCode?: 'INVALID_OTP' | 'AUTH_ERROR'
+  errorCode?: 'INVALID_OTP' | 'LOCKED' | 'AUTH_ERROR'
 }> {
+  const trimmedCode = code.trim()
+  const isReviewer = isAppReviewTestEmail(cleanEmail)
+
+  if (isReviewer) {
+    if (trimmedCode !== APP_REVIEW_TEST_CODE) {
+      return { ok: false, errorCode: 'INVALID_OTP' }
+    }
+  } else {
+    const { data: challenge, error: challengeErr } = await supabaseAdmin
+      .from('app_mobile_otp_challenges')
+      .select('id, code_hash, attempts, max_attempts, locked_until, expires_at')
+      .ilike('email', cleanEmail)
+      .is('consumed_at', null)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+
+    if (challengeErr || !challenge) {
+      return { ok: false, errorCode: 'INVALID_OTP' }
+    }
+
+    const nowMs = Date.now()
+    if (challenge.locked_until && Date.parse(challenge.locked_until) > nowMs) {
+      return { ok: false, errorCode: 'LOCKED' }
+    }
+
+    const expiresAtMs = Date.parse(challenge.expires_at)
+    const isValid = verifyEmailOtpHash(cleanEmail, trimmedCode, challenge.code_hash, expiresAtMs)
+
+    if (!isValid) {
+      const nextAttempts = Number(challenge.attempts || 0) + 1
+      const maxAttempts = Number(challenge.max_attempts || 5)
+      const shouldLock = nextAttempts >= maxAttempts
+      const lockedUntil = shouldLock ? new Date(nowMs + 15 * 60 * 1000).toISOString() : null
+
+      await supabaseAdmin
+        .from('app_mobile_otp_challenges')
+        .update({
+          attempts: nextAttempts,
+          ...(lockedUntil ? { locked_until: lockedUntil } : {}),
+        })
+        .eq('id', challenge.id)
+
+      return { ok: false, errorCode: shouldLock ? 'LOCKED' : 'INVALID_OTP' }
+    }
+
+    // Consumo atómico de un solo uso para evitar replay race conditions
+    const { data: claimed, error: claimErr } = await supabaseAdmin
+      .from('app_mobile_otp_challenges')
+      .update({ consumed_at: new Date(nowMs).toISOString() })
+      .eq('id', challenge.id)
+      .is('consumed_at', null)
+      .select('id')
+      .maybeSingle()
+
+    if (claimErr || !claimed?.id) {
+      return { ok: false, errorCode: 'INVALID_OTP' }
+    }
+  }
+
   const authUserId = await findOrCreateEmailAuthUser(cleanEmail)
   const { data: userRes, error: getUserErr } = await supabaseAdmin.auth.admin.getUserById(authUserId)
 
@@ -164,24 +354,14 @@ export async function verifyEmailOtpAndSignIn(
   }
 
   const meta = (userRes.user.user_metadata as Record<string, unknown>) || {}
-  const expectedHash = typeof meta.otp_hash === 'string' ? meta.otp_hash : null
-  const expiresAtMs = typeof meta.otp_expires_at === 'number' ? meta.otp_expires_at : null
-
-  const isValid = verifyEmailOtpHash(cleanEmail, code, expectedHash, expiresAtMs)
-  if (!isValid) {
-    return { ok: false, errorCode: 'INVALID_OTP' }
-  }
-
   const password = buildDeterministicEmailAuthPassword(cleanEmail)
 
-  // Invalidar el OTP usado y asegurar contraseña determinística confirmada
+  // Asegurar contraseña determinística confirmada y marcar última verificación
   await supabaseAdmin.auth.admin.updateUserById(authUserId, {
     password,
     email_confirm: true,
     user_metadata: {
       ...meta,
-      otp_hash: null,
-      otp_expires_at: null,
       last_verified_at: new Date().toISOString(),
     },
   })
@@ -206,6 +386,9 @@ export async function verifyEmailOtpAndSignIn(
 }
 
 export function isAppReviewTestEmail(email: string): boolean {
+  if (process.env.ENABLE_APP_REVIEW_TEST_ACCOUNTS === 'false') {
+    return false
+  }
   const clean = email.trim().toLowerCase()
   return (
     clean === 'reviewer@tacosgavilan.com' ||
@@ -223,7 +406,7 @@ export function generateEmailOtpCode(email: string): string {
 }
 
 export function hashEmailOtpCode(email: string, code: string): string {
-  const secret = process.env.SUPABASE_SERVICE_ROLE_KEY || 'tacos-gavilan-otp-secret'
+  const secret = requireMobileOtpSecret()
   return crypto
     .createHmac('sha256', secret)
     .update(`email-otp:${email.trim().toLowerCase()}:${code.trim()}`)
@@ -254,7 +437,7 @@ export function verifyEmailOtpHash(
 }
 
 export function buildDeterministicEmailAuthPassword(email: string): string {
-  const secretSeed = process.env.SUPABASE_SERVICE_ROLE_KEY || 'tacos-gavilan-email-auth'
+  const secretSeed = requireMobileOtpSecret()
   const hash = crypto
     .createHmac('sha256', secretSeed)
     .update(`email-auth:${email.trim().toLowerCase()}`)

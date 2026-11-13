@@ -485,10 +485,11 @@ export function getOfficialStoreHolidaySchedule(targetDate: string): OfficialSto
  */
 export function getUpcomingOfficialStoreHolidays(fromDateStr: string, daysAhead: number = 150): OfficialStoreHolidayRule[] {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(fromDateStr)) return []
+    const safeDays = Number.isFinite(daysAhead) ? Math.max(1, Math.trunc(daysAhead)) : 120
     const startUtc = new Date(`${fromDateStr}T12:00:00Z`)
     if (Number.isNaN(startUtc.getTime())) return []
     const endUtc = new Date(startUtc.getTime())
-    endUtc.setUTCDate(endUtc.getUTCDate() + Math.max(1, daysAhead))
+    endUtc.setUTCDate(endUtc.getUTCDate() + safeDays)
     const endDateStr = endUtc.toISOString().slice(0, 10)
 
     const startYear = Number(fromDateStr.slice(0, 4))
@@ -530,7 +531,7 @@ export function getHolidayImpact(targetDate: string): string | null {
 
 export function getHolidayEarlyClose(targetDate: string): number | null {
     const h = HOLIDAY_CALENDAR.find((row) => matchesHolidayRow(row, targetDate))
-    if (h && h.earlyCloseHour) return h.earlyCloseHour
+    if (h && h.earlyCloseHour !== null && h.earlyCloseHour !== undefined) return h.earlyCloseHour
     const dynamicRule = getOfficialStoreHolidaySchedule(targetDate)
     if (dynamicRule?.close_time) {
         const parsed = Number(dynamicRule.close_time.split(':')[0])
@@ -541,7 +542,7 @@ export function getHolidayEarlyClose(targetDate: string): number | null {
 
 export function getHolidayLateOpen(targetDate: string): number | null {
     const h = HOLIDAY_CALENDAR.find((row) => matchesHolidayRow(row, targetDate))
-    if (h && h.lateOpenHour) return h.lateOpenHour
+    if (h && h.lateOpenHour !== null && h.lateOpenHour !== undefined) return h.lateOpenHour
     const dynamicRule = getOfficialStoreHolidaySchedule(targetDate)
     if (dynamicRule?.open_time) {
         const parsed = Number(dynamicRule.open_time.split(':')[0])

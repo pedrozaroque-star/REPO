@@ -13,7 +13,7 @@
  * - App Móvil (`GET` / `PUT` `/api/mobile/user/profile`) -> `getAuthUser` -> `supabaseAdmin.from('app_users')` -> JSON `{ ok: true, user }`.
  *
  * @notes
- * - Sincronizado con `AuthContext.updateProfile`, `app/(tabs)/account.tsx` (V1) y `CustomerAppV2Pro.tsx` (V2).
+ * - Sincronizado con `AuthContext.updateProfile`, `app/(tabs)/account.tsx` (V1) y `components/customer-app-v2/*` (V2); devuelve HTTP 409 (`PHONE_CONFLICT`/`EMAIL_CONFLICT`) en duplicados, valida teléfono 10 dígitos y preserva nombres en actualizaciones parciales.
  */
 
 import { NextRequest, NextResponse } from 'next/server'
@@ -105,6 +105,10 @@ export async function PUT(request: NextRequest): Promise<NextResponse> {
       return jsonError('Cuerpo JSON de solicitud inválido.', 400, 'VALIDATION_ERROR')
     }
 
+    const hasFirstField =
+      typeof body.first_name === 'string' || typeof body.firstName === 'string'
+    const hasLastField =
+      typeof body.last_name === 'string' || typeof body.lastName === 'string'
     const rawFirst =
       typeof body.first_name === 'string'
         ? body.first_name
@@ -119,8 +123,10 @@ export async function PUT(request: NextRequest): Promise<NextResponse> {
         : ''
     const firstName = rawFirst.trim().slice(0, 60)
     const lastName = rawLast.trim().slice(0, 60)
+    const hasEmailField = typeof body.email === 'string'
     const rawEmail =
-      typeof body.email === 'string' ? body.email.trim().toLowerCase().slice(0, 120) : ''
+      hasEmailField ? String(body.email).trim().toLowerCase().slice(0, 120) : ''
+    const hasPhoneField = body.phone !== undefined && body.phone !== null && String(body.phone).trim().length > 0
     const rawPhone10 = normalizePhone10Optional(body.phone)
 
     if (rawEmail.length > 0 && !EMAIL_REGEX.test(rawEmail)) {
@@ -131,11 +137,19 @@ export async function PUT(request: NextRequest): Promise<NextResponse> {
       )
     }
 
+    if (hasPhoneField && rawPhone10.length !== 10) {
+      return jsonError(
+        'Por favor ingresa un número telefónico válido de 10 dígitos.',
+        400,
+        'VALIDATION_ERROR'
+      )
+    }
+
     const nowIso = new Date().toISOString()
 
     const { data: existingUser } = await supabaseAdmin
       .from('app_users')
-      .select('id, phone, email, avatar_url, created_at')
+      .select('id, phone, first_name, last_name, email, avatar_url, created_at')
       .eq('id', authResult.userId)
       .maybeSingle()
 
@@ -148,21 +162,42 @@ export async function PUT(request: NextRequest): Promise<NextResponse> {
           .eq('phone', rawPhone10)
           .neq('id', authResult.userId)
           .maybeSingle()
-        if (!phoneConflict) {
-          nextPhoneDb = rawPhone10
+        if (phoneConflict) {
+          return jsonError(
+            'Este número telefónico ya está registrado en otra cuenta.',
+            409,
+            'PHONE_CONFLICT'
+          )
+        }
+        nextPhoneDb = rawPhone10
+      }
+
+      if (rawEmail.length > 0) {
+        const { data: emailConflict } = await supabaseAdmin
+          .from('app_users')
+          .select('id')
+          .ilike('email', rawEmail)
+          .neq('id', authResult.userId)
+          .maybeSingle()
+        if (emailConflict) {
+          return jsonError(
+            'Este correo electrónico ya está asociado a otra cuenta.',
+            409,
+            'EMAIL_CONFLICT'
+          )
         }
       }
 
       const nextEmail =
-        rawEmail.length > 0
-          ? rawEmail
+        hasEmailField
+          ? rawEmail || null
           : existingUser.email || authResult.email || null
 
       const { data: updatedUser, error: updateError } = await supabaseAdmin
         .from('app_users')
         .update({
-          first_name: firstName,
-          last_name: lastName,
+          first_name: hasFirstField ? firstName : (existingUser.first_name || ''),
+          last_name: hasLastField ? lastName : (existingUser.last_name || ''),
           email: nextEmail,
           phone: nextPhoneDb,
           updated_at: nowIso,
@@ -172,7 +207,16 @@ export async function PUT(request: NextRequest): Promise<NextResponse> {
         .single()
 
       if (updateError) {
-        return jsonError(updateError.message, 500)
+        const isUniqueViolation =
+          updateError.code === '23505' ||
+          updateError.message.toLowerCase().includes('duplicate key')
+        return jsonError(
+          isUniqueViolation
+            ? 'El teléfono o correo electrónico ya está asociado a otra cuenta.'
+            : updateError.message,
+          isUniqueViolation ? 409 : 500,
+          isUniqueViolation ? 'PROFILE_CONFLICT' : 'DATABASE_ERROR'
+        )
       }
 
       return jsonOk({
@@ -181,6 +225,38 @@ export async function PUT(request: NextRequest): Promise<NextResponse> {
           phone: normalizeDisplayPhone(updatedUser.phone),
         },
       })
+    }
+
+    if (rawPhone10.length === 10) {
+      const { data: phoneConflict } = await supabaseAdmin
+        .from('app_users')
+        .select('id')
+        .eq('phone', rawPhone10)
+        .neq('id', authResult.userId)
+        .maybeSingle()
+      if (phoneConflict) {
+        return jsonError(
+          'Este número telefónico ya está registrado en otra cuenta.',
+          409,
+          'PHONE_CONFLICT'
+        )
+      }
+    }
+
+    if (rawEmail.length > 0) {
+      const { data: emailConflict } = await supabaseAdmin
+        .from('app_users')
+        .select('id')
+        .ilike('email', rawEmail)
+        .neq('id', authResult.userId)
+        .maybeSingle()
+      if (emailConflict) {
+        return jsonError(
+          'Este correo electrónico ya está asociado a otra cuenta.',
+          409,
+          'EMAIL_CONFLICT'
+        )
+      }
     }
 
     const fallbackPhoneDb =
@@ -202,7 +278,16 @@ export async function PUT(request: NextRequest): Promise<NextResponse> {
       .single()
 
     if (insertError) {
-      return jsonError(insertError.message, 500)
+      const isUniqueViolation =
+        insertError.code === '23505' ||
+        insertError.message.toLowerCase().includes('duplicate key')
+      return jsonError(
+        isUniqueViolation
+          ? 'El teléfono o correo electrónico ya está asociado a otra cuenta.'
+          : insertError.message,
+        isUniqueViolation ? 409 : 500,
+        isUniqueViolation ? 'PROFILE_CONFLICT' : 'DATABASE_ERROR'
+      )
     }
 
     return jsonOk({

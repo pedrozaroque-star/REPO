@@ -68,6 +68,26 @@
  *     declaradas completas (`get_fiesta_platter_packages` >40 invitados y `get_store_hours_and_status`), filtro de
  *     sustantivos del menú (`Piña`, `Jalapeño`) en `detectPhoneTextLanguage`, y pronunciación vial/telefónica natural
  *     en las 15 sucursales (`lib/phone-speech-format.ts`: sin abreviaturas `S.`, `E.`, `Ave.`, `Rd.`, `Blvd.`, `17th St.`, `Hwy.`, `CA`).
+ * - FIX 2026-11-12 (Ingredientes Reales, Regular vs Super y Torta Cubana/Milanesa): `buildLiveMenuCatalogText` y
+ *   `menuPreContext` ahora propagan las descripciones reales de Toast POS (`app_menu_cache.description`) al prompt,
+ *   `normalizeToastMenuPrep` solo colapsa prefijos de carne estándar simples (preservando especialidades como
+ *   `Torta Cubana` `Breaded Steak + Ham + Wiener`, `Torta Milanesa` y `Plato Milanesa` en `Variantes`),
+ *   `searchStoreMenuPrices` añade sinónimos bilingües (`milanesa`/`breaded`, `jamon`/`ham`, `salchicha`/`wiener`),
+ *   `phone_knowledge_base` respalda Regular vs Super y carnes exactas de Torta Cubana/Milanesa sin alucinaciones,
+ *   y `callGeminiPhoneWithFailover` itera model-first (`gemini-3-flash-preview` -> `gemini-3.1-flash-lite-preview`,
+ *   omitiendo `gemini-3.6-flash` por timeouts) con enfriamiento `(llave, modelo)` (`keyModelCooldownUntil`) y `MAX_ATTEMPTS = 14`.
+ * - FIX 2026-11-12 (Horarios Semanales Reales, Comparativa Determinista, Anclaje de Fecha y Failover GA Rápido):
+ *   1) Cada tienda tiene horarios distintos (ej. entre las 6 Drive-Thru, `#6 LA Central` abre 8:00 AM y cierra hasta 4:00 AM
+ *   Vie-Sáb / 3:00 AM Jue / 2:00 AM Dom-Mié, mientras `#10 La Puente` cierra 2:00 AM Vie-Sáb / 12:00 AM Dom-Jue y `#3 West Covina`
+ *   cierra 3:00 AM Vie-Sáb / 1:00 AM Dom-Jue). `buildCompactWeeklyHours`, `buildCrossStoreHoursComparison`,
+ *   `loadAllActiveStoresDirectory` (preservando `weekly_hours`), `storesDirectoryBlock` y `find_other_stores` exponen
+ *   tanto el horario semanal compacto individual como los ganadores exactos de apertura más temprana / cierre más tarde
+ *   por día (Todas las 15 sucursales vs Drive-Thru), impidiendo generalizaciones o errores de comparación del LLM.
+ *   2) `calendarDateLine` ancla las fechas exactas YYYY-MM-DD de HOY y MAÑANA en California y etiqueta festivos futuros
+ *   (`[FECHA FUTURA - NO aplica hoy ni mañana]`) para evitar que un viernes normal aplique erróneamente Black Friday.
+ *   3) `MODERN_CHAT_MODELS` / `CLASSIC_CHAT_MODELS` priorizan `gemini-3.5-flash-lite` (GA ~0.4-0.85s, 7/7 llaves activas) ->
+ *   `gemini-3-flash-preview` -> `gemini-3.1-flash-lite-preview`, con límite `maxAttemptsOnThisModel` y salto rápido ante `503`/`429`
+ *   para no agotar los 13s del webhook quemando llaves de un solo modelo caído o sin cuota.
  */
 
 import twilio from 'twilio'
@@ -85,30 +105,41 @@ import {
 } from '@/lib/phone-speech-format'
 
 const GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta/models'
-// Orden validado con benchmark en vivo (2026-11-09): gemini-3-flash-preview ~1.0 s, gemini-3.6-flash ~1.5 s.
-// 'gemini-3.5-flash' se omite: en los benchmarks del 06 y 09-nov-2026 tardó 9.8 s y llegó a 15 s (timeout).
+// Orden validado con benchmark en vivo (2026-11-12):
+// - gemini-3.5-flash-lite (~0.41-0.85s, 7/7 llaves activas GA, soporta thinking minimal + functionCall) como primario.
+// - gemini-3-flash-preview y gemini-3.1-flash-lite-preview como respaldos automáticos con salto rápido si hay 429/503.
+// ('gemini-3.6-flash' y 'gemini-3.8-flash' se omiten: sufrieron 429/503 y 3.8 rechaza thinking minimal).
 const MODERN_CHAT_MODELS = [
+  'gemini-3.5-flash-lite',
   'gemini-3-flash-preview',
-  'gemini-3.6-flash'
+  'gemini-3.1-flash-lite-preview'
 ]
 const CLASSIC_CHAT_MODELS = [
+  'gemini-3.5-flash-lite',
   'gemini-3-flash-preview',
-  'gemini-3.6-flash'
+  'gemini-3.1-flash-lite-preview'
 ]
 
 const keyQuarantineUntil = new Map<string, number>()
 const modelUnavailableUntil = new Map<string, number>()
+const keyModelCooldownUntil = new Map<string, number>()
 let keyRoundRobin = 0
 
 // Caché en memoria de corta duración para eliminar latencia de DB en cada turno de voz
 const storeMenuRamCache = new Map<number, { items: any[]; fetchedAt: number }>()
 const storeContextRamCache = new Map<number, { data: any; fetchedAt: number }>()
+let specialHoursRamCache: { rows: any[]; fetchedAt: number } | null = null
 
 export function invalidateStorePhoneContextCache(storeId?: number) {
+  allStoresDirectoryCache = null
+  specialHoursRamCache = null
   if (storeId && Number.isFinite(storeId)) {
-    storeContextRamCache.delete(Number(storeId))
+    const id = Number(storeId)
+    storeContextRamCache.delete(id)
+    storeMenuRamCache.delete(id)
   } else {
     storeContextRamCache.clear()
+    storeMenuRamCache.clear()
   }
 }
 
@@ -182,6 +213,7 @@ export function normalizeSearchText(input: string | null | undefined): string {
   return String(input)
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[/\-+&]/g, ' ')
     .replace(/[¿?¡!.,;:()"']/g, ' ')
     .replace(/\s+/g, ' ')
     .toLowerCase()
@@ -209,8 +241,8 @@ export function parseTimeToMinutes(hhmm: string | null | undefined): number {
   if (!hhmm || typeof hhmm !== 'string') return 480 // default 08:00
   const parts = hhmm.trim().split(':')
   const h = Number(parts[0])
-  const m = Number(parts[1] || 0)
-  if (!Number.isFinite(h) || !Number.isFinite(m)) return 480
+  const m = Number(parts[1] ?? 0)
+  if (!Number.isFinite(h) || !Number.isFinite(m) || h < 0 || h > 24 || m < 0 || m > 59) return 480
   return h * 60 + m
 }
 
@@ -221,10 +253,11 @@ export function parseTimeToMinutes(hhmm: string | null | undefined): number {
 export function formatTime12h(hhmm: string | null | undefined, _lang: PhoneLang = 'es'): string {
   if (!hhmm) return ''
   const parts = hhmm.trim().split(':')
-  const h = Number(parts[0])
-  const m = Number(parts[1] || 0)
-  if (!Number.isFinite(h) || !Number.isFinite(m)) return hhmm
+  const hRaw = Number(parts[0])
+  const m = Number(parts[1] ?? 0)
+  if (!Number.isFinite(hRaw) || !Number.isFinite(m) || hRaw < 0 || hRaw > 24 || m < 0 || m > 59) return hhmm
 
+  const h = hRaw === 24 ? 0 : hRaw
   const minStr = String(m).padStart(2, '0')
   const period = h >= 12 ? 'PM' : 'AM'
   const hour12 = h % 12 === 0 ? 12 : h % 12
@@ -373,9 +406,12 @@ export function localizeHolidayLabel(rawName: string | null | undefined, lang: P
 
 function normalizeHhMm(raw: string | null | undefined): string | null {
   if (!raw || typeof raw !== 'string') return null
-  const trimmed = raw.trim()
-  if (!trimmed) return null
-  return trimmed.slice(0, 5)
+  const match = raw.trim().match(/^(\d{1,2}):(\d{2})/)
+  if (!match) return null
+  const h = Number(match[1])
+  const m = Number(match[2])
+  if (!Number.isFinite(h) || !Number.isFinite(m) || h < 0 || h > 24 || m < 0 || m > 59) return null
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`
 }
 
 /**
@@ -422,7 +458,9 @@ export function buildEffectiveUpcomingHolidaysForStore(params: {
     const dow = new Date(`${dStr}T12:00:00Z`).getUTCDay()
     const regular = wh[String(dow)] || { open: '10:00', close: '00:00' }
 
-    const storeSpecific = specialHours.find((s) => s.event_date === dStr && Number(s.store_id) === numericStoreId)
+    const storeSpecific = specialHours.find(
+      (s) => s.event_date === dStr && s.store_id !== null && Number(s.store_id) === numericStoreId
+    )
     const globalRow = !storeSpecific ? specialHours.find((s) => s.event_date === dStr && s.store_id === null) : null
     const dbMatch = storeSpecific || globalRow || null
 
@@ -506,7 +544,9 @@ export function evaluateStoreSchedulePure(params: {
 
   const numericStoreId = Number(storeId)
   const findSpecialForDate = (dStr: string) => {
-    const storeSpecific = specialHours.find((s) => s.event_date === dStr && Number(s.store_id) === numericStoreId)
+    const storeSpecific = specialHours.find(
+      (s) => s.event_date === dStr && s.store_id !== null && Number(s.store_id) === numericStoreId
+    )
     if (storeSpecific) return storeSpecific
     return specialHours.find((s) => s.event_date === dStr && s.store_id === null) || null
   }
@@ -517,6 +557,29 @@ export function evaluateStoreSchedulePure(params: {
     String(raw || '')
       .replace(/\s*\([^)]*\)/g, '')
       .trim()
+  const expandHolidayMonthsEn = (raw: string | null | undefined) =>
+    String(raw || '')
+      .replace(/\bJan\b/g, 'January')
+      .replace(/\bFeb\b/g, 'February')
+      .replace(/\bMar\b/g, 'March')
+      .replace(/\bApr\b/g, 'April')
+      .replace(/\bJun\b/g, 'June')
+      .replace(/\bJul\b/g, 'July')
+      .replace(/\bAug\b/g, 'August')
+      .replace(/\bSep\b/g, 'September')
+      .replace(/\bOct\b/g, 'October')
+      .replace(/\bNov\b/g, 'November')
+      .replace(/\bDec\b/g, 'December')
+  const formatHolidayForParenhEs = (raw: string | null | undefined) => {
+    const s = String(raw || '').trim()
+    if (!s) return ''
+    return s.replace(/\s*\(([^)]*)\)/g, ', $1').replace(/\s+,/g, ',').trim()
+  }
+  const formatHolidayForParenEn = (raw: string | null | undefined) => {
+    const s = expandHolidayMonthsEn(raw).trim()
+    if (!s) return ''
+    return s.replace(/\s*\(([^)]*)\)/g, ', $1').replace(/\s+,/g, ',').trim()
+  }
 
   const getScheduleForDay = (dayIdx: number, dStr: string) => {
     const regular = wh[String(dayIdx)] || { open: '10:00', close: '00:00' }
@@ -661,8 +724,8 @@ export function evaluateStoreSchedulePure(params: {
       isAfterMidnightSpillover: false,
       isSpecialHolidaySchedule: true,
       specialHolidayName: todaySched.holidayName,
-      statusMessageEs: `Hoy (${todaySched.holidayName || dayEs}) la sucursal ${storeName} permanece cerrada todo el día por día festivo.${reopenTailEs}`,
-      statusMessageEn: `Today (${todaySched.holidayNameEn || dayEn}) our ${storeName} location is closed all day for the holiday.${reopenTailEn}`,
+      statusMessageEs: `Hoy (${formatHolidayForParenhEs(todaySched.holidayName) || dayEs}) la sucursal ${storeName} permanece cerrada todo el día por día festivo.${reopenTailEs}`,
+      statusMessageEn: `Today (${formatHolidayForParenEn(todaySched.holidayNameEn) || dayEn}) our ${storeName} location is closed all day for the holiday.${reopenTailEn}`,
       closedGreetingPromptEs: `En este momento nuestra sucursal está cerrada; hoy permanecemos cerrados todo el día por ${spokenHolEs}${reopenSpokenEs}. ¿En qué te puedo ayudar?`,
       closedGreetingPromptEn: `Our location is currently closed all day for ${spokenHolEn}${reopenSpokenEn}. How can I help you?`,
       weeklySummaryEs: buildWeeklySummary(wh, 'es'),
@@ -688,8 +751,10 @@ export function evaluateStoreSchedulePure(params: {
 
   if (isOpenNow) {
     if (todaySched.isSpecial && todaySched.holidayName) {
-      statusMessageEs = `La sucursal ${storeName} está ABIERTA en este momento. Hoy ${dayEs} (${todaySched.holidayName}) tenemos horario especial de ${openEs} a ${closeEs}.`
-      statusMessageEn = `Our ${storeName} location is OPEN right now. Today (${dayEn}, ${todaySched.holidayNameEn || todaySched.holidayName}) our special holiday hours are ${openEn} to ${closeEn}.`
+      const hEs = formatHolidayForParenhEs(todaySched.holidayName)
+      const hEn = formatHolidayForParenEn(todaySched.holidayNameEn || todaySched.holidayName)
+      statusMessageEs = `La sucursal ${storeName} está ABIERTA en este momento. Hoy ${dayEs} (${hEs}) tenemos horario especial de ${openEs} a ${closeEs}.`
+      statusMessageEn = `Our ${storeName} location is OPEN right now. Today (${dayEn}, ${hEn}) our special holiday hours are ${openEn} to ${closeEn}.`
     } else {
       statusMessageEs = `La sucursal ${storeName} está ABIERTA en este momento. Hoy ${dayEs} nuestro horario es de ${openEs} a ${closeEs}.`
       statusMessageEn = `Our ${storeName} location is OPEN right now. Today (${dayEn}) our hours are ${openEn} to ${closeEn}.`
@@ -697,9 +762,11 @@ export function evaluateStoreSchedulePure(params: {
   } else if (pt.currentMinutes < openMin) {
     if (todaySched.isSpecial && todaySched.holidayName) {
       const spokenHolEs = cleanSpokenHoliday(todaySched.holidayName)
-      const spokenHolEn = cleanSpokenHoliday(todaySched.holidayNameEn || todaySched.holidayName)
-      statusMessageEs = `En este momento la sucursal ${storeName} está cerrada. Hoy ${dayEs} (${todaySched.holidayName}) abrimos en horario especial ${atTimeEs(openEs)} y cerramos ${atTimeEs(closeEs)}.`
-      statusMessageEn = `Our ${storeName} location is currently closed. Today (${dayEn}, ${todaySched.holidayNameEn || todaySched.holidayName}) we open at ${openEn} (special holiday hours) and close at ${closeEn}.`
+      const spokenHolEn = expandHolidayMonthsEn(cleanSpokenHoliday(todaySched.holidayNameEn || todaySched.holidayName))
+      const hEs = formatHolidayForParenhEs(todaySched.holidayName)
+      const hEn = formatHolidayForParenEn(todaySched.holidayNameEn || todaySched.holidayName)
+      statusMessageEs = `En este momento la sucursal ${storeName} está cerrada. Hoy ${dayEs} (${hEs}) abrimos en horario especial ${atTimeEs(openEs)} y cerramos ${atTimeEs(closeEs)}.`
+      statusMessageEn = `Our ${storeName} location is currently closed. Today (${dayEn}, ${hEn}) we open at ${openEn} (special holiday hours) and close at ${closeEn}.`
       closedGreetingPromptEs = `En este momento nuestra sucursal aún está cerrada; hoy por ${spokenHolEs} abrimos en horario especial ${atTimeEs(openEs)} y cerramos ${atTimeEs(closeEs)}. ¿En qué te puedo ayudar?`
       closedGreetingPromptEn = `Our location is currently closed; today for ${spokenHolEn} we open at ${openEn} and close at ${closeEn}. How can I help you?`
     } else {
@@ -710,10 +777,10 @@ export function evaluateStoreSchedulePure(params: {
     }
   } else {
     // Ya cerró por hoy: anunciar el motivo si fue cierre temprano festivo + la apertura REAL siguiente (lookahead hasta +7 días)
-    const closedReasonEs = todaySched.isSpecial && todaySched.holidayName ? ` por horario especial de ${todaySched.holidayName}` : ''
+    const closedReasonEs = todaySched.isSpecial && todaySched.holidayName ? ` por horario especial de ${cleanSpokenHoliday(todaySched.holidayName)}` : ''
     const closedReasonEn =
       todaySched.isSpecial && (todaySched.holidayNameEn || todaySched.holidayName)
-        ? ` for ${todaySched.holidayNameEn || todaySched.holidayName} special hours`
+        ? ` for ${expandHolidayMonthsEn(cleanSpokenHoliday(todaySched.holidayNameEn || todaySched.holidayName))} special hours`
         : ''
 
     const regToday = wh[String(pt.dayOfWeek)] || { open: '10:00', close: '00:00' }
@@ -752,18 +819,20 @@ export function evaluateStoreSchedulePure(params: {
         ? `, and we reopen ${DAY_NAMES_EN[nextOpen.dow]} at ${nextOpenEn}`
         : ''
 
-      statusMessageEs = `En este momento la sucursal ${storeName} ya cerró por hoy (cerró ${atTimeEs(closeEs)}${closedReasonEs}). Mañana permanecemos cerrados${tomorrowSched.holidayName ? ` por ${tomorrowSched.holidayName}` : ''}${reopenNextEs}.`
-      statusMessageEn = `Our ${storeName} location is closed for the day (closed at ${closeEn}${closedReasonEn}). We will be closed tomorrow${tomorrowSched.holidayNameEn || tomorrowSched.holidayName ? ` for ${tomorrowSched.holidayNameEn || tomorrowSched.holidayName}` : ''}${reopenNextEn}.`
+      statusMessageEs = `En este momento la sucursal ${storeName} ya cerró por hoy (cerró ${atTimeEs(closeEs)}${closedReasonEs}). Mañana permanecemos cerrados${tomorrowSched.holidayName ? ` por ${formatHolidayForParenhEs(tomorrowSched.holidayName)}` : ''}${reopenNextEs}.`
+      statusMessageEn = `Our ${storeName} location is closed for the day (closed at ${closeEn}${closedReasonEn}). We will be closed tomorrow${tomorrowSched.holidayNameEn || tomorrowSched.holidayName ? ` for ${formatHolidayForParenEn(tomorrowSched.holidayNameEn || tomorrowSched.holidayName)}` : ''}${reopenNextEn}.`
       closedGreetingPromptEs = `En este momento nuestra sucursal ya está cerrada; ${todayClosedPartEs}, mañana permanecemos cerrados${spokenTomHolEs ? ` por ${spokenTomHolEs}` : ''}${reopenNextEs}. ¿En qué te puedo ayudar?`
       closedGreetingPromptEn = `Our location is currently closed; ${todayClosedPartEn}, we remain closed tomorrow${spokenTomHolEn ? ` for ${spokenTomHolEn}` : ''}${reopenSpokenNextEn}. How can I help you?`
     } else {
       const tomOpenEs = formatTime12h(tomorrowSched.open, 'es')
       const tomOpenEn = formatTime12h(tomorrowSched.open, 'en')
+      const tomCloseNoteEs = tomorrowSched.isSpecial && tomorrowSched.close ? ` y cerramos ${atTimeEs(formatTime12h(tomorrowSched.close, 'es'))}` : ''
+      const tomCloseNoteEn = tomorrowSched.isSpecial && tomorrowSched.close ? ` and close at ${formatTime12h(tomorrowSched.close, 'en')}` : ''
       const tomorrowSpecialEs =
-        tomorrowSched.isSpecial && tomorrowSched.holidayName ? ` (horario especial por ${tomorrowSched.holidayName})` : ''
+        tomorrowSched.isSpecial && tomorrowSched.holidayName ? ` (horario especial por ${formatHolidayForParenhEs(tomorrowSched.holidayName)}${tomCloseNoteEs})` : ''
       const tomorrowSpecialEn =
         tomorrowSched.isSpecial && (tomorrowSched.holidayNameEn || tomorrowSched.holidayName)
-          ? ` (${tomorrowSched.holidayNameEn || tomorrowSched.holidayName} special hours)`
+          ? ` (${formatHolidayForParenEn(tomorrowSched.holidayNameEn || tomorrowSched.holidayName)} special hours${tomCloseNoteEn})`
           : ''
 
       statusMessageEs = `En este momento la sucursal ${storeName} ya cerró por hoy (cerró ${atTimeEs(closeEs)}${closedReasonEs}). Mañana abrimos ${atTimeEs(tomOpenEs)}${tomorrowSpecialEs}.`
@@ -810,10 +879,270 @@ function buildWeeklySummary(wh: Record<string, StoreScheduleDay>, lang: PhoneLan
 }
 
 /**
+ * Resume el horario semanal en bloques compactos de días consecutivos con el mismo horario
+ * (ej. "Dom-Jue 10:00 AM-1:00 AM; Vie-Sáb 10:00 AM-3:00 AM") para mostrar los horarios reales
+ * de las 15 sucursales sin inflar el prompt ni perder diferencias entre días.
+ */
+export function buildCompactWeeklyHours(rawWeeklyHours: unknown, lang: PhoneLang): string {
+  const wh = normalizeWeeklyHours(rawWeeklyHours)
+  const shortEs = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb']
+  const shortEn = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+  const names = lang === 'es' ? shortEs : shortEn
+
+  const groups: Array<{ start: number; end: number; open: string; close: string }> = []
+  for (let d = 0; d <= 6; d++) {
+    const slot = wh[String(d)]
+    if (!slot) continue
+    const last = groups[groups.length - 1]
+    if (last && last.end === d - 1 && last.open === slot.open && last.close === slot.close) {
+      last.end = d
+    } else {
+      groups.push({ start: d, end: d, open: slot.open, close: slot.close })
+    }
+  }
+
+  return groups
+    .map((g) => {
+      const dayLabel = g.start === g.end ? names[g.start] : `${names[g.start]}-${names[g.end]}`
+      return `${dayLabel} ${formatTime12h(g.open, lang)}-${formatTime12h(g.close, lang)}`
+    })
+    .join('; ')
+}
+
+function getEffectiveCloseMinutes(openHHMM: string, closeHHMM: string): number {
+  const openMin = parseTimeToMinutes(openHHMM)
+  const rawCloseMin = parseTimeToMinutes(closeHHMM)
+  return rawCloseMin <= openMin ? rawCloseMin + 1440 : rawCloseMin
+}
+
+/**
+ * Calcula dinámicamente desde la base de datos qué sucursales abren más temprano y cierran más tarde
+ * (hoy en tiempo real y por cada día de la semana, tanto entre las 15 tiendas como en el subconjunto Drive-Thru)
+ * para evitar comparaciones manuales erróneas del LLM sobre listas densas de horarios.
+ */
+export function buildCrossStoreHoursComparison(
+  stores: Array<{ id: number; name: string; has_drive_thru?: boolean; weekly_hours: unknown }>,
+  lang: PhoneLang,
+  specialHours: any[] = [],
+  now: Date = new Date()
+): string {
+  if (!Array.isArray(stores) || stores.length === 0) return ''
+  const ptNow = getPacificDateParts(now)
+
+  const shortEs = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb']
+  const shortEn = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+  const dayShorts = lang === 'es' ? shortEs : shortEn
+  const joinAnd = (items: string[]) => {
+    if (items.length <= 1) return items[0] || ''
+    if (items.length === 2) return lang === 'es' ? `${items[0]} y ${items[1]}` : `${items[0]} and ${items[1]}`
+    return `${items.slice(0, -1).join(', ')} ${lang === 'es' ? 'y' : 'and'} ${items[items.length - 1]}`
+  }
+
+  const groupDaysByValue = (entries: Array<{ d: number; text: string }>) => {
+    const groups: Array<{ start: number; end: number; text: string }> = []
+    for (const item of entries) {
+      if (!item.text) continue
+      const last = groups[groups.length - 1]
+      if (last && last.end === item.d - 1 && last.text === item.text) {
+        last.end = item.d
+      } else {
+        groups.push({ start: item.d, end: item.d, text: item.text })
+      }
+    }
+    return groups
+      .map((g) => {
+        const label = g.start === g.end ? dayShorts[g.start] : `${dayShorts[g.start]}-${dayShorts[g.end]}`
+        return `${label}: ${g.text}`
+      })
+      .join('; ')
+  }
+
+  const getCalendarTodaySchedule = (storeIdNum: number, wh: Record<string, StoreScheduleDay>) => {
+    const regular = wh[String(ptNow.dayOfWeek)] || { open: '10:00', close: '00:00' }
+    const sp =
+      specialHours.find(
+        (s) => s.event_date === ptNow.dateStr && s.store_id !== null && Number(s.store_id) === storeIdNum
+      ) || specialHours.find((s) => s.event_date === ptNow.dateStr && s.store_id === null)
+    if (sp) {
+      if (sp.is_closed) return { open: 'CLOSED', close: 'CLOSED' }
+      return {
+        open: normalizeHhMm(sp.open_time) || regular.open,
+        close: normalizeHhMm(sp.close_time) || regular.close
+      }
+    }
+    const official = getOfficialStoreHolidaySchedule(ptNow.dateStr)
+    if (official) {
+      if (official.is_closed) return { open: 'CLOSED', close: 'CLOSED' }
+      const effOpen =
+        official.open_time && parseTimeToMinutes(official.open_time) > parseTimeToMinutes(regular.open)
+          ? official.open_time
+          : regular.open
+      return { open: effOpen, close: official.close_time || regular.close }
+    }
+    return { open: regular.open || '10:00', close: regular.close || '00:00' }
+  }
+
+  const summarizeSubset = (subset: typeof stores) => {
+    if (subset.length === 0) return null
+
+    const normalized = subset.map((s) => {
+      const id = Number(s.id)
+      const wh = normalizeWeeklyHours(s.weekly_hours)
+      return {
+        id,
+        name: cleanPhoneStoreName(s.name),
+        wh,
+        calToday: getCalendarTodaySchedule(id, wh),
+        ev: evaluateStoreSchedulePure({
+          storeId: id,
+          storeName: cleanPhoneStoreName(s.name),
+          weeklyHours: s.weekly_hours,
+          specialHours,
+          now
+        })
+      }
+    })
+
+    // En madrugada (00:00-05:59 AM), separar qué tiendas siguen ABIERTAS ahorita por turno de anoche
+    // sin mezclar fechas al comparar qué sucursales abren/cierran más tarde hoy calendario.
+    const spilloverOpenNow = normalized
+      .filter((x) => x.ev.isAfterMidnightSpillover && x.ev.isOpenNow)
+      .map((x) => ({
+        name: x.name,
+        closeMin: parseTimeToMinutes(x.ev.todayClose),
+        closeFmt: lang === 'es' ? x.ev.todayCloseFormattedEs : x.ev.todayCloseFormattedEn
+      }))
+      .sort((a, b) => b.closeMin - a.closeMin)
+
+    const spilloverNoteStr =
+      spilloverOpenNow.length > 0
+        ? lang === 'es'
+          ? `Abiertas AHORITA en madrugada: ${spilloverOpenNow.map((s) => `${s.name} (hasta ${s.closeFmt})`).join(', ')}`
+          : `Open RIGHT NOW (late-night shift): ${spilloverOpenNow.map((s) => `${s.name} (until ${s.closeFmt})`).join(', ')}`
+        : ''
+
+    // Horario uniforme del día calendario HOY en todas las tiendas del subconjunto
+    const openCalToday = normalized
+      .filter((x) => x.calToday.open !== 'CLOSED' && x.calToday.close !== 'CLOSED')
+      .map((x) => ({
+        name: x.name,
+        openMin: parseTimeToMinutes(x.calToday.open),
+        closeEff: getEffectiveCloseMinutes(x.calToday.open, x.calToday.close),
+        openFmt: formatTime12h(x.calToday.open, lang),
+        closeFmt: formatTime12h(x.calToday.close, lang)
+      }))
+
+    const todayLabel = lang === 'es' ? DAY_NAMES_ES[ptNow.dayOfWeek] : DAY_NAMES_EN[ptNow.dayOfWeek]
+
+    let todayLatestStr = lang === 'es' ? 'Todas cerradas hoy' : 'All closed today'
+    let todayEarliestStr = lang === 'es' ? 'Todas cerradas hoy' : 'All closed today'
+    if (openCalToday.length > 0) {
+      const maxClose = Math.max(...openCalToday.map((x) => x.closeEff))
+      const latest = openCalToday.filter((x) => x.closeEff === maxClose)
+      todayLatestStr = `${joinAnd(latest.map((x) => x.name))} (${latest[0].closeFmt})`
+
+      const minOpen = Math.min(...openCalToday.map((x) => x.openMin))
+      const earliest = openCalToday.filter((x) => x.openMin === minOpen)
+      todayEarliestStr = `${joinAnd(earliest.map((x) => x.name))} (${earliest[0].openFmt})`
+    }
+
+    const dailyLatestClose: Array<{ d: number; text: string }> = []
+    const dailyEarliestOpen: Array<{ d: number; text: string }> = []
+    for (let d = 0; d <= 6; d++) {
+      const dayEntries = normalized
+        .map((s) => {
+          const slot = s.wh[String(d)]
+          if (!slot) return null
+          return {
+            name: s.name,
+            open: slot.open,
+            close: slot.close,
+            openMin: parseTimeToMinutes(slot.open),
+            closeEff: getEffectiveCloseMinutes(slot.open, slot.close)
+          }
+        })
+        .filter((x): x is NonNullable<typeof x> => Boolean(x))
+
+      if (dayEntries.length === 0) continue
+      const maxClose = Math.max(...dayEntries.map((x) => x.closeEff))
+      const latest = dayEntries.filter((x) => x.closeEff === maxClose)
+      dailyLatestClose.push({
+        d,
+        text: `${joinAnd(latest.map((x) => x.name))} (${formatTime12h(latest[0].close, lang)})`
+      })
+
+      const minOpen = Math.min(...dayEntries.map((x) => x.openMin))
+      const earliest = dayEntries.filter((x) => x.openMin === minOpen)
+      dailyEarliestOpen.push({
+        d,
+        text: `${joinAnd(earliest.map((x) => x.name))} (${formatTime12h(earliest[0].open, lang)})`
+      })
+    }
+
+    return {
+      count: subset.length,
+      names: subset.map((s) => cleanPhoneStoreName(s.name)),
+      spilloverNoteStr,
+      todayLabel,
+      todayLatestStr,
+      todayEarliestStr,
+      weeklyLatestStr: groupDaysByValue(dailyLatestClose),
+      weeklyEarliestStr: groupDaysByValue(dailyEarliestOpen)
+    }
+  }
+
+  const allSummary = summarizeSubset(stores)
+  const dtStores = stores.filter((s) => Boolean(s.has_drive_thru))
+  const dtSummary = summarizeSubset(dtStores)
+  if (!allSummary) return ''
+
+  if (lang === 'en') {
+    const lines = [
+      `EXACT LIVE CROSS-STORE SCHEDULE WINNERS (NEVER GUESS OR LUMP STORES TOGETHER):`
+    ]
+    if (allSummary.spilloverNoteStr) {
+      lines.push(`- ${allSummary.spilloverNoteStr}`)
+    }
+    lines.push(
+      `- ALL ${allSummary.count} LOCATIONS -> Today (${allSummary.todayLabel}): latest close ${allSummary.todayLatestStr} | earliest open ${allSummary.todayEarliestStr} | Latest close by day: ${allSummary.weeklyLatestStr} | Earliest open: ${allSummary.weeklyEarliestStr}`
+    )
+    if (dtSummary) {
+      lines.push(
+        `- DRIVE-THRU ONLY (${dtSummary.count} stores: ${dtSummary.names.join(', ')}) -> Today (${dtSummary.todayLabel}): latest close ${dtSummary.todayLatestStr} | earliest open ${dtSummary.todayEarliestStr} | Latest close by day (Drive-Thru): ${dtSummary.weeklyLatestStr} | Earliest open (Drive-Thru): ${dtSummary.weeklyEarliestStr}`
+      )
+    }
+    return lines.join('\n')
+  }
+
+  const lines = [
+    `COMPARATIVA EXACTA EN VIVO ENTRE SUCURSALES (USA ESTOS GANADORES EXACTOS; NUNCA ADIVINES NI AGRUPES TIENDAS CON DISTINTO HORARIO):`
+  ]
+  if (allSummary.spilloverNoteStr) {
+    lines.push(`- ${allSummary.spilloverNoteStr}`)
+  }
+  lines.push(
+    `- TODAS LAS ${allSummary.count} SUCURSALES -> Hoy (${allSummary.todayLabel}): cierra más tarde ${allSummary.todayLatestStr} | abre más temprano ${allSummary.todayEarliestStr} | Cierre más tarde por día: ${allSummary.weeklyLatestStr} | Apertura más temprana: ${allSummary.weeklyEarliestStr}`
+  )
+  if (dtSummary) {
+    lines.push(
+      `- SOLO CON DRIVE-THRU (${dtSummary.count} sucursales: ${dtSummary.names.join(', ')}) -> Hoy (${dtSummary.todayLabel}): cierra más tarde ${dtSummary.todayLatestStr} | abre más temprano ${dtSummary.todayEarliestStr} | Cierre más tarde por día (Drive-Thru): ${dtSummary.weeklyLatestStr} | Apertura más temprana (Drive-Thru): ${dtSummary.weeklyEarliestStr}`
+    )
+  }
+  return lines.join('\n')
+}
+
+/**
  * Calcula los paquetes recomendados de Fiesta Platter según el número de invitados,
  * protegiendo contra divisiones por cero, valores negativos o NaN.
  */
 export function recommendFiestaPlatters(guestCountInput?: number | null) {
+  const g15 = PARTY_TRAY_GUIDELINES['15-20']
+  const g20 = PARTY_TRAY_GUIDELINES['20-25']
+  const g25 = PARTY_TRAY_GUIDELINES['25-30']
+  const g30 = PARTY_TRAY_GUIDELINES['30-40']
+  const cornDoz = (packs: number) => (packs * 60) / 12 // 1 paquete = 60 tortillas = 5 docenas
+  const flourDoz = (packs: number) => (packs * 12) / 12 // 1 paquete = 12 tortillas = 1 docena
+
   const packages = [
     {
       sizeKey: '15-20',
@@ -822,11 +1151,14 @@ export function recommendFiestaPlatters(guestCountInput?: number | null) {
       minGuests: 15,
       maxGuests: 20,
       price: 201.99,
-      meatLbs: PARTY_TRAY_GUIDELINES['15-20'].meatLbs,
-      riceBeansTray: 'Charola Mediana de arroz y frijol (3 lbs c/u)',
-      aguasGallons: PARTY_TRAY_GUIDELINES['15-20'].aguaGallons,
-      cornTortillasDozens: 10,
-      flourTortillasDozens: 5
+      meatLbs: g15.meatLbs,
+      riceBeansTrayEs: `${g15.riceLbs} lbs de arroz y ${g15.beansLbs} lbs de frijol`,
+      riceBeansTrayEn: `${g15.riceLbs} lbs of rice and ${g15.beansLbs} lbs of beans`,
+      aguasGallons: g15.aguaGallons,
+      cornPacks: g15.cornPacks,
+      flourPacks: g15.flourPacks,
+      cornTortillasDozens: cornDoz(g15.cornPacks),
+      flourTortillasDozens: flourDoz(g15.flourPacks)
     },
     {
       sizeKey: '20-25',
@@ -835,11 +1167,14 @@ export function recommendFiestaPlatters(guestCountInput?: number | null) {
       minGuests: 20,
       maxGuests: 25,
       price: 245.79,
-      meatLbs: PARTY_TRAY_GUIDELINES['20-25'].meatLbs,
-      riceBeansTray: '1/2 Charola de arroz y frijol (4 lbs c/u)',
-      aguasGallons: PARTY_TRAY_GUIDELINES['20-25'].aguaGallons,
-      cornTortillasDozens: 13,
-      flourTortillasDozens: 7
+      meatLbs: g20.meatLbs,
+      riceBeansTrayEs: `${g20.riceLbs} lbs de arroz y ${g20.beansLbs} lbs de frijol`,
+      riceBeansTrayEn: `${g20.riceLbs} lbs of rice and ${g20.beansLbs} lbs of beans`,
+      aguasGallons: g20.aguaGallons,
+      cornPacks: g20.cornPacks,
+      flourPacks: g20.flourPacks,
+      cornTortillasDozens: cornDoz(g20.cornPacks),
+      flourTortillasDozens: flourDoz(g20.flourPacks)
     },
     {
       sizeKey: '25-30',
@@ -848,11 +1183,14 @@ export function recommendFiestaPlatters(guestCountInput?: number | null) {
       minGuests: 25,
       maxGuests: 30,
       price: 301.69,
-      meatLbs: PARTY_TRAY_GUIDELINES['25-30'].meatLbs,
-      riceBeansTray: '3/4 de Charola de arroz y frijol (6 lbs c/u)',
-      aguasGallons: PARTY_TRAY_GUIDELINES['25-30'].aguaGallons,
-      cornTortillasDozens: 15,
-      flourTortillasDozens: 8
+      meatLbs: g25.meatLbs,
+      riceBeansTrayEs: `${g25.riceLbs} lbs de arroz y ${g25.beansLbs} lbs de frijol`,
+      riceBeansTrayEn: `${g25.riceLbs} lbs of rice and ${g25.beansLbs} lbs of beans`,
+      aguasGallons: g25.aguaGallons,
+      cornPacks: g25.cornPacks,
+      flourPacks: g25.flourPacks,
+      cornTortillasDozens: cornDoz(g25.cornPacks),
+      flourTortillasDozens: flourDoz(g25.flourPacks)
     },
     {
       sizeKey: '30-40',
@@ -861,41 +1199,101 @@ export function recommendFiestaPlatters(guestCountInput?: number | null) {
       minGuests: 30,
       maxGuests: 40,
       price: 373.89,
-      meatLbs: PARTY_TRAY_GUIDELINES['30-40'].meatLbs,
-      riceBeansTray: 'Charola Completa de arroz y frijol (10 lbs c/u)',
-      aguasGallons: PARTY_TRAY_GUIDELINES['30-40'].aguaGallons,
-      cornTortillasDozens: 20,
-      flourTortillasDozens: 10
+      meatLbs: g30.meatLbs,
+      riceBeansTrayEs: `${g30.riceLbs} lbs de arroz y ${g30.beansLbs} lbs de frijol`,
+      riceBeansTrayEn: `${g30.riceLbs} lbs of rice and ${g30.beansLbs} lbs of beans`,
+      aguasGallons: g30.aguaGallons,
+      cornPacks: g30.cornPacks,
+      flourPacks: g30.flourPacks,
+      cornTortillasDozens: cornDoz(g30.cornPacks),
+      flourTortillasDozens: flourDoz(g30.flourPacks)
     }
   ]
 
   const guests = Number(guestCountInput)
   let recommendationEs =
-    'Se ordenan en línea en tacosgavilan.com con mínimo 1 hora de anticipación para recoger el mismo día. Carnes a elegir: Carne Asada, Pollo o Al Pastor. Aguas Frescas: Horchata, Jamaica, Piña o Tamarindo. Todos incluyen arroz, frijol, tortillas, salsas, verdura y desechables completos.'
+    'Se ordenan en línea en tacosgavilan.com con mínimo 1 hora de anticipación para recoger el mismo día. Carnes a elegir: Carne Asada, Pollo o Al Pastor. Aguas Frescas: Horchata, Jamaica, Piña o Tamarindo. Todos incluyen arroz, frijol, tortillas de maíz o harina, salsas, verdura y desechables completos.'
   let recommendationEn =
-    'Order online at tacosgavilan.com with at least 1 hour advance notice for same-day pickup. Meats: Carne Asada, Chicken, or Al Pastor. Aguas Frescas: Horchata, Jamaica, Pineapple, or Tamarind. All packages include rice, beans, tortillas, salsas, toppings, and utensils.'
+    'Order online at tacosgavilan.com with at least 1 hour advance notice for same-day pickup. Meats: Carne Asada, Chicken, or Al Pastor. Aguas Frescas: Horchata, Jamaica, Pineapple, or Tamarind. All packages include rice, beans, corn or flour tortillas, salsas, toppings, and utensils.'
 
   if (Number.isFinite(guests) && guests > 0) {
     if (guests <= 20) {
-      recommendationEs = `Para ${guests} personas te recomendamos el paquete de 15 a 20 personas en $201.99 (incluye 6 lbs de carne y 3 galones de agua fresca).`
-      recommendationEn = `For ${guests} guests we recommend the 15 to 20 people package at $201.99 (includes 6 lbs of meat and 3 gallons of agua fresca).`
+      const p = packages[0]
+      recommendationEs = `Para ${guests} personas te recomendamos el paquete de 15 a 20 personas en $${p.price.toFixed(2)} (incluye ${p.meatLbs} lbs de carne, ${p.riceBeansTrayEs}, ${p.cornTortillasDozens} docenas de maíz o ${p.flourTortillasDozens} de harina y ${p.aguasGallons} galones de agua fresca).`
+      recommendationEn = `For ${guests} guests we recommend the 15 to 20 people package at $${p.price.toFixed(2)} (includes ${p.meatLbs} lbs of meat, ${p.riceBeansTrayEn}, ${p.cornTortillasDozens} dozen corn or ${p.flourTortillasDozens} dozen flour tortillas, and ${p.aguasGallons} gallons of agua fresca).`
     } else if (guests <= 25) {
-      recommendationEs = `Para ${guests} personas te recomendamos el paquete de 20 a 25 personas en $245.79 (incluye 7.5 lbs de carne y 4 galones de agua fresca).`
-      recommendationEn = `For ${guests} guests we recommend the 20 to 25 people package at $245.79 (includes 7.5 lbs of meat and 4 gallons of agua fresca).`
+      const p = packages[1]
+      recommendationEs = `Para ${guests} personas te recomendamos el paquete de 20 a 25 personas en $${p.price.toFixed(2)} (incluye ${p.meatLbs} lbs de carne, ${p.riceBeansTrayEs}, ${p.cornTortillasDozens} docenas de maíz o ${p.flourTortillasDozens} de harina y ${p.aguasGallons} galones de agua fresca).`
+      recommendationEn = `For ${guests} guests we recommend the 20 to 25 people package at $${p.price.toFixed(2)} (includes ${p.meatLbs} lbs of meat, ${p.riceBeansTrayEn}, ${p.cornTortillasDozens} dozen corn or ${p.flourTortillasDozens} dozen flour tortillas, and ${p.aguasGallons} gallons of agua fresca).`
     } else if (guests === 30) {
-      recommendationEs = `Para 30 personas tenemos el paquete de 25 a 30 personas en $301.69 (10 lbs de carne y 5 galones de agua fresca) o, si desean porciones más abundantes, el de 30 a 40 personas en $373.89 (12 lbs de carne y 6 galones de agua fresca).`
-      recommendationEn = `For 30 guests we offer the 25 to 30 people package at $301.69 (10 lbs of meat and 5 gallons of agua fresca), or for larger portions, the 30 to 40 people package at $373.89 (12 lbs of meat and 6 gallons of agua fresca).`
+      const p25 = packages[2]
+      const p30 = packages[3]
+      recommendationEs = `Para 30 personas tenemos el paquete de 25 a 30 personas en $${p25.price.toFixed(2)} (${p25.meatLbs} lbs de carne y ${p25.aguasGallons} galones de agua fresca) o, si desean porciones más abundantes, el de 30 a 40 personas en $${p30.price.toFixed(2)} (${p30.meatLbs} lbs de carne y ${p30.aguasGallons} galones de agua fresca).`
+      recommendationEn = `For 30 guests we offer the 25 to 30 people package at $${p25.price.toFixed(2)} (${p25.meatLbs} lbs of meat and ${p25.aguasGallons} gallons of agua fresca), or for larger portions, the 30 to 40 people package at $${p30.price.toFixed(2)} (${p30.meatLbs} lbs of meat and ${p30.aguasGallons} gallons of agua fresca).`
     } else if (guests < 30) {
-      recommendationEs = `Para ${guests} personas te recomendamos el paquete de 25 a 30 personas en $301.69 (incluye 10 lbs de carne y 5 galones de agua fresca).`
-      recommendationEn = `For ${guests} guests we recommend the 25 to 30 people package at $301.69 (includes 10 lbs of meat and 5 gallons of agua fresca).`
+      const p = packages[2]
+      recommendationEs = `Para ${guests} personas te recomendamos el paquete de 25 a 30 personas en $${p.price.toFixed(2)} (incluye ${p.meatLbs} lbs de carne, ${p.riceBeansTrayEs}, ${p.cornTortillasDozens} docenas de maíz o ${p.flourTortillasDozens} de harina y ${p.aguasGallons} galones de agua fresca).`
+      recommendationEn = `For ${guests} guests we recommend the 25 to 30 people package at $${p.price.toFixed(2)} (includes ${p.meatLbs} lbs of meat, ${p.riceBeansTrayEn}, ${p.cornTortillasDozens} dozen corn or ${p.flourTortillasDozens} dozen flour tortillas, and ${p.aguasGallons} gallons of agua fresca).`
     } else if (guests <= 40) {
-      recommendationEs = `Para ${guests} personas te recomendamos el paquete de 30 a 40 personas en $373.89 (incluye 12 lbs de carne y 6 galones de agua fresca).`
-      recommendationEn = `For ${guests} guests we recommend the 30 to 40 people package at $373.89 (includes 12 lbs of meat and 6 gallons of agua fresca).`
+      const p = packages[3]
+      recommendationEs = `Para ${guests} personas te recomendamos el paquete de 30 a 40 personas en $${p.price.toFixed(2)} (incluye ${p.meatLbs} lbs de carne, ${p.riceBeansTrayEs}, ${p.cornTortillasDozens} docenas de maíz o ${p.flourTortillasDozens} de harina y ${p.aguasGallons} galones de agua fresca).`
+      recommendationEn = `For ${guests} guests we recommend the 30 to 40 people package at $${p.price.toFixed(2)} (includes ${p.meatLbs} lbs of meat, ${p.riceBeansTrayEn}, ${p.cornTortillasDozens} dozen corn or ${p.flourTortillasDozens} dozen flour tortillas, and ${p.aguasGallons} gallons of agua fresca).`
     } else {
-      const fullTrays = Math.ceil(guests / 38)
-      const total = +(fullTrays * 373.89).toFixed(2)
-      recommendationEs = `Para ${guests} personas te recomendamos combinar ${fullTrays} paquetes de 30 a 40 personas ($373.89 c/u, total $${total.toFixed(2)}).`
-      recommendationEn = `For ${guests} guests we recommend combining ${fullTrays} of the 30 to 40 people packages ($373.89 each, total $${total.toFixed(2)}).`
+      // Combinación óptima de menor costo total usando los 4 tamaños reales
+      const cappedGuests = Math.min(500, guests)
+      let bestCombo: { counts: number[]; total: number; trays: number; minCap: number; maxCap: number } | null = null
+      if (cappedGuests <= 200) {
+        const max30 = Math.ceil(cappedGuests / 40) + 1
+        for (let c3 = 0; c3 <= max30; c3++) {
+          for (let c2 = 0; c2 <= 3; c2++) {
+            for (let c1 = 0; c1 <= 3; c1++) {
+              for (let c0 = 0; c0 <= 3; c0++) {
+                const counts = [c0, c1, c2, c3]
+                const trays = c0 + c1 + c2 + c3
+                if (trays === 0) continue
+                const maxCap = c0 * 20 + c1 * 25 + c2 * 30 + c3 * 40
+                if (maxCap < cappedGuests) continue
+                const minCap = c0 * 15 + c1 * 20 + c2 * 25 + c3 * 30
+                const total = +(
+                  c0 * packages[0].price +
+                  c1 * packages[1].price +
+                  c2 * packages[2].price +
+                  c3 * packages[3].price
+                ).toFixed(2)
+                if (
+                  !bestCombo ||
+                  total < bestCombo.total - 0.001 ||
+                  (Math.abs(total - bestCombo.total) < 0.001 && trays < bestCombo.trays)
+                ) {
+                  bestCombo = { counts, total, trays, minCap, maxCap }
+                }
+              }
+            }
+          }
+        }
+      }
+      if (!bestCombo) {
+        const fullTrays = Math.ceil(cappedGuests / 40)
+        bestCombo = {
+          counts: [0, 0, 0, fullTrays],
+          total: +(fullTrays * packages[3].price).toFixed(2),
+          trays: fullTrays,
+          minCap: fullTrays * 30,
+          maxCap: fullTrays * 40
+        }
+      }
+      const descPartsEs: string[] = []
+      const descPartsEn: string[] = []
+      for (let i = packages.length - 1; i >= 0; i--) {
+        const q = bestCombo.counts[i]
+        if (q <= 0) continue
+        const sizeLabel = packages[i].sizeKey.replace('-', ' a ')
+        const sizeLabelEn = packages[i].sizeKey.replace('-', ' to ')
+        descPartsEs.push(`${q} ${q === 1 ? 'paquete' : 'paquetes'} de ${sizeLabel} personas ($${packages[i].price.toFixed(2)}${q > 1 ? ' c/u' : ''})`)
+        descPartsEn.push(`${q} × ${sizeLabelEn} people ${q === 1 ? 'package' : 'packages'} ($${packages[i].price.toFixed(2)}${q > 1 ? ' each' : ''})`)
+      }
+      recommendationEs = `Para ${guests} personas la combinación más económica es ${descPartsEs.join(' + ')} (cubre ${bestCombo.minCap} a ${bestCombo.maxCap} personas, total $${bestCombo.total.toFixed(2)}).`
+      recommendationEn = `For ${guests} guests the most cost-effective combination is ${descPartsEn.join(' + ')} (serves ${bestCombo.minCap} to ${bestCombo.maxCap} guests, total $${bestCombo.total.toFixed(2)}).`
     }
   }
 
@@ -926,7 +1324,8 @@ export function getCarrierForwardingInstructions(
   const hasValidTwilioNumber = tenDigit.length === 10
   const displayNumEs = hasValidTwilioNumber ? tenDigit : 'NÚMERO_TWILIO'
   const displayNumEn = hasValidTwilioNumber ? tenDigit : 'TWILIO_NUMBER'
-  const clampedRing = Math.min(30, Math.max(5, Math.round(ringTimeoutSeconds / 5) * 5))
+  const safeTimeout = Number.isFinite(ringTimeoutSeconds) && ringTimeoutSeconds > 0 ? ringTimeoutSeconds : 20
+  const clampedRing = Math.min(30, Math.max(5, Math.round(safeTimeout / 5) * 5))
 
   if (carrierType === 'spectrum_landline') {
     return {
@@ -1010,31 +1409,66 @@ export async function loadStoreMenuItems(storeId: number): Promise<any[]> {
     .eq('store_id', storeId)
     .eq('is_available', true)
 
-  if (error || !items || items.length === 0) {
+  if (error || !Array.isArray(items)) {
     // Si falla la lectura pero había caché vieja, es mejor usarla que dejar a la IA sin precios
     return cachedMenu?.items || []
   }
-  storeMenuRamCache.set(storeId, { items, fetchedAt: now })
-  return items
+  const sanitized = items.map((item: any) => {
+    if (item?.name && /\blengua\b/i.test(String(item.name)) && item?.description && /Steamed Beef Head/i.test(String(item.description))) {
+      return {
+        ...item,
+        description: String(item.description).replace(/Steamed Beef Head/gi, 'Steamed Beef Tongue')
+      }
+    }
+    return item
+  })
+  storeMenuRamCache.set(storeId, { items: sanitized, fetchedAt: now })
+  return sanitized
+}
+
+const STANDARD_SINGLE_MEAT_PREFIX_RE =
+  /^(?:1\s+)?(?:Grilled\s+(?:Steak|Beef|Chicken|Pork\s+Maw|Hog\s+Maw)|Beef\s+Steak|Steamed\s+Beef\s+(?:Head|Tongue)|Braised\s+Pork|Mexican\s+Sausage|Marinated\s+Pork)(?:\s+(?:Mulita|Sope|Taco))?$/i
+
+function normalizeToastMenuPrep(rawDesc: string): string {
+  const s = String(rawDesc || '').replace(/\s+/g, ' ').trim()
+  if (!s) return ''
+  if (/^Only\s+.+$/i.test(s)) return 'Only the selected meat'
+  const m = s.match(/^(.+?)\s+-\s+(.+)$/)
+  if (m && STANDARD_SINGLE_MEAT_PREFIX_RE.test(m[1].trim())) return m[2].trim()
+  if (/^(?:Grilled|Marinated|Steamed|Braised|Mexican)\b.+\band Cheese$/i.test(s) && !/\+|Breaded/i.test(s)) {
+    return 'Meat and Cheese'
+  }
+  return s
 }
 
 /**
- * Construye el catálogo de precios EN VIVO para el prompt, agrupando por categoría y por precio
- * (ej. "- Tacos: Taco Asada, Taco Pastor, ...: $2.29"). Reemplaza el catálogo escrito a mano que decía "EN VIVO"
- * sin serlo: si un precio cambia en Toast / `app_menu_cache`, la IA lo dice correctamente en máximo 5 minutos.
+ * Construye el catálogo de precios y descripciones EN VIVO para el prompt, agrupando por categoría y por precio
+ * (ej. "- Tacos: Taco Asada, Taco Pastor, ...: $2.29 [Prep Toast: ...]"). Incluye las descripciones reales de Toast
+ * (`app_menu_cache.description`) de forma compacta para responder con exactitud qué lleva cada platillo y la diferencia Regular vs Super.
  */
 export function buildLiveMenuCatalogText(storeName: string, items: any[]): string {
-  const byCategory = new Map<string, Map<string, string[]>>()
+  const byCategory = new Map<
+    string,
+    {
+      priceGroups: Map<string, string[]>
+      itemPreps: Array<{ name: string; rawDesc: string; norm: string }>
+    }
+  >()
   for (const it of items || []) {
     const price = Number(it?.price)
     const name = String(it?.name || '').trim()
     if (!name || !Number.isFinite(price) || price <= 0) continue
     const category = String(it?.category_name || 'Otros').trim()
-    if (!byCategory.has(category)) byCategory.set(category, new Map())
-    const priceGroups = byCategory.get(category)!
+    if (!byCategory.has(category)) byCategory.set(category, { priceGroups: new Map(), itemPreps: [] })
+    const entry = byCategory.get(category)!
     const priceKey = price.toFixed(2)
-    if (!priceGroups.has(priceKey)) priceGroups.set(priceKey, [])
-    priceGroups.get(priceKey)!.push(name)
+    if (!entry.priceGroups.has(priceKey)) entry.priceGroups.set(priceKey, [])
+    entry.priceGroups.get(priceKey)!.push(name)
+
+    const rawDesc = String(it?.description || '').replace(/\s+/g, ' ').trim()
+    if (rawDesc) {
+      entry.itemPreps.push({ name, rawDesc, norm: normalizeToastMenuPrep(rawDesc) })
+    }
   }
 
   if (byCategory.size === 0) {
@@ -1042,13 +1476,45 @@ export function buildLiveMenuCatalogText(storeName: string, items: any[]): strin
   }
 
   const lines: string[] = []
-  for (const [category, priceGroups] of byCategory) {
-    const segments = Array.from(priceGroups.entries())
+  for (const [category, entry] of byCategory) {
+    const segments = Array.from(entry.priceGroups.entries())
       .sort((a, b) => Number(b[0]) - Number(a[0]))
       .map(([price, names]) => `${names.join(', ')}: $${price}`)
-    lines.push(`- ${category}: ${segments.join(' | ')}`)
+
+    let prepSuffix = ''
+    if (entry.itemPreps.length > 0) {
+      if (/fiesta\s*platter/i.test(category)) {
+        const listed = entry.itemPreps.slice(0, 6).map((p) => `${p.name}: ${p.rawDesc}`)
+        prepSuffix = ` [Prep Toast: ${listed.join('; ')}]`
+      } else {
+      const counts = new Map<string, number>()
+      for (const p of entry.itemPreps) {
+        counts.set(p.norm, (counts.get(p.norm) || 0) + 1)
+      }
+      let topNorm = ''
+      let topCount = 0
+      for (const [k, v] of counts) {
+        if (v > topCount) {
+          topNorm = k
+          topCount = v
+        }
+      }
+      if (topCount >= 2 && topCount >= Math.ceil(entry.itemPreps.length / 2)) {
+        const outliers = entry.itemPreps
+          .filter((p) => p.norm !== topNorm)
+          .slice(0, 6)
+          .map((p) => `${p.name}: ${p.rawDesc}`)
+        prepSuffix = ` [Prep Toast: ${topNorm}${outliers.length ? ` | Variantes: ${outliers.join('; ')}` : ''}]`
+      } else {
+        const listed = entry.itemPreps.slice(0, 6).map((p) => `${p.name}: ${p.rawDesc}`)
+        prepSuffix = ` [Prep Toast: ${listed.join('; ')}]`
+      }
+      }
+    }
+
+    lines.push(`- ${category}: ${segments.join(' | ')}${prepSuffix}`)
   }
-  return `CATÁLOGO COMPLETO DE PRECIOS EN VIVO DE ${storeName.toUpperCase()} (menú oficial en línea; nombres en inglés tal como aparecen en el menú, ej. "Large" = Grande, "Medium" = Mediana, "Beans" = Frijol, "Rice" = Arroz):\n${lines.join('\n')}`
+  return `CATÁLOGO COMPLETO DE PRECIOS Y PREPARACIÓN EN VIVO DE ${storeName.toUpperCase()} (menú oficial Toast POS; usa "Prep Toast" para explicar ingredientes exactos sin inventar; nombres en inglés tal como aparecen en el menú, ej. "Large" = Grande, "Medium" = Mediana, "Beans" = Frijol, "Rice" = Arroz):\n${lines.join('\n')}`
 }
 
 /**
@@ -1081,58 +1547,98 @@ export async function searchStoreMenuPrices(storeId: number, query: string, limi
     queso: ['cheese', 'queso'],
     crema: ['sour', 'cream'],
     cafe: ['coffee'],
+    coca: ['coke'],
+    totopos: ['chips'],
+    limonada: ['lemonade'],
+    helado: ['iced', 'tea'],
+    te: ['tea', 'iced'],
     refresco: ['coke', 'sprite', 'fanta'],
     soda: ['coke', 'sprite', 'fanta'],
     postre: ['flan', 'cheesecake'],
     postres: ['flan', 'cheesecake'],
     desayuno: ['huevos', 'breakfast'],
-    huevo: ['huevos', 'breakfast']
+    huevo: ['huevos', 'breakfast'],
+    milanesa: ['breaded', 'milanesa'],
+    breaded: ['milanesa'],
+    jamon: ['ham', 'jamon'],
+    ham: ['jamon'],
+    salchicha: ['wiener', 'salchicha'],
+    wiener: ['salchicha'],
   }
 
   const normQuery = normalizeSearchText(query)
-  const rawTokens = normQuery.split(/\s+/).filter((t) => t.length >= 3 && !stopWords.has(t))
-  const expandedTokens = new Set<string>()
+  const rawTokens = normQuery
+    .split(/\s+/)
+    .filter((t) => (t.length >= 3 || t === 'oz' || t === 'te') && !stopWords.has(t))
+
+  const directTokens = new Set<string>()
+  const synonymTokens = new Set<string>()
   for (const tok of rawTokens) {
-    expandedTokens.add(tok)
+    directTokens.add(tok)
+    if (tok.length > 4 && tok.endsWith('es')) {
+      directTokens.add(tok.slice(0, -2))
+    } else if (tok.length > 4 && tok.endsWith('s')) {
+      directTokens.add(tok.slice(0, -1))
+    }
     const syns = synonymMap[tok]
     if (syns) {
-      for (const s of syns) expandedTokens.add(s)
+      for (const s of syns) {
+        if (!directTokens.has(s)) synonymTokens.add(s)
+      }
     }
   }
-  const tokens = Array.from(expandedTokens)
+  const directList = Array.from(directTokens)
+  const synonymList = Array.from(synonymTokens).filter((s) => !directTokens.has(s))
+  const allSearchTokens = [...directList, ...synonymList]
 
   const items = await loadStoreMenuItems(storeId)
   if (items.length === 0) return []
 
-  // Asegurar cobertura multi-platillo: tomar los mejores de cada palabra clave además del score global
+  // Asegurar cobertura multi-platillo priorizando coincidencias directas antes que sinónimos
   const pickedMap = new Map<string, { item: any; score: number }>()
 
-  for (const tok of tokens) {
+  for (const tok of allSearchTokens) {
+    const isDirect = directTokens.has(tok)
+    const baseScore = isDirect ? 30 : 10
     const tokenMatches = items
       .filter((it) => normalizeSearchText(it.name).includes(tok))
-      .slice(0, 3)
+      .slice(0, 4)
     for (const m of tokenMatches) {
-      pickedMap.set(m.name, { item: m, score: 25 })
+      const prev = pickedMap.get(m.name)
+      if (!prev || baseScore > prev.score) {
+        pickedMap.set(m.name, { item: m, score: baseScore })
+      }
     }
   }
 
   for (const item of items) {
-    const hay = normalizeSearchText(`${item.name} ${item.category_name || ''} ${item.description || ''}`)
+    const metaHay = normalizeSearchText(`${item.category_name || ''} ${item.description || ''}`)
     const nameNorm = normalizeSearchText(item.name)
     let score = 0
-    let matchedNameTokens = 0
-    if (nameNorm === normQuery) score += 120
-    if (normQuery.length >= 4 && nameNorm.includes(normQuery)) score += 60
-    for (const tok of tokens) {
+    let directNameMatches = 0
+    let synNameMatches = 0
+    if (nameNorm === normQuery) score += 140
+    if (normQuery.length >= 4 && nameNorm.includes(normQuery)) score += 70
+    for (const tok of directList) {
       if (nameNorm.includes(tok)) {
-        score += 30
-        matchedNameTokens++
-      } else if (hay.includes(tok)) {
-        score += 8
+        score += 45
+        directNameMatches++
+      } else if (metaHay.includes(tok)) {
+        score += 15
       }
     }
-    if (matchedNameTokens >= 2) {
-      score += matchedNameTokens * 25
+    for (const syn of synonymList) {
+      if (nameNorm.includes(syn)) {
+        score += 12
+        synNameMatches++
+      } else if (metaHay.includes(syn)) {
+        score += 5
+      }
+    }
+    if (directNameMatches >= 2) {
+      score += directNameMatches * 30
+    } else if (directNameMatches + synNameMatches >= 2) {
+      score += 12
     }
     if (score > 0) {
       const prev = pickedMap.get(item.name)
@@ -1156,32 +1662,144 @@ export async function searchStoreMenuPrices(storeId: number, query: string, limi
   return scored
 }
 
+function rankMenuItemsForPrompt(items: any[], query: string, limit: number = 12) {
+  if (!Array.isArray(items) || items.length === 0) return []
+  const stopWords = new Set([
+    'de', 'el', 'la', 'los', 'las', 'un', 'una', 'unos', 'unas', 'con', 'por', 'para', 'del', 'al', 'que',
+    'cuesta', 'cuanto', 'precio', 'precios', 'tienen', 'hay', 'me', 'puedes', 'decir', 'hola', 'quiero',
+    'saber', 'how', 'much', 'is', 'the', 'and', 'for', 'do', 'you', 'have', 'can', 'tell', 'cost'
+  ])
+  const synonymMap: Record<string, string[]> = {
+    grande: ['large'], grandes: ['large'], large: ['grande'],
+    mediana: ['medium'], mediano: ['medium'], medianas: ['medium'], medium: ['mediana', 'mediano'],
+    galon: ['gallon'], galones: ['gallon'], gallon: ['galon'],
+    agua: ['horchata', 'jamaica', 'pina', 'tamarindo', 'lemonade', 'water', 'fresca'],
+    aguas: ['horchata', 'jamaica', 'pina', 'tamarindo', 'fresca'],
+    fresca: ['agua', 'horchata', 'jamaica', 'pina', 'tamarindo'],
+    frijol: ['beans', 'frijol'], frijoles: ['beans', 'frijol'],
+    arroz: ['rice'], queso: ['cheese', 'queso'], crema: ['sour', 'cream'],
+    cafe: ['coffee'], coca: ['coke'], totopos: ['chips'],
+    limonada: ['lemonade'], helado: ['iced', 'tea'], te: ['tea', 'iced'],
+    refresco: ['coke', 'sprite', 'fanta'], soda: ['coke', 'sprite', 'fanta'],
+    postre: ['flan', 'cheesecake'], postres: ['flan', 'cheesecake'],
+    desayuno: ['huevos', 'breakfast'], huevo: ['huevos', 'breakfast'],
+    milanesa: ['breaded', 'milanesa'], breaded: ['milanesa'],
+    jamon: ['ham', 'jamon'], ham: ['jamon'],
+    salchicha: ['wiener', 'salchicha'], wiener: ['salchicha'],
+  }
+  const normQuery = normalizeSearchText(query)
+  const rawTokens = normQuery
+    .split(/\s+/)
+    .filter((t) => (t.length >= 3 || t === 'oz' || t === 'te') && !stopWords.has(t))
+
+  const directTokens = new Set<string>()
+  const synonymTokens = new Set<string>()
+  for (const tok of rawTokens) {
+    directTokens.add(tok)
+    if (tok.length > 4 && tok.endsWith('es')) directTokens.add(tok.slice(0, -2))
+    else if (tok.length > 4 && tok.endsWith('s')) directTokens.add(tok.slice(0, -1))
+    const syns = synonymMap[tok]
+    if (syns) for (const s of syns) if (!directTokens.has(s)) synonymTokens.add(s)
+  }
+  const directList = Array.from(directTokens)
+  const synonymList = Array.from(synonymTokens).filter((s) => !directTokens.has(s))
+  const allSearchTokens = [...directList, ...synonymList]
+  const pickedMap = new Map<string, { item: any; score: number }>()
+
+  for (const tok of allSearchTokens) {
+    const baseScore = directTokens.has(tok) ? 30 : 10
+    for (const m of items.filter((it) => normalizeSearchText(it.name).includes(tok)).slice(0, 4)) {
+      const prev = pickedMap.get(m.name)
+      if (!prev || baseScore > prev.score) pickedMap.set(m.name, { item: m, score: baseScore })
+    }
+  }
+  for (const item of items) {
+    const metaHay = normalizeSearchText(`${item.category_name || ''} ${item.description || ''}`)
+    const nameNorm = normalizeSearchText(item.name)
+    let score = 0
+    let directNameMatches = 0
+    let synNameMatches = 0
+    if (nameNorm === normQuery) score += 140
+    if (normQuery.length >= 4 && nameNorm.includes(normQuery)) score += 70
+    for (const tok of directList) {
+      if (nameNorm.includes(tok)) { score += 45; directNameMatches++ }
+      else if (metaHay.includes(tok)) score += 15
+    }
+    for (const syn of synonymList) {
+      if (nameNorm.includes(syn)) { score += 12; synNameMatches++ }
+      else if (metaHay.includes(syn)) score += 5
+    }
+    if (directNameMatches >= 2) score += directNameMatches * 30
+    else if (directNameMatches + synNameMatches >= 2) score += 12
+    if (score > 0) {
+      const prev = pickedMap.get(item.name)
+      if (!prev || score > prev.score) pickedMap.set(item.name, { item, score })
+    }
+  }
+  return Array.from(pickedMap.values())
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit)
+    .map((entry) => ({
+      name: entry.item.name,
+      category: entry.item.category_name || 'Menú',
+      price: Number(entry.item.price || 0),
+      priceFormatted: `$${Number(entry.item.price || 0).toFixed(2)}`,
+      description: entry.item.description || ''
+    }))
+}
+
 let allStoresDirectoryCache: {
   fetchedAt: number
-  stores: Array<{ id: number; name: string; address: string; phone: string; has_drive_thru: boolean }>
+  stores: Array<{
+    id: number
+    name: string
+    address: string
+    phone: string
+    has_drive_thru: boolean
+    weekly_hours: any
+    compactHoursEs: string
+    compactHoursEn: string
+  }>
 } | null = null
 
-async function loadAllActiveStoresDirectory() {
+export async function loadAllActiveStoresDirectory() {
   const now = Date.now()
   if (allStoresDirectoryCache && now - allStoresDirectoryCache.fetchedAt < 5 * 60 * 1000) {
     return allStoresDirectoryCache.stores
   }
-  const { data } = await supabaseAdmin
+  const { data, error } = await supabaseAdmin
     .from('stores')
-    .select('id, name, address, phone, has_drive_thru, is_active')
+    .select('id, name, address, phone, has_drive_thru, weekly_hours, is_active')
     .eq('is_active', true)
     .order('id', { ascending: true })
-  const stores = (data || []).map((s: any) => ({
+  if (error || !data || data.length === 0) {
+    return allStoresDirectoryCache?.stores || []
+  }
+  const stores = data.map((s: any) => ({
     id: Number(s.id),
     name: cleanPhoneStoreName(s.name),
     address: String(s.address || ''),
     phone: String(s.phone || ''),
     has_drive_thru: Boolean(s.has_drive_thru),
+    weekly_hours: s.weekly_hours || null,
+    compactHoursEs: buildCompactWeeklyHours(s.weekly_hours, 'es'),
+    compactHoursEn: buildCompactWeeklyHours(s.weekly_hours, 'en')
   }))
-  if (stores.length > 0) {
-    allStoresDirectoryCache = { fetchedAt: now, stores }
-  }
+  allStoresDirectoryCache = { fetchedAt: now, stores }
   return stores
+}
+
+async function loadAllSpecialHoursCached(): Promise<any[]> {
+  const now = Date.now()
+  if (specialHoursRamCache && now - specialHoursRamCache.fetchedAt < 60 * 1000) {
+    return specialHoursRamCache.rows
+  }
+  const { data, error } = await supabaseAdmin.from('phone_special_hours').select('*')
+  if (error || !Array.isArray(data)) {
+    return specialHoursRamCache?.rows || []
+  }
+  specialHoursRamCache = { rows: data, fetchedAt: now }
+  return data
 }
 
 /**
@@ -1303,7 +1921,7 @@ export async function createManagerCallbackRequest(params: {
     caller_type: params.callerType || 'customer',
     urgency: params.urgency || 'high',
     reason_category: params.reasonCategory || 'general',
-    reason_summary: params.reasonSummary.trim(),
+    reason_summary: (params.reasonSummary || 'Solicitud de llamada al gerente').trim(),
     ticket_or_order_number: params.ticketOrOrderNumber ? String(params.ticketOrOrderNumber).trim() : null,
     status: 'pending',
     business_date: businessDate
@@ -1385,7 +2003,7 @@ export function buildInitialGreeting(
         baseEn +=
           ' You are speaking with our AI assistant. This call may be recorded and transcribed using AI technology to assist you; by continuing, you consent.'
       }
-      if (includeHint && !/\b(nueve|nine|9)\b/i.test(baseEn)) {
+      if (includeHint && !/\b(oprim[ae]|marqu[ae]|presiona|press)\b[^.!?]{0,25}\b(nueve|nine|9)\b/i.test(baseEn)) {
         baseEn += switchEs
       }
       if (options?.omitTrailingQuestion) {
@@ -1416,7 +2034,7 @@ export function buildInitialGreeting(
       baseEs +=
         ' Te atiende nuestra asistente de inteligencia artificial. Esta llamada puede ser grabada y transcrita con tecnología de IA para atenderte; al continuar aceptas este uso.'
     }
-    if (includeHint && !/\b(nine|nueve|9)\b/i.test(baseEs)) {
+    if (includeHint && !/\b(press|oprim[ae]|marqu[ae]|presiona)\b[^.!?]{0,25}\b(nine|nueve|9)\b/i.test(baseEs)) {
       baseEs += switchEn
     }
     if (options?.omitTrailingQuestion) {
@@ -1436,7 +2054,7 @@ const PHONE_AGENT_TOOLS = [
       {
         name: 'get_store_hours_and_status',
         description:
-          'Obtiene el estado exacto en tiempo real (abierto/cerrado), horario semanal, horarios festivos, dirección, Drive-Thru y formas de pago de esta sucursal.',
+          'Obtiene el estado exacto en tiempo real (abierto/cerrado), horario semanal, horarios festivos, dirección, Drive-Thru y formas de pago ÚNICAMENTE de esta sucursal actual atendida. NO sirve para comparar horarios de otras sucursales (para comparar qué tienda abre/cierra más tarde o ver otras tiendas, usa `find_other_stores`).',
         parameters: {
           type: 'OBJECT',
           properties: {}
@@ -1445,7 +2063,7 @@ const PHONE_AGENT_TOOLS = [
       {
         name: 'search_menu_item_price',
         description:
-          'Busca platillos, bebidas o postres adicionales en el menú en vivo de esta sucursal si el cliente pregunta por un ítem específico que no aparezca ya listado en el contexto.',
+          'SOLO úsala si el platillo, bebida o postre NO aparece ya con su precio en el CATÁLOGO EN VIVO ni en COINCIDENCIAS DEL MENÚ del prompt. Si el precio o ingredientes ya están en tu contexto, RESPONDE DIRECTO sin llamar herramientas.',
         parameters: {
           type: 'OBJECT',
           properties: {
@@ -1460,7 +2078,7 @@ const PHONE_AGENT_TOOLS = [
       {
         name: 'get_fiesta_platter_packages',
         description:
-          'Calcula el paquete o combinación exacta de charolas Fiesta Platter y el precio total según el número de personas/invitados (especialmente útil para eventos de más de 40 personas, ej. 50, 60, 80 o 100 invitados).',
+          'Calcula combinaciones exactas de charolas Fiesta Platter para eventos GRANDES de MÁS DE 40 personas (ej. 50, 60, 80 o 100 invitados). Para eventos de 15 a 40 personas, los precios y contenidos ya están en tu contexto: responde directo sin llamar herramientas.',
         parameters: {
           type: 'OBJECT',
           properties: {
@@ -1475,13 +2093,13 @@ const PHONE_AGENT_TOOLS = [
       {
         name: 'find_other_stores',
         description:
-          'Consulta información y estado abierto/cerrado en vivo de las otras 15 sucursales de Tacos Gavilan cuando el cliente pregunta por otra ciudad, región (ej. East LA, Orange County, Inland Empire) o pregunta cuáles sucursales tienen Drive-Thru.',
+          'Úsala ÚNICAMENTE si necesitas filtrar una zona específica o verificar un día que no veas claro en el DIRECTORIO OFICIAL DE LAS 15 SUCURSALES o en COMPARATIVA EXACTA EN VIVO de tu contexto. Si los datos de esa sucursal o el ganador ya están en el contexto, RESPONDE DIRECTO sin llamar esta herramienta.',
         parameters: {
           type: 'OBJECT',
           properties: {
             search_city_or_filter: {
               type: 'STRING',
-              description: 'Nombre de ciudad, zona o "drive_thru" para filtrar tiendas con Drive-Thru (opcional).'
+              description: 'Nombre de ciudad, zona o "drive_thru" para filtrar tiendas con Drive-Thru; omítelo o envía vacío para revisar las 15 sucursales.'
             }
           }
         }
@@ -1528,7 +2146,7 @@ const PHONE_AGENT_TOOLS = [
       {
         name: 'flag_unanswered_question',
         description:
-          'Úsalo ÚNICAMENTE si la persona hace una pregunta ajena al menú, precios, horarios, ubicación, pagos, empleo o políticas que no tenga respuesta en el contexto.',
+          'Úsalo ÚNICAMENTE para dudas legítimas del negocio (políticas, facturación, eventos especiales) que no tengan respuesta en el contexto. NUNCA lo llames por chistes, música, deportes o preguntas fuera de tema ajenas a Tacos Gavilan.',
         parameters: {
           type: 'OBJECT',
           properties: {
@@ -1651,7 +2269,11 @@ export function detectPhoneTextLanguage(text: string, fallback: PhoneLang): Phon
   return es > en ? 'es' : 'en'
 }
 
-async function callGeminiPhoneWithFailover(body: any, deadlineMs: number = Date.now() + 12000) {
+async function callGeminiPhoneWithFailover(
+  body: any,
+  deadlineMs: number = Date.now() + 12000,
+  preferredModel?: string | null
+) {
   const rawPool = await getGeminiKeyPoolWithRemote()
   if (rawPool.length === 0) {
     throw new Error('No hay llaves GEMINI_API_KEY configuradas')
@@ -1667,82 +2289,136 @@ async function callGeminiPhoneWithFailover(body: any, deadlineMs: number = Date.
   const classicKeys = rotated.filter((k) => !k.startsWith('AQ.'))
   const orderedKeys = [...modernKeys, ...classicKeys]
 
+  const baseModels = Array.from(new Set([...MODERN_CHAT_MODELS, ...CLASSIC_CHAT_MODELS]))
+  const orderedModels = preferredModel && baseModels.includes(preferredModel)
+    ? [preferredModel, ...baseModels.filter((m) => m !== preferredModel)]
+    : baseModels
   let lastError = 'Servicio de IA temporalmente no disponible'
   let attempts = 0
-  const MAX_ATTEMPTS = 6
+  const MAX_ATTEMPTS = 14
 
-  for (const key of orderedKeys) {
-    const models = key.startsWith('AQ.') ? MODERN_CHAT_MODELS : CLASSIC_CHAT_MODELS
-    for (const model of models) {
-      // Presupuesto global: una llamada telefónica no puede esperar más (Twilio corta el webhook a ~15 s)
-      const remaining = deadlineMs - Date.now()
-      if (remaining < 1500 || attempts >= MAX_ATTEMPTS) {
-        throw new Error(`${lastError} (presupuesto de tiempo agotado tras ${attempts} intentos)`)
-      }
-      if ((modelUnavailableUntil.get(model) || 0) > Date.now()) continue
-      attempts++
+  for (const pass of ['fresh', 'cooldown_fallback'] as const) {
+    if (pass === 'cooldown_fallback' && deadlineMs - Date.now() < 1200) break
+    for (const model of orderedModels) {
+      if (pass === 'fresh' && (modelUnavailableUntil.get(model) || 0) > Date.now()) continue
+      let attemptsOnModel = 0
+      let overloadsOnModel = 0
+      const maxAttemptsOnThisModel = pass === 'fresh' ? (model === 'gemini-3.5-flash-lite' ? 4 : 3) : 2
+      const supportsMinimalThinking = !model.includes('3.8')
 
-      const url = `${GEMINI_BASE}/${model}:generateContent?key=${key}`
-      try {
-        // thinkingLevel 'minimal' = sin razonamiento interno: los "thinking tokens" ya no consumen maxOutputTokens
-        // (causa raíz del corte "Estamos abiertos en este momento en la su"). Verificado en vivo 2026-11-09.
-        const requestBody = {
-          ...body,
-          generationConfig: {
+      for (const key of orderedKeys) {
+        if (attemptsOnModel >= maxAttemptsOnThisModel) break
+        if ((keyQuarantineUntil.get(key) || 0) > Date.now()) continue
+        const pairKey = `${key}:${model}`
+        if (pass === 'fresh' && (keyModelCooldownUntil.get(pairKey) || 0) > Date.now()) continue
+        const modelsForKey = key.startsWith('AQ.') ? MODERN_CHAT_MODELS : CLASSIC_CHAT_MODELS
+        if (!modelsForKey.includes(model)) continue
+
+        // Presupuesto global: una llamada telefónica no puede esperar más (Twilio corta el webhook a ~15 s)
+        const remaining = deadlineMs - Date.now()
+        if (remaining < 900 || attempts >= MAX_ATTEMPTS) {
+          throw new Error(`${lastError} (presupuesto de tiempo agotado tras ${attempts} intentos)`)
+        }
+        attempts++
+        attemptsOnModel++
+
+        const url = `${GEMINI_BASE}/${model}:generateContent?key=${key}`
+        try {
+          // thinkingLevel 'minimal' = sin razonamiento interno: los "thinking tokens" ya no consumen maxOutputTokens
+          // (causa raíz del corte "Estamos abiertos en este momento en la su"). Verificado en vivo 2026-11-09.
+          const genCfg: Record<string, any> = {
             maxOutputTokens: 1024,
-            ...(body.generationConfig || {}),
-            thinkingConfig: { thinkingLevel: 'minimal' }
+            ...(body.generationConfig || {})
+          }
+          if (supportsMinimalThinking) {
+            genCfg.thinkingConfig = { thinkingLevel: 'minimal' }
+          }
+          // Si cambiamos de modelo en una ronda de seguimiento (>0), asegurar thoughtSignature para evitar HTTP 400
+          const patchedContents =
+            preferredModel && model !== preferredModel && Array.isArray(body.contents)
+              ? body.contents.map((turn: any) =>
+                  Array.isArray(turn?.parts)
+                    ? {
+                        ...turn,
+                        parts: turn.parts.map((p: any) =>
+                          p?.functionCall && !p.thoughtSignature
+                            ? { ...p, thoughtSignature: 'skip_thought_signature_validator' }
+                            : p
+                        )
+                      }
+                    : turn
+                )
+              : body.contents
+          const requestBody = {
+            ...body,
+            contents: patchedContents,
+            generationConfig: genCfg
+          }
+
+          const res = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            signal: AbortSignal.timeout(Math.min(3500, remaining - 300)),
+            body: JSON.stringify(requestBody)
+          })
+          const data = await res.json().catch(() => ({}))
+          const candidate = data?.candidates?.[0]
+          const parts: any[] = candidate?.content?.parts || []
+          const hasFunctionCall = parts.some((p) => p?.functionCall)
+          const visibleText = parts
+            .filter((p) => !p?.thought)
+            .map((p) => p?.text || '')
+            .join('')
+            .trim()
+
+          if (res.ok && parts.length > 0) {
+            // MAX_TOKENS con texto útil: se acepta y luego se recorta en fin de oración (clampPhoneReplyLength).
+            // MAX_TOKENS SIN texto ni función: respuesta inservible -> se intenta con el siguiente candidato.
+            if (candidate?.finishReason !== 'MAX_TOKENS' || hasFunctionCall || visibleText.length >= 40) {
+              return { data, usedModel: model }
+            }
+            lastError = `Respuesta truncada (MAX_TOKENS) en ${model}`
+            continue
+          }
+
+          lastError = data?.error?.message || `HTTP ${res.status}${candidate?.finishReason ? ` (${candidate.finishReason})` : ''}`
+          if (res.status === 404) {
+            // El MODELO no existe o fue retirado (no es culpa de la llave): saltar ese modelo 1 hora para todas las llaves
+            modelUnavailableUntil.set(model, Date.now() + 60 * 60 * 1000)
+            break
+          }
+          if (res.status === 401 || res.status === 402 || res.status === 403) {
+            // Llave inválida, sin saldo o sin permisos: cuarentena larga de la LLAVE
+            keyQuarantineUntil.set(key, Date.now() + 6 * 60 * 60 * 1000)
+            attemptsOnModel = Math.max(0, attemptsOnModel - 1)
+            continue
+          }
+          if (res.status === 400) {
+            // Error determinista de la petición (no se arregla cambiando de llave/modelo)
+            throw new Error(`Petición inválida a Gemini: ${lastError}`)
+          }
+          if (res.status === 429) {
+            // Cuota agotada en esa pareja (llave, modelo): enfriar 5 min y avanzar rápido sin re-quemar todo el presupuesto
+            keyModelCooldownUntil.set(pairKey, Date.now() + 5 * 60 * 1000)
+            continue
+          }
+          // 500/503 sobrecarga temporal del modelo: si 2 llaves fallan seguidas, saltar al siguiente modelo al instante
+          overloadsOnModel++
+          keyModelCooldownUntil.set(pairKey, Date.now() + 30 * 1000)
+          if (overloadsOnModel >= 2) {
+            modelUnavailableUntil.set(model, Date.now() + 60 * 1000)
+            break
+          }
+        } catch (e: any) {
+          if (String(e?.message || '').startsWith('Petición inválida a Gemini')) throw e
+          overloadsOnModel++
+          keyModelCooldownUntil.set(pairKey, Date.now() + 30 * 1000)
+          lastError = e?.message || 'Error de red'
+          if (overloadsOnModel >= 2) {
+            modelUnavailableUntil.set(model, Date.now() + 60 * 1000)
+            break
           }
         }
-
-        const res = await fetch(url, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          signal: AbortSignal.timeout(Math.min(6000, remaining - 500)),
-          body: JSON.stringify(requestBody)
-        })
-        const data = await res.json().catch(() => ({}))
-        const candidate = data?.candidates?.[0]
-        const parts: any[] = candidate?.content?.parts || []
-        const hasFunctionCall = parts.some((p) => p?.functionCall)
-        const visibleText = parts
-          .filter((p) => !p?.thought)
-          .map((p) => p?.text || '')
-          .join('')
-          .trim()
-
-        if (res.ok && parts.length > 0) {
-          // MAX_TOKENS con texto útil: se acepta y luego se recorta en fin de oración (clampPhoneReplyLength).
-          // MAX_TOKENS SIN texto ni función: respuesta inservible -> se intenta con el siguiente modelo.
-          if (candidate?.finishReason !== 'MAX_TOKENS' || hasFunctionCall || visibleText.length >= 40) {
-            return { data, usedModel: model }
-          }
-          lastError = `Respuesta truncada (MAX_TOKENS) en ${model}`
-          continue
-        }
-
-        lastError = data?.error?.message || `HTTP ${res.status}${candidate?.finishReason ? ` (${candidate.finishReason})` : ''}`
-        if (res.status === 404) {
-          // El MODELO no existe o fue retirado (no es culpa de la llave): saltar ese modelo 1 hora para todas las llaves
-          modelUnavailableUntil.set(model, Date.now() + 60 * 60 * 1000)
-          continue
-        }
-        if (res.status === 401 || res.status === 402 || res.status === 403) {
-          // Llave inválida, sin saldo o sin permisos: cuarentena larga de la LLAVE
-          keyQuarantineUntil.set(key, Date.now() + 6 * 60 * 60 * 1000)
-          break
-        }
-        if (res.status === 400) {
-          // Error determinista de la petición (no se arregla cambiando de llave/modelo)
-          throw new Error(`Petición inválida a Gemini: ${lastError}`)
-        }
-        if (res.status === 429) {
-          // Cuota por modelo: probar el siguiente modelo de la misma llave
-          continue
-        }
-      } catch (e: any) {
-        if (String(e?.message || '').startsWith('Petición inválida a Gemini')) throw e
-        lastError = e?.message || 'Error de red'
       }
     }
   }
@@ -1895,13 +2571,19 @@ export async function processPhoneAgentTurn(params: {
     deferDbFlush = false
   } = params
 
-  // Ejecutar lecturas de contexto, llamada existente, pre-búsqueda de menú y directorio de 15 sucursales en paralelo
-  const [ctx, existingCallRes, preFetchedMenu, allActiveStores] = await Promise.all([
+  const turnStartedAt = Date.now()
+  const turnBudgetMs = source === 'twilio' ? 11200 : 12800
+  const turnDeadline = turnStartedAt + turnBudgetMs
+
+  // Ejecutar TODAS las lecturas iniciales en paralelo (incluyendo pool de llaves Gemini y menú crudo en caché)
+  const [ctx, existingCallRes, liveMenuItems, allActiveStores] = await Promise.all([
     getStorePhoneContext(storeId),
     supabaseAdmin.from('phone_calls').select('*').eq('call_sid', callSid).maybeSingle(),
-    searchStoreMenuPrices(storeId, userText, 12),
-    loadAllActiveStoresDirectory()
+    loadStoreMenuItems(storeId),
+    loadAllActiveStoresDirectory(),
+    getGeminiKeyPoolWithRemote()
   ])
+  const preFetchedMenu = rankMenuItemsForPrompt(liveMenuItems, userText, 12)
 
   const { store, config, scheduleEval, knowledgeBase, onlineOrderUrl } = ctx
   const voiceId: VoiceId = resolvePhoneFemaleVoice(config.voice_id)
@@ -1932,20 +2614,23 @@ export async function processPhoneAgentTurn(params: {
     ensureCallRecordPromise = (async () => {
       const { data: created, error: createErr } = await supabaseAdmin
         .from('phone_calls')
-        .insert({
-          call_sid: callSid,
-          store_id: store.id,
-          source,
-          caller_number: callerNumber,
-          to_number: toNumber,
-          forwarded_from: forwardedFrom,
-          language: defaultCallLang,
-          status: 'in_progress',
-          turns_count: 0,
-          transcript: initialTranscript,
-          business_date: businessDate,
-          shift
-        })
+        .upsert(
+          {
+            call_sid: callSid,
+            store_id: store.id,
+            source,
+            caller_number: callerNumber,
+            to_number: toNumber,
+            forwarded_from: forwardedFrom,
+            language: defaultCallLang,
+            status: 'in_progress',
+            turns_count: 0,
+            transcript: initialTranscript,
+            business_date: businessDate,
+            shift
+          },
+          { onConflict: 'call_sid' }
+        )
         .select()
         .single()
       if (createErr) throw createErr
@@ -1981,30 +2666,43 @@ export async function processPhoneAgentTurn(params: {
     timestamp: new Date().toISOString()
   })
 
-  // 2. Construir las reglas de la Base de Conocimiento Editable (`phone_knowledge_base`)
-  const kbFormatted = knowledgeBase
-    .map((rule: any, idx: number) => {
-      const enPart = rule.answer_en && String(rule.answer_en).trim() ? `\n   - EN: ${String(rule.answer_en).trim()}` : ''
-      return `${idx + 1}. [${rule.category.toUpperCase()}${rule.store_id ? ` - SOLO ${store.name}` : ' - GLOBAL'}] ${rule.title}:\n   - ES: ${rule.answer_es}${enPart}`
-    })
-    .join('\n')
-
-  const turnStartedAt = Date.now()
   // Idioma de la llamada: el que ya venía en la bitácora (persistido turno a turno) o el default de la tienda.
   const callLang: PhoneLang = callRecord?.language === 'en' ? 'en' : callRecord?.language === 'es' ? 'es' : defaultCallLang
   // Detectar si el cliente habló claramente en otro idioma (ej. habla en inglés aunque la tienda inició en español)
   const turnLangGuess: PhoneLang = detectPhoneTextLanguage(userText, preferredLang || callLang)
 
-  // Validar de antemano si la transferencia en vivo al gerente es segura (E.164 válido + tienda abierta + sin bucle hacia la tienda/Twilio)
+  // 2. Construir las reglas de la Base de Conocimiento Editable únicamente en el idioma activo del turno (-4,450 chars / llamada)
+  const kbFormatted = knowledgeBase
+    .map((rule: any, idx: number) => {
+      const ruleText =
+        turnLangGuess === 'en' && rule.answer_en && String(rule.answer_en).trim()
+          ? String(rule.answer_en).trim()
+          : String(rule.answer_es || '').trim()
+      return `${idx + 1}. [${rule.category.toUpperCase()}${rule.store_id ? ` - SOLO ${store.name}` : ' - GLOBAL'}] ${rule.title}: ${ruleText}`
+    })
+    .join('\n')
+
+  // Validar de antemano si la transferencia en vivo al gerente es segura (E.164 válido + tienda abierta + sin bucle hacia ninguna sucursal ni forwardedFrom)
   const liveTransferCandidatePhone: string | null = (() => {
     if (!scheduleEval.isOpenNow || !config.allow_live_transfer || !config.manager_transfer_phone) return null
     const parsed = normalizeUsPhoneE164(config.manager_transfer_phone)
     if (!parsed.valid || !parsed.normalized || !parsed.tenDigits) return null
-    const storeDigits = extractPhoneDigits(store.phone)
-    const store10 = storeDigits.length === 11 && storeDigits.startsWith('1') ? storeDigits.slice(1) : storeDigits
-    const twDigits = extractPhoneDigits(config.twilio_phone_number)
-    const tw10 = twDigits.length === 11 && twDigits.startsWith('1') ? twDigits.slice(1) : twDigits
-    if ((store10 && store10 === parsed.tenDigits) || (tw10 && tw10 === parsed.tenDigits)) {
+    const normalizeTen = (raw: string | null | undefined) => {
+      const d = extractPhoneDigits(raw)
+      return d.length === 11 && d.startsWith('1') ? d.slice(1) : d
+    }
+    const blockedTenDigits = new Set<string>()
+    const store10 = normalizeTen(store.phone)
+    const tw10 = normalizeTen(config.twilio_phone_number)
+    const fwd10 = normalizeTen(forwardedFrom)
+    if (store10) blockedTenDigits.add(store10)
+    if (tw10) blockedTenDigits.add(tw10)
+    if (fwd10) blockedTenDigits.add(fwd10)
+    for (const s of allActiveStores) {
+      const other10 = normalizeTen(s.phone)
+      if (other10) blockedTenDigits.add(other10)
+    }
+    if (blockedTenDigits.has(parsed.tenDigits)) {
       console.warn(`[phone-agent] Transferencia bloqueada por protección anti-bucle en tienda #${store.id}`)
       return null
     }
@@ -2019,6 +2717,15 @@ export async function processPhoneAgentTurn(params: {
         (t: any) => t?.role === 'tool' && t?.toolName === 'create_manager_callback' && String(t?.text || '').includes('"success":true')
       ))
 
+  // Fecha calendario exacta en California (para no confundir hoy/mañana con festivos de fechas futuras)
+  const ptNow = getPacificDateParts()
+  const [calY, calM, calD] = ptNow.dateStr.split('-').map(Number)
+  const tomorrowUtc = new Date(Date.UTC(calY, calM - 1, calD + 1))
+  const tomorrowDateStr = tomorrowUtc.toISOString().slice(0, 10)
+  const tomorrowDow = (ptNow.dayOfWeek + 1) % 7
+  const todayDayLabelEs = DAY_NAMES_ES[ptNow.dayOfWeek]
+  const tomorrowDayLabelEs = DAY_NAMES_ES[tomorrowDow]
+
   // Días festivos próximos (fusión en tiempo real: overrides por tienda/globales en `phone_special_hours` + calendario perpetuo `lib/holidays.ts`)
   const upcomingHolidays = buildEffectiveUpcomingHolidaysForStore({
     storeId: store.id,
@@ -2027,43 +2734,57 @@ export async function processPhoneAgentTurn(params: {
     fromDateStr: businessDate,
     daysAhead: 180
   })
+  const todayHoliday = upcomingHolidays.find((h) => h.event_date === ptNow.dateStr) || null
+  const tomorrowHoliday = upcomingHolidays.find((h) => h.event_date === tomorrowDateStr) || null
+  const calendarDateLine = `- Fecha calendario actual en California: HOY es ${todayDayLabelEs} ${ptNow.dateStr} (${todayHoliday ? `SÍ es día festivo: ${todayHoliday.holiday_name}` : 'día laboral normal SIN horario festivo'}) | MAÑANA es ${tomorrowDayLabelEs} ${tomorrowDateStr} (${tomorrowHoliday ? `SÍ es día festivo: ${tomorrowHoliday.holiday_name}` : 'día normal SIN horario festivo; aplica horario semanal regular'}).`
+
   const holidaysContextLine =
     upcomingHolidays.length > 0
-      ? `- Horarios Especiales / Días Festivos oficiales de esta sucursal (${store.name}): ` +
+      ? `- Horarios Especiales / Días Festivos FUTUROS de esta sucursal (${store.name}): ` +
         upcomingHolidays
           .slice(0, 10)
           .map((h) => {
+            const relTag =
+              h.event_date === ptNow.dateStr
+                ? ' [APLICA HOY]'
+                : h.event_date === tomorrowDateStr
+                  ? ' [APLICA MAÑANA]'
+                  : ' [FECHA FUTURA - NO aplica hoy ni mañana]'
             if (h.is_closed) {
-              return `${h.event_date} (${h.holiday_name}): CERRADO TODO EL DÍA`
+              return `${h.event_date} (${h.holiday_name}): CERRADO TODO EL DÍA${relTag}`
             }
             const note = h.is_early_close_only
               ? ' [cierre temprano]'
               : h.is_late_open_only
                 ? ' [apertura tarde]'
                 : ' [horario especial]'
-            return `${h.event_date} (${h.holiday_name}): ${formatTime12h(h.effective_open, 'es')} a ${formatTime12h(h.effective_close, 'es')}${note}`
+            return `${h.event_date} (${h.holiday_name}): ${formatTime12h(h.effective_open, 'es')} a ${formatTime12h(h.effective_close, 'es')}${note}${relTag}`
           })
           .join(' | ') +
         `\n  (Todos los demás días festivos como Super Bowl, Domingo de Pascua, Cinco de Mayo, Día de las Madres, Memorial Day, 4 de Julio, Labor Day, 15 y 16 de Septiembre, Halloween y 12 de Diciembre operan en nuestro horario semanal regular normal).`
       : `- Horarios Especiales / Días Festivos: No hay cierres festivos especiales próximos; aplica el horario semanal regular.`
 
-  // Catálogo de precios generado EN VIVO desde `app_menu_cache` (ya está en la caché RAM por la pre-búsqueda)
-  const liveMenuItems = await loadStoreMenuItems(store.id)
+  // Catálogo de precios generado EN VIVO desde `app_menu_cache` (ya cargado en paralelo en el paso 0)
   const menuCatalogSummary = buildLiveMenuCatalogText(store.name, liveMenuItems)
 
   const menuPreContext =
     preFetchedMenu.length > 0
       ? `\nCOINCIDENCIAS DEL MENÚ PARA ESTA PREGUNTA:\n` +
-        preFetchedMenu.map((m) => `- ${m.name} (${m.category}): ${m.priceFormatted}`).join('\n')
+        preFetchedMenu
+          .map((m) => {
+            const desc = String(m.description || '').replace(/\s+/g, ' ').trim()
+            return `- ${m.name} (${m.category}): ${m.priceFormatted}${desc ? ` — ${desc}` : ''}`
+          })
+          .join('\n')
       : ''
 
   const platterInfo = recommendFiestaPlatters(null)
   const platterPreContext =
-    `\nCHAROLAS FIESTA PLATTER OFICIALES (se piden en línea en tacosgavilan.com con mínimo 1 hora de anticipación; incluyen carne a elegir entre Carne Asada, Pollo o Al Pastor, arroz, frijol, aguas frescas de Horchata, Jamaica, Piña o Tamarindo, tortillas de maíz o harina, salsas, cebolla, cilantro, limones, chiles en vinagre y desechables completos; para más de 40 personas usa \`get_fiesta_platter_packages\`):\n` +
+    `\nCHAROLAS FIESTA PLATTER OFICIALES (se piden en línea en tacosgavilan.com con mínimo 1 hora de anticipación; incluyen carne a elegir entre Carne Asada, Pollo o Al Pastor, arroz, frijol, aguas frescas de Horchata, Jamaica, Piña o Tamarindo, tortillas de maíz o harina, salsas, verdura y desechables completos; para más de 40 personas usa \`get_fiesta_platter_packages\`):\n` +
     platterInfo.packages
       .map(
         (p) =>
-          `- ${p.labelEs}: $${p.price.toFixed(2)} (${p.meatLbs} libras de carne, ${p.riceBeansTray} y ${p.aguasGallons} galones de agua fresca)`
+          `- ${p.labelEs}: $${p.price.toFixed(2)} (${p.meatLbs} lbs carne, ${p.riceBeansTrayEs}, ${p.cornTortillasDozens} docenas maíz o ${p.flourTortillasDozens} harina, ${p.aguasGallons} galones agua fresca)`
       )
       .join('\n')
 
@@ -2102,21 +2823,27 @@ export async function processPhoneAgentTurn(params: {
 
   const spokenStoreAddress = formatStoreAddressForAgent(store.address, turnLangGuess, { includeZip: false })
   const storeZipCode = extractZipCodeFromAddress(store.address)
+  const crossStoreComparison =
+    allActiveStores.length > 0
+      ? buildCrossStoreHoursComparison(allActiveStores, turnLangGuess, ctx.specialHours || [])
+      : ''
   const storesDirectoryBlock =
     allActiveStores.length > 0
-      ? `\nDIRECTORIO OFICIAL VERIFICADO DE LAS 15 SUCURSALES DE TACOS GAVILAN (USA EXCLUSIVAMENTE ESTAS DIRECCIONES Y TELÉFONOS REALES; JAMÁS INVENTES CALLES NI NÚMEROS. Si preguntan horario o si otra sucursal está abierta ahorita, llama \`find_other_stores\`):\n` +
+      ? `\nDIRECTORIO OFICIAL VERIFICADO DE LAS 15 SUCURSALES DE TACOS GAVILAN (USA EXCLUSIVAMENTE ESTAS DIRECCIONES, TELÉFONOS Y HORARIOS REALES; JAMÁS INVENTES CALLES NI NÚMEROS. CADA SUCURSAL TIENE SU PROPIO HORARIO — NUNCA ASUMAS QUE TODAS LAS SUCURSALES O TODAS LAS DRIVE-THRU CIERRAN A LA MISMA HORA. Si preguntan cuál abre o cierra más tarde, revisa primero el bloque COMPARATIVA EXACTA EN VIVO de abajo o llama \`find_other_stores\`):\n` +
         allActiveStores
           .map(
             (s) =>
-              `- #${s.id} ${s.name}: ${formatStoreAddressForAgent(s.address, turnLangGuess, { includeZip: false })} | Tel: ${s.phone} | ${s.has_drive_thru ? 'CON Drive-Thru' : 'Sin Drive-Thru'}`
+              `- #${s.id} ${s.name}: ${formatStoreAddressForAgent(s.address, turnLangGuess, { includeZip: false })} | Tel: ${s.phone} | ${s.has_drive_thru ? 'CON Drive-Thru' : 'Sin Drive-Thru'} | Horario: ${turnLangGuess === 'en' ? s.compactHoursEn : s.compactHoursEs}`
           )
-          .join('\n')
+          .join('\n') +
+        (crossStoreComparison ? `\n\n${crossStoreComparison}` : '')
       : ''
 
   const systemInstruction = `Eres la recepcionista telefónica virtual oficial de **Tacos Gavilan** en la sucursal **${store.name}** (Sucursal #${store.id}).
 El nombre oficial de la marca es estrictamente **Tacos Gavilan** (NUNCA digas "Tacos El Gavilan", ni escribas "(LA)" junto a Central o Broadway).
 
 DATOS EN VIVO DE ESTA SUCURSAL (${store.name}):
+${calendarDateLine}
 - Estado actual en vivo (Zona Horaria Pacífico): ${scheduleEval.statusMessageEs} / ${scheduleEval.statusMessageEn}
 - Horario de la semana: ${scheduleEval.weeklySummaryEs}
 ${holidaysContextLine}
@@ -2142,8 +2869,11 @@ MAPA DE EJECUCIÓN DE ESCENARIOS Y REGLAS ESTRICTAS DE DIÁLOGO:
 1. **CERO MULETILLAS Y CERO REPETICIÓN DE "¡SÍ!"**:
    - **PROHIBIDO** empezar tus respuestas con "¡Sí!", "¡Claro que sí!", "¡Claro!", "¡Por supuesto!", "¡Hola!" o "Yes!".
    - Cuando el cliente hace varias preguntas a la vez (ej. "¿Están abiertos, a qué hora cierran y tienen Drive-Thru?"), **NUNCA** digas "Sí" dos veces. Integra todo en una sola oración fluida. Ejemplo para este momento: ${hoursExampleEs}
-2. **Precios del Menú y Platillos No Manejados**:
-   - Da los precios exactos del CATÁLOGO EN VIVO de arriba, respetando el tamaño (Medium/Mediana vs Large/Grande) y la carne que pidió. Si preguntan por platillos o bebidas que NO vendemos en el catálogo (ej. menudo, birria, pozole, cerveza o alcohol), aclara con amabilidad que no los manejamos y menciona brevemente nuestras opciones reales SIN llamar a \`flag_unanswered_question\`. Reserva \`flag_unanswered_question\` solo para dudas operativas o políticas especiales que no estén en la Base de Conocimiento (ej. llevar pastel, descuentos escolares).
+2. **Precios del Menú, Medidas de Bebidas, Ingredientes (Regular vs Super) y Platillos No Manejados**:
+   - Da los precios exactos del CATÁLOGO EN VIVO de arriba, respetando el tamaño (Medium/Mediana vs Large/Grande) y la carne que pidió. Si el dato YA aparece en el CATÁLOGO EN VIVO, COINCIDENCIAS DEL MENÚ, DIRECTORIO o CHAROLAS de arriba, **RESPONDE DE INMEDIATO SIN LLAMAR HERRAMIENTAS** para mantener la llamada telefónica ultrarrápida.
+   - Medidas reales de bebidas: Aguas Frescas y Sodas de fuente vienen en vaso **Mediano de 22 onzas ($3.59)**, vaso **Grande de 32 onzas ($4.09)** y **Galón de 128 onzas ($14.59, rinde aprox. 5 vasos medianos)**; **Agua Embotellada ($1.19)**; bebidas calientes incluyen **Champurrado ($4.09)** en vaso individual, **Caja de Champurrado para llevar de 96 onzas ($27.89, rinde aprox. 8 vasos de 12 onzas)** y **Café ($2.59)**.
+   - Si preguntan qué incluye un platillo o la diferencia entre Regular/sencillo y Super, responde ÚNICAMENTE con los ingredientes de la Base de Conocimiento y las notas \`Prep Toast\` del catálogo (NUNCA digas que la diferencia es solo el tamaño ni inventes ingredientes externos como pierna de puerco, cebolla, cilantro o jalapeños donde Toast no los lista): en Quesadillas y Mulitas, la Super agrega guacamole y crema al queso (y carne opcional); en Burritos, el Regular lleva carne, arroz y frijol, y el Super agrega queso, guacamole y crema; en Torta Cubana, lleva exactamente milanesa de res (Breaded Steak), jamón y salchicha (Wiener) con lechuga, tomate, mayonesa, guacamole, frijoles y queso.
+   - Si preguntan por platillos o bebidas que NO vendemos (ej. menudo, birria, pozole, cerveza) o hacen preguntas fuera de tema (chistes, música, deportes, trivia), contesta breve y cordialmente sin inventar y **NUNCA** llames \`flag_unanswered_question\`. Reserva \`flag_unanswered_question\` únicamente para dudas operativas legítimas del negocio que no estén en la Base de Conocimiento.
 3. **Charolas Fiesta Platters**:
    - Recomienda el paquete según el número de invitados usando los precios oficiales de arriba (si son exactamente 30 personas, menciona el de 25 a 30 y el de 30 a 40; si son más de 40 personas, llama a \`get_fiesta_platter_packages\` para dar la combinación y total exacto). Indica que se piden en tacosgavilan.com con mínimo 1 hora de anticipación.
 4. **Pedidos por Teléfono**:
@@ -2203,9 +2933,6 @@ MAPA DE EJECUCIÓN DE ESCENARIOS Y REGLAS ESTRICTAS DE DIÁLOGO:
   let unansweredFlagged: string | null = null
   let replyText = ''
   let geminiFailed = false
-  // Presupuesto total del turno: Twilio espera la respuesta del webhook ~15 s
-  const turnDeadline = turnStartedAt + 13000
-
   const VALID_URGENCY = new Set(['high', 'critical', 'normal'])
   const VALID_REASON = new Set(['missing_or_wrong_item', 'lost_item', 'employee_callout', 'vendor_arrival', 'billing_refund', 'other'])
 
@@ -2222,7 +2949,7 @@ MAPA DE EJECUCIÓN DE ESCENARIOS Y REGLAS ESTRICTAS DE DIÁLOGO:
     }
     if (toolName === 'search_menu_item_price') {
       const q = String(toolArgs?.query || '')
-      const matches = await searchStoreMenuPrices(store.id, q, 8)
+      const matches = rankMenuItemsForPrompt(liveMenuItems, q, 8)
       return { storeName: store.name, query: q, matchesFound: matches.length, items: matches }
     }
     if (toolName === 'get_fiesta_platter_packages') {
@@ -2230,9 +2957,9 @@ MAPA DE EJECUCIÓN DE ESCENARIOS Y REGLAS ESTRICTAS DE DIÁLOGO:
       return recommendFiestaPlatters(Number.isFinite(guestCount) && guestCount > 0 && guestCount <= 500 ? guestCount : null)
     }
     if (toolName === 'find_other_stores') {
-      const [{ data: allStores }, { data: allSpecialHours }] = await Promise.all([
-        supabaseAdmin.from('stores').select('id, name, address, phone, has_drive_thru, weekly_hours, is_active').order('id'),
-        supabaseAdmin.from('phone_special_hours').select('*')
+      const [activeStores, allSpecialHours] = await Promise.all([
+        allActiveStores.length > 0 ? Promise.resolve(allActiveStores) : loadAllActiveStoresDirectory(),
+        loadAllSpecialHoursCached()
       ])
       const REGION_STORE_IDS: Record<string, number[]> = {
         'east la': [11, 13],
@@ -2250,66 +2977,89 @@ MAPA DE EJECUCIÓN DE ESCENARIOS Y REGLAS ESTRICTAS DE DIÁLOGO:
       }
       const filterNorm = normalizeSearchText(toolArgs?.search_city_or_filter || '')
       const matchedRegionIds = Object.entries(REGION_STORE_IDS).find(([alias]) => filterNorm.includes(alias))?.[1] || null
+      const isScheduleComparisonFilter =
+        !filterNorm ||
+        /^(all|todas|todos|sucursales|stores|horario|horarios|hours)$/.test(filterNorm) ||
+        (/\b(tarde|temprano|late|latest|early|earliest|cierra|cierran|abre|abren|domingo|lunes|martes|miercoles|jueves|viernes|sabado|sunday|monday|tuesday|wednesday|thursday|friday|saturday|semana|weekend)\b/.test(
+          filterNorm
+        ) &&
+          !matchedRegionIds)
 
-      const filtered = (allStores || [])
-        .filter((s: any) => s.is_active !== false)
-        .filter((s: any) => {
-          if (!filterNorm) return true
-          if (filterNorm.includes('drive')) return Boolean(s.has_drive_thru)
-          if (matchedRegionIds) return matchedRegionIds.includes(Number(s.id))
-          return normalizeSearchText(`${s.name} ${cleanPhoneStoreName(s.name)} ${s.address}`).includes(filterNorm)
+      const matchedStores = activeStores.filter((s: any) => {
+        if (filterNorm.includes('drive')) return Boolean(s.has_drive_thru)
+        if (isScheduleComparisonFilter) return true
+        if (matchedRegionIds) return matchedRegionIds.includes(Number(s.id))
+        return normalizeSearchText(`${s.name} ${cleanPhoneStoreName(s.name)} ${s.address}`).includes(filterNorm)
+      })
+      const targetStores = matchedStores.length > 0 ? matchedStores : activeStores
+      const comparisonSummary = buildCrossStoreHoursComparison(activeStores, turnLangGuess, allSpecialHours || [])
+
+      const filtered = targetStores.map((s: any) => {
+        const ev = evaluateStoreSchedulePure({
+          storeId: Number(s.id),
+          storeName: s.name,
+          weeklyHours: s.weekly_hours,
+          specialHours: allSpecialHours || []
         })
-        .map((s: any) => {
-          const ev = evaluateStoreSchedulePure({
-            storeId: Number(s.id),
-            storeName: s.name,
-            weeklyHours: s.weekly_hours,
-            specialHours: allSpecialHours || []
-          })
-          return {
-            id: s.id,
-            name: cleanPhoneStoreName(s.name),
-            address: formatStoreAddressForAgent(s.address, turnLangGuess, { includeZip: false }),
-            zip_code: extractZipCodeFromAddress(s.address),
-            phone: s.phone,
-            has_drive_thru: s.has_drive_thru,
-            isOpenNow: ev.isOpenNow,
-            todayHoursEs: ev.todayOpen === 'CLOSED' ? 'Cerrado hoy' : `${ev.todayOpenFormattedEs} - ${ev.todayCloseFormattedEs}`,
-            todayHoursEn: ev.todayOpen === 'CLOSED' ? 'Closed today' : `${ev.todayOpenFormattedEn} - ${ev.todayCloseFormattedEn}`,
-            statusMessageEs: ev.statusMessageEs,
-            statusMessageEn: ev.statusMessageEn
-          }
-        })
-      return { stores: filtered }
+        return {
+          id: s.id,
+          name: cleanPhoneStoreName(s.name),
+          address: formatStoreAddressForAgent(s.address, turnLangGuess, { includeZip: false }),
+          zip_code: extractZipCodeFromAddress(s.address),
+          phone: s.phone,
+          has_drive_thru: s.has_drive_thru,
+          isOpenNow: ev.isOpenNow,
+          activeDayEs: ev.activeDayLabelEs,
+          activeDayEn: ev.activeDayLabelEn,
+          todayHoursEs: ev.todayOpen === 'CLOSED' ? 'Cerrado hoy' : `${ev.todayOpenFormattedEs} - ${ev.todayCloseFormattedEs}`,
+          todayHoursEn: ev.todayOpen === 'CLOSED' ? 'Closed today' : `${ev.todayOpenFormattedEn} - ${ev.todayCloseFormattedEn}`,
+          weeklyHoursCompactEs: buildCompactWeeklyHours(s.weekly_hours, 'es'),
+          weeklyHoursCompactEn: buildCompactWeeklyHours(s.weekly_hours, 'en'),
+          weeklySummaryEs: ev.weeklySummaryEs,
+          weeklySummaryEn: ev.weeklySummaryEn,
+          statusMessageEs: ev.statusMessageEs,
+          statusMessageEn: ev.statusMessageEn
+        }
+      })
+      return { comparisonSummary, stores: filtered }
     }
     if (toolName === 'create_manager_callback') {
       const ensuredCall = await ensureCallRecord()
       const reasonSummary = String(toolArgs?.reason_summary || userText).trim()
       const argPhoneRaw = String(toolArgs?.caller_phone || '').trim()
-      const argPhoneDigits = extractPhoneDigits(argPhoneRaw)
-      const fallbackCallerDigits = source === 'twilio' && callerNumber ? extractPhoneDigits(callerNumber) : ''
-      const resolvedPhoneRaw =
-        argPhoneDigits.length >= 7
-          ? argPhoneRaw
-          : fallbackCallerDigits.length >= 7
-            ? String(callerNumber).trim()
-            : ''
-      const resolvedPhoneNorm = normalizeUsPhoneE164(resolvedPhoneRaw)
-      const cleanCallbackPhone = resolvedPhoneNorm.valid && resolvedPhoneNorm.normalized ? resolvedPhoneNorm.normalized : resolvedPhoneRaw
+      const isFakePhone = (rawDigits: string) => {
+        const d = rawDigits.length === 11 && rawDigits.startsWith('1') ? rawDigits.slice(1) : rawDigits
+        if (d.length !== 10) return true
+        if (/^(\d)\1{9}$/.test(d)) return true
+        if (d.endsWith('0000') && d.startsWith('000')) return true
+        if (d.slice(3, 6) === '555' && /^01\d\d$/.test(d.slice(6))) return false // reservado test solo si simulador; en Twilio rechazar abajo
+        return /^000|111|999/.test(d) || d.slice(3) === '0000000'
+      }
+      const parsedArg = normalizeUsPhoneE164(argPhoneRaw)
+      const parsedCaller = source === 'twilio' && callerNumber ? normalizeUsPhoneE164(callerNumber) : { valid: false, normalized: null, tenDigits: null }
+      const argIsClean = parsedArg.valid && parsedArg.tenDigits && !isFakePhone(parsedArg.tenDigits) && !(source === 'twilio' && parsedArg.tenDigits.slice(3, 6) === '555')
+      const callerIsClean = parsedCaller.valid && parsedCaller.tenDigits && !isFakePhone(parsedCaller.tenDigits)
+      const cleanCallbackPhone = argIsClean
+        ? parsedArg.normalized!
+        : callerIsClean
+          ? parsedCaller.normalized!
+          : ''
 
-      // Anti-duplicados: si esta llamada ya tiene un recado pendiente, se anexa el detalle y se enriquecen campos faltantes
+      // Anti-duplicados: omitir SELECT a DB si la llamada no ha tenido recados aún en memoria
       const existingPending =
         callbackCreated ||
-        (
-          await supabaseAdmin
-            .from('phone_callback_requests')
-            .select('*')
-            .eq('call_id', ensuredCall.id)
-            .eq('status', 'pending')
-            .order('created_at', { ascending: false })
-            .limit(1)
-            .maybeSingle()
-        ).data
+        (hadPriorCallbackInCall
+          ? (
+              await supabaseAdmin
+                .from('phone_callback_requests')
+                .select('*')
+                .eq('call_id', ensuredCall.id)
+                .eq('status', 'pending')
+                .order('created_at', { ascending: false })
+                .limit(1)
+                .maybeSingle()
+            ).data
+          : null)
 
       if (existingPending) {
         const prevSummary = String(existingPending.reason_summary || '')
@@ -2349,13 +3099,13 @@ MAPA DE EJECUCIÓN DE ESCENARIOS Y REGLAS ESTRICTAS DE DIÁLOGO:
         }
       }
 
-      // Validación estricta: NUNCA guardar un recado sin teléfono real de contacto (>= 7 dígitos)
-      if (!cleanCallbackPhone || extractPhoneDigits(cleanCallbackPhone).length < 7) {
+      // Validación estricta: NUNCA guardar un recado sin teléfono real válido de 10 dígitos
+      if (!cleanCallbackPhone) {
         return {
           success: false,
           missingCallerPhone: true,
           message:
-            'Aún NO cuentas con un número telefónico real de contacto (mínimo 10 dígitos). Pídele amablemente su nombre y número de teléfono de 10 dígitos antes de registrar el recado.'
+            'Aún NO cuentas con un número telefónico real válido de 10 dígitos con código de área. Pídele amablemente su nombre y su número de teléfono de 10 dígitos antes de registrar el recado.'
         }
       }
 
@@ -2387,16 +3137,23 @@ MAPA DE EJECUCIÓN DE ESCENARIOS Y REGLAS ESTRICTAS DE DIÁLOGO:
       }
     }
     if (toolName === 'flag_unanswered_question') {
-      unansweredFlagged = String(toolArgs?.question_text || userText).slice(0, 300)
-      return { recorded: true }
+      const qRaw = String(toolArgs?.question_text || userText).slice(0, 300)
+      const isOffTopicTrivia = /\b(chiste|joke|cancion|canta|song|sing|banda|rock|heroes del silencio|futbol|soccer|nfl|nba|clima|weather|presidente|politica)\b/i.test(
+        normalizeSearchText(`${userText} ${qRaw}`)
+      )
+      if (!isOffTopicTrivia) {
+        unansweredFlagged = qRaw
+      }
+      return { recorded: !isOffTopicTrivia }
     }
     return { error: `Herramienta desconocida: ${toolName}` }
   }
 
+  let pinnedModelForTurn: string | null = null
   for (let round = 0; round < 3 && !replyText; round++) {
     let data: any
     try {
-      ;({ data } = await callGeminiPhoneWithFailover(
+      const resGemini = await callGeminiPhoneWithFailover(
         {
           systemInstruction: { parts: [{ text: systemInstruction }] },
           contents,
@@ -2406,8 +3163,13 @@ MAPA DE EJECUCIÓN DE ESCENARIOS Y REGLAS ESTRICTAS DE DIÁLOGO:
             maxOutputTokens: 1024
           }
         },
-        turnDeadline
-      ))
+        turnDeadline,
+        pinnedModelForTurn
+      )
+      data = resGemini.data
+      if (!pinnedModelForTurn && resGemini.usedModel) {
+        pinnedModelForTurn = resGemini.usedModel
+      }
     } catch (e) {
       console.error('[phone-agent] Gemini no disponible en este turno:', e)
       geminiFailed = true
@@ -2501,12 +3263,16 @@ MAPA DE EJECUCIÓN DE ESCENARIOS Y REGLAS ESTRICTAS DE DIÁLOGO:
     timestamp: new Date().toISOString()
   })
 
+  const normEnd = normalizeSearchText(userText)
+  const continuesAsking =
+    /[?¿]/.test(userText) ||
+    /\b(mejor dime|espera|una pregunta|otra pregunta|y cuanto|a que hora|one more|wait|actually)\b/i.test(normEnd)
   const shouldHangup =
     !shouldTransferToPhone &&
     (meta.primaryIntent === 'spam' ||
-      (!/[?¿]/.test(userText) &&
-        /\b(gracias es todo|eso es todo|nada mas gracias|bye|goodbye|thank you that is all|thats all|adios)\b/i.test(
-          normalizeSearchText(userText)
+      (!continuesAsking &&
+        /\b(gracias es todo|eso es todo|nada mas gracias|seria todo gracias|bye|goodbye|thank you that is all|thats all|adios|nos vemos)\b/i.test(
+          normEnd
         )))
 
   const finalCallRecord = await ensureCallRecord()
@@ -2551,7 +3317,11 @@ MAPA DE EJECUCIÓN DE ESCENARIOS Y REGLAS ESTRICTAS DE DIÁLOGO:
   }
 
   const flushDbPromise = (async () => {
-    const { error: updateErr } = await supabaseAdmin.from('phone_calls').update(updatePayload).eq('id', finalCallRecord.id)
+    // Asegurar no degradar estados terminales ya alcanzados ('transferred' / 'callback_requested')
+    const { error: updateErr } = await supabaseAdmin
+      .from('phone_calls')
+      .update(updatePayload)
+      .eq('id', finalCallRecord.id)
     if (updateErr) {
       console.error('[phone-agent] No se pudo actualizar la bitácora de la llamada:', updateErr.message)
     }
@@ -2639,13 +3409,35 @@ export function verifyPhoneTtsSignature(text: string, lang: string, voice: strin
   }
 }
 
+const TWILIO_GATHER_HINTS =
+  'Tacos Gavilan, asada, pastor, pollo, cabeza, lengua, buche, chorizo, carnitas, mulita, super mulita, vampiro, torta cubana, super burrito, quesadilla, super quesadilla, taco plate, combo, horchata, jamaica, pina, champurrado, fiesta platter, charola, drive thru, EBT, CalFresh, West Covina, Lynwood, South Gate, Downey, Norwalk, La Puente, Huntington Park, Santa Ana, Rialto, Azusa, Bell, Hollywood, Slauson, Central, Broadway, gerente, manager'
+
 /**
- * Construye la URL firmada de audio telefónico (`/api/phone/tts?lang&voice&text&sig`).
+ * Genera los atributos estándar optimizados de Twilio `<Gather input="speech dtmf">`
+ * con `speechTimeout="1"`, `speechModel="phone_call"`, `enhanced="true"` y `hints` de Tacos Gavilan.
  */
-export function buildPhoneTtsUrl(baseUrl: string, text: string, lang: PhoneLang, voice: string = 'Kore'): string {
+export function buildTwilioGatherAttrs(lang: PhoneLang, actionUrl: string): string {
+  const speechLang = lang === 'en' ? 'en-US' : 'es-US'
+  return `input="speech dtmf" numDigits="1" language="${speechLang}" speechTimeout="1" speechModel="phone_call" enhanced="true" hints="${escapeXml(TWILIO_GATHER_HINTS)}" action="${escapeXml(actionUrl)}" method="POST"`
+}
+
+/**
+ * Construye la URL firmada de audio telefónico (`/api/phone/tts?lang&voice&text&sig[&rate=8000]`).
+ * Para llamadas telefónicas reales de Twilio (baseUrl presente), solicita 8 kHz PSTN (`&rate=8000`, -66% peso)
+ * mientras conserva 24 kHz HD cuando `rate = 24000` o `baseUrl = ''` (Simulador Web).
+ */
+export function buildPhoneTtsUrl(
+  baseUrl: string,
+  text: string,
+  lang: PhoneLang,
+  voice: string = 'Kore',
+  rate?: 8000 | 24000
+): string {
   const cleanText = String(text || '').trim()
   const sig = signPhoneTtsParams(cleanText, lang, voice)
-  return `${baseUrl}/api/phone/tts?lang=${lang}&voice=${encodeURIComponent(voice)}&text=${encodeURIComponent(cleanText)}&sig=${sig}`
+  const effectiveRate = rate ?? (baseUrl ? 8000 : 24000)
+  const rateParam = effectiveRate === 8000 ? '&rate=8000' : ''
+  return `${baseUrl}/api/phone/tts?lang=${lang}&voice=${encodeURIComponent(voice)}&text=${encodeURIComponent(cleanText)}&sig=${sig}${rateParam}`
 }
 
 /**

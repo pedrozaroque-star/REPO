@@ -13,6 +13,7 @@
  * - Reemplaza de forma segura las filas de `public.app_menu_cache` codificando la secuencia exacta en `last_synced` (+10ms por ítem) y metadatos de ordenamiento.
  * @notes
  * - Garantiza paridad 1:1 en orden de categorías, orden de productos, fotografías S3 y modificadores con Toast Local / Toast Online Ordering.
+ * - Solo sincroniza sucursales activas (`is_active = true`) y ejecuta rollback en bloques de 50 filas con logging de errores si falla Toast.
  */
 
 import { NextRequest, NextResponse } from 'next/server'
@@ -113,6 +114,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const { data: stores, error: storesErr } = await supabaseAdmin
       .from('stores')
       .select('id, name, external_id')
+      .eq('is_active', true)
       .order('id')
 
     if (storesErr || !stores || stores.length === 0) {
@@ -352,8 +354,28 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
           msg
         )
         if (previousRows && previousRows.length > 0) {
-          await supabaseAdmin.from('app_menu_cache').delete().eq('store_id', store.id)
-          await supabaseAdmin.from('app_menu_cache').insert(previousRows)
+          const { error: delRestoreErr } = await supabaseAdmin
+            .from('app_menu_cache')
+            .delete()
+            .eq('store_id', store.id)
+          if (delRestoreErr) {
+            console.error(
+              `❌ [MOBILE MENU SYNC] Error limpiando caché fallido de tienda ${store.id}:`,
+              delRestoreErr.message
+            )
+          }
+          for (let c = 0; c < previousRows.length; c += 50) {
+            const chunk = previousRows.slice(c, c + 50)
+            const { error: insRestoreErr } = await supabaseAdmin
+              .from('app_menu_cache')
+              .insert(chunk)
+            if (insRestoreErr) {
+              console.error(
+                `❌ [MOBILE MENU SYNC] Error restaurando lote ${Math.floor(c / 50) + 1} de respaldo tienda ${store.id}:`,
+                insRestoreErr.message
+              )
+            }
+          }
         }
         storeResults.push({
           storeId: store.id,

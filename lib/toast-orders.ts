@@ -21,6 +21,7 @@
  * 
  * @notes
  * - Soporta ejecución reactiva (disparo JIT por geofence / curbside) y periódica vía processOutboxOrders().
+ * - Envía dining option dinámica para Delivery/Curbside/Takeout, pasa modifier quantity y optionGroupGuid/optionGuid reales, y aplica timeouts explícitos (10s/15s).
  */
 
 import { supabaseAdmin } from '@/lib/supabase'
@@ -43,6 +44,7 @@ export async function getDiningOptionsMap(
         Authorization: `Bearer ${token}`,
         'Toast-Restaurant-External-ID': restaurantGuid,
       },
+      signal: AbortSignal.timeout(10_000),
     })
 
     if (!res.ok) {
@@ -198,6 +200,7 @@ export async function injectOrderToToast(orderId: string): Promise<ToastInjectio
     const diningOptions = await getDiningOptionsMap(token, restaurantGuid)
     const pickupMethod = (order.pickup_method || 'in_store').toLowerCase()
     const targetOptionName =
+      pickupMethod === 'delivery' ? 'Delivery' :
       pickupMethod === 'curbside' ? 'Curbside' :
       pickupMethod === 'drive_thru' ? 'Drive-Thru' : 'Takeout'
 
@@ -209,7 +212,7 @@ export async function injectOrderToToast(orderId: string): Promise<ToastInjectio
       }
     }
 
-    // Fallback a takeout si no encuentra curbside
+    // Fallback a takeout si no encuentra curbside/delivery
     if (!matchedOptionGuid) {
       for (const [guid, name] of Object.entries(diningOptions)) {
         if (name.toLowerCase().includes('takeout') || name.toLowerCase().includes('to go')) {
@@ -231,11 +234,15 @@ export async function injectOrderToToast(orderId: string): Promise<ToastInjectio
         item: { guid: itemGuid },
         quantity: item.quantity || item.qty || 1,
         price: Number(item.unit_price || item.unitPrice || item.price || 0),
-        modifiers: itemModifiers.map((mod: any) => ({
-          optionGroup: mod.groupGuid ? { guid: mod.groupGuid } : undefined,
-          item: { guid: mod.guid },
-          price: Number(mod.price || 0),
-        })),
+        modifiers: itemModifiers.map((mod: any) => {
+          const resolvedGroupGuid = mod.optionGroupGuid || mod.groupGuid
+          return {
+            optionGroup: resolvedGroupGuid ? { guid: resolvedGroupGuid } : undefined,
+            item: { guid: mod.guid || mod.optionGuid },
+            quantity: Number(mod.qty || mod.quantity || 1),
+            price: Number(mod.price || 0),
+          }
+        }),
       }
     })
 
@@ -280,6 +287,7 @@ export async function injectOrderToToast(orderId: string): Promise<ToastInjectio
         'Toast-Restaurant-External-ID': restaurantGuid,
       },
       body: JSON.stringify(toastOrderPayload),
+      signal: AbortSignal.timeout(15_000),
     })
 
     if (!res.ok) {

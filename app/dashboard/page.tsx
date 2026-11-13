@@ -286,26 +286,26 @@ function DashboardContent() {
                 storeId: s.storeId
             })).sort((a, b) => b.avg - a.avg).slice(0, 50)
 
-            // 2. Feedback Query (incluye google_place_id para el modal y offset LA)
-            let queryFeedback = supabase
-                .from('customer_feedback')
-                .select('*, stores(name,code,city,state,google_place_id)')
-                .order('submission_date', { ascending: false })
-                .limit(500)
-
+            // 2. Feedback Query + 3. KPIs (server-side, bypasses RLS) + Anomalías (parallel)
+            const fbParams = new URLSearchParams({ mode: 'dashboard' })
             if (timeFilter !== 'all') {
                 const { startTs, endTs } = getRangeTimestampsLA(startDateStr, endDateStr)
-                queryFeedback = queryFeedback
-                    .gte('submission_date', startTs)
-                    .lte('submission_date', endTs)
+                fbParams.set('startTs', startTs)
+                fbParams.set('endTs', endTs)
             }
 
-            const { data: feedbacksRaw } = await queryFeedback
-
-            // 3. KPIs (server-side, bypasses RLS) + Anomalías (parallel)
             if (validSignal?.aborted) return
 
-            const [kpisRes, { data: anomRows }] = await Promise.all([
+            const [fbRes, kpisRes, { data: anomRows }] = await Promise.all([
+                fetch(`/api/feedback?${fbParams.toString()}`, {
+                    headers: token ? { Authorization: `Bearer ${token}` } : {},
+                    signal: validSignal
+                })
+                    .then(r => r.json())
+                    .catch((e) => {
+                        if (e?.name === 'AbortError') return { _aborted: true }
+                        return { data: [] }
+                    }),
                 fetch(`/api/dashboard/kpis?startDate=${startDateStr}&endDate=${endDateStr}`, { signal: validSignal })
                     .then(r => r.json())
                     .catch((e) => {
@@ -323,7 +323,8 @@ function DashboardContent() {
                     .order('discount_amount', { ascending: false })
                     .limit(50)
             ])
-            if (kpisRes?._aborted || validSignal?.aborted) return
+            if (fbRes?._aborted || kpisRes?._aborted || validSignal?.aborted) return
+            const feedbacksRaw = fbRes?.data || []
 
             const totalSales = kpisRes.totalSales || 0
             const totalLaborCost = kpisRes.totalLaborCost || 0

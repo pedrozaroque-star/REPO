@@ -29,6 +29,8 @@
  * - POST `/api/delivery-reconciliation/quickbooks-journal` -> Valida bloqueos, adquiere lock idempotente, publica en QBO y confirma persistencia en Supabase.
  *
  * @notes
+ * - Fix 2026-11-12: Validación explícita `action === 'publish'` en POST (HTTP 400 si es desconocida), filtro `store_id=0` limpio,
+ *   visibilidad de estado `FAILED`/`qbLastError`, y paridad contable de CxC con `computePayoutAccountingAmounts`.
  * - No incluye ninguna columna autogenerada (`GENERATED ALWAYS AS`) en mutaciones SQL.
  * - Fix 2026-11-04: filtro de periodos INCLUSIVO (`payoutPeriodOverlapsRange`); el estado de disputa/recuperación por corte
  *   usa `evaluateDisputeRecovery` con el índice de settlements (solo créditos localizados en el payout posterior cuentan como
@@ -53,6 +55,7 @@ import {
   fetchAllSupabaseRows,
   getOrderRecoveryPayoutRefs,
   getStorePlatformMappings,
+  computePayoutAccountingAmounts,
   payoutPeriodOverlapsRange,
   resolveEffectivePayoutPeriod,
   round2,
@@ -728,16 +731,6 @@ export function buildPayoutJournalPreview(params: {
   const storeIdNum = Number(payout?.store_id || 0)
   const idempotencyKey = buildPayoutIdempotencyKey(plat, storeIdNum, payoutRef)
 
-  const parseRawMoney = (val: any): number | null => {
-    if (typeof val === 'number' && Number.isFinite(val)) return round2(val)
-    if (typeof val === 'string' && val.trim()) {
-      const cleaned = val.replace(/[^0-9.-]/g, '')
-      const n = Number(cleaned)
-      if (Number.isFinite(n)) return round2(n)
-    }
-    return null
-  }
-
   const rawNumericFields = [
     payout?.net_payout_amount,
     payout?.commission_fees,
@@ -759,75 +752,13 @@ export function buildPayoutJournalPreview(params: {
     String(payout?.net_payout_amount).trim() !== '' &&
     Number.isFinite(Number(payout.net_payout_amount))
 
-  const netPayout = hasNetPayoutField ? round2(Number(payout.net_payout_amount)) : 0
-
-  let totalFees = round2(
-    Math.abs(
-      Number(payout?.commission_fees || 0) +
-        Number(payout?.delivery_fees || 0) +
-        Number(payout?.processing_fees || 0) +
-        Number(payout?.marketing_fees || 0)
-    )
-  )
-  if (plat === 'UBER_EATS' && payout?.raw_payload?.uberFees !== undefined) {
-    const uFees = Math.abs(parseRawMoney(payout.raw_payload.uberFees) ?? 0)
-    const uMkt = Math.abs(parseRawMoney(payout.raw_payload.marketing) ?? 0)
-    if (uFees + uMkt > 0) {
-      totalFees = round2(uFees + uMkt)
-    }
-  }
-
-  const grossEarnings = plat === 'UBER_EATS' ? parseRawMoney(payout?.raw_payload?.earnings) : null
-  const facTax = Number(payout?.tax_remitted_by_platform || 0)
-  const declaredGrossVal = round2(Number(payout?.platform_gross_receivable || 0))
-  const declaredSubVal = round2(Number(payout?.subtotal_sales || 0))
-  const declaredTipsVal = round2(Number(payout?.tips_amount || 0))
-  const hasOfficialGrossOrEarnings =
-    (grossEarnings !== null && grossEarnings > 0) ||
-    declaredGrossVal > 0.005 ||
-    declaredSubVal > 0.005
-
-  let receivableCredit = 0
-  let rawErrAdj = round2(Number(payout?.error_charges || 0) + Number(payout?.adjustments_amount || 0))
-
-  if (payout?.raw_payload?.official_receivable_credit !== undefined) {
-    // Cuando se proporciona un crédito CxC explícito, jamás inventar línea de compensación (plug)
-    receivableCredit = round2(Number(payout.raw_payload.official_receivable_credit || 0))
-  } else if (plat === 'UBER_EATS') {
-    if (grossEarnings !== null && grossEarnings > 0 && facTax > 0) {
-      receivableCredit = round2(grossEarnings - facTax)
-      rawErrAdj = round2(netPayout + totalFees - receivableCredit)
-    } else if (hasOfficialGrossOrEarnings) {
-      // Sin `earnings` en raw_payload, usar el importe oficial de CxC sin inventar plug
-      receivableCredit = round2((declaredGrossVal > 0 ? declaredGrossVal : declaredSubVal) + declaredTipsVal)
-    } else {
-      receivableCredit = 0
-    }
-  } else if (plat === 'GRUBHUB') {
-    if (payout?.raw_payload?.totals !== undefined && hasOfficialGrossOrEarnings) {
-      receivableCredit = round2(netPayout + totalFees - rawErrAdj)
-    } else if (hasOfficialGrossOrEarnings) {
-      receivableCredit = round2((declaredGrossVal > 0 ? declaredGrossVal : declaredSubVal) + declaredTipsVal)
-    } else {
-      receivableCredit = 0
-    }
-  } else {
-    // DOORDASH
-    if (hasOfficialGrossOrEarnings) {
-      const expectedFromComponents = round2(netPayout + totalFees - rawErrAdj)
-      const officialGrossWithTips = round2(
-        (declaredGrossVal > 0 ? declaredGrossVal : declaredSubVal + Number(payout?.tax_paid_to_merchant || 0)) +
-          declaredTipsVal
-      )
-      // Si el bruto oficial coincide con los componentes (±$0.05), usar el valor oficial; si difiere, conservar el bruto oficial para que el desbalance se detecte sin inventar líneas
-      receivableCredit =
-        Math.abs(officialGrossWithTips - expectedFromComponents) <= 0.05
-          ? expectedFromComponents
-          : officialGrossWithTips
-    } else {
-      receivableCredit = 0
-    }
-  }
+  const {
+    netPayout,
+    totalFees,
+    hasOfficialGrossOrEarnings,
+    receivableCredit,
+    rawErrAdj,
+  } = computePayoutAccountingAmounts(payout)
 
   // Órdenes vinculadas estrictamente por payout_reference_id (o reembolsadas en este payout_reference_id)
   // Prohibido agregar órdenes al payout solo por caer dentro de [period_start, period_end]
@@ -1429,7 +1360,7 @@ export async function GET(req: NextRequest) {
     const search = (searchParams.get('search') || '').trim().toLowerCase()
 
     const requestedStoreNum =
-      storeIdParam && storeIdParam !== 'ALL' && Number.isFinite(Number(storeIdParam)) && Number(storeIdParam) > 0
+      storeIdParam && storeIdParam !== 'ALL' && Number.isFinite(Number(storeIdParam))
         ? Number(storeIdParam)
         : null
 
@@ -1455,21 +1386,24 @@ export async function GET(req: NextRequest) {
       ? requestedStoreNum
       : auth.user.store_id
 
-    const rawPayoutsAll = await fetchAllSupabaseRows<any>((from, to) => {
-      let q = supabaseAdmin
-        .from('delivery_platform_payouts')
-        .select('*')
-        .order('period_end', { ascending: false })
-        .order('payout_date', { ascending: false })
-        .order('id', { ascending: true })
-      if (selectedStoreNum !== null && selectedStoreNum > 0) {
-        q = q.eq('store_id', selectedStoreNum)
-      }
-      if (platformParam && platformParam !== 'ALL') {
-        q = q.eq('platform', platformParam)
-      }
-      return q.range(from, to)
-    })
+    const rawPayoutsAll =
+      selectedStoreNum === 0
+        ? []
+        : await fetchAllSupabaseRows<any>((from, to) => {
+            let q = supabaseAdmin
+              .from('delivery_platform_payouts')
+              .select('*')
+              .order('period_end', { ascending: false })
+              .order('payout_date', { ascending: false })
+              .order('id', { ascending: true })
+            if (selectedStoreNum !== null && selectedStoreNum > 0) {
+              q = q.eq('store_id', selectedStoreNum)
+            }
+            if (platformParam && platformParam !== 'ALL') {
+              q = q.eq('platform', platformParam)
+            }
+            return q.range(from, to)
+          })
 
     for (const p of rawPayoutsAll || []) {
       const eff = resolveEffectivePayoutPeriod(p)
@@ -1508,7 +1442,9 @@ export async function GET(req: NextRequest) {
     )
 
     const [ordersInDateRange, ordersByPayoutRef] = await Promise.all([
-      fetchAllSupabaseRows<any>((from, to) => {
+      selectedStoreNum === 0
+        ? Promise.resolve([])
+        : fetchAllSupabaseRows<any>((from, to) => {
         let q = supabaseAdmin
           .from('delivery_platform_orders')
           .select('*')
@@ -1881,6 +1817,8 @@ export async function GET(req: NextRequest) {
           ? 'RECOVERY_REQUIRED'
           : publishStatus === 'IN_PROGRESS'
           ? 'PUBLISH_IN_PROGRESS'
+          : publishStatus === 'FAILED'
+          ? 'PUBLISH_FAILED'
           : qboMatch.classification === 'HISTORICAL_CANDIDATE_PENDING_REVIEW' ||
             qboMatch.classification === 'AMBIGUOUS_CANDIDATES' ||
             qboMatch.classification === 'CONFLICT_DUPLICATE_JE'
@@ -1894,6 +1832,8 @@ export async function GET(req: NextRequest) {
           ? 'Recuperación QBO requerida'
           : publishStatus === 'IN_PROGRESS'
           ? 'Publicando en QBO...'
+          : publishStatus === 'FAILED'
+          ? 'Error en último intento de publicación'
           : qboMatch.classification === 'HISTORICAL_CANDIDATE_PENDING_REVIEW'
           ? 'Posible póliza histórica por confirmar'
           : qboMatch.classification === 'AMBIGUOUS_CANDIDATES'
@@ -1909,6 +1849,8 @@ export async function GET(req: NextRequest) {
           ? 'QBO Recovery Required'
           : publishStatus === 'IN_PROGRESS'
           ? 'Publishing to QBO...'
+          : publishStatus === 'FAILED'
+          ? 'Last publish attempt failed'
           : qboMatch.classification === 'HISTORICAL_CANDIDATE_PENDING_REVIEW'
           ? 'Historical QBO candidate pending confirmation'
           : qboMatch.classification === 'AMBIGUOUS_CANDIDATES'
@@ -1951,7 +1893,7 @@ export async function GET(req: NextRequest) {
           partialRecoveryCount++
         } else if (cls === 'UNVERIFIED_RECOVERY') {
           unverifiedRecoveryCount++
-        } else if (dStat !== 'ACCEPTED_LOSS') {
+        } else if (!['ACCEPTED_LOSS', 'REJECTED', 'DENIED'].includes(dStat.toUpperCase()) && cls !== 'CLOSED_LOSS') {
           openDisputesCount++
         }
       }
@@ -2040,6 +1982,7 @@ export async function GET(req: NextRequest) {
         net_refunds_adjustments: preview.rawErrAdj,
         hasJournalEntry,
         publishStatus,
+        qbLastError: typeof p.raw_payload?.qb_last_error === 'string' ? p.raw_payload.qb_last_error : null,
         recoveryRequired,
         canPublish,
         publishBlockers: effectiveBlockers,
@@ -2536,6 +2479,13 @@ export async function POST(req: NextRequest) {
           payoutId: targetPayout.id,
         })
       }
+    }
+
+    if (action !== 'publish') {
+      return NextResponse.json(
+        { success: false, error: `Acción no soportada: ${action}` },
+        { status: 400 }
+      )
     }
 
     const payoutIds: string[] = Array.isArray(body.payoutIds)

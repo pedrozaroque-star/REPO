@@ -1,21 +1,23 @@
 /**
  * @module app/api/mobile/auth/send-otp/route
  * @description Endpoint de envío de código OTP de 6 dígitos (vía Correo Electrónico Real con Gmail SMTP
- * de Tacos Gavilan + soporte determinístico de números de prueba NANPA/FCC para Apple/Google App Review).
+ * de Tacos Gavilan + soporte determinístico acotado para cuentas oficiales de App Review).
  *
  * @businessRules
  * - Acepta correo electrónico (`email` / `identifier` / `phone` con `@`) y envía al instante un código real de 6 dígitos
  *   mediante el transporte SMTP oficial de Tacos Gavilan (`lib/mobile-auth-email.ts`), guardando el hash HMAC-SHA256
- *   con vigencia de 10 minutos en `auth.users`.
- * - Conserva soporte determinístico para números oficiales de prueba NANPA/FCC (`^\d{3}55501\d{2}$`, ej. `2135550199`)
- *   y correos de revisión (`reviewer@tacosgavilan.com`) para Apple App Store Review y Google Play Review.
+ *   con vigencia de 10 minutos en `public.app_mobile_otp_challenges` sin crear cuentas fantasma previas en `auth.users`.
+ * - Aplica rate limiting y bloqueo progresivo por correo e IP; si el envío SMTP falla, revoca el challenge recién emitido.
+ * - Soporta cuentas restringidas de Apple/Google App Review (`APP_REVIEW_ALLOWED_PHONES`, default `2135550199`,
+ *   y `reviewer@tacosgavilan.com` cuando `ENABLE_APP_REVIEW_TEST_ACCOUNTS !== 'false'`).
  *
  * @dataFlow
- * - App Móvil POST `/api/mobile/auth/send-otp` -> `saveEmailOtpForUser` + `sendMobileOtpEmail` -> Buzón del comensal.
+ * - App Móvil POST `/api/mobile/auth/send-otp` -> `checkEmailOtpRateLimit` + `issueEmailOtpChallenge` + `sendMobileOtpEmail` -> Buzón del comensal.
  *
  * @notes
  * - Usa `corsHeaders()` y `corsResponse()` de `@/app/api/mobile/_helpers` para soportar preflight `OPTIONS` (`HTTP 204`).
  * - Responde en inglés o español según la cabecera `Accept-Language`.
+ * - Nov 2026: Endurecido con tabla `app_mobile_otp_challenges`, rate limit/lockout 429, revocación en fallo SMTP y whitelist estricta de App Review.
  */
 
 import { NextResponse } from 'next/server'
@@ -23,12 +25,24 @@ import { supabaseAdmin } from '@/lib/supabase'
 import { corsHeaders, corsResponse } from '@/app/api/mobile/_helpers'
 import {
   EMAIL_REGEX,
+  checkEmailOtpRateLimit,
   generateEmailOtpCode,
-  saveEmailOtpForUser,
+  issueEmailOtpChallenge,
+  revokeEmailOtpChallenge,
   sendMobileOtpEmail,
 } from '@/lib/mobile-auth-email'
 
-const APP_REVIEW_TEST_PHONE_REGEX = /^\d{3}55501\d{2}$/
+const APP_REVIEW_ALLOWED_PHONES = new Set(
+  (process.env.APP_REVIEW_TEST_PHONES || '2135550199')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean)
+)
+
+function isAllowedAppReviewPhone(phone10: string): boolean {
+  if (process.env.ENABLE_APP_REVIEW_TEST_ACCOUNTS === 'false') return false
+  return APP_REVIEW_ALLOWED_PHONES.has(phone10)
+}
 
 function normalizeUsPhone10(raw?: string): string {
   if (!raw) return ''
@@ -81,11 +95,41 @@ export async function POST(request: Request): Promise<NextResponse> {
         )
       }
 
+      const forwardedFor = request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || ''
+      const clientIp = forwardedFor.split(',')[0]?.trim().slice(0, 64) || null
+
+      const rl = await checkEmailOtpRateLimit(cleanEmail, clientIp)
+      if (!rl.allowed) {
+        const retrySec = rl.retryAfterSec || 60
+        return NextResponse.json(
+          {
+            ok: false,
+            code: rl.reason === 'locked' ? 'OTP_LOCKED' : 'RATE_LIMITED',
+            error:
+              rl.reason === 'locked'
+                ? isEn
+                  ? 'Too many failed verification attempts. Please wait 15 minutes before trying again.'
+                  : 'Demasiados intentos fallidos. Espera 15 minutos antes de intentar de nuevo.'
+                : isEn
+                  ? `Please wait ${retrySec}s before requesting another verification code.`
+                  : `Espera ${retrySec}s antes de solicitar otro código de verificación.`,
+          },
+          {
+            status: 429,
+            headers: {
+              ...headers,
+              'Retry-After': String(retrySec),
+            },
+          }
+        )
+      }
+
       const code = generateEmailOtpCode(cleanEmail)
-      await saveEmailOtpForUser(cleanEmail, code)
+      const challengeId = await issueEmailOtpChallenge(cleanEmail, code, clientIp)
 
       const emailResult = await sendMobileOtpEmail(cleanEmail, code, isEn)
       if (!emailResult.ok) {
+        await revokeEmailOtpChallenge(challengeId).catch(() => {})
         return NextResponse.json(
           {
             ok: false,
@@ -146,7 +190,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     }
 
     // Soporte determinístico para cuentas de revisión de Apple App Store / Google Play (rango reservado 555-01XX)
-    if (APP_REVIEW_TEST_PHONE_REGEX.test(phone)) {
+    if (isAllowedAppReviewPhone(phone)) {
       return NextResponse.json(
         {
           ok: true,

@@ -1181,7 +1181,7 @@ export default function SupportChatWidget() {
             whileHover={{ scale: 1 }}
             whileTap={{ scale: 0.95 }}
             onClick={openChat}
-            className="fixed bottom-20 lg:bottom-6 right-4 lg:right-6 z-[100] group"
+            className="fixed bottom-20 lg:bottom-6 right-4 lg:right-6 z-[45] group"
           >
             {/* Outer glow ring - spinning gradient */}
             <span className="absolute -inset-1 rounded-full bg-gradient-to-tr from-indigo-500 via-purple-500 to-cyan-400 opacity-50 blur-sm group-hover:opacity-80 transition-opacity animate-[spin_4s_linear_infinite]"/>

@@ -17,6 +17,7 @@
  *
  * @notes
  * - Validador unificado utilizado en producción por `/api/mobile/order/quote` y en la suite de pruebas automatizadas.
+ * - Valida cantidad de modificadores (`1..25`), multiplica `price * modQty` y reinicia `scopeByGroup` recursivamente por nivel para `nestedModifiers`.
  */
 
 export type FulfillmentChannel = 'PICKUP' | 'DELIVERY'
@@ -134,6 +135,7 @@ export interface ResolvedValidatedModifier {
   optionGroupGuid: string
   name: string
   price: number
+  qty?: number
 }
 
 export interface CartLineValidationResult {
@@ -195,19 +197,73 @@ export function validateCartLineAgainstMenuV3(
     return { valid: false, code: 'VALIDATION_ERROR', errors }
   }
 
-  const byGroup = new Map<string, CartModifierSelectionInput[]>()
   const resolvedModifiers: ResolvedValidatedModifier[] = []
+  let modsPriceSum = 0
+
+  const validateGroupCardinalities = (
+    groupsToCheck: ToastModifierGroupV3[],
+    byGroup: Map<string, Array<{ sel: CartModifierSelectionInput; qty: number }>>,
+    scopeLabel: string
+  ) => {
+    for (const group of groupsToCheck) {
+      const selectedInThisGroup = byGroup.get(group.guid) || []
+      const count = selectedInThisGroup.reduce((acc, entry) => acc + entry.qty, 0)
+      const effectiveMin = Math.max(group.minSelections || 0, group.required ? 1 : 0)
+      const effectiveMax = group.maxSelections ?? 10
+
+      if (effectiveMin > 0 && count < effectiveMin) {
+        errors.push(
+          `El grupo "${group.name}" en ${scopeLabel} requiere al menos ${effectiveMin} selección(es).`
+        )
+      }
+
+      if (effectiveMax > 0 && count > effectiveMax) {
+        errors.push(
+          `El grupo "${group.name}" en ${scopeLabel} permite máximo ${effectiveMax} selección(es).`
+        )
+      }
+
+      if (!group.isMultiSelect && effectiveMax === 1 && count > 1) {
+        errors.push(
+          `El grupo "${group.name}" en ${scopeLabel} es de selección única (exclusivo).`
+        )
+      }
+
+      if (!group.allowDuplicates && count > 1) {
+        const seenOptionGuids = new Set<string>()
+        for (const entry of selectedInThisGroup) {
+          if (entry.qty > 1 || seenOptionGuids.has(entry.sel.optionGuid)) {
+            errors.push(
+              `No se permiten opciones duplicadas ("${entry.sel.optionGuid}") dentro del grupo "${group.name}" en ${scopeLabel}.`
+            )
+            break
+          }
+          seenOptionGuids.add(entry.sel.optionGuid)
+        }
+      }
+    }
+  }
 
   const validateModifierList = (
     modsToValidate: CartModifierSelectionInput[],
     allowedGroups: ToastModifierGroupV3[],
     contextLabel: string
   ) => {
+    const scopeByGroup = new Map<string, Array<{ sel: CartModifierSelectionInput; qty: number }>>()
+
     for (const sel of modsToValidate) {
       const optGuid = String(sel.optionGuid || '').trim()
       if (!optGuid || !UUID_REGEX.test(optGuid)) {
         errors.push(
           `El modificador "${optGuid}" en ${contextLabel} no tiene un UUID válido de Toast POS (prohibidos IDs sintéticos).`
+        )
+        continue
+      }
+
+      const modQty = sel.qty === undefined ? 1 : sel.qty
+      if (!Number.isInteger(modQty) || modQty <= 0 || modQty > 25) {
+        errors.push(
+          `Cantidad inválida (${String(sel.qty)}) para el modificador "${optGuid}" en ${contextLabel}. Debe ser un entero entre 1 y 25.`
         )
         continue
       }
@@ -255,78 +311,43 @@ export function validateCartLineAgainstMenuV3(
         continue
       }
 
-      const currentInGroup = byGroup.get(targetGroup.guid) || []
-      currentInGroup.push(sel)
-      byGroup.set(targetGroup.guid, currentInGroup)
+      const currentInGroup = scopeByGroup.get(targetGroup.guid) || []
+      currentInGroup.push({ sel, qty: modQty })
+      scopeByGroup.set(targetGroup.guid, currentInGroup)
 
+      const unitModPrice = Number(matchedOpt.price || 0)
+      modsPriceSum += unitModPrice * modQty
       resolvedModifiers.push({
         guid: matchedOpt.guid,
         optionGroupGuid: targetGroup.guid,
         name: matchedOpt.name,
-        price: Number(matchedOpt.price || 0),
+        price: unitModPrice,
+        ...(modQty > 1 ? { qty: modQty } : {}),
       })
 
-      // Validar nestedModifiers si existen
-      if (sel.nestedModifiers && sel.nestedModifiers.length > 0) {
-        const nestedGroupGuids = matchedOpt.nestedModifierGroupGuids || []
-        if (nestedGroupGuids.length === 0) {
-          errors.push(
-            `La opción "${matchedOpt.name}" no admite modificadores anidados.`
-          )
-        } else {
-          const nestedAllowedGroups = nestedGroupGuids
-            .map((id) => modifierGroupsMap[id])
-            .filter(Boolean)
-          validateModifierList(
-            sel.nestedModifiers,
-            nestedAllowedGroups,
-            `"${matchedOpt.name}"`
-          )
-        }
+      const nestedGroupGuids = matchedOpt.nestedModifierGroupGuids || []
+      const hasNestedInput = Array.isArray(sel.nestedModifiers) && sel.nestedModifiers.length > 0
+
+      if (hasNestedInput && nestedGroupGuids.length === 0) {
+        errors.push(
+          `La opción "${matchedOpt.name}" no admite modificadores anidados.`
+        )
+      } else if (nestedGroupGuids.length > 0) {
+        const nestedAllowedGroups = nestedGroupGuids
+          .map((id) => modifierGroupsMap[id])
+          .filter(Boolean)
+        validateModifierList(
+          sel.nestedModifiers || [],
+          nestedAllowedGroups,
+          `"${matchedOpt.name}"`
+        )
       }
     }
+
+    validateGroupCardinalities(allowedGroups, scopeByGroup, contextLabel)
   }
 
   validateModifierList(selectedModifiers, itemGroups, `"${menuItem.name}"`)
-
-  // Validar cardinalidades, exclusividad y duplicados por cada grupo del ítem
-  for (const group of itemGroups) {
-    const selectedInThisGroup = byGroup.get(group.guid) || []
-    const count = selectedInThisGroup.length
-    const effectiveMin = Math.max(group.minSelections || 0, group.required ? 1 : 0)
-    const effectiveMax = group.maxSelections ?? 10
-
-    if (effectiveMin > 0 && count < effectiveMin) {
-      errors.push(
-        `El grupo "${group.name}" en "${menuItem.name}" requiere al menos ${effectiveMin} selección(es).`
-      )
-    }
-
-    if (effectiveMax > 0 && count > effectiveMax) {
-      errors.push(
-        `El grupo "${group.name}" en "${menuItem.name}" permite máximo ${effectiveMax} selección(es).`
-      )
-    }
-
-    if (!group.isMultiSelect && effectiveMax === 1 && count > 1) {
-      errors.push(
-        `El grupo "${group.name}" en "${menuItem.name}" es de selección única (exclusivo).`
-      )
-    }
-
-    if (!group.allowDuplicates && count > 1) {
-      const seenOptionGuids = new Set<string>()
-      for (const sel of selectedInThisGroup) {
-        if (seenOptionGuids.has(sel.optionGuid)) {
-          errors.push(
-            `No se permiten opciones duplicadas ("${sel.optionGuid}") dentro del grupo "${group.name}" en "${menuItem.name}".`
-          )
-          break
-        }
-        seenOptionGuids.add(sel.optionGuid)
-      }
-    }
-  }
 
   if (errors.length > 0) {
     return {
@@ -336,7 +357,6 @@ export function validateCartLineAgainstMenuV3(
     }
   }
 
-  const modsPriceSum = resolvedModifiers.reduce((acc, m) => acc + m.price, 0)
   const unitPrice = Math.round((Number(menuItem.basePrice) + modsPriceSum) * 100) / 100
   const lineTotal = Math.round(unitPrice * qty * 100) / 100
 

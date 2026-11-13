@@ -29,6 +29,11 @@
  *        `external_accounting_audit_log` (`PROCESS_QBO_OUTBOX`) quién lo ejecutó, el límite efectivo y el resultado.
  *      - Si al eliminar un adjunto falla el borrado físico en Supabase Storage, se encola una tarea de compensación durable (`STORAGE_CLEANUP`)
  *        en `external_accounting_sync_outbox` más bitácora `ATTACHMENT_STORAGE_CLEANUP_QUEUED`, la cual es ejecutada por el worker hasta limpiar el objeto.
+ * - 2026-11-12 (Wave P0/P1 Hardening):
+ *   1) Protección de transacciones conciliadas (`cleared_status === 'Reconciled'`) permitiendo reclasificación de categoría de gasto/ingreso pero bloqueando cambios de cuenta bancaria/tarjeta, monto, fecha o anulación/eliminación.
+ *   2) Motor de conciliación unificado para Bancos y Tarjetas de Crédito (`PayDownCreditCard`, `Expense`, `CreditCardCredit`, cargos financieros e intereses con reversión automática al reabrir/eliminar).
+ *   3) Paginación determinista sin truncamiento de 1,000 filas (`fetchAllTableRows`) en cuentas, contactos, ítems, adjuntos y `linked_transactions`.
+ *   4) Subida directa firmada (`create_attachment_upload_url` + `finalize_attachment_upload`) hasta 15 MB hacia Supabase Storage, evitando el límite de 4.5 MB de Vercel Serverless Functions y validando MIME/extensiones seguras.
  */
 
 import crypto from 'crypto'
@@ -37,6 +42,7 @@ import { createClient } from '@supabase/supabase-js'
 import {
   authorizeExternalAccounting,
   fetchAllCompanyTransactions,
+  fetchAllTableRows,
   computeTransactionAccountDeltas,
   mergeAccountDeltas,
   applyAccountDeltasAtomically,
@@ -64,6 +70,7 @@ import {
   toNaturalBalance,
   fromNaturalBalance,
   buildLedgerContext,
+  buildTxnPostings,
   validateBalancedTransactionPostings,
 } from '@/lib/external-accounting-ledger'
 import {
@@ -91,6 +98,34 @@ function getAdminSupabase() {
 
 const EXTERNAL_ACCOUNTING_STORAGE_BUCKET = 'external-accounting-attachments'
 const MAX_ATTACHMENT_BYTES = 15 * 1024 * 1024 // 15 MB strict limit
+const BLOCKED_ATTACHMENT_EXTENSIONS = new Set([
+  'html', 'htm', 'xhtml', 'svg', 'svgz', 'js', 'mjs', 'cjs', 'jsx', 'ts', 'tsx',
+  'exe', 'dll', 'bat', 'cmd', 'com', 'msi', 'ps1', 'vbs', 'wsf', 'sh', 'bash', 'php', 'jsp', 'asp', 'aspx'
+])
+const BLOCKED_ATTACHMENT_MIMES = new Set([
+  'text/html',
+  'application/xhtml+xml',
+  'image/svg+xml',
+  'application/javascript',
+  'text/javascript',
+  'application/x-msdownload',
+  'application/x-executable',
+  'application/x-sh',
+])
+
+function assertSafeAttachmentType(fileName: string, contentType: string): void {
+  const cleanName = String(fileName || '').trim()
+  const extMatch = cleanName.toLowerCase().match(/\.([a-z0-9]+)$/)
+  const ext = extMatch ? extMatch[1] : ''
+  const normMime = String(contentType || '').split(';')[0].trim().toLowerCase()
+  if ((ext && BLOCKED_ATTACHMENT_EXTENSIONS.has(ext)) || BLOCKED_ATTACHMENT_MIMES.has(normMime)) {
+    const err: any = new Error(
+      `Tipo de archivo no permitido por seguridad (${ext ? '.' + ext : normMime}). Use PDF, imágenes (PNG/JPG/WEBP), Excel/CSV, Word, TXT o ZIP.`
+    )
+    err.statusCode = 400
+    throw err
+  }
+}
 
 async function uploadAttachmentToSupabaseStorage(
   supabase: any,
@@ -113,12 +148,14 @@ async function uploadAttachmentToSupabaseStorage(
   contentType: string
 }> {
   let resolvedContentType = String(params.contentType || 'application/pdf').trim() || 'application/pdf'
+  assertSafeAttachmentType(params.fileName, resolvedContentType)
   let binaryBuffer: Buffer | null = null
 
   if (params.dataUrl && typeof params.dataUrl === 'string') {
     const match = params.dataUrl.match(/^data:([^;]+);base64,(.+)$/i)
     if (match) {
       resolvedContentType = match[1] || resolvedContentType
+      assertSafeAttachmentType(params.fileName, resolvedContentType)
       binaryBuffer = Buffer.from(match[2], 'base64')
     } else if (params.dataUrl.includes(',')) {
       const b64Part = params.dataUrl.split(',').slice(1).join(',')
@@ -366,26 +403,24 @@ async function fetchEntityTransactions(
 
   if (entityQbId) {
     queries.push(
-      supabase
-        .from('external_accounting_transactions')
-        .select(selectCols)
-        .eq('company_realm_id', realmId)
-        .eq('entity_qb_id', String(entityQbId))
-        .in('txn_type', txnTypes)
-        .order('txn_date', { ascending: true })
-        .limit(5000)
+      fetchAllTableRows(supabase, 'external_accounting_transactions', {
+        select: selectCols,
+        realmId,
+        eq: { entity_qb_id: String(entityQbId) },
+        inFilter: { column: 'txn_type', values: txnTypes },
+        orders: [{ column: 'txn_date', ascending: true }],
+      })
     )
   }
   if (entityName) {
     queries.push(
-      supabase
-        .from('external_accounting_transactions')
-        .select(selectCols)
-        .eq('company_realm_id', realmId)
-        .ilike('entity_name', entityName)
-        .in('txn_type', txnTypes)
-        .order('txn_date', { ascending: true })
-        .limit(5000)
+      fetchAllTableRows(supabase, 'external_accounting_transactions', {
+        select: selectCols,
+        realmId,
+        ilike: { column: 'entity_name', pattern: entityName },
+        inFilter: { column: 'txn_type', values: txnTypes },
+        orders: [{ column: 'txn_date', ascending: true }],
+      })
     )
   }
 
@@ -710,11 +745,15 @@ async function prepareAtomicEntityAndInvoiceBalancePlan(
 
   const finalContactBalance = Math.max(0, Number((totalOpenDocsBalance - unappliedCreditsTotal).toFixed(2)))
 
-  const { data: matchingContacts } = await supabase
-    .from('external_accounting_contacts')
-    .select('id, qb_contact_id, display_name, company_name, contact_type')
-    .eq('company_realm_id', realmId)
-    .eq('contact_type', contactType)
+  const { data: matchingContacts } = await fetchAllTableRows(
+    supabase,
+    'external_accounting_contacts',
+    {
+      select: 'id, qb_contact_id, display_name, company_name, contact_type',
+      realmId,
+      eq: { contact_type: contactType },
+    }
+  )
 
   const targetContact = (matchingContacts || []).find((c: any) =>
     (entityQbId && String(c.qb_contact_id) === entityQbId) ||
@@ -802,9 +841,10 @@ export async function GET(req: NextRequest) {
         .from('external_accounting_companies')
         .select('*')
         .order('company_name', { ascending: true }),
-      supabase
-        .from('external_accounting_accounts')
-        .select('company_realm_id, qb_account_id, name, acct_num, classification, account_type, current_balance, bank_balance, is_active, raw_data')
+      fetchAllTableRows(supabase, 'external_accounting_accounts', {
+        select: 'id, company_realm_id, qb_account_id, name, acct_num, classification, account_type, current_balance, bank_balance, is_active, raw_data',
+        orders: [{ column: 'company_realm_id', ascending: true }, { column: 'name', ascending: true }],
+      })
     ])
 
     if (companiesRes.error) throw companiesRes.error
@@ -900,17 +940,14 @@ export async function GET(req: NextRequest) {
       emailLogRes,
       allCompanyTxns
     ] = await Promise.all([
-      supabase
-        .from('external_accounting_accounts')
-        .select('*')
-        .eq('company_realm_id', activeRealmId)
-        .order('account_type', { ascending: true })
-        .order('name', { ascending: true }),
-      supabase
-        .from('external_accounting_contacts')
-        .select('*')
-        .eq('company_realm_id', activeRealmId)
-        .order('display_name', { ascending: true }),
+      fetchAllTableRows(supabase, 'external_accounting_accounts', {
+        realmId: activeRealmId,
+        orders: [{ column: 'account_type', ascending: true }, { column: 'name', ascending: true }],
+      }),
+      fetchAllTableRows(supabase, 'external_accounting_contacts', {
+        realmId: activeRealmId,
+        orders: [{ column: 'display_name', ascending: true }],
+      }),
       supabase
         .from('external_accounting_recurring')
         .select('*')
@@ -940,11 +977,10 @@ export async function GET(req: NextRequest) {
         .eq('company_realm_id', activeRealmId)
         .order('fiscal_year', { ascending: false })
         .order('account_name', { ascending: true }),
-      supabase
-        .from('external_accounting_items')
-        .select('*')
-        .eq('company_realm_id', activeRealmId)
-        .order('name', { ascending: true }),
+      fetchAllTableRows(supabase, 'external_accounting_items', {
+        realmId: activeRealmId,
+        orders: [{ column: 'name', ascending: true }],
+      }),
       supabase
         .from('external_accounting_categories')
         .select('*')
@@ -976,21 +1012,18 @@ export async function GET(req: NextRequest) {
         .select('*')
         .eq('company_realm_id', activeRealmId)
         .order('name', { ascending: true }),
-      supabase
-        .from('external_accounting_attachments')
-        .select('*')
-        .eq('company_realm_id', activeRealmId)
-        .order('created_at', { ascending: false }),
+      fetchAllTableRows(supabase, 'external_accounting_attachments', {
+        realmId: activeRealmId,
+        orders: [{ column: 'created_at', ascending: false }],
+      }),
       supabase
         .from('external_accounting_cost_groups')
         .select('*')
         .eq('company_realm_id', activeRealmId)
         .order('name', { ascending: true }),
-      supabase
-        .from('external_accounting_linked_transactions')
-        .select('*')
-        .eq('company_realm_id', activeRealmId)
-        .limit(10000),
+      fetchAllTableRows(supabase, 'external_accounting_linked_transactions', {
+        realmId: activeRealmId,
+      }),
       supabase
         .from('external_accounting_notes_tasks')
         .select('*')
@@ -1993,18 +2026,17 @@ export async function POST(req: NextRequest) {
     const companyClosingDate: string | null = companyRecord.metadata?.closing_date || null
 
     // Load company accounts & items map for strict cross-realm reference validation & atomic delta calculation
-    const [{ data: companyAccounts, error: accLoadErr }, { data: companyItems }] = await Promise.all([
-      supabase
-        .from('external_accounting_accounts')
-        .select('*')
-        .eq('company_realm_id', realmId)
-        .order('qb_account_id', { ascending: true }),
-      supabase
-        .from('external_accounting_items')
-        .select('*')
-        .eq('company_realm_id', realmId)
-        .order('qb_item_id', { ascending: true }),
+    const [{ data: companyAccounts, error: accLoadErr }, { data: companyItems, error: itemsLoadErr }] = await Promise.all([
+      fetchAllTableRows(supabase, 'external_accounting_accounts', {
+        realmId,
+        orders: [{ column: 'qb_account_id', ascending: true }],
+      }),
+      fetchAllTableRows(supabase, 'external_accounting_items', {
+        realmId,
+        orders: [{ column: 'qb_item_id', ascending: true }],
+      }),
     ])
+    if (itemsLoadErr) throw itemsLoadErr
 
     if (accLoadErr) throw accLoadErr
     const acctByQbId = new Map<string, any>()
@@ -2532,6 +2564,34 @@ export async function POST(req: NextRequest) {
           : {}),
       }
 
+      // Protect Reconciled statement integrity while preserving CPA expense/income category & memo reclassifications
+      if (existingTxn && existingTxn.cleared_status === 'Reconciled' && !body.force_reconciled_override) {
+        const oldAmt = Number(existingTxn.total_amount || 0)
+        const newAmt = Number(computedTotal || 0)
+        const oldBankId = String(existingTxn.account_qb_id || '')
+        const newBankId = String(resolvedAccountQbId || '')
+        const isTransferLike =
+          existingTxn.txn_type === 'Transfer' ||
+          existingTxn.txn_type === 'PayDownCreditCard' ||
+          txn_type === 'Transfer' ||
+          txn_type === 'PayDownCreditCard'
+        const transferCounterChanged =
+          isTransferLike &&
+          String(existingTxn.to_account_qb_id || '') !== String(resolvedToAccountQbId || '')
+        const typeChanged = String(existingTxn.txn_type || '') !== String(txn_type || '')
+
+        if (Math.abs(newAmt - oldAmt) >= 0.01 || oldBankId !== newBankId || transferCounterChanged || typeChanged) {
+          return NextResponse.json(
+            {
+              error:
+                'No se puede alterar el importe, tipo o cuenta bancaria/tarjeta de una transacción ya conciliada (Reconciled). Puede reclasificar la cuenta de gasto/ingreso, beneficiario, departamento, clase o memo; para cambiar el monto o banco, reabra primero la conciliación en Historial.',
+              reconciledProtected: true,
+            },
+            { status: 409 }
+          )
+        }
+      }
+
       // Strictly reject any unbalanced double-entry posting set BEFORE touching the database
       const postingValidation = validateBalancedTransactionPostings(
         {
@@ -2714,6 +2774,27 @@ export async function POST(req: NextRequest) {
         ? String(target_cleared_status)
         : (cycle[previousStatus] || 'Reconciled')
 
+      if (previousStatus === 'Reconciled' && nextStatus !== 'Reconciled' && !body.force_reconciled_override) {
+        const { data: completedRecs } = await supabase
+          .from('external_accounting_reconciliations')
+          .select('id, statement_ending_date, account_name, reconciled_txn_ids')
+          .eq('company_realm_id', realmId)
+          .eq('status', 'Completed')
+
+        const lockedRec = (completedRecs || []).find((r: any) =>
+          Array.isArray(r.reconciled_txn_ids) && r.reconciled_txn_ids.map(String).includes(String(existing.id))
+        )
+        if (lockedRec) {
+          return NextResponse.json(
+            {
+              error: `Esta transacción pertenece a la conciliación finalizada de ${lockedRec.account_name} al ${lockedRec.statement_ending_date}. Para desconciliarla, reabra primero la conciliación en Historial.`,
+              reconciledProtected: true,
+            },
+            { status: 409 }
+          )
+        }
+      }
+
       const updatedPayload = {
         ...existing,
         cleared_status: nextStatus,
@@ -2808,6 +2889,15 @@ export async function POST(req: NextRequest) {
         return NextResponse.json(
           { error: 'Transacción no encontrada en la empresa seleccionada (realmId mismatch).' },
           { status: 404 }
+        )
+      }
+      if (existing.cleared_status === 'Reconciled' && !body.force_reconciled_override) {
+        return NextResponse.json(
+          {
+            error: 'No se puede anular (VOID) una transacción que pertenece a una conciliación finalizada (Reconciled). Reabra primero la conciliación bancaria en Historial.',
+            reconciledProtected: true,
+          },
+          { status: 409 }
         )
       }
       const periodCheckVoid = await ensureOpenAccountingPeriod(existing.txn_date, 'void_transaction')
@@ -2906,6 +2996,15 @@ export async function POST(req: NextRequest) {
         return NextResponse.json(
           { error: 'Transacción no encontrada en la empresa seleccionada (realmId mismatch).' },
           { status: 404 }
+        )
+      }
+      if (existing.cleared_status === 'Reconciled' && !body.force_reconciled_override) {
+        return NextResponse.json(
+          {
+            error: 'No se puede eliminar una transacción que pertenece a una conciliación finalizada (Reconciled). Reabra primero la conciliación bancaria en Historial.',
+            reconciledProtected: true,
+          },
+          { status: 409 }
         )
       }
       const periodCheckDel = await ensureOpenAccountingPeriod(existing.txn_date, 'delete_transaction')
@@ -3789,9 +3888,91 @@ export async function POST(req: NextRequest) {
         )
       }
 
-      const txnIdsList: string[] = Array.isArray(reconciled_txn_ids)
-        ? Array.from(new Set(reconciled_txn_ids.map(String)))
+      const isCc = (bankAcc.account_type || '').toLowerCase().includes('credit card')
+      const rawTxnIdsList: string[] = Array.isArray(reconciled_txn_ids)
+        ? Array.from(new Set(reconciled_txn_ids.map((x: any) => String(x || '').trim()).filter(Boolean)))
         : []
+
+      // Server-side verification & deterministic double-entry recomputation of selected reconciliation rows
+      let serverPaymentsCount = 0
+      let serverPaymentsTotal = 0
+      let serverDepositsCount = 0
+      let serverDepositsTotal = 0
+      const txnIdsList: string[] = []
+
+      if (rawTxnIdsList.length > 0) {
+        const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+        for (const tid of rawTxnIdsList) {
+          if (!uuidRegex.test(tid)) {
+            return NextResponse.json(
+              { error: `ID de transacción inválido en conciliación: ${tid}` },
+              { status: 400 }
+            )
+          }
+        }
+
+        const selectedRows: any[] = []
+        for (let i = 0; i < rawTxnIdsList.length; i += 200) {
+          const chunkIds = rawTxnIdsList.slice(i, i + 200)
+          const { data: chunkData, error: chunkErr } = await supabase
+            .from('external_accounting_transactions')
+            .select('*')
+            .eq('company_realm_id', realmId)
+            .in('id', chunkIds)
+          if (chunkErr) throw chunkErr
+          if (chunkData) selectedRows.push(...chunkData)
+        }
+
+        if (selectedRows.length !== rawTxnIdsList.length) {
+          return NextResponse.json(
+            { error: 'Una o más transacciones seleccionadas no existen o no pertenecen a la empresa activa.' },
+            { status: 400 }
+          )
+        }
+
+        for (const tRow of selectedRows) {
+          if (tRow.is_voided) {
+            return NextResponse.json(
+              { error: `No se puede conciliar una transacción anulada (VOID): ${tRow.doc_number || tRow.id}` },
+              { status: 400 }
+            )
+          }
+          if (status === 'Completed' && tRow.txn_date && String(tRow.txn_date) > String(statement_ending_date)) {
+            return NextResponse.json(
+              {
+                error: `La transacción ${tRow.txn_type} ${tRow.doc_number ? '#' + tRow.doc_number : ''} (${tRow.txn_date}) es posterior a la fecha de corte del estado de cuenta (${statement_ending_date}). Desmárquela antes de finalizar.`,
+              },
+              { status: 400 }
+            )
+          }
+
+          const postings = buildTxnPostings(tRow, ledgerCtx).filter(
+            p => String(p.account_qb_id) === String(bankAcc.qb_account_id)
+          )
+          if (postings.length === 0) {
+            return NextResponse.json(
+              { error: `La transacción ${tRow.id} no afecta a la cuenta ${bankAcc.name}.` },
+              { status: 400 }
+            )
+          }
+
+          const netDebit = postings.reduce((acc, p) => acc + Number(p.amount || 0), 0)
+          // Universal Double-Entry Rule for Bank & Credit Card:
+          // - Net Credit (netDebit < 0): Outflow/Payment on Bank (-), Charge on Credit Card (+) -> paymentsTotal
+          // - Net Debit  (netDebit > 0): Deposit on Bank (+), Payment/Credit on Credit Card (-) -> depositsTotal
+          if (netDebit < -0.001) {
+            serverPaymentsCount += 1
+            serverPaymentsTotal += Math.abs(netDebit)
+          } else if (netDebit > 0.001) {
+            serverDepositsCount += 1
+            serverDepositsTotal += netDebit
+          }
+          txnIdsList.push(String(tRow.id))
+        }
+      }
+
+      serverPaymentsTotal = Number(serverPaymentsTotal.toFixed(2))
+      serverDepositsTotal = Number(serverDepositsTotal.toFixed(2))
 
       const isCompanyQboSyncEnabled = serverQboSyncEnabled
       const outboxInitialStatus: 'PENDING' | 'SKIPPED_LOCAL_ONLY' = isCompanyQboSyncEnabled ? 'PENDING' : 'SKIPPED_LOCAL_ONLY'
@@ -3814,8 +3995,8 @@ export async function POST(req: NextRequest) {
         }
       }> = []
 
-      // Optional auto-create Bank Service Charge on statement ending date (inside atomic RPC when completing)
-      const svcChargeAmt = Number(service_charge || 0)
+      // Optional auto-create Bank Service Charge / CC Finance Charge on statement ending date
+      const svcChargeAmt = Number(service_charge ?? body.service_charge_amount ?? 0)
       if (svcChargeAmt > 0 && status === 'Completed') {
         const explicitSvcAcc = service_charge_account_qb_id
           ? (acctByQbId.get(String(service_charge_account_qb_id)) || {
@@ -3838,7 +4019,7 @@ export async function POST(req: NextRequest) {
             qb_entity_type: 'Purchase',
             qb_txn_id: svcQbId,
             txn_date: statement_ending_date,
-            payment_type: 'Expense',
+            payment_type: isCc ? 'CreditCard' : 'Expense',
             direction: 'OUT',
             account_qb_id: bankAcc.qb_account_id,
             account_name: bankAcc.name,
@@ -3848,14 +4029,14 @@ export async function POST(req: NextRequest) {
             entity_type: 'Vendor',
             total_amount: svcChargeAmt,
             open_balance: 0,
-            memo: `Bank Service Charge (${statement_ending_date})`,
+            memo: `${isCc ? 'Finance Charge' : 'Bank Service Charge'} (${statement_ending_date})`,
             category_summary: explicitSvcAcc.name,
             cleared_status: status === 'Completed' ? 'Reconciled' : 'Cleared',
             is_voided: false,
             line_items: [{
               id: '1',
               line_num: 1,
-              description: `Bank Service Charge (${statement_ending_date})`,
+              description: `${isCc ? 'Finance Charge' : 'Bank Service Charge'} (${statement_ending_date})`,
               amount: svcChargeAmt,
               account_qb_id: explicitSvcAcc.qb_account_id,
               account_name: explicitSvcAcc.name,
@@ -3881,13 +4062,14 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      // Optional auto-create Interest Earned on statement ending date (inside atomic RPC when completing)
-      const intEarnedAmt = Number(interest_earned || 0)
+      // Optional auto-create Interest Earned (or CC Credit/Rebate) on statement ending date
+      const intEarnedAmt = Number(interest_earned ?? body.interest_earned_amount ?? 0)
+      const resolvedInterestAccQbId = interest_account_qb_id || body.interest_earned_account_qb_id
       if (intEarnedAmt > 0 && status === 'Completed') {
-        const explicitIntAcc = interest_account_qb_id
-          ? (acctByQbId.get(String(interest_account_qb_id)) || {
-              qb_account_id: String(interest_account_qb_id),
-              name: String(interest_account_qb_id),
+        const explicitIntAcc = resolvedInterestAccQbId
+          ? (acctByQbId.get(String(resolvedInterestAccQbId)) || {
+              qb_account_id: String(resolvedInterestAccQbId),
+              name: String(resolvedInterestAccQbId),
               account_type: 'Other Income',
             })
           : Array.from(acctByQbId.values()).find(
@@ -3899,30 +4081,31 @@ export async function POST(req: NextRequest) {
 
         if (explicitIntAcc) {
           const intQbId = `LOCAL-INT-${Date.now()}`
+          const intTxnType = isCc ? 'CreditCardCredit' : 'Deposit'
           const intPayload: Record<string, any> = {
             company_realm_id: realmId,
-            txn_type: 'Deposit',
-            qb_entity_type: 'Deposit',
+            txn_type: intTxnType,
+            qb_entity_type: intTxnType,
             qb_txn_id: intQbId,
             txn_date: statement_ending_date,
-            payment_type: 'Deposit',
+            payment_type: intTxnType,
             direction: 'IN',
             account_qb_id: bankAcc.qb_account_id,
             account_name: bankAcc.name,
             to_account_qb_id: explicitIntAcc.qb_account_id,
             to_account_name: explicitIntAcc.name,
             entity_name: bankAcc.name,
-            entity_type: 'Customer',
+            entity_type: isCc ? 'Vendor' : 'Customer',
             total_amount: intEarnedAmt,
             open_balance: 0,
-            memo: `Interest Earned (${statement_ending_date})`,
+            memo: `Interest / Credit Earned (${statement_ending_date})`,
             category_summary: explicitIntAcc.name,
             cleared_status: status === 'Completed' ? 'Reconciled' : 'Cleared',
             is_voided: false,
             line_items: [{
               id: '1',
               line_num: 1,
-              description: `Interest Earned (${statement_ending_date})`,
+              description: `Interest / Credit Earned (${statement_ending_date})`,
               amount: intEarnedAmt,
               account_qb_id: explicitIntAcc.qb_account_id,
               account_name: explicitIntAcc.name,
@@ -3935,7 +4118,7 @@ export async function POST(req: NextRequest) {
             deltas: intDeltas,
             outbox: {
               entityKind: 'TRANSACTION',
-              entityType: 'Deposit',
+              entityType: intTxnType,
               qbEntityId: intQbId,
               operation: 'UPSERT',
               idempotencyKey: `REC-INT-${realmId}-${intQbId}`,
@@ -3948,17 +4131,14 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      // Compute finalClearedBalance deterministically from beginning_balance + deposits_total - payments_total - svcChargeAmt + intEarnedAmt
-      const isCc = (bankAcc.account_type || '').toLowerCase().includes('credit card')
+      // Compute finalClearedBalance strictly on the server from actual DB transactions (never trust client cleared_balance)
       const baseBegin = Number(beginning_balance || 0)
-      const basePay = Number(payments_total || 0)
-      const baseDep = Number(deposits_total || 0)
+      const basePay = serverPaymentsTotal
+      const baseDep = serverDepositsTotal
       const computedFromParts = isCc
         ? Number((baseBegin + basePay + svcChargeAmt - baseDep - intEarnedAmt).toFixed(2))
         : Number((baseBegin - basePay - svcChargeAmt + baseDep + intEarnedAmt).toFixed(2))
-      let finalClearedBalance = cleared_balance !== undefined && cleared_balance !== null
-        ? Number(Number(cleared_balance).toFixed(2))
-        : computedFromParts
+      let finalClearedBalance = computedFromParts
       let finalDifference = Number((Number(ending_balance || 0) - finalClearedBalance).toFixed(2))
 
       // Strict Accounting Rule: Block completing reconciliation if difference != 0 unless an explicit, justified & audited adjustment is requested
@@ -4001,23 +4181,36 @@ export async function POST(req: NextRequest) {
           )
         }
 
-        const isPositiveDiff = finalDifference > 0 // Ending balance > Cleared balance -> need Deposit
+        const isPositiveDiff = finalDifference > 0
+        // Bank: +diff (ending > cleared) => Deposit ('IN'); -diff => Expense ('OUT')
+        // Credit Card: +diff (ending CC debt > cleared CC debt) => CC Charge ('Expense' / 'Purchase' / 'OUT');
+        //              -diff (ending CC debt < cleared CC debt) => CC Credit ('CreditCardCredit' / 'IN')
+        const adjTxnType = isCc
+          ? (isPositiveDiff ? 'Expense' : 'CreditCardCredit')
+          : (isPositiveDiff ? 'Deposit' : 'Expense')
+        const adjQbEntityType =
+          adjTxnType === 'Expense' ? 'Purchase' : adjTxnType
+        const adjDirection: 'IN' | 'OUT' =
+          adjTxnType === 'Deposit' || adjTxnType === 'CreditCardCredit' ? 'IN' : 'OUT'
+        const adjPaymentType = isCc && adjTxnType === 'Expense' ? 'CreditCard' : adjTxnType
+        const adjEntityType = adjTxnType === 'Deposit' ? 'Customer' : 'Vendor'
+
         const adjAmt = Math.abs(finalDifference)
         const adjQbId = `LOCAL-ADJ-${Date.now()}`
         const adjPayload: Record<string, any> = {
           company_realm_id: realmId,
-          txn_type: isPositiveDiff ? 'Deposit' : 'Expense',
-          qb_entity_type: isPositiveDiff ? 'Deposit' : 'Purchase',
+          txn_type: adjTxnType,
+          qb_entity_type: adjQbEntityType,
           qb_txn_id: adjQbId,
           txn_date: statement_ending_date,
-          payment_type: isPositiveDiff ? 'Deposit' : 'Expense',
-          direction: isPositiveDiff ? 'IN' : 'OUT',
+          payment_type: adjPaymentType,
+          direction: adjDirection,
           account_qb_id: bankAcc.qb_account_id,
           account_name: bankAcc.name,
           to_account_qb_id: fallbackAdjAcc.qb_account_id,
           to_account_name: fallbackAdjAcc.name,
           entity_name: 'Reconciliation Discrepancy Adjustment',
-          entity_type: isPositiveDiff ? 'Customer' : 'Vendor',
+          entity_type: adjEntityType,
           total_amount: adjAmt,
           open_balance: 0,
           memo: `Ajuste Auditado de Conciliación (${statement_ending_date}): ${adjustmentReason}`,
@@ -4040,7 +4233,7 @@ export async function POST(req: NextRequest) {
           deltas: adjDeltas,
           outbox: {
             entityKind: 'TRANSACTION',
-            entityType: isPositiveDiff ? 'Deposit' : 'Purchase',
+            entityType: adjQbEntityType,
             qbEntityId: adjQbId,
             operation: 'UPSERT',
             idempotencyKey: `REC-ADJ-${realmId}-${adjQbId}`,
@@ -4048,7 +4241,7 @@ export async function POST(req: NextRequest) {
             status: outboxInitialStatus,
           },
         })
-        if (isPositiveDiff) {
+        if (adjDirection === 'IN') {
           extraDepositsCount += 1
           extraDepositsTotal += adjAmt
         } else {
@@ -4071,10 +4264,10 @@ export async function POST(req: NextRequest) {
         ending_balance: Number(ending_balance || 0),
         cleared_balance: finalClearedBalance,
         difference: finalDifference,
-        payments_count: Number(payments_count || 0) + extraPaymentsCount,
-        payments_total: Number((Number(payments_total || 0) + extraPaymentsTotal).toFixed(2)),
-        deposits_count: Number(deposits_count || 0) + extraDepositsCount,
-        deposits_total: Number((Number(deposits_total || 0) + extraDepositsTotal).toFixed(2)),
+        payments_count: serverPaymentsCount + extraPaymentsCount,
+        payments_total: Number((serverPaymentsTotal + extraPaymentsTotal).toFixed(2)),
+        deposits_count: serverDepositsCount + extraDepositsCount,
+        deposits_total: Number((serverDepositsTotal + extraDepositsTotal).toFixed(2)),
         service_charge: svcChargeAmt,
         interest_earned: intEarnedAmt,
         status: finalStatus,
@@ -4144,6 +4337,56 @@ export async function POST(req: NextRequest) {
         return periodCheckReopenRec.response
       }
 
+      const { data: autoEntries } = await supabase
+        .from('external_accounting_transactions')
+        .select('*')
+        .eq('company_realm_id', realmId)
+        .contains('raw_data', { reconciliation_id: String(id), reconciliation_auto_entry: true })
+
+      if (autoEntries && autoEntries.length > 0) {
+        const autoIds = new Set(autoEntries.map((ae: any) => String(ae.id)))
+        for (const ae of autoEntries) {
+          const revDeltas = ae.is_voided
+            ? new Map<string, number>()
+            : computeTransactionAccountDeltas(acctByQbId, ae, -1, ledgerCtx)
+          const autoDelRes = await mutateTransactionAtomically(supabase, {
+            operation: 'DELETE',
+            realmId,
+            txn: { id: ae.id },
+            deltas: revDeltas,
+            user: auth.user,
+            audit: {
+              actionType: 'DELETE_RECONCILIATION_AUTO_ENTRY',
+              entityType: ae.txn_type,
+              entityId: ae.id,
+              docNumber: ae.doc_number,
+              amount: Number(ae.total_amount || 0),
+              summary: `Reversó asiento automático de conciliación (${ae.memo || ae.txn_type}) al reabrir/eliminar conciliación ${existingRec.statement_ending_date}`,
+            },
+            outbox: {
+              entityKind: 'TRANSACTION',
+              entityType: ae.qb_entity_type || ae.txn_type,
+              qbEntityId: ae.qb_txn_id,
+              operation: 'DELETE',
+              idempotencyKey: `REC-AUTO-DEL-${realmId}-${ae.id}-${Date.now()}`,
+              payload: ae,
+              status: serverQboSyncEnabled ? 'PENDING' : 'SKIPPED_LOCAL_ONLY',
+            },
+          })
+          if (serverQboSyncEnabled && autoDelRes.outboxId) {
+            await processSingleOutboxEntry(supabase, autoDelRes.outboxId, { forceNow: true })
+          }
+        }
+        const cleanedRecIds = Array.isArray(existingRec.reconciled_txn_ids)
+          ? existingRec.reconciled_txn_ids.map(String).filter((tid: string) => !autoIds.has(tid))
+          : []
+        await supabase
+          .from('external_accounting_reconciliations')
+          .update({ reconciled_txn_ids: cleanedRecIds })
+          .eq('id', id)
+          .eq('company_realm_id', realmId)
+      }
+
       const reopenRes = await reopenOrDeleteReconciliationAtomically(supabase, {
         operation: 'REOPEN',
         realmId,
@@ -4172,6 +4415,56 @@ export async function POST(req: NextRequest) {
       const periodCheckDelRec = await ensureOpenAccountingPeriod(existingRec.statement_ending_date, 'delete_reconciliation')
       if (!periodCheckDelRec.allowed) {
         return periodCheckDelRec.response
+      }
+
+      const { data: autoEntries } = await supabase
+        .from('external_accounting_transactions')
+        .select('*')
+        .eq('company_realm_id', realmId)
+        .contains('raw_data', { reconciliation_id: String(id), reconciliation_auto_entry: true })
+
+      if (autoEntries && autoEntries.length > 0) {
+        const autoIds = new Set(autoEntries.map((ae: any) => String(ae.id)))
+        for (const ae of autoEntries) {
+          const revDeltas = ae.is_voided
+            ? new Map<string, number>()
+            : computeTransactionAccountDeltas(acctByQbId, ae, -1, ledgerCtx)
+          const autoDelRes = await mutateTransactionAtomically(supabase, {
+            operation: 'DELETE',
+            realmId,
+            txn: { id: ae.id },
+            deltas: revDeltas,
+            user: auth.user,
+            audit: {
+              actionType: 'DELETE_RECONCILIATION_AUTO_ENTRY',
+              entityType: ae.txn_type,
+              entityId: ae.id,
+              docNumber: ae.doc_number,
+              amount: Number(ae.total_amount || 0),
+              summary: `Reversó asiento automático de conciliación (${ae.memo || ae.txn_type}) al reabrir/eliminar conciliación ${existingRec.statement_ending_date}`,
+            },
+            outbox: {
+              entityKind: 'TRANSACTION',
+              entityType: ae.qb_entity_type || ae.txn_type,
+              qbEntityId: ae.qb_txn_id,
+              operation: 'DELETE',
+              idempotencyKey: `REC-AUTO-DEL-${realmId}-${ae.id}-${Date.now()}`,
+              payload: ae,
+              status: serverQboSyncEnabled ? 'PENDING' : 'SKIPPED_LOCAL_ONLY',
+            },
+          })
+          if (serverQboSyncEnabled && autoDelRes.outboxId) {
+            await processSingleOutboxEntry(supabase, autoDelRes.outboxId, { forceNow: true })
+          }
+        }
+        const cleanedRecIds = Array.isArray(existingRec.reconciled_txn_ids)
+          ? existingRec.reconciled_txn_ids.map(String).filter((tid: string) => !autoIds.has(tid))
+          : []
+        await supabase
+          .from('external_accounting_reconciliations')
+          .update({ reconciled_txn_ids: cleanedRecIds })
+          .eq('id', id)
+          .eq('company_realm_id', realmId)
       }
 
       await reopenOrDeleteReconciliationAtomically(supabase, {
@@ -6214,6 +6507,282 @@ export async function POST(req: NextRequest) {
       })
     }
 
+    if (action === 'create_attachment_upload_url') {
+      const fileName = String(body.file_name || body.fileName || '').trim()
+      if (!fileName) {
+        return NextResponse.json({ error: 'file_name is required' }, { status: 400 })
+      }
+      const resolvedContentType = String(body.content_type || body.contentType || 'application/pdf').trim() || 'application/pdf'
+      try {
+        assertSafeAttachmentType(fileName, resolvedContentType)
+      } catch (mimeErr: any) {
+        return NextResponse.json({ error: mimeErr.message || 'Tipo de archivo no permitido.' }, { status: 400 })
+      }
+
+      const sizeBytes = Number(body.size_bytes ?? body.file_size ?? 0)
+      if (!Number.isFinite(sizeBytes) || sizeBytes <= 0) {
+        return NextResponse.json({ error: 'size_bytes debe ser mayor a 0.' }, { status: 400 })
+      }
+      if (sizeBytes > MAX_ATTACHMENT_BYTES) {
+        return NextResponse.json(
+          { error: `El archivo adjunto excede el tamaño máximo permitido de 15 MB (${MAX_ATTACHMENT_BYTES} bytes).` },
+          { status: 413 }
+        )
+      }
+
+      const contactId = body.contact_id || body.contactId || null
+      const transactionId = body.transaction_id || body.transactionId || null
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+      if (contactId) {
+        if (!uuidRegex.test(String(contactId))) {
+          return NextResponse.json({ error: `Invalid contact_id UUID: ${contactId}` }, { status: 400 })
+        }
+        const { data: validCon } = await supabase
+          .from('external_accounting_contacts')
+          .select('id')
+          .eq('id', String(contactId))
+          .eq('company_realm_id', realmId)
+          .maybeSingle()
+        if (!validCon) {
+          return NextResponse.json({ error: `Contact ${contactId} not found in active company ${realmId}` }, { status: 400 })
+        }
+      }
+      if (transactionId) {
+        if (!uuidRegex.test(String(transactionId))) {
+          return NextResponse.json({ error: `Invalid transaction_id UUID: ${transactionId}` }, { status: 400 })
+        }
+        const { data: validTxn } = await supabase
+          .from('external_accounting_transactions')
+          .select('id')
+          .eq('id', String(transactionId))
+          .eq('company_realm_id', realmId)
+          .maybeSingle()
+        if (!validTxn) {
+          return NextResponse.json({ error: `Transaction ${transactionId} not found in active company ${realmId}` }, { status: 400 })
+        }
+      }
+
+      const safeName = fileName
+        .replace(/[^a-zA-Z0-9._-]+/g, '_')
+        .replace(/^_+|_+$/g, '')
+        .slice(0, 120) || 'attachment.bin'
+      const randHex = crypto.randomBytes(6).toString('hex')
+      const storagePath = `${realmId}/${Date.now()}_${randHex}_${safeName}`
+
+      const { data: signRes, error: signErr } = await supabase.storage
+        .from(EXTERNAL_ACCOUNTING_STORAGE_BUCKET)
+        .createSignedUploadUrl(storagePath, { upsert: true })
+
+      if (signErr || !signRes?.signedUrl) {
+        return NextResponse.json(
+          { error: `No se pudo generar URL firmada de subida: ${signErr?.message || 'unknown'}` },
+          { status: 500 }
+        )
+      }
+
+      return NextResponse.json({
+        ok: true,
+        signedUrl: signRes.signedUrl,
+        token: signRes.token,
+        storageBucket: EXTERNAL_ACCOUNTING_STORAGE_BUCKET,
+        storagePath,
+        contentType: resolvedContentType,
+        maxBytes: MAX_ATTACHMENT_BYTES,
+      })
+    }
+
+    if (action === 'finalize_attachment_upload') {
+      const storagePath = String(body.storage_path || body.storagePath || '').trim()
+      const fileName = String(body.file_name || body.fileName || '').trim()
+      if (!storagePath || !fileName) {
+        return NextResponse.json({ error: 'storage_path y file_name son obligatorios.' }, { status: 400 })
+      }
+      if (!storagePath.startsWith(`${realmId}/`) || storagePath.includes('..') || storagePath.includes('//')) {
+        return NextResponse.json(
+          { error: 'storage_path inválido o no pertenece a la empresa activa (cross-realm bloqueado).' },
+          { status: 403 }
+        )
+      }
+
+      const resolvedContentType = String(body.content_type || body.contentType || 'application/pdf').trim() || 'application/pdf'
+      try {
+        assertSafeAttachmentType(fileName, resolvedContentType)
+      } catch (mimeErr: any) {
+        await supabase.storage.from(EXTERNAL_ACCOUNTING_STORAGE_BUCKET).remove([storagePath])
+        return NextResponse.json({ error: mimeErr.message || 'Tipo de archivo no permitido.' }, { status: 400 })
+      }
+
+      // Verify object exists in Supabase Storage and validate actual uploaded byte size
+      const { data: objInfo, error: infoErr } = await supabase.storage
+        .from(EXTERNAL_ACCOUNTING_STORAGE_BUCKET)
+        .info(storagePath)
+
+      if (infoErr || !objInfo) {
+        return NextResponse.json(
+          { error: `El archivo aún no existe en Supabase Storage o expiró la subida (${infoErr?.message || 'not_found'}).`, rolledBack: true },
+          { status: 404 }
+        )
+      }
+
+      const actualSize = Number((objInfo as any).size ?? (objInfo as any).metadata?.size ?? body.size_bytes ?? body.file_size ?? 0)
+      if (actualSize <= 0) {
+        await supabase.storage.from(EXTERNAL_ACCOUNTING_STORAGE_BUCKET).remove([storagePath])
+        return NextResponse.json({ error: 'El archivo subido está vacío (0 bytes).', rolledBack: true }, { status: 400 })
+      }
+      if (actualSize > MAX_ATTACHMENT_BYTES) {
+        await supabase.storage.from(EXTERNAL_ACCOUNTING_STORAGE_BUCKET).remove([storagePath])
+        return NextResponse.json(
+          { error: `El archivo subido (${actualSize} bytes) excede el máximo de 15 MB (${MAX_ATTACHMENT_BYTES} bytes).`, rolledBack: true },
+          { status: 413 }
+        )
+      }
+
+      const contactId = body.contact_id || body.contactId || null
+      const transactionId = body.transaction_id || body.transactionId || null
+      const contactName = body.contact_name || body.entity_name || null
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+      if (contactId) {
+        if (!uuidRegex.test(String(contactId))) {
+          await supabase.storage.from(EXTERNAL_ACCOUNTING_STORAGE_BUCKET).remove([storagePath])
+          return NextResponse.json({ error: `Invalid contact_id UUID: ${contactId}`, rolledBack: true }, { status: 400 })
+        }
+        const { data: validCon } = await supabase
+          .from('external_accounting_contacts')
+          .select('id')
+          .eq('id', String(contactId))
+          .eq('company_realm_id', realmId)
+          .maybeSingle()
+        if (!validCon) {
+          await supabase.storage.from(EXTERNAL_ACCOUNTING_STORAGE_BUCKET).remove([storagePath])
+          return NextResponse.json({ error: `Contact ${contactId} not found in active company ${realmId}`, rolledBack: true }, { status: 400 })
+        }
+      }
+      if (transactionId) {
+        if (!uuidRegex.test(String(transactionId))) {
+          await supabase.storage.from(EXTERNAL_ACCOUNTING_STORAGE_BUCKET).remove([storagePath])
+          return NextResponse.json({ error: `Invalid transaction_id UUID: ${transactionId}`, rolledBack: true }, { status: 400 })
+        }
+        const { data: validTxn } = await supabase
+          .from('external_accounting_transactions')
+          .select('id')
+          .eq('id', String(transactionId))
+          .eq('company_realm_id', realmId)
+          .maybeSingle()
+        if (!validTxn) {
+          await supabase.storage.from(EXTERNAL_ACCOUNTING_STORAGE_BUCKET).remove([storagePath])
+          return NextResponse.json({ error: `Transaction ${transactionId} not found in active company ${realmId}`, rolledBack: true }, { status: 400 })
+        }
+      }
+
+      const qbAttachableId = body.qb_attachable_id
+        ? String(body.qb_attachable_id)
+        : `LOCAL-ATT-${Date.now()}-${Math.floor(Math.random() * 1000)}`
+      const rawSha = String(body.sha256_hash || body.client_sha256 || '').trim().toLowerCase()
+      const sha256Hash = /^[a-f0-9]{64}$/.test(rawSha) ? rawSha : null
+
+      const { data: signedDownload } = await supabase.storage
+        .from(EXTERNAL_ACCOUNTING_STORAGE_BUCKET)
+        .createSignedUrl(storagePath, 60 * 60 * 24 * 7)
+
+      const cleanRawData = {
+        contact_id: contactId,
+        qb_contact_id: body.qb_contact_id || null,
+        transaction_id: transactionId,
+        qb_txn_id: body.qb_txn_id || null,
+        contact_name: contactName,
+        entity_name: contactName,
+        storage_bucket: EXTERNAL_ACCOUNTING_STORAGE_BUCKET,
+        storage_path: storagePath,
+        sha256_hash: sha256Hash,
+        uploaded_by: auth.user.name || auth.user.email,
+        upload_mode: 'direct_signed_url',
+      }
+
+      const attPayload: Record<string, any> = {
+        id: body.id || undefined,
+        company_realm_id: realmId,
+        qb_attachable_id: qbAttachableId,
+        contact_id: contactId,
+        qb_contact_id: body.qb_contact_id || null,
+        transaction_id: transactionId,
+        qb_txn_id: body.qb_txn_id || null,
+        linked_entity_type: body.linked_entity_type || (transactionId ? 'Transaction' : contactId ? 'Contact' : 'Company'),
+        linked_entity_id: body.linked_entity_id || body.qb_txn_id || body.qb_contact_id || null,
+        file_name: fileName,
+        content_type: resolvedContentType,
+        file_size: actualSize,
+        size_bytes: actualSize,
+        storage_bucket: EXTERNAL_ACCOUNTING_STORAGE_BUCKET,
+        storage_path: storagePath,
+        sha256_hash: sha256Hash,
+        file_url: signedDownload?.signedUrl || null,
+        note: body.note || (contactName ? `Attached to ${contactName}` : null),
+        force_db_failure:
+          isTestFaultInjectionAllowed &&
+          Boolean(body.force_db_failure || body.forceDbFailure),
+        raw_data: cleanRawData,
+      }
+
+      const isCompanyQboSyncEnabled = serverQboSyncEnabled
+      let atomicAttRes: Awaited<ReturnType<typeof mutateEntityAtomically>>
+      try {
+        atomicAttRes = await mutateEntityAtomically(supabase, {
+          entityKind: 'ATTACHMENT',
+          operation: 'UPSERT',
+          realmId,
+          record: attPayload,
+          user: auth.user,
+          audit: {
+            actionType: 'UPLOAD_ATTACHMENT_SIGNED_STORAGE',
+            entityType: 'Attachment',
+            entityId: qbAttachableId,
+            amount: actualSize,
+            summary: `Finalizó subida directa de adjunto "${fileName}" (${actualSize} bytes) en Supabase Storage`,
+          },
+          outbox: {
+            idempotencyKey: `ATT-UPSERT-${realmId}-${qbAttachableId}-${Date.now()}`,
+            status: isCompanyQboSyncEnabled ? 'PENDING' : 'SKIPPED_LOCAL_ONLY',
+            payload: attPayload,
+          },
+        })
+      } catch (attDbErr: any) {
+        const { error: rmErr } = await supabase.storage
+          .from(EXTERNAL_ACCOUNTING_STORAGE_BUCKET)
+          .remove([storagePath])
+        return NextResponse.json(
+          {
+            error: attDbErr.message || 'Error atómico al registrar adjunto en BD (Storage revertido).',
+            rolledBack: true,
+            storageCleanedUp: !rmErr,
+            cleanedStorageBucket: EXTERNAL_ACCOUNTING_STORAGE_BUCKET,
+            cleanedStoragePath: storagePath,
+          },
+          { status: 400 }
+        )
+      }
+
+      if (atomicAttRes.outboxId && isCompanyQboSyncEnabled) {
+        await processSingleOutboxEntry(supabase, atomicAttRes.outboxId, { forceNow: true })
+      }
+
+      const savedAtt = {
+        ...atomicAttRes.record,
+        file_url: signedDownload?.signedUrl || atomicAttRes.record?.file_url || null,
+        download_url: signedDownload?.signedUrl || atomicAttRes.record?.file_url || null,
+        data_url: null,
+      }
+
+      return NextResponse.json({
+        ok: true,
+        success: true,
+        attachment: savedAtt,
+        item: savedAtt,
+        auditId: atomicAttRes.auditId,
+        outboxId: atomicAttRes.outboxId,
+        outboxStatus: atomicAttRes.outboxStatus,
+      })
+    }
+
     if (action === 'save_contact_attachment') {
       const fileName = String(body.file_name || body.fileName || '').trim()
       if (!fileName) {
@@ -6668,10 +7237,10 @@ export async function POST(req: NextRequest) {
               .eq('txn_type', 'Invoice')
               .in('id', validUuidIds)
           : Promise.resolve({ data: [] as any[], error: null }),
-        supabase
-          .from('external_accounting_contacts')
-          .select('id, qb_contact_id, display_name, balance')
-          .eq('company_realm_id', realmId),
+        fetchAllTableRows(supabase, 'external_accounting_contacts', {
+          select: 'id, qb_contact_id, display_name, balance',
+          realmId,
+        }),
       ])
 
       if (openInvoicesRes.error) throw openInvoicesRes.error

@@ -17,7 +17,7 @@
  *   Evalúa ETA <= 4 min -> injectOrderToToast(orderId) -> app_orders.
  * 
  * @notes
- * - Almacena snapshot de telemetría GPS (latitud, longitud, velocidad y ETA calculada) en app_orders.items_json.geofenceTelemetrics.
+ * - Almacena snapshot de telemetría GPS (latitud/longitud validada [-90..90]/[-180..180], velocidad y `eta_minutes` redondeado a entero en Postgres mientras mantiene `eta` decimal en respuesta).
  */
 
 import { NextRequest, NextResponse } from 'next/server'
@@ -98,8 +98,17 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     if (!orderId || typeof orderId !== 'string') {
       return jsonError('orderId es requerido.', 400)
     }
-    if (typeof latitude !== 'number' || typeof longitude !== 'number') {
-      return jsonError('latitude y longitude son requeridos y deben ser numéricos.', 400)
+    if (
+      typeof latitude !== 'number' ||
+      typeof longitude !== 'number' ||
+      !Number.isFinite(latitude) ||
+      !Number.isFinite(longitude) ||
+      latitude < -90 ||
+      latitude > 90 ||
+      longitude < -180 ||
+      longitude > 180
+    ) {
+      return jsonError('latitude y longitude válidos son requeridos.', 400)
     }
 
     // 3. Verificar feature flag de Hold-and-Fire (deshabilitado por defecto hasta confirmación de Toast)
@@ -156,14 +165,16 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const distanceRounded = Number(distanceMiles.toFixed(2))
 
     const calculatedEtaMinutes = (distanceMiles / AVG_DRIVING_SPEED_MPH) * 60
-    const finalEta = Number(calculatedEtaMinutes.toFixed(1))
+    const finalEtaExact = Number(calculatedEtaMinutes.toFixed(1))
+    // public.app_orders.eta_minutes es columna integer en PostgreSQL
+    const finalEtaInteger = Math.max(0, Math.round(calculatedEtaMinutes))
 
     // 7. Preparar payload de actualización
     const now = new Date().toISOString()
     const updatePayload: Record<string, unknown> = {
       user_latitude: latitude,
       user_longitude: longitude,
-      eta_minutes: finalEta,
+      eta_minutes: finalEtaInteger,
       updated_at: now,
     }
 
@@ -173,9 +184,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     let toastOrderGuid: string | null = null
     let toastError: string | null = null
 
-    if (finalEta <= FIRE_ETA_THRESHOLD_MINUTES && order.status === 'HOLDING') {
+    if (finalEtaExact <= FIRE_ETA_THRESHOLD_MINUTES && order.status === 'HOLDING') {
       console.log(
-        `🔥 [GEOFENCE FIRE] Evaluando disparo a cocina para orden ${orderId} en ${store.name} — ETA: ${finalEta} min — Distancia: ${distanceRounded} mi`
+        `🔥 [GEOFENCE FIRE] Evaluando disparo a cocina para orden ${orderId} en ${store.name} — ETA: ${finalEtaExact} min — Distancia: ${distanceRounded} mi`
       )
 
       // Inyección autoritativa al POS/KDS de Toast
@@ -225,7 +236,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     return jsonOk({
       status: currentStatus,
-      eta: finalEta,
+      eta: finalEtaExact,
+      etaMinutes: finalEtaInteger,
       distance: distanceRounded,
       firedAt,
       toastInjected,

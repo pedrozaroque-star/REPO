@@ -26,6 +26,7 @@
  * - Logs: solo códigos y estados HTTP; nunca tokens, teléfonos, direcciones ni cuerpos de error del proveedor.
  */
 
+import { createHash } from 'crypto'
 import { type NextRequest, NextResponse } from 'next/server'
 import { corsResponse, jsonOk, jsonError, getAuthUser, isAuthSuccess } from '../../_helpers'
 import {
@@ -163,7 +164,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           'AUTH_REQUIRED'
         )
       }
-      callerKey = `user:${auth.userId}:${ip}`
+      callerKey = `user:${auth.userId}`
       isAuthenticatedUser = true
     } else if (!clientToken || clientToken.length < 6 || clientToken.length > 64) {
       return jsonError(
@@ -171,6 +172,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         401,
         'AUTH_REQUIRED'
       )
+    } else {
+      const clientHash = createHash('sha256').update(clientToken).digest('hex').slice(0, 16)
+      callerKey = `guest:${ip}:${clientHash}`
     }
 
     const rl = checkRateLimit(`checkout-session:${callerKey}`, RATE_LIMIT_PER_MINUTE, 60_000)

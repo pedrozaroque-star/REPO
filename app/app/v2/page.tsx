@@ -101,7 +101,7 @@ export default function MobileCustomerAppV2Page() {
         </div>
       )}
 
-      {/* Cajón Inferior para Saltar entre las 10 Pantallas de Versión 2 (Modo 100% Directo sin Login) */}
+      {/* Cajón Inferior para Saltar entre las 12 Pantallas de Versión 2 (Modo 100% Directo sin Login) */}
       <AnimatePresence>
         {showTestDrawer && (
           <motion.div
@@ -126,7 +126,7 @@ export default function MobileCustomerAppV2Page() {
                     TACOS GAVILAN • VERSIÓN 2
                   </p>
                   <h3 className="text-sm font-black text-white">
-                    {isEn ? 'Jump to Any Screen (1–10)' : 'Saltar a Cualquier Pantalla (1–10)'}
+                    {isEn ? 'Jump to Any Screen (1–12)' : 'Saltar a Cualquier Pantalla (1–12)'}
                   </h3>
                 </div>
                 <button
@@ -208,7 +208,7 @@ export default function MobileCustomerAppV2Page() {
                   onClick={() => jumpToV2State('main', 0, 'order', null, false)}
                   className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-left text-xs font-bold"
                 >
-                  <span>9. Pestaña Ordenar (Checkout Oficial Toast POS)</span>
+                  <span>9. Pestaña Ordenar (Bolsa y order.online)</span>
                   <span className="text-[10px] text-white/60 font-mono">Order</span>
                 </button>
                 <button

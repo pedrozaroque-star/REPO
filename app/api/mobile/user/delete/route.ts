@@ -15,7 +15,7 @@
  * - App Móvil DELETE /api/mobile/user/delete (Bearer JWT) -> Elimina cuenta en Supabase Auth y purga PII.
  * 
  * @notes
- * - Desvincula app_orders asignando user_id = null para preservar la integridad del libro mayor fiscal y contable.
+ * - Desvincula app_orders asignando user_id = null para preservar la integridad del libro mayor fiscal y contable, purgando PII de items_json (customerPhone/Email/Name y deliveryLogistics), limpiando retos OTP por email y confiando en ON DELETE CASCADE al ejecutar auth.admin.deleteUser.
  */
 
 import { NextRequest, NextResponse } from 'next/server'
@@ -46,11 +46,22 @@ export async function DELETE(request: NextRequest): Promise<NextResponse> {
 
     console.log(`🗑️ [ACCOUNT DELETION] Iniciando purga de datos para comensal ${userId}`)
 
+    const { data: userProfile } = await supabaseAdmin
+      .from('app_users')
+      .select('email')
+      .eq('id', userId)
+      .maybeSingle()
+
     // 2. Anonimizar y desvincular pedidos históricos para preservar la integridad contable sin retener PII
-    const { data: userOrders } = await supabaseAdmin
+    const { data: userOrders, error: ordersFetchErr } = await supabaseAdmin
       .from('app_orders')
       .select('id, items_json')
       .eq('user_id', userId)
+
+    if (ordersFetchErr) {
+      console.error('[ACCOUNT DELETION] Error consultando pedidos del usuario:', ordersFetchErr.message)
+      return jsonError('No fue posible anonimizar el historial de pedidos.', 500)
+    }
 
     if (userOrders && userOrders.length > 0) {
       for (const ord of userOrders) {
@@ -63,14 +74,18 @@ export async function DELETE(request: NextRequest): Promise<NextResponse> {
           ? (() => {
               const copy = { ...(ord.items_json as Record<string, unknown>) }
               delete copy.deliveryAddress
+              delete copy.deliveryLogistics
               delete copy.curbsideArrival
               delete copy.curbsideDetails
               delete copy.geofenceTelemetrics
+              delete copy.customerPhone
+              delete copy.customerEmail
+              delete copy.customerName
               return copy
             })()
           : ord.items_json
 
-        await supabaseAdmin
+        const { error: ordUpdateErr } = await supabaseAdmin
           .from('app_orders')
           .update({
             user_id: null,
@@ -81,11 +96,16 @@ export async function DELETE(request: NextRequest): Promise<NextResponse> {
             updated_at: new Date().toISOString(),
           })
           .eq('id', ord.id)
+
+        if (ordUpdateErr) {
+          console.error('[ACCOUNT DELETION] Error anonimizando orden:', ord.id, ordUpdateErr.message)
+          return jsonError('No fue posible completar la anonimización de pedidos.', 500)
+        }
       }
     }
 
     // 3. Anonimizar y desvincular cotizaciones históricas
-    await supabaseAdmin
+    const { error: quotesErr } = await supabaseAdmin
       .from('app_quotes')
       .update({
         user_id: null,
@@ -93,50 +113,31 @@ export async function DELETE(request: NextRequest): Promise<NextResponse> {
       })
       .eq('user_id', userId)
 
-    // 4. Purgar dispositivos, carritos y favoritos guardados
-    await supabaseAdmin
-      .from('app_devices')
-      .delete()
-      .eq('user_id', userId)
-
-    await supabaseAdmin
-      .from('app_carts')
-      .delete()
-      .eq('user_id', userId)
-
-    await supabaseAdmin
-      .from('app_favorite_orders')
-      .delete()
-      .eq('user_id', userId)
-
-    // 5. Eliminar saldo de recompensas y transacciones de lealtad
-    await supabaseAdmin
-      .from('app_rewards_transactions')
-      .delete()
-      .eq('user_id', userId)
-
-    await supabaseAdmin
-      .from('app_rewards_balances')
-      .delete()
-      .eq('user_id', userId)
-
-    // 6. Eliminar perfil de usuario comensal en public.app_users
-    const { error: appUserDeleteErr } = await supabaseAdmin
-      .from('app_users')
-      .delete()
-      .eq('id', userId)
-
-    if (appUserDeleteErr) {
-      console.warn('[ACCOUNT DELETION] Aviso eliminando de app_users:', appUserDeleteErr.message)
+    if (quotesErr) {
+      console.error('[ACCOUNT DELETION] Error anonimizando cotizaciones:', quotesErr.message)
+      return jsonError('No fue posible anonimizar cotizaciones históricas.', 500)
     }
 
-    // 7. Eliminar usuario de Supabase Auth (auth.users)
+    // 4. Purgar retos OTP por correo antes de eliminar credenciales
+    const userEmail = (userProfile?.email || authResult.email || '').trim().toLowerCase()
+    if (userEmail) {
+      await supabaseAdmin
+        .from('app_mobile_otp_challenges')
+        .delete()
+        .ilike('email', userEmail)
+    }
+
+    // 5. Eliminar usuario de Supabase Auth primero (propaga ON DELETE CASCADE a app_users,
+    //    app_devices, app_carts, app_favorite_orders, app_rewards_balances y app_rewards_transactions)
     const { error: authDeleteErr } = await supabaseAdmin.auth.admin.deleteUser(userId)
 
     if (authDeleteErr) {
       console.error('[ACCOUNT DELETION] Error eliminando usuario de Supabase Auth:', authDeleteErr)
       return jsonError('No fue posible eliminar las credenciales de autenticación.', 500)
     }
+
+    // Limpieza defensiva en app_users por si existía registro sin FK cascada
+    await supabaseAdmin.from('app_users').delete().eq('id', userId)
 
     console.log(`✅ [ACCOUNT DELETION] Comensal ${userId} eliminado permanentemente (Apple Guideline 5.1.1(v) Compliant)`)
 

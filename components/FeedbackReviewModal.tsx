@@ -158,10 +158,20 @@ export default function FeedbackReviewModal({
     const fetchRolesAndSettings = async () => {
         if (!feedback?.store_id) return
         const supabase = await getSupabaseClient()
+        const token = typeof window !== 'undefined' ? localStorage.getItem('teg_token') || '' : ''
 
-        // 1. Get Notification Toggle Status
-        const { data: fbData } = await supabase.from('customer_feedback').select('notify_manager').eq('id', feedback.id).maybeSingle()
-        if (fbData) setIncludeManager(!!fbData.notify_manager)
+        // 1. Get Notification Toggle Status via authenticated TEG endpoint
+        try {
+            const stRes = await fetch(`/api/feedback?mode=notify_status&id=${encodeURIComponent(feedback.id)}`, {
+                headers: token ? { Authorization: `Bearer ${token}` } : {}
+            })
+            if (stRes.ok) {
+                const stJson = await stRes.json()
+                setIncludeManager(!!stJson.notify_manager)
+            }
+        } catch {
+            // fallback sin romper UI
+        }
 
         // 2. Get Manager
         const { data: mgr } = await supabase.from('users')
@@ -189,8 +199,19 @@ export default function FeedbackReviewModal({
 
     const toggleManager = async (checked: boolean) => {
         setIncludeManager(checked)
-        const supabase = await getSupabaseClient()
-        await supabase.from('customer_feedback').update({ notify_manager: checked }).eq('id', feedback.id)
+        const token = typeof window !== 'undefined' ? localStorage.getItem('teg_token') || '' : ''
+        await fetch('/api/feedback', {
+            method: 'PATCH',
+            headers: {
+                'Content-Type': 'application/json',
+                ...(token ? { Authorization: `Bearer ${token}` } : {})
+            },
+            body: JSON.stringify({
+                id: feedback.id,
+                action: 'toggle_notify_manager',
+                notify_manager: checked
+            })
+        })
     }
 
     // Scroll effect
@@ -301,21 +322,22 @@ export default function FeedbackReviewModal({
         }
 
         setIsSending(true)
-        const supabase = await getSupabaseClient()
+        const token = typeof window !== 'undefined' ? localStorage.getItem('teg_token') || '' : ''
         try {
-            const { error: updateError } = await supabase
-                .from('customer_feedback')
-                .update({
-                    requires_follow_up: false,
-                    review_status: 'closed', // Ensure explicit closed status if used
-                    admin_review_status: 'closed',
-                    reviewed_by: currentUser.id,
-                    reviewed_at: new Date().toISOString(),
-                    admin_review_date: new Date().toISOString()
+            const res = await fetch('/api/feedback', {
+                method: 'PATCH',
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...(token ? { Authorization: `Bearer ${token}` } : {})
+                },
+                body: JSON.stringify({
+                    id: feedback.id,
+                    action: 'conclude_review'
                 })
-                .eq('id', feedback.id)
+            })
+            const json = await res.json().catch(() => ({}))
+            if (!res.ok) throw new Error(json?.error || 'Error concluyendo revisión')
 
-            if (updateError) throw updateError
             alert('Revisión concluida exitosamente.')
             if (onUpdate) onUpdate()
             onClose()

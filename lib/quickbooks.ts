@@ -1,8 +1,124 @@
+/**
+ * @module lib/quickbooks
+ * @description Cliente OAuth 2.0 e integración oficial con Intuit QuickBooks Online para Tacos Gavilan
+ * y utilidades criptográficas HMAC-SHA256 para proteger el flujo OAuth (`state` + cookie `qb_oauth_nonce`).
+ *
+ * @businessRules
+ * - En producción almacena credenciales de Tacos Gavilan en `public.integrations` (`service_name = 'quickbooks'`).
+ * - Las empresas de Contabilidad Externa utilizan filas aisladas (`quickbooks_ext_<realmId>`) y `external_accounting_companies.metadata.qbo_oauth`.
+ * - Todo flujo OAuth (`/auth` -> `/callback`) firma criptográficamente `state` con HMAC-SHA256 y valida nonce HttpOnly (`15 min` TTL).
+ *
+ * @dataFlow
+ * - `signQuickBooksOAuthState` -> Intuit `/authorize` -> `/api/integrations/quickbooks/callback` -> `verifyQuickBooksOAuthState`.
+ *
+ * @notes
+ * - 2026-11-12 (Wave P0 Security): Agregada firma HMAC-SHA256 (`timingSafeEqual`) y sanitización HTML/JS para impedir CSRF/token-overwrite.
+ */
+
+import crypto from 'crypto';
 import OAuthClient from 'intuit-oauth';
 import QuickBooks from 'node-quickbooks';
 import { createClient } from '@supabase/supabase-js';
 import fs from 'fs';
 import path from 'path';
+
+export const QB_OAUTH_NONCE_COOKIE = 'qb_oauth_nonce';
+
+export interface SignedQbOAuthState {
+    m: 'init' | 'external' | 'external_all' | 'diagnose';
+    r: string;
+    n: string;
+    u: string;
+    exp: number;
+}
+
+function getOAuthStateSecret(): string {
+    const secret =
+        process.env.SUPABASE_JWT_SECRET ||
+        process.env.JWT_SECRET ||
+        process.env.QUICKBOOKS_CLIENT_SECRET ||
+        '';
+    if (!secret.trim()) {
+        throw new Error('Missing server secret for QuickBooks OAuth state signing');
+    }
+    return secret.trim().replace(/^"(.*)"$/, '$1');
+}
+
+export function signQuickBooksOAuthState(params: {
+    mode: 'init' | 'external' | 'external_all' | 'diagnose';
+    targetRealmId?: string;
+    userId: string;
+    nonce?: string;
+    ttlMs?: number;
+}): { state: string; nonce: string } {
+    const nonce = params.nonce || crypto.randomBytes(16).toString('hex');
+    const payloadObj: SignedQbOAuthState = {
+        m: params.mode,
+        r: String(params.targetRealmId || '').trim(),
+        n: nonce,
+        u: String(params.userId || '').trim(),
+        exp: Date.now() + (params.ttlMs ?? 15 * 60 * 1000),
+    };
+    const payloadB64 = Buffer.from(JSON.stringify(payloadObj), 'utf8').toString('base64url');
+    const sigB64 = crypto
+        .createHmac('sha256', getOAuthStateSecret())
+        .update(payloadB64)
+        .digest('base64url');
+    return {
+        state: `${payloadB64}.${sigB64}`,
+        nonce,
+    };
+}
+
+export function verifyQuickBooksOAuthState(
+    rawState: string | null | undefined,
+    expectedCookieNonce: string | null | undefined
+): SignedQbOAuthState | null {
+    try {
+        if (!rawState || !expectedCookieNonce) return null;
+        const parts = rawState.split('.');
+        if (parts.length !== 2) return null;
+        const [payloadB64, sigB64] = parts;
+        if (!payloadB64 || !sigB64) return null;
+
+        const expectedSig = crypto
+            .createHmac('sha256', getOAuthStateSecret())
+            .update(payloadB64)
+            .digest('base64url');
+
+        const a = Buffer.from(sigB64, 'utf8');
+        const b = Buffer.from(expectedSig, 'utf8');
+        if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) {
+            return null;
+        }
+
+        const parsed = JSON.parse(Buffer.from(payloadB64, 'base64url').toString('utf8')) as SignedQbOAuthState;
+        if (!parsed || typeof parsed !== 'object') return null;
+        if (!parsed.exp || Date.now() > Number(parsed.exp)) return null;
+
+        const nonceA = Buffer.from(String(parsed.n || ''), 'utf8');
+        const nonceB = Buffer.from(String(expectedCookieNonce || ''), 'utf8');
+        if (nonceA.length === 0 || nonceA.length !== nonceB.length || !crypto.timingSafeEqual(nonceA, nonceB)) {
+            return null;
+        }
+        return parsed;
+    } catch {
+        return null;
+    }
+}
+
+export function escapeQbHtml(input: unknown): string {
+    return String(input ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+export function safeInlineJson(input: unknown): string {
+    return JSON.stringify(input).replace(/</g, '\\u003c').replace(/>/g, '\\u003e').replace(/&/g, '\\u0026');
+}
 
 // Initialize Supabase client
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;

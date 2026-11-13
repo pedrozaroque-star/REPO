@@ -42,11 +42,11 @@ async function runTests() {
     'Ruta /app registrada en los items de navegación'
   )
   assert(
-    sidebarContent.includes("hasNewBadge = item.path === '/basecamp' || item.path === '/admin/compras/viele' || item.path === '/app'"),
-    'Badge NEW activo para /app en hasNewBadge'
+    sidebarContent.includes('openInNewTab: true') && sidebarContent.includes('badgeIcon'),
+    'App Clientes configurado con openInNewTab: true y badgeIcon en AppSidebar.tsx'
   )
   assert(
-    sidebarContent.includes("name: t('items.customer_app')"),
+    sidebarContent.includes("t('items.customer_app')"),
     'Nombre bilingüe usando t(items.customer_app) en AppSidebar.tsx'
   )
   assert(
@@ -54,14 +54,25 @@ async function runTests() {
     'Roles completos autorizados (admin, manager, supervisor, asistente)'
   )
 
-  // 2. Validar ClientLayout.tsx
-  console.log('\n2️⃣  Validando components/ClientLayout.tsx:')
+  // 2. Validar ClientLayout.tsx y middleware.ts
+  console.log('\n2️⃣  Validando components/ClientLayout.tsx y middleware.ts:')
   const layoutPath = path.join(rootDir, 'components', 'ClientLayout.tsx')
   const layoutContent = fs.readFileSync(layoutPath, 'utf8')
+  const middlewareContent = fs.readFileSync(path.join(rootDir, 'middleware.ts'), 'utf8')
 
   assert(
-    layoutContent.includes("'/app'"),
-    "Ruta '/app' en publicRoutes (suprime sidebar, topbar y tabs para experiencia fullscreen)"
+    layoutContent.includes("'/app/privacy'") &&
+      layoutContent.includes("'/app/terms'") &&
+      layoutContent.includes("'/app/support'") &&
+      layoutContent.includes("'/app/delete-account'") &&
+      layoutContent.includes("currentPath === '/app/v1'") &&
+      layoutContent.includes("currentPath === '/app/v2'") &&
+      layoutContent.includes('<ProtectedRoute>'),
+    'Rutas legales públicas separadas de /app, /app/v1 y /app/v2 protegidos con <ProtectedRoute>'
+  )
+  assert(
+    middlewareContent.includes("pathname === '/app'") && middlewareContent.includes("'/login'"),
+    'middleware.ts protege /app, /app/v1, /app/v2 y /ordenar redirigiendo a /login sin sesión TEG'
   )
 
   // 3. Validar app/app/page.tsx
@@ -70,20 +81,16 @@ async function runTests() {
   const appPageContent = fs.readFileSync(appPagePath, 'utf8')
 
   assert(
-    appPageContent.includes("handleExit") && (appPageContent.includes("router.push('/dashboard')") || appPageContent.includes('router.back()')),
-    'Función handleExit implementada con retorno a /dashboard'
+    appPageContent.includes('exitTestFullscreen'),
+    'Función exitTestFullscreen implementada para salir de Test Fullscreen'
   )
   assert(
-    appPageContent.includes("isTegHost") && appPageContent.includes("vercel.app") && appPageContent.includes("localhost"),
-    'Detección de entorno local y Vercel (isTegHost) para botón temporal de salida'
+    appPageContent.includes("event.key === 'Escape'") && appPageContent.includes("addEventListener('keydown'"),
+    'Atajo de teclado [Escape] activo para salir del modo fullscreen'
   )
   assert(
-    appPageContent.includes("Escape") && appPageContent.includes("addEventListener('keydown'"),
-    'Atajo de teclado [Escape] activo para salir hacia el panel'
-  )
-  assert(
-    appPageContent.includes('src="/app/index.html'),
-    'Iframe enlazado al bundle compilado /app/index.html'
+    appPageContent.includes('src="/app/index.html?nosplash=1"'),
+    'Iframe V1 enlazado al bundle compilado /app/index.html?nosplash=1'
   )
 
   // 4. Validar lib/i18n.tsx
@@ -110,28 +117,44 @@ async function runTests() {
     'Meta tags PWA y viewport-fit=cover configurados para pantalla completa móvil'
   )
 
-  // 6. Prueba HTTP real en vivo contra servidor Next.js
-  console.log('\n6️⃣  Prueba HTTP en vivo en servidor local (http://localhost:3000/app):')
-  await new Promise<void>((resolve) => {
-    http.get('http://localhost:3000/app', (res) => {
-      assert(
-        res.statusCode === 200,
-        `HTTP GET /app responde con código 200 OK (Recibido: ${res.statusCode})`
-      )
-      let body = ''
-      res.on('data', chunk => { body += chunk })
-      res.on('end', () => {
-        assert(
-          body.includes('Tacos Gavilan') || body.includes('iframe') || body.includes('/app/index.html'),
-          'Cuerpo de respuesta HTTP contiene referencias al visor de la aplicación'
-        )
-        resolve()
-      })
-    }).on('error', (err) => {
-      assert(false, 'Conexión HTTP al servidor local falló', err.message)
-      resolve()
+  // 6. Prueba HTTP real en vivo contra servidor Next.js (middleware TEG + rutas públicas)
+  console.log('\n6️⃣  Prueba HTTP en vivo en servidor local (http://localhost:3000):')
+  const httpCheck = (route: string) =>
+    new Promise<{ status: number; location: string; body: string }>((resolve) => {
+      http
+        .get(`http://localhost:3000${route}`, (res) => {
+          let body = ''
+          res.on('data', (chunk) => {
+            body += chunk
+          })
+          res.on('end', () => {
+            resolve({
+              status: res.statusCode ?? 0,
+              location: String(res.headers.location || ''),
+              body,
+            })
+          })
+        })
+        .on('error', () => {
+          resolve({ status: 0, location: '', body: '' })
+        })
     })
-  })
+
+  for (const protectedRoute of ['/app', '/app/v1', '/app/v2', '/ordenar']) {
+    const res = await httpCheck(protectedRoute)
+    assert(
+      res.status === 307 && res.location.includes('/login'),
+      `HTTP GET ${protectedRoute} sin sesión responde 307 -> /login (Recibido: ${res.status} -> ${res.location})`
+    )
+  }
+
+  for (const publicRoute of ['/app/index.html', '/app/privacy']) {
+    const res = await httpCheck(publicRoute)
+    assert(
+      res.status === 200 && res.body.length > 0,
+      `HTTP GET ${publicRoute} responde 200 OK público (Recibido: ${res.status})`
+    )
+  }
 
   console.log(`\n==========================================`)
   console.log(`Resultados de Auditoría: ${passed} Pasadas, ${failed} Fallidas`)

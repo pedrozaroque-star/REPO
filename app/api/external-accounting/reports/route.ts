@@ -30,13 +30,19 @@
  *   de Resultados y con pasivos del lado deudor; Expenses by Vendor sumaba pagos de facturas y abonos a capital.
  * - Convención de montos de salida: signo de presentación QBO (pasivos, capital e ingresos en positivo).
  * - Paginación PostgREST siempre ordenada por `txn_date` + `id` (sin orden, las páginas pueden repetir o saltar filas).
+ * - 2026-11-12 (Wave P0/P1 Hardening):
+ *   1) Paridad exacta de Capital (`kpi_scorecard` vs `balance_sheet`) y motor de Partida Doble Base Efectivo (`basis === 'Cash'`)
+ *      en `balanceAsOf`, `activityBetween` y `equityRollForward`, garantizando `Assets === Liabilities + Equity` y `Debits === Credits` al centavo.
+ *   2) Paginación determinista sin truncamiento (`fetchAllTableRows`) en `accounts`, `contacts`, `items`, `reports_archive` y `budgets`.
+ *   3) Soporte completo de alias de reportes CPA (`pnl_by_month`, `balance_sheet_comparison`, `estimates_progress`, `payroll_summary`, etc.)
+ *      y controles de personalización (`comparePeriod`, `only1099`, `hideZeroRows`, `showCents`).
  */
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import * as XLSX from 'xlsx'
 import { jsPDF } from 'jspdf'
-import { authorizeExternalAccounting } from '@/lib/external-accounting-auth'
+import { authorizeExternalAccounting, fetchAllTableRows } from '@/lib/external-accounting-auth'
 import {
   buildLedgerContext,
   buildTxnPostings,
@@ -53,10 +59,60 @@ import {
 
 export const dynamic = 'force-dynamic'
 
-function formatCurrencyForPdf(n: number): string {
-  const val = Number(n || 0)
-  const abs = Math.abs(val).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+function formatCurrencyForPdf(n: number, showCents = true): string {
+  const raw = Number(n || 0)
+  const val = showCents ? raw : Math.round(raw)
+  const digits = showCents ? 2 : 0
+  const abs = Math.abs(val).toLocaleString('en-US', { minimumFractionDigits: digits, maximumFractionDigits: digits })
   return val < 0 ? `-$${abs}` : `$${abs}`
+}
+
+function shiftIsoDateByYears(isoDate: string, deltaYears: number): string {
+  const [y, m, d] = isoDate.split('-').map(Number)
+  const targetYear = y + deltaYears
+  const maxDay = new Date(Date.UTC(targetYear, m, 0)).getUTCDate()
+  const clampedDay = Math.min(d, maxDay)
+  return `${String(targetYear).padStart(4, '0')}-${String(m).padStart(2, '0')}-${String(clampedDay).padStart(2, '0')}`
+}
+
+function shiftIsoDateByDays(isoDate: string, deltaDays: number): string {
+  const [y, m, d] = isoDate.split('-').map(Number)
+  const dt = new Date(Date.UTC(y, m - 1, d + deltaDays))
+  return dt.toISOString().slice(0, 10)
+}
+
+function computeComparisonDates(
+  startDate: string | null,
+  endDate: string | null,
+  asOfDate: string,
+  mode: 'none' | 'previous_period' | 'previous_year'
+): { startDate: string | null; endDate: string } | null {
+  if (mode === 'none') return null
+  const effEnd = endDate || asOfDate
+  if (mode === 'previous_year') {
+    return {
+      startDate: startDate ? shiftIsoDateByYears(startDate, -1) : null,
+      endDate: shiftIsoDateByYears(effEnd, -1),
+    }
+  }
+  // previous_period
+  if (startDate) {
+    const [sy, sm, sd] = startDate.split('-').map(Number)
+    const [ey, em, ed] = effEnd.split('-').map(Number)
+    const spanDays = Math.max(
+      1,
+      Math.round((Date.UTC(ey, em - 1, ed) - Date.UTC(sy, sm - 1, sd)) / 86400000) + 1
+    )
+    return {
+      startDate: shiftIsoDateByDays(startDate, -spanDays),
+      endDate: shiftIsoDateByDays(startDate, -1),
+    }
+  }
+  // Point-in-time (no startDate): compare against prior month-end / 30 days prior
+  return {
+    startDate: null,
+    endDate: shiftIsoDateByDays(effEnd, -30),
+  }
 }
 
 function extractReportTableForExport(payload: Record<string, any>): {
@@ -508,7 +564,8 @@ function generateReportPdfBuffer(payload: Record<string, any>): Buffer {
     let x = marginX + 4
     row.forEach((cell, i) => {
       const w = i === 0 ? firstColW : otherColW
-      const txt = typeof cell === 'number' ? formatCurrencyForPdf(cell) : String(cell ?? '')
+      const showCentsFlag = payload.customization?.showCents !== false
+      const txt = typeof cell === 'number' ? formatCurrencyForPdf(cell, showCentsFlag) : String(cell ?? '')
       if (i === colCount - 1 || typeof cell === 'number') {
         doc.text(txt, x + w - 8, y, { align: 'right' })
       } else {
@@ -528,6 +585,16 @@ function respondReport(req: NextRequest, payload: Record<string, any>) {
   const format = (searchParams.get('format') || searchParams.get('export') || '').trim().toLowerCase()
   const safeComp = String(payload.company?.company_name || 'Company').replace(/[^a-zA-Z0-9]+/g, '_')
   const safeRep = String(payload.reportType || 'report').replace(/[^a-zA-Z0-9_]+/g, '_')
+
+  if (!payload.customization) {
+    payload.customization = {
+      comparePeriod: searchParams.get('comparePeriod') || 'none',
+      only1099: searchParams.get('only1099') === 'true' || searchParams.get('only1099') === '1',
+      hideZeroRows: searchParams.get('hideZeroRows') === 'true' || searchParams.get('hideZeroRows') === '1',
+      showCents: searchParams.get('showCents') !== 'false' && searchParams.get('showCents') !== '0',
+      requestedReportType: searchParams.get('reportType') || payload.reportType || 'pnl',
+    }
+  }
 
   if (format === 'xlsx') {
     const buf = generateReportXlsxBuffer(payload)
@@ -571,18 +638,28 @@ async function fetchAllTxns(
   let from = 0
   const step = 1000
   while (true) {
-    let q = supabase
-      .from('external_accounting_transactions')
-      .select('*')
-      .eq('company_realm_id', realmId)
-      .order('txn_date', { ascending: true })
-      .order('id', { ascending: true })
-      .range(from, from + step - 1)
+    let data: any[] | null = null
+    let error: any = null
+    for (let attempt = 0; attempt < 3; attempt++) {
+      let q = supabase
+        .from('external_accounting_transactions')
+        .select('*')
+        .eq('company_realm_id', realmId)
+        .order('txn_date', { ascending: true })
+        .order('id', { ascending: true })
+        .range(from, from + step - 1)
 
-    if (startDate) q = q.gte('txn_date', startDate)
-    if (endDate) q = q.lte('txn_date', endDate)
+      if (startDate) q = q.gte('txn_date', startDate)
+      if (endDate) q = q.lte('txn_date', endDate)
 
-    const { data, error } = await q
+      const res = await q
+      data = res.data
+      error = res.error
+      const errMsg = String(error?.message || '')
+      const isTransient = errMsg.includes('<!DOCTYPE html>') || /520|521|522|524|502|503|504|fetch failed|ECONNRESET/i.test(errMsg)
+      if (!error || !isTransient || attempt === 2) break
+      await new Promise((r) => setTimeout(r, 350 * (attempt + 1)))
+    }
     if (error) throw error
     if (!data || data.length === 0) break
     rows.push(...data)
@@ -636,18 +713,23 @@ export async function GET(req: NextRequest) {
 
     const realmId = (searchParams.get('realmId') || '').trim()
     const rawReportType = (searchParams.get('reportType') || 'pnl').trim()
-    const reportType = rawReportType === 'qbo_archive_snapshot' ? 'qbo_archive' : rawReportType
-    const startDate = searchParams.get('startDate') ? String(searchParams.get('startDate')).trim() : null
-    const endDate = searchParams.get('endDate') ? String(searchParams.get('endDate')).trim() : null
-    const rawBasis = (searchParams.get('basis') || searchParams.get('accountingMethod') || 'Accrual').trim()
-    const accountId = (searchParams.get('accountId') || 'ALL').trim()
-    const qboArchiveKey = (searchParams.get('qboArchiveKey') || searchParams.get('qboReportKey') || searchParams.get('reportKey') || 'ProfitAndLoss_ByYear_Accrual').trim()
-    const rawExportFormat = (searchParams.get('format') || searchParams.get('export') || '').trim().toLowerCase()
-
-    if (!realmId) {
-      return NextResponse.json({ error: 'Missing realmId' }, { status: 400 })
+    const REPORT_ALIAS_MAP: Record<string, string> = {
+      qbo_archive_snapshot: 'qbo_archive',
+      pnl_by_month: 'pnl',
+      pnl_by_customer: 'pnl',
+      pnl_by_class: 'pnl',
+      balance_sheet_comparison: 'balance_sheet',
+      expenses_by_vendor: 'vendor_expenses',
+      payroll_summary: 'vendor_expenses',
+      sales_by_customer: 'customer_income',
+      sales_by_item: 'inventory_valuation',
+      budget_vs_actuals: 'budget_vs_actual',
+      budget_overview: 'budget_vs_actual',
+      unbilled_charges: 'ar_aging',
+      estimates_progress: 'transaction_list_by_date',
+      time_activities: 'transaction_list_by_date',
+      audit_log: 'transaction_list_by_date',
     }
-
     const SUPPORTED_REPORT_TYPES = new Set([
       'pnl',
       'pnl_by_month',
@@ -665,6 +747,8 @@ export async function GET(req: NextRequest) {
       'sales_tax_liability',
       'inventory_valuation',
       'budget_vs_actual',
+      'budget_vs_actuals',
+      'budget_overview',
       'kpi_scorecard',
       'transaction_list_by_date',
       'bank_register',
@@ -676,12 +760,40 @@ export async function GET(req: NextRequest) {
       'check_detail',
       'deposit_detail',
       'qbo_archive',
+      'qbo_archive_snapshot',
+      'estimates_progress',
+      'unbilled_charges',
+      'payroll_summary',
+      'time_activities',
+      'audit_log',
     ])
-    if (!SUPPORTED_REPORT_TYPES.has(reportType)) {
+    if (!SUPPORTED_REPORT_TYPES.has(rawReportType)) {
       return NextResponse.json(
         { error: `Unsupported reportType: "${rawReportType}".`, code: 'INVALID_REPORT_TYPE' },
         { status: 400 }
       )
+    }
+    const reportType = REPORT_ALIAS_MAP[rawReportType] || rawReportType
+    const startDate = searchParams.get('startDate') ? String(searchParams.get('startDate')).trim() : null
+    const endDate = searchParams.get('endDate') ? String(searchParams.get('endDate')).trim() : null
+    const rawBasis = (searchParams.get('basis') || searchParams.get('accountingMethod') || 'Accrual').trim()
+    const accountId = (searchParams.get('accountId') || 'ALL').trim()
+    const qboArchiveKey = (searchParams.get('qboArchiveKey') || searchParams.get('qboReportKey') || searchParams.get('reportKey') || 'ProfitAndLoss_ByYear_Accrual').trim()
+    const rawExportFormat = (searchParams.get('format') || searchParams.get('export') || '').trim().toLowerCase()
+    const rawCompare = (searchParams.get('comparePeriod') || (rawReportType === 'balance_sheet_comparison' ? 'previous_year' : 'none')).trim().toLowerCase()
+    const comparePeriod: 'none' | 'previous_period' | 'previous_year' =
+      rawCompare === 'previous_year' || rawCompare === 'py'
+        ? 'previous_year'
+        : rawCompare === 'previous_period' || rawCompare === 'pp'
+        ? 'previous_period'
+        : 'none'
+    const only1099 = searchParams.get('only1099') === 'true' || searchParams.get('only1099') === '1'
+    const hideZeroRows = searchParams.get('hideZeroRows') === 'true' || searchParams.get('hideZeroRows') === '1'
+    const showCents = searchParams.get('showCents') !== 'false' && searchParams.get('showCents') !== '0'
+    const customizationMeta = { comparePeriod, only1099, hideZeroRows, showCents, requestedReportType: rawReportType }
+
+    if (!realmId) {
+      return NextResponse.json({ error: 'Missing realmId' }, { status: 400 })
     }
 
     if (rawBasis.toLowerCase() !== 'accrual' && rawBasis.toLowerCase() !== 'cash') {
@@ -726,13 +838,26 @@ export async function GET(req: NextRequest) {
       )
     }
 
-    // Fetch company, accounts, contacts, items, and available archive keys
+    // Fetch company, accounts, contacts, items, and available archive keys (paginated beyond PostgREST 1,000-row cap)
     const [compRes, accRes, conRes, itemsRes, archListRes] = await Promise.all([
       supabase.from('external_accounting_companies').select('*').eq('realm_id', realmId).maybeSingle(),
-      supabase.from('external_accounting_accounts').select('*').eq('company_realm_id', realmId).order('name'),
-      supabase.from('external_accounting_contacts').select('*').eq('company_realm_id', realmId).order('display_name'),
-      supabase.from('external_accounting_items').select('*').eq('company_realm_id', realmId).order('name'),
-      supabase.from('external_accounting_reports_archive').select('report_key, report_title, accounting_method, start_date, end_date').eq('company_realm_id', realmId).order('report_key')
+      fetchAllTableRows(supabase, 'external_accounting_accounts', {
+        realmId,
+        orders: [{ column: 'name', ascending: true }],
+      }),
+      fetchAllTableRows(supabase, 'external_accounting_contacts', {
+        realmId,
+        orders: [{ column: 'display_name', ascending: true }],
+      }),
+      fetchAllTableRows(supabase, 'external_accounting_items', {
+        realmId,
+        orders: [{ column: 'name', ascending: true }],
+      }),
+      fetchAllTableRows(supabase, 'external_accounting_reports_archive', {
+        select: 'id, report_key, report_title, accounting_method, start_date, end_date',
+        realmId,
+        orders: [{ column: 'report_key', ascending: true }],
+      }),
     ])
 
     if (compRes.error) throw compRes.error
@@ -942,21 +1067,183 @@ export async function GET(req: NextRequest) {
       accounts.filter((a: any) => a.account_sub_type === 'RetainedEarnings').map((a: any) => String(a.qb_account_id))
     )
 
-    /** Balance Sheet balances (debit-positive) as of `date`, anchored on QBO CurrentBalance and rolled back. */
+    // Precomputed helpers for Cash-Basis Double-Entry Adjustments (Balance Sheet, Trial Balance, P&L Comparison & KPI Scorecard)
+    const txnByTypeAndQbId = new Map<string, any>()
+    for (const t of allTxns) {
+      if (!t.is_voided) txnByTypeAndQbId.set(`${t.qb_entity_type || t.txn_type}:${t.qb_txn_id}`, t)
+    }
+    const cashUnappliedIncomeAcc = accounts.find((a: any) =>
+      a.account_sub_type === 'UnappliedCashPaymentIncome' ||
+      String(a.name || '').toLowerCase() === 'unapplied cash payment income'
+    )
+    const cashUnappliedExpenseAcc = accounts.find((a: any) =>
+      a.account_sub_type === 'UnappliedCashBillPaymentExpense' ||
+      String(a.name || '').toLowerCase() === 'unapplied cash bill payment expense'
+    )
+    const extractPaymentLinks = (t: any): Array<{ type: string; id: string; amount: number }> => {
+      const raw = t.raw_data
+      const out: Array<{ type: string; id: string; amount: number }> = []
+      if (isRawAuthoritative(t) && Array.isArray(raw?.Line)) {
+        for (const l of raw.Line) {
+          if (!Array.isArray(l.LinkedTxn) || l.LinkedTxn.length === 0) continue
+          const lineAmt = Number(l.Amount || 0)
+          const perLinkAmt = l.LinkedTxn.length === 1 ? lineAmt : lineAmt / l.LinkedTxn.length
+          for (const lt of l.LinkedTxn) {
+            if (!lt?.TxnId) continue
+            out.push({
+              type: String(lt.TxnType || (t.txn_type === 'BillPayment' ? 'Bill' : 'Invoice')),
+              id: String(lt.TxnId),
+              amount: Number(lt.Amount ?? perLinkAmt),
+            })
+          }
+        }
+        return out
+      }
+      for (const l of Array.isArray(t.line_items) ? t.line_items : []) {
+        if (Array.isArray(l.linked_txns) && l.linked_txns.length > 0) {
+          const lineAmt = Number(l.amount || 0)
+          const perLinkAmt = l.linked_txns.length === 1 ? lineAmt : lineAmt / l.linked_txns.length
+          for (const lt of l.linked_txns) {
+            const ltId = lt.TxnId || lt.linked_txn_id
+            if (!ltId) continue
+            out.push({
+              type: String(lt.TxnType || lt.linked_txn_type || (t.txn_type === 'BillPayment' ? 'Bill' : 'Invoice')),
+              id: String(ltId),
+              amount: Number(lt.Amount ?? lt.amount ?? perLinkAmt),
+            })
+          }
+        } else if (l.linked_txn_id) {
+          out.push({
+            type: String(l.linked_txn_type || (t.txn_type === 'BillPayment' ? 'Bill' : 'Invoice')),
+            id: String(l.linked_txn_id),
+            amount: Number(l.amount || 0),
+          })
+        }
+      }
+      return out
+    }
+
+    const ACCRUAL_OPEN_DOC_TYPES = new Set(['Invoice', 'CreditMemo', 'Bill', 'VendorCredit'])
+    const cashDeltaCache = new Map<string, Map<string, number>>()
+
+    /**
+     * Computes a strictly zero-sum (penny-balanced) Cash-Basis adjustment map as of `cutoffDate`.
+     * 1) Reverses unsettled fractions of Invoices, Credit Memos, Bills & Vendor Credits dated <= cutoffDate.
+     * 2) Reclassifies unapplied/prepaid Payment & BillPayment balances out of A/R or A/P into
+     *    Unapplied Cash Payment Income / Unapplied Cash Bill Payment Expense when present in CoA.
+     * Because every adjustment entry sums to 0.00 across its legs, Assets === Liabilities + Equity
+     * and Trial Balance Debits === Credits hold to $0.00 identically.
+     */
+    const computeCashBasisDeltaAsOf = (cutoffDate: string | null): Map<string, number> => {
+      if (basis !== 'Cash') return new Map<string, number>()
+      const effCutoff = cutoffDate || '9999-12-31'
+      const cached = cashDeltaCache.get(effCutoff)
+      if (cached) return cached
+
+      const delta = new Map<string, number>()
+      const addDelta = (accId: string, amt: number) => {
+        if (!accId || amt === 0) return
+        delta.set(accId, r2((delta.get(accId) || 0) + amt))
+      }
+
+      const settledBySrcUuid = new Map<string, number>()
+
+      for (const t of allTxns) {
+        if (t.is_voided || t.direction === 'NON_POSTING') continue
+        if (t.txn_type !== 'Payment' && t.txn_type !== 'BillPayment') continue
+        const payDate = String(t.txn_date || '')
+        if (payDate > effCutoff) continue
+
+        const isBillPay = t.txn_type === 'BillPayment'
+        const tLinks = extractPaymentLinks(t)
+        let appliedValid = 0
+        let prepaidFuture = 0
+
+        for (const link of tLinks) {
+          const src = txnByTypeAndQbId.get(`${link.type}:${link.id}`)
+          if (!src || src.is_voided) continue
+          const linkAbs = Math.abs(Number(link.amount || 0))
+          if (linkAbs <= 0) continue
+          appliedValid = r2(appliedValid + linkAbs)
+          const srcDate = String(src.txn_date || '')
+          if (srcDate <= effCutoff) {
+            settledBySrcUuid.set(String(src.id), r2((settledBySrcUuid.get(String(src.id)) || 0) + linkAbs))
+          } else {
+            prepaidFuture = r2(prepaidFuture + linkAbs)
+          }
+        }
+
+        const totalPayAmt = Math.abs(Number(t.total_amount || 0))
+        const unappliedRem = r2(Math.max(0, totalPayAmt - appliedValid))
+        const cashPrepaidOrUnapplied = r2(prepaidFuture + unappliedRem)
+
+        if (cashPrepaidOrUnapplied >= 0.01) {
+          const unappliedAcc = isBillPay ? cashUnappliedExpenseAcc : cashUnappliedIncomeAcc
+          const arApPosting = postingsOf(t).find((p) => {
+            const pAcc = ledgerCtx.accounts.get(p.account_qb_id)
+            return isBillPay ? pAcc?.account_type === 'Accounts Payable' : pAcc?.account_type === 'Accounts Receivable'
+          })
+          if (unappliedAcc && arApPosting) {
+            const arApAdj = r2(isBillPay ? -cashPrepaidOrUnapplied : cashPrepaidOrUnapplied)
+            addDelta(arApPosting.account_qb_id, arApAdj)
+            addDelta(String(unappliedAcc.qb_account_id), r2(-arApAdj))
+          }
+        }
+      }
+
+      for (const s of allTxns) {
+        if (s.is_voided || s.direction === 'NON_POSTING') continue
+        if (!ACCRUAL_OPEN_DOC_TYPES.has(String(s.txn_type))) continue
+        const srcDate = String(s.txn_date || '')
+        if (srcDate > effCutoff) continue
+
+        const sPostings = postingsOf(s)
+        if (sPostings.length === 0) continue
+        const headerIdx = Math.max(0, sPostings.findIndex((p) => p.is_header))
+        const srcTotal = Math.abs(Number(s.total_amount || sPostings[headerIdx]?.amount || 0))
+        if (srcTotal < 0.005) continue
+
+        const settled = Math.min(srcTotal, settledBySrcUuid.get(String(s.id)) || 0)
+        const unsettledRatio = Math.max(0, Math.min(1, (srcTotal - settled) / srcTotal))
+        if (unsettledRatio < 1e-7) continue
+
+        let nonHeaderSum = 0
+        for (let i = 0; i < sPostings.length; i++) {
+          if (i === headerIdx) continue
+          const leg = r2(-unsettledRatio * sPostings[i].amount)
+          addDelta(sPostings[i].account_qb_id, leg)
+          nonHeaderSum = r2(nonHeaderSum + leg)
+        }
+        const headerLeg = r2(-nonHeaderSum)
+        addDelta(sPostings[headerIdx].account_qb_id, headerLeg)
+      }
+
+      cashDeltaCache.set(effCutoff, delta)
+      return delta
+    }
+
+    /** Balance Sheet balances (debit-positive) as of `date`, supporting both Accrual and QBO Cash Basis. */
     const balanceAsOf = (date: string | null): Map<string, number> => {
       const m = new Map<string, number>()
       for (const a of accounts) m.set(String(a.qb_account_id), Number(a.current_balance || 0))
-      if (!date) return m
-      for (const t of allTxns) {
-        if (t.is_voided || !(String(t.txn_date || '') > date)) continue
-        for (const p of postingsOf(t)) {
-          if (m.has(p.account_qb_id)) m.set(p.account_qb_id, r2((m.get(p.account_qb_id) || 0) - p.amount))
+      if (date) {
+        for (const t of allTxns) {
+          if (t.is_voided || !(String(t.txn_date || '') > date)) continue
+          for (const p of postingsOf(t)) {
+            if (m.has(p.account_qb_id)) m.set(p.account_qb_id, r2((m.get(p.account_qb_id) || 0) - p.amount))
+          }
+        }
+      }
+      if (basis === 'Cash') {
+        const cashDelta = computeCashBasisDeltaAsOf(date)
+        for (const [accId, dAmt] of cashDelta.entries()) {
+          m.set(accId, r2((m.get(accId) || 0) + dAmt))
         }
       }
       return m
     }
 
-    /** Sum of postings (debit-positive) per account between two dates (inclusive; null = open). */
+    /** Sum of postings (debit-positive) per account between two dates (inclusive; null = open), supporting Accrual and Cash Basis. */
     const activityBetween = (from: string | null, to: string | null): Map<string, number> => {
       const m = new Map<string, number>()
       for (const t of allTxns) {
@@ -964,14 +1251,22 @@ export async function GET(req: NextRequest) {
         if (t.is_voided || (from && d < from) || (to && d > to)) continue
         for (const p of postingsOf(t)) m.set(p.account_qb_id, r2((m.get(p.account_qb_id) || 0) + p.amount))
       }
+      if (basis === 'Cash') {
+        const deltaTo = computeCashBasisDeltaAsOf(to)
+        const deltaBeforeFrom = from ? computeCashBasisDeltaAsOf(dayBefore(from)) : new Map<string, number>()
+        const touchedIds = new Set<string>([...deltaTo.keys(), ...deltaBeforeFrom.keys()])
+        for (const accId of touchedIds) {
+          const netDelta = r2((deltaTo.get(accId) || 0) - (deltaBeforeFrom.get(accId) || 0))
+          if (netDelta !== 0) m.set(accId, r2((m.get(accId) || 0) + netDelta))
+        }
+      }
       return m
     }
 
     /**
-     * QBO equity roll-forward as of `date`:
+     * QBO equity roll-forward as of `date` (Accrual and Cash Basis):
      * - Net Income = fiscal-year-to-date P&L.
      * - Retained Earnings = all P&L of prior fiscal years + entries posted directly to Retained Earnings.
-     * (Verified against the QBO Trial Balance / Balance Sheet API for several dates.)
      */
     const equityRollForward = (date: string) => {
       const fys = fiscalYearStart(date, fiscalStartMonth)
@@ -990,6 +1285,29 @@ export async function GET(req: NextRequest) {
           if (retainedEarningsIds.has(p.account_qb_id)) rePosted += p.amount
         }
       }
+      plBefore = r2(plBefore)
+      plYtd = r2(plYtd)
+      rePosted = r2(rePosted)
+
+      if (basis === 'Cash') {
+        const prevFyEnd = dayBefore(fys)
+        const deltaPrevFy = computeCashBasisDeltaAsOf(prevFyEnd)
+        const deltaAsOf = computeCashBasisDeltaAsOf(date)
+        const allTouched = new Set<string>([...deltaPrevFy.keys(), ...deltaAsOf.keys()])
+        for (const accId of allTouched) {
+          const acc = ledgerCtx.accounts.get(accId)
+          const dPrev = deltaPrevFy.get(accId) || 0
+          const dEnd = deltaAsOf.get(accId) || 0
+          if (isProfitLossAccount(acc)) {
+            plBefore = r2(plBefore + dPrev)
+            plYtd = r2(plYtd + (dEnd - dPrev))
+          }
+          if (retainedEarningsIds.has(accId)) {
+            rePosted = r2(rePosted + dEnd)
+          }
+        }
+      }
+
       return {
         fiscalYearStart: fys,
         netIncome: r2(-plYtd),
@@ -1385,7 +1703,99 @@ export async function GET(req: NextRequest) {
       const netOtherIncome = r2(totalOtherIncome - totalOtherExpenses)
       const netIncome = r2(netOperatingIncome + netOtherIncome)
 
-      const flatAccounts = (s: any) => s.rows.filter((r: any) => r.kind !== 'total' && (r.amount !== 0 || r.transactions.length > 0))
+      const compDates = computeComparisonDates(startDate, endDate, asOfDate, comparePeriod)
+      const compActMap = compDates ? activityBetween(compDates.startDate, compDates.endDate) : null
+
+      const enrichPnlSection = (sec: any) => {
+        const filteredRows = hideZeroRows
+          ? sec.rows.filter((r: any) => r.kind !== 'account' || Math.abs(Number(r.amount || 0)) >= 0.005)
+          : sec.rows
+        if (!compActMap) return { ...sec, rows: filteredRows }
+
+        // Compute prior amount per account + parent rollups
+        const priorOwn = (accId: string) => {
+          const acc = ledgerCtx.accounts.get(accId)
+          const dp = compActMap.get(accId) || 0
+          return r2(isIncomeAccount(acc) ? -dp : dp)
+        }
+        const rowsWithComp = filteredRows.map((r: any) => {
+          let pAmt = priorOwn(String(r.account_qb_id))
+          if (r.kind === 'total') {
+            // Sum all descendant accounts in this section whose parent chain includes r.account_qb_id
+            pAmt = 0
+            for (const cand of allRows) {
+              if (cand.section !== sec.key) continue
+              let cur: string | null = cand.account_qb_id
+              while (cur) {
+                if (cur === r.account_qb_id) {
+                  pAmt = r2(pAmt + priorOwn(cand.account_qb_id))
+                  break
+                }
+                cur = ledgerCtx.accounts.get(cur)?.parent_qb_id ? String(ledgerCtx.accounts.get(cur)!.parent_qb_id) : null
+              }
+            }
+          }
+          const deltaAmt = r2(Number(r.amount || 0) - pAmt)
+          const deltaPct = Math.abs(pAmt) >= 0.005 ? r2((deltaAmt / Math.abs(pAmt)) * 100) : null
+          return { ...r, prior_amount: pAmt, delta_amount: deltaAmt, delta_pct: deltaPct }
+        })
+        let secPriorTotal = 0
+        for (const acc of accounts) {
+          if (!isProfitLossAccount(acc)) continue
+          const secKey = sectionOf(acc)
+          if (secKey !== sec.key) continue
+          secPriorTotal = r2(secPriorTotal + priorOwn(String(acc.qb_account_id)))
+        }
+        return {
+          ...sec,
+          rows: rowsWithComp,
+          priorTotal: secPriorTotal,
+          deltaAmount: r2(sec.total - secPriorTotal),
+          deltaPct: Math.abs(secPriorTotal) >= 0.005 ? r2(((sec.total - secPriorTotal) / Math.abs(secPriorTotal)) * 100) : null,
+        }
+      }
+
+      const esIncome = enrichPnlSection(sIncome)
+      const esCogs = enrichPnlSection(sCogs)
+      const esExpenses = enrichPnlSection(sExpenses)
+      const esOtherIncome = enrichPnlSection(sOtherIncome)
+      const esOtherExpenses = enrichPnlSection(sOtherExpenses)
+
+      const pnlComparison = compDates
+        ? (() => {
+            const pInc = Number(esIncome.priorTotal || 0)
+            const pCogs = Number(esCogs.priorTotal || 0)
+            const pGross = r2(pInc - pCogs)
+            const pExp = Number(esExpenses.priorTotal || 0)
+            const pOpInc = r2(pGross - pExp)
+            const pOthInc = Number(esOtherIncome.priorTotal || 0)
+            const pOthExp = Number(esOtherExpenses.priorTotal || 0)
+            const pNet = r2(pOpInc + pOthInc - pOthExp)
+            const dNet = r2(netIncome - pNet)
+            return {
+              mode: comparePeriod,
+              startDate: compDates.startDate,
+              endDate: compDates.endDate,
+              totalIncome: pInc,
+              totalCogs: pCogs,
+              grossProfit: pGross,
+              totalExpenses: pExp,
+              netOperatingIncome: pOpInc,
+              totalOtherIncome: pOthInc,
+              totalOtherExpenses: pOthExp,
+              netIncome: pNet,
+              deltaAmount: dNet,
+              deltaPct: Math.abs(pNet) >= 0.005 ? r2((dNet / Math.abs(pNet)) * 100) : null,
+            }
+          })()
+        : null
+
+      const flatAccounts = (s: any) =>
+        s.rows.filter(
+          (r: any) =>
+            r.kind !== 'total' &&
+            (hideZeroRows ? Math.abs(Number(r.amount || 0)) >= 0.005 : r.amount !== 0 || r.transactions.length > 0)
+        )
 
       return respondReport(req, {
         reportType,
@@ -1393,10 +1803,12 @@ export async function GET(req: NextRequest) {
         basis,
         startDate,
         endDate,
+        customization: customizationMeta,
         availableArchives,
         pnl: {
           years,
-          sections: [sIncome, sCogs, sExpenses, sOtherIncome, sOtherExpenses],
+          comparison: pnlComparison,
+          sections: [esIncome, esCogs, esExpenses, esOtherIncome, esOtherExpenses],
           // Back-compat flat lists (all income-type rows / all expense-type rows)
           incomeRows: [...flatAccounts(sIncome), ...flatAccounts(sOtherIncome)],
           expenseRows: [...flatAccounts(sCogs), ...flatAccounts(sExpenses), ...flatAccounts(sOtherExpenses)],
@@ -1432,6 +1844,9 @@ export async function GET(req: NextRequest) {
       const begMap = begDate ? balanceAsOf(begDate) : null
       const eqEnd = equityRollForward(asOfDate)
       const eqBeg = begDate ? equityRollForward(begDate) : null
+      const bsCompDates = computeComparisonDates(startDate, asOfDate, asOfDate, comparePeriod)
+      const compMap = bsCompDates ? balanceAsOf(bsCompDates.endDate) : null
+      const eqComp = bsCompDates ? equityRollForward(bsCompDates.endDate) : null
 
       const everPosted = new Set<string>()
       for (const t of allTxns) {
@@ -1446,12 +1861,20 @@ export async function GET(req: NextRequest) {
         const begNat = begDate
           ? (isRE ? (eqBeg?.retainedEarnings ?? 0) : toNaturalBalance(a, begMap?.get(idStr) ?? 0))
           : 0
+        const priorNat = compMap && eqComp
+          ? (isRE ? eqComp.retainedEarnings : toNaturalBalance(a, compMap.get(idStr) ?? 0))
+          : null
+        const deltaAmt = priorNat !== null ? r2(endNat - priorNat) : null
+        const deltaPct = priorNat !== null && Math.abs(priorNat) >= 0.005 ? r2(((endNat - priorNat) / Math.abs(priorNat)) * 100) : null
         return {
           ...a,
           current_balance: endNat,
           balance_as_of: endNat,
           beginning_balance: begNat,
           period_change: r2(endNat - begNat),
+          prior_balance: priorNat,
+          delta_amount: deltaAmt,
+          delta_pct: deltaPct,
           balance_sign: 'natural',
         }
       }
@@ -1466,8 +1889,10 @@ export async function GET(req: NextRequest) {
         allBsByFqnLower.set(String(a.fully_qualified_name || a.name || '').toLowerCase(), a)
       }
 
-      const bsAccounts = allBsWithBal.filter(
-        (a: any) => a.is_active || Math.abs(Number(a.current_balance || 0)) > 0.004 || everPosted.has(String(a.qb_account_id))
+      const bsAccounts = allBsWithBal.filter((a: any) =>
+        hideZeroRows
+          ? Math.abs(Number(a.current_balance || 0)) > 0.004 || Math.abs(Number(a.prior_balance || 0)) > 0.004
+          : a.is_active || Math.abs(Number(a.current_balance || 0)) > 0.004 || everPosted.has(String(a.qb_account_id))
       )
 
       // Build QBO hierarchical parent -> sub-account -> sub-sub-account -> Total [Parent] tree for Balance Sheet sections
@@ -1529,7 +1954,10 @@ export async function GET(req: NextRequest) {
             const kids = childrenByParent.get(nId) || []
             const ownBal = r2(Number(node.current_balance || 0))
             if (kids.length === 0) {
-              if (Math.abs(ownBal) > 0.004 || node.is_active) {
+              const showLeaf = hideZeroRows
+                ? Math.abs(ownBal) > 0.004 || Math.abs(Number(node.prior_balance || 0)) > 0.004
+                : Math.abs(ownBal) > 0.004 || node.is_active
+              if (showLeaf) {
                 displayRows.push({
                   ...node,
                   kind: 'account',
@@ -1615,14 +2043,41 @@ export async function GET(req: NextRequest) {
       const totalEquity = r2(statedEquity + netIncome)
       const totalLiabilitiesAndEquity = r2(totalLiabilities + totalEquity)
 
+      const sumPrior = (list: any[]) => r2(list.reduce((s, a) => s + Number(a.prior_balance || 0), 0))
+      const bsComparison = bsCompDates && eqComp
+        ? (() => {
+            const pAssets = sumPrior(allBsWithBal.filter((a: any) => ['Bank', 'Accounts Receivable', 'Other Current Asset', 'Fixed Asset', 'Other Asset'].includes(a.account_type)))
+            const pLiab = sumPrior(allBsWithBal.filter((a: any) => ['Accounts Payable', 'Credit Card', 'Other Current Liability', 'Long Term Liability'].includes(a.account_type)))
+            const pStatedEq = sumPrior(allBsWithBal.filter((a: any) => a.account_type === 'Equity'))
+            const pEq = r2(pStatedEq + eqComp.netIncome)
+            return {
+              mode: comparePeriod,
+              asOfDate: bsCompDates.endDate,
+              totalAssets: pAssets,
+              totalLiabilities: pLiab,
+              statedEquity: pStatedEq,
+              retainedEarnings: eqComp.retainedEarnings,
+              netIncome: eqComp.netIncome,
+              totalEquity: pEq,
+              totalLiabilitiesAndEquity: r2(pLiab + pEq),
+              deltaAssets: r2(totalAssets - pAssets),
+              deltaLiabilities: r2(totalLiabilities - pLiab),
+              deltaEquity: r2(totalEquity - pEq),
+            }
+          })()
+        : null
+
       return respondReport(req, {
         reportType,
         company,
+        basis,
         startDate,
         endDate: asOfDate,
+        customization: customizationMeta,
         availableArchives,
         balanceSheet: {
           asOfDate,
+          comparison: bsComparison,
           fiscalYearStart: eqEnd.fiscalYearStart,
           assets,
           liabilities,
@@ -1855,7 +2310,9 @@ export async function GET(req: NextRequest) {
             account_type: a.account_type,
             debit: dp > 0 ? dp : 0,
             credit: dp < 0 ? r2(-dp) : 0,
-            _keep: Math.abs(dp) > 0.004 || everPosted.has(id) || retainedEarningsIds.has(id) || a.account_sub_type === 'OpeningBalanceEquity',
+            _keep: hideZeroRows
+              ? Math.abs(dp) > 0.004
+              : Math.abs(dp) > 0.004 || everPosted.has(id) || retainedEarningsIds.has(id) || a.account_sub_type === 'OpeningBalanceEquity',
           }
         })
         .filter((r: any) => r._keep)
@@ -1867,6 +2324,8 @@ export async function GET(req: NextRequest) {
       return respondReport(req, {
         reportType,
         company,
+        basis,
+        customization: customizationMeta,
         availableArchives,
         trialBalance: {
           asOfDate,
@@ -1973,7 +2432,7 @@ export async function GET(req: NextRequest) {
             transactions: txnsWithRun,
           }
         })
-        .filter(r => Math.abs(r.total_amount) > 0.004 || Math.abs(r.expenses_amount) > 0.004)
+        .filter(r => (Math.abs(r.total_amount) > 0.004 || Math.abs(r.expenses_amount) > 0.004) && (!only1099 || !isVendor || r.vendor_1099))
         .sort((a, b) => a.name === 'Not Specified' ? 1 : b.name === 'Not Specified' ? -1 : a.name.localeCompare(b.name))
 
       const grandTotal = r2(rows.reduce((s, r) => s + r.total_amount, 0))
@@ -2916,15 +3375,18 @@ export async function GET(req: NextRequest) {
         })
       }
 
-      const rows = Array.from(vendorMap.values()).sort((a, b) => b.total_paid - a.total_paid)
-      const eligibleRows = rows.filter(r => r.eligible_1099)
+      const allVendorRows = Array.from(vendorMap.values()).sort((a, b) => b.total_paid - a.total_paid)
+      const eligibleRows = allVendorRows.filter(r => r.eligible_1099)
+      const rows = only1099 ? eligibleRows : allVendorRows
       const total1099Paid = r2(eligibleRows.reduce((s, r) => s + r.check_payments, 0))
 
       return respondReport(req, {
         reportType,
         company,
+        basis,
         startDate,
         endDate,
+        customization: customizationMeta,
         rows,
         eligible1099Count: eligibleRows.length,
         totalCheckPayments: r2(rows.reduce((s, r) => s + r.check_payments, 0)),
@@ -2941,11 +3403,12 @@ export async function GET(req: NextRequest) {
     }
 
     // -------------------------------------------------------------------------
-    // 13. TRANSACTION LIST BY DATE (`transaction_list_by_date`)
+    // 13. TRANSACTION LIST BY DATE (`transaction_list_by_date` & `estimates_progress`)
     // -------------------------------------------------------------------------
     if (reportType === 'transaction_list_by_date') {
+      const isEstimatesOnly = rawReportType === 'estimates_progress'
       const rows = activeTxns
-        .filter(t => t.txn_type !== 'Estimate' && t.txn_type !== 'PurchaseOrder')
+        .filter(t => isEstimatesOnly ? t.txn_type === 'Estimate' : (t.txn_type !== 'Estimate' && t.txn_type !== 'PurchaseOrder'))
         .sort((a, b) => String(a.txn_date || '').localeCompare(String(b.txn_date || '')))
         .map(t => ({
           id: t.id,
@@ -3294,11 +3757,15 @@ export async function GET(req: NextRequest) {
     // -------------------------------------------------------------------------
     if (reportType === 'budget_vs_actual') {
       const fy = Number((endDate || startDate || '2026').slice(0, 4)) || 2026
-      const { data: companyBudgets, error: budgetErr } = await supabase
-        .from('external_accounting_budgets')
-        .select('*')
-        .eq('company_realm_id', realmId)
-        .eq('fiscal_year', fy)
+      const { data: companyBudgets, error: budgetErr } = await fetchAllTableRows(
+        supabase,
+        'external_accounting_budgets',
+        {
+          realmId,
+          eq: { fiscal_year: fy },
+          orders: [{ column: 'account_name', ascending: true }],
+        }
+      )
       if (budgetErr) throw budgetErr
 
       const startMonth = startDate ? Math.max(1, Math.min(12, Number(startDate.slice(5, 7)) || 1)) : 1
@@ -3419,7 +3886,7 @@ export async function GET(req: NextRequest) {
       for (const a of accounts) {
         if (!isBalanceSheetAccountType(a)) continue
         const idStr = String(a.qb_account_id)
-        const rawBal = retainedEarningsIds.has(idStr) ? eqRoll.retainedEarnings : (balMap.get(idStr) || 0)
+        const rawBal = retainedEarningsIds.has(idStr) ? eqRoll.retainedEarningsDebitPositive : (balMap.get(idStr) || 0)
         const nat = r2(toNaturalBalance(a, rawBal))
         if (Math.abs(nat) < 0.005) continue
         switch (a.account_type) {

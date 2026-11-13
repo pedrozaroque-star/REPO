@@ -81,13 +81,10 @@ export default function ClientLayout({
         '/login', 
         '/', 
         '/auth/login', 
-        '/app/v1',
-        '/app/v2',
         '/app/privacy',
         '/app/terms',
         '/app/support',
         '/app/delete-account',
-        '/ordenar',
         '/clientes', 
         '/evaluacion/kiosk', 
         '/feedback-publico', 
@@ -107,9 +104,32 @@ export default function ClientLayout({
         '/admin/compras/viele/print-sheet',
     ]
 
-    // Dedicated kiosk / TV mode for order-ready-board or fullscreen app preview via query param
+    // Dedicated kiosk / TV mode ONLY for order-ready-board (public without login)
     const checkDedicatedKioskSync = (currentPath: string | null) => {
-        if (typeof window !== 'undefined' && (currentPath === '/order-ready-board' || currentPath === '/app')) {
+        if (typeof window !== 'undefined' && currentPath === '/order-ready-board') {
+            const params = new URLSearchParams(window.location.search)
+            return (
+                params.get('tv') === '1' ||
+                params.get('kiosk') === '1' ||
+                params.get('fullscreen') === '1' ||
+                params.get('test') === '1'
+            )
+        }
+        return false
+    }
+
+    // Protected fullscreen app preview routes (REQUIRE TEG login via ProtectedRoute, render without sidebar/chrome)
+    const checkProtectedAppFullscreenSync = (currentPath: string | null) => {
+        if (!currentPath) return false
+        if (
+            currentPath === '/app/v1' ||
+            currentPath.startsWith('/app/v1/') ||
+            currentPath === '/app/v2' ||
+            currentPath.startsWith('/app/v2/')
+        ) {
+            return true
+        }
+        if (typeof window !== 'undefined' && (currentPath === '/app' || currentPath === '/ordenar')) {
             const params = new URLSearchParams(window.location.search)
             return (
                 params.get('tv') === '1' ||
@@ -122,9 +142,11 @@ export default function ClientLayout({
     }
 
     const [isDedicatedKiosk, setIsDedicatedKiosk] = useState(() => checkDedicatedKioskSync(pathname))
+    const [isProtectedAppFullscreen, setIsProtectedAppFullscreen] = useState(() => checkProtectedAppFullscreenSync(pathname))
     useEffect(() => {
         const evaluateFullscreen = () => {
             setIsDedicatedKiosk(checkDedicatedKioskSync(pathname))
+            setIsProtectedAppFullscreen(checkProtectedAppFullscreenSync(pathname))
         }
         evaluateFullscreen()
         window.addEventListener('popstate', evaluateFullscreen)
@@ -145,6 +167,10 @@ export default function ClientLayout({
         checkDedicatedKioskSync(pathname)
 
     const isPrintSheetPage = printSheetRoutes.some(r => pathname === r || pathname.startsWith(r + '/'))
+    const isChromelessProtectedPage =
+        isPrintSheetPage ||
+        isProtectedAppFullscreen ||
+        checkProtectedAppFullscreenSync(pathname)
 
     // Dedicated full-viewport workspace routes (REQUIRE login via ProtectedRoute, render their own 1:1 left rail & top bar)
     const dedicatedWorkspaceRoutes = [
@@ -161,7 +187,7 @@ export default function ClientLayout({
         <LanguageProvider>
             {isPublicPage ? (
                 children
-            ) : isPrintSheetPage ? (
+            ) : isChromelessProtectedPage ? (
                 <ProtectedRoute>
                     {children}
                 </ProtectedRoute>

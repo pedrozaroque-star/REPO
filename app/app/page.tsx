@@ -206,7 +206,22 @@ function AppClientesWorkspaceContent() {
     }
   }
 
-  const exitTestFullscreen = () => {
+  useEffect(() => {
+    if (!isFullscreenMode) return
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        if (showTestDrawer) {
+          setShowTestDrawer(false)
+        } else {
+          exitTestFullscreen()
+        }
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [isFullscreenMode, showTestDrawer])
+
+  function exitTestFullscreen() {
     setIsFullscreenMode(false)
     setShowTestDrawer(false)
     const vQuery = activeTab === 'v1' ? '1' : '2'
@@ -424,7 +439,7 @@ function AppClientesWorkspaceContent() {
                     onClick={() => jumpToV2State('main', 0, 'order', null, false)}
                     className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-left text-xs font-bold"
                   >
-                    <span>{isEn ? '9. Order Tab (Official Toast Checkout)' : '9. Pestaña Ordenar (Checkout Oficial Toast)'}</span>
+                    <span>{isEn ? '9. Order Tab (Bag & order.online Storefront)' : '9. Pestaña Ordenar (Bolsa y order.online)'}</span>
                     <span className="text-[10px] text-white/60 font-mono">Order</span>
                   </button>
                   <button
@@ -497,8 +512,8 @@ function AppClientesWorkspaceContent() {
           <div
             className={
               fullscreenEdgeToEdge
-                ? 'w-full h-full md:max-w-[430px] md:h-full overflow-hidden'
-                : 'w-full h-full overflow-hidden'
+                ? 'w-full h-full overflow-hidden'
+                : 'w-full h-full md:max-w-[430px] md:h-[94dvh] md:rounded-[40px] overflow-hidden shadow-2xl'
             }
           >
             <CustomerAppV2Pro
@@ -951,8 +966,8 @@ function AppClientesWorkspaceContent() {
                   <ShoppingBag size={13} className="text-emerald-600" />
                   <span>
                     {isEn
-                      ? '9. Order Tab (Official Toast Checkout)'
-                      : '9. Pestaña Ordenar (Checkout Oficial Toast)'}
+                      ? '9. Order Tab (Bag & order.online Storefront)'
+                      : '9. Pestaña Ordenar (Bolsa y order.online)'}
                   </span>
                 </span>
                 <span className="text-[10px] font-mono text-slate-400">Order</span>

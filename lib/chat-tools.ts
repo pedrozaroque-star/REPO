@@ -41,11 +41,11 @@
  * - Al explicar consumo teórico de tortillas o sopes vendidos por docena, quantity_per_unit ya expresa piezas por paquete; no se divide otra vez entre 12.
  * - Seguridad Orden Diaria (2026-10-01): escrituras de PAR, sobrantes y borradores requieren sesión y perfil de tienda incluso en desarrollo; un fallo DB de sobrante no equivale a captura. QuickBooks no debe crear otro Estimate si falla la lectura o actualización de uno existente, ni enviar artículos positivos sin mapeo QB. La idempotencia/concurrencia del primer envío y el reemplazo transaccional de borradores aún requieren cierre antes de activar autonomía.
  * - Sitio Web Oficial Tacos Gavilan (tacosgavilan-web): Toast es el procesador transaccional exclusivo (order.online/business/-137616); Slauson Store ID es estrictamente 23989119 (sin colisión con LA Broadway 260769); West Covina canónico 725035; formulario de contacto persiste a customer_feedback con source='website_contact' y mapeo a las 15 tiendas activas. Centro de mando integral en /nueva-web (Diseño & Simulador responsive, Buzón & Leads de Supabase, Dominio & Vercel DNS en vivo, Historia / Origen / Futuro, y Biblioteca de Recursos de marca con 199.9 MB de respaldo de producción) servido por /api/web-preview.
- * - Tacos Gavilan App (/app, v2.1.0): Pantalla de Inicio nativa con localizador GPS opcional en primer plano (procesado exclusivamente en RAM del dispositivo vía Haversine en millas, sin enviar coordenadas al servidor) que ordena las 15 sucursales (IDs 1, 3..16) de la más cercana a la más lejana, teléfonos clicables con marcado directo (tel:+1...) y domicilios / botón Ir clicables con navegación giro a giro nativa en Apple Maps (iOS) y Google Maps (Android/Web); modalidades exclusivas Pickup y Delivery en Toast Online Ordering (order.online) dentro de WebView nativo endurecido (evaluateWebViewNavigationRequest, onOpenWindow, purga real de cookies/sesión, sin Curbside).
+ * - Tacos Gavilan App (/app, v2.1.0): Laboratorio protegido detrás de login TEG (/app, /app/v1, /app/v2, /ordenar) con rutas legales públicas (/app/privacy|terms|support|delete-account, /app/index.html, /clientes, /api/mobile/*); paridad operativa V1 (`/app/v1`, bundle Expo en `public/app/`) y V2 (`components/CustomerAppV2Pro.tsx` modularizado en `components/customer-app-v2/*` con menú en vivo `/api/mobile/menu`, modificadores, bolsa `/api/mobile/cart`, autocompletado `/api/mobile/address/autocomplete`, cotización `/api/mobile/order/quote`, rastreo `/api/mobile/order/status`, Google Maps + GPS Haversine en memoria, 23 platillos incluyendo `taco-buche` y Demo #12 aislado); 15 sucursales (IDs 1, 3..16), Email & SMS OTP 6 dígitos (TTL 10 min en app_mobile_otp_challenges, O(1) lookup, bloqueo 5 intentos), Camino 1 DoorDash Storefront (/api/mobile/doordash/checkout-session), y respaldo order.online Pickup/Delivery dentro de WebView endurecido.
  * - Gavilan POS Cashier Register (/gavilan-pos -> Caja POS, /api/gavilan-pos/register-catalog, /api/gavilan-pos/manager-approval): Diseñado sobre 13.48M unidades reales de pmix_daily_cache (349 días × 15 tiendas), con orden fijo y codificación por color de proteínas por memoria muscular (Asada rojo, Pastor naranja, Pollo ámbar, Cabeza vino, Lengua morado, Carnitas cobre, Buche turquesa, Chorizo carmesí, Vegetariano/Queso esmeralda, Bebidas Large 32oz azul rey / Medium 22oz azul cielo), Estación de Bebidas Drive-Thru & Mostrador (groupBeveragesByFlavor + findCounterpartBeverageSize: 3 secciones operativas Aguas Frescas -> Sodas -> Calientes/Botella, tarjetas pareadas por sabor con botones MED 22oz y LARGE 32oz lado a lado, barra de filtro por tamaño y cambio de tamaño en 1 toque ⇄ L 32oz / M 22oz en el ticket), Riel de Categorías en 2 Columnas Cero-Scroll (224px), Matriz Rápida Proteína × Familia, Franja de Complementos y Bebidas Frecuentes de 1 Toque, 414 modificadores activos en gavilan_pos_register_modifiers organizados en 5 Cubetas Semánticas Conversacionales (NO rojo coral, EXTRA verde esmeralda, PREP azul pizarra, HALF morado, NOTE índigo), validación de grupos obligatorios, encabezados interactivos de Plato/Bolsa (+ Agregando aquí) y botón × para quitar modificadores individuales en 1 toque, buscador instantáneo + teclado numérico de cantidad personalizada (×#), autorización con PIN de gerente (scrypt + salt en gavilan_pos_manager_pins y bitácora gavilan_pos_discount_approvals) para Empleado (50%), Policía (50%/100%) y Void Order, Franja de Cobro Rápido en 1 Toque (Fast Cash con denominaciones inteligentes smartCashDenominations, banner de Cambio a Entregar, Tarjeta y EBT 0% Tax), y Motor Universal de Pago Dividido y Multi-Tender en 4 Modos (BY_AMOUNT por monto libre/multi-método, BY_EQUAL partes iguales ÷2..÷6 con ajuste del centavo impar, BY_PLATE por Plato/Bolsa, y BY_ITEM por artículos individuales P1..P4) con exención parcial de impuestos EBT conforme a CDTFA Reg. 1603 / R&TC §6373 (0% tax en tramos EBT_FOOD, Sales Tax solo sobre el remanente no-EBT) y conteo multi-swipe de tarjetas (cardSwipeCount).
  * - Order Ready Board y Preparador KDS (/order-ready-board, /inventory/preparador, lib/order-ready-sync.ts, lib/order-ready-auto-timer.ts): items_summary usa la propiedad canónica quantity (aceptando qty heredado), consolida platillos con mismos modificadores ordenados sin alterar nombres visuales, descarta quantity <= 0, separa lecturas de BD (syncToast=false en eventos Realtime con debounce de 500ms y reconexiones) del polling explícito a Toast (syncToast=true) protegido por lease distribuido PostgreSQL (order_ready_sync_leases) y canales Realtime aislados por tienda (order-ready-realtime:{storeCode}). Incluye el Modo Manos Libres con Timer Inteligente Adaptativo por platillo y fila FIFO (order_ready_settings id='auto_call_timer_config': 165s rápido, 255s medio, 330s complejo incluyendo Chorizo/Buche/Milanesa/Cubana/Platos/Tortas/Nachos/10+ unidades, +20s por orden adelante hasta 540s) con respaldo táctil manual, activo actualmente en piloto exclusivo para SLAUSON mientras las otras 14 tiendas operan en modo Manual.
- * - Conciliar Delivery y Pólizas QuickBooks (/admin/conciliar-delivery, /api/delivery-reconciliation, /api/delivery-reconciliation/quickbooks-journal): concilia Toast POS vs Uber Eats, DoorDash y Grubhub orden por orden y por corte semanal, rastrea reembolsos en cortes posteriores (ej. #650DD) y automatiza la creación de Settlement Journal Entries de 4 líneas en QuickBooks Online (100XX Banco, 50039/50036/50037 Fees, 12050/12053/12054 Receivables, 40060/40062/40063 Refunds/Error Charges) con opción de separar Sales Tax en Cuenta 24001 para reembolsos de DoorDash/Grubhub.
- * - Contabilidad Externa ERP (/admin/contabilidad-externa, /api/external-accounting, /api/external-accounting/reports): ERP contable 100% puro enfocado en las 8 empresas de Raquel en external_accounting_companies (6 ACTIVE_QBO con sync bidireccional y 2 RETIRED_FROM_QBO_LOCAL_ACTIVE — Chicken Taco Catering LLC y Elveze LLC — con lectura/escritura completa local y qbo_sync_enabled=false), sin publicidad comercial ni add-ons de Intuit (sin Activate payments, Request payment, Deposit Tracker, Lending, ProAdvisor, Referrals, Subscriptions and billing ni widgets simulados), acceso global exclusivo validado por ID y email para Raquel (45), Roberto (46) y Roque (47), cobertura ACID PostgreSQL total (fn_ext_acct_mutate_transaction_atomic, fn_ext_acct_batch_mutate_transactions_atomic, fn_ext_acct_save_reconciliation_atomic, fn_ext_acct_reopen_or_delete_reconciliation_atomic, fn_ext_acct_mutate_entity_atomic incluyendo BANK_RULE, BUDGET, COMPANY_SETTINGS y NOTE_TASK, y fn_ext_acct_apply_account_deltas), elegibilidad de sync QBO gobernada exclusivamente en servidor por companyRecord.metadata.qbo_sync_enabled (ignorando skipQboSync de cliente), candado closing_date con justificación obligatoria overrideReason >= 10 chars y bitácora PERIOD_LOCK_OVERRIDE, validación de partida doble validateBalancedTransactionPostings, integridad same-company fn_enforce_ext_acct_same_company, outbox QBO unificado external_accounting_sync_outbox (attempts, max_attempts, next_retry_at, status, last_error, synced_at, SKIPPED_LOCAL_ONLY), pull QBO paginado endurecido (fetchAllQboEntitiesPaginatedDetailed), deep links determinísticos con historial pushState/popstate y validación de los 8 realm_id en las 17 pestañas (lib/external-accounting-deep-links.ts), dashboard 100% en vivo desde homeDashboard con fechas dinámicas y vinculación real LinkedTxn Payment -> Deposit (Deposited $6,829.08 / 4 en Raquel Accounting 123145825185692, provenance meta visible con Empresa/Período/Fuente/Actualización, 5 cubetas A/R y A/P), adjuntos hasta 15 MB en Supabase Storage (external-accounting-attachments con verificación SHA-256, espejo binario TempDownloadUri de QBO y chk_ext_acct_attachments_no_binary_jsonb), sanitización HTML allowlist (lib/external-accounting-html-sanitize.ts) y 20 modos de reporte CPA fail-closed (HTTP 400/404/500, cash_flow con cuadre exacto reconciledVariance=0, inventory_valuation histórico a la fecha asOfDate, sales_tax_liability, budget_vs_actual, kpi_scorecard, qbo_archive y account_quickreport con exportación nativa .xlsx y .pdf).
+ * - Conciliar Delivery y Pólizas QuickBooks (/admin/conciliar-delivery, /api/delivery-reconciliation, /api/delivery-reconciliation/quickbooks-journal): concilia Toast POS vs Uber Eats, DoorDash y Grubhub orden por orden y por corte semanal usando fuente única de verdad contable (`computePayoutAccountingAmounts`), rastrea recuperaciones en cortes posteriores diferenciando abiertas, verificadas y pérdidas cerradas (`ACCEPTED_LOSS`/`REJECTED`), excluye ajustes `$0.00`, mantiene `CONCILIATED_NEXT_PAYOUT` en tránsito fuera de `4. Listos`, y automatiza Settlement Journal Entries en QuickBooks Online (100XX Banco, 62145/62146/62147 Fees, 12050/12053/12054 Receivables, 40061/40062/40063 Refunds/Error Charges + línea 5 Cuenta 24001 para Sales Tax en reembolsos DoorDash/Grubhub) con estado explícito `PUBLISH_FAILED`.
+ * - Contabilidad Externa ERP (/admin/contabilidad-externa, /api/external-accounting, /api/external-accounting/reports, /api/cron/sync-external-accounting): ERP contable 100% puro enfocado en las 8 empresas de Raquel en external_accounting_companies (6 ACTIVE_QBO con sync bidireccional cada 15 min y 2 RETIRED_FROM_QBO_LOCAL_ACTIVE — Chicken Taco Catering LLC y Elveze LLC — con lectura/escritura completa local y qbo_sync_enabled=false), sin publicidad comercial ni add-ons de Intuit, acceso global exclusivo validado por ID y email con expiración estricta JWT (ignoreExpiration: false) para Raquel (45), Roberto (46) y Roque (47), aislamiento Zero-Trust service_role en las 24 tablas external_accounting_*, RPCs y Storage, OAuth QBO con HMAC-SHA256 + nonce cookie y lock distribuido fn_acquire_ext_acct_token_refresh_lock, updates QBO con sparse: true y worker FOR UPDATE SKIP LOCKED (fn_claim_ext_acct_outbox_batch), cobertura ACID PostgreSQL total, protección de transacciones Reconciled (permitiendo reclasificar cuenta de gasto/ingreso pero bloqueando monto/banco/fecha/VOID/DELETE) y conciliación 1:1 para Bancos y Tarjetas de Crédito (PayDownCreditCard, Expense, CreditCardCredit y reversión de cargos/intereses al reabrir/eliminar), paginación determinista fetchAllTableRows sin tope de 1,000 filas, subida directa firmada hasta 15 MB hacia Supabase Storage (create_attachment_upload_url + finalize_attachment_upload con validación MIME/SHA-256), sanitización HTML allowlist (lib/external-accounting-html-sanitize.ts), guardas AbortController contra condiciones de carrera al cambiar de empresa, y motor de reportes CPA con paridad $0.00 en Accrual y Cash Basis sobre balance_sheet, trial_balance, pnl y kpi_scorecard más controles comparePeriod, only1099, hideZeroRows y showCents (.xlsx / .pdf).
  * - Auditoría Semanal Automática de Correos de Empleados Activos (/api/cron/audit-employee-emails, lib/employee-email-auditor.ts, scripts/run-weekly-email-audit.ts): ejecutada todos los sábados por la tarde hora LA California (0 22 * * 6 UTC = 2:00 PM PST / 3:00 PM PDT, con pre-escaneo local puerto 25 a la 1:30 PM), sincroniza las 15 sucursales desde Toast POS (syncToastEmployees), audita todos los correos activos (placeholders @example.com, typos de dominio, reglas de proveedor, Microsoft GetCredentialType, SMTP RCPT TO puerto 25 y caché persistente en integrations employee_email_audit_state) y notifica automáticamente a cada Store Manager involucrado (CC Supervisor) más resumen ejecutivo a carlos@tacosgavilan.com.
  * - Temporizador Digital Cooper TFS4 de Cocción de Frijoles (/inventory/preparador/bodega, components/BeanCookingTimerTFS4.tsx, lib/bean-timer.ts, /api/preparador/bean-timer): reemplaza el temporizador físico Cooper-Atkins TFS4 en la Tableta 2 de Cocina Trasera con 4 canales por color (T1 Azul, T2 Verde, T3 Amarillo, T4 Rojo), botón rojo superior de paro de alarma y únicamente 2 botones preconfigurados y bloqueados (Frijoles de la Olla = 11:00 min / 660s y Frijoles Enteros = 12:00 min / 720s en bean_timer_presets, editables solo por admin), registrando cada tanda, turno AM/PM (corte 5:00 PM) y segundos de sobrecocción (overtime_seconds) en bean_cooking_logs bajo la regla 6:00 AM America/Los_Angeles.
  * @dataFlow
@@ -580,7 +580,7 @@ export const TOOL_DECLARATIONS = [
   },
   {
     name: 'query_mobile_orders',
-    description: 'Consultar órdenes históricas en public.app_orders y el estado de Tacos Gavilan App (com.tacosgavilan.mobile, envolviendo order.online para Pickup y Delivery en las 15 sucursales con nombres canónicos del sitio web oficial, mientras Menu2 permanece oculto temporalmente en espera de DoorDash Storefront API).',
+    description: 'Consultar órdenes históricas en public.app_orders y el estado de Tacos Gavilan App (com.tacosgavilan.mobile: paridad funcional entre V1 /app/v1 y V2 modularizada en components/customer-app-v2/* con /api/mobile/menu, bolsa, quote, autocompletado, rastreo, Google Maps, Email/SMS OTP, Camino 1 /api/mobile/doordash/checkout-session y respaldo order.online en las 15 sucursales).',
     parameters: {
       type: 'OBJECT',
       properties: {
@@ -617,7 +617,7 @@ export const TOOL_DECLARATIONS = [
   },
   {
     name: 'query_delivery_reconciliation',
-    description: 'Consultar la conciliación financiera bidireccional orden por orden (Toast POS ↔ Plataformas: Pagadas y Cuadradas, Pagadas de Menos, En Toast y NO en Plataforma en tiendas sincronizadas, En Plataforma y NO en Toast con candidato único Toast #NNN, y Pendientes de Sincronizar), cortes bancarios (payouts con desglose de órdenes incluidas por póliza QBO), impuestos (Sales Tax entregado por DoorDash/Grubhub vs retenido por Uber Eats) y disputas/reembolsos entre Toast POS y DoorDash, Uber Eats y Grubhub (/admin/conciliar-delivery). Para cada disputa reporta por separado el importe original disputado, lo recuperado VERIFICADO (crédito localizado en el settlement posterior) y el saldo pendiente; una nota o un payout existente sin crédito identificable es "Recuperación pendiente de verificar".',
+    description: 'Consultar la conciliación financiera bidireccional orden por orden (Toast POS ↔ Plataformas: Pagadas y Cuadradas, Pagadas de Menos, En Toast y NO en Plataforma en tiendas sincronizadas, En Plataforma y NO en Toast con candidato único Toast #NNN, y en tránsito CONCILIATED_NEXT_PAYOUT), cortes bancarios (payouts con importes contables reales computePayoutAccountingAmounts paridad Tab 4a/4b y desglose de órdenes incluidas por póliza QBO), impuestos (Sales Tax entregado por DoorDash/Grubhub vs retenido por Uber Eats) y disputas/reembolsos entre Toast POS y DoorDash, Uber Eats y Grubhub (/admin/conciliar-delivery). Excluye eventos $0.00 sin pérdida real y reporta por separado el importe original disputado, lo recuperado VERIFICADO (crédito en settlement posterior), pérdidas cerradas no recuperadas (ACCEPTED_LOSS/REJECTED) y el saldo pendiente real.',
     parameters: {
       type: 'OBJECT',
       properties: {
@@ -770,7 +770,7 @@ async function queryDeliveryReconciliationTool(args: any): Promise<string> {
 
   let payoutQuery = supabaseAdmin
     .from('delivery_platform_payouts')
-    .select('store_id, platform, payout_reference_id, period_start, period_end, payout_date, orders_count, platform_gross_receivable, commission_fees, delivery_fees, processing_fees, marketing_fees, error_charges, adjustments_amount, net_payout_amount, toast_matched_orders_count, toast_expected_gross, gross_variance')
+    .select('store_id, platform, payout_reference_id, period_start, period_end, payout_date, orders_count, subtotal_sales, tax_collected, tax_remitted_by_platform, tax_paid_to_merchant, platform_gross_receivable, commission_fees, delivery_fees, processing_fees, marketing_fees, error_charges, adjustments_amount, net_payout_amount, toast_matched_orders_count, toast_expected_gross, gross_variance, raw_payload')
     .order('period_end', { ascending: false })
     .limit(15)
 
@@ -782,16 +782,21 @@ async function queryDeliveryReconciliationTool(args: any): Promise<string> {
   const rows = data || []
   const payouts = payoutsData || []
 
+  // Disputas y cortes: misma fuente contable que Tab 4a/4b y clasificacion de perdidas cerradas / $0.00
+  const {
+    computePayoutAccountingAmounts,
+    evaluateDisputeRecovery,
+    buildRecoverySettlementIndex,
+    getOrderRecoveryPayoutRefs,
+    isClosedUnrecoveredDisputeStatus,
+    isZeroImpactDisputeOrder,
+  } = await import('./delivery-reconciliation')
+
   const payoutLines = payouts.map((p: any) => {
-    const fees = Number(p.commission_fees || 0) + Number(p.delivery_fees || 0) + Number(p.processing_fees || 0) + Number(p.marketing_fees || 0)
-    const err = Number(p.error_charges || 0) + Number(p.adjustments_amount || 0)
-    return `- Corte #${p.payout_reference_id} (${p.period_start} → ${p.period_end}) | Tienda #${p.store_id} | ${p.platform} | (+) Bruto: $${Number(p.platform_gross_receivable || 0).toFixed(2)} | (-) Comisiones: $${fees.toFixed(2)} | (±) Errores/Reemb: $${err.toFixed(2)} | (=) Depósito Neto: $${Number(p.net_payout_amount || 0).toFixed(2)} | Toast Auditado: $${Number(p.toast_expected_gross || 0).toFixed(2)} (${p.toast_matched_orders_count || 0} órd.)`
+    const acct = computePayoutAccountingAmounts(p)
+    return `- Corte #${p.payout_reference_id} (${p.period_start} → ${p.period_end}) | Tienda #${p.store_id} | ${p.platform} | (+) Bruto Contable: $${acct.receivableCredit.toFixed(2)} | (-) Comisiones: $${acct.totalFees.toFixed(2)} | (±) Errores/Reemb: $${acct.rawErrAdj.toFixed(2)} | (=) Depósito Neto: $${acct.netPayout.toFixed(2)} | Toast Auditado: $${Number(p.toast_expected_gross || 0).toFixed(2)} (${p.toast_matched_orders_count || 0} órd.)`
   })
 
-  // Disputas: importe original, recuperado VERIFICADO (crédito localizado en el settlement posterior) y saldo pendiente
-  const { evaluateDisputeRecovery, buildRecoverySettlementIndex, getOrderRecoveryPayoutRefs } = await import(
-    './delivery-reconciliation'
-  )
   const recoveryRefs = Array.from(new Set(rows.flatMap((r: any) => getOrderRecoveryPayoutRefs(r))))
   let recoveryPayouts: any[] = []
   if (recoveryRefs.length > 0) {
@@ -805,12 +810,15 @@ async function queryDeliveryReconciliationTool(args: any): Promise<string> {
   const recoveryCtx = { settlementPayouts: buildRecoverySettlementIndex(recoveryPayouts) }
   const lines = rows.map((r: any) => {
     const base = `- ${r.business_date} | Tienda #${r.store_id} | ${r.platform} | Orden #${r.platform_order_id} (Toast #${r.toast_display_number || '-'} • Corte #${r.payout_reference_id || '-'}) | Toast Esperado: $${Number(r.toast_expected_gross || 0).toFixed(2)} | Plat Bruto: $${Number(r.platform_gross_receivable || 0).toFixed(2)} | Neto Pagado: $${Number(r.net_payout || 0).toFixed(2)} | Diff: $${Number(r.gross_diff || 0).toFixed(2)} | ${r.reconciliation_status}`
+    if (isZeroImpactDisputeOrder(r)) return base
     const ev = evaluateDisputeRecovery(r, recoveryCtx)
     if (!ev.isDisputed) return base
     const credits = ev.recoveryCredits
       .map((c: any) => `${c.verified ? '✅' : '⏳'} #${c.payout_reference_id} $${Number(c.amount || 0).toFixed(2)}`)
       .join(', ')
-    return `${base} | Disputa ${r.dispute_status}: original ${ev.originalAmountVerified ? `$${ev.originalDeductionAbs.toFixed(2)}` : 'no comprobado'} • recuperado verificado $${ev.verifiedRecoveredAmount.toFixed(2)} • pendiente $${ev.unrecoveredAmount.toFixed(2)} (${ev.recoveryClassification})${credits ? ` • créditos: ${credits}` : ''}`
+    const isClosedLoss = isClosedUnrecoveredDisputeStatus(r.dispute_status)
+    const statusDesc = isClosedLoss ? `CERRADA_NO_RECUPERADA (${r.dispute_status})` : r.dispute_status
+    return `${base} | Disputa ${statusDesc}: original ${ev.originalAmountVerified ? `$${ev.originalDeductionAbs.toFixed(2)}` : 'no comprobado'} • recuperado verificado $${ev.verifiedRecoveredAmount.toFixed(2)} • ${isClosedLoss ? 'pérdida aceptada' : 'pendiente'} $${ev.unrecoveredAmount.toFixed(2)} (${ev.recoveryClassification})${credits ? ` • créditos: ${credits}` : ''}`
   })
   return `Conciliación Delivery (/admin/conciliar-delivery):\n### Cortes Semanales (${payouts.length}):\n${payoutLines.join('\n') || 'Sin cortes'}\n\n### Órdenes (${rows.length}):\n${lines.join('\n') || 'Sin órdenes'}`
 }
@@ -3563,14 +3571,14 @@ async function queryMobileOrdersTool(args: any): Promise<string> {
     const { data: rawOrders, error } = await query;
     if (error) throw error;
     if (!rawOrders || rawOrders.length === 0) {
-      return `No se encontraron órdenes en public.app_orders con los filtros especificados${args.store_name ? ` para ${args.store_name}` : ''}.\n\nℹ️ **Estado Real de Tacos Gavilan App (\`com.tacosgavilan.mobile\`)**: Tanto **Versión 1** (\`/app/v1\` y el binario nativo Expo) como **Versión 2** (\`/app/v2\`) envuelven directamente las 15 tiendas hospedadas en **\`order.online\`** (Pickup y Delivery) integradas con Toast POS, mientras \`Menu2\` permanece oculto temporalmente en espera de la habilitación de Storefront API por DoorDash para el Business ID \`137616\`.`;
+      return `No se encontraron órdenes en public.app_orders con los filtros especificados${args.store_name ? ` para ${args.store_name}` : ''}.\n\nℹ️ **Estado Real de Tacos Gavilan App (\`com.tacosgavilan.mobile\`)**: Tanto **Versión 1** (\`/app/v1\` y el binario nativo Expo) como **Versión 2** (\`/app/v2\`, modularizada en \`components/customer-app-v2/*\`) operan con paridad en tiempo real: 15 sucursales en \`/api/mobile/stores\`, menú en vivo con precios Toast POS (\`/api/mobile/menu\`), bolsa (\`/api/mobile/cart\`), autocompletado (\`/api/mobile/address/autocomplete\`), cotización (\`/api/mobile/order/quote\`), rastreo (\`/api/mobile/order/status\`), Email/SMS OTP (TTL 10 min en \`app_mobile_otp_challenges\`), Camino 1 DoorDash Storefront (\`/api/mobile/doordash/checkout-session\`) y respaldo oficial **\`order.online\`** Pickup/Delivery (con \`Menu2\` en espera \`ENABLE_NATIVE_MENU2_TAB = false\`).`;
     }
 
     let orders = rawOrders;
     if (args.channel && args.channel !== 'ALL') {
       const targetChannel = args.channel.toUpperCase();
       orders = orders.filter((o: any) => {
-        const orderChan = (o.items_json?.channel || (o.pickup_method === 'in_store' && o.curbside_stall === 'DOORDASH_DELIVERY' ? 'DELIVERY' : 'PICKUP')).toUpperCase();
+        const orderChan = (o.items_json?.channel || (o.pickup_method === 'delivery' || (o.pickup_method === 'in_store' && o.curbside_stall === 'DOORDASH_DELIVERY') ? 'DELIVERY' : 'PICKUP')).toUpperCase();
         return orderChan === targetChannel;
       });
     }
@@ -3581,19 +3589,19 @@ async function queryMobileOrdersTool(args: any): Promise<string> {
 
     let out = `📱 **Órdenes Móviles de Clientes (Tacos Gavilan App — \`com.tacosgavilan.mobile\`)**\n`;
     out += `• **Total órdenes encontradas**: ${orders.length}\n`;
-    out += `• **Flujo Activo de Pedidos**: Wrapper oficial de \`order.online\` (Pickup y Delivery) conectado con Toast POS en las 15 sucursales; \`Menu2\` guardado y oculto temporalmente en espera de DoorDash Storefront API\n\n`;
+    out += `• **Flujo Activo de Pedidos**: Paridad V1 / V2 sobre \`/api/mobile/*\` + Camino 1 \`/api/mobile/doordash/checkout-session\` (opt-in pendiente de \`DPSD-5935\`) + respaldo \`order.online\` Pickup/Delivery; \`Menu2\` preservado en espera\n\n`;
     out += `| Orden # | Sucursal | Canal / Método | Total | Cocina | Pago | Toast GUID | Cajón / Delivery |\n`;
     out += `|---------|----------|----------------|-------|--------|------|------------|------------------|\n`;
 
     orders.forEach((o: any) => {
       const storeName = idToName[o.store_id] || `Tienda ${o.store_id}`;
-      const isDelivery = o.items_json?.channel === 'DELIVERY' || o.curbside_stall === 'DOORDASH_DELIVERY';
+      const isDelivery = o.items_json?.channel === 'DELIVERY' || o.pickup_method === 'delivery' || o.curbside_stall === 'DOORDASH_DELIVERY';
       const channelStr = isDelivery ? '🚗 DELIVERY' : `🛍️ PICKUP (${o.pickup_method || 'mostrador'})`;
       const kitchenBadge = o.status === 'READY' ? '🟢 READY' : o.status === 'FIRED' ? '🔥 FIRED' : o.status === 'HOLDING' ? '⏳ HOLDING' : o.status;
       const payBadge = o.payment_status === 'PAID' ? '💳 PAID' : '🟡 PENDING';
       const toastGuid = o.toast_order_guid ? `\`${o.toast_order_guid.slice(0, 8)}...\`` : '—';
       const stallOrDelivery = isDelivery 
-        ? (o.items_json?.deliveryLogistics?.delivery_status || 'DoorDash')
+        ? (o.items_json?.deliveryLogistics?.deliveryStatus || o.items_json?.deliveryLogistics?.delivery_status || 'DoorDash')
         : (o.curbside_stall ? `Cajón: ${o.curbside_stall}` : 'Mostrador');
       const orderNum = o.items_json?.orderNumber || o.id.slice(0, 8).toUpperCase();
       
@@ -3735,13 +3743,14 @@ async function queryPhoneAgentStatusTool(args: any): Promise<string> {
         .replace(/[\r\n]+/g, ' ')
         .trim();
 
+    const urgentOrCritical = filteredCallbacks.filter((cb: any) => cb.urgency === 'critical' || cb.urgency === 'urgent').length;
     let out = `📞 **Contestadora IA Multi-Sucursal (15 Tiendas) — Tacos Gavilan (/admin/llamadas)**\n`;
-    out += `• **Voz Neuronal Activa**: Kore 3.8 (Gemini Neural TTS con Streaming PCM 24kHz en vivo)\n`;
+    out += `• **Voz Neuronal Activa**: Kore 3.8 (Gemini Neural TTS caché \`phone_v6\`, PCM 24kHz simulador / WAV 8kHz telefonía)\n`;
     out += `• **Sucursales Consultadas**: ${rows.length} (Cadena: 4 líneas fijas Spectrum Business y 11 celulares Android AT&T)\n`;
     out += `• **Reglas Activas en Base de Conocimiento**: ${filteredKb.length}\n`;
     out += `• **Próximos Horarios Festivos / Especiales (150 días)**: ${mergedHolidays.length}\n`;
     out += `• **Llamadas Reales Recientes (Twilio)**: ${realCalls.length} (${realPct}% resueltas por la IA en llamadas con conversación) | **Pruebas en Simulador**: ${simCalls.length}\n`;
-    out += `• **Recados Reales Pendientes de Gerente**: ${filteredCallbacks.length}\n\n`;
+    out += `• **Recados Reales Pendientes de Gerente**: ${filteredCallbacks.length} (${urgentOrCritical} urgentes/críticos)\n\n`;
 
     if (mergedHolidays.length > 0) {
       out += `**Próximos Horarios Festivos Oficiales:**\n`;
@@ -3759,14 +3768,15 @@ async function queryPhoneAgentStatusTool(args: any): Promise<string> {
     }
 
     if (filteredCallbacks.length > 0) {
-      out += `| Sucursal | Persona | Teléfono | Motivo |\n`;
-      out += `|----------|---------|----------|--------|\n`;
+      out += `| Sucursal | Tipo / Urgencia | Persona | Teléfono | Motivo |\n`;
+      out += `|----------|-----------------|---------|----------|--------|\n`;
       filteredCallbacks.forEach((cb: any) => {
         const cleanStore = String(cb.stores?.name || cb.store_id)
           .replace(/^Tacos Gavilan\s*[-—]?\s*/i, '')
           .replace(/^LA\s+(Broadway|Central)\b/i, '$1')
           .trim();
-        out += `| ${safeCell(cleanStore)} | ${safeCell(cb.caller_name)} | ${safeCell(cb.caller_phone)} | ${safeCell(cb.reason_summary)} |\n`;
+        const tag = `${cb.caller_type || 'customer'} / ${String(cb.urgency || 'normal').toUpperCase()}`;
+        out += `| ${safeCell(cleanStore)} | ${safeCell(tag)} | ${safeCell(cb.caller_name)} | ${safeCell(cb.caller_phone)} | ${safeCell(cb.reason_summary)} |\n`;
       });
     }
     return out;

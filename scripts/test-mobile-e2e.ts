@@ -3,7 +3,7 @@ import dotenv from 'dotenv'
 // Cargar variables de entorno
 dotenv.config({ path: '.env.local' })
 
-const BACKEND_URL = 'http://localhost:3001'
+const BACKEND_URL = process.env.MOBILE_API_BASE_URL || 'http://localhost:3000'
 
 async function runE2ETest() {
     console.log('\n======================================================')
@@ -12,7 +12,7 @@ async function runE2ETest() {
 
     try {
         // 🩺 PRUEBA 1: Verificar el Healthcheck del servidor de backend
-        console.log('🩺 [Prueba 1] Verificando salud del servidor en puerto 3001...')
+        console.log(`🩺 [Prueba 1] Verificando salud del servidor en ${BACKEND_URL}...`)
         const healthRes = await fetch(`${BACKEND_URL}/health`)
         if (!healthRes.ok) throw new Error('El servidor de backend no responde.')
         const healthData = await healthRes.json() as any
@@ -208,7 +208,7 @@ async function runE2ETest() {
 
     } catch (e: any) {
         console.error('\n❌ ERROR EN LA PRUEBA DE FUNCIONAMIENTO:', e.message)
-        console.log('Asegúrate de que el backend esté corriendo en http://localhost:3001.\n')
+        console.log(`Asegúrate de que el backend esté corriendo en ${BACKEND_URL}.\n`)
     }
 }
 

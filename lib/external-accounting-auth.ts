@@ -25,11 +25,16 @@
  * - 2026-10-28: `computeTransactionAccountDeltas` usa el motor de pólizas `lib/external-accounting-ledger.ts`
  *   con la convención de signo de QBO (`CurrentBalance` débito positivo). Antes invertía el movimiento de
  *   pasivos / capital / tarjetas al crear, editar, anular o reclasificar transacciones.
+ * - 2026-11-12 (Wave P0/P1 Hardening): verificación estricta de `exp` en JWT (`ignoreExpiration: false`),
+ *   lista blanca de 3 usuarios y helper `fetchAllTableRows` con desempate determinista `.order('id')` para
+ *   eliminar truncamientos silenciosos de 1,000 filas de PostgREST en cuentas, contactos, ítems, adjuntos y vínculos.
  */
 
+import { cookies } from 'next/headers'
 import { NextRequest } from 'next/server'
 import { SupabaseClient } from '@supabase/supabase-js'
-import { getServerUser, ServerUser } from './auth-server'
+import jwt from 'jsonwebtoken'
+import { getJwtSecret, ServerUser } from './auth-server'
 import { buildLedgerContext, buildTxnPostings, postingsToDeltaMap, type LedgerContext } from './external-accounting-ledger'
 
 export const ALLOWED_EXTERNAL_ACCOUNTING_EMAILS = new Set([
@@ -55,15 +60,80 @@ export type ExternalAccountingAuthResult =
       error: string
     }
 
+async function verifyStrictAccountingJwt(req: NextRequest | Request): Promise<ServerUser | null> {
+  const secret = getJwtSecret()
+  if (!secret) {
+    return null
+  }
+
+  const candidateTokens: string[] = []
+  const authHeader = req.headers.get('authorization') || req.headers.get('Authorization')
+  if (authHeader?.startsWith('Bearer ')) {
+    const bearer = authHeader.substring(7).trim()
+    if (bearer) candidateTokens.push(bearer)
+  }
+
+  try {
+    const cookieStore = await cookies()
+    const cookieVal = cookieStore.get('teg_token')?.value?.trim()
+    if (cookieVal && !candidateTokens.includes(cookieVal)) {
+      candidateTokens.push(cookieVal)
+    }
+  } catch {
+    // Non-Next request context (e.g. direct tests) falls back to headers
+  }
+
+  const cookieHeader = req.headers.get('cookie') || req.headers.get('Cookie') || ''
+  const match = cookieHeader.match(/(?:^|;\s*)teg_token=([^;]+)/)
+  if (match?.[1]) {
+    try {
+      const headerCookieVal = decodeURIComponent(match[1].trim())
+      if (headerCookieVal && !candidateTokens.includes(headerCookieVal)) {
+        candidateTokens.push(headerCookieVal)
+      }
+    } catch {
+      // Malformed cookie encoding
+    }
+  }
+
+  for (const candidate of candidateTokens) {
+    try {
+      // Strict HS256 + exp validation (NEVER ignoreExpiration on External Accounting)
+      const verified = jwt.verify(candidate, secret, {
+        algorithms: ['HS256'],
+        clockTolerance: 30,
+      }) as any
+      if (verified && verified.sub && verified.email) {
+        const resolvedRole = String(
+          verified.user_role ||
+            verified.user_metadata?.role ||
+            (verified.role !== 'authenticated' ? verified.role : '') ||
+            'user'
+        ).toLowerCase()
+        return {
+          id: String(verified.sub),
+          email: String(verified.email),
+          name: verified.user_metadata?.full_name || String(verified.email),
+          role: resolvedRole,
+        }
+      }
+    } catch {
+      // Expired or invalid signature -> continue trying next candidate or fail closed
+    }
+  }
+
+  return null
+}
+
 /**
- * Verifica criptográficamente el JWT del usuario y valida que pertenezca exclusivamente
- * a Raquel Velazquez (45), Roberto Velazquez (46) o Roque (47).
+ * Verifica criptográficamente el JWT del usuario (con vigencia `exp` estricta) y valida que pertenezca
+ * exclusivamente a Raquel Velazquez (45), Roberto Velazquez (46) o Roque (47).
  */
 export async function authorizeExternalAccounting(
   req: NextRequest | Request,
   supabase: SupabaseClient
 ): Promise<ExternalAccountingAuthResult> {
-  const user = await getServerUser(req)
+  const user = await verifyStrictAccountingJwt(req)
   if (!user) {
     return {
       authorized: false,
@@ -76,7 +146,7 @@ export async function authorizeExternalAccounting(
   const userIdStr = String(user.id || '').trim()
 
   const inStaticWhitelist =
-    ALLOWED_EXTERNAL_ACCOUNTING_EMAILS.has(emailLower) ||
+    ALLOWED_EXTERNAL_ACCOUNTING_EMAILS.has(emailLower) &&
     ALLOWED_EXTERNAL_ACCOUNTING_USER_IDS.has(userIdStr)
 
   if (!inStaticWhitelist) {
@@ -87,7 +157,7 @@ export async function authorizeExternalAccounting(
     }
   }
 
-  // Verificar en base de datos que la cuenta exista, esté activa y coincida con la lista blanca
+  // Verificar en base de datos que la cuenta exista, esté activa y coincida simultáneamente en ID y correo
   const numericId = Number(userIdStr)
   let dbUser: any = null
   if (Number.isFinite(numericId) && numericId > 0) {
@@ -95,14 +165,6 @@ export async function authorizeExternalAccounting(
       .from('users')
       .select('id, email, full_name, role, is_active')
       .eq('id', numericId)
-      .maybeSingle()
-    dbUser = data
-  }
-  if (!dbUser && emailLower) {
-    const { data } = await supabase
-      .from('users')
-      .select('id, email, full_name, role, is_active')
-      .ilike('email', emailLower)
       .maybeSingle()
     dbUser = data
   }
@@ -118,20 +180,14 @@ export async function authorizeExternalAccounting(
   const dbEmailLower = String(dbUser.email || '').trim().toLowerCase()
   const dbIdStr = String(dbUser.id || '').trim()
   if (
-    !ALLOWED_EXTERNAL_ACCOUNTING_USER_IDS.has(dbIdStr) &&
-    !ALLOWED_EXTERNAL_ACCOUNTING_EMAILS.has(dbEmailLower)
+    !ALLOWED_EXTERNAL_ACCOUNTING_USER_IDS.has(dbIdStr) ||
+    !ALLOWED_EXTERNAL_ACCOUNTING_EMAILS.has(dbEmailLower) ||
+    dbEmailLower !== emailLower
   ) {
     return {
       authorized: false,
       status: 403,
-      error: 'Acceso restringido: Cuenta no autorizada para Contabilidad Externa.'
-    }
-  }
-  if (!ALLOWED_EXTERNAL_ACCOUNTING_USER_IDS.has(dbIdStr)) {
-    return {
-      authorized: false,
-      status: 403,
-      error: 'Acceso restringido: Solo los IDs autorizados (45 Raquel, 46 Roberto, 47 Roque) tienen acceso.'
+      error: 'Acceso restringido: Solo Raquel (45), Roberto (46) y Roque (47) con su correo corporativo verificado tienen acceso.'
     }
   }
 
@@ -150,6 +206,21 @@ export async function authorizeExternalAccounting(
  * Descarga el 100% de las transacciones de una empresa (`company_realm_id`) superando
  * el límite por defecto de 1,000 filas de Supabase PostgREST mediante bloques `.range()`.
  */
+function isTransientSupabaseGatewayError(err: any): boolean {
+  const msg = String(err?.message || err || '')
+  return (
+    msg.includes('<!DOCTYPE html>') ||
+    msg.includes('520') ||
+    msg.includes('521') ||
+    msg.includes('522') ||
+    msg.includes('524') ||
+    msg.includes('502 Bad Gateway') ||
+    msg.includes('503 Service') ||
+    msg.includes('504 Gateway') ||
+    /fetch failed|ECONNRESET|ETIMEDOUT/i.test(msg)
+  )
+}
+
 export async function fetchAllCompanyTransactions(
   supabase: SupabaseClient,
   realmId: string,
@@ -160,14 +231,22 @@ export async function fetchAllCompanyTransactions(
   let offset = 0
 
   while (true) {
-    const { data, error } = await supabase
-      .from('external_accounting_transactions')
-      .select('*')
-      .eq('company_realm_id', realmId)
-      .order('txn_date', { ascending })
-      .order('created_at', { ascending })
-      .order('id', { ascending })
-      .range(offset, offset + PAGE_SIZE - 1)
+    let data: any[] | null = null
+    let error: any = null
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const res = await supabase
+        .from('external_accounting_transactions')
+        .select('*')
+        .eq('company_realm_id', realmId)
+        .order('txn_date', { ascending })
+        .order('created_at', { ascending })
+        .order('id', { ascending })
+        .range(offset, offset + PAGE_SIZE - 1)
+      data = res.data
+      error = res.error
+      if (!error || !isTransientSupabaseGatewayError(error) || attempt === 2) break
+      await new Promise((r) => setTimeout(r, 350 * (attempt + 1)))
+    }
 
     if (error) throw error
     if (!data || data.length === 0) break
@@ -178,6 +257,78 @@ export async function fetchAllCompanyTransactions(
   }
 
   return allRows
+}
+
+export interface FetchAllTableRowsOptions {
+  select?: string
+  realmId?: string
+  realmColumn?: string
+  eq?: Record<string, string | number | boolean>
+  inFilter?: { column: string; values: Array<string | number> }
+  ilike?: { column: string; pattern: string }
+  orders?: Array<{ column: string; ascending?: boolean }>
+  tieBreakerColumn?: string | null
+  pageSize?: number
+}
+
+/**
+ * Descarga todas las filas de cualquier tabla de Contabilidad Externa en bloques `.range()`
+ * con orden determinista (`id` como tie-breaker), eliminando el tope por defecto de 1,000 filas de PostgREST.
+ */
+export async function fetchAllTableRows<T = any>(
+  supabase: SupabaseClient,
+  table: string,
+  options: FetchAllTableRowsOptions = {}
+): Promise<{ data: T[]; error: any }> {
+  const pageSize = Math.max(100, Math.min(options.pageSize || 1000, 1000))
+  const allRows: T[] = []
+  let offset = 0
+  const tieCol = options.tieBreakerColumn === undefined ? 'id' : options.tieBreakerColumn
+  const orders = options.orders || []
+
+  while (true) {
+    let data: T[] | null = null
+    let error: any = null
+    for (let attempt = 0; attempt < 3; attempt++) {
+      let q: any = supabase.from(table).select(options.select || '*')
+      if (options.realmId) {
+        q = q.eq(options.realmColumn || 'company_realm_id', options.realmId)
+      }
+      if (options.eq) {
+        for (const [col, val] of Object.entries(options.eq)) {
+          q = q.eq(col, val)
+        }
+      }
+      if (options.inFilter) {
+        q = q.in(options.inFilter.column, options.inFilter.values)
+      }
+      if (options.ilike) {
+        q = q.ilike(options.ilike.column, options.ilike.pattern)
+      }
+      for (const ord of orders) {
+        q = q.order(ord.column, { ascending: ord.ascending ?? true })
+      }
+      if (tieCol && !orders.some((o) => o.column === tieCol)) {
+        q = q.order(tieCol, { ascending: true })
+      }
+      q = q.range(offset, offset + pageSize - 1)
+
+      const res = await q
+      data = res.data
+      error = res.error
+      if (!error || !isTransientSupabaseGatewayError(error) || attempt === 2) break
+      await new Promise((r) => setTimeout(r, 400 * (attempt + 1)))
+    }
+
+    if (error) return { data: allRows, error }
+    if (!data || data.length === 0) break
+
+    allRows.push(...data)
+    if (data.length < pageSize) break
+    offset += pageSize
+  }
+
+  return { data: allRows, error: null }
 }
 
 /**

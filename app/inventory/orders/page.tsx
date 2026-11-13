@@ -68,6 +68,7 @@
  *   * Elimina el destino destructivo por defecto (`'all'` / `'Domingo'`) en `orderType === 'daily'`, exige selección explícita (`copyTgtDay = ''`), ofrece `'weekdays'` (`Lun–Mié`), advierte al sobrescribir `Viernes`/`Sábado (Sáb+Dom)`, respeta días bloqueados (`isLocked`) y sincroniza `nextWeekBases` (100% bilingüe i18n).
  *   * Sincroniza la exclusión de `isTrackOnlyOrderItem` (`Flan`, `Cheesecake`) en los chips inline de anomalías (`isHighLeftover`, `isHighAdjust`, `isHighFinal`).
  *   * Corrige el sufijo de `Costo (QB)` a `/ empaque` (evitando mostrar `/ pza` o `/ lb` de receta) y muestra recordatorio visual `📦 Contar PAQUETES` en empaques multipieza (ej. `Queso Tortas/platos/Desayuno`).
+ *   * Renombra la columna `🤖 Sugerido` a `🤖 Sobrante Teórico` (`Theoretical Leftover`) en encabezados, botones de columnas y guía `(i)` para distinguirla claramente de la cantidad a pedir.
  */
 'use client'
 
@@ -2800,9 +2801,11 @@ export default function InventoryOrdersPage() {
                                             <div className="flex items-center gap-2">
                                                 <span className="text-base">🤖</span>
                                                 <div>
-                                                    <span className="font-bold text-cyan-950">Fórmula de Sobrante Teórico Sugerido: </span>
+                                                    <span className="font-bold text-cyan-950">{t('bodegaOrders.theoreticalLeftoverFormulaLabel')}</span>
                                                     <span className="font-mono font-semibold bg-white px-2 py-0.5 rounded border border-cyan-200 text-cyan-900">
-                                                        Sobrante Ayer + Llegó Hoy AM − Ventas Toast ({selectedOrderDate})
+                                                        {language === 'es'
+                                                            ? `Sobrante Ayer + Llegó Hoy AM − Ventas Toast (${selectedOrderDate})`
+                                                            : `Yesterday Leftover + Today AM Arrival − Toast Sales (${selectedOrderDate})`}
                                                     </span>
                                                 </div>
                                             </div>
@@ -3088,7 +3091,7 @@ export default function InventoryOrdersPage() {
                                                         ? 'bg-cyan-100 text-cyan-800 border border-cyan-300 shadow-2xs'
                                                         : 'bg-slate-100 text-slate-400 border border-slate-200 hover:bg-slate-200 line-through opacity-70'
                                                 }`}
-                                                title="Mostrar u ocultar la columna Sugerido"
+                                                title={t('bodegaOrders.toggleSuggestedTooltip')}
                                             >
                                                 {showSuggestedCol ? <Eye size={12} /> : <EyeOff size={12} />} {t('bodegaOrders.toggleSuggested')}
                                             </button>
@@ -3175,8 +3178,8 @@ export default function InventoryOrdersPage() {
                                                          {orderType === 'daily' ? t('bodegaOrders.parTomorrow') : 'PAR'}
                                                      </th>
                                                      {showSuggestedCol && (
-                                                         <th className="p-3 text-center w-24 bg-cyan-50 text-cyan-800 border-b-2 border-cyan-200">
-                                                             <div className="flex items-center justify-center gap-1" title="Sobrante Teórico sugerido automáticamente por el sistema">
+                                                         <th className="p-3 text-center w-32 min-w-[125px] bg-cyan-50 text-cyan-800 border-b-2 border-cyan-200">
+                                                             <div className="flex items-center justify-center gap-1" title={t('bodegaOrders.theoreticalColTooltip')}>
                                                                  <span>🤖 {t('bodegaOrders.suggested')}</span>
                                                              </div>
                                                          </th>
@@ -4827,6 +4830,10 @@ export default function InventoryOrdersPage() {
                                                 <span className="font-bold text-emerald-600 block text-xs uppercase">PAR Mañana</span>
                                                 La cantidad óptima del producto que debe tener el restaurante al inicio del día siguiente.
                                             </div>
+                                            <div className="border border-cyan-100 p-3 rounded-lg bg-cyan-50/20">
+                                                <span className="font-bold text-cyan-800 block text-xs uppercase">🤖 Sobrante Teórico (Cian)</span>
+                                                Lo que debería sobrarte hoy según el sistema (<code className="bg-white px-1 py-0.5 rounded text-[10px]">Sobrante Ayer + Llegó Hoy − Ventas Toast</code>). Tu conteo físico siempre manda para el pedido.
+                                            </div>
                                             <div className="border border-slate-100 p-3 rounded-lg bg-orange-50/10">
                                                 <span className="font-bold text-orange-600 block text-xs uppercase">Sobrante (Naranja)</span>
                                                 El inventario físico actual (lo que te queda en el restaurante hoy).
@@ -4972,6 +4979,10 @@ export default function InventoryOrdersPage() {
                                             <div className="border border-slate-100 p-3 rounded-lg">
                                                 <span className="font-bold text-emerald-600 block text-xs uppercase">Tomorrow's PAR</span>
                                                 The optimal product quantity the restaurant should have at the start of the next day.
+                                            </div>
+                                            <div className="border border-cyan-100 p-3 rounded-lg bg-cyan-50/20">
+                                                <span className="font-bold text-cyan-800 block text-xs uppercase">🤖 Theoretical Leftover (Cyan)</span>
+                                                What should remain today per the system (<code className="bg-white px-1 py-0.5 rounded text-[10px]">Yesterday Leftover + Today Arrival − Toast Sales</code>). Your physical count always rules for the order.
                                             </div>
                                             <div className="border border-slate-100 p-3 rounded-lg bg-orange-50/10">
                                                 <span className="font-bold text-orange-600 block text-xs uppercase">Leftover (Orange)</span>

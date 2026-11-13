@@ -17,7 +17,7 @@
  * 
  * @notes
  * - Utiliza criptografía nativa de Node.js (crypto.timingSafeEqual y createHmac) sin depender de librerías externas.
- * - Tolerancia de tiempo de 300 segundos para prevenir ataques de replay.
+ * - Tolerancia de tiempo de 300 segundos para prevenir ataques de replay; valida formato de paymentIntentId/quoteId antes de `.or(...)` y falla con HTTP 500 antes de marcar `app_payment_events` si falla `app_orders` o `app_order_outbox`.
  */
 
 import { NextRequest, NextResponse } from 'next/server'
@@ -27,6 +27,7 @@ import { supabaseAdmin } from '@/lib/supabase'
 export const dynamic = 'force-dynamic'
 
 const TIMESTAMP_TOLERANCE_SECONDS = 300
+const SAFE_STRIPE_ID_REGEX = /^[a-zA-Z0-9_-]{3,128}$/
 
 interface StripeEvent {
   id: string
@@ -217,19 +218,43 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         return NextResponse.json({ ok: false, error: financialMismatch, flagged: true }, { status: 422 })
       }
 
-      // Buscar si ya existe la orden asociada por payment_intent_id o quote_id
+      // Buscar si ya existe la orden asociada por payment_intent_id o quote_id con filtros sanitizados
+      const safePiId = typeof paymentIntentId === 'string' && SAFE_STRIPE_ID_REGEX.test(paymentIntentId)
+        ? paymentIntentId
+        : null
+      const orClauses: string[] = []
+      if (safePiId) orClauses.push(`payment_intent_id.eq.${safePiId}`)
+      if (validQuoteId) orClauses.push(`quote_id.eq.${validQuoteId}`)
+
       let orderId: string | null = null
-      const { data: matchedOrder } = await supabaseAdmin
-        .from('app_orders')
-        .select('id, payment_status, status, store_id, items_json')
-        .or(`payment_intent_id.eq.${paymentIntentId}${validQuoteId ? `,quote_id.eq.${validQuoteId}` : ''}`)
-        .maybeSingle()
+      let matchedOrder: {
+        id: string
+        payment_status: string
+        status: string
+        store_id: number
+        items_json: Record<string, any> | null
+        pickup_method: string | null
+      } | null = null
+
+      if (orClauses.length > 0) {
+        const { data: orderRow, error: matchErr } = await supabaseAdmin
+          .from('app_orders')
+          .select('id, payment_status, status, store_id, items_json, pickup_method')
+          .or(orClauses.join(','))
+          .maybeSingle()
+
+        if (matchErr) {
+          console.error('❌ [STRIPE WEBHOOK] Error buscando orden en app_orders:', matchErr.message)
+          return NextResponse.json({ ok: false, error: 'Database lookup failed' }, { status: 500 })
+        }
+        matchedOrder = orderRow
+      }
 
       if (matchedOrder) {
         orderId = matchedOrder.id
         // Actualizar payment_status a PAID si estaba en PENDING tras reconciliación exitosa
         if (matchedOrder.payment_status !== 'PAID') {
-          await supabaseAdmin
+          const { error: orderUpdateErr } = await supabaseAdmin
             .from('app_orders')
             .update({
               payment_status: 'PAID',
@@ -238,8 +263,13 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
             })
             .eq('id', matchedOrder.id)
 
+          if (orderUpdateErr) {
+            console.error('❌ [STRIPE WEBHOOK] Error actualizando app_orders a PAID:', orderUpdateErr.message)
+            return NextResponse.json({ ok: false, error: 'Order update failed' }, { status: 500 })
+          }
+
           // Insertar de forma idempotente en app_order_outbox para Toast KDS exclusivamente cuando el pago es PAID
-          await supabaseAdmin.from('app_order_outbox').upsert({
+          const { error: outboxErr } = await supabaseAdmin.from('app_order_outbox').upsert({
             order_id: matchedOrder.id,
             integration: 'toast_kds',
             idempotency_key: `toast:${matchedOrder.id}`,
@@ -250,6 +280,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
               items: matchedOrder.items_json?.items || [],
             }
           }, { onConflict: 'idempotency_key' })
+
+          if (outboxErr) {
+            console.error('❌ [STRIPE WEBHOOK] Error encolando orden en app_order_outbox:', outboxErr.message)
+            return NextResponse.json({ ok: false, error: 'Outbox enqueue failed' }, { status: 500 })
+          }
         }
       }
 
@@ -271,38 +306,48 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
       if (upsertErr) {
         console.error('❌ [STRIPE WEBHOOK] Error guardando app_payment_events:', upsertErr)
+        return NextResponse.json({ ok: false, error: 'Payment event persistence failed' }, { status: 500 })
       }
 
     } else if (eventType === 'payment_intent.payment_failed') {
       const paymentIntentId = eventObject.id
       const amountCents = eventObject.amount || 0
-      const quoteId = eventObject.metadata?.quote_id || null
+      const rawQuoteId = typeof eventObject.metadata?.quote_id === 'string' ? eventObject.metadata.quote_id.trim() : null
       const failureMessage = eventObject.last_payment_error?.message || 'Fallo desconocido en el cargo'
 
       console.warn(`❌ [STRIPE WEBHOOK] Pago fallido para PI ${paymentIntentId}: ${failureMessage}`)
 
-      let orderId: string | null = null
-      const { data: matchedOrder } = await supabaseAdmin
-        .from('app_orders')
-        .select('id')
-        .or(`payment_intent_id.eq.${paymentIntentId}${quoteId ? `,quote_id.eq.${quoteId}` : ''}`)
-        .maybeSingle()
-
-      if (matchedOrder) {
-        orderId = matchedOrder.id
-        await supabaseAdmin
-          .from('app_orders')
-          .update({
-            payment_status: 'PAYMENT_FAILED',
-            updated_at: now,
-          })
-          .eq('id', matchedOrder.id)
+      let validQuoteId: string | null = null
+      if (rawQuoteId && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(rawQuoteId)) {
+        const { data: qCheck } = await supabaseAdmin.from('app_quotes').select('id').eq('id', rawQuoteId).maybeSingle()
+        if (qCheck) validQuoteId = qCheck.id
       }
 
-      let validQuoteId: string | null = null
-      if (quoteId) {
-        const { data: qCheck } = await supabaseAdmin.from('app_quotes').select('id').eq('id', quoteId).maybeSingle()
-        if (qCheck) validQuoteId = qCheck.id
+      const safeFailPiId = typeof paymentIntentId === 'string' && SAFE_STRIPE_ID_REGEX.test(paymentIntentId)
+        ? paymentIntentId
+        : null
+      const failClauses: string[] = []
+      if (safeFailPiId) failClauses.push(`payment_intent_id.eq.${safeFailPiId}`)
+      if (validQuoteId) failClauses.push(`quote_id.eq.${validQuoteId}`)
+
+      let orderId: string | null = null
+      if (failClauses.length > 0) {
+        const { data: matchedOrder } = await supabaseAdmin
+          .from('app_orders')
+          .select('id')
+          .or(failClauses.join(','))
+          .maybeSingle()
+
+        if (matchedOrder) {
+          orderId = matchedOrder.id
+          await supabaseAdmin
+            .from('app_orders')
+            .update({
+              payment_status: 'PAYMENT_FAILED',
+              updated_at: now,
+            })
+            .eq('id', matchedOrder.id)
+        }
       }
 
       await supabaseAdmin.from('app_payment_events').upsert({

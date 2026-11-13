@@ -153,91 +153,29 @@ function FeedbackContent() {
       const { data: usersData } = await supabase.from('users').select('id, full_name')
       setUsers(usersData || [])
 
-      // Obtener feedbacks
-      let query = supabase
-        .from('customer_feedback')
-        .select('*, stores(name,code,city,state,google_place_id)', { count: 'exact' }) // Request exact count
-        .order('submission_date', { ascending: false })
+      // Obtener feedbacks vía API autenticada de TEG
+      const qs = new URLSearchParams({
+        mode: 'list',
+        storeFilter: String(effectiveStoreFilter),
+        statusFilter,
+        sourceFilter,
+        page: String(page),
+        itemsPerPage: String(itemsPerPage),
+      })
+      if (startDateFilter) qs.set('startDate', startDateFilter)
+      if (endDateFilter) qs.set('endDate', endDateFilter)
 
-      // Apply Store Filter (DB Level)
-      if (effectiveStoreFilter !== 'all') {
-        query = query.eq('store_id', effectiveStoreFilter)
-      }
+      const fbRes = await fetch(`/api/feedback?${qs.toString()}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      })
+      const fbJson = await fbRes.json().catch(() => ({}))
+      if (!fbRes.ok) throw new Error(fbJson?.error || 'Error cargando feedback')
 
-      // Apply Date Range Filter (DB Level)
-      if (startDateFilter) {
-        query = query.gte('submission_date', startDateFilter)
-      }
-      if (endDateFilter) {
-        query = query.lte('submission_date', `${endDateFilter}T23:59:59.999Z`)
-      }
+      const count = fbJson.totalCount || 0
+      setTotalItems(count)
+      setFeedbacks(fbJson.feedbacks || [])
 
-      // Apply Source Filter
-      if (sourceFilter === 'google') {
-        query = query.eq('source', 'google')
-      } else if (sourceFilter === 'internal') {
-        query = query.neq('source', 'google')
-      }
-
-      // Apply Status Filter (DB Level)
-      if (statusFilter !== 'all') {
-        if (statusFilter === 'pendiente') {
-          // Handle 'pendiente' or NULL
-          query = query.or('admin_review_status.eq.pendiente,admin_review_status.is.null')
-        } else if (statusFilter === 'cerrado') {
-          // Handle various closed statuses
-          query = query.in('admin_review_status', ['aprobado', 'cerrado', 'closed'])
-        } else {
-          // Generic fallback
-          query = query.eq('admin_review_status', statusFilter)
-        }
-      }
-
-      // Apply Pagination
-      const from = (page - 1) * itemsPerPage
-      const to = from + itemsPerPage - 1
-      query = query.range(from, to)
-
-      const { data: rawFeedback, error, count } = await query
-
-      if (error) throw error
-
-      setTotalItems(count || 0)
-
-      const feedbacksList = rawFeedback || []
-      const feedbackIds = feedbacksList.map((f: any) => f.id)
-
-      // Fetch Comment Counts for visible items
-      let commentCounts: Record<string, number> = {}
-      if (feedbackIds.length > 0) {
-        const { data: commentsData } = await supabase
-          .from('feedback_comments')
-          .select('feedback_id')
-          .in('feedback_id', feedbackIds)
-
-        if (commentsData) {
-          commentsData.forEach((c: any) => {
-            commentCounts[c.feedback_id] = (commentCounts[c.feedback_id] || 0) + 1
-          })
-        }
-      }
-
-      // Merge Data
-      const finalData = feedbacksList.map((f: any) => ({
-        ...f,
-        has_chat: (commentCounts[f.id] || 0) > 0
-      }))
-
-      setFeedbacks(finalData)
-
-      // Calcular estadísticas GLOBALES (Server-Side RPC)
-      const rpcStoreId = effectiveStoreFilter === 'all' ? null : parseInt(effectiveStoreFilter)
-
-      const { data: globalStats } = await supabase
-        .rpc('get_feedback_overview', {
-          p_store_id: rpcStoreId,
-          p_status: statusFilter
-        })
+      const globalStats = fbJson.globalStats
 
       if (globalStats) {
         setStats({

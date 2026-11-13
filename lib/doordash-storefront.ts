@@ -24,6 +24,7 @@
  *   `validateOrderSessionResponse()`.
  *
  * @notes
+ * - `isStorefrontOrderSessionEnabled()` exige opt-in estricto (`=== 'true'`).
  * - 2026-10-16: con la credencial actual, `order_session` respondió HTTP 403 `authorization_error` ("permissions to
  *   access the following apis: Drive API"). Estado: Storefront NO habilitado. Respuesta de soporte recibida: acceso
  *   restringido, sin fecha (no es aprobación).
@@ -57,9 +58,9 @@ export const DOORDASH_BUSINESS_ID = process.env.DOORDASH_BUSINESS_ID || ''
 export const DOORDASH_DRIVE_ENVIRONMENT: 'sandbox' | 'production' =
   process.env.DOORDASH_DRIVE_ENVIRONMENT === 'production' ? 'production' : 'sandbox'
 
-/** Activo por defecto salvo que `STOREFRONT_ORDER_SESSION_ENABLED === 'false'` lo desactive explícitamente. */
+/** Activo únicamente cuando `STOREFRONT_ORDER_SESSION_ENABLED === 'true'` está habilitado explícitamente. */
 export function isStorefrontOrderSessionEnabled(): boolean {
-  return process.env.STOREFRONT_ORDER_SESSION_ENABLED !== 'false'
+  return process.env.STOREFRONT_ORDER_SESSION_ENABLED === 'true'
 }
 
 export interface DoorDashStoreMapping {
