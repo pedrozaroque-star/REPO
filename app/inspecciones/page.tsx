@@ -1,5 +1,17 @@
 'use client'
 
+/**
+ * @module app/inspecciones/page
+ * @description Panel de historial, filtrado, estadísticas y revisión de inspecciones de supervisores para Tacos Gavilan.
+ * @businessRules
+ * - Muestra métricas totales, promedio de score y conteos por estatus según rol del usuario.
+ * - En móvil (< lg) renderiza tarjetas con detalle de supervisor, turno inferido (6:00 AM–4:59 PM AM, 5:00 PM+ PM), duración y acceso a edición.
+ * @dataFlow
+ * - Supabase (supervisor_inspections, stores, users) -> ChecklistReviewModal / edición.
+ * @notes
+ * - Agrega alerta visible de error en móvil, paginación internacionalizada y selects de >=16px para evitar zoom automático en iOS Safari.
+ */
+
 import { useEffect, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import ProtectedRoute, { useAuth } from '@/components/ProtectedRoute'
@@ -322,7 +334,13 @@ function InspeccionesContent() {
         </div>
 
         {/* 2. SCROLLABLE CONTENT (Stats + Filters + List) */}
-        <div className="flex-1 overflow-y-auto p-2 md:p-4 space-y-6">
+        <div className="flex-1 overflow-y-auto p-3 md:p-4 space-y-6">
+
+          {errorMsg && (
+            <div className="lg:hidden bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800/60 text-red-700 dark:text-red-300 px-4 py-3 rounded-xl text-sm font-bold shadow-sm">
+              {errorMsg}
+            </div>
+          )}
 
           {/* STATS CARDS */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
@@ -359,7 +377,7 @@ function InspeccionesContent() {
                   <select
                     value={storeFilter}
                     onChange={(e) => setStoreFilter(e.target.value)}
-                    className="appearance-none bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 text-gray-700 dark:text-slate-300 py-2 pl-4 pr-10 rounded-lg font-bold text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-sm transition-all w-full md:w-56 cursor-pointer"
+                    className="appearance-none bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 text-gray-700 dark:text-slate-300 py-2.5 lg:py-2 pl-4 pr-10 rounded-lg font-bold text-base lg:text-xs min-h-[42px] lg:min-h-0 focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-sm transition-all w-full md:w-56 cursor-pointer"
                   >
                     <option value="all">{t('inspections.filters.all_stores')}</option>
                     {stores.map(s => (
@@ -375,7 +393,7 @@ function InspeccionesContent() {
                   <select
                     value={supervisorFilter}
                     onChange={(e) => setSupervisorFilter(e.target.value)}
-                    className="appearance-none bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 text-gray-700 dark:text-slate-300 py-2 pl-4 pr-10 rounded-lg font-bold text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-sm transition-all w-full md:w-56 cursor-pointer"
+                    className="appearance-none bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 text-gray-700 dark:text-slate-300 py-2.5 lg:py-2 pl-4 pr-10 rounded-lg font-bold text-base lg:text-xs min-h-[42px] lg:min-h-0 focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-sm transition-all w-full md:w-56 cursor-pointer"
                   >
                     <option value="all">{t('inspections.filters.all_supervisors')}</option>
                     {users
@@ -391,12 +409,12 @@ function InspeccionesContent() {
                 </div>
 
                 {(startDateFilter || endDateFilter) && (
-                  <div className="flex items-center gap-2 bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800/60 text-indigo-700 dark:text-indigo-300 px-3 py-1.5 rounded-lg text-xs font-bold">
+                  <div className="flex items-center justify-between gap-2 bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800/60 text-indigo-700 dark:text-indigo-300 px-3 py-1.5 rounded-lg text-xs font-bold">
                     <span>📅 {startDateFilter || '...'} → {endDateFilter || '...'}</span>
                     <button
                       onClick={() => { setStartDateFilter(''); setEndDateFilter('') }}
-                      className="ml-1 text-indigo-500 hover:text-indigo-800 dark:hover:text-white font-black"
-                      title="Clear date filter"
+                      className="ml-1 px-2 py-1 text-indigo-500 hover:text-indigo-800 dark:hover:text-white font-black rounded-md"
+                      title={t('common.clear') || 'Clear'}
                     >
                       ✕
                     </button>
@@ -408,25 +426,25 @@ function InspeccionesContent() {
             <div className="flex flex-wrap gap-2">
               <button
                 onClick={() => setStatusFilter('all')}
-                className={`px-4 py-2 text-xs font-bold rounded-lg transition-all uppercase tracking-wide ${statusFilter === 'all' ? 'bg-gray-800 dark:bg-slate-100 text-white dark:text-slate-900 shadow-md transform scale-105' : 'bg-white dark:bg-slate-800 text-gray-500 dark:text-slate-400 border border-gray-200 dark:border-slate-700 hover:bg-gray-50 dark:hover:bg-slate-700'}`}
+                className={`px-3.5 py-2 text-xs font-bold rounded-lg transition-all uppercase tracking-wide ${statusFilter === 'all' ? 'bg-gray-800 dark:bg-slate-100 text-white dark:text-slate-900 shadow-md ring-2 ring-gray-800/20 dark:ring-white/30' : 'bg-white dark:bg-slate-800 text-gray-500 dark:text-slate-400 border border-gray-200 dark:border-slate-700 hover:bg-gray-50 dark:hover:bg-slate-700'}`}
               >
                 {t('inspections.filters.all')}
               </button>
               <button
                 onClick={() => setStatusFilter('pendiente')}
-                className={`px-4 py-2 text-xs font-bold rounded-lg transition-all uppercase tracking-wide ${statusFilter === 'pendiente' ? 'bg-yellow-400 text-yellow-900 shadow-md transform scale-105' : 'bg-white dark:bg-slate-800 text-gray-500 dark:text-slate-400 border border-gray-200 dark:border-slate-700 hover:bg-yellow-50 dark:hover:bg-yellow-900/30 hover:text-yellow-600 dark:hover:text-yellow-400'}`}
+                className={`px-3.5 py-2 text-xs font-bold rounded-lg transition-all uppercase tracking-wide ${statusFilter === 'pendiente' ? 'bg-yellow-400 text-yellow-900 shadow-md ring-2 ring-yellow-500/40' : 'bg-white dark:bg-slate-800 text-gray-500 dark:text-slate-400 border border-gray-200 dark:border-slate-700 hover:bg-yellow-50 dark:hover:bg-yellow-900/30 hover:text-yellow-600 dark:hover:text-yellow-400'}`}
               >
                 {t('inspections.filters.pending')}
               </button>
               <button
                 onClick={() => setStatusFilter('aprobado')}
-                className={`px-4 py-2 text-xs font-bold rounded-lg transition-all uppercase tracking-wide ${statusFilter === 'aprobado' ? 'bg-green-500 text-white shadow-md transform scale-105' : 'bg-white dark:bg-slate-800 text-gray-500 dark:text-slate-400 border border-gray-200 dark:border-slate-700 hover:bg-green-50 dark:hover:bg-green-900/30 hover:text-green-600 dark:hover:text-green-400'}`}
+                className={`px-3.5 py-2 text-xs font-bold rounded-lg transition-all uppercase tracking-wide ${statusFilter === 'aprobado' ? 'bg-green-500 text-white shadow-md ring-2 ring-green-500/40' : 'bg-white dark:bg-slate-800 text-gray-500 dark:text-slate-400 border border-gray-200 dark:border-slate-700 hover:bg-green-50 dark:hover:bg-green-900/30 hover:text-green-600 dark:hover:text-green-400'}`}
               >
                 {t('inspections.filters.approved')}
               </button>
               <button
                 onClick={() => setStatusFilter('rechazado')}
-                className={`px-4 py-2 text-xs font-bold rounded-lg transition-all uppercase tracking-wide ${statusFilter === 'rechazado' ? 'bg-red-500 text-white shadow-md transform scale-105' : 'bg-white dark:bg-slate-800 text-gray-500 dark:text-slate-400 border border-gray-200 dark:border-slate-700 hover:bg-red-50 dark:hover:bg-red-900/30 hover:text-red-600 dark:hover:text-red-400'}`}
+                className={`px-3.5 py-2 text-xs font-bold rounded-lg transition-all uppercase tracking-wide ${statusFilter === 'rechazado' ? 'bg-red-500 text-white shadow-md ring-2 ring-red-500/40' : 'bg-white dark:bg-slate-800 text-gray-500 dark:text-slate-400 border border-gray-200 dark:border-slate-700 hover:bg-red-50 dark:hover:bg-red-900/30 hover:text-red-600 dark:hover:text-red-400'}`}
               >
                 {t('inspections.filters.rejected')}
               </button>
@@ -570,82 +588,123 @@ function InspeccionesContent() {
 
           {/* MOBILE CARDS VIEW (VISIBLE ONLY ON MOBILE) */}
           <div className="lg:hidden space-y-4">
-            {inspections.map((item) => (
-              <div
-                key={item.id}
-                onClick={() => handleRowClick(item)}
-                className="bg-white/90 dark:bg-slate-900/90 backdrop-blur-sm rounded-2xl p-5 shadow-sm border border-gray-200 dark:border-slate-800 active:scale-[0.98] transition-transform"
-              >
-                <div className="flex justify-between items-start mb-3">
-                  <div className="flex flex-col">
-                    <h3 className="text-lg font-black text-gray-900 dark:text-white leading-tight">{item.store_name}</h3>
-                    <span className="text-sm font-bold text-gray-500 dark:text-slate-400 mt-1">{format(parseChecklistDate(item.checklist_date), 'dd MMM yyyy', { locale: localeObj })}</span>
-                  </div>
-                  <span className={`text-2xl font-black ${item.overall_score >= 87 ? 'text-green-600 dark:text-green-400' : 'text-red-500 dark:text-red-400'}`}>
-                    {item.overall_score}%
-                  </span>
-                </div>
+            {inspections.map((item) => {
+              let mobileDuration = item.duration || ''
+              if (!mobileDuration && item.start_time && item.end_time) {
+                try {
+                  const startParts = item.start_time.split(':').map(Number)
+                  const endParts = item.end_time.split(':').map(Number)
+                  if (startParts.length >= 2 && endParts.length >= 2) {
+                    const startMinutes = startParts[0] * 60 + startParts[1]
+                    const endMinutes = endParts[0] * 60 + endParts[1]
+                    let diff = endMinutes - startMinutes
+                    if (diff < 0) diff += 24 * 60
+                    const hours = Math.floor(diff / 60)
+                    const mins = diff % 60
+                    mobileDuration = hours > 0 ? `${hours}h ${mins}m` : `${mins} min`
+                  }
+                } catch { }
+              }
 
-                <div className="flex items-center justify-between mt-4 pt-3 border-t border-gray-50 dark:border-slate-800">
-                  <div className="flex items-center gap-2">
-                    <span className={`px-3 py-1 rounded-md text-xs font-black uppercase tracking-wide border ${getStatusColor(item.estatus_admin || 'pendiente')}`}>
-                      {t(`status.${(item.estatus_admin || 'pendiente').toLowerCase()}`)}
-                    </span>
-                    {item.has_comments && (
-                      <div className="p-1 text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20 rounded-full border border-blue-100 dark:border-blue-900/30">
-                        <MessageCircleMore size={18} strokeWidth={3} />
-                      </div>
-                    )}
-                    <span className={`px-2.5 py-0.5 rounded text-xs font-bold ${item.shift === 'AM' ? 'bg-yellow-50 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400' : 'bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400'}`}>
-                      {item.shift}
+              let displayShift = item.shift
+              if (!displayShift && (item.start_time || item.inspection_time)) {
+                try {
+                  const timeStr = item.start_time || item.inspection_time
+                  const hour = parseInt(timeStr.split(':')[0], 10)
+                  displayShift = (hour >= 6 && hour < 17) ? 'AM' : 'PM'
+                } catch { }
+              }
+
+              return (
+                <div
+                  key={item.id}
+                  onClick={() => handleRowClick(item)}
+                  className="bg-white/90 dark:bg-slate-900/90 backdrop-blur-sm rounded-2xl p-4 sm:p-5 shadow-sm border border-gray-200 dark:border-slate-800 active:scale-[0.98] transition-transform cursor-pointer"
+                >
+                  <div className="flex justify-between items-start gap-3 mb-2">
+                    <div className="flex flex-col min-w-0">
+                      <h3 className="text-lg font-black text-gray-900 dark:text-white leading-tight truncate">{item.store_name}</h3>
+                      {item.supervisor_name && (
+                        <span className="text-xs font-bold text-gray-600 dark:text-slate-300 mt-1 truncate">
+                          {item.supervisor_name}
+                        </span>
+                      )}
+                      <span className="text-xs sm:text-sm font-bold text-gray-500 dark:text-slate-400 mt-0.5">
+                        {format(parseChecklistDate(item.checklist_date), 'dd MMM yyyy', { locale: localeObj })}
+                        {mobileDuration ? ` • ${mobileDuration}` : ''}
+                      </span>
+                    </div>
+                    <span className={`text-2xl font-black shrink-0 ${item.overall_score >= 87 ? 'text-green-600 dark:text-green-400' : 'text-red-500 dark:text-red-400'}`}>
+                      {item.overall_score}%
                     </span>
                   </div>
 
-                  {item.photos && item.photos.length > 0 && (
-                    <div className="flex items-center gap-1">
-                      {item.photos.slice(0, 2).map((url: string, idx: number) => (
-                        <img
-                          key={idx}
-                          src={getEmbeddableImageUrl(url)}
-                          alt={`Evidence ${idx + 1}`}
-                          className="w-8 h-8 object-cover rounded-md border border-gray-200 shadow-sm"
-                          referrerPolicy="no-referrer"
-                          onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
-                        />
-                      ))}
-                      {item.photos.length > 2 && (
-                        <span className="w-8 h-8 rounded-md bg-blue-50 text-blue-600 text-[10px] font-bold flex items-center justify-center border border-blue-100">
-                          +{item.photos.length - 2}
+                  <div className="flex flex-wrap items-center justify-between gap-2 mt-3 pt-3 border-t border-gray-100 dark:border-slate-800">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className={`px-3 py-1 rounded-md text-xs font-black uppercase tracking-wide border ${getStatusColor(item.estatus_admin || 'pendiente')}`}>
+                        {t(`status.${(item.estatus_admin || 'pendiente').toLowerCase()}`)}
+                      </span>
+                      {item.has_comments && (
+                        <div className="p-1 text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20 rounded-full border border-blue-100 dark:border-blue-900/30">
+                          <MessageCircleMore size={16} strokeWidth={2.5} />
+                        </div>
+                      )}
+                      {displayShift && (
+                        <span className={`px-2.5 py-0.5 rounded text-xs font-bold uppercase ${displayShift === 'AM' ? 'bg-yellow-50 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400' : 'bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400'}`}>
+                          {displayShift}
                         </span>
                       )}
                     </div>
-                  )}
 
-                  <button
-                    onClick={(e) => handleEdit(item, e)}
-                    className="p-2 -mr-2 text-gray-400 hover:text-indigo-600 active:bg-indigo-50 rounded-full"
-                  >
-                    <Edit size={20} />
-                  </button>
+                    <div className="flex items-center gap-2 ml-auto">
+                      {item.photos && item.photos.length > 0 && (
+                        <div className="flex items-center gap-1">
+                          {item.photos.slice(0, 2).map((url: string, idx: number) => (
+                            <img
+                              key={idx}
+                              src={getEmbeddableImageUrl(url)}
+                              alt={`Evidence ${idx + 1}`}
+                              className="w-8 h-8 object-cover rounded-md border border-gray-200 shadow-sm"
+                              referrerPolicy="no-referrer"
+                              onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
+                            />
+                          ))}
+                          {item.photos.length > 2 && (
+                            <span className="w-8 h-8 rounded-md bg-blue-50 text-blue-600 text-[10px] font-bold flex items-center justify-center border border-blue-100">
+                              +{item.photos.length - 2}
+                            </span>
+                          )}
+                        </div>
+                      )}
+
+                      <button
+                        onClick={(e) => handleEdit(item, e)}
+                        aria-label={t('inspections.actions.edit') || 'Editar'}
+                        className="min-w-[40px] min-h-[40px] flex items-center justify-center -mr-1 text-gray-500 hover:text-indigo-600 active:bg-indigo-50 dark:active:bg-slate-800 rounded-full transition-colors"
+                      >
+                        <Edit size={20} />
+                      </button>
+                    </div>
+                  </div>
                 </div>
-              </div>
-            ))}
-            {inspections.length === 0 && !loading && (
+              )
+            })}
+            {inspections.length === 0 && !loading && !errorMsg && (
               <div className="text-center text-gray-400 py-10 font-bold">{t('inspections.list.empty')}</div>
             )}
           </div>
 
           {/* PAGINATION CONTROLS */}
           {totalCount > pageSize && (
-            <div className="flex flex-col md:flex-row items-center justify-between gap-4 py-6 px-4 bg-white/50 dark:bg-slate-900/50 backdrop-blur-sm rounded-xl border border-gray-200 dark:border-slate-800">
-              <div className="text-sm text-gray-500 dark:text-slate-400 font-medium">
-                Mostrando <span className="font-bold text-gray-900 dark:text-white">{currentPage * pageSize + 1}</span> a <span className="font-bold text-gray-900 dark:text-white">{Math.min((currentPage + 1) * pageSize, totalCount)}</span> de <span className="font-bold text-gray-900 dark:text-white">{totalCount}</span> inspecciones
+            <div className="flex flex-col md:flex-row items-center justify-between gap-4 py-5 px-4 bg-white/50 dark:bg-slate-900/50 backdrop-blur-sm rounded-xl border border-gray-200 dark:border-slate-800">
+              <div className="text-xs sm:text-sm text-gray-500 dark:text-slate-400 font-medium text-center md:text-left">
+                {t('inspections.showing_range')} <span className="font-bold text-gray-900 dark:text-white">{currentPage * pageSize + 1}</span> {t('inspections.range_to')} <span className="font-bold text-gray-900 dark:text-white">{Math.min((currentPage + 1) * pageSize, totalCount)}</span> {t('inspections.range_of')} <span className="font-bold text-gray-900 dark:text-white">{totalCount}</span> {t('inspections.records_label')}
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center justify-center gap-1.5 sm:gap-2">
                 <button
                   onClick={() => setCurrentPage(prev => Math.max(0, prev - 1))}
                   disabled={currentPage === 0}
-                  className="px-4 py-2 text-sm font-bold bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-lg hover:bg-gray-50 dark:hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-sm"
+                  className="px-3 py-2 text-xs sm:text-sm font-bold bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-lg hover:bg-gray-50 dark:hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-sm"
                 >
                   {t('common.previous') || 'Anterior'}
                 </button>
@@ -663,7 +722,7 @@ function InspeccionesContent() {
                       <button
                         key={pageNum}
                         onClick={() => setCurrentPage(pageNum)}
-                        className={`w-10 h-10 flex items-center justify-center rounded-lg text-sm font-bold transition-all ${currentPage === pageNum ? 'bg-indigo-600 text-white shadow-lg scale-110' : 'bg-white dark:bg-slate-800 text-gray-600 dark:text-slate-400 border border-gray-200 dark:border-slate-700 hover:bg-gray-50 dark:hover:bg-slate-700'}`}
+                        className={`w-9 h-9 sm:w-10 sm:h-10 flex items-center justify-center rounded-lg text-xs sm:text-sm font-bold transition-all ${currentPage === pageNum ? 'bg-indigo-600 text-white shadow-lg ring-2 ring-indigo-500/30' : 'bg-white dark:bg-slate-800 text-gray-600 dark:text-slate-400 border border-gray-200 dark:border-slate-700 hover:bg-gray-50 dark:hover:bg-slate-700'}`}
                       >
                         {pageNum + 1}
                       </button>
@@ -673,7 +732,7 @@ function InspeccionesContent() {
                 <button
                   onClick={() => setCurrentPage(prev => Math.min(Math.ceil(totalCount / pageSize) - 1, prev + 1))}
                   disabled={currentPage >= Math.ceil(totalCount / pageSize) - 1}
-                  className="px-4 py-2 text-sm font-bold bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-lg hover:bg-gray-50 dark:hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-sm"
+                  className="px-3 py-2 text-xs sm:text-sm font-bold bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-lg hover:bg-gray-50 dark:hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-sm"
                 >
                   {t('common.next') || 'Siguiente'}
                 </button>
@@ -681,7 +740,7 @@ function InspeccionesContent() {
             </div>
           )}
 
-          <div className="h-16"></div> {/* Bottom Spacer */}
+          <div className="h-20 lg:h-16"></div> {/* Bottom Spacer */}
         </div>
 
       </div>

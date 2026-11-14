@@ -1,5 +1,16 @@
 'use client'
 
+/**
+ * @module components/self-schedule/ShiftPool
+ * @description Lista tipo acordeón por día de turnos abiertos y tomados en Auto-Programación (/mis-horarios).
+ * @businessRules
+ * - Expande automáticamente el día actual (America/Los_Angeles) y cualquier día donde el empleado ya tenga un turno reclamado.
+ * - Maneja turnos nocturnos (>= 24h) y resalta horas pico (🔥 RUSH).
+ * @dataFlow
+ * - OpenShift[] + myClaimIds desde app/mis-horarios/page.tsx -> interacción claim/drop hacia ClaimModal y DropModal.
+ * @notes Mobile fix: acordeón sin sticky collision, tarjetas expandidas w-full en móviles y badge RUSH dentro del header sin solapar ✓ TU TURNO.
+ */
+
 import { useMemo, useState } from 'react'
 import { useLanguage } from '@/lib/i18n'
 import { format, parseISO } from 'date-fns'
@@ -28,7 +39,7 @@ interface ShiftPoolProps {
 }
 
 export function ShiftPool({ shifts, myClaimIds, storeMap, onClaimShift, onDropShift }: ShiftPoolProps) {
-    const { language } = useLanguage()
+    const { t, language } = useLanguage()
     const locale = language === 'es' ? es : enUS
 
     const formatHour = (hour: number) => {
@@ -75,25 +86,48 @@ export function ShiftPool({ shifts, myClaimIds, storeMap, onClaimShift, onDropSh
         return grouped
     }, [shifts])
 
-    // Accordion state - which days show thumbnails
-    // By default, ALL days are collapsed (empty set)
-    const [expandedDays, setExpandedDays] = useState<Set<string>>(new Set())
+    // Pure derived defaults: auto-expand Today (LA tz) and any day containing a claimed shift
+    const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' })
+    const defaultExpandedDays = useMemo(() => {
+        const set = new Set<string>()
+        for (const [dateStr, dayShifts] of shiftsByDate.entries()) {
+            if (dateStr === todayStr || dayShifts.some(s => myClaimIds.has(s.id))) {
+                set.add(dateStr)
+            }
+        }
+        return set
+    }, [shiftsByDate, myClaimIds, todayStr])
+
+    const [manualExpandedDays, setManualExpandedDays] = useState<Set<string>>(new Set())
+    const [manualCollapsedDays, setManualCollapsedDays] = useState<Set<string>>(new Set())
 
     // Which shift is fully expanded (showing full card)
     const [expandedShiftId, setExpandedShiftId] = useState<string | null>(null)
 
+    const isDayExpanded = (dateStr: string) => {
+        if (manualExpandedDays.has(dateStr)) return true
+        if (manualCollapsedDays.has(dateStr)) return false
+        return defaultExpandedDays.has(dateStr)
+    }
+
     const toggleDay = (dateStr: string) => {
-        setExpandedDays(prev => {
-            const next = new Set(prev)
-            if (next.has(dateStr)) {
+        const currentlyOpen = isDayExpanded(dateStr)
+        if (currentlyOpen) {
+            setManualExpandedDays(prev => {
+                const next = new Set(prev)
                 next.delete(dateStr)
-                // Also collapse any expanded shift in this day
-                setExpandedShiftId(null)
-            } else {
-                next.add(dateStr)
-            }
-            return next
-        })
+                return next
+            })
+            setManualCollapsedDays(prev => new Set(prev).add(dateStr))
+            setExpandedShiftId(null)
+        } else {
+            setManualCollapsedDays(prev => {
+                const next = new Set(prev)
+                next.delete(dateStr)
+                return next
+            })
+            setManualExpandedDays(prev => new Set(prev).add(dateStr))
+        }
     }
 
     const toggleShift = (shiftId: string) => {
@@ -120,8 +154,10 @@ export function ShiftPool({ shifts, myClaimIds, storeMap, onClaimShift, onDropSh
         <div className="space-y-6">
             {Array.from(shiftsByDate.entries()).map(([dateStr, dayShifts]) => {
                 const date = parseISO(dateStr)
-                const isToday = dateStr === format(new Date(), 'yyyy-MM-dd')
-                const isPast = date < new Date(new Date().setHours(0, 0, 0, 0))
+                const isToday = dateStr === todayStr
+                const isPast = dateStr < todayStr
+                const dayOpen = isDayExpanded(dateStr)
+                const dayHasMyShift = dayShifts.some(s => myClaimIds.has(s.id))
 
                 return (
                     <div key={dateStr} className={`${isPast ? 'opacity-50' : ''}`}>
@@ -130,10 +166,9 @@ export function ShiftPool({ shifts, myClaimIds, storeMap, onClaimShift, onDropSh
                             onClick={() => toggleDay(dateStr)}
                             className={`
                                 w-full
-                                sticky top-0 z-10
-                                flex items-center gap-2 sm:gap-3 
+                                flex flex-wrap items-center gap-2 sm:gap-3 
                                 mt-4 first:mt-0 mb-2 
-                                mx-0 px-4 py-3 sm:py-2 
+                                mx-0 px-3.5 sm:px-4 py-3 sm:py-2.5 
                                 rounded-xl shadow-md
                                 transition-all duration-200 active:scale-[0.98]
                                 ${isToday
@@ -142,42 +177,49 @@ export function ShiftPool({ shifts, myClaimIds, storeMap, onClaimShift, onDropSh
                             `}
                         >
                             {/* Expand/Collapse arrow */}
-                            <span className={`text-lg transition-transform duration-200 ${expandedDays.has(dateStr) ? 'rotate-90' : ''}`}>
+                            <span className={`text-base sm:text-lg transition-transform duration-200 ${dayOpen ? 'rotate-90' : ''}`}>
                                 ▶
                             </span>
                             <span className="text-xl sm:text-2xl">📅</span>
-                            <div className="flex-1 text-left">
+                            <div className="flex-1 text-left min-w-0">
                                 <span className="font-bold capitalize text-base sm:text-lg">
                                     {format(date, 'EEEE', { locale })}
                                 </span>
-                                <span className="mx-2 opacity-50">•</span>
+                                <span className="mx-1.5 sm:mx-2 opacity-50">•</span>
                                 <span className="font-medium text-sm sm:text-base">
                                     {format(date, 'd MMM', { locale })}
                                 </span>
                             </div>
-                            {isToday && (
-                                <span className="bg-white/20 px-2 py-0.5 rounded-full text-xs font-bold animate-pulse">
-                                    {language === 'es' ? 'HOY' : 'TODAY'}
-                                </span>
-                            )}
-                            {/* Available spots badge - shows TOTAL spots, not shift count */}
-                            {(() => {
-                                const totalSpots = dayShifts.reduce((sum, s) => sum + s.available_spots, 0)
-                                return (
-                                    <span className={`
-                                        px-2 py-0.5 rounded-full text-xs font-bold
-                                        ${isToday ? 'bg-white/20' : totalSpots > 0 ? 'bg-emerald-100 dark:bg-emerald-900/50 text-emerald-700 dark:text-emerald-300' : 'bg-zinc-100 dark:bg-zinc-700'}
-                                    `}>
-                                        {totalSpots} {language === 'es' ? (totalSpots === 1 ? 'espacio' : 'espacios') : (totalSpots === 1 ? 'spot' : 'spots')}
+                            <div className="flex items-center gap-1.5 shrink-0">
+                                {dayHasMyShift && (
+                                    <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${isToday ? 'bg-emerald-400/30 text-white' : 'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300'}`}>
+                                        ✓ {t('self_schedule.your_shift_day')}
                                     </span>
-                                )
-                            })()}
+                                )}
+                                {isToday && (
+                                    <span className="bg-white/20 px-2 py-0.5 rounded-full text-xs font-bold animate-pulse">
+                                        {language === 'es' ? 'HOY' : 'TODAY'}
+                                    </span>
+                                )}
+                                {/* Available spots badge - shows TOTAL spots, not shift count */}
+                                {(() => {
+                                    const totalSpots = dayShifts.reduce((sum, s) => sum + s.available_spots, 0)
+                                    return (
+                                        <span className={`
+                                            px-2 py-0.5 rounded-full text-xs font-bold
+                                            ${isToday ? 'bg-white/20' : totalSpots > 0 ? 'bg-emerald-100 dark:bg-emerald-900/50 text-emerald-700 dark:text-emerald-300' : 'bg-zinc-100 dark:bg-zinc-700'}
+                                        `}>
+                                            {totalSpots} {language === 'es' ? (totalSpots === 1 ? 'espacio' : 'espacios') : (totalSpots === 1 ? 'spot' : 'spots')}
+                                        </span>
+                                    )
+                                })()}
+                            </div>
                         </button>
 
                         {/* Shifts for this day - 2 levels: thumbnails then full card */}
                         <div className={`
                             overflow-hidden transition-all duration-300 ease-in-out
-                            ${expandedDays.has(dateStr) ? 'max-h-[3000px] opacity-100 py-2' : 'max-h-0 opacity-0'}
+                            ${dayOpen ? 'max-h-[3000px] opacity-100 py-2' : 'max-h-0 opacity-0'}
                         `}>
                             {/* Level 2: Thumbnails - small pills with just time */}
                             <div className="flex flex-wrap gap-2 px-1">
@@ -188,14 +230,14 @@ export function ShiftPool({ shifts, myClaimIds, storeMap, onClaimShift, onDropSh
                                     const isExpanded = expandedShiftId === shift.id
 
                                     return (
-                                        <div key={shift.id} className="flex flex-col">
+                                        <div key={shift.id} className={`flex flex-col ${isExpanded ? 'w-full sm:w-auto' : ''}`}>
                                             {/* Thumbnail chip */}
                                             <button
                                                 onClick={() => toggleShift(shift.id)}
                                                 className={`
-                                                    px-3 py-1.5 rounded-lg text-xs font-semibold
+                                                    px-3 py-2 sm:py-1.5 rounded-lg text-xs font-semibold
                                                     border-2 transition-all duration-200
-                                                    flex items-center gap-1.5
+                                                    flex items-center gap-1.5 self-start
                                                     ${isExpanded ? 'ring-2 ring-offset-1 ring-blue-400 scale-105' : 'hover:scale-105'}
                                                     ${isMyShift
                                                         ? 'bg-blue-500 border-blue-600 text-white'
@@ -219,20 +261,11 @@ export function ShiftPool({ shifts, myClaimIds, storeMap, onClaimShift, onDropSh
                                             {/* Level 3: Expanded full card */}
                                             {isExpanded && (
                                                 <div className={`
-                                                    mt-2 rounded-2xl overflow-hidden shadow-xl
+                                                    relative mt-2 rounded-2xl overflow-hidden shadow-xl
                                                     transition-all duration-300 animate-in slide-in-from-top-2
                                                     ${isMyShift ? 'ring-2 ring-blue-500' : ''}
-                                                    w-72 sm:w-80
+                                                    w-full sm:w-80
                                                 `}>
-                                                    {/* Peak Badge */}
-                                                    {isPeak && !isFull && (
-                                                        <div className="absolute top-2 right-2 z-10">
-                                                            <span className="bg-orange-500 text-white text-xs font-bold px-2 py-1 rounded-full flex items-center gap-1 shadow-lg">
-                                                                🔥 RUSH
-                                                            </span>
-                                                        </div>
-                                                    )}
-
                                                     {/* Card Header */}
                                                     <div className={`
                                                         px-4 py-3
@@ -244,22 +277,29 @@ export function ShiftPool({ shifts, myClaimIds, storeMap, onClaimShift, onDropSh
                                                                     ? 'bg-gradient-to-r from-red-500 to-orange-500'
                                                                     : 'bg-gradient-to-r from-pink-500 to-rose-500'}
                                                     `}>
-                                                        <div className="flex items-center justify-between text-white">
-                                                            <div className="flex items-center gap-2">
+                                                        <div className="flex items-center justify-between text-white gap-2">
+                                                            <div className="flex items-center gap-2 min-w-0">
                                                                 <span className="text-2xl">
                                                                     {shift.position_type === 'kitchen' ? '🍳' : '💵'}
                                                                 </span>
-                                                                <span className="font-bold uppercase text-sm">
+                                                                <span className="font-bold uppercase text-sm truncate">
                                                                     {shift.position_type === 'kitchen'
                                                                         ? (language === 'es' ? 'Cocinero' : 'Cook')
                                                                         : (language === 'es' ? 'Cajero' : 'Cashier')}
                                                                 </span>
                                                             </div>
-                                                            {isMyShift && (
-                                                                <span className="bg-white/20 px-2 py-0.5 rounded-full text-xs font-bold">
-                                                                    ✓ {language === 'es' ? 'TU TURNO' : 'YOUR SHIFT'}
-                                                                </span>
-                                                            )}
+                                                            <div className="flex items-center gap-1.5 shrink-0">
+                                                                {isPeak && !isFull && (
+                                                                    <span className="bg-orange-500 text-white text-[11px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1 shadow">
+                                                                        🔥 RUSH
+                                                                    </span>
+                                                                )}
+                                                                {isMyShift && (
+                                                                    <span className="bg-white/20 px-2 py-0.5 rounded-full text-[11px] font-bold">
+                                                                        ✓ {language === 'es' ? 'TU TURNO' : 'YOUR SHIFT'}
+                                                                    </span>
+                                                                )}
+                                                            </div>
                                                         </div>
                                                     </div>
 

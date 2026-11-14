@@ -125,8 +125,16 @@
             "schedule": "0 0 * * *"
         },
         {
-            "path": "/api/cron/sync-delivery-reconciliation",
+            "path": "/api/cron/sync-delivery-reconciliation?batch=1&batches=3",
+            "schedule": "5 15 * * *"
+        },
+        {
+            "path": "/api/cron/sync-delivery-reconciliation?batch=2&batches=3",
             "schedule": "15 15 * * *"
+        },
+        {
+            "path": "/api/cron/sync-delivery-reconciliation?batch=3&batches=3",
+            "schedule": "25 15 * * *"
         },
         {
             "path": "/api/cron/audit-employee-emails",

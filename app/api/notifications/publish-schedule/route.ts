@@ -343,8 +343,8 @@ export async function POST(req: Request) {
             requireWrite: !previewOnly,
             action: previewOnly ? 'view' : 'publish_schedule',
             allowedRoles: previewOnly
-                ? ['admin', 'supervisor', 'manager', 'asistente', 'assistant', 'shift_leader', 'shift leader', 'shiftleader']
-                : ['admin', 'supervisor', 'manager', 'asistente', 'assistant'],
+                ? ['admin', 'supervisor', 'regional_manager', 'manager', 'gerente', 'asistente', 'assistant', 'planificador', 'shift_leader', 'shift leader', 'shiftleader']
+                : ['admin', 'supervisor', 'regional_manager', 'manager', 'gerente', 'asistente', 'assistant', 'planificador'],
         })
         if (!scopeAuth.authorized) {
             return NextResponse.json(

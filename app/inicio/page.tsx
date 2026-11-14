@@ -760,12 +760,24 @@ function InicioHubContent() {
         },
     ], [t])
 
+    // Normalize search strings so accentless mobile keyboards match accented Spanish text
+    const normalizeHomeSearch = (str: string) =>
+        str.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim()
+
     // Filter groups by user role (identical permission rules as AppSidebar)
     const roleFilteredGroups = useMemo(() => {
-        const isVikesh = user?.email === 'vikesh@tacosgavilan.com'
         const userEmailNorm = (user?.email || '').trim().toLowerCase()
-        const isPlanificadorOnly = userEmailNorm === 'stephany@cingularhr.com' || user?.role?.toLowerCase() === 'planificador'
-        const userRole = (user?.role || user?.user_type || '').toLowerCase()
+        const isVikesh = userEmailNorm === 'vikesh@tacosgavilan.com'
+        const rawRole = (user?.role || user?.user_type || '').toLowerCase()
+        const userRole =
+            rawRole === 'gerente'
+                ? 'manager'
+                : rawRole === 'regional_manager'
+                    ? 'supervisor'
+                    : rawRole === 'assistant'
+                        ? 'asistente'
+                        : rawRole
+        const isPlanificadorOnly = userEmailNorm === 'stephany@cingularhr.com' || userRole === 'planificador'
         const canAccessExternalAccounting =
             ['raquel@tacosgavilan.com', 'roberto@tacosgavilan.com', 'roque@tacosgavilan.com'].includes(userEmailNorm) &&
             [45, 46, 47].includes(Number(user?.id))
@@ -790,7 +802,13 @@ function InicioHubContent() {
 
     // Check if current user can access main Dashboard (/dashboard)
     const canAccessDashboard = useMemo(() => {
-        const userRole = (user?.role || user?.user_type || '').toLowerCase()
+        const rawRole = (user?.role || user?.user_type || '').toLowerCase()
+        const userRole =
+            rawRole === 'gerente'
+                ? 'manager'
+                : rawRole === 'regional_manager'
+                    ? 'supervisor'
+                    : rawRole
         return ['admin', 'supervisor', 'manager', 'auditor'].includes(userRole)
     }, [user])
 
@@ -812,7 +830,7 @@ function InicioHubContent() {
     // When showing "all" without search query and the Featured Dashboard Banner is shown at the top,
     // we avoid duplicating a second "Dashboard" card right below it unless the user filters/searches.
     const displayedGroups = useMemo(() => {
-        const q = searchQuery.trim().toLowerCase()
+        const q = normalizeHomeSearch(searchQuery)
         const hideDuplicateDashboard = canAccessDashboard && activeCategory === 'all' && !q
 
         return roleFilteredGroups
@@ -821,14 +839,15 @@ function InicioHubContent() {
                 return group.id === activeCategory
             })
             .map(group => {
+                const groupNorm = q ? normalizeHomeSearch(group.title) : ''
                 const matchingItems = group.items.filter(item => {
                     if (hideDuplicateDashboard && item.isPrimaryDashboard) return false
                     if (activeCategory === 'new' && item.badgeType !== 'new') return false
                     if (!q) return true
                     return (
-                        item.title.toLowerCase().includes(q) ||
-                        item.description.toLowerCase().includes(q) ||
-                        group.title.toLowerCase().includes(q)
+                        normalizeHomeSearch(item.title).includes(q) ||
+                        normalizeHomeSearch(item.description).includes(q) ||
+                        groupNorm.includes(q)
                     )
                 })
                 return { ...group, items: matchingItems }
@@ -861,10 +880,10 @@ function InicioHubContent() {
                 target={item.openInNewTab ? '_blank' : undefined}
                 rel={item.openInNewTab ? 'noopener noreferrer' : undefined}
                 onClick={handleModuleClick}
-                className={`group/card relative flex items-start gap-3.5 rounded-xl p-3.5 border bg-slate-50/60 dark:bg-slate-950/50 hover:bg-white dark:hover:bg-slate-900 border-slate-200/80 dark:border-slate-800/90 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md ${theme.borderHover}`}
+                className={`group/card relative flex items-start gap-2.5 sm:gap-3.5 rounded-xl p-3 sm:p-3.5 border bg-slate-50/60 dark:bg-slate-950/50 hover:bg-white dark:hover:bg-slate-900 border-slate-200/80 dark:border-slate-800/90 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md ${theme.borderHover}`}
             >
                 {/* Left Icon Box — strictly respects the section's color */}
-                <div className={`w-11 h-11 rounded-xl border flex items-center justify-center shrink-0 transition-transform duration-200 group-hover/card:scale-105 ${theme.headerIconBg} ${theme.headerIconColor}`}>
+                <div className={`w-10 h-10 sm:w-11 sm:h-11 rounded-xl border flex items-center justify-center shrink-0 transition-transform duration-200 group-hover/card:scale-105 ${theme.headerIconBg} ${theme.headerIconColor}`}>
                     {item.icon}
                 </div>
 
@@ -875,37 +894,45 @@ function InicioHubContent() {
                             {item.title}
                         </h4>
 
-                        <div className="flex items-center gap-1.5 shrink-0">
-                            {item.openInNewTab && (
-                                <ExternalLink size={12} className="text-slate-400 dark:text-slate-500 group-hover/card:text-blue-500 transition-colors shrink-0" />
-                            )}
+                        {(item.openInNewTab || item.badgeType) && (
+                            <div className="flex items-center gap-1.5 shrink-0">
+                                {item.openInNewTab && (
+                                    <ExternalLink size={12} className="text-slate-400 dark:text-slate-500 group-hover/card:text-blue-500 transition-colors shrink-0" />
+                                )}
 
-                            {item.badgeType === 'new' && (
-                                <span className="new-badge-animated bg-blue-600 dark:bg-blue-500 text-white text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded shadow-xs inline-flex items-center justify-center border border-blue-400/30 leading-none">
-                                    {item.badgeLabel || 'new'}
-                                </span>
-                            )}
+                                {item.badgeType === 'new' && (
+                                    <span className="new-badge-animated bg-blue-600 dark:bg-blue-500 text-white text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded shadow-xs inline-flex items-center justify-center border border-blue-400/30 leading-none">
+                                        {item.badgeLabel || 'new'}
+                                    </span>
+                                )}
 
-                            {item.badgeType === 'building' && (
-                                <span className="new-badge-animated bg-amber-500/20 dark:bg-amber-500/25 text-amber-900 dark:text-amber-200 px-1.5 py-1 rounded shadow-xs inline-flex items-center justify-center border border-amber-500/40 leading-none">
-                                    <HazardTapeIcon size={14} />
-                                </span>
-                            )}
+                                {item.badgeType === 'building' && (
+                                    <span className="new-badge-animated bg-amber-500/20 dark:bg-amber-500/25 text-amber-900 dark:text-amber-200 px-1.5 py-1 rounded shadow-xs inline-flex items-center justify-center border border-amber-500/40 leading-none">
+                                        <HazardTapeIcon size={14} />
+                                    </span>
+                                )}
 
-                            {item.badgeType === 'beta' && (
-                                <span className="text-[9px] bg-purple-100 dark:bg-purple-950/60 text-purple-600 dark:text-purple-400 border border-purple-300 dark:border-purple-700 px-1.5 py-0.5 rounded font-black tracking-widest leading-none">
-                                    {item.badgeLabel || 'BETA'}
-                                </span>
-                            )}
-                        </div>
+                                {item.badgeType === 'beta' && (
+                                    <span className="text-[9px] bg-purple-100 dark:bg-purple-950/60 text-purple-600 dark:text-purple-400 border border-purple-300 dark:border-purple-700 px-1.5 py-0.5 rounded font-black tracking-widest leading-none">
+                                        {item.badgeLabel || 'BETA'}
+                                    </span>
+                                )}
+                            </div>
+                        )}
                     </div>
 
-                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 leading-snug line-clamp-2">
+                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 leading-snug line-clamp-3 md:line-clamp-2">
                         {item.description}
                     </p>
 
                     {item.id === 'customer_app' && (
-                        <div className="mt-2.5 flex flex-wrap items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                        <div
+                            className="mt-2.5 flex flex-wrap items-center gap-2"
+                            onClick={(e) => {
+                                e.preventDefault()
+                                e.stopPropagation()
+                            }}
+                        >
                             <button
                                 type="button"
                                 onClick={(e) => {
@@ -939,7 +966,7 @@ function InicioHubContent() {
                                 className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-black bg-[#FDC82F] hover:bg-amber-400 text-[#121212] border border-amber-500 shadow-sm transition-all cursor-pointer"
                             >
                                 <Smartphone size={11} />
-                                <span>TEST FULLSCREEN</span>
+                                <span>{t('items.customer_app_fullscreen')}</span>
                             </button>
                         </div>
                     )}
@@ -951,10 +978,10 @@ function InicioHubContent() {
                         type="button"
                         onClick={(e) => toggleFavorite(e, item.id)}
                         title={isFav ? t('home_hub.unpin_favorite') : t('home_hub.pin_favorite')}
-                        className={`p-1.5 rounded-lg transition-all cursor-pointer ${
+                        className={`p-2 -m-0.5 lg:p-1.5 lg:m-0 rounded-lg transition-all cursor-pointer ${
                             isFav
                                 ? 'text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-950/40 opacity-100'
-                                : 'text-slate-300 dark:text-slate-600 hover:text-amber-500 hover:bg-slate-100 dark:hover:bg-slate-800 opacity-0 group-hover/card:opacity-100'
+                                : 'text-slate-300 dark:text-slate-600 hover:text-amber-500 hover:bg-slate-100 dark:hover:bg-slate-800 opacity-100 lg:opacity-0 lg:group-hover/card:opacity-100'
                         }`}
                     >
                         <Star size={14} fill={isFav ? 'currentColor' : 'none'} />
@@ -971,12 +998,12 @@ function InicioHubContent() {
     return (
         <div className="space-y-4 pb-8">
             {/* ── Compact, Friendly Header + Instant Search Bar ── */}
-            <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3.5 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border border-slate-200/80 dark:border-slate-800 rounded-2xl px-5 py-4 shadow-xs">
-                <div className="flex items-center gap-3.5">
+            <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3.5 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border border-slate-200/80 dark:border-slate-800 rounded-2xl px-4 py-3.5 sm:px-5 sm:py-4 shadow-xs">
+                <div className="flex items-start sm:items-center gap-3.5">
                     <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-[#50050a] to-red-700 flex items-center justify-center shadow-sm border border-red-500/30 shrink-0 p-1.5">
                         <img src="/logo.png" alt="Tacos Gavilan" className="w-full h-full object-contain" />
                     </div>
-                    <div>
+                    <div className="min-w-0 flex-1">
                         <h1 className="text-lg sm:text-xl font-black text-slate-900 dark:text-white tracking-tight flex flex-wrap items-center gap-2">
                             <span>{timeGreeting}, {firstName}!</span>
                             <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
@@ -998,8 +1025,8 @@ function InicioHubContent() {
                         type="text"
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
-                        placeholder={t('home_hub.search_placeholder')}
-                        className="w-full pl-10 pr-14 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs sm:text-sm text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-red-500/30 focus:border-red-500 transition-all"
+                        placeholder={t('home_hub.search_placeholder_mobile')}
+                        className={`w-full pl-10 ${searchQuery ? 'pr-10' : 'pr-3.5 lg:pr-14'} py-2.5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-base lg:text-sm text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-red-500/30 focus:border-red-500 transition-all`}
                     />
                     {searchQuery ? (
                         <button
@@ -1010,7 +1037,7 @@ function InicioHubContent() {
                             ✕
                         </button>
                     ) : (
-                        <kbd className="hidden sm:inline-block absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-mono font-bold text-slate-400 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 px-1.5 py-0.5 rounded shadow-2xs pointer-events-none">
+                        <kbd className="hidden lg:inline-block absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-mono font-bold text-slate-400 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 px-1.5 py-0.5 rounded shadow-2xs pointer-events-none">
                             /
                         </kbd>
                     )}
@@ -1022,20 +1049,20 @@ function InicioHubContent() {
                 <Link
                     href="/dashboard"
                     onClick={handleModuleClick}
-                    className="group relative block overflow-hidden rounded-2xl bg-gradient-to-r from-[#5a070d] via-[#84101a] to-[#3d0509] px-5 py-4 sm:px-6 sm:py-4.5 text-white shadow-md ring-1 ring-[#fdc82f]/60 hover:ring-2 hover:ring-[#fdc82f] hover:shadow-xl transition-all duration-200"
+                    className="group relative block overflow-hidden rounded-2xl bg-gradient-to-r from-[#5a070d] via-[#84101a] to-[#3d0509] px-4 py-4 sm:px-6 sm:py-4.5 text-white shadow-md ring-1 ring-[#fdc82f]/60 hover:ring-2 hover:ring-[#fdc82f] hover:shadow-xl transition-all duration-200"
                 >
                     <div className="pointer-events-none absolute -right-12 -top-12 w-64 h-64 rounded-full bg-[#fdc82f]/15 blur-2xl group-hover:bg-[#fdc82f]/25 transition-all" />
 
                     <div className="relative z-10 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-                        <div className="flex items-center gap-4 min-w-0">
+                        <div className="flex items-start md:items-center gap-3.5 sm:gap-4 min-w-0">
                             {/* Glowing Dashboard Icon */}
-                            <div className="w-13 h-13 sm:w-14 sm:h-14 rounded-2xl bg-gradient-to-br from-[#fdc82f] to-[#f59e0b] p-0.5 shadow-md shrink-0 group-hover:scale-105 transition-transform">
+                            <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-2xl bg-gradient-to-br from-[#fdc82f] to-[#f59e0b] p-0.5 shadow-md shrink-0 group-hover:scale-105 transition-transform">
                                 <div className="w-full h-full rounded-[14px] bg-[#3f0509] flex items-center justify-center text-[#fdc82f]">
                                     <LayoutDashboard size={26} strokeWidth={2.2} />
                                 </div>
                             </div>
 
-                            <div className="min-w-0">
+                            <div className="min-w-0 flex-1">
                                 <div className="flex flex-wrap items-center gap-2">
                                     <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-[#fdc82f] text-slate-950 text-[9px] font-black uppercase tracking-wider">
                                         <span className="relative flex h-1.5 w-1.5">
@@ -1052,18 +1079,18 @@ function InicioHubContent() {
                                     </div>
                                 </div>
 
-                                <h2 className="text-base sm:text-xl font-black tracking-tight text-white group-hover:text-[#fdc82f] transition-colors mt-0.5 truncate">
+                                <h2 className="text-base sm:text-xl font-black tracking-tight text-white group-hover:text-[#fdc82f] transition-colors mt-1 sm:mt-0.5 lg:truncate leading-snug">
                                     {t('home_hub.hero_title')}
                                 </h2>
 
-                                <p className="text-xs text-red-100/85 line-clamp-1 mt-0.5">
+                                <p className="text-xs text-red-100/85 line-clamp-2 lg:line-clamp-1 leading-relaxed mt-0.5">
                                     {t('home_hub.hero_desc')}
                                 </p>
                             </div>
                         </div>
 
                         <div className="flex items-center md:justify-end shrink-0">
-                            <div className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-[#fdc82f] to-[#f59e0b] text-slate-950 font-black text-xs uppercase tracking-wider shadow-sm group-hover:scale-105 transition-transform">
+                            <div className="w-full md:w-auto justify-center inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-[#fdc82f] to-[#f59e0b] text-slate-950 font-black text-xs uppercase tracking-wider shadow-sm group-hover:scale-105 transition-transform">
                                 <span>{t('home_hub.hero_cta')}</span>
                                 <ArrowRight size={15} className="group-hover:translate-x-0.5 transition-transform" />
                             </div>
@@ -1093,7 +1120,7 @@ function InicioHubContent() {
             )}
 
             {/* ── Friendly Category Filter Tabs with Icons ── */}
-            <div className="flex items-center gap-1.5 overflow-x-auto pb-1 no-scrollbar">
+            <div className="-mx-4 px-4 sm:mx-0 sm:px-0 flex items-stretch gap-1.5 overflow-x-auto pb-1 no-scrollbar">
                 <button
                     type="button"
                     onClick={() => setActiveCategory('all')}
@@ -1175,7 +1202,7 @@ function InicioHubContent() {
                         return (
                             <section
                                 key={group.id}
-                                className={`bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border border-slate-200/80 dark:border-slate-800 ${theme.sectionBorder} rounded-2xl p-4 sm:p-5 shadow-xs space-y-3.5`}
+                                className={`bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border border-slate-200/80 dark:border-slate-800 ${theme.sectionBorder} rounded-2xl p-3.5 sm:p-5 shadow-xs space-y-3.5`}
                             >
                                 {/* Department Header */}
                                 <div className="flex items-center justify-between gap-3">
@@ -1188,7 +1215,7 @@ function InicioHubContent() {
                                                 <h3 className="text-xs sm:text-sm font-black uppercase tracking-wider text-slate-900 dark:text-white">
                                                     {group.title}
                                                 </h3>
-                                                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${theme.badgeBg}`}>
+                                                <span className={`shrink-0 text-[10px] font-bold px-2 py-0.5 rounded-full border ${theme.badgeBg}`}>
                                                     {group.items.length}
                                                 </span>
                                             </div>

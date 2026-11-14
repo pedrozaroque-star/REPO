@@ -4,6 +4,9 @@
  * Organiza los módulos operativos, financieros, de análisis, inventario, equipo y gestión por rol de usuario.
  *
  * @businessRules
+ * - Todos los grupos de categorías inician cerrados por defecto (`effectiveExpandedGroups = {}`), abriendo automáticamente únicamente la categoría que contiene la ruta activa (`pathname`) con auto-scroll suave hacia el módulo activo.
+ * - Modo acordeón inteligente: al abrir manualmente un grupo, colapsa los demás para mantener limpia la navegación, con opción global de Abrir/Cerrar todos en 1 clic.
+ * - Incluye buscador instantáneo de módulos insensible a mayúsculas y acentos, además de accesos rápidos fijos superiores (`Inicio` y `Dashboard`).
  * - Filtra dinámicamente los módulos según el rol del usuario autenticado (`admin`, `supervisor`, `manager`, `asistente`, `planificador`).
  * - Los módulos configurados con `openInNewTab: true` (ej. `/app` Customer App y `/gavilan-pos` Gavilan POS) se abren en una pestaña independiente (`target="_blank"`) con icono de enlace externo.
  * - Soporta insignias animadas (`NEW`, `Building`) con ubicación en línea o debajo del título (`badgePosition: 'below'`).
@@ -13,7 +16,7 @@
  * - Consume `useAuth()` para permisos de rol, `useLanguage()` para internacionalización (`i18n`), y `SYSTEM_VERSION` para control de versión.
  *
  * @notes
- * - Sincronizado con `components/ClientLayout.tsx` donde `/app` y `/gavilan-pos` están registrados en `publicRoutes` para renderizarse a pantalla completa sin el sidebar administrativo.
+ * - Ancho expandido de `276px` (y `64px` colapsado) sincronizado con `components/ClientLayout.tsx`, donde `/app` y `/gavilan-pos` están registrados en `publicRoutes` para renderizarse a pantalla completa sin el sidebar administrativo.
  */
 
 'use client'
@@ -31,7 +34,8 @@ import {
     DollarSign, TrendingUp, Calendar, MessageSquare, CalendarCheck, UserCog,
     Monitor, ChefHat, Zap, X, PanelLeftClose, PanelLeft, RefreshCw,
     Settings, Keyboard, HelpCircle, ExternalLink, Moon, Sun, Globe, Shield,
-    CalendarDays, Sparkles, Info, UserCircle, Menu, Folder, Truck, Timer, Shirt, Car, Calculator, Package, BarChart3, UserCheck, Bell, Receipt, Wrench, Smartphone, ShieldCheck, HardHat, Construction, Layers, PhoneCall
+    CalendarDays, Sparkles, Info, UserCircle, Menu, Folder, Truck, Timer, Shirt, Car, Calculator, Package, BarChart3, UserCheck, Bell, Receipt, Wrench, Smartphone, ShieldCheck, HardHat, Construction, Layers, PhoneCall,
+    Search, LayoutGrid, ChevronsUpDown, ChevronsDownUp
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useLanguage } from '@/lib/i18n'
@@ -107,41 +111,112 @@ type MenuItem = {
 type MenuGroup = {
     title: string
     id: string
+    groupIcon: React.ReactNode
     items: MenuItem[]
 }
 
-// Color map per group
-const GROUP_COLORS: Record<string, { icon: string; activeBg: string; activeBorder: string }> = {
+type GroupColorTheme = {
+    icon: string
+    activeBg: string
+    activeBorder: string
+    headerIconBox: string
+    headerOpenCard: string
+    headerActiveClosed: string
+    dot: string
+    treeLine: string
+    countActive: string
+}
+
+// Color map per group (matching /inicio department palette)
+const GROUP_COLORS: Record<string, GroupColorTheme> = {
     operaciones: {
         icon: 'text-blue-600 dark:text-blue-400',
         activeBg: 'bg-blue-50 dark:bg-blue-950/40',
         activeBorder: 'border-l-blue-500',
+        headerIconBox: 'bg-blue-500/10 dark:bg-blue-500/20 text-blue-600 dark:text-blue-400 border-blue-500/20',
+        headerOpenCard: 'bg-white dark:bg-slate-900 border-blue-200/90 dark:border-blue-800/70 shadow-2xs',
+        headerActiveClosed: 'bg-blue-50/70 dark:bg-blue-950/30 border-blue-300/80 dark:border-blue-800/80',
+        dot: 'bg-blue-500',
+        treeLine: 'border-blue-200/80 dark:border-blue-900/50',
+        countActive: 'bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border-blue-200/80 dark:border-blue-800/70',
     },
     finanzas: {
         icon: 'text-emerald-600 dark:text-emerald-400',
         activeBg: 'bg-emerald-50 dark:bg-emerald-950/40',
         activeBorder: 'border-l-emerald-500',
+        headerIconBox: 'bg-emerald-500/10 dark:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border-emerald-500/20',
+        headerOpenCard: 'bg-white dark:bg-slate-900 border-emerald-200/90 dark:border-emerald-800/70 shadow-2xs',
+        headerActiveClosed: 'bg-emerald-50/70 dark:bg-emerald-950/30 border-emerald-300/80 dark:border-emerald-800/80',
+        dot: 'bg-emerald-500',
+        treeLine: 'border-emerald-200/80 dark:border-emerald-900/50',
+        countActive: 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border-emerald-200/80 dark:border-emerald-800/70',
     },
     gestion: {
         icon: 'text-amber-600 dark:text-amber-400',
         activeBg: 'bg-amber-50 dark:bg-amber-950/40',
         activeBorder: 'border-l-amber-500',
+        headerIconBox: 'bg-amber-500/10 dark:bg-amber-500/20 text-amber-600 dark:text-amber-400 border-amber-500/20',
+        headerOpenCard: 'bg-white dark:bg-slate-900 border-amber-200/90 dark:border-amber-800/70 shadow-2xs',
+        headerActiveClosed: 'bg-amber-50/70 dark:bg-amber-950/30 border-amber-300/80 dark:border-amber-800/80',
+        dot: 'bg-amber-500',
+        treeLine: 'border-amber-200/80 dark:border-amber-900/50',
+        countActive: 'bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border-amber-200/80 dark:border-amber-800/70',
     },
     analisis: {
         icon: 'text-rose-600 dark:text-rose-400',
         activeBg: 'bg-rose-50 dark:bg-rose-950/40',
         activeBorder: 'border-l-rose-500',
+        headerIconBox: 'bg-rose-500/10 dark:bg-rose-500/20 text-rose-600 dark:text-rose-400 border-rose-500/20',
+        headerOpenCard: 'bg-white dark:bg-slate-900 border-rose-200/90 dark:border-rose-800/70 shadow-2xs',
+        headerActiveClosed: 'bg-rose-50/70 dark:bg-rose-950/30 border-rose-300/80 dark:border-rose-800/80',
+        dot: 'bg-rose-500',
+        treeLine: 'border-rose-200/80 dark:border-rose-900/50',
+        countActive: 'bg-rose-50 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border-rose-200/80 dark:border-rose-800/70',
     },
     inventario: {
         icon: 'text-purple-600 dark:text-purple-400',
         activeBg: 'bg-purple-50 dark:bg-purple-950/40',
         activeBorder: 'border-l-purple-500',
+        headerIconBox: 'bg-purple-500/10 dark:bg-purple-500/20 text-purple-600 dark:text-purple-400 border-purple-500/20',
+        headerOpenCard: 'bg-white dark:bg-slate-900 border-purple-200/90 dark:border-purple-800/70 shadow-2xs',
+        headerActiveClosed: 'bg-purple-50/70 dark:bg-purple-950/30 border-purple-300/80 dark:border-purple-800/80',
+        dot: 'bg-purple-500',
+        treeLine: 'border-purple-200/80 dark:border-purple-900/50',
+        countActive: 'bg-purple-50 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 border-purple-200/80 dark:border-purple-800/70',
     },
     equipo: {
         icon: 'text-cyan-600 dark:text-cyan-400',
         activeBg: 'bg-cyan-50 dark:bg-cyan-950/40',
         activeBorder: 'border-l-cyan-500',
+        headerIconBox: 'bg-cyan-500/10 dark:bg-cyan-500/20 text-cyan-600 dark:text-cyan-400 border-cyan-500/20',
+        headerOpenCard: 'bg-white dark:bg-slate-900 border-cyan-200/90 dark:border-cyan-800/70 shadow-2xs',
+        headerActiveClosed: 'bg-cyan-50/70 dark:bg-cyan-950/30 border-cyan-300/80 dark:border-cyan-800/80',
+        dot: 'bg-cyan-500',
+        treeLine: 'border-cyan-200/80 dark:border-cyan-900/50',
+        countActive: 'bg-cyan-50 dark:bg-cyan-950/60 text-cyan-700 dark:text-cyan-300 border-cyan-200/80 dark:border-cyan-800/70',
     },
+}
+
+const normalizeSidebarText = (value: string): string =>
+    value
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase()
+        .trim()
+
+const isSidebarItemActive = (
+    item: MenuItem,
+    currentPath: string | null,
+    allPaths: string[] = []
+): boolean => {
+    if (!currentPath) return false
+    const matchesSub = Boolean(item.subItems?.some(sub => currentPath === sub.path))
+    if (currentPath === item.path || matchesSub) return true
+    if (item.path === '/dashboard' || !currentPath.startsWith(item.path + '/')) return false
+    const hasMoreSpecificSibling = allPaths.some(
+        p => p !== item.path && p.length > item.path.length && (currentPath === p || currentPath.startsWith(p + '/'))
+    )
+    return !hasMoreSpecificSibling
 }
 
 export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOpen, setMobileDrawerOpen }: AppSidebarProps) {
@@ -151,20 +226,18 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
     const { t, language, setLanguage } = useLanguage()
 
     const [expandedSubItems, setExpandedSubItems] = useState<Record<string, boolean>>({})
-    const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({
-        analisis: true,
-        finanzas: true,
-        operaciones: true,
-        inventario: true,
-        equipo: true,
-        gestion: true,
-    })
+    // Path-scoped manual accordion overrides; default state keeps all groups closed (except active route group)
+    const [groupOverrides, setGroupOverrides] = useState<{ path: string | null; groups: Record<string, boolean> }>({ path: null, groups: {} })
+    const [searchState, setSearchState] = useState<{ path: string | null; query: string }>({ path: null, query: '' })
+    const sidebarSearch = searchState.path === pathname ? searchState.query : ''
+    const setSidebarSearch = (query: string) => setSearchState({ path: pathname, query })
     const [userDropdownOpen, setUserDropdownOpen] = useState(false)
     const [changelogOpen, setChangelogOpen] = useState(false)
     const dropdownRef = useRef<HTMLDivElement>(null)
     const mobileDropdownRef = useRef<HTMLDivElement>(null)
     const desktopNavRef = useRef<HTMLElement>(null)
     const mobileNavRef = useRef<HTMLElement>(null)
+    const searchInputRef = useRef<HTMLInputElement>(null)
 
     // Close dropdown on click outside
     useEffect(() => {
@@ -182,8 +255,9 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
     // Menu groups (Structured into 6 logical operational categories)
     const menuGroups: MenuGroup[] = [
         {
-            title: t('sections.analysis'),
+            title: t('sidebar_nav.groups.analisis'),
             id: 'analisis',
+            groupIcon: <TrendingUp size={15} />,
             items: [
                 {
                     name: t('items.dashboard'),
@@ -266,8 +340,9 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
             ]
         },
         {
-            title: t('sections.operations'),
+            title: t('sidebar_nav.groups.operaciones'),
             id: 'operaciones',
+            groupIcon: <Briefcase size={15} />,
             items: [
                 {
                     name: t('items.basecamp') || 'Basecamp',
@@ -393,8 +468,9 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
             ]
         },
         {
-            title: t('sections.inventory'),
+            title: t('sidebar_nav.groups.inventario'),
             id: 'inventario',
+            groupIcon: <Package size={15} />,
             items: [
                 {
                     name: t('items.bodega_orders'),
@@ -407,7 +483,7 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
                         : 'Generación automática de pedidos diarios a Bodega Central y envío a QuickBooks'
                 },
                 {
-                    name: 'Viele & Sons',
+                    name: t('items.viele_sons'),
                     plainName: 'Viele & Sons',
                     path: '/admin/compras/viele',
                     icon: <Package size={20} />,
@@ -427,7 +503,7 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
                         : 'Gestión de existencias de uniformes, paquetes a empleados y ventas'
                 },
                 {
-                    name: language === 'en' ? 'Food Cost & Margins' : 'Food Cost & Márgenes',
+                    name: t('items.food_cost_margins'),
                     plainName: 'Food Cost & Márgenes',
                     path: '/admin/food-cost',
                     icon: <TrendingUp size={20} />,
@@ -479,8 +555,9 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
             ]
         },
         {
-            title: t('sections.team'),
+            title: t('sidebar_nav.groups.equipo'),
             id: 'equipo',
+            groupIcon: <Clock size={15} />,
             items: [
                 {
                     name: t('items.schedules'),
@@ -545,8 +622,9 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
             ]
         },
         {
-            title: t('sections.finance_accounting') || 'FINANZAS Y CONTABILIDAD',
+            title: t('sidebar_nav.groups.finanzas'),
             id: 'finanzas',
+            groupIcon: <BarChart3 size={15} />,
             items: [
                 {
                     name: t('items.pnl') || 'P&L Multi-Sucursal',
@@ -626,8 +704,9 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
             ]
         },
         {
-            title: t('sections.management'),
+            title: t('sidebar_nav.groups.gestion'),
             id: 'gestion',
+            groupIcon: <Shield size={15} />,
             items: [
                 {
                     name: t('items.stores'),
@@ -768,6 +847,62 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
         }).filter(group => group.items.length > 0)
     }, [user, language])
 
+    const allMenuPaths = useMemo(
+        () => filteredGroups.flatMap(g => g.items.map(i => i.path)),
+        [filteredGroups]
+    )
+
+    const canViewDashboard = useMemo(
+        () => filteredGroups.some(g => g.items.some(i => i.path === '/dashboard')),
+        [filteredGroups]
+    )
+
+    const normalizedSearch = useMemo(() => normalizeSidebarText(sidebarSearch), [sidebarSearch])
+    const isSearching = normalizedSearch.length > 0
+
+    const displayedGroups = useMemo(() => {
+        if (!normalizedSearch) return filteredGroups
+        return filteredGroups
+            .map(group => {
+                if (normalizeSidebarText(group.title).includes(normalizedSearch)) {
+                    return group
+                }
+                const matchingItems = group.items.filter(item => {
+                    const searchable = [
+                        typeof item.name === 'string' ? item.name : '',
+                        item.plainName || '',
+                        item.tooltip || '',
+                        item.path,
+                        ...(item.subItems?.map(sub => `${sub.name} ${sub.path}`) || []),
+                    ].join(' ')
+                    return normalizeSidebarText(searchable).includes(normalizedSearch)
+                })
+                return { ...group, items: matchingItems }
+            })
+            .filter(group => group.items.length > 0)
+    }, [filteredGroups, normalizedSearch])
+
+    const activeRouteGroupId = useMemo(() => {
+        if (!pathname || pathname === '/inicio') return null
+        return (
+            filteredGroups.find(g =>
+                g.items.some(item => isSidebarItemActive(item, pathname, allMenuPaths))
+            )?.id ?? null
+        )
+    }, [pathname, filteredGroups, allMenuPaths])
+
+    const effectiveExpandedGroups = useMemo(() => {
+        if (groupOverrides.path === pathname) {
+            return groupOverrides.groups
+        }
+        return activeRouteGroupId ? { [activeRouteGroupId]: true } : {}
+    }, [groupOverrides, pathname, activeRouteGroupId])
+
+    const areAllGroupsOpen = useMemo(
+        () => filteredGroups.length > 0 && filteredGroups.every(g => Boolean(effectiveExpandedGroups[g.id])),
+        [filteredGroups, effectiveExpandedGroups]
+    )
+
     // 🧹 Weekly notification cleanup (from Sidebar.tsx)
     useEffect(() => {
         const runWeeklyCleanup = async () => {
@@ -808,15 +943,9 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
         }
     }, [mobileDrawerOpen])
 
-    // Auto-expand the group that contains the active route and smoothly scroll the active item into view
+    // Smoothly scroll the active module into view after the accordion animation settles
     useEffect(() => {
-        if (!pathname || pathname === '/inicio') return
-        const matchingGroup = filteredGroups.find(g =>
-            g.items.some(item => pathname === item.path || (item.path !== '/dashboard' && pathname.startsWith(item.path + '/')))
-        )
-        if (matchingGroup) {
-            setExpandedGroups(prev => (prev[matchingGroup.id] ? prev : { ...prev, [matchingGroup.id]: true }))
-        }
+        if (!pathname || pathname === '/inicio' || isSearching) return
 
         const scrollActiveIntoView = (navEl: HTMLElement | null) => {
             if (!navEl) return
@@ -845,21 +974,33 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
             if (mobileDrawerOpen) {
                 scrollActiveIntoView(mobileNavRef.current)
             }
-        }, 80)
+        }, 240)
 
         return () => clearTimeout(timer)
-    }, [pathname, filteredGroups, isCollapsed, mobileDrawerOpen])
+    }, [pathname, filteredGroups, isCollapsed, mobileDrawerOpen, isSearching])
 
+    // Accordion toggle: opening one category collapses the others cleanly
     const toggleGroup = (groupId: string) => {
-        setExpandedGroups(prev => ({ ...prev, [groupId]: !prev[groupId] }))
+        const isCurrentlyOpen = Boolean(effectiveExpandedGroups[groupId])
+        setGroupOverrides({
+            path: pathname,
+            groups: isCurrentlyOpen ? {} : { [groupId]: true },
+        })
+    }
+
+    const toggleAllGroups = () => {
+        setGroupOverrides({
+            path: pathname,
+            groups: areAllGroupsOpen ? {} : Object.fromEntries(filteredGroups.map(g => [g.id, true])),
+        })
     }
 
     // Render a single nav item
     const renderNavItem = (item: MenuItem, groupId: string, isMobile: boolean = false) => {
-        const isActive = pathname === item.path || (item.path !== '/dashboard' && pathname.startsWith(item.path + '/'))
+        const isActive = isSidebarItemActive(item, pathname, allMenuPaths)
         const colors = GROUP_COLORS[groupId] || GROUP_COLORS.operaciones
-        const hasNewBadge = item.path === '/basecamp' || item.path === '/admin/compras/viele' || item.path === '/order-ready-board' || item.path === '/nueva-web' || item.path === '/admin/blindaje-delivery' || item.path === '/admin/crear-bills' || item.path === '/contabilidad'
         const isBuildingBadge = item.path === '/admin/mantenimiento' || item.path === '/admin/ronos' || item.path === '/app' || item.path === '/gavilan-pos' || Boolean(item.badgeIcon)
+        const hasNewBadge = item.badgeText === 'new' || item.path === '/basecamp' || item.path === '/admin/compras/viele' || item.path === '/order-ready-board' || item.path === '/nueva-web' || item.path === '/admin/blindaje-delivery' || item.path === '/admin/crear-bills' || item.path === '/contabilidad'
         const badgeText = item.badgeText || (hasNewBadge ? 'new' : null)
         const labelStr = typeof item.name === 'string' ? item.name : (item.plainName || '')
         const badgePosition = item.badgePosition || (isBuildingBadge && labelStr.length > 22 ? 'below' : 'inline')
@@ -885,21 +1026,37 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
                             }
                         }}
                         title={item.tooltip || (typeof item.name === 'string' ? item.name : item.plainName) || ''}
-                        className={`w-full group/item relative flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-all duration-200 border-l-[3px] cursor-pointer ${
+                        className={`w-full group/item relative flex items-center gap-2.5 rounded-lg border-l-[3px] transition-all duration-200 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500/30 ${
+                            isMobile ? 'px-2.5 py-2.5 text-[14px]' : 'px-2.5 py-2 text-[13px]'
+                        } ${
                             isActive || isSubOpen
                                 ? `${colors.activeBg} ${colors.activeBorder} font-semibold text-slate-900 dark:text-white`
                                 : 'border-l-transparent text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800/50 hover:text-slate-900 dark:hover:text-slate-200'
                         } ${isCollapsed && !isMobile ? 'justify-center px-2' : ''}`}
                     >
                         <div className={`flex-shrink-0 transition-transform duration-200 ${
-                            isActive || isSubOpen ? `${colors.icon} scale-110` : `${colors.icon} opacity-70 group-hover/item:opacity-100`
+                            isMobile
+                                ? `w-8 h-8 rounded-xl border flex items-center justify-center ${
+                                    isActive || isSubOpen
+                                        ? colors.headerIconBox
+                                        : 'bg-slate-100/80 dark:bg-slate-800/80 border-slate-200/70 dark:border-slate-700/60'
+                                }`
+                                : ''
+                        } ${
+                            isActive || isSubOpen ? `${colors.icon} ${isMobile ? '' : 'scale-105'}` : `${colors.icon} opacity-80 group-hover/item:opacity-100`
                         }`}>
-                            {React.cloneElement(item.icon as any, { size: 18, strokeWidth: isActive || isSubOpen ? 2.5 : 2 })}
+                            {React.isValidElement<{ size?: number; strokeWidth?: number }>(item.icon) && typeof item.icon.type !== 'string'
+                                ? React.cloneElement(item.icon, { size: isMobile ? 20 : 17, strokeWidth: isActive || isSubOpen ? 2.4 : 2 })
+                                : item.icon}
                         </div>
                         {(!isCollapsed || isMobile) ? (
                             <div className="flex flex-col min-w-0 flex-1 text-left">
-                                <div className="flex items-center justify-between w-full min-w-0">
-                                    <span className="truncate">{item.name}</span>
+                                <div className="flex items-center justify-between w-full min-w-0 gap-1.5">
+                                    {typeof item.name === 'string' ? (
+                                        <span className="line-clamp-2 leading-snug break-words">{item.name}</span>
+                                    ) : (
+                                        <span className="min-w-0 leading-snug">{item.name}</span>
+                                    )}
                                     <div className="flex items-center gap-1.5 ml-1.5 shrink-0">
                                         {hasAnyBadge && badgePosition === 'inline' && (
                                             <span className={`new-badge-animated ${badgeBubbleClass} rounded shadow-sm shrink-0 inline-flex items-center gap-1.5 border leading-none`}>
@@ -981,24 +1138,41 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
                 rel={item.openInNewTab ? 'noopener noreferrer' : undefined}
                 onClick={() => {
                     if (isMobile) setMobileDrawerOpen(false)
-                    if (pathname === '/inicio' && !isMobile) setIsCollapsed(false)
+                    if (pathname === '/inicio' && !isMobile && !item.openInNewTab) setIsCollapsed(false)
+                    if (!item.openInNewTab) setSidebarSearch('')
                 }}
                 title={item.tooltip || (typeof item.name === 'string' ? item.name : item.plainName) || ''}
-                className={`group/item relative flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-all duration-200 border-l-[3px] ${
+                className={`group/item relative flex items-center gap-2.5 rounded-lg border-l-[3px] transition-all duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500/30 ${
+                    isMobile ? 'px-2.5 py-2.5 text-[14px]' : 'px-2.5 py-2 text-[13px]'
+                } ${
                     isActive
                         ? `${colors.activeBg} ${colors.activeBorder} font-semibold text-slate-900 dark:text-white`
                         : 'border-l-transparent text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800/50 hover:text-slate-900 dark:hover:text-slate-200'
                 } ${isCollapsed && !isMobile ? 'justify-center px-2' : ''}`}
             >
                 <div className={`flex-shrink-0 transition-transform duration-200 ${
-                    isActive ? `${colors.icon} scale-110` : `${colors.icon} opacity-70 group-hover/item:opacity-100`
+                    isMobile
+                        ? `w-8 h-8 rounded-xl border flex items-center justify-center ${
+                            isActive
+                                ? colors.headerIconBox
+                                : 'bg-slate-100/80 dark:bg-slate-800/80 border-slate-200/70 dark:border-slate-700/60'
+                        }`
+                        : ''
+                } ${
+                    isActive ? `${colors.icon} ${isMobile ? '' : 'scale-105'}` : `${colors.icon} opacity-80 group-hover/item:opacity-100`
                 }`}>
-                    {React.cloneElement(item.icon as any, { size: 18, strokeWidth: isActive ? 2.5 : 2 })}
+                    {React.isValidElement<{ size?: number; strokeWidth?: number }>(item.icon) && typeof item.icon.type !== 'string'
+                        ? React.cloneElement(item.icon, { size: isMobile ? 20 : 17, strokeWidth: isActive ? 2.4 : 2 })
+                        : item.icon}
                 </div>
                 {(!isCollapsed || isMobile) ? (
                     <div className="flex flex-col min-w-0 flex-1">
-                        <div className="flex items-center justify-between w-full min-w-0">
-                            <span className="truncate">{item.name}</span>
+                        <div className="flex items-center justify-between w-full min-w-0 gap-1.5">
+                            {typeof item.name === 'string' ? (
+                                <span className="line-clamp-2 leading-snug break-words">{item.name}</span>
+                            ) : (
+                                <span className="min-w-0 leading-snug">{item.name}</span>
+                            )}
                             <div className="flex items-center gap-1 ml-1.5 shrink-0">
                                 {item.openInNewTab && (
                                     <ExternalLink size={11} className="text-slate-400 group-hover/item:text-blue-600 transition-colors" />
@@ -1031,39 +1205,212 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
     }
 
     // Shared nav content
-    const renderNavContent = (isMobile: boolean = false) => (
-        <nav
-            ref={isMobile ? mobileNavRef : desktopNavRef}
-            className={`flex-1 px-3 py-3 space-y-1 overflow-y-auto overflow-x-hidden no-scrollbar`}
-        >
-            {filteredGroups.map((group) => {
-                const isOpen = expandedGroups[group.id] ?? true
-                return (
-                    <div key={group.id} className="mb-1">
-                        {/* Group header */}
-                        {(!isCollapsed || isMobile) ? (
-                            <button
-                                onClick={() => toggleGroup(group.id)}
-                                className="w-full flex items-center justify-between px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 transition-colors rounded-md"
-                            >
-                                <span>{group.title}</span>
-                                <ChevronDown size={12} className={`transition-transform duration-200 ${isOpen ? '' : '-rotate-90'}`} />
-                            </button>
-                        ) : (
-                            <div className="h-px bg-slate-200 dark:bg-slate-800 my-2 mx-2" />
-                        )}
+    const renderNavContent = (isMobile: boolean = false) => {
+        const showExpanded = !isCollapsed || isMobile
+        const groupsToRender = showExpanded ? displayedGroups : filteredGroups
 
-                        {/* Group items */}
-                        {(isOpen || (isCollapsed && !isMobile)) && (
-                            <div className="space-y-0.5 mt-0.5">
-                                {group.items.map(item => renderNavItem(item, group.id, isMobile))}
+        return (
+            <div className="flex-1 min-h-0 flex flex-col">
+                {showExpanded && (
+                    <div className="flex-shrink-0 px-2.5 pt-2.5 pb-2 space-y-2 border-b border-slate-100 dark:border-slate-800/80">
+                        {/* Quick Pinned Shortcuts: Inicio & Dashboard */}
+                        <div className={`grid gap-1.5 ${canViewDashboard ? 'grid-cols-2' : 'grid-cols-1'}`}>
+                            <Link
+                                href="/inicio"
+                                onClick={() => {
+                                    if (isMobile) setMobileDrawerOpen(false)
+                                    setSidebarSearch('')
+                                }}
+                                className={`flex items-center justify-center gap-1.5 px-2.5 rounded-lg border font-semibold transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500/30 ${
+                                    isMobile ? 'py-2 text-[13px]' : 'py-1.5 text-xs'
+                                } ${
+                                    pathname === '/inicio'
+                                        ? 'bg-red-50 dark:bg-red-950/40 border-red-200 dark:border-red-800/70 text-red-700 dark:text-red-300 shadow-2xs'
+                                        : 'bg-slate-50/80 dark:bg-slate-900/60 border-slate-200/80 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white'
+                                }`}
+                            >
+                                <LayoutGrid size={isMobile ? 16 : 13.5} className={pathname === '/inicio' ? 'text-red-600 dark:text-red-400' : 'text-slate-400'} />
+                                <span className="truncate">{t('sidebar_nav.quick_home')}</span>
+                            </Link>
+                            {canViewDashboard && (
+                                <Link
+                                    href="/dashboard"
+                                    onClick={() => {
+                                        if (isMobile) setMobileDrawerOpen(false)
+                                        if (pathname === '/inicio' && !isMobile) setIsCollapsed(false)
+                                        setSidebarSearch('')
+                                    }}
+                                    className={`flex items-center justify-center gap-1.5 px-2.5 rounded-lg border font-semibold transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500/30 ${
+                                        isMobile ? 'py-2 text-[13px]' : 'py-1.5 text-xs'
+                                    } ${
+                                        pathname === '/dashboard'
+                                            ? 'bg-rose-50 dark:bg-rose-950/40 border-rose-200 dark:border-rose-800/70 text-rose-700 dark:text-rose-300 shadow-2xs'
+                                            : 'bg-slate-50/80 dark:bg-slate-900/60 border-slate-200/80 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white'
+                                    }`}
+                                >
+                                    <LayoutDashboard size={isMobile ? 16 : 13.5} className={pathname === '/dashboard' ? 'text-rose-600 dark:text-rose-400' : 'text-slate-400'} />
+                                    <span className="truncate">{t('sidebar_nav.quick_dashboard')}</span>
+                                </Link>
+                            )}
+                        </div>
+
+                        {/* Instant Search & Expand/Collapse All */}
+                        <div className="flex items-center gap-1.5">
+                            <div className="relative flex-1 min-w-0">
+                                <Search size={13.5} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                                <input
+                                    ref={!isMobile ? searchInputRef : undefined}
+                                    type="text"
+                                    value={sidebarSearch}
+                                    onChange={(e) => setSidebarSearch(e.target.value)}
+                                    onKeyDown={(e) => {
+                                        if (e.key === 'Escape') setSidebarSearch('')
+                                    }}
+                                    placeholder={t('sidebar_nav.search_placeholder')}
+                                    aria-label={t('sidebar_nav.search_placeholder')}
+                                    className="w-full h-8 pl-8 pr-7 rounded-lg text-xs bg-slate-50 dark:bg-slate-900/80 border border-slate-200/80 dark:border-slate-800 text-slate-800 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none focus:bg-white dark:focus:bg-slate-900 focus:border-slate-300 dark:focus:border-slate-600 focus:ring-2 focus:ring-red-500/15 transition-all"
+                                />
+                                {sidebarSearch.length > 0 && (
+                                    <button
+                                        type="button"
+                                        onClick={() => setSidebarSearch('')}
+                                        title={t('sidebar_nav.clear_search')}
+                                        aria-label={t('sidebar_nav.clear_search')}
+                                        className="absolute right-1.5 top-1/2 -translate-y-1/2 p-1 rounded text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition-colors cursor-pointer focus:outline-none"
+                                    >
+                                        <X size={12} />
+                                    </button>
+                                )}
                             </div>
-                        )}
+                            <button
+                                type="button"
+                                onClick={toggleAllGroups}
+                                title={areAllGroupsOpen ? t('sidebar_nav.collapse_all') : t('sidebar_nav.expand_all')}
+                                aria-label={areAllGroupsOpen ? t('sidebar_nav.collapse_all') : t('sidebar_nav.expand_all')}
+                                className="w-8 h-8 shrink-0 flex items-center justify-center rounded-lg border border-slate-200/80 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/80 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-800 dark:hover:text-slate-200 transition-colors cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500/30"
+                            >
+                                {areAllGroupsOpen ? <ChevronsDownUp size={14} /> : <ChevronsUpDown size={14} />}
+                            </button>
+                        </div>
                     </div>
-                )
-            })}
-        </nav>
-    )
+                )}
+
+                <nav
+                    ref={isMobile ? mobileNavRef : desktopNavRef}
+                    className={`flex-1 min-h-0 px-2.5 py-2.5 overflow-y-auto overflow-x-hidden no-scrollbar ${showExpanded ? 'space-y-2' : 'space-y-1'}`}
+                >
+                    {showExpanded && isSearching && groupsToRender.length === 0 ? (
+                        <div className="px-3 py-8 text-center rounded-xl border border-dashed border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/30">
+                            <Search size={20} className="mx-auto text-slate-300 dark:text-slate-600 mb-2" />
+                            <p className="text-xs font-semibold text-slate-600 dark:text-slate-300">
+                                {t('sidebar_nav.no_results')}
+                            </p>
+                            <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-0.5">
+                                {t('sidebar_nav.no_results_hint')}
+                            </p>
+                            <button
+                                type="button"
+                                onClick={() => setSidebarSearch('')}
+                                className="mt-3 px-2.5 py-1 rounded-md text-[11px] font-semibold bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:text-red-600 dark:hover:text-red-400 transition-colors cursor-pointer focus:outline-none"
+                            >
+                                {t('sidebar_nav.clear_search')}
+                            </button>
+                        </div>
+                    ) : (
+                        groupsToRender.map((group) => {
+                            const colors = GROUP_COLORS[group.id] || GROUP_COLORS.operaciones
+                            const isOpen = isSearching ? true : Boolean(effectiveExpandedGroups[group.id])
+                            const hasActiveItem = group.items.some(item => isSidebarItemActive(item, pathname, allMenuPaths))
+
+                            if (!showExpanded) {
+                                return (
+                                    <div key={group.id} className="pb-1">
+                                        <div className="h-px bg-slate-200/80 dark:bg-slate-800 my-1.5 mx-2" />
+                                        <div className="space-y-0.5">
+                                            {group.items.map(item => renderNavItem(item, group.id, isMobile))}
+                                        </div>
+                                    </div>
+                                )
+                            }
+
+                            return (
+                                <div key={group.id}>
+                                    {/* Interactive Department Category Card Header */}
+                                    <button
+                                        type="button"
+                                        aria-expanded={isOpen}
+                                        onClick={() => toggleGroup(group.id)}
+                                        className={`w-full group/hdr flex items-center gap-2.5 rounded-xl border text-left transition-all duration-200 cursor-pointer select-none focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500/30 ${
+                                            isMobile ? 'px-3 py-2.5' : 'px-2.5 py-2'
+                                        } ${
+                                            isOpen
+                                                ? colors.headerOpenCard
+                                                : hasActiveItem
+                                                    ? colors.headerActiveClosed
+                                                    : 'bg-slate-50/70 dark:bg-slate-900/40 hover:bg-slate-100/80 dark:hover:bg-slate-800/70 border-slate-200/70 dark:border-slate-800/80 hover:border-slate-300/80 dark:hover:border-slate-700'
+                                        }`}
+                                    >
+                                        <div className={`border flex items-center justify-center shrink-0 transition-transform duration-200 group-hover/hdr:scale-105 ${
+                                            isMobile ? 'w-9 h-9 rounded-xl' : 'w-7 h-7 rounded-lg'
+                                        } ${colors.headerIconBox}`}>
+                                            {React.isValidElement<{ size?: number; strokeWidth?: number }>(group.groupIcon)
+                                                ? React.cloneElement(group.groupIcon, { size: isMobile ? 19 : 15, strokeWidth: 2.2 })
+                                                : group.groupIcon}
+                                        </div>
+                                        <span className={`flex-1 min-w-0 font-semibold tracking-tight truncate ${
+                                            isMobile ? 'text-[13.5px]' : 'text-[12.5px]'
+                                        } ${
+                                            isOpen || hasActiveItem
+                                                ? 'text-slate-900 dark:text-white'
+                                                : 'text-slate-700 dark:text-slate-200'
+                                        }`}>
+                                            {group.title}
+                                        </span>
+                                        <div className="flex items-center gap-1.5 shrink-0">
+                                            {!isOpen && hasActiveItem && (
+                                                <span
+                                                    className={`w-2 h-2 rounded-full ${colors.dot}`}
+                                                    title={t('sidebar_nav.active_here')}
+                                                />
+                                            )}
+                                            <span className={`text-[10px] font-bold tabular-nums px-1.5 py-0.5 rounded-md border ${
+                                                isOpen || hasActiveItem
+                                                    ? colors.countActive
+                                                    : 'bg-white/80 dark:bg-slate-800/80 text-slate-500 dark:text-slate-400 border-slate-200/70 dark:border-slate-700/70'
+                                            }`}>
+                                                {group.items.length}
+                                            </span>
+                                            <ChevronRight
+                                                size={isMobile ? 16 : 14}
+                                                className={`text-slate-400 transition-transform duration-200 ${isOpen ? 'rotate-90 text-slate-600 dark:text-slate-300' : ''}`}
+                                            />
+                                        </div>
+                                    </button>
+
+                                    {/* Smooth Accordion Group Items */}
+                                    <AnimatePresence initial={false}>
+                                        {isOpen && (
+                                            <motion.div
+                                                initial={{ height: 0, opacity: 0 }}
+                                                animate={{ height: 'auto', opacity: 1 }}
+                                                exit={{ height: 0, opacity: 0 }}
+                                                transition={{ duration: 0.18, ease: 'easeInOut' }}
+                                                className="overflow-hidden"
+                                            >
+                                                <div className={`border-l-2 ${colors.treeLine} space-y-0.5 pt-1.5 pb-1 ${isMobile ? 'ml-[18px] pl-3' : 'ml-3.5 pl-2.5'}`}>
+                                                    {group.items.map(item => renderNavItem(item, group.id, isMobile))}
+                                                </div>
+                                            </motion.div>
+                                        )}
+                                    </AnimatePresence>
+                                </div>
+                            )
+                        })
+                    )}
+                </nav>
+            </div>
+        )
+    }
 
     const renderUserDropdownMenu = () => (
         <AnimatePresence>
@@ -1290,16 +1637,20 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
             {/* ============ DESKTOP SIDEBAR ============ */}
             <aside
                 className={`hidden lg:flex flex-col fixed inset-y-0 left-0 z-40 bg-white dark:bg-slate-950 border-r border-slate-200 dark:border-slate-800 transition-all duration-300 ease-in-out overflow-visible ${
-                    isCollapsed ? 'w-[64px]' : 'w-[260px]'
+                    isCollapsed ? 'w-[64px]' : 'w-[276px]'
                 }`}
             >
                 {/* Logo Section — Clicking SM TEG returns to /inicio and collapses sidebar */}
-                <div className="flex-shrink-0 h-16 border-b border-slate-100 dark:border-slate-800/80 flex items-center px-4 gap-3">
+                <div className={`flex-shrink-0 h-16 border-b border-slate-100 dark:border-slate-800/80 flex items-center ${
+                    isCollapsed ? 'justify-center px-2' : 'justify-between px-3.5 gap-2'
+                }`}>
                     <Link
                         href="/inicio"
                         onClick={() => setIsCollapsed(true)}
                         title={t('items.home_hub')}
-                        className="flex items-center gap-3 group min-w-0 flex-1 rounded-lg py-1 transition-colors"
+                        className={`flex items-center gap-2.5 group min-w-0 rounded-lg py-1 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500/30 ${
+                            isCollapsed ? 'justify-center' : 'flex-1'
+                        }`}
                     >
                         <div className="flex-shrink-0 w-9 h-9 relative">
                             <img
@@ -1319,20 +1670,83 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
                             </div>
                         )}
                     </Link>
+
+                    {!isCollapsed && (
+                        <button
+                            type="button"
+                            onClick={() => setIsCollapsed(true)}
+                            title={t('sidebar_nav.collapse_sidebar')}
+                            aria-label={t('sidebar_nav.collapse_sidebar')}
+                            className="flex-shrink-0 p-1.5 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800/80 transition-colors cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500/30"
+                        >
+                            <PanelLeftClose size={16} />
+                        </button>
+                    )}
                 </div>
-                
-                {/* Sidebar Collapse Button (Moved to top) */}
-                <div className="flex-shrink-0 border-b border-slate-100 dark:border-slate-800/80 p-2">
-                    <button
-                        onClick={() => setIsCollapsed(!isCollapsed)}
-                        className="w-full flex items-center justify-center gap-2 py-1.5 rounded-md text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors text-xs"
-                    >
-                        {isCollapsed ? <PanelLeft size={16} /> : <><PanelLeftClose size={16} /><span className="font-medium">{language === 'es' ? 'Colapsar' : 'Collapse'}</span></>}
-                    </button>
-                </div>
+
+                {/* Collapsed quick controls (Expand + Search shortcut) */}
+                {isCollapsed && (
+                    <div className="flex-shrink-0 border-b border-slate-100 dark:border-slate-800/80 py-2 px-1.5 flex flex-col items-center gap-1">
+                        <button
+                            type="button"
+                            onClick={() => setIsCollapsed(false)}
+                            title={t('sidebar_nav.expand_sidebar')}
+                            aria-label={t('sidebar_nav.expand_sidebar')}
+                            className="w-10 h-9 flex items-center justify-center rounded-lg text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500/30"
+                        >
+                            <PanelLeft size={17} />
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => {
+                                setIsCollapsed(false)
+                                setTimeout(() => searchInputRef.current?.focus(), 180)
+                            }}
+                            title={t('sidebar_nav.search_placeholder')}
+                            aria-label={t('sidebar_nav.search_placeholder')}
+                            className="w-10 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500/30"
+                        >
+                            <Search size={15} />
+                        </button>
+                    </div>
+                )}
 
                 {/* Navigation */}
                 {renderNavContent(false)}
+
+                {/* Desktop Footer: Compact System Version & Changelog */}
+                <div className="flex-shrink-0 border-t border-slate-100 dark:border-slate-800/80 p-2">
+                    <button
+                        type="button"
+                        onClick={() => setChangelogOpen(true)}
+                        title={t('sidebar_nav.version_history')}
+                        className={`w-full flex items-center rounded-xl border border-slate-200/70 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/50 hover:bg-slate-100 dark:hover:bg-slate-800/80 hover:border-slate-300 dark:hover:border-slate-700 transition-all cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500/30 ${
+                            isCollapsed ? 'justify-center p-2' : 'justify-between px-2.5 py-2'
+                        }`}
+                    >
+                        <div className="flex items-center gap-2 min-w-0">
+                            <span className="relative flex h-2 w-2 shrink-0">
+                                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                            </span>
+                            {!isCollapsed && (
+                                <span className="text-[11px] font-bold text-slate-700 dark:text-slate-200 truncate">
+                                    {SYSTEM_VERSION.brand}
+                                </span>
+                            )}
+                        </div>
+                        {!isCollapsed && (
+                            <div className="flex items-center gap-1.5 shrink-0">
+                                <span className="px-1.5 py-0.5 rounded-md bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200/80 dark:border-emerald-800/70 text-[10px] font-mono font-bold">
+                                    {SYSTEM_VERSION.version}
+                                </span>
+                                <span className="text-[10px] font-mono text-slate-400 dark:text-slate-500">
+                                    {SYSTEM_VERSION.year}
+                                </span>
+                            </div>
+                        )}
+                    </button>
+                </div>
 
             </aside>
 
@@ -1374,20 +1788,25 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
             </div>
 
             {/* ============ MOBILE TOP BAR ============ */}
-            <header className="lg:hidden fixed top-0 left-0 right-0 z-50 h-14 bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl border-b border-slate-200/60 dark:border-slate-800/60 flex items-center justify-between px-2">
-                <div className="flex items-center gap-1">
-                    <button onClick={() => setMobileDrawerOpen(true)} className="p-2 rounded-lg text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
-                        <Menu size={20} />
+            <header className="lg:hidden fixed top-0 left-0 right-0 z-50 h-14 bg-white/85 dark:bg-slate-900/85 backdrop-blur-xl border-b border-slate-200/70 dark:border-slate-800/70 flex items-center justify-between px-2.5">
+                <div className="flex items-center gap-2">
+                    <button
+                        type="button"
+                        onClick={() => setMobileDrawerOpen(true)}
+                        aria-label={t('bottom_nav.open_menu')}
+                        className="w-10 h-10 flex items-center justify-center rounded-xl bg-slate-100/90 dark:bg-slate-800/90 border border-slate-200/80 dark:border-slate-700/80 text-slate-700 dark:text-slate-200 active:scale-95 transition-all cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500/30"
+                    >
+                        <Menu size={22} strokeWidth={2.3} />
                     </button>
                     <Link href="/inicio" onClick={() => setMobileDrawerOpen(false)} className="flex items-center gap-2 group">
-                        <img src="/logo.png" alt="TEG" className="w-7 h-7 object-contain transition-transform group-hover:scale-110" />
-                        <span className="text-sm font-black text-slate-900 dark:text-white">
+                        <img src="/logo.png" alt="TEG" className="w-8 h-8 object-contain transition-transform group-hover:scale-110" />
+                        <span className="text-[15px] font-black text-slate-900 dark:text-white">
                             SM<span className="text-red-600 font-semibold ml-0.5">TEG</span>
                         </span>
                     </Link>
                 </div>
 
-                <div className="flex items-center gap-1">
+                <div className="flex items-center gap-1.5">
                     <button
                         onClick={() => setLanguage(language === 'es' ? 'en' : 'es')}
                         className="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors text-[10px] font-black hidden sm:flex items-center gap-0.5"
@@ -1399,8 +1818,9 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
                     <div className="hidden sm:block"><ThemeToggle /></div>
                     <NotificationBell />
                     <button 
+                        type="button"
                         onClick={() => setUserDropdownOpen(!userDropdownOpen)}
-                        className="ml-1 flex-shrink-0 w-7 h-7 rounded-full bg-gradient-to-tr from-red-500 to-orange-500 flex items-center justify-center text-white text-[10px] font-bold ring-2 ring-white dark:ring-slate-900 shadow-sm"
+                        className="ml-0.5 flex-shrink-0 w-9 h-9 rounded-full bg-gradient-to-tr from-red-500 to-orange-500 flex items-center justify-center text-white text-xs font-bold ring-2 ring-white dark:ring-slate-900 shadow-sm active:scale-95 transition-transform cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500/30"
                     >
                         {user?.name?.[0] || '?'}
                     </button>
@@ -1580,7 +2000,7 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
                             animate={{ x: 0 }}
                             exit={{ x: '-100%' }}
                             transition={{ type: 'spring', damping: 30, stiffness: 300 }}
-                            className="lg:hidden fixed inset-y-0 left-0 z-[80] w-[280px] bg-white dark:bg-slate-950 shadow-2xl flex flex-col"
+                            className="lg:hidden fixed inset-y-0 left-0 z-[80] w-[300px] max-w-[86vw] bg-white dark:bg-slate-950 shadow-2xl flex flex-col"
                         >
                             {/* Drawer Header */}
                             <div className="flex-shrink-0 h-14 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between px-4">
@@ -1595,10 +2015,11 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
                                     </span>
                                 </Link>
                                 <button
+                                    type="button"
                                     onClick={() => setMobileDrawerOpen(false)}
-                                    className="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 transition-colors"
+                                    className="w-9 h-9 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-500 dark:text-slate-300 flex items-center justify-center transition-colors cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500/30"
                                 >
-                                    <X size={20} />
+                                    <X size={20} strokeWidth={2.3} />
                                 </button>
                             </div>
 

@@ -37,12 +37,13 @@
  * - Las tarjetas de resumen por plataforma (`DOORDASH`, `UBER_EATS`, `GRUBHUB`) presentan comparativa financiera lado a lado (`Corte Plat.` vs `Toast POS`) aislada estrictamente al periodo seleccionado (sin contaminar semanas abiertas con recuperaciones históricas) e incorporan Puente Contable explicativo línea por línea.
  * - Selector unificado de periodo (`DeliveryPeriodFilter` estilo módulo de Ventas) con selección por Semana (`Lun → Dom`), por Día operativo (`6:00 AM – 5:59 AM PT`) o Rango, inicializando por defecto en `"Semana pasada"` (`last_week`).
  * - Respeta estrictamente el día laboral de Tacos Gavilan (`6:00 AM – 5:59 AM PT` en `America/Los_Angeles`), limpieza de estado/selecciones al cambiar filtros, banners de validación visibles dentro de modales (`z-50`), cierre con `Escape` y matriz real 15×3 `byStorePlatform` editable en modo soporte.
- * - Auditoría integral (nov 2026): `CONCILIATED_NEXT_PAYOUT` se clasifica como en tránsito (`BLOCKED_MISSING_INFO`, fuera de `4. Listos`), disputas `ACCEPTED_LOSS`/`REJECTED` se muestran como pérdidas cerradas sin confundirse con recuperaciones, exclusión de ajustes `$0.00`, paridad contable Tab 4a/4b vía `accounting_gross_receivable` + `line5` (`24001`), validación explícita de `action` en QuickBooks y accesibilidad completa.
+ * - Auditoría integral (nov 2026): `CONCILIATED_NEXT_PAYOUT` se clasifica como en tránsito (`BLOCKED_MISSING_INFO`, fuera de `4. Listos`), disputas `ACCEPTED_LOSS`/`REJECTED` se muestran como pérdidas cerradas sin confundirse con recuperaciones, exclusión de ajustes `$0.00`, paridad contable Tab 4a/4b vía `accounting_gross_receivable` + `line5` (`24001`), validación explícita de `action` en QuickBooks, exportación nativa multi-hoja `.xlsx` + `.csv` y ocultamiento automático de `UNASSIGNED_STORE` cuando no hay registros en cuarentena.
  */
 
 'use client'
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
+import * as XLSX from 'xlsx'
 import { useLanguage } from '@/lib/i18n'
 import DeliveryPeriodFilter, {
   classifyDeliveryPeriod,
@@ -52,7 +53,6 @@ import DeliveryPeriodFilter, {
 import {
   ShieldCheck,
   RefreshCw,
-  Upload,
   Download,
   Search,
   CheckCircle2,
@@ -229,12 +229,10 @@ interface StoreMapping {
   store_name: string
   toast_restaurant_guid: string
   doordash_store_id?: string | null
-  doordash_merchant_store_id?: string | null
+  doordash_business_id?: string | null
   grubhub_cust_id?: string | null
-  grubhub_merchant_id?: string | null
   ubereats_store_uuid: string | null
-  qbo_location_id?: string | null
-  qbo_department_name?: string | null
+  ubereats_org_uuid?: string | null
 }
 
 const formatPlatformDisplayName = (plat: string | null | undefined): string => {
@@ -392,20 +390,20 @@ export default function ConciliarDeliveryPage() {
   const [editingMappingStoreId, setEditingMappingStoreId] = useState<number | null>(null)
   const [mappingDraft, setMappingDraft] = useState<{
     doordash_store_id: string
-    doordash_merchant_store_id: string
+    doordash_business_id: string
     grubhub_cust_id: string
-    grubhub_merchant_id: string
     ubereats_store_uuid: string
+    ubereats_org_uuid: string
   }>({
     doordash_store_id: '',
-    doordash_merchant_store_id: '',
+    doordash_business_id: '',
     grubhub_cust_id: '',
-    grubhub_merchant_id: '',
     ubereats_store_uuid: '',
+    ubereats_org_uuid: '',
   })
   const [savingMapping, setSavingMapping] = useState<boolean>(false)
 
-  // Cola progresiva tienda por tienda para evitar rate limits HTTP 429
+  // Cola progresiva tienda por tienda para evitar rate limits HTTP 429 y bloqueo anti-doble-clic
   const [syncQueueProgress, setSyncQueueProgress] = useState<{
     active: boolean
     completed: number
@@ -416,6 +414,8 @@ export default function ConciliarDeliveryPage() {
   const [syncQueueCancelling, setSyncQueueCancelling] = useState<boolean>(false)
   const cancelSyncQueueRef = useRef<boolean>(false)
   const syncQueueAbortRef = useRef<AbortController | null>(null)
+  const singleSyncAbortRef = useRef<AbortController | null>(null)
+  const syncInFlightRef = useRef<boolean>(false)
 
   // P1 #15: Control de secuencias y AbortController para evitar condiciones de carrera (race conditions)
   const fetchSeqRef = useRef<number>(0)
@@ -432,6 +432,7 @@ export default function ConciliarDeliveryPage() {
   } | null>(null)
 
   const [mappings, setMappings] = useState<StoreMapping[]>([])
+  const [userScope, setUserScope] = useState<{ isGlobalScope: boolean; assignedStoreId: number | null } | null>(null)
   const [orders, setOrders] = useState<ReconciledOrder[]>([])
   const [payouts, setPayouts] = useState<PlatformPayout[]>([])
   const [summary, setSummary] = useState<any>(null)
@@ -593,6 +594,26 @@ export default function ConciliarDeliveryPage() {
     })
   }, [])
 
+  useEffect(() => {
+    return () => {
+      cancelSyncQueueRef.current = true
+      syncQueueAbortRef.current?.abort()
+      singleSyncAbortRef.current?.abort()
+      fetchAbortRef.current?.abort()
+      qbAbortRef.current?.abort()
+    }
+  }, [])
+
+  const parseSafeJson = async (res: Response): Promise<any> => {
+    const raw = await res.text().catch(() => '')
+    if (!raw) return {}
+    try {
+      return JSON.parse(raw)
+    } catch {
+      return { success: false, error: `HTTP ${res.status}: ${raw.slice(0, 140)}` }
+    }
+  }
+
   const tRef = useRef(t)
   tRef.current = t
 
@@ -649,12 +670,19 @@ export default function ConciliarDeliveryPage() {
         const res = await authFetch(`/api/delivery-reconciliation?${qs.toString()}`, {
           signal: controller.signal,
         })
-        const data = await res.json()
+        const data = await parseSafeJson(res)
         if (seq !== fetchSeqRef.current) return
         if (!res.ok || !data.success) {
           throw new Error(data.error || `HTTP ${res.status}`)
         }
         setMappings(data.mappings || [])
+        if (data.userScope) {
+          setUserScope(data.userScope)
+          if (!data.userScope.isGlobalScope && data.userScope.assignedStoreId) {
+            const scopedIdStr = String(data.userScope.assignedStoreId)
+            setSelectedStore((prev) => (prev === scopedIdStr ? prev : scopedIdStr))
+          }
+        }
         setOrders(data.orders || [])
         setPayouts(data.payouts || [])
         setSummary(data.summary || null)
@@ -1002,9 +1030,17 @@ export default function ConciliarDeliveryPage() {
     const targetPayoutRef = override?.payoutRef !== undefined ? override.payoutRef : activePayoutRef
     const targetSearch = override?.payoutRef !== undefined ? '' : searchQuery
 
+    if (syncInFlightRef.current) return
+    if (rawTargetStore === '0' && !override?.storeId) {
+      setBannerMessage({
+        type: 'warning',
+        text: 'Selecciona una sucursal específica o "Todas las Sucursales" para sincronizar en vivo.',
+      })
+      return
+    }
     if (!targetStart || !targetEnd || targetEnd < targetStart) {
       const msg = t('deliveryReconciliation.date_range_invalid_error')
-      setFetchError(msg)
+      if (mappings.length === 0) setFetchError(msg)
       setBannerMessage({ type: 'error', text: msg })
       return
     }
@@ -1026,13 +1062,18 @@ export default function ConciliarDeliveryPage() {
       setActiveTab('orders')
     }
 
+    syncInFlightRef.current = true
     setSyncing(true)
     setBannerMessage(null)
-    setFetchError(null)
+    const reqCtrl = new AbortController()
+    singleSyncAbortRef.current = reqCtrl
+    const timeoutId = setTimeout(() => reqCtrl.abort(), 240000)
+
     try {
       const res = await authFetch('/api/delivery-reconciliation', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        signal: reqCtrl.signal,
         body: JSON.stringify({
           action: 'sync_live',
           store_id: targetStore,
@@ -1044,9 +1085,9 @@ export default function ConciliarDeliveryPage() {
           sync_grubhub: targetPlatform === 'ALL' || targetPlatform === 'GRUBHUB',
         }),
       })
-      const data = await res.json()
+      const data = await parseSafeJson(res)
       if (!res.ok || !data.success) {
-        throw new Error(data.error || 'Sync failed')
+        throw new Error(data.error || `HTTP ${res.status}: Sync failed`)
       }
       const syncErrors: string[] = Array.isArray(data.syncErrors) ? data.syncErrors : []
       const baseMsg = t('deliveryReconciliation.sync_success_msg', {
@@ -1077,17 +1118,25 @@ export default function ConciliarDeliveryPage() {
           }
       await Promise.all([fetchData(refreshOverride), fetchQbJournalRecords(refreshOverride)])
     } catch (err: any) {
-      setFetchError(err.message)
-      setBannerMessage({ type: 'error', text: err.message })
+      const errMsg =
+        err?.name === 'AbortError'
+          ? 'La sincronización excedió el límite de 240s o fue cancelada.'
+          : err?.message || 'Error en sincronización en vivo'
+      if (mappings.length === 0) setFetchError(errMsg)
+      setBannerMessage({ type: 'error', text: errMsg })
     } finally {
+      clearTimeout(timeoutId)
+      singleSyncAbortRef.current = null
+      syncInFlightRef.current = false
       setSyncing(false)
     }
   }
 
   const handleProgressiveStoreQueueSync = async (targetStoreIds?: number[]) => {
+    if (syncInFlightRef.current) return
     if (!startDate || !endDate || endDate < startDate) {
       const msg = t('deliveryReconciliation.date_range_invalid_error')
-      setFetchError(msg)
+      if (mappings.length === 0) setFetchError(msg)
       setBannerMessage({ type: 'error', text: msg })
       return
     }
@@ -1101,16 +1150,16 @@ export default function ConciliarDeliveryPage() {
       return handleLiveSyncForStore()
     }
 
+    syncInFlightRef.current = true
     cancelSyncQueueRef.current = false
     setSyncQueueCancelling(false)
     setSyncing(true)
     setBannerMessage(null)
-    setFetchError(null)
     let completedCount = 0
     const collectedSyncErrors = new Set<string>()
 
     try {
-      const batchSize = 3
+      const batchSize = 1
       for (let i = 0; i < storesList.length; i += batchSize) {
         if (cancelSyncQueueRef.current) break
         const batch = storesList.slice(i, i + batchSize)
@@ -1124,6 +1173,7 @@ export default function ConciliarDeliveryPage() {
         })
         const batchAbort = new AbortController()
         syncQueueAbortRef.current = batchAbort
+        const stepTimeoutId = setTimeout(() => batchAbort.abort(), 240000)
         try {
           const res = await authFetch('/api/delivery-reconciliation', {
             method: 'POST',
@@ -1139,7 +1189,19 @@ export default function ConciliarDeliveryPage() {
               sync_grubhub: selectedPlatform === 'ALL' || selectedPlatform === 'GRUBHUB',
             }),
           })
-          const data = await res.json().catch(() => ({}))
+          const data = await parseSafeJson(res)
+          if (res.status === 401 || res.status === 403) {
+            collectedSyncErrors.add(
+              String(
+                data?.error ||
+                  t('deliveryReconciliation.sync_queue_http_error', {
+                    status: res.status,
+                    store: batchNames,
+                  })
+              )
+            )
+            break
+          }
           if (!res.ok || !data?.success) {
             collectedSyncErrors.add(
               String(
@@ -1166,31 +1228,48 @@ export default function ConciliarDeliveryPage() {
             }
           }
         } catch (batchErr: any) {
-          if (batchErr?.name === 'AbortError' || cancelSyncQueueRef.current) {
+          if (cancelSyncQueueRef.current) {
             break
           }
-          if (batchErr?.message) collectedSyncErrors.add(String(batchErr.message))
+          if (batchErr?.name === 'AbortError') {
+            collectedSyncErrors.add(`Tiempo límite (240s) excedido en ${batchNames}`)
+          } else if (batchErr?.message) {
+            collectedSyncErrors.add(String(batchErr.message))
+          }
+        } finally {
+          clearTimeout(stepTimeoutId)
+        }
+        if (i + batchSize < storesList.length && !cancelSyncQueueRef.current) {
+          await new Promise((r) => setTimeout(r, 1000))
         }
       }
 
       const uniqueErrs = Array.from(collectedSyncErrors)
+      const warnSuffix =
+        uniqueErrs.length > 0
+          ? ` ${t('deliveryReconciliation.sync_warnings_suffix', {
+              count: uniqueErrs.length,
+              details: uniqueErrs.slice(0, 2).join(' | '),
+            })}`
+          : ''
       if (cancelSyncQueueRef.current) {
         setBannerMessage({
           type: 'warning',
-          text: t('deliveryReconciliation.sync_queue_cancelled_toast', {
+          text: `${t('deliveryReconciliation.sync_queue_cancelled_toast', {
             done: completedCount,
             total: storesList.length,
+          })}${warnSuffix}`,
+        })
+      } else if (completedCount === 0 && uniqueErrs.length > 0) {
+        setBannerMessage({
+          type: 'error',
+          text: t('deliveryReconciliation.sync_queue_failed_toast', {
+            total: storesList.length,
+            details: uniqueErrs.slice(0, 2).join(' | '),
           }),
         })
       } else {
         const doneText = t('deliveryReconciliation.sync_queue_done_toast', { count: completedCount })
-        const warnSuffix =
-          uniqueErrs.length > 0
-            ? ` ${t('deliveryReconciliation.sync_warnings_suffix', {
-                count: uniqueErrs.length,
-                details: uniqueErrs.slice(0, 2).join(' | '),
-              })}`
-            : ''
         setBannerMessage({
           type: uniqueErrs.length > 0 ? 'warning' : 'success',
           text: `${doneText}${warnSuffix}`,
@@ -1198,9 +1277,10 @@ export default function ConciliarDeliveryPage() {
       }
       await Promise.all([fetchData(), fetchQbJournalRecords()])
     } catch (err: any) {
-      setBannerMessage({ type: 'error', text: err.message })
+      setBannerMessage({ type: 'error', text: err?.message || 'Error en cola de sincronización' })
     } finally {
       syncQueueAbortRef.current = null
+      syncInFlightRef.current = false
       setSyncQueueCancelling(false)
       setSyncQueueProgress(null)
       setSyncing(false)
@@ -1208,7 +1288,7 @@ export default function ConciliarDeliveryPage() {
   }
 
   const handleLiveSync = () => {
-    if ((selectedStore === 'ALL' || selectedStore === '0') && mappings.length > 1) {
+    if ((userScope?.isGlobalScope ?? true) && selectedStore === 'ALL' && mappings.length > 1) {
       return handleProgressiveStoreQueueSync()
     }
     return handleLiveSyncForStore()
@@ -1218,10 +1298,10 @@ export default function ConciliarDeliveryPage() {
     setEditingMappingStoreId(m.store_id)
     setMappingDraft({
       doordash_store_id: m.doordash_store_id || '',
-      doordash_merchant_store_id: m.doordash_merchant_store_id || '',
+      doordash_business_id: m.doordash_business_id || '',
       grubhub_cust_id: m.grubhub_cust_id || '',
-      grubhub_merchant_id: m.grubhub_merchant_id || '',
       ubereats_store_uuid: m.ubereats_store_uuid || '',
+      ubereats_org_uuid: m.ubereats_org_uuid || '',
     })
   }
 
@@ -1237,14 +1317,14 @@ export default function ConciliarDeliveryPage() {
           store_id: store.store_id,
           updates: {
             doordash_store_id: mappingDraft.doordash_store_id.trim() || null,
-            doordash_merchant_store_id: mappingDraft.doordash_merchant_store_id.trim() || null,
+            doordash_business_id: mappingDraft.doordash_business_id.trim() || null,
             grubhub_cust_id: mappingDraft.grubhub_cust_id.trim() || null,
-            grubhub_merchant_id: mappingDraft.grubhub_merchant_id.trim() || null,
             ubereats_store_uuid: mappingDraft.ubereats_store_uuid.trim() || null,
+            ubereats_org_uuid: mappingDraft.ubereats_org_uuid.trim() || null,
           },
         }),
       })
-      const data = await res.json()
+      const data = await parseSafeJson(res)
       if (!res.ok || !data.success) {
         throw new Error(data.error || 'Error updating store mapping')
       }
@@ -1985,6 +2065,210 @@ export default function ConciliarDeliveryPage() {
     URL.revokeObjectURL(url)
   }
 
+  const handleExportXlsx = () => {
+    const sourceRows = displayedOrders
+    const visiblePayouts = payouts.filter((p) => {
+      if (selectedStore !== 'ALL' && String(p.store_id) !== String(selectedStore)) return false
+      if (selectedPlatform !== 'ALL' && p.platform !== selectedPlatform) return false
+      return true
+    })
+    if (sourceRows.length === 0 && visiblePayouts.length === 0) return
+
+    const n2 = (v: unknown) => Math.round((Number(v || 0) || 0) * 100) / 100
+    const wb = XLSX.utils.book_new()
+
+    // Hoja 1: Resumen Ejecutivo por Plataforma
+    const platformsList: DeliveryPlatform[] = ['DOORDASH', 'UBER_EATS', 'GRUBHUB']
+    const summaryRows = platformsList.map((plat) => {
+      const pOrders = sourceRows.filter((o) => o.platform === plat)
+      const pCuts = visiblePayouts.filter((p) => p.platform === plat)
+      const fees = pOrders.reduce(
+        (s, o) =>
+          s +
+          Number(o.commission_fee || 0) +
+          Number(o.delivery_fee || 0) +
+          Number(o.processing_fee || 0) +
+          Number(o.marketing_fee || 0),
+        0
+      )
+      const errAdj = pOrders.reduce((s, o) => s + Number(o.error_charge || 0) + Number(o.adjustment_amount || 0), 0)
+      return isEn
+        ? {
+            Platform: formatPlatformDisplayName(plat),
+            Period: `${startDate} -> ${endDate}`,
+            Orders: pOrders.length,
+            'Weekly Payouts': pCuts.length,
+            'Toast Net Sales': n2(pOrders.reduce((s, o) => s + Number(o.toast_net_sales || 0), 0)),
+            'Toast Tax': n2(pOrders.reduce((s, o) => s + Number(o.toast_tax || 0), 0)),
+            'Toast Expected Gross': n2(pOrders.reduce((s, o) => s + Number(o.toast_expected_gross || 0), 0)),
+            'Platform Subtotal': n2(pOrders.reduce((s, o) => s + Number(o.platform_subtotal || 0), 0)),
+            'Tax to Tacos Gavilan (24001)': n2(pOrders.reduce((s, o) => s + Number(o.platform_tax_paid_to_merchant || 0), 0)),
+            'MFT Tax Withheld (12050)': n2(pOrders.reduce((s, o) => s + Number(o.platform_tax_withheld || 0), 0)),
+            'Platform Gross Receivable': n2(pOrders.reduce((s, o) => s + Number(o.platform_gross_receivable || 0), 0)),
+            'Total Fees': n2(fees),
+            'Error Charge / Adj': n2(errAdj),
+            'Orders Net Payout': n2(pOrders.reduce((s, o) => s + Number(o.net_payout || 0), 0)),
+            'Settlements Net Deposit': n2(pCuts.reduce((s, p) => s + Number(p.net_payout_amount || 0), 0)),
+            'Gross Variance': n2(pOrders.reduce((s, o) => s + Number(o.gross_variance ?? o.gross_diff ?? 0), 0)),
+          }
+        : {
+            Plataforma: formatPlatformDisplayName(plat),
+            Periodo: `${startDate} -> ${endDate}`,
+            Ordenes: pOrders.length,
+            'Cortes Semanales': pCuts.length,
+            'Venta Neta Toast': n2(pOrders.reduce((s, o) => s + Number(o.toast_net_sales || 0), 0)),
+            'Tax Toast': n2(pOrders.reduce((s, o) => s + Number(o.toast_tax || 0), 0)),
+            'Bruto Esperado Toast': n2(pOrders.reduce((s, o) => s + Number(o.toast_expected_gross || 0), 0)),
+            'Subtotal Plataforma': n2(pOrders.reduce((s, o) => s + Number(o.platform_subtotal || 0), 0)),
+            'Tax a Tacos Gavilan (24001)': n2(pOrders.reduce((s, o) => s + Number(o.platform_tax_paid_to_merchant || 0), 0)),
+            'Tax Retenido MFT (12050)': n2(pOrders.reduce((s, o) => s + Number(o.platform_tax_withheld || 0), 0)),
+            'Bruto Reconocido Plataforma': n2(pOrders.reduce((s, o) => s + Number(o.platform_gross_receivable || 0), 0)),
+            'Total Comisiones': n2(fees),
+            'Cargo Error / Ajuste': n2(errAdj),
+            'Neto Ordenes': n2(pOrders.reduce((s, o) => s + Number(o.net_payout || 0), 0)),
+            'Deposito Neto Cortes': n2(pCuts.reduce((s, p) => s + Number(p.net_payout_amount || 0), 0)),
+            'Diferencia Bruta': n2(pOrders.reduce((s, o) => s + Number(o.gross_variance ?? o.gross_diff ?? 0), 0)),
+          }
+    })
+    const wsSummary = XLSX.utils.json_to_sheet(summaryRows)
+    wsSummary['!cols'] = Array(16).fill({ wch: 22 })
+    XLSX.utils.book_append_sheet(wb, wsSummary, isEn ? 'Summary' : 'Resumen')
+
+    // Hoja 2: Cortes Semanales (Payouts)
+    const payoutSheetRows = visiblePayouts.map((p) =>
+      isEn
+        ? {
+            'Payout Date': p.payout_date ? fmtDateMDY(p.payout_date) : '',
+            Store: p.store_name,
+            Platform: formatPlatformDisplayName(p.platform),
+            'Payout Reference ID': p.payout_reference_id,
+            'Period Start': p.period_start ? fmtDateMDY(p.period_start) : '',
+            'Period End': p.period_end ? fmtDateMDY(p.period_end) : '',
+            Orders: Number(p.orders_count || 0),
+            Subtotal: n2(p.subtotal_sales),
+            'Tax to Tacos Gavilan (24001)': n2(p.tax_paid_to_merchant),
+            'MFT Tax Withheld (12050)': n2(p.tax_remitted_by_platform),
+            'Accounting Gross': n2(p.accounting_gross_receivable ?? p.platform_gross_receivable),
+            'Total Fees': n2(
+              p.accounting_total_fees ??
+                Number(p.commission_fees || 0) +
+                  Number(p.delivery_fees || 0) +
+                  Number(p.processing_fees || 0) +
+                  Number(p.marketing_fees || 0)
+            ),
+            'Error Charges': n2(p.error_charges),
+            Adjustments: n2(p.adjustments_amount),
+            Tips: n2(p.tips_amount),
+            'Net Deposit': n2(p.net_payout_amount),
+            'Toast Expected Gross': n2(p.toast_expected_gross),
+            'Gross Variance': n2(p.accounting_gross_variance ?? p.gross_variance),
+            Status: p.status,
+          }
+        : {
+            'Fecha Deposito': p.payout_date ? fmtDateMDY(p.payout_date) : '',
+            Sucursal: p.store_name,
+            Plataforma: formatPlatformDisplayName(p.platform),
+            'ID Corte (Payout)': p.payout_reference_id,
+            'Inicio Periodo': p.period_start ? fmtDateMDY(p.period_start) : '',
+            'Fin Periodo': p.period_end ? fmtDateMDY(p.period_end) : '',
+            Ordenes: Number(p.orders_count || 0),
+            Subtotal: n2(p.subtotal_sales),
+            'Tax a Tacos Gavilan (24001)': n2(p.tax_paid_to_merchant),
+            'Tax Retenido MFT (12050)': n2(p.tax_remitted_by_platform),
+            'Bruto Contable': n2(p.accounting_gross_receivable ?? p.platform_gross_receivable),
+            'Total Comisiones': n2(
+              p.accounting_total_fees ??
+                Number(p.commission_fees || 0) +
+                  Number(p.delivery_fees || 0) +
+                  Number(p.processing_fees || 0) +
+                  Number(p.marketing_fees || 0)
+            ),
+            'Cargos Error': n2(p.error_charges),
+            Ajustes: n2(p.adjustments_amount),
+            Propinas: n2(p.tips_amount),
+            'Deposito Neto': n2(p.net_payout_amount),
+            'Bruto Esperado Toast': n2(p.toast_expected_gross),
+            'Diferencia Bruta': n2(p.accounting_gross_variance ?? p.gross_variance),
+            Estado: p.status,
+          }
+    )
+    const wsPayouts = XLSX.utils.json_to_sheet(payoutSheetRows)
+    wsPayouts['!cols'] = Array(19).fill({ wch: 20 })
+    XLSX.utils.book_append_sheet(wb, wsPayouts, isEn ? 'Weekly Payouts' : 'Cortes Semanales')
+
+    // Hoja 3: Detalle de Órdenes (con números reales sumables en Excel)
+    const orderSheetRows = sourceRows.map((o) => {
+      const varVal = Number(o.gross_variance ?? o.gross_diff ?? 0)
+      const feesVal =
+        Number(o.commission_fee || 0) +
+        Number(o.delivery_fee || 0) +
+        Number(o.processing_fee || 0) +
+        Number(o.marketing_fee || 0)
+      const recRefs =
+        Array.isArray(o.recovery_credits_evaluated) && o.recovery_credits_evaluated.length > 0
+          ? Array.from(new Set(o.recovery_credits_evaluated.map((c) => c.payout_reference_id))).join(' + ')
+          : o.raw_payload?.reimbursement_payout_ref || ''
+      return isEn
+        ? {
+            'Business Date': fmtDateMDY(o.business_date),
+            Store: o.store_name,
+            Platform: formatPlatformDisplayName(o.platform),
+            'Action Group': o.action_group || '',
+            'Status Label': o.status_label_en || o.reconciliation_status,
+            'Platform Order ID': o.platform_order_id,
+            'Toast Order #': o.toast_display_number || '',
+            'Toast Net Sales': n2(o.toast_net_sales),
+            'Toast Tax': n2(o.toast_tax),
+            'Toast Expected Gross': n2(o.toast_expected_gross),
+            'Platform Subtotal': n2(o.platform_subtotal),
+            'Platform Tax Passed to TEG (24001)': n2(o.platform_tax_paid_to_merchant),
+            'Platform Tax Withheld (12050)': n2(o.platform_tax_withheld),
+            'Platform Gross Receivable': n2(o.platform_gross_receivable),
+            'Total Fees': n2(feesVal),
+            'Error Charge / Adj': n2(Number(o.error_charge || 0) + Number(o.adjustment_amount || 0)),
+            'Net Payout': n2(o.net_payout),
+            'Gross Variance': n2(varVal),
+            'What Happened': o.what_happened_en || '',
+            Cause: o.cause_en || '',
+            Evidence: o.evidence_en || '',
+            'Next Action': o.next_action_en || '',
+            'Payout Reference ID': o.payout_reference_id || '',
+            'Reimbursement Payout Ref': recRefs,
+          }
+        : {
+            'Fecha Operativa': fmtDateMDY(o.business_date),
+            Sucursal: o.store_name,
+            Plataforma: formatPlatformDisplayName(o.platform),
+            'Grupo Operativo': o.action_group || '',
+            Estado: o.status_label_es || o.reconciliation_status,
+            'ID Orden Plataforma': o.platform_order_id,
+            'Ticket Toast #': o.toast_display_number || '',
+            'Venta Neta Toast': n2(o.toast_net_sales),
+            'Tax Toast': n2(o.toast_tax),
+            'Bruto Esperado Toast': n2(o.toast_expected_gross),
+            'Subtotal Plataforma': n2(o.platform_subtotal),
+            'Tax a Tacos Gavilan (24001)': n2(o.platform_tax_paid_to_merchant),
+            'Tax Retenido MFT (12050)': n2(o.platform_tax_withheld),
+            'Bruto Reconocido Plataforma': n2(o.platform_gross_receivable),
+            'Total Comisiones': n2(feesVal),
+            'Cargo Error / Ajuste': n2(Number(o.error_charge || 0) + Number(o.adjustment_amount || 0)),
+            'Neto Pagado': n2(o.net_payout),
+            'Diferencia Bruta': n2(varVal),
+            'Que Paso': o.what_happened_es || '',
+            Causa: o.cause_es || '',
+            Evidencia: o.evidence_es || '',
+            'Siguiente Accion': o.next_action_es || '',
+            'ID Corte (Payout)': o.payout_reference_id || '',
+            'Corte(s) de Reembolso': recRefs,
+          }
+    })
+    const wsOrders = XLSX.utils.json_to_sheet(orderSheetRows)
+    wsOrders['!cols'] = Array(24).fill({ wch: 20 })
+    XLSX.utils.book_append_sheet(wb, wsOrders, isEn ? 'Order Detail' : 'Ordenes Detalle')
+
+    XLSX.writeFile(wb, `TacosGavilan_Conciliacion_Delivery_${startDate}_${endDate}.xlsx`)
+  }
+
   const totalOrderPages = useMemo(
     () => Math.max(1, Math.ceil(displayedOrders.length / ordersPageSize)),
     [displayedOrders.length, ordersPageSize]
@@ -2293,28 +2577,25 @@ export default function ConciliarDeliveryPage() {
             <button
               type="button"
               onClick={handleLiveSync}
-              disabled={syncing || !isDateRangeValid || selectedStore === '0'}
+              disabled={syncing || loading || !isDateRangeValid || selectedStore === '0'}
               className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 text-white font-bold text-xs md:text-sm shadow-sm transition whitespace-nowrap"
             >
               <RefreshCw className={`w-4 h-4 ${syncing ? 'animate-spin' : ''}`} />
               {syncing
                 ? t('deliveryReconciliation.syncing_short')
-                : selectedStore === 'ALL' && mappings.length > 1
-                ? t('deliveryReconciliation.sync_queue_btn')
+                : (userScope?.isGlobalScope ?? true) && selectedStore === 'ALL' && mappings.length > 1
+                ? t('deliveryReconciliation.sync_queue_btn', { count: mappings.length })
                 : t('deliveryReconciliation.sync_store_period_btn')}
             </button>
 
             <button
               type="button"
-              disabled={syncing}
-              onClick={() => {
-                setBannerMessage(null)
-                setShowImportModal(true)
-              }}
-              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 disabled:opacity-50 text-slate-700 dark:text-slate-200 font-semibold text-xs md:text-sm border border-slate-200 dark:border-slate-700 transition whitespace-nowrap"
+              onClick={handleExportXlsx}
+              disabled={syncing || (displayedOrders.length === 0 && payouts.length === 0)}
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-bold text-xs md:text-sm shadow-sm transition whitespace-nowrap"
             >
-              <Upload className="w-4 h-4" />
-              {t('deliveryReconciliation.import_csv_json_btn')}
+              <FileSpreadsheet className="w-4 h-4" />
+              {t('deliveryReconciliation.export_xlsx_short')}
             </button>
 
             <button
@@ -2457,8 +2738,15 @@ export default function ConciliarDeliveryPage() {
               }}
               className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 text-xs md:text-sm font-bold disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              <option value="ALL">{t('deliveryReconciliation.all_stores')}</option>
-              <option value="0">{t('deliveryReconciliation.unassigned_store_option')}</option>
+              {(userScope?.isGlobalScope ?? true) && (
+                <>
+                  <option value="ALL">{t('deliveryReconciliation.all_stores')}</option>
+                  {((coverageReport?.unassignedOrdersCount || 0) + (coverageReport?.unassignedPayoutsCount || 0) > 0 ||
+                    selectedStore === '0') && (
+                    <option value="0">{t('deliveryReconciliation.unassigned_store_option')}</option>
+                  )}
+                </>
+              )}
               {[...mappings]
                 .sort((a, b) => a.store_name.localeCompare(b.store_name, 'es'))
                 .map((m) => (
@@ -2810,7 +3098,7 @@ export default function ConciliarDeliveryPage() {
                     onClick={() =>
                       handleProgressiveStoreQueueSync(summary.bidirectionalSummary.pendingSyncStoreIds)
                     }
-                    disabled={syncing}
+                    disabled={syncing || loading || !isDateRangeValid}
                     className="px-3 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-extrabold"
                   >
                     {t('deliveryReconciliation.sync_queue_pending_btn', {
@@ -4944,10 +5232,10 @@ export default function ConciliarDeliveryPage() {
                           )}
                         </td>
                         <td className="p-3">
-                          {renderPlatCell('DOORDASH', m.doordash_store_id || m.doordash_merchant_store_id || '-')}
+                          {renderPlatCell('DOORDASH', m.doordash_store_id || '-')}
                         </td>
                         <td className="p-3">
-                          {renderPlatCell('GRUBHUB', m.grubhub_cust_id || m.grubhub_merchant_id || '-')}
+                          {renderPlatCell('GRUBHUB', m.grubhub_cust_id || '-')}
                         </td>
                         <td className="p-3">
                           {renderPlatCell('UBER_EATS', m.ubereats_store_uuid || '-')}
@@ -4961,7 +5249,7 @@ export default function ConciliarDeliveryPage() {
                                 preserveFilters: true,
                               })
                             }}
-                            disabled={syncing}
+                            disabled={syncing || loading || !isDateRangeValid}
                             className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-xs font-bold transition"
                           >
                             <RefreshCw className={`w-3 h-3 ${syncing ? 'animate-spin' : ''}`} />
@@ -4981,10 +5269,10 @@ export default function ConciliarDeliveryPage() {
                               {(
                                 [
                                   ['doordash_store_id', t('deliveryReconciliation.mapping_dd_store_id')],
-                                  ['doordash_merchant_store_id', t('deliveryReconciliation.mapping_dd_merchant_id')],
+                                  ['doordash_business_id', t('deliveryReconciliation.mapping_dd_business_id')],
                                   ['grubhub_cust_id', t('deliveryReconciliation.mapping_gh_cust_id')],
-                                  ['grubhub_merchant_id', t('deliveryReconciliation.mapping_gh_merchant_id')],
                                   ['ubereats_store_uuid', t('deliveryReconciliation.mapping_ue_uuid')],
+                                  ['ubereats_org_uuid', t('deliveryReconciliation.mapping_ue_org_uuid')],
                                 ] as Array<[keyof typeof mappingDraft, string]>
                               ).map(([field, label]) => (
                                 <label key={field} className="block">
@@ -6192,7 +6480,8 @@ export default function ConciliarDeliveryPage() {
                               openOrdersTab: true,
                             })
                           }}
-                          className="px-3 py-1 rounded-lg bg-amber-600 hover:bg-amber-700 text-white font-extrabold shrink-0"
+                          disabled={syncing || loading}
+                          className="px-3 py-1 rounded-lg bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white font-extrabold shrink-0"
                         >
                           {t('deliveryReconciliation.sync_this_store_btn')}
                         </button>

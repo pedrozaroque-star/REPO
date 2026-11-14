@@ -15,7 +15,7 @@
  * - Reportes → /api/roles/checklist + operating_procedures + stores
  */
 
-import React, { useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { ClipboardList, ClipboardCheck, Settings, CalendarDays, BarChart3, Info, X } from 'lucide-react'
 import { useLanguage } from '@/lib/i18n'
@@ -53,6 +53,11 @@ export default function ActividadesPage() {
   const [activeTab, setActiveTab] = useState<TabKey>('asignacion')
   const [showHelpModal, setShowHelpModal] = useState(false)
   const [showChecklistModal, setShowChecklistModal] = useState(false)
+  const tabRefs = useRef<Record<string, HTMLButtonElement | null>>({})
+
+  useEffect(() => {
+    tabRefs.current[activeTab]?.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' })
+  }, [activeTab])
 
   // Permisos: Admin y Supervisor pueden editar catálogo y configurar posiciones, Manager solo puede ver
   // Permissions: Admin & Supervisor can edit catalog and configure positions, Manager is read-only
@@ -89,29 +94,29 @@ export default function ActividadesPage() {
   return (
     <div className="min-h-screen bg-slate-50/50 dark:bg-[#0B1120] relative">
       {/* ═══ HEADER ═══ */}
-      <div className="sticky top-0 z-30 bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl border-b border-slate-200/60 dark:border-slate-800/60">
+      <div className="sticky top-14 lg:top-0 z-30 bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl border-b border-slate-200/60 dark:border-slate-800/60">
         <div className="max-w-[1600px] mx-auto px-3 sm:px-6">
           {/* Title Row */}
-          <div className="flex items-center justify-between py-3 sm:py-4">
-            <div>
+          <div className="flex items-center justify-between gap-2 py-3 sm:py-4">
+            <div className="min-w-0">
               <h1 className="text-xl sm:text-2xl font-black bg-gradient-to-r from-orange-600 to-red-600 dark:from-orange-400 dark:to-red-400 bg-clip-text text-transparent flex items-center gap-2">
-                <span>{t('actividades.title')}</span>
+                <span className="truncate">{t('actividades.title')}</span>
                 <button
                   onClick={() => setShowHelpModal(true)}
-                  className="p-1 rounded-full text-slate-400 hover:text-orange-600 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                  className="p-1.5 rounded-full text-slate-400 hover:text-orange-600 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors shrink-0"
                   title={t('actividades.help.title')}
                 >
                   <Info size={20} />
                 </button>
               </h1>
-              <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 mt-0.5">
+              <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 mt-0.5 line-clamp-1">
                 {t('actividades.subtitle')}
               </p>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 shrink-0">
               <button
                 onClick={() => setShowChecklistModal(true)}
-                className="inline-flex items-center gap-1.5 text-xs sm:text-sm font-bold px-3.5 py-2 rounded-xl bg-gradient-to-r from-orange-600 to-amber-500 hover:from-orange-700 hover:to-amber-600 text-white shadow-md shadow-orange-500/20 transition-all active:scale-95"
+                className="inline-flex items-center gap-1.5 text-xs sm:text-sm font-bold px-3.5 py-2 rounded-xl bg-gradient-to-r from-orange-600 to-amber-500 hover:from-orange-700 hover:to-amber-600 text-white shadow-md shadow-orange-500/20 transition-all active:scale-95 shrink-0 whitespace-nowrap"
               >
                 <ClipboardCheck size={16} />
                 <span>{t('actividades.checklist.btn')}</span>
@@ -129,6 +134,7 @@ export default function ActividadesPage() {
               return (
                 <button
                   key={tab.key}
+                  ref={(el) => { tabRefs.current[tab.key] = el }}
                   onClick={() => setActiveTab(tab.key)}
                   className={`group relative flex items-center gap-2 px-4 py-2.5 text-sm font-semibold whitespace-nowrap transition-all duration-200 border-b-2 rounded-t-lg ${
                     isActive

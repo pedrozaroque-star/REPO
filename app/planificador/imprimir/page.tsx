@@ -17,7 +17,7 @@
 import { useEffect, useState, useMemo, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { getSupabaseClient } from '@/lib/supabase'
-import { addDays, formatDateISO, getMonday, getRoleWeight, stringToColor } from '../lib/utils'
+import { addDays, formatDateISO, getLAHoursMinutes, getMonday, getRoleWeight, stringToColor } from '../lib/utils'
 import { Loader2, Printer } from 'lucide-react'
 
 // Force dynamic rendering
@@ -91,12 +91,13 @@ function PrintViewContent() {
 
             let totalHour = 0
             empShifts.forEach(s => {
-                const hour = new Date(s.start_time).getHours()
-                totalHour += hour
+                const { hour, minute } = getLAHoursMinutes(s.start_time)
+                const bizHour = (hour < 6 ? hour + 24 : hour) + minute / 60
+                totalHour += bizHour
             })
             const avg = totalHour / empShifts.length
 
-            if (avg < 14) am.push(emp)
+            if (avg < 17) am.push(emp)
             else pm.push(emp)
         })
 
@@ -167,7 +168,8 @@ function PrintViewContent() {
                     {title}
                     <span className="text-sm font-normal normal-case text-gray-500">{team.length} empleados</span>
                 </h2>
-                <table className="w-full text-sm border-collapse border border-gray-400">
+                <div className="overflow-x-auto print:overflow-visible -mx-2 px-2 print:mx-0 print:px-0">
+                <table className="w-full min-w-[680px] print:min-w-0 text-sm border-collapse border border-gray-400">
                     <thead>
                         <tr className="bg-[#333333] text-white print:bg-[#333333] print:text-white">
                             <th className="py-2 px-1 text-left border border-gray-500 w-[150px] pl-2">Name</th>
@@ -203,9 +205,7 @@ function PrintViewContent() {
                                                         <span className="font-bold text-[11px] leading-tight mb-0.5">
                                                             {(() => {
                                                                 const format = (iso: string) => {
-                                                                    const d = new Date(iso)
-                                                                    const h = d.getHours()
-                                                                    const m = d.getMinutes()
+                                                                    const { hour: h, minute: m } = getLAHoursMinutes(iso)
                                                                     const ampm = h >= 12 ? 'pm' : 'am'
                                                                     const h12 = h % 12 || 12
                                                                     return m === 0 ? `${h12}${ampm}` : `${h12}:${m.toString().padStart(2, '0')}${ampm}`
@@ -234,6 +234,7 @@ function PrintViewContent() {
                         ))}
                     </tbody>
                 </table>
+                </div>
             </div>
         )
     }
@@ -243,17 +244,17 @@ function PrintViewContent() {
     return (
         <div className="min-h-screen bg-white text-black p-4 print:p-0 font-sans">
             {/* HEADER */}
-            <div className="flex justify-between items-center mb-4 border-b pb-2">
-                <h1 className="text-xl font-bold">
+            <div className="flex flex-wrap justify-between items-center gap-2 mb-4 border-b pb-2">
+                <h1 className="text-base sm:text-xl font-bold">
                     {weekStart.toLocaleString('es-US', { month: 'long', day: 'numeric' })} - {addDays(weekStart, 6).toLocaleString('es-US', { month: 'long', day: 'numeric', year: 'numeric' })}
                     <span className="mx-2">|</span>
                     Employees @ {store?.name || 'Lynwood'}
                 </h1>
                 <button
                     onClick={() => window.print()}
-                    className="print:hidden flex items-center gap-2 bg-black text-white px-3 py-1 rounded hover:bg-gray-800"
+                    className="print:hidden flex items-center gap-2 bg-black text-white min-h-[40px] px-4 py-2 rounded-lg text-sm font-semibold hover:bg-gray-800"
                 >
-                    <Printer size={14} /> Imprimir
+                    <Printer size={16} /> Imprimir
                 </button>
             </div>
 

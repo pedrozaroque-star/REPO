@@ -84,23 +84,15 @@ const VALID_DISPUTE_STATUSES = new Set<string>(['NONE', 'OPEN', 'SUBMITTED', 'AP
 const ALLOWED_MAPPING_COLUMNS = new Set<string>([
   'doordash_store_id',
   'doordash_business_id',
-  'doordash_merchant_store_id',
-  'doordash_store_name',
   'doordash_delivery_comm_pct',
   'doordash_pickup_comm_pct',
   'ubereats_store_uuid',
   'ubereats_org_uuid',
-  'ubereats_store_name',
   'ubereats_delivery_comm_pct',
   'ubereats_pickup_comm_pct',
   'grubhub_cust_id',
-  'grubhub_merchant_id',
-  'grubhub_store_name',
   'grubhub_delivery_comm_pct',
   'grubhub_pickup_comm_pct',
-  'qbo_location_id',
-  'qbo_department_name',
-  'is_active',
 ])
 
 function isValidIsoDate(val: unknown): val is string {
@@ -829,9 +821,13 @@ export async function GET(req: NextRequest) {
     const endDate = searchParams.get('end_date') || new Date().toISOString().slice(0, 10)
     const search = (searchParams.get('search') || '').trim().toLowerCase()
 
-    const mappings = await getStorePlatformMappings()
+    const allMappings = await getStorePlatformMappings()
+    const mappings =
+      !auth.isGlobalScope && auth.user?.storeId
+        ? allMappings.filter((m) => m.store_id === auth.user!.storeId)
+        : allMappings
     const storeNameMap = new Map<number, { name: string; code: string }>()
-    for (const m of mappings) {
+    for (const m of allMappings) {
       storeNameMap.set(m.store_id, { name: m.store_name, code: m.store_code })
     }
     storeNameMap.set(0, { name: 'Tienda Desconocida (Requiere Mapeo)', code: 'UNASSIGNED_STORE' })
@@ -863,6 +859,7 @@ export async function GET(req: NextRequest) {
       allSyncOrders,
       allSyncPayouts,
       quarantinedUnassigned,
+      integrationsRes,
     ] = await Promise.all([
       fetchAllSupabaseRows<any>((from, to) => {
         let q = supabaseAdmin
@@ -941,7 +938,55 @@ export async function GET(req: NextRequest) {
           .range(from, to)
       ),
       getQuarantinedUnassignedRecords(),
+      supabaseAdmin
+        .from('integrations')
+        .select('service_name, expires_at, updated_at, access_token')
+        .in('service_name', ['doordash_merchant', 'ubereats_merchant', 'grubhub_merchant', 'delivery_sync_status']),
     ])
+
+    const integrationsRows: any[] = integrationsRes?.data || []
+    let persistedSyncState: {
+      updatedAt?: string
+      platformLastSync?: Record<string, string | null>
+      byStorePlatform?: Record<string, any>
+    } = {}
+    const integrationConnMap: Record<string, { connected: boolean; expiresAt: string | null; updatedAt: string | null; authMode: string }> = {
+      TOAST: {
+        connected: Boolean(process.env.TOAST_CLIENT_ID && process.env.TOAST_CLIENT_SECRET),
+        expiresAt: null,
+        updatedAt: null,
+        authMode: 'oauth2',
+      },
+      DOORDASH: { connected: false, expiresAt: null, updatedAt: null, authMode: 'none' },
+      UBER_EATS: { connected: false, expiresAt: null, updatedAt: null, authMode: 'none' },
+      GRUBHUB: {
+        connected: Boolean(process.env.GRUBHUB_MERCHANT_EMAIL && process.env.GRUBHUB_MERCHANT_PASSWORD),
+        expiresAt: null,
+        updatedAt: null,
+        authMode: process.env.GRUBHUB_MERCHANT_EMAIL && process.env.GRUBHUB_MERCHANT_PASSWORD ? 'env_fallback' : 'none',
+      },
+    }
+    const nowMs = Date.now()
+    for (const iRow of integrationsRows) {
+      const svc = String(iRow?.service_name || '')
+      if (svc === 'delivery_sync_status' && iRow?.access_token) {
+        try {
+          persistedSyncState = JSON.parse(iRow.access_token) || {}
+        } catch {}
+      } else if (svc === 'doordash_merchant' || svc === 'ubereats_merchant' || svc === 'grubhub_merchant') {
+        const key = svc === 'doordash_merchant' ? 'DOORDASH' : svc === 'ubereats_merchant' ? 'UBER_EATS' : 'GRUBHUB'
+        const expIso = iRow?.expires_at ? String(iRow.expires_at) : null
+        const expMs = expIso ? Date.parse(expIso) : NaN
+        const notExpired = !expIso || (Number.isFinite(expMs) && expMs > nowMs && expMs > 86400000)
+        const hasToken = Boolean(iRow?.access_token) && notExpired
+        integrationConnMap[key] = {
+          connected: hasToken || (key === 'GRUBHUB' && Boolean(process.env.GRUBHUB_MERCHANT_EMAIL && process.env.GRUBHUB_MERCHANT_PASSWORD)),
+          expiresAt: expIso,
+          updatedAt: iRow?.updated_at ? String(iRow.updated_at) : null,
+          authMode: hasToken ? 'chrome_s2s' : key === 'GRUBHUB' && process.env.GRUBHUB_MERCHANT_EMAIL ? 'env_fallback' : 'expired',
+        }
+      }
+    }
 
     for (const p of rawPayouts || []) {
       const eff = resolveEffectivePayoutPeriod(p)
@@ -1165,6 +1210,7 @@ export async function GET(req: NextRequest) {
       DOORDASH: PlatformSyncMeta
       GRUBHUB: PlatformSyncMeta
       UBER_EATS: PlatformSyncMeta
+      connections: Record<string, { connected: boolean; expiresAt: string | null; updatedAt: string | null; authMode: string }>
       byStore: Record<
         number,
         {
@@ -1186,6 +1232,7 @@ export async function GET(req: NextRequest) {
       DOORDASH: initMeta(),
       GRUBHUB: initMeta(),
       UBER_EATS: initMeta(),
+      connections: integrationConnMap,
       byStore: {},
     }
 
@@ -1316,6 +1363,14 @@ export async function GET(req: NextRequest) {
           stEntry.uePayouts++
           stEntry.ueLastSync = maxIso(stEntry.ueLastSync, upd)
         }
+      }
+    }
+
+    for (const platKey of ['TOAST', 'DOORDASH', 'GRUBHUB', 'UBER_EATS'] as const) {
+      const pIso = persistedSyncState?.platformLastSync?.[platKey]
+      if (pIso) {
+        syncStatus[platKey].globalLastSyncedAt = maxIso(syncStatus[platKey].globalLastSyncedAt, pIso)
+        syncStatus[platKey].lastSyncedAt = maxIso(syncStatus[platKey].lastSyncedAt, pIso)
       }
     }
 
@@ -1610,12 +1665,16 @@ export async function GET(req: NextRequest) {
         ? mappings.filter((m) => m.store_id === selectedStoreNum)
         : mappings
 
-    const platformCoverage = buildStorePlatformCoverageMatrix({
+    const allPlatformCoverage = buildStorePlatformCoverageMatrix({
       mappings: targetStoresForCoverage,
       orders,
       payouts,
       encryptionKeyConfigured: hasDedicatedIntegrationEncryptionKey(),
-    }).filter((item) => !platformParam || platformParam === 'ALL' || item.platform === platformParam)
+      persistedSyncMap: persistedSyncState.byStorePlatform || {},
+    })
+    const platformCoverage = allPlatformCoverage.filter(
+      (item) => !platformParam || platformParam === 'ALL' || item.platform === platformParam
+    )
 
     const storeCoverageList = targetStoresForCoverage.map((m) => {
       const stSync = syncStatus.byStore[m.store_id] || {
@@ -1724,7 +1783,7 @@ export async function GET(req: NextRequest) {
       statusLabelEs: buildCoverageStatusEs(),
       statusLabelEn: buildCoverageStatusEn(),
       byStore: storeCoverageList,
-      byStorePlatform: platformCoverage,
+      byStorePlatform: allPlatformCoverage,
     }
 
     // Calcular Resumen Ejecutivo (KPIs) y los 4 Grupos de Acción
@@ -2766,6 +2825,10 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({
       success: true,
       mappings,
+      userScope: {
+        isGlobalScope: auth.isGlobalScope,
+        assignedStoreId: auth.user?.storeId ?? null,
+      },
       orders,
       payouts,
       summary,
@@ -2790,6 +2853,15 @@ export async function POST(req: NextRequest) {
     const action = String(body.action || '').trim()
 
     if (action === 'sync_live') {
+      if (String(body.store_id ?? '') === '0') {
+        return NextResponse.json(
+          {
+            success: false,
+            error: 'No es posible sincronizar la vista virtual Sin Asignar (store_id=0). Selecciona una sucursal real o Todas las Tiendas.',
+          },
+          { status: 400 }
+        )
+      }
       const storeIdsArray = Array.isArray(body.store_ids)
         ? body.store_ids.map((id: any) => Number(id)).filter((n: number) => Number.isFinite(n) && n > 0)
         : []
@@ -2810,12 +2882,19 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ success: false, error: auth.error || 'No autorizado' }, { status: auth.status || 401 })
       }
 
+      const formatLaDate = (d: Date) =>
+        new Intl.DateTimeFormat('en-CA', {
+          timeZone: 'America/Los_Angeles',
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit',
+        }).format(d)
       const startDate = isValidIsoDate(body.start_date)
         ? body.start_date.trim()
-        : new Date(Date.now() - 3 * 86400000).toISOString().slice(0, 10)
+        : formatLaDate(new Date(Date.now() - 3 * 86400000))
       const endDate = isValidIsoDate(body.end_date)
         ? body.end_date.trim()
-        : new Date().toISOString().slice(0, 10)
+        : formatLaDate(new Date())
 
       if (startDate > endDate) {
         return NextResponse.json(
@@ -2843,6 +2922,7 @@ export async function POST(req: NextRequest) {
 
       return NextResponse.json({
         success: true,
+        hasWarnings: (result.syncErrors?.length || 0) > 0,
         ...result,
       })
     }

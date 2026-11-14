@@ -133,6 +133,7 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
     const [managerName, setManagerName] = useState<string | null>(null)
     const [managerId, setManagerId] = useState<string | null>(null) // State for ID
     const [chatOpen, setChatOpen] = useState(false) // Floating Chat State
+    const [showMoreMenu, setShowMoreMenu] = useState(false)
     const chatContainerRef = useRef<HTMLDivElement>(null)
 
     // Image Viewer State
@@ -667,7 +668,7 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
                 {isOpen && (
                     <motion.div
                         key="modal-overlay"
-                        className="fixed inset-0 z-[9999] pb-32 text-left overflow-hidden bg-gray-50 dark:bg-neutral-900 transition-colors duration-300"
+                        className="fixed inset-0 z-[9999] pb-[max(5rem,calc(env(safe-area-inset-bottom)+4rem))] lg:pb-32 text-left overflow-hidden bg-gray-50 dark:bg-neutral-900 transition-colors duration-300"
                         initial={{ opacity: 0, y: 50 }}
                         animate={{ opacity: 1, y: 0 }}
                         exit={{ opacity: 0, y: 50 }}
@@ -677,24 +678,32 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
                             aria-hidden="true"
                         />
 
-                        {/* CLOSE BUTTON (Floating Top Right) */}
+                        {showMoreMenu && (
+                            <div
+                                onClick={() => setShowMoreMenu(false)}
+                                className="fixed inset-0 z-40"
+                                aria-hidden="true"
+                            />
+                        )}
+
+                        {/* CLOSE BUTTON (Floating Top Right - Desktop) */}
                         <button
                             onClick={onClose}
-                            className="fixed top-6 right-6 z-[100] p-2 bg-white dark:bg-slate-800 rounded-full shadow-lg hover:bg-gray-100 dark:hover:bg-slate-700 border border-gray-200 dark:border-slate-700 text-gray-500 dark:text-slate-400 transition-colors"
+                            className="hidden lg:flex fixed top-6 right-6 z-[100] p-2 bg-white dark:bg-slate-800 rounded-full shadow-lg hover:bg-gray-100 dark:hover:bg-slate-700 border border-gray-200 dark:border-slate-700 text-gray-500 dark:text-slate-400 transition-colors"
                         >
                             <X size={24} />
                         </button>
 
                         {/* 1. FLOATING HEADER PILL (Fixed at top) */}
-                        <div className="fixed top-6 left-0 right-0 z-50 flex justify-center px-4 pointer-events-none">
-                            <div className="pointer-events-auto bg-white/95 dark:bg-slate-900/90 backdrop-blur-xl shadow-[0_10px_40px_rgba(0,0,0,0.15)] rounded-full px-6 py-4 flex items-center gap-6 max-w-4xl w-full justify-between ring-1 ring-black/5 dark:ring-white/10 border border-transparent dark:border-slate-800">
+                        <div className="fixed top-3 lg:top-6 left-0 right-0 z-50 flex justify-center px-3 lg:px-4 pointer-events-none">
+                            <div className="pointer-events-auto bg-white/95 dark:bg-slate-900/90 backdrop-blur-xl shadow-[0_10px_40px_rgba(0,0,0,0.15)] rounded-full px-3 py-2.5 sm:px-6 sm:py-4 flex items-center gap-2 sm:gap-6 max-w-4xl w-full justify-between ring-1 ring-black/5 dark:ring-white/10 border border-transparent dark:border-slate-800">
 
-                                <div className="flex items-center gap-4 pl-1">
-                                    <button onClick={onClose} className="w-12 h-12 rounded-full bg-gray-50 dark:bg-slate-800 flex items-center justify-center text-gray-900 dark:text-white hover:bg-gray-100 dark:hover:bg-slate-700 hover:text-black transition-colors border-2 border-gray-200 dark:border-slate-700 shadow-sm">
-                                        <ArrowLeft size={24} strokeWidth={3} />
+                                <div className="flex items-center gap-2.5 sm:gap-4 pl-0.5 sm:pl-1 min-w-0">
+                                    <button onClick={onClose} className="w-10 h-10 sm:w-12 sm:h-12 shrink-0 rounded-full bg-gray-50 dark:bg-slate-800 flex items-center justify-center text-gray-900 dark:text-white hover:bg-gray-100 dark:hover:bg-slate-700 hover:text-black transition-colors border-2 border-gray-200 dark:border-slate-700 shadow-sm">
+                                        <ArrowLeft size={20} strokeWidth={3} className="sm:w-6 sm:h-6" />
                                     </button>
-                                    <div className="flex flex-col gap-0.5">
-                                        <h1 className="text-lg font-black text-gray-900 dark:text-white tracking-tight leading-none uppercase">{language === 'en' ? theme.labelEn : theme.labelEs}</h1>
+                                    <div className="flex flex-col gap-0.5 min-w-0">
+                                        <h1 className="text-sm sm:text-lg font-black text-gray-900 dark:text-white tracking-tight leading-tight uppercase truncate">{language === 'en' ? theme.labelEn : theme.labelEs}</h1>
                                         <div className="flex items-center gap-3 hidden sm:flex">
                                             <div className="text-xs flex items-center gap-1 font-bold text-gray-600 dark:text-slate-400 uppercase">
                                                 <Store size={14} strokeWidth={2.5} /> {checklist.store_name || (language === 'en' ? 'Store' : 'Tienda')}
@@ -709,49 +718,62 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
                                 </div>
 
                                 {/* Progress Pill */}
-                                <div className="flex items-center gap-3 pr-1">
+                                <div className="flex items-center gap-2 sm:gap-3 pr-0.5 sm:pr-1 shrink-0">
                                     <div className="text-right hidden sm:block">
                                         <div className="text-[11px] font-black text-gray-900 dark:text-slate-300 uppercase tracking-widest leading-none mb-1">{t('inspections.review.score')}</div>
                                     </div>
-                                    <div className={`px-6 py-2.5 rounded-full font-black text-2xl shadow-md border-2 flex items-center gap-1 ${finalScore >= 80 ? 'bg-emerald-50 text-emerald-600 border-emerald-200' :
+                                    <div className={`px-3.5 sm:px-6 py-1.5 sm:py-2.5 rounded-full font-black text-lg sm:text-2xl shadow-md border-2 flex items-center gap-1 ${finalScore >= 80 ? 'bg-emerald-50 text-emerald-600 border-emerald-200' :
                                         finalScore >= 60 ? 'bg-amber-50 text-amber-600 border-amber-200' :
                                             'bg-red-50 text-red-600 border-red-200'
                                         }`}>
                                         {finalScore}%
                                     </div>
                                     <div className="relative group/more">
-                                        <button className="w-12 h-12 rounded-full bg-gray-950 text-white flex items-center justify-center shadow-xl hover:scale-105 active:scale-95 transition-transform border-2 border-white/20">
-                                            <MoreHorizontal size={24} strokeWidth={3} />
+                                        <button
+                                            type="button"
+                                            onClick={() => setShowMoreMenu(prev => !prev)}
+                                            aria-expanded={showMoreMenu}
+                                            className="w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-gray-950 text-white flex items-center justify-center shadow-xl hover:scale-105 active:scale-95 transition-transform border-2 border-white/20"
+                                        >
+                                            <MoreHorizontal size={20} strokeWidth={3} className="sm:w-6 sm:h-6" />
                                         </button>
 
-                                        <div className="absolute right-0 mt-2 w-48 bg-white dark:bg-slate-900 rounded-xl shadow-xl border border-gray-100 dark:border-slate-800 p-2 invisible group-hover:visible opacity-0 group-hover:opacity-100 transition-all transform origin-top-right z-50">
+                                        <div className={`absolute right-0 mt-2 w-52 bg-white dark:bg-slate-900 rounded-xl shadow-xl border border-gray-100 dark:border-slate-800 p-2 transition-all transform origin-top-right z-50 ${showMoreMenu ? 'visible opacity-100 pointer-events-auto' : 'invisible opacity-0 pointer-events-none lg:group-hover:visible lg:group-hover:opacity-100 lg:group-hover:pointer-events-auto'}`}>
                                             {(canApprove || canSupervisorFinalApprove) && status !== 'cerrado' && (
-                                                <button onClick={() => handleStatusChange('aprobado')} className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 rounded-lg transition-colors">
-                                                    <CheckCircle size={14} /> {t('inspections.review.approve')}
+                                                <button onClick={() => { setShowMoreMenu(false); handleStatusChange('aprobado') }} className="w-full flex items-center gap-2 px-3 py-2.5 text-xs font-bold text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 rounded-lg transition-colors">
+                                                    <CheckCircle size={15} /> {t('inspections.review.approve')}
                                                 </button>
                                             )}
                                             {canReject && status !== 'cerrado' && (
-                                                <button onClick={() => handleStatusChange('rechazado')} className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-rose-700 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-red-900/20 rounded-lg transition-colors">
-                                                    <XCircle size={14} /> {t('inspections.review.reject')}
+                                                <button onClick={() => { setShowMoreMenu(false); handleStatusChange('rechazado') }} className="w-full flex items-center gap-2 px-3 py-2.5 text-xs font-bold text-rose-700 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-red-900/20 rounded-lg transition-colors">
+                                                    <XCircle size={15} /> {t('inspections.review.reject')}
                                                 </button>
                                             )}
                                             {canClose && status !== 'cerrado' && (
-                                                <button onClick={() => handleStatusChange('cerrado')} className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-purple-700 dark:text-purple-400 hover:bg-purple-50 dark:hover:bg-purple-900/20 rounded-lg transition-colors">
-                                                    <Send size={14} /> {t('inspections.review.close_ticket')}
+                                                <button onClick={() => { setShowMoreMenu(false); handleStatusChange('cerrado') }} className="w-full flex items-center gap-2 px-3 py-2.5 text-xs font-bold text-purple-700 dark:text-purple-400 hover:bg-purple-50 dark:hover:bg-purple-900/20 rounded-lg transition-colors">
+                                                    <Send size={15} /> {t('inspections.review.close_ticket')}
                                                 </button>
                                             )}
-                                            <button onClick={handlePrint} className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-gray-700 dark:text-slate-300 hover:bg-gray-50 dark:hover:bg-slate-800 rounded-lg transition-colors border-t border-gray-100 dark:border-slate-800 mt-1">
-                                                <Printer size={14} /> {t('inspections.review.print')}
+                                            <button onClick={() => { setShowMoreMenu(false); handlePrint() }} className="w-full flex items-center gap-2 px-3 py-2.5 text-xs font-bold text-gray-700 dark:text-slate-300 hover:bg-gray-50 dark:hover:bg-slate-800 rounded-lg transition-colors border-t border-gray-100 dark:border-slate-800 mt-1">
+                                                <Printer size={15} /> {t('inspections.review.print')}
                                             </button>
                                         </div>
                                     </div>
+                                    <button
+                                        type="button"
+                                        onClick={onClose}
+                                        className="lg:hidden w-10 h-10 rounded-full bg-gray-100 dark:bg-slate-800 text-gray-600 dark:text-slate-300 flex items-center justify-center shrink-0 border border-gray-200 dark:border-slate-700"
+                                        aria-label={t('common.close') || 'Cerrar'}
+                                    >
+                                        <X size={18} />
+                                    </button>
                                 </div>
                             </div>
                         </div>
 
                         {/* MAIN CONTENT CONTAINERS (Scrollable) */}
                         <div className="h-full overflow-y-auto no-scrollbar">
-                            <div className="max-w-3xl mx-auto px-4 pt-36 space-y-8 relative z-10 pb-40">
+                            <div className="max-w-3xl mx-auto px-3 sm:px-4 pt-24 sm:pt-36 space-y-6 sm:space-y-8 relative z-10 pb-44">
 
                                 {/* 3. METADATA BUBBLE */}
                                 <div className="bg-white/95 dark:bg-slate-900/95 backdrop-blur-sm rounded-3xl p-6 shadow-[0_10px_40px_-10px_rgba(0,0,0,0.05)] dark:shadow-none text-center relative overflow-hidden group border border-gray-100 dark:border-slate-800 ring-1 ring-black/5 dark:ring-white/5">
@@ -1482,25 +1504,26 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
                         initial={{ opacity: 0, y: 100 }}
                         animate={{ opacity: 1, y: 0 }}
                         exit={{ opacity: 0, y: 100 }}
-                        className="fixed bottom-[88px] lg:bottom-6 left-1/2 -translate-x-1/2 z-[9999] flex items-center gap-1 p-2 bg-white/80 backdrop-blur-xl rounded-full border border-white/20 shadow-[0_20px_50px_rgba(0,0,0,0.2)]"
+                        className="fixed bottom-[max(0.75rem,env(safe-area-inset-bottom))] lg:bottom-6 left-1/2 -translate-x-1/2 z-[9999] flex items-center gap-1.5 p-2 bg-white/95 backdrop-blur-xl rounded-full border border-gray-200/80 shadow-[0_20px_50px_rgba(0,0,0,0.2)] max-w-[calc(100vw-1rem)]"
                     >
                         <button
                             onClick={() => handleStatusChange('pendiente')}
                             disabled={saving}
                             onMouseEnter={() => setHoveredBtn('pendiente')}
                             onMouseLeave={() => setHoveredBtn(null)}
-                            className="relative w-12 h-12 rounded-full bg-amber-50 text-amber-600 flex items-center justify-center hover:bg-amber-100 hover:scale-110 active:scale-95 transition-all disabled:opacity-50 border border-amber-200/50 group"
+                            className="relative px-3 h-11 sm:px-0 sm:w-12 sm:h-12 rounded-full bg-amber-50 text-amber-700 flex items-center justify-center gap-1.5 hover:bg-amber-100 hover:scale-105 active:scale-95 transition-all disabled:opacity-50 border border-amber-200/70 group shrink-0"
                         >
-                            <Clock size={20} />
+                            <Clock size={18} className="sm:w-5 sm:h-5" />
+                            <span className="sm:hidden text-[11px] font-black">{language === 'en' ? 'Pending' : 'Pend.'}</span>
                             <AnimatePresence>
                                 {hoveredBtn === 'pendiente' && (
                                     <motion.div
                                         initial={{ opacity: 0, y: -5 }}
                                         animate={{ opacity: 1, y: -40 }}
                                         exit={{ opacity: 0, y: -5 }}
-                                        className="absolute z-[10001] bg-gray-900 text-white text-[11px] font-medium px-3 py-1.5 rounded-lg whitespace-nowrap pointer-events-none shadow-xl"
+                                        className="hidden sm:block absolute z-[10001] bg-gray-900 text-white text-[11px] font-medium px-3 py-1.5 rounded-lg whitespace-nowrap pointer-events-none shadow-xl"
                                     >
-                                        Mark as Pending
+                                        {language === 'en' ? 'Mark as Pending' : 'Marcar Pendiente'}
                                         <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-gray-900 transform rotate-45" />
                                     </motion.div>
                                 )}
@@ -1512,18 +1535,19 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
                             disabled={saving}
                             onMouseEnter={() => setHoveredBtn('rechazado')}
                             onMouseLeave={() => setHoveredBtn(null)}
-                            className="relative w-12 h-12 rounded-full bg-rose-50 text-rose-600 flex items-center justify-center hover:bg-rose-100 hover:scale-110 active:scale-95 transition-all disabled:opacity-50 border border-rose-200/50 group"
+                            className="relative px-3 h-11 sm:px-0 sm:w-12 sm:h-12 rounded-full bg-rose-50 text-rose-700 flex items-center justify-center gap-1.5 hover:bg-rose-100 hover:scale-105 active:scale-95 transition-all disabled:opacity-50 border border-rose-200/70 group shrink-0"
                         >
-                            <XCircle size={20} />
+                            <XCircle size={18} className="sm:w-5 sm:h-5" />
+                            <span className="sm:hidden text-[11px] font-black">{language === 'en' ? 'Reject' : 'Rechazar'}</span>
                             <AnimatePresence>
                                 {hoveredBtn === 'rechazado' && (
                                     <motion.div
                                         initial={{ opacity: 0, y: -5 }}
                                         animate={{ opacity: 1, y: -40 }}
                                         exit={{ opacity: 0, y: -5 }}
-                                        className="absolute z-[10001] bg-gray-900 text-white text-[11px] font-medium px-3 py-1.5 rounded-lg whitespace-nowrap pointer-events-none shadow-xl"
+                                        className="hidden sm:block absolute z-[10001] bg-gray-900 text-white text-[11px] font-medium px-3 py-1.5 rounded-lg whitespace-nowrap pointer-events-none shadow-xl"
                                     >
-                                        Reject / Needs Correction
+                                        {language === 'en' ? 'Reject / Needs Correction' : 'Rechazar / Corregir'}
                                         <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-gray-900 transform rotate-45" />
                                     </motion.div>
                                 )}
@@ -1535,18 +1559,19 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
                             disabled={saving}
                             onMouseEnter={() => setHoveredBtn('cerrado')}
                             onMouseLeave={() => setHoveredBtn(null)}
-                            className="relative w-12 h-12 rounded-full bg-indigo-50 text-indigo-600 flex items-center justify-center hover:bg-indigo-100 hover:scale-110 active:scale-95 transition-all disabled:opacity-50 border border-indigo-200/50 group"
+                            className="relative px-3 h-11 sm:px-0 sm:w-12 sm:h-12 rounded-full bg-indigo-50 text-indigo-700 flex items-center justify-center gap-1.5 hover:bg-indigo-100 hover:scale-105 active:scale-95 transition-all disabled:opacity-50 border border-indigo-200/70 group shrink-0"
                         >
-                            <CheckCircle size={20} />
+                            <CheckCircle size={18} className="sm:w-5 sm:h-5" />
+                            <span className="sm:hidden text-[11px] font-black">{language === 'en' ? 'Close' : 'Cerrar'}</span>
                             <AnimatePresence>
                                 {hoveredBtn === 'cerrado' && (
                                     <motion.div
                                         initial={{ opacity: 0, y: -5 }}
                                         animate={{ opacity: 1, y: -40 }}
                                         exit={{ opacity: 0, y: -5 }}
-                                        className="absolute z-[10001] bg-indigo-600 text-white text-[11px] font-medium px-3 py-1.5 rounded-lg whitespace-nowrap pointer-events-none shadow-xl"
+                                        className="hidden sm:block absolute z-[10001] bg-indigo-600 text-white text-[11px] font-medium px-3 py-1.5 rounded-lg whitespace-nowrap pointer-events-none shadow-xl"
                                     >
-                                        Approve and Close
+                                        {language === 'en' ? 'Approve and Close' : 'Aprobar y Cerrar'}
                                         <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-indigo-600 transform rotate-45" />
                                     </motion.div>
                                 )}
@@ -1564,8 +1589,8 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
                         animate={{ scale: 1, x: 0 }}
                         exit={{ scale: 0, x: -20 }}
                         onClick={() => openViewer(0, allInspectionPhotos)}
-                        className="fixed bottom-[88px] lg:bottom-24 left-6 z-[9999] w-12 h-12 rounded-full bg-white text-indigo-600 flex items-center justify-center transition-all hover:scale-110 active:scale-95 border-2 border-indigo-100 shadow-xl group"
-                        title="Show full photo gallery"
+                        className="fixed bottom-[max(5.5rem,calc(env(safe-area-inset-bottom)+4.5rem))] lg:bottom-24 left-4 lg:left-6 z-[9999] w-12 h-12 rounded-full bg-white text-indigo-600 flex items-center justify-center transition-all hover:scale-110 active:scale-95 border-2 border-indigo-100 shadow-xl group"
+                        title={language === 'en' ? 'Show full photo gallery' : 'Ver galería completa'}
                     >
                         <ImageIcon size={24} />
                         <span className="absolute -top-1 -right-1 bg-indigo-600 text-white text-[10px] font-black w-5 h-5 rounded-full flex items-center justify-center border-2 border-white shadow-sm group-hover:bg-indigo-700 transition-colors">
@@ -1583,7 +1608,7 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
                         animate={{ scale: 1 }}
                         exit={{ scale: 0 }}
                         onClick={() => setChatOpen(!chatOpen)}
-                        className={`fixed bottom-[148px] lg:bottom-24 left-4 lg:left-auto lg:right-6 z-[9999] w-14 h-14 rounded-full flex items-center justify-center transition-all hover:scale-110 active:scale-95 border-2 border-white/20 shadow-2xl ${chatOpen ? 'bg-white text-indigo-600' : 'bg-indigo-600 text-white'}`}
+                        className={`fixed bottom-[max(5.5rem,calc(env(safe-area-inset-bottom)+4.5rem))] lg:bottom-24 right-4 lg:right-6 z-[9999] w-13 h-13 sm:w-14 sm:h-14 rounded-full flex items-center justify-center transition-all hover:scale-110 active:scale-95 border-2 border-white/20 shadow-2xl ${chatOpen ? 'bg-white text-indigo-600' : 'bg-indigo-600 text-white'}`}
                     >
                         {comments.length > 0 && !chatOpen && <span className="absolute top-0 right-0 w-4 h-4 bg-red-500 rounded-full border-2 border-white"></span>}
                         {chatOpen ? <X size={24} /> : <MessageSquare size={24} />}

@@ -620,9 +620,9 @@ export default function ReportesChecklistTab() {
           {/* ─── Score Card ──────────────────────────── */}
           <div style={{
             background: `linear-gradient(135deg, ${getPercentBg(dayReport.percent)}, #fff)`,
-            borderRadius: '20px', padding: '28px 32px',
+            borderRadius: '20px', padding: '20px',
             border: `2px solid ${getPercentColor(dayReport.percent)}20`,
-            marginBottom: '24px', display: 'flex', alignItems: 'center', gap: '28px',
+            marginBottom: '24px', display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'center', gap: '20px',
             boxShadow: '0 4px 20px rgba(0,0,0,0.04)',
           }}>
             {/* Circular Progress */}
@@ -848,9 +848,10 @@ export default function ReportesChecklistTab() {
         /* ═══════════════ WEEK VIEW ═══════════════ */
         <>
           {/* Week Grid */}
+          <div style={{ overflowX: 'auto', marginBottom: '24px', WebkitOverflowScrolling: 'touch' }}>
           <div style={{
             display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)',
-            gap: '8px', marginBottom: '24px',
+            gap: '8px', minWidth: '520px',
           }}>
             {weekReports.map(wr => {
               const isToday = wr.date === todayBizDate
@@ -900,13 +901,15 @@ export default function ReportesChecklistTab() {
               )
             })}
           </div>
+          </div>
 
           {/* Week Summary Table */}
           <div style={{
-            background: '#fff', borderRadius: '16px', overflow: 'hidden',
+            background: '#fff', borderRadius: '16px', overflowX: 'auto',
             border: '1px solid #e2e8f0', boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+            WebkitOverflowScrolling: 'touch',
           }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+            <table style={{ width: '100%', minWidth: '520px', borderCollapse: 'collapse', fontSize: '13px' }}>
               <thead>
                 <tr style={{ background: '#f8fafc' }}>
                   <th style={{ padding: '12px 16px', textAlign: 'left', fontWeight: 700, color: '#64748b', borderBottom: '1px solid #e2e8f0' }}>
@@ -1038,7 +1041,7 @@ export default function ReportesChecklistTab() {
               🎉 {t('actividades.reports.no_omitted_activities')}
             </div>
           ) : (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '10px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 260px), 1fr))', gap: '10px' }}>
               {omittedPatterns.map((op, idx) => (
                 <div key={op.id} style={{
                   display: 'flex', alignItems: 'center', gap: '10px',

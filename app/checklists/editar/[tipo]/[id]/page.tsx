@@ -84,7 +84,7 @@ function EditChecklistContent() {
   return (
 
     <div className="flex min-h-screen font-sans text-gray-900 checklist-container">
-      <div className="flex-1 p-8">
+      <div className="flex-1 p-3 sm:p-6 lg:p-8">
         <div className="max-w-4xl mx-auto">
           <button onClick={() => router.back()} className="mb-6 text-sm font-bold text-gray-500 hover:text-gray-900 flex items-center gap-2">
             ← Volver al listado

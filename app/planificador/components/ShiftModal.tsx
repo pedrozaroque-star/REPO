@@ -26,7 +26,7 @@
 import React, { useState, useEffect, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { X, Trash2, Calendar, Clock, Check, Sparkles } from 'lucide-react'
-import { toast, formatDateISO, addDays, getMonday } from '../lib/utils'
+import { toast, formatDateISO, addDays, getMonday, getLAHoursMinutes } from '../lib/utils'
 import { useLanguage } from '@/lib/i18n'
 
 interface ShiftModalProps {

@@ -132,7 +132,7 @@ export default function DynamicQuestion({ question, index, value, photos, onChan
                                 key={val}
                                 type="button"
                                 onClick={() => onChange(val)}
-                                className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs transition-all shadow-sm ${value === val
+                                className={`w-9 h-9 rounded-full flex items-center justify-center font-bold text-xs transition-all shadow-sm ${value === val
                                     ? val >= 9 ? 'bg-green-500 text-white scale-110 shadow-lg' : val >= 7 ? 'bg-yellow-500 text-white scale-110 shadow-lg' : 'bg-red-500 text-white scale-110 shadow-lg'
                                     : 'bg-white dark:bg-slate-800 text-gray-400 dark:text-slate-500 border border-gray-200 dark:border-slate-700 hover:border-gray-400 dark:hover:border-slate-500'
                                     }`}
@@ -149,7 +149,7 @@ export default function DynamicQuestion({ question, index, value, photos, onChan
                         value={value || ''}
                         onChange={(e) => onChange(e.target.value)}
                         placeholder={t('inspections.form.dynamic.placeholder_text')}
-                        className="w-full p-4 bg-gray-50 dark:bg-slate-800/50 border-2 border-transparent focus:bg-white dark:focus:bg-slate-800/80 focus:border-blue-500 dark:focus:border-blue-600 rounded-xl outline-none text-gray-900 dark:text-white font-medium placeholder:text-gray-400 dark:placeholder:text-slate-500 transition-all min-h-[100px] resize-none text-sm"
+                        className="w-full p-4 bg-gray-50 dark:bg-slate-800/50 border-2 border-transparent focus:bg-white dark:focus:bg-slate-800/80 focus:border-blue-500 dark:focus:border-blue-600 rounded-xl outline-none text-gray-900 dark:text-white font-medium placeholder:text-gray-400 dark:placeholder:text-slate-500 transition-all min-h-[100px] resize-none text-base sm:text-sm"
                     />
                 )
 
@@ -164,7 +164,7 @@ export default function DynamicQuestion({ question, index, value, photos, onChan
                             value={value ?? ''}
                             onChange={(e) => onChange(e.target.value)}
                             placeholder="0"
-                            className={`w-full pl-8 p-4 bg-gray-50 dark:bg-slate-800/50 border-2 rounded-xl outline-none text-gray-900 dark:text-white font-black text-xl transition-all placeholder:text-gray-300 dark:placeholder:text-slate-600 ${isOverLimit
+                            className={`w-full pl-8 ${isOverLimit ? 'pr-28' : 'pr-4'} py-4 bg-gray-50 dark:bg-slate-800/50 border-2 rounded-xl outline-none text-gray-900 dark:text-white font-black text-xl transition-all placeholder:text-gray-300 dark:placeholder:text-slate-600 ${isOverLimit
                                 ? 'border-red-500 bg-red-50 dark:bg-red-900/20 focus:bg-white dark:focus:bg-slate-800/80'
                                 : 'border-transparent focus:bg-white dark:focus:bg-slate-800/80 focus:border-blue-500 dark:focus:border-blue-600'}`}
                         />
@@ -206,7 +206,7 @@ export default function DynamicQuestion({ question, index, value, photos, onChan
                                         : `bg-white dark:bg-slate-800/50 ${opt.border} ${opt.text} hover:bg-gray-50 dark:hover:bg-slate-700`
                                         }`}
                                 >
-                                    <span className="text-[10px] font-black tracking-widest leading-none">{opt.label}</span>
+                                    <span className="text-[10px] font-black tracking-tight sm:tracking-widest leading-tight text-center">{opt.label}</span>
                                     {isSelected && <div className="w-1 h-1 bg-white rounded-full mt-1" />}
                                 </button>
                             )
@@ -317,7 +317,7 @@ export default function DynamicQuestion({ question, index, value, photos, onChan
                             value={comment || ''}
                             onChange={(e) => onCommentChange(e.target.value)}
                             placeholder={t('inspections.form.dynamic.add_comment')}
-                            className="w-full pl-9 pr-3 py-2.5 bg-gray-50/50 dark:bg-slate-800/50 hover:bg-gray-100 dark:hover:bg-slate-800 focus:bg-white dark:focus:bg-slate-800 rounded-xl text-xs font-medium text-gray-700 dark:text-slate-300 placeholder:text-gray-400 dark:placeholder:text-slate-500 border border-transparent focus:border-blue-300 dark:focus:border-blue-700 outline-none transition-all"
+                            className="w-full pl-9 pr-3 py-2.5 bg-gray-50/50 dark:bg-slate-800/50 hover:bg-gray-100 dark:hover:bg-slate-800 focus:bg-white dark:focus:bg-slate-800 rounded-xl text-base sm:text-xs font-medium text-gray-700 dark:text-slate-300 placeholder:text-gray-400 dark:placeholder:text-slate-500 border border-transparent focus:border-blue-300 dark:focus:border-blue-700 outline-none transition-all"
                         />
                         <div className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none">
                             <MessageSquare size={14} />

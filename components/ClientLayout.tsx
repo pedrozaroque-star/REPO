@@ -218,12 +218,12 @@ export default function ClientLayout({
 
                         {/* Main Content Area */}
                         <div
-                            className={`relative z-10 min-h-screen transition-all duration-300 ease-in-out ${
+                            className={`relative min-h-screen overflow-x-clip transition-all duration-300 ease-in-out ${
                                 /* Desktop: offset by sidebar width */
-                                isCollapsed ? 'lg:ml-[64px]' : 'lg:ml-[260px]'
+                                isCollapsed ? 'lg:ml-[64px]' : 'lg:ml-[276px]'
                             } ${
                                 /* Mobile: offset by top bar height + floating bottom tab bar */
-                                'pt-14 pb-[90px] lg:pt-14 lg:pb-0'
+                                'pt-14 pb-[calc(102px+env(safe-area-inset-bottom))] lg:pt-14 lg:pb-0'
                             }`}
                         >
                             <main
@@ -240,7 +240,10 @@ export default function ClientLayout({
                         </div>
 
                         {/* Bottom Tab Bar (mobile only) */}
-                        <BottomTabBar onOpenDrawer={() => setMobileDrawerOpen(true)} />
+                        <BottomTabBar
+                            onOpenDrawer={() => setMobileDrawerOpen(prev => !prev)}
+                            isDrawerOpen={mobileDrawerOpen}
+                        />
                         
                         {/* TEG Assistant Chat Widget */}
                         <SupportChatWidget />

@@ -212,10 +212,10 @@ function ManagerChecklistContent() {
   const answeredCount = Object.keys(answers).length
 
   return (
-    <div className="min-h-screen bg-transparent dark:bg-neutral-900 pb-20 font-sans relative overflow-hidden">
+    <div className="min-h-screen bg-transparent dark:bg-neutral-900 pb-24 font-sans relative overflow-x-clip">
       <div className="absolute inset-0 opacity-10 dark:opacity-40 pointer-events-none bg-[url('https://www.transparenttextures.com/patterns/cubes.png')]"></div>
 
-      <header className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-md border-b border-gray-200 dark:border-slate-800 sticky top-0 z-40 shadow-sm shrink-0 transition-all">
+      <header className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-md border-b border-gray-200 dark:border-slate-800 sticky top-14 lg:top-0 z-30 shadow-sm shrink-0 transition-all">
         <div className="max-w-4xl mx-auto px-4 py-4 flex items-center justify-between">
           <div className="flex items-center space-x-3">
             <button onClick={() => router.back()} className="w-10 h-10 flex items-center justify-center hover:bg-gray-100 dark:hover:bg-slate-800 rounded-xl transition-colors text-gray-600 dark:text-slate-400">
@@ -242,23 +242,23 @@ function ManagerChecklistContent() {
 
       <div className="max-w-4xl mx-auto px-4 py-8 pb-32 w-full">
         <form onSubmit={handleSubmit} className="space-y-8">
-          <div className="bg-white/90 dark:bg-slate-900/90 backdrop-blur-sm rounded-3xl shadow-sm p-6 border border-gray-100 dark:border-slate-800 grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="bg-white/90 dark:bg-slate-900/90 backdrop-blur-sm rounded-3xl shadow-sm p-4 sm:p-6 border border-gray-100 dark:border-slate-800 grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
             <div className="space-y-2">
               <label className="text-[10px] font-black text-gray-400 dark:text-slate-500 uppercase tracking-widest">{t('checklists.form.store')} *</label>
               <select required value={formData.store_id} onChange={(e) => setFormData({ ...formData, store_id: e.target.value })}
-                className="w-full p-3 bg-gray-50 dark:bg-slate-800 border-gray-100 dark:border-slate-700 rounded-xl font-bold text-gray-700 dark:text-white outline-none focus:ring-2 focus:ring-indigo-100 dark:focus:ring-indigo-900/20 transition-all">
+                className="w-full p-3 bg-gray-50 dark:bg-slate-800 border-gray-100 dark:border-slate-700 rounded-xl font-bold text-base sm:text-sm text-gray-700 dark:text-white outline-none focus:ring-2 focus:ring-indigo-100 dark:focus:ring-indigo-900/20 transition-all">
                 <option value="">{t('checklists.form.select')}</option>
                 {stores.map(store => <option key={store.id} value={store.id}>{formatStoreName(store.name)}</option>)}
               </select>
             </div>
             <div className="space-y-2">
               <label className="text-[10px] font-black text-gray-400 dark:text-slate-500 uppercase tracking-widest">{t('checklists.form.date')} & {t('checklists.form.shift')} *</label>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <input type="date" required value={formData.checklist_date}
                   onChange={(e) => setFormData({ ...formData, checklist_date: e.target.value })}
-                  className="w-full p-3 bg-gray-50 dark:bg-slate-800 border-gray-100 dark:border-slate-700 rounded-xl font-bold text-gray-700 dark:text-white outline-none focus:ring-2 focus:ring-indigo-100 dark:focus:ring-indigo-900/20 transition-all" />
+                  className="w-full p-3 bg-gray-50 dark:bg-slate-800 border-gray-100 dark:border-slate-700 rounded-xl font-bold text-base sm:text-sm text-gray-700 dark:text-white outline-none focus:ring-2 focus:ring-indigo-100 dark:focus:ring-indigo-900/20 transition-all" />
                 <select value={formData.shift} onChange={(e) => setFormData({ ...formData, shift: e.target.value as 'AM' | 'PM' })}
-                  className="w-full p-3 bg-gray-50 dark:bg-slate-800 border-gray-100 dark:border-slate-700 rounded-xl font-bold text-gray-700 dark:text-white outline-none focus:ring-2 focus:ring-indigo-100 dark:focus:ring-indigo-900/20 transition-all">
+                  className="w-full p-3 bg-gray-50 dark:bg-slate-800 border-gray-100 dark:border-slate-700 rounded-xl font-bold text-base sm:text-sm text-gray-700 dark:text-white outline-none focus:ring-2 focus:ring-indigo-100 dark:focus:ring-indigo-900/20 transition-all">
                   <option value="AM">{t('checklists.form.shift_am')}</option>
                   <option value="PM">{t('checklists.form.shift_pm')}</option>
                 </select>

@@ -1,5 +1,15 @@
 'use client'
 
+/**
+ * @module components/self-schedule/ClaimModal
+ * @description Modal de confirmación para reclamar un turno disponible en Auto-Programación (/mis-horarios).
+ * @businessRules
+ * - Formatea horarios nocturnos (>= 24h) en AM/PM y muestra mensajes claros ante conflictos de horario.
+ * @dataFlow
+ * - Recibe turno seleccionado desde app/mis-horarios/page.tsx -> ejecuta onConfirm POST /api/self-schedule/claims.
+ * @notes Mobile fix: z-[120] sobre BottomTabBar/FAB y max-h-[90dvh] scrollable.
+ */
+
 import { useState } from 'react'
 import { useLanguage } from '@/lib/i18n'
 
@@ -54,8 +64,8 @@ export function ClaimModal({ isOpen, onClose, onConfirm, shift, isLoading = fals
         : (language === 'es' ? '💵 Cajero' : '💵 Cashier')
 
     return (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-            <div className="bg-white dark:bg-zinc-900 rounded-2xl shadow-2xl max-w-md w-full overflow-hidden animate-in zoom-in-95 duration-200">
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[120] flex items-center justify-center p-4">
+            <div className="bg-white dark:bg-zinc-900 rounded-2xl shadow-2xl max-w-md w-full max-h-[90dvh] overflow-y-auto animate-in zoom-in-95 duration-200">
                 {/* Header */}
                 <div className="bg-gradient-to-r from-emerald-500 to-teal-500 px-6 py-4">
                     <h2 className="text-xl font-bold text-white">

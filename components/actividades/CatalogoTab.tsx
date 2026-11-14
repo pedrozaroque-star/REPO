@@ -28,8 +28,8 @@ export default function CatalogoTab({ readOnly = false }: { readOnly?: boolean }
 
   return (
     <div className="pb-24">
-      {/* Checklist floating button */}
-      <div style={{
+      {/* Checklist floating button (desktop only; mobile uses sticky top header Checklist button) */}
+      <div className="hidden lg:block" style={{
         position: 'fixed',
         bottom: '24px',
         right: '24px',

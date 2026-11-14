@@ -1181,7 +1181,7 @@ export default function SupportChatWidget() {
             whileHover={{ scale: 1 }}
             whileTap={{ scale: 0.95 }}
             onClick={openChat}
-            className="fixed bottom-20 lg:bottom-6 right-4 lg:right-6 z-[45] group"
+            className="fixed bottom-[calc(88px+env(safe-area-inset-bottom))] lg:bottom-6 right-4 lg:right-6 z-[45] group"
           >
             {/* Outer glow ring - spinning gradient */}
             <span className="absolute -inset-1 rounded-full bg-gradient-to-tr from-indigo-500 via-purple-500 to-cyan-400 opacity-50 blur-sm group-hover:opacity-80 transition-opacity animate-[spin_4s_linear_infinite]"/>
@@ -1209,7 +1209,7 @@ export default function SupportChatWidget() {
             animate={{opacity:1,y:0,scale:1,...glow}} 
             exit={{opacity:0,y:30,scale:0.9}}
             transition={{type:'spring',stiffness:300,damping:25,boxShadow:{duration:6,repeat:Infinity,ease:'easeInOut'},backgroundPosition:{duration:6,repeat:Infinity,ease:'linear'}}}
-            className="fixed bottom-[85px] lg:bottom-6 right-4 lg:right-6 z-[100] w-[calc(100vw-32px)] sm:w-[420px] h-[560px] rounded-2xl overflow-hidden flex flex-col p-[2px]" 
+            className="fixed bottom-[calc(94px+env(safe-area-inset-bottom))] lg:bottom-6 right-4 lg:right-6 z-[100] w-[calc(100vw-32px)] sm:w-[420px] h-[560px] rounded-2xl overflow-hidden flex flex-col p-[2px]" 
             style={{backgroundImage: 'linear-gradient(90deg, #6366f1, #a855f7, #ec4899, #06b6d4, #6366f1)', backgroundSize: '400% 100%'}}
           >
             <div className="flex flex-col h-full w-full bg-white dark:bg-slate-900 rounded-[14px] overflow-hidden">

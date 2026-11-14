@@ -128,6 +128,7 @@ function SalesPageContent() {
     const [customHourStart, setCustomHourStart] = useState(6)
     const [customHourEnd, setCustomHourEnd] = useState(14)
     const [showWelcomeModal, setShowWelcomeModal] = useState(false)
+    const [showMobileFormula, setShowMobileFormula] = useState(false)
     const { user } = useAuth()
     const { t, language } = useLanguage()
     const isAdmin = user?.role === 'admin'
@@ -1108,8 +1109,8 @@ function SalesPageContent() {
 
                     {/* Welcome Modal */}
                     {showWelcomeModal && (
-                        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-                            <div className="bg-white dark:bg-slate-900 w-full max-w-md rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden relative">
+                        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+                            <div className="bg-white dark:bg-slate-900 w-full max-w-md max-h-[90dvh] overflow-y-auto rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-800 relative">
                                 <button 
                                     onClick={() => setShowWelcomeModal(false)}
                                     className="absolute top-4 right-4 p-2 text-slate-400 hover:text-slate-600 dark:hover:text-white bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-full transition-colors cursor-pointer"
@@ -1173,9 +1174,10 @@ function SalesPageContent() {
                                     )}
                                 </span>
                                 {data?.rawRows?.some((r: any) => r.projectionMeta) && (
-                                    <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-50 dark:bg-indigo-500/10 border border-indigo-100 dark:border-indigo-500/20 text-indigo-700 dark:text-indigo-400 text-xs font-medium shadow-sm ml-1 mt-1 md:mt-0 max-w-full">
-                                        <TrendingUp size={14} className="shrink-0" />
-                                        <span className="min-w-0 break-words">
+                                    <div className="w-full md:w-auto flex flex-col md:flex-row md:items-center gap-1.5 px-3 py-2 md:py-1.5 rounded-xl md:rounded-lg bg-indigo-50 dark:bg-indigo-500/10 border border-indigo-100 dark:border-indigo-500/20 text-indigo-700 dark:text-indigo-400 text-xs font-medium shadow-sm md:ml-1 mt-1 md:mt-0 max-w-full">
+                                        <div className="flex items-start gap-1.5 min-w-0 flex-1">
+                                            <TrendingUp size={14} className="shrink-0 mt-0.5 md:mt-0" />
+                                            <span className={`min-w-0 break-words ${showMobileFormula ? '' : 'line-clamp-2 md:line-clamp-none'}`}>
                                             {(() => {
                                                 let targetRows = data.rawRows;
                                                 if (selectedStore !== 'all') {
@@ -1298,9 +1300,9 @@ function SalesPageContent() {
                                                             : '';
                                                         explanation += ` 🌟 +${effectiveEventBoostPct.toFixed(1)}% ${t('sales.projection.event_boost')}${eventNamesLabel}`;
                                                     } else if (effectiveEventBoostPct >= 0.1 && selectedStore === 'all' && storesWithEvents.length > 0) {
-                                                        const localStoreLabel = storesWithEvents.length <= 2 ? storesWithEvents.join(', ') : `${storesWithEvents.length} tiendas`;
+                                                        const localStoreLabel = storesWithEvents.length <= 2 ? storesWithEvents.join(', ') : `${storesWithEvents.length} ${t('sales.stores_count')}`;
                                                         const eventNamesLabel = detectedEvents.length > 0 ? ` (${detectedEvents[0]})` : '';
-                                                        explanation += ` 🌟 Evento local en ${localStoreLabel}: +${((maxEventMult - 1) * 100).toFixed(1)}%${eventNamesLabel}`;
+                                                        explanation += ` 🌟 ${t('sales.local_event_in')} ${localStoreLabel}: +${((maxEventMult - 1) * 100).toFixed(1)}%${eventNamesLabel}`;
                                                     }
                                                     if (hasWeather) {
                                                         explanation += ` 🌧️ -${weatherPenalty || 5}% ${t('sales.projection.weather_adjusted_label')}`;
@@ -1351,35 +1353,43 @@ function SalesPageContent() {
                                                     </>
                                                 );
                                             })()}
-                                        </span>
+                                            </span>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={() => setShowMobileFormula(prev => !prev)}
+                                            className="md:hidden self-start text-[11px] font-bold text-indigo-600 dark:text-indigo-300 underline decoration-indigo-300 underline-offset-2 pl-5"
+                                        >
+                                            {showMobileFormula ? t('sales.hide_formula') : t('sales.show_formula')}
+                                        </button>
                                     </div>
                                 )}
                             </div>
                             <div className="flex items-center gap-3">
-                                <h1 className="text-3xl md:text-4xl font-semibold tracking-tight text-slate-900 dark:text-white">
+                                <h1 className="text-2xl sm:text-3xl md:text-4xl font-semibold tracking-tight text-slate-900 dark:text-white">
                                     {t('sales.title')}
                                 </h1>
                                 <button 
                                     onClick={() => setShowWelcomeModal(true)}
                                     className="p-1.5 text-blue-500 bg-blue-50 dark:bg-blue-500/10 hover:bg-blue-100 dark:hover:bg-blue-500/20 rounded-full transition-colors cursor-pointer"
-                                    title="¿Cómo funciona el modo Relámpago?"
+                                    title={t('sales.lightning_mode_help')}
                                 >
                                     <Info size={18} />
                                 </button>
                             </div>
-                            <p className="text-slate-500 dark:text-slate-400 mt-1">
+                            <p className="text-sm sm:text-base text-slate-500 dark:text-slate-400 mt-1">
                                 {t('sales.subtitle')}
                             </p>
                         </div>
 
                         {/* Dynamic Date Label & Filter */}
-                        <div className="flex flex-wrap items-center justify-center gap-2 bg-white/70 dark:bg-slate-900/80 p-1.5 rounded-2xl border border-black/5 dark:border-slate-800 backdrop-blur-xl shadow-lg shadow-black/5 w-full md:w-auto z-50">
+                        <div className="flex flex-wrap items-center justify-center gap-2 bg-white/70 dark:bg-slate-900/80 p-2 md:p-1.5 rounded-2xl border border-black/5 dark:border-slate-800 backdrop-blur-xl shadow-lg shadow-black/5 w-full md:w-auto z-30">
 
-                            <div className="flex items-center gap-1 mx-1">
+                            <div className="flex items-center justify-center gap-1 mx-1 w-full sm:w-auto">
                                 <button 
                                     onClick={() => shiftDate(-1)}
-                                    className="p-1.5 text-slate-500 hover:text-slate-900 hover:bg-slate-200 dark:hover:text-white dark:hover:bg-slate-700 rounded-lg transition-colors cursor-pointer"
-                                    title="Día Anterior"
+                                    className="p-2 md:p-1.5 text-slate-500 hover:text-slate-900 hover:bg-slate-200 dark:hover:text-white dark:hover:bg-slate-700 rounded-lg transition-colors cursor-pointer"
+                                    title={t('sales.prev_day')}
                                 >
                                     <ChevronLeft className="w-5 h-5" />
                                 </button>
@@ -1400,8 +1410,8 @@ function SalesPageContent() {
                                 <button 
                                     onClick={() => shiftDate(1)}
                                     disabled={isTodayOrFuture}
-                                    className="p-1.5 text-slate-500 hover:text-slate-900 hover:bg-slate-200 dark:hover:text-white dark:hover:bg-slate-700 rounded-lg transition-colors disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
-                                    title="Día Siguiente"
+                                    className="p-2 md:p-1.5 text-slate-500 hover:text-slate-900 hover:bg-slate-200 dark:hover:text-white dark:hover:bg-slate-700 rounded-lg transition-colors disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+                                    title={t('sales.next_day')}
                                 >
                                     <ChevronRight className="w-5 h-5" />
                                 </button>
@@ -1409,11 +1419,11 @@ function SalesPageContent() {
 
                             {/* Store Filter */}
                             {storeList.length > 0 && (
-                                <div className="relative min-w-0">
+                                <div className="relative min-w-0 flex-1 sm:flex-none basis-[160px] sm:basis-auto">
                                     <select
                                         value={selectedStore}
                                         onChange={(e) => setSelectedStore(e.target.value)}
-                                        className="appearance-none pl-8 pr-8 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-xl text-slate-700 dark:text-slate-300 text-xs font-medium transition-colors border border-black/5 dark:border-slate-700 cursor-pointer focus:outline-none focus:ring-2 focus:ring-emerald-500/50 min-w-[180px] w-auto"
+                                        className="appearance-none pl-8 pr-8 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-xl text-slate-700 dark:text-slate-300 text-base md:text-xs font-medium transition-colors border border-black/5 dark:border-slate-700 cursor-pointer focus:outline-none focus:ring-2 focus:ring-emerald-500/50 w-full sm:min-w-[180px] sm:w-auto"
                                     >
                                         <option value="all">{t('sales.all_stores')}</option>
                                         {storeList.map((store) => (
@@ -1458,12 +1468,12 @@ function SalesPageContent() {
                                     { value: '0', label: t('sales.day_filter.sunday') },
                                 ]
                                 return (
-                                    <div className="relative min-w-0">
+                                    <div className="relative min-w-0 flex-1 sm:flex-none basis-[145px] sm:basis-auto">
                                         <select
                                             value={dayOfWeekFilter === null ? 'all' : String(dayOfWeekFilter)}
                                             onChange={(e) => setDayOfWeekFilter(e.target.value === 'all' ? null : Number(e.target.value))}
                                             disabled={!isMultiDay}
-                                            className={`appearance-none pl-8 pr-8 py-2 rounded-xl text-xs font-medium transition-colors border cursor-pointer focus:outline-none focus:ring-2 focus:ring-indigo-500/50 ${
+                                            className={`appearance-none pl-8 pr-8 py-2 rounded-xl text-base md:text-xs font-medium transition-colors border cursor-pointer focus:outline-none focus:ring-2 focus:ring-indigo-500/50 w-full sm:w-auto ${
                                                 !isMultiDay
                                                     ? 'bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-600 border-black/5 dark:border-slate-700 opacity-50 cursor-not-allowed'
                                                     : dayOfWeekFilter !== null
@@ -1483,8 +1493,8 @@ function SalesPageContent() {
                             })()}
 
                             {/* Time Comparison Filter */}
-                            <div className="flex items-center gap-1.5 min-w-0">
-                                <div className="relative">
+                            <div className="flex flex-wrap items-center gap-1.5 min-w-0 w-full sm:w-auto">
+                                <div className="relative flex-1 sm:flex-none min-w-0">
                                     <select
                                         value={timeFilter}
                                         onChange={(e) => {
@@ -1497,7 +1507,7 @@ function SalesPageContent() {
                                                 setTimeFilter(val)
                                             }
                                         }}
-                                        className={`appearance-none pl-8 pr-8 py-2 rounded-xl text-xs font-medium transition-colors border cursor-pointer focus:outline-none focus:ring-2 focus:ring-fuchsia-500/50 ${
+                                        className={`appearance-none pl-8 pr-8 py-2 rounded-xl text-base md:text-xs font-medium transition-colors border cursor-pointer focus:outline-none focus:ring-2 focus:ring-fuchsia-500/50 w-full sm:w-auto ${
                                             timeFilter !== 'all'
                                                 ? 'bg-fuchsia-50 dark:bg-fuchsia-500/15 text-fuchsia-700 dark:text-fuchsia-300 border-fuchsia-200 dark:border-fuchsia-500/30'
                                                 : 'bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border-black/5 dark:border-slate-700'
@@ -1522,7 +1532,7 @@ function SalesPageContent() {
                                                 setCustomHourStart(newStart)
                                                 setTimeFilter('custom')
                                             }}
-                                            className="appearance-none px-2 py-2 rounded-lg text-xs font-medium bg-fuchsia-50 dark:bg-fuchsia-500/15 text-fuchsia-700 dark:text-fuchsia-300 border border-fuchsia-200 dark:border-fuchsia-500/30 cursor-pointer focus:outline-none focus:ring-2 focus:ring-fuchsia-500/50"
+                                            className="appearance-none px-2 py-2 rounded-lg text-base md:text-xs font-medium bg-fuchsia-50 dark:bg-fuchsia-500/15 text-fuchsia-700 dark:text-fuchsia-300 border border-fuchsia-200 dark:border-fuchsia-500/30 cursor-pointer focus:outline-none focus:ring-2 focus:ring-fuchsia-500/50"
                                         >
                                             {Array.from({ length: 24 }, (_, i) => (
                                                 <option key={i} value={i}>
@@ -1538,7 +1548,7 @@ function SalesPageContent() {
                                                 setCustomHourEnd(newEnd)
                                                 setTimeFilter('custom')
                                             }}
-                                            className="appearance-none px-2 py-2 rounded-lg text-xs font-medium bg-fuchsia-50 dark:bg-fuchsia-500/15 text-fuchsia-700 dark:text-fuchsia-300 border border-fuchsia-200 dark:border-fuchsia-500/30 cursor-pointer focus:outline-none focus:ring-2 focus:ring-fuchsia-500/50"
+                                            className="appearance-none px-2 py-2 rounded-lg text-base md:text-xs font-medium bg-fuchsia-50 dark:bg-fuchsia-500/15 text-fuchsia-700 dark:text-fuchsia-300 border border-fuchsia-200 dark:border-fuchsia-500/30 cursor-pointer focus:outline-none focus:ring-2 focus:ring-fuchsia-500/50"
                                         >
                                             {Array.from({ length: 24 }, (_, i) => (
                                                 <option key={i} value={i}>
@@ -1562,31 +1572,31 @@ function SalesPageContent() {
                                 </div>
                             )}
 
-                            <div className="flex items-center gap-2">
+                            <div className="flex flex-wrap items-center justify-center gap-2 w-full sm:w-auto">
                                 {isAdmin && (
                                     <button
                                         onClick={() => window.location.href = '/ventas/historial'}
-                                        className="flex items-center gap-2 px-3 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-xl text-slate-700 dark:text-slate-300 transition-colors border border-black/5 dark:border-slate-700 shrink-0"
+                                        className="flex items-center gap-1.5 sm:gap-2 px-3 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-xl text-slate-700 dark:text-slate-300 transition-colors border border-black/5 dark:border-slate-700 shrink-0 min-h-[38px]"
                                         title={t('sales.history')}
                                     >
-                                        <Clock size={18} />
-                                        <span className="hidden sm:inline text-xs font-medium">{t('sales.history')}</span>
+                                        <Clock size={16} className="sm:w-[18px] sm:h-[18px]" />
+                                        <span className="text-[11px] sm:text-xs font-medium">{t('sales.history')}</span>
                                     </button>
                                 )}
 
                                 <button
                                     onClick={() => window.location.href = '/ventas/reportes'}
-                                    className="flex items-center gap-2 px-3 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-xl text-slate-700 dark:text-slate-300 transition-colors border border-black/5 dark:border-slate-700 shrink-0"
+                                    className="flex items-center gap-1.5 sm:gap-2 px-3 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-xl text-slate-700 dark:text-slate-300 transition-colors border border-black/5 dark:border-slate-700 shrink-0 min-h-[38px]"
                                     title={t('sales.reports')}
                                 >
-                                    <ClipboardList size={18} />
-                                    <span className="hidden sm:inline text-xs font-medium">{t('sales.reports')}</span>
+                                    <ClipboardList size={16} className="sm:w-[18px] sm:h-[18px]" />
+                                    <span className="text-[11px] sm:text-xs font-medium">{t('sales.reports')}</span>
                                 </button>
 
                                 <button
                                     onClick={() => refreshData(true)}
                                     disabled={loading || isLiveSyncing}
-                                    className={`p-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-xl text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white transition-colors border border-black/5 dark:border-slate-700 shrink-0 ${isLiveSyncing ? 'opacity-70 cursor-wait' : ''}`}
+                                    className={`p-2 min-h-[38px] min-w-[38px] flex items-center justify-center bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-xl text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white transition-colors border border-black/5 dark:border-slate-700 shrink-0 ${isLiveSyncing ? 'opacity-70 cursor-wait' : ''}`}
                                     title={isLiveSyncing ? t('sales.syncing_latest') : t('sales.refresh')}
                                 >
                                     <RefreshCw size={18} className={(loading || isLiveSyncing) ? 'animate-spin text-emerald-500' : ''} />
@@ -1628,13 +1638,50 @@ function SalesPageContent() {
                         </div>
 
                         {/* Mobile Card View (Visible ONLY on small screens) */}
-                        <div className="md:hidden flex flex-col gap-3 p-4 bg-slate-50/50 dark:bg-slate-900/20">
+                        <div className="md:hidden flex flex-col gap-3 p-3 sm:p-4 bg-slate-50/50 dark:bg-slate-900/20">
+                            {sortedStoreData.length > 0 && (
+                                <div className="flex items-center justify-between gap-2 bg-white dark:bg-slate-800 px-3 py-2 rounded-2xl border border-slate-100 dark:border-slate-700 shadow-xs">
+                                    <span className="text-xs font-bold text-slate-500 dark:text-slate-400 shrink-0 flex items-center gap-1">
+                                        <ArrowUpDown size={13} /> {t('sales.sort_by')}
+                                    </span>
+                                    <div className="flex items-center gap-1.5 flex-1 min-w-0 justify-end">
+                                        <select
+                                            value={sortConfig?.key || 'amount'}
+                                            onChange={(e) => setSortConfig({ key: e.target.value, direction: sortConfig?.direction || 'desc' })}
+                                            className="bg-slate-100 dark:bg-slate-700/60 text-slate-800 dark:text-slate-200 rounded-xl px-2.5 py-1.5 text-base sm:text-xs font-bold border border-slate-200 dark:border-slate-600 focus:outline-none min-w-0 max-w-[180px]"
+                                        >
+                                            <option value="amount">{t('sales.sales_label')}</option>
+                                            <option value="projectedSales">{t('sales.table.projected_col')}</option>
+                                            <option value="diff">{t('sales.variance_short')}</option>
+                                            <option value="orderCount">{t('sales.orders_label')}</option>
+                                            <option value="avgTicket">{t('sales.ticket_label')}</option>
+                                            <option value="laborPercentage">{t('sales.labor_label')}</option>
+                                            {foodCostData?.byStore && Object.keys(foodCostData.byStore).length > 0 && (
+                                                <option value="foodCostPct">{t('sales.food_label')}</option>
+                                            )}
+                                            <option value="name">A–Z</option>
+                                        </select>
+                                        <button
+                                            type="button"
+                                            onClick={() => setSortConfig(prev => ({ key: prev?.key || 'amount', direction: prev?.direction === 'asc' ? 'desc' : 'asc' }))}
+                                            className="p-2 rounded-xl bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-600 active:scale-95 transition-transform"
+                                            aria-label="Toggle sort direction"
+                                        >
+                                            {sortConfig?.direction === 'asc' ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
+
                             {sortedStoreData.map((store: any, idx: number) => {
-                                const orders = store.orderCount || 1
+                                const actualOrders = store.orderCount || 0
                                 const laborPct = Number(store.laborPercentage || 0).toFixed(2)
-                                const avgTicket = (store.amount || 0) / orders
+                                const avgTicket = actualOrders > 0 ? (store.amount || 0) / actualOrders : 0
                                 const storeFC = foodCostData?.byStore?.[store.storeId]
                                 const fcPct = storeFC?.costPercentage ?? null
+                                const baselineProj = ['today', 'week', 'month'].includes(period) ? (store.projectedToDate || 0) : (store.projectedSales || 0)
+                                const varianceVal = (store.amount || 0) - baselineProj
+                                const projectedTotal = store.projectedSales || 0
 
                                 return (
                                     <div
@@ -1659,14 +1706,21 @@ function SalesPageContent() {
                                                     {t('sales.labor_label')}: {laborPct}%
                                                 </span>
                                                 {fcPct !== null && (
-                                                    <span className={`px-2 py-0.5 rounded-md text-xs font-bold ${fcPct < 32
-                                                        ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-400'
-                                                        : fcPct > 36
-                                                            ? 'bg-rose-100 text-rose-700 dark:bg-rose-500/20 dark:text-rose-400'
-                                                            : 'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-400'
-                                                        }`}>
-                                                        Food: {fcPct.toFixed(1)}%
-                                                    </span>
+                                                    <button
+                                                        type="button"
+                                                        onClick={(e) => {
+                                                            e.stopPropagation()
+                                                            window.open(`/admin/food-cost?store=${store.storeId}&startDate=${startDate}&endDate=${endDate}`, '_blank')
+                                                        }}
+                                                        className={`px-2 py-0.5 rounded-md text-xs font-bold underline decoration-dotted underline-offset-2 ${fcPct < 30
+                                                            ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-400'
+                                                            : fcPct > 35
+                                                                ? 'bg-rose-100 text-rose-700 dark:bg-rose-500/20 dark:text-rose-400'
+                                                                : 'bg-yellow-100 text-yellow-700 dark:bg-yellow-500/20 dark:text-yellow-400'
+                                                            }`}
+                                                    >
+                                                        {t('sales.food_label')}: {fcPct.toFixed(1)}%
+                                                    </button>
                                                 )}
                                             </div>
                                         </div>
@@ -1685,7 +1739,7 @@ function SalesPageContent() {
                                             <div className="flex flex-col min-w-0 border-l border-slate-100 dark:border-slate-700 pl-2">
                                                 <span className="text-[10px] uppercase text-slate-400 font-bold tracking-wider text-center truncate">{t('sales.orders_label')}</span>
                                                 <FitValue
-                                                    text={orders.toLocaleString('en-US')}
+                                                    text={actualOrders.toLocaleString('en-US')}
                                                     maxPx={16}
                                                     minPx={12}
                                                     className="text-slate-700 dark:text-slate-300 font-semibold text-center"
@@ -1701,6 +1755,24 @@ function SalesPageContent() {
                                                 />
                                             </div>
                                         </div>
+
+                                        {/* Projected & Variance Strip (Matching Desktop Table) */}
+                                        {(projectedTotal > 0 || baselineProj > 0) && (
+                                            <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-100 dark:border-slate-700/70 text-xs">
+                                                <div className="flex items-center justify-between gap-1 min-w-0">
+                                                    <span className="text-[10px] uppercase font-bold text-slate-400 truncate">{t('sales.table.projected_col')}</span>
+                                                    <span className="font-mono font-bold text-indigo-600 dark:text-indigo-400 truncate">
+                                                        $${projectedTotal.toLocaleString('en-US', { maximumFractionDigits: 0 })}
+                                                    </span>
+                                                </div>
+                                                <div className="flex items-center justify-between gap-1 min-w-0 border-l border-slate-100 dark:border-slate-700 pl-2">
+                                                    <span className="text-[10px] uppercase font-bold text-slate-400 truncate">{t('sales.variance_short')}</span>
+                                                    <span className={`font-mono font-bold truncate ${varianceVal >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
+                                                        {varianceVal >= 0 ? '+' : '-'}$${Math.abs(varianceVal).toLocaleString('en-US', { maximumFractionDigits: 0 })}
+                                                    </span>
+                                                </div>
+                                            </div>
+                                        )}
                                     </div>
                                 )
                             })}
@@ -1825,7 +1897,7 @@ function SalesPageContent() {
                                                     />
                                                 </td>
                                                 <td className="px-2.5 py-3 lg:px-6 lg:py-4 text-right text-slate-700 dark:text-white font-medium">
-                                                    {orders.toLocaleString('en-US')}
+                                                    {(store.orderCount ?? 0).toLocaleString('en-US')}
                                                 </td>
                                                 <td className="px-2.5 py-3 lg:px-6 lg:py-4 text-right text-slate-500 dark:text-slate-300">
                                                     ${(store.amount / orders).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}

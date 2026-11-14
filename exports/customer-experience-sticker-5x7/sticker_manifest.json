@@ -1,0 +1,48 @@
+{
+  "generatedAt": "2026-11-14T06:18:32.034Z",
+  "brandName": "Tacos Gavilan",
+  "qrTargetUrl": "https://tacosgavilan.vercel.app/clientes",
+  "qrEccLevel": "Q",
+  "qrModuleCount": 33,
+  "outputs": {
+    "horizontal": {
+      "dimensionsInches": {
+        "width": 7,
+        "height": 5
+      },
+      "rasterPx": {
+        "width": 2100,
+        "height": 1500,
+        "dpi": 300
+      },
+      "pngPath": "exports/customer-experience-sticker-5x7/Tacos_Gavilan_Sticker_Experiencia_7x5in_Horizontal_300DPI.png",
+      "pdfPath": "exports/customer-experience-sticker-5x7/Tacos_Gavilan_Sticker_Experiencia_7x5in_Horizontal.pdf"
+    },
+    "vertical": {
+      "dimensionsInches": {
+        "width": 5,
+        "height": 7
+      },
+      "rasterPx": {
+        "width": 1500,
+        "height": 2100,
+        "dpi": 300
+      },
+      "pngPath": "exports/customer-experience-sticker-5x7/Tacos_Gavilan_Sticker_Experiencia_5x7in_Vertical_300DPI.png",
+      "pdfPath": "exports/customer-experience-sticker-5x7/Tacos_Gavilan_Sticker_Experiencia_5x7in_Vertical.pdf"
+    },
+    "letterSheet2Up": {
+      "dimensionsInches": {
+        "width": 8.5,
+        "height": 11
+      },
+      "stickersPerPage": 2,
+      "stickerSizeInches": {
+        "width": 7,
+        "height": 5
+      },
+      "pdfPath": "exports/customer-experience-sticker-5x7/Tacos_Gavilan_Plantilla_Carta_2x_Stickers_5x7in.pdf"
+    },
+    "qrSvgPath": "exports/customer-experience-sticker-5x7/qr_clientes_oficial.svg"
+  }
+}

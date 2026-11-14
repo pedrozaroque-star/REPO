@@ -239,7 +239,7 @@ export default function DateRangeFilter({ period, startDate, endDate, onChange, 
                 <>
                     {/* Mobile Portal */}
                     {typeof document !== 'undefined' && createPortal(
-                        <div data-date-filter-portal className="md:hidden fixed inset-0 z-[9999] bg-white dark:bg-slate-900 flex flex-col" style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, width: '100vw', height: '100vh' }}>
+                        <div data-date-filter-portal className="md:hidden fixed inset-0 z-[9999] bg-white dark:bg-slate-900 flex flex-col" style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, width: '100vw', height: '100dvh' }}>
                             <div className="shrink-0 flex items-center justify-between px-4 py-3 border-b border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900">
                                 <h2 className="text-lg font-black text-slate-900 dark:text-white flex items-center gap-2">
                                     <CalendarIcon size={20} className="text-slate-500" />
@@ -251,7 +251,7 @@ export default function DateRangeFilter({ period, startDate, endDate, onChange, 
                             </div>
 
                             <div className="flex-1 overflow-y-auto overscroll-contain px-4 py-4">
-                                <div className="grid grid-cols-4 gap-2 mb-4">
+                                <div className="grid grid-cols-3 gap-2 mb-4">
                                     {[
                                         { id: 'today', label: t('sales.today') },
                                         { id: 'yesterday', label: t('sales.yesterday') },
@@ -299,16 +299,16 @@ export default function DateRangeFilter({ period, startDate, endDate, onChange, 
                                 <div className="flex items-center gap-3 mt-4 pt-4 border-t border-slate-100 dark:border-slate-800">
                                     <div className="flex flex-col gap-1.5 flex-1">
                                         <label className="text-[10px] uppercase font-black text-slate-400 tracking-widest">{t('sales.start_date')}</label>
-                                        <input type="date" value={tempStart ? formatDateISO(tempStart) : ''} onChange={(e) => setTempStart(parseDate(e.target.value))} className="border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-3 text-sm bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white w-full font-semibold" />
+                                        <input type="date" value={tempStart ? formatDateISO(tempStart) : ''} onChange={(e) => setTempStart(parseDate(e.target.value))} className="border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-3 text-base bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white w-full font-semibold" />
                                     </div>
                                     <div className="flex flex-col gap-1.5 flex-1">
                                         <label className="text-[10px] uppercase font-black text-slate-400 tracking-widest">{t('sales.end_date')}</label>
-                                        <input type="date" value={tempEnd ? formatDateISO(tempEnd) : ''} onChange={(e) => setTempEnd(parseDate(e.target.value))} className="border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-3 text-sm bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white w-full font-semibold" />
+                                        <input type="date" value={tempEnd ? formatDateISO(tempEnd) : ''} onChange={(e) => setTempEnd(parseDate(e.target.value))} className="border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-3 text-base bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white w-full font-semibold" />
                                     </div>
                                 </div>
                             </div>
 
-                            <div className="shrink-0 flex gap-3 px-4 py-4 border-t border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900">
+                            <div className="shrink-0 flex gap-3 px-4 py-3 pb-[max(1rem,env(safe-area-inset-bottom))] border-t border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900">
                                 <button onClick={() => setIsOpen(false)} className="flex-1 px-4 py-3.5 rounded-xl text-sm font-bold text-slate-600 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 active:scale-95 transition-transform">
                                     {t('sales.cancel')}
                                 </button>

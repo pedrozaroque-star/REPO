@@ -308,7 +308,7 @@ function ChecklistsContent() {
 
   // --- DISEÑO ACTUALIZADO MOBILE-FIRST ---
   return (
-    <div className="flex bg-transparent dark:bg-neutral-900 pb-20 font-sans relative overflow-hidden w-full">
+    <div className="flex bg-transparent dark:bg-neutral-900 pb-20 font-sans relative overflow-x-clip w-full">
       <div className="absolute inset-0 opacity-10 dark:opacity-40 pointer-events-none bg-[url('https://www.transparenttextures.com/patterns/cubes.png')]"></div>
       <main className="flex-1 flex flex-col h-full w-full relative">
 
@@ -344,7 +344,7 @@ function ChecklistsContent() {
 
               <button
                 onClick={() => router.push('/checklists/crear')}
-                className="w-8 h-8 md:w-auto md:h-auto md:px-4 md:py-1.5 rounded-full bg-blue-600 dark:bg-slate-100 text-white dark:text-slate-900 flex items-center justify-center gap-2 hover:bg-blue-700 dark:hover:bg-white transition-transform active:scale-95 shadow-lg shadow-blue-200 dark:shadow-none"
+                className="w-10 h-10 md:w-auto md:h-auto md:px-4 md:py-1.5 rounded-full bg-blue-600 dark:bg-slate-100 text-white dark:text-slate-900 flex items-center justify-center gap-2 hover:bg-blue-700 dark:hover:bg-white transition-transform active:scale-95 shadow-lg shadow-blue-200 dark:shadow-none"
               >
                 <Plus size={16} strokeWidth={3} />
                 <span className="hidden md:inline font-bold text-xs tracking-wide">{t('checklists.new_checklist')}</span>
@@ -357,12 +357,12 @@ function ChecklistsContent() {
         <div className="w-full max-w-7xl mx-auto p-4 md:p-8 pb-24">
 
           {/* Mobile Filters */}
-          <div className="md:hidden sticky top-0 z-10 -mt-2 mb-6 space-y-3">
+          <div className="md:hidden -mt-1 mb-6 space-y-2.5">
             <div className="relative group shadow-lg shadow-gray-200/50 dark:shadow-none rounded-full">
               <select
                 value={storeFilter}
                 onChange={(e) => setStoreFilter(e.target.value)}
-                className="w-full pl-4 pr-10 py-3 rounded-full bg-white dark:bg-slate-900 border border-gray-100 dark:border-slate-800 outline-none focus:border-indigo-300 dark:focus:border-indigo-800 text-sm font-bold text-gray-900 dark:text-white appearance-none transition-all"
+                className="w-full pl-4 pr-10 py-3 rounded-full bg-white dark:bg-slate-900 border border-gray-100 dark:border-slate-800 outline-none focus:border-indigo-300 dark:focus:border-indigo-800 text-base font-bold text-gray-900 dark:text-white appearance-none transition-all"
               >
                 <option value="all">{t('checklists.all_stores')}</option>
                 {stores.map(store => (
@@ -374,17 +374,41 @@ function ChecklistsContent() {
               </div>
             </div>
 
-            <div className="flex gap-2 overflow-x-auto pb-2 no-scrollbar">
+            <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar">
               {['all', 'pendiente', 'aprobado', 'rechazado', 'cerrado'].map(status => (
                 <button
                   key={status}
                   onClick={() => setStatusFilter(status)}
-                  className={`px-4 py-1.5 rounded-full text-xs font-bold whitespace-nowrap transition-colors border ${statusFilter === status
+                  className={`px-4 py-2 rounded-full text-xs font-bold whitespace-nowrap shrink-0 transition-colors border ${statusFilter === status
                     ? 'bg-gray-900 dark:bg-slate-100 text-white dark:text-slate-900 border-gray-900 dark:border-slate-100'
                     : 'bg-white dark:bg-slate-800 text-gray-500 dark:text-slate-400 border-gray-200 dark:border-slate-700'
                     }`}
                 >
                   {status === 'all' ? t('checklists.all_status') : (t(`status.${status}`) || getStatusLabel(status))}
+                </button>
+              ))}
+            </div>
+
+            <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar">
+              {[
+                { value: 'all', label: t('checklists.all_status'), icon: '📋' },
+                { value: 'apertura', label: t('checklists.opening'), icon: '🌅' },
+                { value: 'daily', label: t('checklists.daily'), icon: '📝' },
+                { value: 'temperaturas', label: t('checklists.temps'), icon: '🌡️' },
+                { value: 'recorrido', label: t('checklists.tour'), icon: '🚶' },
+                { value: 'sobrante', label: t('checklists.leftover'), icon: '📦' },
+                { value: 'cierre', label: t('checklists.closing'), icon: '🌙' },
+              ].map(ct => (
+                <button
+                  key={ct.value}
+                  onClick={() => setTypeFilter(ct.value)}
+                  className={`px-3.5 py-2 rounded-full text-xs font-bold whitespace-nowrap shrink-0 flex items-center gap-1.5 transition-colors border ${typeFilter === ct.value
+                    ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
+                    : 'bg-white dark:bg-slate-800 text-gray-600 dark:text-slate-300 border-gray-200 dark:border-slate-700'
+                    }`}
+                >
+                  <span>{ct.icon}</span>
+                  <span>{ct.label}</span>
                 </button>
               ))}
             </div>
@@ -473,7 +497,7 @@ function ChecklistsContent() {
                               e.stopPropagation()
                               handleEdit(item)
                             }}
-                            className="px-3 py-1.5 bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded-lg text-xs font-bold"
+                            className="min-h-[38px] px-3.5 py-2 bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded-xl text-xs font-bold"
                           >
                             ✏️ {t('checklists.edit')}
                           </button>

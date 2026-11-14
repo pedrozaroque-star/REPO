@@ -15,7 +15,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { motion, AnimatePresence } from 'framer-motion'
-import { ShieldCheck, Camera, Send, Calendar, Clock, MapPin, Sun, Moon, CheckCircle2, AlertCircle, ChevronRight, Store, User, Hash, FileText, ArrowLeft, MoreHorizontal, Trash2, CameraOff } from 'lucide-react'
+import { ShieldCheck, Camera, Send, Calendar, Clock, MapPin, Sun, Moon, CheckCircle2, AlertCircle, ChevronRight, Store, User, Hash, FileText, ArrowLeft, Trash2, CameraOff } from 'lucide-react'
 import { getSupabaseClient, formatStoreName } from '@/lib/supabase'
 import { useDynamicChecklist } from '@/hooks/useDynamicChecklist'
 import DynamicQuestion from '@/components/checklists/DynamicQuestion'
@@ -751,14 +751,14 @@ export default function InspectionForm({ user, initialData, stores }: { user: an
   }
 
   return (
-    <div className="min-h-screen bg-transparent pb-32 font-sans selection:bg-blue-200 selection:text-blue-900">
+    <div className="min-h-screen bg-transparent pb-48 lg:pb-32 font-sans selection:bg-blue-200 selection:text-blue-900">
 
       {/* 
         FLOATING HEADER PILL
         Detached, floating, clean. Transparent-safe.
       */}
-      <div className="fixed top-[76px] left-0 right-0 z-50 flex justify-center px-4 pointer-events-none">
-        <div className="pointer-events-auto bg-white/95 backdrop-blur-xl shadow-[0_4px_20px_rgb(0,0,0,0.12)] rounded-full px-3 py-2 flex items-center gap-4 border border-gray-200/50 max-w-2xl w-full justify-between ring-1 ring-black/5">
+      <div className="fixed top-[62px] lg:top-[76px] left-0 right-0 z-40 flex justify-center px-3 lg:px-4 pointer-events-none">
+        <div className="pointer-events-auto bg-white/95 backdrop-blur-xl shadow-[0_4px_20px_rgb(0,0,0,0.12)] rounded-full px-3 py-2 flex items-center gap-3 lg:gap-4 border border-gray-200/50 max-w-2xl w-full justify-between ring-1 ring-black/5">
 
           <div className="flex items-center gap-3 pl-1">
             <button onClick={handleBack} className="w-10 h-10 rounded-full bg-gray-50 flex items-center justify-center text-gray-700 hover:bg-gray-100 hover:text-black transition-colors border border-gray-200">
@@ -780,18 +780,15 @@ export default function InspectionForm({ user, initialData, stores }: { user: an
             <div className={`px-4 py-1.5 rounded-full font-black text-lg shadow-sm border ${scoreBg} ${scoreColor}`}>
               {overall}%
             </div>
-            <button className="w-10 h-10 rounded-full bg-gray-900 text-white flex items-center justify-center shadow-lg hover:scale-105 active:scale-95 transition-transform">
-              <MoreHorizontal size={20} />
-            </button>
           </div>
         </div>
       </div>
 
       {/* Main Content Areas - Cards */}
-      <div className="max-w-3xl mx-auto px-4 pt-36 space-y-8">
+      <div className="max-w-3xl mx-auto px-3 sm:px-4 pt-28 lg:pt-36 space-y-6 sm:space-y-8">
 
         {/* Metadata Bubble */}
-        <div className="bg-white/95 backdrop-blur-sm rounded-[2.5rem] p-8 shadow-[0_10px_40px_-10px_rgba(0,0,0,0.05)] text-center relative overflow-hidden group border border-gray-100 ring-1 ring-black/5">
+        <div className="bg-white/95 backdrop-blur-sm rounded-[2rem] sm:rounded-[2.5rem] p-4 sm:p-8 shadow-[0_10px_40px_-10px_rgba(0,0,0,0.05)] text-center relative overflow-hidden group border border-gray-100 ring-1 ring-black/5">
           <div className="absolute top-0 left-0 w-full h-1.5 bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600" />
 
           <h2 className="text-2xl font-black text-gray-900 mb-6 tracking-tight">{t('inspections.form.title')}</h2>
@@ -822,19 +819,19 @@ export default function InspectionForm({ user, initialData, stores }: { user: an
             <div className="bg-gray-50 rounded-2xl p-4 transition-colors hover:bg-pink-50 group/field text-left border border-gray-200 hover:border-pink-200">
               <label className="text-xs font-bold text-gray-600 uppercase tracking-wider mb-2 block group-hover/field:text-pink-700">{t('inspections.form.fields.date')}</label>
               <input type="date" value={formData.inspection_date} onChange={e => setFormData({ ...formData, inspection_date: e.target.value })}
-                className="w-full bg-transparent font-bold text-gray-900 outline-none text-lg" />
+                className="w-full bg-transparent font-bold text-gray-900 outline-none text-base sm:text-lg min-h-[40px]" />
             </div>
 
             <div className="bg-gray-50 rounded-2xl p-4 transition-colors hover:bg-orange-50 group/field text-left border border-gray-200 hover:border-orange-200">
               <label className="text-xs font-bold text-gray-600 uppercase tracking-wider mb-2 block group-hover/field:text-orange-700">{t('inspections.form.fields.time')}</label>
               <input type="time" value={formData.inspection_time} onChange={e => setFormData({ ...formData, inspection_time: e.target.value })}
-                className="w-full bg-transparent font-bold text-gray-900 outline-none text-lg" />
+                className="w-full bg-transparent font-bold text-gray-900 outline-none text-base sm:text-lg min-h-[40px]" />
             </div>
           </div>
         </div>
 
         {/* SELFIE EVIDENCE CARD */}
-        <div className="bg-gradient-to-br from-indigo-50 to-blue-50/50 backdrop-blur-sm rounded-[2.5rem] p-8 shadow-sm border border-indigo-100 ring-1 ring-black/5 text-center relative overflow-hidden">
+        <div className="bg-gradient-to-br from-indigo-50 to-blue-50/50 backdrop-blur-sm rounded-[2rem] sm:rounded-[2.5rem] p-5 sm:p-8 shadow-sm border border-indigo-100 ring-1 ring-black/5 text-center relative overflow-hidden">
           <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-indigo-400 to-blue-500 opacity-50" />
 
           <h3 className="text-indigo-900 font-black text-lg mb-2 flex items-center justify-center gap-2 tracking-tight">
@@ -896,7 +893,7 @@ export default function InspectionForm({ user, initialData, stores }: { user: an
             return (
               <div key={section.id} className="relative bg-white/40 backdrop-blur-sm rounded-[2rem] p-3 md:p-6 border border-white/60 shadow-sm mb-12 ring-1 ring-black/5">
                 {/* Section Header - STICKY for mobile context ONLY (High Contrast) */}
-                <div className="sticky md:static top-0 z-40 -mx-3 md:-mx-6 px-3 md:px-6 py-4 bg-slate-900 md:bg-white/40 backdrop-blur-xl md:backdrop-blur-sm shadow-lg md:shadow-none mb-6 flex items-center gap-4 rounded-t-[2rem] transition-all border-b border-white/10 md:border-transparent">
+                <div className="static -mx-3 md:-mx-6 px-3 md:px-6 py-4 bg-slate-900 md:bg-white/40 backdrop-blur-xl md:backdrop-blur-sm shadow-lg md:shadow-none mb-6 flex items-center gap-4 rounded-t-[2rem] transition-all border-b border-white/10 md:border-transparent">
                   <span className="shrink-0 bg-white md:bg-gray-900 text-slate-900 md:text-white w-8 h-8 md:w-10 md:h-10 rounded-xl flex items-center justify-center font-black text-sm md:text-base shadow-lg shadow-black/20 md:shadow-purple-900/20">
                     {idx + 1}
                   </span>
@@ -923,7 +920,7 @@ export default function InspectionForm({ user, initialData, stores }: { user: an
           })}
 
           {/* Final Observations */}
-          <div className="bg-white/95 backdrop-blur-sm rounded-[2.5rem] p-8 border-2 border-dashed border-yellow-400 text-center shadow-sm">
+          <div className="bg-white/95 backdrop-blur-sm rounded-[2rem] sm:rounded-[2.5rem] p-4 sm:p-8 border-2 border-dashed border-yellow-400 text-center shadow-sm">
             <h3 className="font-bold text-yellow-700 uppercase tracking-widest text-sm mb-4">{t('inspections.form.final_notes.title')}</h3>
             <textarea
               value={formData.observaciones}
@@ -937,7 +934,7 @@ export default function InspectionForm({ user, initialData, stores }: { user: an
       </div>
 
       {/* Floating Action Button */}
-      <div className="fixed bottom-8 left-0 right-0 z-50 flex justify-center pointer-events-none">
+      <div className="fixed bottom-[calc(86px+env(safe-area-inset-bottom))] lg:bottom-8 left-0 right-0 z-[46] flex justify-center px-4 pr-20 lg:pr-4 pointer-events-none">
         {locationValidated ? (
           /* SUBMIT BUTTON (Enabled only after GPS validation) */
           <motion.button
@@ -945,7 +942,7 @@ export default function InspectionForm({ user, initialData, stores }: { user: an
             whileTap={{ scale: 0.95 }}
             onClick={handleSubmit}
             disabled={loading}
-            className="pointer-events-auto bg-gray-900 text-white px-8 py-4 rounded-full shadow-[0_20px_40px_-10px_rgba(0,0,0,0.4)] font-black text-lg flex items-center gap-3 hover:bg-black transition-colors disabled:opacity-50 disabled:scale-100 border-2 border-white/20"
+            className="pointer-events-auto bg-gray-900 text-white px-5 sm:px-8 py-3.5 sm:py-4 rounded-full shadow-[0_20px_40px_-10px_rgba(0,0,0,0.4)] font-black text-base sm:text-lg flex items-center gap-3 hover:bg-black transition-colors disabled:opacity-50 disabled:scale-100 border-2 border-white/20"
           >
             {loading ? <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> :
               <>
@@ -962,7 +959,7 @@ export default function InspectionForm({ user, initialData, stores }: { user: an
             whileTap={{ scale: 0.95 }}
             onClick={validateLocation}
             disabled={validatingLocation || loading || completionStatus.percent < 95}
-            className={`pointer-events-auto px-8 py-4 rounded-full shadow-[0_20px_40px_-10px_rgba(37,99,235,0.4)] font-black text-lg flex items-center gap-3 border-2 border-white/20 transition-all ${completionStatus.percent >= 95
+            className={`pointer-events-auto px-5 sm:px-8 py-3.5 sm:py-4 rounded-full shadow-[0_20px_40px_-10px_rgba(37,99,235,0.4)] font-black text-base sm:text-lg flex items-center gap-3 border-2 border-white/20 transition-all ${completionStatus.percent >= 95
               ? 'bg-blue-600 text-white hover:bg-blue-700 animate-pulse'
               : 'bg-gray-300 text-gray-500 cursor-not-allowed border-gray-200 shadow-none grayscale'
               }`}

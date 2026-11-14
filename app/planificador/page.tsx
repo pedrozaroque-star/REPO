@@ -67,7 +67,7 @@ import { User as UserIcon } from 'lucide-react'
 // --- LOADER COMPONENT ---
 function SurpriseLoader({ loadingText, syncingText }: { loadingText: string, syncingText: string }) {
     return (
-        <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-white dark:bg-slate-900">
+        <div className="fixed inset-0 z-[250] flex flex-col items-center justify-center bg-white dark:bg-slate-900">
             <motion.div
                 initial={{ opacity: 0, scale: 0.5 }}
                 animate={{ opacity: 1, scale: 1 }}
@@ -104,6 +104,7 @@ export default function SchedulePlanner() {
     const [loading, setLoading] = useState(true)
     const [syncing, setSyncing] = useState(false)
     const [isGeneratingAPI, setIsGeneratingAPI] = useState(false)
+    const [sendingEmpId, setSendingEmpId] = useState<string | null>(null)
     const [googleConnected, setGoogleConnected] = useState(false)
     const [googleEmail, setGoogleEmail] = useState('')
     const router = useRouter()
@@ -135,18 +136,28 @@ export default function SchedulePlanner() {
 
     const [isMobile, setIsMobile] = useState(false)
     useEffect(() => {
-        const checkMobile = () => setIsMobile(window.innerWidth < 768)
+        const checkMobile = () => setIsMobile(window.innerWidth < 1024)
         checkMobile()
         window.addEventListener('resize', checkMobile)
         return () => window.removeEventListener('resize', checkMobile)
     }, [])
+
+    const normalizedRole = (() => {
+        const r = (user?.role || '').toLowerCase().trim()
+        if (r === 'gerente') return 'manager'
+        if (r === 'regional_manager') return 'supervisor'
+        if (r === 'assistant') return 'asistente'
+        return r
+    })()
+    const canEdit = !normalizedRole || ['admin', 'supervisor', 'manager', 'planificador', 'asistente'].includes(normalizedRole) || normalizedRole.includes('admin') || normalizedRole.includes('supervisor') || normalizedRole.includes('manager')
 
     // TODO: DELETE THIS EFFECT AFTER JUNE 9, 2026 (Expired Clone Modal announcement)
     // Welcome modal check for Clone feature (Active until Tuesday, June 9, 2026)
     useEffect(() => {
         const today = new Date()
         const expirationDate = new Date('2026-06-09T00:00:00') // June 9, 2026
-        if (today < expirationDate) {
+        const seen = typeof window !== 'undefined' ? localStorage.getItem('teg_planner_clone_welcome_seen') : null
+        if (today < expirationDate && !seen) {
             setShowWelcomeModal(true)
         }
     }, [])
@@ -1153,6 +1164,7 @@ export default function SchedulePlanner() {
                     // The clear-week API is safer.
                     const clearRes = await fetch('/api/scheduler/clear-week', {
                         method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ storeId: storeGuid, startDate: startStr, endDate: endStr })
                     })
                     if (!clearRes.ok) throw new Error('Failed to clear existing shifts')
@@ -1411,12 +1423,11 @@ export default function SchedulePlanner() {
                     // NUCLEAR OPTION VIA API: Force clear everything
                     const res = await fetch('/api/scheduler/clear-week', {
                         method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ storeId: storeGuid, startDate: startStr, endDate: endStr })
                     })
 
                     if (!res.ok) throw new Error('Failed to clear shifts')
-
-                    setShifts([]) // Clear client state completely
 
                     setShifts([]) // Clear client state completely
 
@@ -1454,9 +1465,13 @@ export default function SchedulePlanner() {
             const startStr = formatDateISO(weekStart)
             const endStr = formatDateISO(addDays(weekStart, 6))
 
+            const token = typeof window !== 'undefined' ? localStorage.getItem('teg_token') : null
             const notifyRes = await fetch('/api/notifications/publish-schedule', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...(token ? { Authorization: `Bearer ${token}` } : {})
+                },
                 body: JSON.stringify({
                     store_id: storeGuid,
                     start_date: startStr,
@@ -1561,6 +1576,77 @@ export default function SchedulePlanner() {
         }
     }
 
+    const handleSendEmployeeSchedule = async (empId: string): Promise<boolean> => {
+        if (!googleConnected) {
+            setIsGmailModalOpen(true)
+            toast.info(t('planner.mobile.connect_gmail_first'))
+            return false
+        }
+        if (!storeGuid) {
+            toast.error(t('planner.toasts.no_store'))
+            return false
+        }
+        const empShifts = shifts.filter(s => String(s.employee_id) === String(empId))
+        if (empShifts.length === 0) {
+            toast.info(t('planner.mobile.no_scheduled_week'))
+            return false
+        }
+        const empDraftIds = empShifts.filter(s => s.status === 'draft').map(s => s.id).filter(Boolean)
+        setSendingEmpId(String(empId))
+        try {
+            const token = typeof window !== 'undefined' ? localStorage.getItem('teg_token') : null
+            const startStr = formatDateISO(weekDays[0])
+            const endStr = formatDateISO(weekDays[6])
+            const res = await fetch('/api/notifications/publish-schedule', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...(token ? { Authorization: `Bearer ${token}` } : {})
+                },
+                body: JSON.stringify({
+                    store_id: storeGuid,
+                    start_date: startStr,
+                    end_date: endStr,
+                    employee_ids: [String(empId)],
+                    ...(empDraftIds.length > 0 ? { shift_ids: empDraftIds, resend_only: false } : { resend_only: true }),
+                    skip_manager_report: true,
+                    sender_user_id: user?.id
+                })
+            })
+            const data = await res.json().catch(() => ({}))
+            if (!res.ok || !data?.success) {
+                if (data?.error && String(data.error).includes('GMAIL_AUTH_FAILED')) {
+                    setGoogleConnected(false)
+                    setGoogleEmail('')
+                    setIsGmailModalOpen(true)
+                    toast.error(t('planner.toasts.gmail_auth_failed'))
+                    return false
+                }
+                toast.error(data?.error || t('planner.toasts.publish_notify_error'))
+                return false
+            }
+            if (empDraftIds.length > 0) {
+                setShifts(prev => prev.map(s => empDraftIds.includes(s.id) ? { ...s, status: 'published' } : s))
+            }
+            const sentCount = data?.stats?.email ?? 0
+            if (sentCount > 0) {
+                toast.success(t('planner.mobile.email_sent_one'))
+                return true
+            }
+            if (data?.stats?.skipped_invalid?.length > 0) {
+                toast.error(t('planner.mobile.no_email_for_emp'))
+                return false
+            }
+            toast.info(t('planner.toasts.publish_no_notify'))
+            return false
+        } catch (err: any) {
+            toast.error(err?.message || t('planner.toasts.conn_error'))
+            return false
+        } finally {
+            setSendingEmpId(null)
+        }
+    }
+
     const handlePublish = async () => {
         // 1. Validate Auth (Google Connect)
         if (!googleConnected) {
@@ -1657,13 +1743,16 @@ export default function SchedulePlanner() {
     }, [])
 
     const handleCloseWelcomeModal = () => {
+        if (typeof window !== 'undefined') {
+            localStorage.setItem('teg_planner_clone_welcome_seen', '1')
+        }
         setShowWelcomeModal(false)
     }
 
     if (loading) return <SurpriseLoader loadingText={t('planner.loading')} syncingText={t('planner.syncing_toast')} />
 
     return (
-        <div className="grid grid-rows-[auto_auto_1fr] h-[calc(100vh-140px)] sm:h-[calc(100vh-95px)] bg-gray-50 dark:bg-slate-950 overflow-hidden">
+        <div className={isMobile ? 'flex flex-col min-h-[calc(100dvh-130px)] bg-gray-50 dark:bg-slate-950' : 'grid grid-rows-[auto_auto_1fr] h-[calc(100vh-140px)] sm:h-[calc(100vh-95px)] bg-gray-50 dark:bg-slate-950 overflow-hidden'}>
             <ShiftModal
                 isOpen={modalConfig.isOpen}
                 onClose={() => setModalConfig({ ...modalConfig, isOpen: false })}
@@ -1698,8 +1787,8 @@ export default function SchedulePlanner() {
 
             {/* TODO: DELETE THIS MODAL JSX AFTER JUNE 9, 2026 (Expired Clone Modal announcement) */}
             {showWelcomeModal && (
-                <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-                    <div className="bg-white dark:bg-slate-900 w-full max-w-md rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden relative">
+                <div className="fixed inset-0 z-[150] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+                    <div className="bg-white dark:bg-slate-900 w-full max-w-md max-h-[90dvh] overflow-y-auto rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-800 relative">
                         <button 
                             onClick={handleCloseWelcomeModal}
                             className="absolute top-4 right-4 p-2 text-slate-400 hover:text-slate-600 dark:hover:text-white bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-full transition-colors cursor-pointer"
@@ -1776,30 +1865,32 @@ export default function SchedulePlanner() {
                 generating={isGeneratingAPI || isSyncingEmployees || isProcessing} // Unified loading state
             />
 
-            <PlanificadorHeader
-                selectedStoreId={selectedStoreId}
-                setSelectedStoreId={setSelectedStoreId}
-                stores={stores}
-                weekStart={weekStart}
-                currentDate={currentDate}
-                setCurrentDate={setCurrentDate}
-                syncing={syncing}
-                draftCount={shifts.filter(s => s.status === 'draft').length + deletedPublishedEmpIds.length}
-                totalShiftsCount={shifts.length}
-                handlePublish={handlePublish}
-                showPublishInfo={showPublishInfo}
-                setShowPublishInfo={setShowPublishInfo}
-                googleConnected={googleConnected}
-                googleEmail={googleEmail}
-                setIsConfirmModalOpen={setIsConfirmModalOpen}
-                isToolbarVisible={isToolbarVisible}
-                setIsToolbarVisible={setIsToolbarVisible}
-                onCloneClick={() => setShowCloneModal(true)}
-                onConnectGmail={() => setIsGmailModalOpen(true)}
-            />
+            {!isMobile && (
+                <PlanificadorHeader
+                    selectedStoreId={selectedStoreId}
+                    setSelectedStoreId={setSelectedStoreId}
+                    stores={stores}
+                    weekStart={weekStart}
+                    currentDate={currentDate}
+                    setCurrentDate={setCurrentDate}
+                    syncing={syncing}
+                    draftCount={shifts.filter(s => s.status === 'draft').length + deletedPublishedEmpIds.length}
+                    totalShiftsCount={shifts.length}
+                    handlePublish={handlePublish}
+                    showPublishInfo={showPublishInfo}
+                    setShowPublishInfo={setShowPublishInfo}
+                    googleConnected={googleConnected}
+                    googleEmail={googleEmail}
+                    setIsConfirmModalOpen={setIsConfirmModalOpen}
+                    isToolbarVisible={isToolbarVisible}
+                    setIsToolbarVisible={setIsToolbarVisible}
+                    onCloneClick={() => setShowCloneModal(true)}
+                    onConnectGmail={() => setIsGmailModalOpen(true)}
+                />
+            )}
 
             <AnimatePresence>
-                {isToolbarVisible && (
+                {!isMobile && isToolbarVisible && (
                     <FloatingToolbar
                         handleGenerateSmart={handleGenerateSmart}
                         isGenerating={isGeneratingAPI}
@@ -1826,7 +1917,7 @@ export default function SchedulePlanner() {
             </AnimatePresence>
 
             {/* MAIN CONTENT AREA */}
-            <div className="flex-1 overflow-hidden relative">
+            <div className={isMobile ? 'flex-1 min-h-0 relative' : 'flex-1 overflow-hidden relative'}>
                 {isMobile ? (
                     <MobilePlannerView
                         shifts={shifts}
@@ -1851,6 +1942,22 @@ export default function SchedulePlanner() {
                         draftCount={shifts.filter(s => s.status === 'draft').length + deletedPublishedEmpIds.length}
                         onPublish={handlePublish}
                         storeName={currentStore?.name}
+                        stores={stores}
+                        selectedStoreId={selectedStoreId}
+                        onStoreChange={setSelectedStoreId}
+                        storeGuid={storeGuid}
+                        googleConnected={googleConnected}
+                        googleEmail={googleEmail}
+                        onConnectGmail={() => setIsGmailModalOpen(true)}
+                        totalShiftsCount={shifts.length}
+                        weeklyEmpStats={laborStats}
+                        onSendEmployeeSchedule={handleSendEmployeeSchedule}
+                        sendingEmpId={sendingEmpId}
+                        onOpenTemplates={() => setShowTemplateModal(true)}
+                        onPrint={handlePrint}
+                        onClearWeek={handleClearDrafts}
+                        weather={weather}
+                        canEdit={canEdit}
                         isExternalLoading={loadingActuals || isCalcProjections}
                         onRefresh={refetchActuals}
                         onCalculateProjections={() => calculateProjections(true)}
@@ -1969,16 +2076,24 @@ export default function SchedulePlanner() {
                         initial={{ opacity: 0 }}
                         animate={{ opacity: 1 }}
                         exit={{ opacity: 0 }}
-                        className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-md p-4"
+                        className="fixed inset-0 z-[150] flex items-center justify-center bg-black/80 backdrop-blur-md p-3 sm:p-4"
                     >
                         <motion.div
                             initial={{ scale: 0.9, y: 50, opacity: 0 }}
                             animate={{ scale: 1, y: 0, opacity: 1 }}
                             exit={{ scale: 0.9, y: 50, opacity: 0 }}
-                            className="bg-white dark:bg-slate-900 rounded-3xl w-full max-w-xl shadow-2xl border-2 border-amber-500/80 overflow-hidden"
+                            className="bg-white dark:bg-slate-900 rounded-3xl w-full max-w-xl max-h-[90dvh] flex flex-col shadow-2xl border-2 border-amber-500/80 overflow-hidden"
                         >
                             {/* Modal Header */}
-                            <div className="bg-gradient-to-r from-amber-600 via-orange-600 to-red-600 p-6 text-center text-white relative">
+                            <div className="bg-gradient-to-r from-amber-600 via-orange-600 to-red-600 p-5 sm:p-6 text-center text-white relative shrink-0">
+                                <button
+                                    type="button"
+                                    onClick={handleCloseViolationModal}
+                                    aria-label={t('planner.modal_shift.close_modal')}
+                                    className="w-10 h-10 flex items-center justify-center rounded-full bg-white/15 hover:bg-white/25 text-white absolute top-3 right-3 transition-colors"
+                                >
+                                    <X size={20} />
+                                </button>
                                 <div className="w-14 h-14 bg-white/20 backdrop-blur-md rounded-2xl flex items-center justify-center mx-auto mb-3 shadow-inner">
                                     <Clock size={32} className="text-white animate-pulse" />
                                 </div>
@@ -1992,7 +2107,7 @@ export default function SchedulePlanner() {
                                 </p>
                             </div>
 
-                            <div className="p-6 max-h-[55vh] overflow-y-auto custom-scrollbar">
+                            <div className="p-4 sm:p-6 flex-1 overflow-y-auto custom-scrollbar">
                                 {/* ⏰ AVISO CLAVE PARA EL MANAGER: CORRECCIÓN EN TOAST ANTES DE LAS 11:59 AM */}
                                 <div className="bg-amber-50 dark:bg-amber-950/40 border-2 border-amber-300 dark:border-amber-700/60 rounded-2xl p-4 mb-5 shadow-sm">
                                     <div className="flex items-center gap-2 text-amber-900 dark:text-amber-200 font-extrabold text-xs uppercase tracking-wide">
@@ -2088,7 +2203,7 @@ export default function SchedulePlanner() {
                             </div>
 
                             {/* Modal Footer Actions */}
-                            <div className="p-4 bg-slate-50 dark:bg-slate-800/80 border-t border-slate-200 dark:border-slate-700 flex flex-wrap items-center justify-between gap-3">
+                            <div className="p-4 pb-[calc(1rem+env(safe-area-inset-bottom))] sm:pb-4 bg-slate-50 dark:bg-slate-800/80 border-t border-slate-200 dark:border-slate-700 flex flex-wrap items-center justify-between gap-3 shrink-0">
                                 <div className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">
                                     💡 {language === 'en' ? 'Auto-sync runs daily at 11:59 AM' : 'Sincronización automática diaria a las 11:59 AM'}
                                 </div>

@@ -1,5 +1,16 @@
 'use client'
 
+/**
+ * @module app/inspecciones/editar/[id]/page
+ * @description Edición de inspecciones de supervisor existentes con validación de ventana de edición del mismo día.
+ * @businessRules
+ * - Solo permite editar inspecciones autorizadas por canEditChecklist().
+ * @dataFlow
+ * - Supabase (stores + supervisor_inspections) -> InspectionForm.
+ * @notes
+ * - Elimina padding excesivo en móvil (p-0 lg:p-8) e internacionaliza error de registro no encontrado.
+ */
+
 import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 
@@ -39,7 +50,7 @@ function EditarInspeccionContent() {
         .eq('id', id)
         .single()
 
-      if (dbError || !item) throw new Error('Inspección no encontrada')
+      if (dbError || !item) throw new Error(t('inspections.not_found'))
 
       // 3. Validar Permiso "Mismo Día"
       // Usamos la fecha de creación (created_at) o la fecha de inspección para validar
@@ -85,7 +96,7 @@ function EditarInspeccionContent() {
 
   return (
     <div className="flex min-h-screen">
-      <div className="flex-1 p-8 overflow-auto">
+      <div className="flex-1 p-0 lg:p-8 overflow-auto">
         <InspectionForm user={user} initialData={inspection} stores={stores} />
       </div>
     </div>

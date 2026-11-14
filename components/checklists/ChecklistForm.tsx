@@ -312,7 +312,7 @@ export default function ChecklistForm({ user, initialData, type = 'daily' }: { u
       }
 
       alert('✅ Guardado con éxito')
-      router.push('/checklists')
+      router.push(type === 'manager' ? '/checklists-manager' : '/checklists')
     } catch (err: any) {
       alert('Error: ' + err.message)
     } finally {
@@ -324,8 +324,8 @@ export default function ChecklistForm({ user, initialData, type = 'daily' }: { u
 
   return (
     <div className="max-w-4xl mx-auto pb-24">
-      <header className="bg-white dark:bg-slate-900 border-b border-gray-200 dark:border-slate-800 sticky top-0 z-40 shadow-sm rounded-t-3xl overflow-hidden transition-colors">
-        <div className="px-6 py-4 flex items-center justify-between">
+      <header className="bg-white dark:bg-slate-900 border-b border-gray-200 dark:border-slate-800 sticky top-14 lg:top-0 z-30 shadow-sm rounded-t-3xl overflow-hidden transition-colors">
+        <div className="px-4 sm:px-6 py-3.5 sm:py-4 flex items-center justify-between gap-2">
           <div className="flex items-center space-x-3">
             <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-white shadow-lg ${styles.shadow} dark:shadow-none ${styles.bg}`}>
               <Save size={20} />
@@ -359,17 +359,17 @@ export default function ChecklistForm({ user, initialData, type = 'daily' }: { u
         )}
       </header>
 
-      <div className="bg-white dark:bg-slate-900 border-x border-b border-gray-200 dark:border-slate-800 rounded-b-3xl p-6 shadow-sm space-y-8 transition-colors">
-        <div className="grid grid-cols-2 md:grid-cols-2 gap-4">
+      <div className="bg-white dark:bg-slate-900 border-x border-b border-gray-200 dark:border-slate-800 rounded-b-3xl p-4 sm:p-6 shadow-sm space-y-8 transition-colors">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div className="space-y-1">
             <label className="text-[10px] font-black text-gray-400 dark:text-slate-500 uppercase tracking-widest">Fecha</label>
             <input type="date" value={formData.checklist_date} onChange={e => setFormData({ ...formData, checklist_date: e.target.value })}
-              className={`w-full p-3 bg-gray-50 dark:bg-slate-800/50 border border-gray-100 dark:border-slate-800 rounded-xl font-bold text-gray-700 dark:text-slate-200 outline-none focus:ring-2 ${styles.ring} dark:focus:ring-indigo-900/40 transition-all`} />
+              className={`w-full p-3 bg-gray-50 dark:bg-slate-800/50 border border-gray-100 dark:border-slate-800 rounded-xl font-bold text-base sm:text-sm text-gray-700 dark:text-slate-200 outline-none focus:ring-2 ${styles.ring} dark:focus:ring-indigo-900/40 transition-all`} />
           </div>
           <div className="space-y-1">
             <label className="text-[10px] font-black text-gray-400 dark:text-slate-500 uppercase tracking-widest">Turno</label>
             <select value={formData.shift} onChange={e => setFormData({ ...formData, shift: e.target.value })}
-              className={`w-full p-3 bg-gray-50 dark:bg-slate-800/50 border border-gray-100 dark:border-slate-800 rounded-xl font-bold text-gray-700 dark:text-slate-200 outline-none focus:ring-2 ${styles.ring} dark:focus:ring-indigo-900/40 transition-all`}>
+              className={`w-full p-3 bg-gray-50 dark:bg-slate-800/50 border border-gray-100 dark:border-slate-800 rounded-xl font-bold text-base sm:text-sm text-gray-700 dark:text-slate-200 outline-none focus:ring-2 ${styles.ring} dark:focus:ring-indigo-900/40 transition-all`}>
               <option value="AM" className="dark:bg-slate-900">☀️ AM (Mañana)</option>
               <option value="PM" className="dark:bg-slate-900">🌙 PM (Tarde)</option>
             </select>
@@ -426,7 +426,7 @@ export default function ChecklistForm({ user, initialData, type = 'daily' }: { u
         <div className="space-y-3">
           <label className="text-[10px] font-black text-gray-400 dark:text-slate-500 uppercase tracking-widest">Comentarios</label>
           <textarea value={formData.comments} onChange={e => setFormData({ ...formData, comments: e.target.value })} rows={4}
-            className={`w-full p-4 bg-gray-50 dark:bg-slate-800/50 border border-gray-100 dark:border-slate-800 rounded-2xl font-medium text-gray-700 dark:text-slate-200 outline-none focus:ring-2 ${styles.ring} dark:focus:ring-indigo-900/40 transition-all resize-none`}
+            className={`w-full p-4 bg-gray-50 dark:bg-slate-800/50 border border-gray-100 dark:border-slate-800 rounded-2xl font-medium text-base sm:text-sm text-gray-700 dark:text-slate-200 outline-none focus:ring-2 ${styles.ring} dark:focus:ring-indigo-900/40 transition-all resize-none`}
             placeholder="Notas adicionales..." />
         </div>
 

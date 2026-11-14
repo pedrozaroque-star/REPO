@@ -2011,7 +2011,7 @@ export default function AsignacionDiariaTab() {
             </div>
 
             {/* Day buttons */}
-            <div className="flex items-center gap-1 bg-white/60 dark:bg-slate-800/60 rounded-xl p-1 border border-slate-200/50 dark:border-slate-700/50">
+            <div className="flex items-center gap-1 w-full sm:w-auto overflow-x-auto no-scrollbar bg-white/60 dark:bg-slate-800/60 rounded-xl p-1 border border-slate-200/50 dark:border-slate-700/50">
               {weekDays.map((day, idx) => {
                 const isSelected = isSameDay(day, selectedDay);
                 const isToday = isSameDay(day, getBusinessToday());
@@ -2022,7 +2022,7 @@ export default function AsignacionDiariaTab() {
                       if (!isSelected && !confirmNavigateIfDirty()) return;
                       setSelectedDay(day);
                     }}
-                    className={`relative px-2.5 py-1.5 rounded-lg text-xs sm:text-sm font-bold transition-all duration-200 ${
+                    className={`relative shrink-0 whitespace-nowrap px-2 sm:px-2.5 py-1.5 rounded-lg text-xs sm:text-sm font-bold transition-all duration-200 ${
                       isSelected
                         ? 'bg-gradient-to-r from-indigo-500 to-blue-500 text-white shadow-md'
                         : isToday

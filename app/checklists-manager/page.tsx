@@ -1,5 +1,16 @@
 'use client'
 
+/**
+ * @module app/checklists-manager/page
+ * @description Panel principal de Manager Checklists con métricas, filtros móviles/escritorio y revisión modal.
+ * @businessRules
+ * - Respeta jornada laboral (6:00 AM–5:59 AM, America/Los_Angeles) y permisos de creación/revisión/edición.
+ * - Managers pueden consultar sus registros y abrir el detalle read-only en ChecklistReviewModal desde móvil y escritorio.
+ * @dataFlow
+ * - Supabase (`manager_checklists`, `stores`) -> tarjetas móviles (< lg) y tabla escritorio (lg:) -> ChecklistReviewModal.
+ * @notes Mobile fix: overflow-x-clip para sticky header, filtros táctiles de estado visibles y apertura modal habilitada para todos los roles.
+ */
+
 import { useEffect, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { FileCheck, Plus, Filter, MessageCircleMore } from 'lucide-react'
@@ -221,7 +232,7 @@ function ManagerChecklistsContent() {
 
   // --- DISEÑO ACTUALIZADO MOBILE-FIRST ---
   return (
-    <div className="flex bg-transparent dark:bg-neutral-900 font-sans w-full animate-in fade-in duration-500 relative overflow-hidden min-h-screen">
+    <div className="flex bg-transparent dark:bg-neutral-900 font-sans w-full animate-in fade-in duration-500 relative overflow-x-clip min-h-screen">
       <div className="absolute inset-0 opacity-10 dark:opacity-40 pointer-events-none bg-[url('https://www.transparenttextures.com/patterns/cubes.png')]"></div>
       <main className="flex-1 flex flex-col h-full w-full relative">
 
@@ -258,7 +269,7 @@ function ManagerChecklistsContent() {
               {canCreate() && (
                 <button
                   onClick={() => router.push('/checklists/crear/manager')}
-                  className="w-8 h-8 md:w-auto md:h-auto md:px-4 md:py-1.5 rounded-full bg-blue-600 dark:bg-slate-100 text-white dark:text-slate-900 flex items-center justify-center gap-2 hover:bg-blue-700 dark:hover:bg-white transition-transform active:scale-95 shadow-lg shadow-blue-200 dark:shadow-none"
+                  className="w-10 h-10 md:w-auto md:h-auto md:px-4 md:py-1.5 rounded-full bg-blue-600 dark:bg-slate-100 text-white dark:text-slate-900 flex items-center justify-center gap-2 hover:bg-blue-700 dark:hover:bg-white transition-transform active:scale-95 shadow-lg shadow-blue-200 dark:shadow-none"
                 >
                   <Plus size={16} strokeWidth={3} />
                   <span className="hidden md:inline font-bold text-xs tracking-wide">{t('checklists.new_checklist')}</span>
@@ -272,12 +283,12 @@ function ManagerChecklistsContent() {
         <div className="flex-1 overflow-y-auto w-full max-w-7xl mx-auto p-4 md:p-8 pb-24">
 
           {/* Mobile Filters */}
-          <div className="md:hidden sticky top-0 z-10 -mt-2 mb-6 space-y-3">
+          <div className="md:hidden -mt-1 mb-6 space-y-3">
             <div className="relative group shadow-lg shadow-gray-200/50 dark:shadow-none rounded-full">
               <select
                 value={storeFilter}
                 onChange={(e) => setStoreFilter(e.target.value)}
-                className="w-full pl-4 pr-10 py-3 rounded-full bg-white dark:bg-slate-900 border border-gray-100 dark:border-slate-800 outline-none focus:border-indigo-300 dark:focus:border-indigo-800 text-sm font-bold text-gray-900 dark:text-white appearance-none transition-all"
+                className="w-full pl-4 pr-10 py-3 rounded-full bg-white dark:bg-slate-900 border border-gray-100 dark:border-slate-800 outline-none focus:border-indigo-300 dark:focus:border-indigo-800 text-base font-bold text-gray-900 dark:text-white appearance-none transition-all"
               >
                 <option value="all">{t('checklists.all_stores')}</option>
                 {stores.map(store => (
@@ -289,22 +300,20 @@ function ManagerChecklistsContent() {
               </div>
             </div>
 
-            {canReview() && (
-              <div className="flex gap-2 overflow-x-auto pb-2 no-scrollbar">
-                {['all', 'pendiente', 'aprobado', 'rechazado'].map(status => (
-                  <button
-                    key={status}
-                    onClick={() => setStatusFilter(status)}
-                    className={`px-4 py-1.5 rounded-full text-xs font-bold whitespace-nowrap transition-colors border ${statusFilter === status
-                      ? 'bg-gray-900 dark:bg-slate-100 text-white dark:text-slate-900 border-gray-900 dark:border-slate-100'
-                      : 'bg-white dark:bg-slate-800 text-gray-500 dark:text-slate-400 border-gray-200 dark:border-slate-700'
-                      }`}
-                  >
-                    {status === 'all' ? t('checklists.all_status') : (t(`status.${status}`) || getStatusLabel(status))}
-                  </button>
-                ))}
-              </div>
-            )}
+            <div className="flex gap-2 overflow-x-auto pb-2 no-scrollbar">
+              {['all', 'pendiente', 'aprobado', 'rechazado', 'cerrado'].map(status => (
+                <button
+                  key={status}
+                  onClick={() => setStatusFilter(status)}
+                  className={`px-4 py-2 rounded-full text-xs font-bold whitespace-nowrap shrink-0 transition-colors border ${statusFilter === status
+                    ? 'bg-gray-900 dark:bg-slate-100 text-white dark:text-slate-900 border-gray-900 dark:border-slate-100'
+                    : 'bg-white dark:bg-slate-800 text-gray-500 dark:text-slate-400 border-gray-200 dark:border-slate-700'
+                    }`}
+                >
+                  {status === 'all' ? t('checklists.all_status') : (t(`status.${status}`) || getStatusLabel(status))}
+                </button>
+              ))}
+            </div>
           </div>
 
           {/* Stats Cards - Adaptive Grid */}
@@ -350,10 +359,8 @@ function ManagerChecklistsContent() {
                     <div
                       key={item.id}
                       onClick={() => {
-                        if (canReview()) {
-                          setSelectedItem(item)
-                          setShowReviewModal(true)
-                        }
+                        setSelectedItem(item)
+                        setShowReviewModal(true)
                       }}
                       className={`bg-white/90 dark:bg-slate-900/90 backdrop-blur-sm rounded-3xl p-5 shadow-[0_2px_15px_-5px_rgba(0,0,0,0.05)] border transition-all active:scale-[0.98] ${isItemOverdue ? 'border-red-200 dark:border-red-900/50 bg-red-50/30' : 'border-gray-100 dark:border-slate-800'}`}
                     >
@@ -391,7 +398,7 @@ function ManagerChecklistsContent() {
                               e.stopPropagation()
                               handleEdit(item)
                             }}
-                            className="px-3 py-1.5 bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded-lg text-xs font-bold"
+                            className="min-h-[38px] px-3.5 py-2 bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded-xl text-xs font-bold"
                           >
                             ✏️ {t('checklists.edit')}
                           </button>

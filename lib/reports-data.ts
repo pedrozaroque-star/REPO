@@ -1773,7 +1773,7 @@ export const MONTHLY_REPORTS: Record<'noviembre' | 'octubre' | 'septiembre' | 'a
     "id": "noviembre",
     "monthName": "Noviembre",
     "monthYear": "Noviembre 2026",
-    "totalHours": 64.9,
+    "totalHours": 70.3,
     "totalTasks": 27,
     "completedTasks": 19,
     "inProgressTasks": 4,
@@ -1944,62 +1944,66 @@ export const MONTHLY_REPORTS: Record<'noviembre' | 'octubre' | 'septiembre' | 'a
         },
         {
             "date": "13-Nov-2026",
-            "time": "11:17 AM - 11:31 AM & 1:29 PM - 1:50 PM",
-            "hours": 0.6,
+            "time": "11:17 AM - 11:31 AM & 1:29 PM - 5:12 PM & 6:01 PM - 6:14 PM & 7:33 PM - 9:08 PM & 10:13 PM - 10:25 PM",
+            "hours": 6,
             "badges": [
                 "Tacos Gavilan App Paridad V1↔V2 & Modularización (components/customer-app-v2/*)",
                 "Blindaje OTP HMAC-SHA256 (app_mobile_otp_challenges) & Cierre RLS (stores / feedback)",
                 "Restauración e Iluminación Imágenes de Fondo Slides 1–5 en V2",
                 "Protección Páginas Legales v2.1 tacosgavilan.com (40/40 PASS)",
-                "Consolidación Multi-Chat SM TEG v2.26.0 & Reporte Noviembre 2026",
+                "Conciliar Delivery Cron 3 Lotes, Exportar XLSX (3 Hojas) & Uber getNetSalesByOrder",
+                "Sidebar Grupos Cerrados por Defecto & Adaptación Móvil 8 Módulos Anclados",
+                "Google Antigravity Remote Agents 24/7 desde Teléfono (commit 6a2c6f2d)",
+                "Paquete Maestro 15 Stickers Horarios Puerta (18\"×5.5\") + Holiday Hours, Service Dogs, Logo 9\"×9\" & QR 5\"×7\"",
+                "Consolidación Multi-Chat SM TEG v2.27.0 & Reporte Noviembre 2026",
                 "IT en La Bodega"
             ],
-            "descEs": "• <strong>Tacos Gavilan App (com.tacosgavilan.mobile, /app, /app/v1, /app/v2, components/customer-app-v2/*, gavilan-app commit 3fd12cc y 20261112160000_harden_mobile_otp_and_rls.sql) — Blindaje de Seguridad, Paridad Funcional V1↔V2 y Calibración Visual de Slides 1–5</strong>: Protección de borde en middleware.ts y ClientLayout.tsx exigiendo sesión HS256 válida en /app, /app/v1, /app/v2 y /ordenar (307 -> /login) manteniendo públicas las páginas legales y /api/mobile/*; migración en vivo app_mobile_otp_challenges (código OTP de 6 dígitos con hash HMAC-SHA256, vigencia 10 min, bloqueo al 5.º intento y búsqueda O(1) sin cuentas fantasma) y cierre RLS anon en stores, customer_feedback y app_users migrando vistas internas a /api/stores y /api/feedback; modularización de Versión 2 en 16 componentes limpios conectada en vivo a /api/mobile/menu, favoritos, perfil, Camino 1 DoorDash Storefront y respaldo order.online; reconstrucción del bundle Expo Web en public/app; y restauración e iluminación de las fotografías de fondo en los Slides 1 al 5 de StoriesOnboardingStage.<br>• <strong>Auditoría General Multi-Chat (11–13 Nov), Protección de Páginas Legales v2.1 en tacosgavilan.com, Lanzamiento de SM TEG v2.26.0 y Despliegue Verificado</strong>: Escaneo integral de las 39 conversaciones activas (11 principales y 28 subagentes), verificación en vivo en MCP Supabase de RLS activo en 34/34 tablas críticas, ajuste de verify-legal-compliance-2026.ts (40/40 PASS) preservando limpias sin marcadores de borrador las páginas legales v2.1 en tacosgavilan.com, actualización del Reporte Ejecutivo de Noviembre 2026 (64.9 hrs), publicación de SM TEG v2.26.0 y validación npx tsc --noEmit con 0 errores.",
-            "descEn": "• <strong>Tacos Gavilan App (com.tacosgavilan.mobile, /app, /app/v1, /app/v2, components/customer-app-v2/*, gavilan-app commit 3fd12cc & 20261112160000_harden_mobile_otp_and_rls.sql) — Security Hardening, Live V1↔V2 Parity & Slides 1–5 Visual Calibration</strong>: Enforced HS256 JWT edge protection in middleware.ts and ClientLayout.tsx across /app, /app/v1, /app/v2, and /ordenar (307 -> /login) while keeping legal pages and /api/mobile/* public; applied live migration app_mobile_otp_challenges (HMAC-SHA256 hashed 6-digit OTP, 10-min TTL, 5-attempt lockout, O(1) lookup with zero ghost accounts) and locked down anon RLS on stores, customer_feedback, and app_users routing internal views through authenticated /api/stores and /api/feedback; refactored Version 2 into 16 modular files wired live to /api/mobile/menu, favorites, profile, DoorDash Storefront Path 1, and order.online fallback; rebuilt the Expo Web bundle in public/app; and restored/brightened background photography across Onboarding Slides 1–5.<br>• <strong>Multi-Chat System Audit (Nov 11–13), tacosgavilan.com v2.1 Clean Legal Pages Protection, SM TEG v2.26.0 Release & Verified Production Deployment</strong>: Audited all 39 active conversations (11 main threads & 28 subagents), verified 34/34 critical tables with rls_enabled = true live in Supabase MCP, updated verify-legal-compliance-2026.ts (40/40 PASS) keeping tacosgavilan.com v2.1 legal pages clean of draft brackets, updated the November 2026 Executive Report (64.9 hrs), bumped lib/version.ts to SM TEG v2.26.0, and certified 0 TypeScript errors."
+            "descEs": "• <strong>Tacos Gavilan App (com.tacosgavilan.mobile, /app, /app/v1, /app/v2, components/customer-app-v2/*, gavilan-app commit 3fd12cc y 20261112160000_harden_mobile_otp_and_rls.sql) — Blindaje de Seguridad, Paridad Funcional V1↔V2 y Calibración Visual de Slides 1–5</strong>: Protección de borde en middleware.ts y ClientLayout.tsx exigiendo sesión HS256 válida en /app, /app/v1, /app/v2 y /ordenar (307 -> /login) manteniendo públicas las páginas legales y /api/mobile/*; migración en vivo app_mobile_otp_challenges (código OTP de 6 dígitos con hash HMAC-SHA256, vigencia 10 min, bloqueo al 5.º intento y búsqueda O(1) sin cuentas fantasma) y cierre RLS anon en stores, customer_feedback y app_users migrando vistas internas a /api/stores y /api/feedback; modularización de Versión 2 en 16 componentes limpios conectada en vivo a /api/mobile/menu, favoritos, perfil, Camino 1 DoorDash Storefront y respaldo order.online; reconstrucción del bundle Expo Web en public/app; y restauración e iluminación de las fotografías de fondo en los Slides 1 al 5 de StoriesOnboardingStage.<br>• <strong>Auditoría General Multi-Chat (11–13 Nov), Protección de Páginas Legales v2.1 en tacosgavilan.com, Lanzamiento de SM TEG v2.26.0 y Despliegue Verificado</strong>: Escaneo integral de las 39 conversaciones activas (11 principales y 28 subagentes), verificación en vivo en MCP Supabase de RLS activo en 34/34 tablas críticas, ajuste de verify-legal-compliance-2026.ts (40/40 PASS) preservando limpias sin marcadores de borrador las páginas legales v2.1 en tacosgavilan.com, actualización del Reporte Ejecutivo de Noviembre 2026 (64.9 hrs), publicación de SM TEG v2.26.0 y validación npx tsc --noEmit con 0 errores.<br>• <strong>Conciliar Delivery Plataformas (/admin/conciliar-delivery, lib/delivery-reconciliation.ts, /api/cron/sync-delivery-reconciliation y vercel.json) — Automatización 100% por Cron Job en 3 Lotes, Exportación Nativa Excel (.xlsx de 3 Hojas), Conector Uber Eats getNetSalesByOrder y Autorrenovación Grubhub</strong>: Eliminación de bloqueos HTTP 429 y domingos incompletos en Uber Eats migrando la extracción primaria a /manager/api/getNetSalesByOrder (settlementUUID) con fusión de filas REFUND/COMPLETED; persistencia cifrada AES-256-GCM y autorrenovación en la nube del token de Grubhub; nuevo botón verde Exportar XLSX que genera un libro nativo de Excel con 3 pestañas sumables (Resumen, Cortes Semanales y Ordenes Detalle); retiro del botón legado de subida manual CSV y ocultamiento automático de UNASSIGNED_STORE cuando está en 0; y división del Cron Job matutino en 3 turnos (batch=1..3 a las 15:05, 15:15 y 15:25 UTC) para sincronizar las 15 sucursales sin exceder el timeout de Vercel.<br>• <strong>Rediseño de Barra Lateral (AppSidebar.tsx con Grupos Cerrados por Defecto) y Adaptación Móvil Integral (&lt; lg) de los 8 Módulos Anclados en Barra Inferior (BottomTabBar.tsx, 36 archivos, Escritorio 100% Intacto)</strong>: Acordeón inteligente con todos los grupos colapsados por defecto, buscador con auto-apertura e iconos móviles ampliados; manejo de safe-area-inset-bottom sin solapamiento con SupportChatWidget; y optimización móvil completa en /inicio, /planificador (vistas móviles Por Día, Semana y Budget + despacho móvil de horarios por Correo .ics, WhatsApp/SMS, Compartir nativo e Impresión PDF), /inspecciones, /ventas, /checklists, /checklists-manager, /actividades y /mis-horarios.<br>• <strong>Operación 24/7 desde Teléfono con Google Antigravity Remote Agents sin Depender del PC (commit 6a2c6f2d) y Ratificación Definitiva Vía 1 DoorDash Storefront (DPSD-5935)</strong>: Configuración de AGENTS.md, .agents/AGENTS.md, skill remote-cloud-ops, comando npm run preflight:cloud y GitHub Actions CI enlazados con Vercel MCP OAuth y Supabase MCP para operar y desplegar desde el celular en antigravity.google.com; más auditoría IMAP de carlos@tacosgavilan.com ratificando Vía 1 (DoorDash Storefront V1 API) como camino único definitivo.<br>• <strong>Sistema Oficial de Señalética y Stickers de Imprenta (600 DPI / 300 DPI) para las 15 Sucursales (Puertas, Ventanas, Mesas y Salsabar) + Lanzamiento SM TEG v2.27.0</strong>: Generación verificada contra Supabase y Gavilan Brand Standards de los 15 stickers individuales de horario en puerta (18\"×5.5\" con curvas vectoriales exactas TACOS / Gavilan en blanco, CENTRAL y BROADWAY sin \"LA\" y reloj limpio sin :00 en exports/door-stickers-2026/* + PDF Maestro de 16 páginas); sticker ganador 5.5\"×7.0\" de Holiday Hours a 600 DPI (docs/letreros-holiday-hours/*); versión final 5.5\"×7.0\" de Service Dogs Allowed / No Pets Allowed + Puro Logo circular de Tacos Gavilan 9\"×9\" a 600 DPI (docs/letreros-service-dogs/*); stickers 5\"×7\" y 7\"×5\" de Experiencia del Cliente con QR oficial /clientes (exports/customer-experience-sticker-5x7/*); rediseño de sticker transparente de Salsabar; y cierre consolidado de SM TEG v2.27.0 (70.3 hrs en Noviembre 2026).",
+            "descEn": "• <strong>Tacos Gavilan App (com.tacosgavilan.mobile, /app, /app/v1, /app/v2, components/customer-app-v2/*, gavilan-app commit 3fd12cc & 20261112160000_harden_mobile_otp_and_rls.sql) — Security Hardening, Live V1↔V2 Parity & Slides 1–5 Visual Calibration</strong>: Enforced HS256 JWT edge protection in middleware.ts and ClientLayout.tsx across /app, /app/v1, /app/v2, and /ordenar (307 -> /login) while keeping legal pages and /api/mobile/* public; applied live migration app_mobile_otp_challenges (HMAC-SHA256 hashed 6-digit OTP, 10-min TTL, 5-attempt lockout, O(1) lookup with zero ghost accounts) and locked down anon RLS on stores, customer_feedback, and app_users routing internal views through authenticated /api/stores and /api/feedback; refactored Version 2 into 16 modular files wired live to /api/mobile/menu, favorites, profile, DoorDash Storefront Path 1, and order.online fallback; rebuilt the Expo Web bundle in public/app; and restored/brightened background photography across Onboarding Slides 1–5.<br>• <strong>Multi-Chat System Audit (Nov 11–13), tacosgavilan.com v2.1 Clean Legal Pages Protection, SM TEG v2.26.0 Release & Verified Production Deployment</strong>: Audited all 39 active conversations (11 main threads & 28 subagents), verified 34/34 critical tables with rls_enabled = true live in Supabase MCP, updated verify-legal-compliance-2026.ts (40/40 PASS) keeping tacosgavilan.com v2.1 legal pages clean of draft brackets, updated the November 2026 Executive Report (64.9 hrs), bumped lib/version.ts to SM TEG v2.26.0, and certified 0 TypeScript errors.<br>• <strong>Delivery Platforms Reconciliation (/admin/conciliar-delivery, lib/delivery-reconciliation.ts, /api/cron/sync-delivery-reconciliation & vercel.json) — 100% Automated 3-Batch Cron Sync, Native 3-Sheet Excel (.xlsx) Export, Uber Eats getNetSalesByOrder Connector & Grubhub Cloud Auto-Renewal</strong>: Eliminated Uber Eats HTTP 429 rate-limit blocks and incomplete Sunday orders by switching primary extraction to /manager/api/getNetSalesByOrder (settlementUUID) with REFUND/COMPLETED row merging; added AES-256-GCM encrypted Grubhub token persistence and automatic cloud renewal; built the native Export XLSX button generating a 3-sheet formula-ready workbook (Summary, Weekly Payouts, and Order Details); removed legacy manual CSV upload UI and auto-hid empty UNASSIGNED_STORE; and split the morning Cron Job into 3 staggered batches (batch=1..3 at 15:05, 15:15, and 15:25 UTC) across all 15 branches within Vercel timeout limits.<br>• <strong>Desktop/Mobile Sidebar Redesign (Default-Collapsed Groups in AppSidebar.tsx) & Full Mobile Adaptation (&lt; lg) of All 8 Bottom-Pinned Modules (BottomTabBar.tsx, 36 Files, Desktop 100% Intact)</strong>: Built default-collapsed accordion navigation with smart active-route/search auto-expand and enlarged mobile touch icons; added safe-area-inset-bottom spacing with zero SupportChatWidget overlap; and optimized mobile workflows across /inicio, /planificador (Day, Week, and Budget mobile views + 1-tap schedule dispatch via .ics Email, WhatsApp/SMS, native Share, and PDF Print), /inspecciones, /ventas, /checklists, /checklists-manager, /actividades, and /mis-horarios.<br>• <strong>24/7 Phone-First Operations via Google Antigravity Remote Agents Without PC Dependency (commit 6a2c6f2d) & Exclusive Path 1 DoorDash Storefront Ratification (DPSD-5935)</strong>: Configured AGENTS.md, .agents/AGENTS.md, the remote-cloud-ops skill, npm run preflight:cloud, and GitHub Actions CI wired to Vercel MCP OAuth and Supabase MCP for 24/7 mobile cloud deployments at antigravity.google.com; plus live IMAP mailbox audit ratifying Path 1 (DoorDash Storefront V1 API) as the sole ordering architecture.<br>• <strong>Official 15-Store Print-Ready Door & Salsabar Signage Suite (600 DPI / 300 DPI) + SM TEG v2.27.0 Release</strong>: Generated all 15 branch-specific Business Hours door stickers (18\"×5.5\" featuring exact vector TACOS / Gavilan white lockup curves, clean CENTRAL & BROADWAY names without \"LA\", and colon-free hours in exports/door-stickers-2026/* + 16-page Master PDF); winning 5.5\"×7.0\" 600 DPI Holiday Hours door sticker (docs/letreros-holiday-hours/*); final 5.5\"×7.0\" Service Dogs Allowed / No Pets Allowed sticker + 9\"×9\" 600 DPI pure circular Tacos Gavilan door logo (docs/letreros-service-dogs/*); 5\"×7\" & 7\"×5\" Customer Experience QR stickers (/clientes in exports/customer-experience-sticker-5x7/*); transparent Salsabar brand sticker redesign; and consolidated SM TEG v2.27.0 release (70.3 hrs in November 2026)."
         }
     ],
     "effortSummary": [
         {
-            "name": "Conciliar Delivery Plataformas (Selector Semana/Día, Puente Variación Exacta, Pólizas CPA & Cookie S2S) y Contabilidad (166/166)",
-            "hours": 17.3,
-            "percent": 26.7
+            "name": "Conciliar Delivery Plataformas (Cron 3 Lotes, Exportar XLSX, Uber getNetSalesByOrder, Grubhub Auto-Renew & Pólizas CPA) y Contabilidad (166/166)",
+            "hours": 18.9,
+            "percent": 26.9
         },
         {
             "name": "Contestadora IA Multi-Sucursal (/admin/llamadas, phone_v6 118+ Kore, Super vs Regular, Comparador 15 Tiendas & RLS)",
             "hours": 14.5,
-            "percent": 22.3
+            "percent": 20.6
         },
         {
             "name": "Orden Diaria Automática 15 Tiendas (auto_order_visible, Sobrante Teórico, Facturas QBO & Balance de Masas)",
-            "hours": 10.5,
-            "percent": 16.2
+            "hours": 10.6,
+            "percent": 15.1
+        },
+        {
+            "name": "App Móvil V1/V2, Sidebar & Adaptación Móvil 8 Módulos, Remote Agents 24/7, Dominio Vercel & Señalética 15 Tiendas",
+            "hours": 9.9,
+            "percent": 14.1
         },
         {
             "name": "Tableta Preparador, Temporizador Frijoles Cooper TFS4 (Bodega) & Order Ready (Timer Slauson, FIFO KDS & Kore)",
             "hours": 8.8,
-            "percent": 13.6
+            "percent": 12.5
         },
         {
             "name": "Contabilidad Externa (Wave P0/P1 Zero-Trust, Paridad 1:1 QBO 8 Empresas, Reconcile 537 Sesiones & Cron 15m)",
             "hours": 7.6,
-            "percent": 11.7
-        },
-        {
-            "name": "Tacos Gavilan App V1/V2 (OTP HMAC, RLS & Modularización), Dominio Vercel (SPF/DMARC), Descansos V30 & Brand Standards",
-            "hours": 6.2,
-            "percent": 9.5
+            "percent": 10.8
         }
     ],
     "parallelActivities": [
         {
-            "title": "IT en La Bodega Central & Desarrollador del Sistema SM TEG (Infraestructura, Redes, Dominio/DNS y Soporte a 15 Sucursales)",
-            "hours": 80,
-            "desc": "Operación continua en Noviembre 2026 de Carlos Velázquez como IT en La Bodega Central y Desarrollador del Sistema SM TEG, supervisando servidores, bases de datos y políticas RLS en Supabase, transferencia y blindaje DNS de tacosgavilan.com en Vercel, telefonía de las 15 sucursales (Spectrum Business y AT&T), tabletas operativas (Parrilla, Bodega TFS4, Descansos y Order Ready) y soporte técnico directo."
+            "title": "IT en La Bodega Central & Desarrollador del Sistema SM TEG (Infraestructura, Remote Agents 24/7, Dominio/DNS y Soporte a 15 Sucursales)",
+            "hours": 84,
+            "desc": "Operación continua en Noviembre 2026 de Carlos Velázquez como IT en La Bodega Central y Desarrollador del Sistema SM TEG, supervisando servidores, bases de datos y políticas RLS en Supabase, operación remota 24/7 desde celular vía Google Antigravity Remote Agents, transferencia y blindaje DNS de tacosgavilan.com en Vercel, telefonía de las 15 sucursales (Spectrum Business y AT&T), tabletas operativas (Parrilla, Bodega TFS4, Descansos y Order Ready) y soporte técnico directo."
         },
         {
-            "title": "Monitoreo de Conciliación Delivery (DoorDash, Uber Eats, Grubhub), Orden Diaria 15 Tiendas, Pólizas Cohesion 166/166 y QBO V3 (8 Empresas)",
-            "hours": 18,
-            "desc": "Supervisión diaria de cortes semanales y por día de plataformas de delivery con puente contable exacto a $0.00, operación de Orden Diaria en modo auto_order_visible con Sobrante Teórico en las 15 sucursales, sincronización bidireccional QBO V3 cada 15 minutos en las 8 empresas de Contabilidad Externa y 166/166 paquetes de ventas diarias cuadrados al centavo."
+            "title": "Monitoreo Automático de Conciliación Delivery (Cron 3 Lotes), Orden Diaria 15 Tiendas, Pólizas Cohesion 166/166 y QBO V3 (8 Empresas)",
+            "hours": 20,
+            "desc": "Supervisión diaria del Cron Job en 3 lotes de plataformas de delivery (DoorDash, Uber Eats y Grubhub) con exportación nativa XLSX y puente contable exacto a $0.00, operación de Orden Diaria en modo auto_order_visible con Sobrante Teórico en las 15 sucursales, sincronización bidireccional QBO V3 cada 15 minutos en las 8 empresas de Contabilidad Externa y 166/166 paquetes de ventas diarias cuadrados al centavo."
         }
     ],
     "tasks": [

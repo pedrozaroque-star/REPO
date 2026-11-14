@@ -1,12 +1,23 @@
 'use client'
 
+/**
+ * @module app/mis-horarios/page
+ * @description Portal de Auto-Programación (Self-Scheduling) para empleados: consulta y reclama turnos disponibles por semana.
+ * @businessRules
+ * - Estadísticas ("Mis Turnos", "Horas Totales"), calendario .ics y franja resumen se filtran a la semana seleccionada (Lun–Dom).
+ * - Los turnos nocturnos (>= 24h) se normalizan en formato 12h AM/PM para claridad visual.
+ * @dataFlow
+ * - /api/self-schedule/slots + /api/self-schedule/claims <-> Supabase open_shifts & shift_claims.
+ * @notes Mobile fix: filtros responsivos full-width, franja resumen "Mis Turnos de Esta Semana", pb-24 sobre BottomTabBar y z-[120] en modales.
+ */
+
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { useLanguage } from '@/lib/i18n'
 import { ShiftPool } from '@/components/self-schedule/ShiftPool'
 import { ClaimModal } from '@/components/self-schedule/ClaimModal'
 import { supabase } from '@/lib/supabase'
-import { startOfWeek, addWeeks, format } from 'date-fns'
+import { startOfWeek, addWeeks, addDays, format } from 'date-fns'
 import { es, enUS } from 'date-fns/locale'
 import { generateScheduleICS, CalendarShiftItem } from '@/lib/calendar-helper'
 
@@ -362,16 +373,36 @@ export default function MisHorariosPage() {
         }
     }
 
-    // Calculate stats
+    // Filter employee claims to the currently selected week (Mon-Sun)
+    const weekStartStr = format(currentWeekStart, 'yyyy-MM-dd')
+    const weekEndStr = format(addDays(currentWeekStart, 6), 'yyyy-MM-dd')
+
+    const myClaimsThisWeek = useMemo(() => {
+        return myClaims.filter(claim => {
+            const sDate = claim.open_shifts?.shift_date
+            if (!sDate) return false
+            return sDate >= weekStartStr && sDate <= weekEndStr
+        })
+    }, [myClaims, weekStartStr, weekEndStr])
+
+    const formatHourLabel = (hour: number) => {
+        const normalized = hour >= 24 ? hour - 24 : hour
+        if (normalized === 0) return '12:00 AM'
+        if (normalized === 12) return '12:00 PM'
+        if (normalized > 12) return `${normalized - 12}:00 PM`
+        return `${normalized}:00 AM`
+    }
+
+    // Calculate stats for selected week
     const totalHoursThisWeek = useMemo(() => {
-        return myClaims.reduce((sum, claim) => {
+        return myClaimsThisWeek.reduce((sum, claim) => {
             const shift = claim.open_shifts
             if (shift) {
-                return sum + (shift.end_hour - shift.start_hour)
+                return sum + Math.max(0, shift.end_hour - shift.start_hour)
             }
             return sum
         }, 0)
-    }, [myClaims])
+    }, [myClaimsThisWeek])
 
     // 🔒 STRICT: Don't render ANYTHING until authenticated
     if (!isAuthed) {
@@ -386,9 +417,9 @@ export default function MisHorariosPage() {
     }
 
     return (
-        <div className="min-h-screen bg-gradient-to-b from-zinc-50 to-zinc-100 dark:from-zinc-950 dark:to-zinc-900">
+        <div className="min-h-screen pb-24 lg:pb-8 bg-gradient-to-b from-zinc-50 to-zinc-100 dark:from-zinc-950 dark:to-zinc-900">
             {/* Header */}
-            <header className="bg-white dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-800 sticky top-0 z-20">
+            <header className="bg-white dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-800 lg:sticky lg:top-0 z-20">
                 <div className="max-w-7xl mx-auto px-4 py-4">
                     <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
                         <div>
@@ -405,7 +436,7 @@ export default function MisHorariosPage() {
                         </div>
 
                         {/* Stats */}
-                        <div className="flex items-center gap-4">
+                        <div className="flex flex-wrap items-center gap-2 sm:gap-4">
                             {/* User welcome */}
                             {userName && (
                                 <div className="hidden md:flex items-center gap-2 px-4 py-2 bg-zinc-100 dark:bg-zinc-800 rounded-xl">
@@ -418,15 +449,15 @@ export default function MisHorariosPage() {
                                 </div>
                             )}
 
-                            <div className="bg-emerald-50 dark:bg-emerald-900/20 px-4 py-2 rounded-xl">
+                            <div className="bg-emerald-50 dark:bg-emerald-900/20 px-3.5 py-2 rounded-xl">
                                 <p className="text-xs text-emerald-600 dark:text-emerald-400">
                                     {language === 'es' ? 'Mis Turnos' : 'My Shifts'}
                                 </p>
                                 <p className="text-lg font-bold text-emerald-700 dark:text-emerald-300">
-                                    {myClaims.length}
+                                    {myClaimsThisWeek.length}
                                 </p>
                             </div>
-                            <div className="bg-blue-50 dark:bg-blue-900/20 px-4 py-2 rounded-xl">
+                            <div className="bg-blue-50 dark:bg-blue-900/20 px-3.5 py-2 rounded-xl">
                                 <p className="text-xs text-blue-600 dark:text-blue-400">
                                     {language === 'es' ? 'Horas Totales' : 'Total Hours'}
                                 </p>
@@ -435,10 +466,10 @@ export default function MisHorariosPage() {
                                 </p>
                             </div>
 
-                            {myClaims.length > 0 && (
+                            {myClaimsThisWeek.length > 0 && (
                                 <button
                                     onClick={() => {
-                                        const shiftItems: CalendarShiftItem[] = myClaims.map(c => {
+                                        const shiftItems: CalendarShiftItem[] = myClaimsThisWeek.map(c => {
                                             const shift = c.open_shifts
                                             const sDate = shift.shift_date
                                             const sHour = String(shift.start_hour).padStart(2, '0')
@@ -453,7 +484,7 @@ export default function MisHorariosPage() {
                                                 position_title: shift.position_type === 'kitchen' ? 'Cocina' : 'Cajero'
                                             }
                                         })
-                                        const firstStoreName = myClaims[0]?.store_name || 'Tacos Gavilan'
+                                        const firstStoreName = myClaimsThisWeek[0]?.store_name || 'Tacos Gavilan'
                                         const icsContent = generateScheduleICS({
                                             store: { name: firstStoreName },
                                             employeeName: userName || 'Empleado',
@@ -491,12 +522,12 @@ export default function MisHorariosPage() {
                     </div>
 
                     {/* Filters */}
-                    <div className="flex flex-wrap items-center gap-4 mt-4">
+                    <div className="flex flex-wrap items-center gap-2.5 sm:gap-4 mt-4">
                         {/* Week selector */}
-                        <div className="flex bg-zinc-100 dark:bg-zinc-800 rounded-xl p-1">
+                        <div className="flex w-full sm:w-auto bg-zinc-100 dark:bg-zinc-800 rounded-xl p-1">
                             <button
                                 onClick={() => setSelectedWeek(0)}
-                                className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${selectedWeek === 0
+                                className={`flex-1 sm:flex-initial px-4 py-2 rounded-lg text-sm font-medium transition-all ${selectedWeek === 0
                                     ? 'bg-white dark:bg-zinc-700 shadow text-zinc-800 dark:text-white'
                                     : 'text-zinc-500 hover:text-zinc-700'
                                     }`}
@@ -505,7 +536,7 @@ export default function MisHorariosPage() {
                             </button>
                             <button
                                 onClick={() => setSelectedWeek(1)}
-                                className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${selectedWeek === 1
+                                className={`flex-1 sm:flex-initial px-4 py-2 rounded-lg text-sm font-medium transition-all ${selectedWeek === 1
                                     ? 'bg-white dark:bg-zinc-700 shadow text-zinc-800 dark:text-white'
                                     : 'text-zinc-500 hover:text-zinc-700'
                                     }`}
@@ -530,10 +561,10 @@ export default function MisHorariosPage() {
                             </div>
                         ) : (
                             // Show filter buttons (for managers/admins or employees without position)
-                            <div className="flex bg-zinc-100 dark:bg-zinc-800 rounded-xl p-1">
+                            <div className="flex w-full sm:w-auto bg-zinc-100 dark:bg-zinc-800 rounded-xl p-1">
                                 <button
                                     onClick={() => setPositionFilter('all')}
-                                    className={`px-4 py-2 rounded-lg text-sm font-medium transition-all flex items-center gap-2 ${positionFilter === 'all'
+                                    className={`flex-1 sm:flex-initial justify-center px-2 sm:px-4 py-2 rounded-lg text-sm font-medium transition-all flex items-center gap-1.5 sm:gap-2 ${positionFilter === 'all'
                                         ? 'bg-white dark:bg-zinc-700 shadow text-zinc-800 dark:text-white'
                                         : 'text-zinc-500 hover:text-zinc-700'
                                         }`}
@@ -542,7 +573,7 @@ export default function MisHorariosPage() {
                                 </button>
                                 <button
                                     onClick={() => setPositionFilter('kitchen')}
-                                    className={`px-4 py-2 rounded-lg text-sm font-medium transition-all flex items-center gap-2 ${positionFilter === 'kitchen'
+                                    className={`flex-1 sm:flex-initial justify-center px-2 sm:px-4 py-2 rounded-lg text-sm font-medium transition-all flex items-center gap-1.5 sm:gap-2 ${positionFilter === 'kitchen'
                                         ? 'bg-white dark:bg-zinc-700 shadow text-zinc-800 dark:text-white'
                                         : 'text-zinc-500 hover:text-zinc-700'
                                         }`}
@@ -551,7 +582,7 @@ export default function MisHorariosPage() {
                                 </button>
                                 <button
                                     onClick={() => setPositionFilter('cashier')}
-                                    className={`px-4 py-2 rounded-lg text-sm font-medium transition-all flex items-center gap-2 ${positionFilter === 'cashier'
+                                    className={`flex-1 sm:flex-initial justify-center px-2 sm:px-4 py-2 rounded-lg text-sm font-medium transition-all flex items-center gap-1.5 sm:gap-2 ${positionFilter === 'cashier'
                                         ? 'bg-white dark:bg-zinc-700 shadow text-zinc-800 dark:text-white'
                                         : 'text-zinc-500 hover:text-zinc-700'
                                         }`}
@@ -572,7 +603,7 @@ export default function MisHorariosPage() {
                             <select
                                 value={storeFilter}
                                 onChange={(e) => setStoreFilter(e.target.value)}
-                                className="px-4 py-2 rounded-xl bg-zinc-100 dark:bg-zinc-800 text-zinc-800 dark:text-white border-0 text-sm font-medium cursor-pointer"
+                                className="w-full sm:w-auto px-4 py-2.5 sm:py-2 rounded-xl bg-zinc-100 dark:bg-zinc-800 text-zinc-800 dark:text-white border-0 text-base sm:text-sm font-medium cursor-pointer"
                             >
                                 <option value="all">
                                     🏪 {language === 'es' ? 'Todas las Tiendas' : 'All Stores'}
@@ -601,7 +632,7 @@ export default function MisHorariosPage() {
                         )}
 
                         {/* Week dates display */}
-                        <div className="text-sm text-zinc-500 dark:text-zinc-400 ml-auto">
+                        <div className="w-full sm:w-auto text-xs sm:text-sm text-zinc-500 dark:text-zinc-400 sm:ml-auto">
                             {format(currentWeekStart, 'MMM d', { locale })} - {format(addWeeks(currentWeekStart, 1), 'MMM d, yyyy', { locale })}
                         </div>
                     </div>
@@ -610,6 +641,52 @@ export default function MisHorariosPage() {
 
             {/* Main content */}
             <main className="max-w-7xl mx-auto px-4 py-6">
+                {myClaimsThisWeek.length > 0 && (
+                    <section className="mb-5 bg-white dark:bg-zinc-900 border border-emerald-200 dark:border-emerald-800/60 rounded-2xl p-3.5 sm:p-4 shadow-sm">
+                        <div className="flex items-center justify-between gap-2 mb-2.5">
+                            <h2 className="text-xs sm:text-sm font-bold text-emerald-700 dark:text-emerald-300 uppercase tracking-wider flex items-center gap-1.5">
+                                ✓ {t('self_schedule.my_week_shifts')} ({myClaimsThisWeek.length})
+                            </h2>
+                            <span className="text-xs font-semibold text-zinc-500 dark:text-zinc-400">{totalHoursThisWeek}h</span>
+                        </div>
+                        <div className="flex gap-2.5 overflow-x-auto pb-1 no-scrollbar">
+                            {myClaimsThisWeek.map(claim => {
+                                const shift = claim.open_shifts
+                                if (!shift) return null
+                                return (
+                                    <div
+                                        key={claim.id}
+                                        className="shrink-0 min-w-[210px] rounded-xl border border-emerald-200 dark:border-emerald-800/50 bg-emerald-50/70 dark:bg-emerald-950/30 p-2.5 flex items-center justify-between gap-3"
+                                    >
+                                        <div className="min-w-0">
+                                            <div className="text-xs font-bold text-zinc-800 dark:text-white capitalize truncate">
+                                                {format(new Date(shift.shift_date + 'T12:00:00'), 'EEE d MMM', { locale })}
+                                            </div>
+                                            <div className="text-xs font-semibold text-emerald-700 dark:text-emerald-300">
+                                                {formatHourLabel(shift.start_hour)} - {formatHourLabel(shift.end_hour)}
+                                            </div>
+                                            <div className="text-[11px] text-zinc-500 dark:text-zinc-400 truncate max-w-[140px]">
+                                                {claim.store_name || stores.get(shift.store_id) || 'Store'}
+                                            </div>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                setSelectedShift(shift)
+                                                setSelectedClaimId(claim.id)
+                                                setIsDropModalOpen(true)
+                                            }}
+                                            className="shrink-0 px-2.5 py-1.5 rounded-lg bg-orange-100 dark:bg-orange-900/40 text-orange-700 dark:text-orange-300 hover:bg-orange-200 text-xs font-bold transition-colors"
+                                        >
+                                            {language === 'es' ? 'Soltar' : 'Drop'}
+                                        </button>
+                                    </div>
+                                )
+                            })}
+                        </div>
+                    </section>
+                )}
+
                 {isLoading ? (
                     <div className="flex items-center justify-center py-20">
                         <div className="animate-spin text-4xl">⏳</div>
@@ -693,8 +770,8 @@ export default function MisHorariosPage() {
 
             {/* Drop Modal */}
             {isDropModalOpen && selectedShift && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
-                    <div className="bg-white dark:bg-zinc-900 rounded-2xl shadow-2xl w-full max-w-md mx-4 overflow-hidden">
+                <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+                    <div className="bg-white dark:bg-zinc-900 rounded-2xl shadow-2xl w-full max-w-md max-h-[90dvh] overflow-y-auto">
                         <div className="bg-gradient-to-r from-orange-500 to-red-500 px-6 py-4">
                             <h2 className="text-xl font-bold text-white">
                                 {language === 'es' ? '¿Soltar este turno?' : 'Drop this shift?'}
@@ -720,7 +797,7 @@ export default function MisHorariosPage() {
                                     <span className="text-lg">⏰</span>
                                     <div>
                                         <p className="text-zinc-500 text-xs">{language === 'es' ? 'Horario' : 'Time'}</p>
-                                        <p className="font-medium text-zinc-800 dark:text-white">{selectedShift.start_hour}:00 - {selectedShift.end_hour}:00</p>
+                                        <p className="font-medium text-zinc-800 dark:text-white">{formatHourLabel(selectedShift.start_hour)} - {formatHourLabel(selectedShift.end_hour)}</p>
                                     </div>
                                 </div>
                             </div>

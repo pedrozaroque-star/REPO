@@ -20,20 +20,38 @@ export interface VersionMilestone {
 }
 
 export const SYSTEM_VERSION = {
-    version: 'v2.26.0',
-    versionNumber: '2.26.0',
+    version: 'v2.27.0',
+    versionNumber: '2.27.0',
     releaseMonthEs: 'Noviembre 2026',
     releaseMonthEn: 'November 2026',
     stage: 'Producción',
     stageEn: 'Production',
     year: '2026',
-    labelEs: 'Noviembre 2026 • SM TEG v2.26.0',
-    labelEn: 'November 2026 • SM TEG v2.26.0',
+    labelEs: 'Noviembre 2026 • SM TEG v2.27.0',
+    labelEn: 'November 2026 • SM TEG v2.27.0',
     brand: 'SM TEG',
     lastUpdated: '2026-11-13'
 } as const;
 
 export const VERSION_HISTORY: readonly VersionMilestone[] = [
+    {
+        version: 'v2.27.0',
+        date: '13-Nov-2026',
+        titleEs: 'Conciliar Delivery 100% Automatizado en 3 Lotes + Exportar XLSX, AppSidebar Contraído & UX Móvil en los 8 Módulos de BottomTabBar, Operación 24/7 con Remote Agents y Suite Oficial de Stickers Imprimibles para las 15 Sucursales',
+        titleEn: '100% Automated 3-Batch Delivery Reconciliation + XLSX Export, Default-Collapsed AppSidebar & Mobile UX Across All 8 BottomTabBar Modules, 24/7 Remote Agents Operations & Official 15-Store Print-Ready Signage Suite',
+        highlightsEs: [
+            'Conciliar Delivery Automatización Total por Cron en 3 Lotes + Exportación XLSX (/admin/conciliar-delivery, /api/cron/sync-delivery-reconciliation, /api/delivery-reconciliation y lib/delivery-reconciliation.ts): extracción primaria Uber Eats vía /manager/api/getNetSalesByOrder (settlementUUID) con fusión REFUND + COMPLETED que elimina errores HTTP 429 y domingos incompletos; persistencia cifrada AES-256-GCM y autorrenovación de sesión Grubhub en la nube; exportación nativa Excel .xlsx de 3 pestañas (Resumen, Cortes Semanales y Ordenes Detalle); retiro de carga manual CSV + filtro de UNASSIGNED_STORE vacía; y división del cron en 3 lotes escalonados (batch=1..3 a las 15:05, 15:15 y 15:25 UTC en vercel.json)',
+            'Rediseño de AppSidebar (Grupos Cerrados por Defecto) y Adaptación Móvil (< lg) de los 8 Módulos Anclados en BottomTabBar (components/AppSidebar.tsx, BottomTabBar.tsx, ClientLayout.tsx, SupportChatWidget.tsx y 32 vistas): escritorio 100% intacto; grupos laterales contraídos al iniciar con auto-apertura de ruta activa/búsqueda e iconos móviles ampliados; barra inferior con safe-area-inset-bottom sin traslapar el chat de soporte; y experiencia móvil nativa en /inicio, /planificador (Día/Semana/Presupuesto móvil + envío por Email .ics, WhatsApp/SMS, Share nativo y PDF), /inspecciones, /ventas, /checklists, /actividades y /mis-horarios',
+            'Infraestructura Cloud 24/7 desde Teléfono con Google Antigravity Remote Agents (commit 6a2c6f2d, AGENTS.md, .agents/skills/remote-cloud-ops/SKILL.md, npm run preflight:cloud y GitHub Actions CI) + Ratificación Exclusiva Vía 1 DoorDash Storefront (DPSD-5935): operación móvil en antigravity.google.com enlazada a GitHub pedrozaroque-star/REPO, Vercel MCP (tacosgavilan) y candado estricto Supabase MCP (ywwwdcvgfculqmcfkihq con 194/194 tablas RLS activas)',
+            'Suite Oficial de Señalética e Impresión 1:1 para las 15 Sucursales (exports/door-stickers-2026/*, exports/customer-experience-sticker-5x7/*, docs/letreros-service-dogs/* y docs/letreros-holiday-hours/*): 15 stickers de horarios de puerta 18"×5.5" con logo vectorial blanco exacto TACOS / Gavilan (CENTRAL y BROADWAY limpios y horas sin :00 en 15 PDFs 1:1 + 15 PNGs 300 DPI + Master PDF de 16 páginas), stickers 5.5"×7.0" 600 DPI de Service Dogs / No Pets y Holiday Hours, logo circular puro de puerta 9"×9" 600 DPI, stickers QR 5"×7" y 7"×5" de Experiencia del Cliente (/clientes) y 70.3 horas consolidadas en Noviembre 2026'
+        ],
+        highlightsEn: [
+            '100% Automated 3-Batch Delivery Reconciliation Cron + Native XLSX Export (/admin/conciliar-delivery, /api/cron/sync-delivery-reconciliation, /api/delivery-reconciliation & lib/delivery-reconciliation.ts): primary Uber Eats order extraction via /manager/api/getNetSalesByOrder (settlementUUID) with REFUND + COMPLETED row merging eliminating HTTP 429 rate limits and incomplete Sundays; AES-256-GCM encrypted Grubhub cloud token persistence & auto-renewal; native 3-sheet .xlsx export (Summary, Weekly Cutoffs, Order Details); removal of manual CSV upload + empty UNASSIGNED_STORE suppression; and 3 staggered cron batches (batch=1..3 at 15:05, 15:15, and 15:25 UTC in vercel.json)',
+            'Default-Collapsed AppSidebar & Full Mobile UX (< lg) Across All 8 BottomTabBar Pinned Modules (components/AppSidebar.tsx, BottomTabBar.tsx, ClientLayout.tsx, SupportChatWidget.tsx & 32 views): desktop preserved 100% intact; sidebar groups start collapsed with active-route/search auto-expand and enlarged mobile icons; safe-area BottomTabBar with zero SupportChatWidget overlap; and tailored mobile layouts across /inicio, /planificador (mobile Day/Week/Budget views + .ics Email, WhatsApp/SMS, native Share & PDF print dispatch), /inspecciones, /ventas, /checklists, /actividades, and /mis-horarios',
+            '24/7 Phone-First Cloud Operations via Google Antigravity Remote Agents (commit 6a2c6f2d, AGENTS.md, .agents/skills/remote-cloud-ops/SKILL.md, npm run preflight:cloud & GitHub Actions CI) + Path 1 DoorDash Storefront Exclusive Ratification (DPSD-5935): mobile PWA workflow on antigravity.google.com wired to GitHub pedrozaroque-star/REPO, Vercel MCP (tacosgavilan), and strict Supabase MCP project lock (ywwwdcvgfculqmcfkihq with 194/194 RLS-enabled public tables)',
+            'Official 15-Store Print-Ready Door & QR Signage Suite (exports/door-stickers-2026/*, exports/customer-experience-sticker-5x7/*, docs/letreros-service-dogs/* & docs/letreros-holiday-hours/*): 15 branch-specific 18"×5.5" Business Hours door stickers with exact vector white TACOS / Gavilan lockup (clean CENTRAL & BROADWAY names and colon-free hours across 15 1:1 PDFs + 15 300 DPI PNGs + 16-page Master PDF), 5.5"×7.0" 600 DPI Service Dogs / No Pets and Holiday Hours stickers, 9"×9" 600 DPI pure circular door logo, 5"×7" & 7"×5" Customer Experience QR stickers (/clientes), and 70.3 consolidated hours in November 2026'
+        ]
+    },
     {
         version: 'v2.26.0',
         date: '13-Nov-2026',

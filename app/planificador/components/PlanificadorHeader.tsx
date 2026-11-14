@@ -49,7 +49,7 @@ export function PlanificadorHeader({
                 <div className="flex items-center gap-2 sm:gap-6">
                     <h1 className="text-lg sm:text-xl font-black text-gray-900 dark:text-white flex items-center gap-2">
                         <Calendar className="text-indigo-600" size={24} />
-                        <span className="hidden xs:inline">{t('planner.title')}</span>
+                        <span className="hidden sm:inline">{t('planner.title')}</span>
                     </h1>
 
                     <div className="relative flex-1 sm:flex-none max-w-[150px] sm:max-w-none">
@@ -111,7 +111,10 @@ export function PlanificadorHeader({
                     </div>
                     <div className="flex items-center gap-2">
                         {googleConnected ? (
-                            <div className="hidden xs:flex items-center gap-2 px-3 py-2 bg-green-50 text-green-700 rounded-lg text-xs font-bold border border-green-200" title={`Conectado como ${googleEmail}`}>
+                            <div
+                                className="hidden sm:flex items-center gap-2 px-3 py-2 bg-green-50 text-green-700 rounded-lg text-xs font-bold border border-green-200"
+                                title={language === 'en' ? `Connected as ${googleEmail}` : `Conectado como ${googleEmail}`}
+                            >
                                 <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
                                 <span className="max-w-[100px] truncate">{googleEmail}</span>
                             </div>
@@ -119,10 +122,13 @@ export function PlanificadorHeader({
                             <button
                                 onClick={onConnectGmail}
                                 className="flex items-center gap-1.5 px-3 py-2 bg-gradient-to-r from-red-500 to-yellow-500 hover:from-red-400 hover:to-yellow-400 text-white rounded-lg text-xs font-black shadow-md transition-all hover:scale-105 active:scale-95 animate-pulse hover:animate-none cursor-pointer"
-                                title="Vincular tu cuenta de Gmail de Tacos Gavilan para poder publicar horarios y enviar avisos"
+                                title={language === 'en'
+                                    ? 'Connect your Tacos Gavilan Gmail account to publish schedules and send notifications'
+                                    : 'Vincular tu cuenta de Gmail de Tacos Gavilan para poder publicar horarios y enviar avisos'
+                                }
                             >
                                 <Mail size={16} />
-                                <span className="hidden sm:inline drop-shadow-sm">Vincular Gmail</span>
+                                <span className="hidden sm:inline drop-shadow-sm">{t('planner.mobile.gmail_connect_action')}</span>
                                 <span className="sm:hidden drop-shadow-sm">Gmail</span>
                             </button>
                         )}
@@ -150,19 +156,19 @@ export function PlanificadorHeader({
                                 }
                             >
                                 <Zap size={16} fill={draftCount > 0 || totalShiftsCount > 0 ? "currentColor" : "none"} />
-                                <span className="hidden xs:inline">
+                                <span className="hidden sm:inline">
                                     {draftCount > 0 
                                         ? `${t('planner.header.publish_changes')} (${draftCount})` 
                                         : totalShiftsCount > 0
-                                        ? (t('planner.header.republish') || 'Re-publicar')
+                                        ? t('planner.header.republish')
                                         : t('planner.header.published')
                                     }
                                 </span>
-                                <span className="xs:hidden">
+                                <span className="sm:hidden">
                                     {draftCount > 0 
-                                        ? `Publicar (${draftCount})` 
+                                        ? `${language === 'en' ? 'Publish' : 'Publicar'} (${draftCount})` 
                                         : totalShiftsCount > 0
-                                        ? 'Re-publicar'
+                                        ? t('planner.header.republish')
                                         : '✔'
                                     }
                                 </span>
@@ -175,7 +181,10 @@ export function PlanificadorHeader({
                                 ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
                                 : 'bg-white dark:bg-slate-800 text-gray-500 dark:text-slate-400 border-gray-200 dark:border-slate-700 hover:bg-gray-50 dark:hover:bg-slate-700'
                                 }`}
-                            title={isToolbarVisible ? "Ocultar Barra de Herramientas" : "Mostrar Barra de Herramientas"}
+                            title={isToolbarVisible
+                                ? (language === 'en' ? 'Hide Toolbar' : 'Ocultar Barra de Herramientas')
+                                : (language === 'en' ? 'Show Toolbar' : 'Mostrar Barra de Herramientas')
+                            }
                         >
                             <Sliders size={20} />
                         </button>

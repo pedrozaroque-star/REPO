@@ -1,6 +1,51 @@
+/**
+ * @module app/planificador/lib/utils
+ * @description Shared utilities for the Tacos Gavilan schedule planner: Los Angeles timezone/6:00 AM business-day helpers,
+ * non-blocking DOM toast notifications, role weighting, and WhatsApp/SMS schedule text formatters.
+ *
+ * @businessRules
+ * - Workday runs 6:00 AM to 5:59 AM next calendar day in America/Los_Angeles.
+ * - Afternoon/night (PM) shift starts at 5:00 PM (17:00).
+ * - Brand name is strictly Tacos Gavilan.
+ */
+
 import { Shift } from './types'
 
-export const toast = { success: (m: string) => window.alert(m), error: (m: string) => window.alert(m), info: (m: string) => window.alert(m) }
+function showDomToast(message: string, variant: 'success' | 'error' | 'info') {
+    if (typeof document === 'undefined') {
+        console.log(`[Planner ${variant}]`, message)
+        return
+    }
+    const existing = document.getElementById('teg-planner-toast')
+    if (existing) existing.remove()
+
+    const el = document.createElement('div')
+    el.id = 'teg-planner-toast'
+    const palette =
+        variant === 'error'
+            ? 'background:#dc2626;color:#ffffff;border:1px solid rgba(255,255,255,0.2);'
+            : variant === 'info'
+                ? 'background:#4f46e5;color:#ffffff;border:1px solid rgba(255,255,255,0.2);'
+                : 'background:#0f172a;color:#ffffff;border:1px solid rgba(16,185,129,0.45);'
+
+    el.setAttribute('role', 'status')
+    el.setAttribute(
+        'style',
+        `position:fixed;top:68px;left:50%;transform:translateX(-50%);z-index:300;max-width:min(92vw,420px);padding:10px 16px;border-radius:9999px;font-size:12px;font-weight:700;line-height:1.35;box-shadow:0 16px 32px -8px rgba(15,23,42,0.35);cursor:pointer;display:flex;align-items:center;gap:8px;white-space:pre-line;text-align:center;${palette}`
+    )
+    el.textContent = message
+    el.onclick = () => el.remove()
+    document.body.appendChild(el)
+    setTimeout(() => {
+        if (el.parentNode) el.remove()
+    }, 3800)
+}
+
+export const toast = {
+    success: (m: string) => showDomToast(m, 'success'),
+    error: (m: string) => showDomToast(m, 'error'),
+    info: (m: string) => showDomToast(m, 'info')
+}
 
 const TIMEZONE = 'America/Los_Angeles';
 
@@ -14,7 +59,7 @@ const getLAParts = (d: Date) => {
         weekday: 'short',
         hour: 'numeric',
         minute: 'numeric',
-        hour12: false
+        hourCycle: 'h23'
     });
     const parts = formatter.formatToParts(d);
     const part = (type: string) => parts.find(p => p.type === type)?.value;
@@ -23,9 +68,31 @@ const getLAParts = (d: Date) => {
         month: parseInt(part('month') || '0') - 1, // 0-indexed
         day: parseInt(part('day') || '0'),
         weekday: part('weekday'), // 'Mon', 'Tue'...
-        hour: parseInt(part('hour') || '0'),
+        hour: parseInt(part('hour') || '0') % 24,
         minute: parseInt(part('minute') || '0')
     };
+}
+
+export const getLAHoursMinutes = (input: string | Date): { hour: number; minute: number; hhmm: string } => {
+    const d = typeof input === 'string' ? new Date(input) : input;
+    if (Number.isNaN(d.getTime())) return { hour: 9, minute: 0, hhmm: '09:00' };
+    const { hour, minute } = getLAParts(d);
+    return {
+        hour,
+        minute,
+        hhmm: `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`
+    };
+}
+
+export const getBusinessTodayISO = (now: Date = new Date()): string => {
+    const { hour } = getLAParts(now);
+    const todayISO = formatDateISO(now);
+    if (hour < 6) {
+        const yesterday = new Date(todayISO + 'T12:00:00');
+        yesterday.setDate(yesterday.getDate() - 1);
+        return formatDateISO(yesterday);
+    }
+    return todayISO;
 }
 
 export const getMonday = (d: Date) => {
@@ -65,7 +132,7 @@ export const formatDateISO = (d: Date) => {
     }).format(d);
 };
 
-export const formatDateNice = (input: string | Date) => {
+export const formatDateNice = (input: string | Date, locale: string = 'es-US') => {
     if (!input) return '';
     let d: Date;
     if (typeof input === 'string') {
@@ -76,7 +143,8 @@ export const formatDateNice = (input: string | Date) => {
         d = input;
     }
 
-    return new Intl.DateTimeFormat('es-US', { // Spanish for user preference
+    const intlLocale = locale === 'en' ? 'en-US' : locale === 'es' ? 'es-US' : locale;
+    return new Intl.DateTimeFormat(intlLocale, {
         timeZone: TIMEZONE,
         day: 'numeric',
         month: 'short'
@@ -145,15 +213,15 @@ export const getRoleWeight = (title: string, shifts: any[] = []) => {
     if (shifts && shifts.length > 0) {
         shifts.forEach(s => {
             if (!s.start_time || !s.end_time) return;
-            const start = new Date(s.start_time);
-            const end = new Date(s.end_time);
+            const startParts = getLAHoursMinutes(s.start_time);
+            const endParts = getLAHoursMinutes(s.end_time);
 
-            // Normalize to hours (float 0-24)
-            const startH = start.getHours() + (start.getMinutes() / 60);
-            let endH = end.getHours() + (end.getMinutes() / 60);
-            if (endH < startH) endH += 24; // Overnight shift logic
+            // Normalize to Tacos Gavilan business hours (6:00 AM -> 5:59 AM next day) in America/Los_Angeles
+            const startH = (startParts.hour < 6 ? startParts.hour + 24 : startParts.hour) + (startParts.minute / 60);
+            let endH = (endParts.hour < 6 ? endParts.hour + 24 : endParts.hour) + (endParts.minute / 60);
+            if (endH < startH) endH += 24;
 
-            // AM Window: 0 to 17 (5 PM)
+            // AM Window: 6:00 AM to 5:00 PM (17:00), PM Window: >= 17:00
             const amLimit = 17;
 
             // Overlap AM
@@ -201,4 +269,101 @@ export const calculateShiftHours = (s: Shift) => {
     const end = new Date(s.end_time);
     const diff = (end.getTime() - start.getTime()) / (1000 * 60 * 60);
     return diff > 0 ? diff : 0;
+}
+
+export function formatPhoneForWhatsApp(phone?: string | null): string | null {
+    if (!phone) return null;
+    const digits = String(phone).replace(/\D/g, '');
+    if (!digits) return null;
+    if (digits.length === 10) return `1${digits}`;
+    if (digits.length >= 11) return digits;
+    return null;
+}
+
+export function buildEmployeeScheduleText(params: {
+    empName: string
+    storeName: string
+    weekDays: Date[]
+    shifts: any[]
+    jobs: any[]
+    shiftStats?: Record<string, any>
+    weeklyHours?: number
+    language?: string
+}): string {
+    const { empName, storeName, weekDays, shifts, jobs, shiftStats, weeklyHours, language = 'es' } = params;
+    const isEn = language === 'en';
+    const locale = isEn ? 'en-US' : 'es-ES';
+    const cleanStore = formatStoreName(storeName || 'Tacos Gavilan');
+    const weekStartLabel = weekDays[0] ? formatDateNice(weekDays[0], locale) : '';
+    const weekEndLabel = weekDays[6] ? formatDateNice(weekDays[6], locale) : '';
+
+    let computedTotal = 0;
+    const lines: string[] = [
+        isEn
+            ? `Hi ${empName}, here is your Tacos Gavilan schedule (${cleanStore}) for ${weekStartLabel} - ${weekEndLabel}:`
+            : `Hola ${empName}, tu horario en Tacos Gavilan (${cleanStore}) del ${weekStartLabel} al ${weekEndLabel}:`
+    ];
+
+    weekDays.forEach((d) => {
+        const dStr = formatDateISO(d);
+        const dayLabel = d.toLocaleDateString(locale, { timeZone: TIMEZONE, weekday: 'short' }).replace('.', '');
+        const niceDay = `${dayLabel.charAt(0).toUpperCase() + dayLabel.slice(1)} ${d.getDate()}`;
+        const dayShifts = shifts.filter(s => s.shift_date === dStr);
+        if (dayShifts.length === 0) {
+            lines.push(`• ${niceDay}: ${isEn ? 'OFF' : 'Libre'}`);
+        } else {
+            const parts = dayShifts.map(s => {
+                const dur = Number(shiftStats?.[s.id]?.duration ?? calculateShiftHours(s)) || 0;
+                computedTotal += dur;
+                const jobTitle = jobs.find(j => j.id === s.job_id)?.title;
+                const timeRange = `${formatTime12h(s.start_time)} - ${formatTime12h(s.end_time)}`;
+                return jobTitle ? `${timeRange} (${jobTitle})` : timeRange;
+            });
+            lines.push(`• ${niceDay}: ${parts.join(' / ')}`);
+        }
+    });
+
+    const totalToShow = typeof weeklyHours === 'number' && weeklyHours > 0 ? weeklyHours : computedTotal;
+    lines.push(isEn ? `Total week: ${totalToShow.toFixed(1)} hrs` : `Total semana: ${totalToShow.toFixed(1)} hrs`);
+    return lines.join('\n');
+}
+
+export function buildTeamScheduleText(params: {
+    storeName: string
+    weekDays: Date[]
+    employees: any[]
+    shifts: any[]
+    language?: string
+}): string {
+    const { storeName, weekDays, employees, shifts, language = 'es' } = params;
+    const isEn = language === 'en';
+    const locale = isEn ? 'en-US' : 'es-ES';
+    const cleanStore = formatStoreName(storeName || 'Tacos Gavilan');
+    const weekStartLabel = weekDays[0] ? formatDateNice(weekDays[0], locale) : '';
+    const weekEndLabel = weekDays[6] ? formatDateNice(weekDays[6], locale) : '';
+
+    const lines: string[] = [
+        isEn
+            ? `📅 Tacos Gavilan Weekly Schedule — ${cleanStore} (${weekStartLabel} - ${weekEndLabel})`
+            : `📅 Horario Semanal Tacos Gavilan — ${cleanStore} (${weekStartLabel} - ${weekEndLabel})`,
+        ''
+    ];
+
+    weekDays.forEach((d) => {
+        const dStr = formatDateISO(d);
+        const dayHeader = d.toLocaleDateString(locale, { timeZone: TIMEZONE, weekday: 'short', month: 'short', day: 'numeric' });
+        const dayShifts = shifts.filter(s => s.shift_date === dStr);
+        lines.push(`*${dayHeader.toUpperCase()}*`);
+        if (dayShifts.length === 0) {
+            lines.push(isEn ? '  - No shifts scheduled' : '  - Sin turnos programados');
+        } else {
+            dayShifts.forEach(s => {
+                const emp = employees.find(e => e.id === s.employee_id);
+                const empName = emp ? `${emp.chosen_name || emp.first_name} ${emp.last_name}`.trim() : (isEn ? 'Open Shift' : 'Turno Abierto');
+                lines.push(`  • ${empName}: ${formatTime12h(s.start_time)} - ${formatTime12h(s.end_time)}`);
+            });
+        }
+    });
+
+    return lines.join('\n');
 }

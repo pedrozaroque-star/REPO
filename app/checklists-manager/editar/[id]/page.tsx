@@ -1,5 +1,16 @@
 'use client'
 
+/**
+ * @module app/checklists-manager/editar/[id]/page
+ * @description Formulario de edición para checklists existentes de Manager.
+ * @businessRules
+ * - Valida permisos mediante canEditChecklist respetando ventana del turno activo y rechazo previo.
+ * - Recalcula score dinámico con base en useDynamicChecklist.
+ * @dataFlow
+ * - Supabase (`manager_checklists`) <-> estado local + borrador offline -> actualización de registro.
+ * @notes Mobile fix: sticky header ajustado bajo navbar móvil (top-14 lg:top-0) y padding vertical compacto.
+ */
+
 import React, { useState, useEffect } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import { motion } from 'framer-motion'
@@ -212,7 +223,7 @@ function EditManagerChecklistContent() {
 
   return (
     <div className="min-h-screen bg-gray-50 pb-32">
-      <header className="bg-white border-b border-gray-200 sticky top-0 z-40 shadow-sm">
+      <header className="bg-white border-b border-gray-200 sticky top-14 lg:top-0 z-30 shadow-sm">
         <div className="max-w-4xl mx-auto px-4 py-4 flex items-center justify-between">
           <div className="flex items-center space-x-3">
             <button onClick={() => router.back()} className="w-10 h-10 flex items-center justify-center hover:bg-gray-100 rounded-xl transition-colors text-gray-600">
@@ -237,7 +248,7 @@ function EditManagerChecklistContent() {
         </div>
       </header>
 
-      <div className="max-w-4xl mx-auto px-4 py-8">
+      <div className="max-w-4xl mx-auto px-4 py-4 sm:py-8">
         <form onSubmit={handleSubmit} className="space-y-8">
           <div className="space-y-12">
             {sections.map((section: any) => (
