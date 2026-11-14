@@ -83,6 +83,7 @@
  *   * Grubhub: autorrenovación S2S autónoma vía `POST /auth/refresh` con `refresh_token` cifrado en `integrations.grubhub_merchant` (sin requerir Chrome ni contraseñas en Cron) y detección estricta de HTTP 401/403/5xx (nunca devolver arrays vacíos silenciosos).
  *   * Persistencia real de cobertura y errores de sincronización por tienda/plataforma en `integrations.delivery_sync_status` y normalización `PlatformOrderInput` en cuarentena `store_id=0`.
  *   * Uber Eats `getNetSalesByOrder` + `workflowUUID::orderId` (`COMPLETED` + `REFUND` merge) como fuente primaria de órdenes liquidadas (evita `HTTP 429` `getHistoricOrders.rate_limited` y preserva cuadre exacto `$0.00` con payouts), más ventana 00:00–06:00 AM PT (`America/Los_Angeles`) vía `getHistoricOrders` para rollover operativo post-corte y backoff exponencial con jitter en `HTTP 429`.
+ * - Fix 2026-11-13 (Vercel NFT Bundle Guard <4MB): omitido CHROME_DEVTOOLS_PORT_FILE dinámico y cortocircuito en process.env.VERCEL en lectores locales de DevToolsActivePort para evitar que Turbopack/@vercel/nft empaquete todo el repositorio (>250 MB) en funciones serverless.
  */
 
 import crypto from 'crypto'
@@ -1116,11 +1117,13 @@ export async function refreshGrubhubChromeSessionFromLocalTab(force = false): Pr
     return null
   }
 
+  if (process.env.VERCEL) {
+    return null
+  }
+
   try {
     const fs = await import('fs')
-    const portFile =
-      process.env.CHROME_DEVTOOLS_PORT_FILE ||
-      'C:/Users/pedro/AppData/Local/Google/Chrome/User Data/DevToolsActivePort'
+    const portFile = 'C:/Users/pedro/AppData/Local/Google/Chrome/User Data/DevToolsActivePort'
     if (!fs.existsSync(portFile)) return null
     const lines = fs.readFileSync(portFile, 'utf8').trim().split(/\r?\n/)
     if (lines.length < 2) return null
@@ -4038,10 +4041,8 @@ async function fetchChromeLiveDoorDashAndUberForStores(
 
   try {
     const fs = await import('fs')
-    const portFile =
-      process.env.CHROME_DEVTOOLS_PORT_FILE ||
-      'C:/Users/pedro/AppData/Local/Google/Chrome/User Data/DevToolsActivePort'
-    if (fs.existsSync(portFile)) {
+    const portFile = 'C:/Users/pedro/AppData/Local/Google/Chrome/User Data/DevToolsActivePort'
+    if (!process.env.VERCEL && fs.existsSync(portFile)) {
       const lines = fs.readFileSync(portFile, 'utf8').trim().split(/\r?\n/)
       if (lines.length >= 2) {
         const wsUrl = `ws://127.0.0.1:${lines[0]}${lines[1]}`

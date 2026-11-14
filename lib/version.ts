@@ -20,20 +20,34 @@ export interface VersionMilestone {
 }
 
 export const SYSTEM_VERSION = {
-    version: 'v2.27.0',
-    versionNumber: '2.27.0',
+    version: 'v2.27.1',
+    versionNumber: '2.27.1',
     releaseMonthEs: 'Noviembre 2026',
     releaseMonthEn: 'November 2026',
     stage: 'Producción',
     stageEn: 'Production',
     year: '2026',
-    labelEs: 'Noviembre 2026 • SM TEG v2.27.0',
-    labelEn: 'November 2026 • SM TEG v2.27.0',
+    labelEs: 'Noviembre 2026 • SM TEG v2.27.1',
+    labelEn: 'November 2026 • SM TEG v2.27.1',
     brand: 'SM TEG',
     lastUpdated: '2026-11-13'
 } as const;
 
 export const VERSION_HISTORY: readonly VersionMilestone[] = [
+    {
+        version: 'v2.27.1',
+        date: '13-Nov-2026',
+        titleEs: 'Optimización Serverless Vercel (< 5 MB) en Conciliar Delivery & Support Chat + Blindaje outputFileTracingExcludes',
+        titleEn: 'Vercel Serverless Bundle Optimization (< 5 MB) for Delivery Reconciliation & Support Chat + outputFileTracingExcludes Guardrail',
+        highlightsEs: [
+            'Eliminación del rastreo comodín (wildcard trace) en lib/delivery-reconciliation.ts al remover la lectura dinámica de process.env.CHROME_DEVTOOLS_PORT_FILE y agregar cortocircuito en process.env.VERCEL, reduciendo los bundles descomprimidos de /api/cron/sync-delivery-reconciliation, /api/delivery-reconciliation, /api/delivery-reconciliation/quickbooks-journal y /api/support-chat de 931.97 MB a menos de 5 MB (muy por debajo del límite de 250 MB de Vercel)',
+            'Blindaje permanente outputFileTracingExcludes en next.config.ts para /api/** evitando que carpetas operativas o de impresión (exports/, docs/, ordenes/, scripts/, data/, reports/, backups/, screenshots/) puedan incluirse en Funciones Serverless de Vercel, manteniendo intactos /api/web-preview, /api/notifications/*, /api/viele/* y /api/admin/reports, con 70.6 horas consolidadas en Noviembre 2026'
+        ],
+        highlightsEn: [
+            'Eliminated Next.js/Turbopack wildcard file tracing in lib/delivery-reconciliation.ts by removing dynamic process.env.CHROME_DEVTOOLS_PORT_FILE reads and adding process.env.VERCEL short-circuit guards, reducing uncompressed Serverless Function bundles for /api/cron/sync-delivery-reconciliation, /api/delivery-reconciliation, /api/delivery-reconciliation/quickbooks-journal, and /api/support-chat from 931.97 MB to under 5 MB (well below Vercel\'s 250 MB limit)',
+            'Added permanent outputFileTracingExcludes guardrails in next.config.ts for /api/** preventing offline folders (exports/, docs/, ordenes/, scripts/, data/, reports/, backups/, screenshots/) from ever being bundled into Serverless Functions while preserving /api/web-preview, /api/notifications/*, /api/viele/*, and /api/admin/reports, with 70.6 consolidated hours in November 2026'
+        ]
+    },
     {
         version: 'v2.27.0',
         date: '13-Nov-2026',
