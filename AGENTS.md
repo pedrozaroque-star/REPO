@@ -45,12 +45,12 @@ Antes de modificar, analizar o trabajar con cualquier módulo del sistema, **el 
    - Todo análisis debe ser real, ejecutado contra la lógica del sistema, identificando los números de línea exactos del problema y su impacto operativo concreto.
 7. **Disciplina de Edición Quirúrgica y Parches Atómicos en Archivos Grandes (+1,500 líneas)**:
    - **Separación Estricta entre Auditoría y Edición**: La lectura exhaustiva línea por línea en archivos grandes (`page.tsx`, `lib/i18n.tsx`, `lib/chat-tools.ts`, etc.) se delega a subagentes en la fase de auditoría. Una vez auditado, queda **PROHIBIDO** releer miles de líneas seguidas en la conversación principal (*context window* / ventana de contexto).
-   - **Búsquedas Quirúrgicas de Anclas**: Para ubicar puntos de edición y saltos de línea (`LF` vs `CRLF`), usar búsquedas puntuales en terminal (`Select-String` / `node -e`) y lecturas acotadas (`read_file` de 30–80 líneas alrededor del cambio).
+   - **Búsquedas Quirúrgicas de Anclas**: Para ubicar puntos de edición y saltos de línea (`LF` vs `CRLF`), usar búsquedas puntuales en terminal (`Select-String` / `node -e` en Windows; `grep -n` / `node -e` en Linux/Remote Agents) y lecturas acotadas (`read_file` de 30–80 líneas alrededor del cambio).
    - **Prohibición de Bloques `edit_file` Masivos**: NUNCA enviar reemplazos gigantes (`>120` líneas) en una sola llamada de `edit_file`, ya que provocan cortes de transmisión (*stream interrupted* / *stream timeout*) y colisiones con la recarga en caliente de Next.js en Windows (*HMR*: `user-mapped section open`).
    - **Parches Atómicos Autoverificados para Lotes Grandes**: Cuando deban aplicarse múltiples correcciones (`8+` cambios) sobre un archivo grande (`>1,500` líneas):
      1. Crear un script temporal de Node en `<Artifact Directory Path>/scratch/` con una función validadora `rep(from, to, expected = 1)` que compruebe en memoria el conteo exacto de cada fragmento objetivo (abortando con `throw new Error(...)` sin tocar el disco si alguno no coincide).
      2. Escribir el resultado en **una sola operación atómica** (`fs.writeFileSync`), evitando archivos a medias y bloqueos de *HMR*.
-     3. Ejecutar en seguida `npx tsc --noEmit` y la simulación real (`npx tsx`) para certificar cero regresiones.
+     3. Ejecutar en seguida `npm run typecheck` (`npx next typegen && npx tsc --noEmit`) y la simulación real (`npx tsx`) para certificar cero regresiones.
 
 ---
 
@@ -144,7 +144,7 @@ El nombre oficial de la empresa y marca es estrictamente **Tacos Gavilan** (NUNC
 
 
 
-## 🏗️ ARQUITECTURA DEL SISTEMA — Tacos El Gavilan (TEG)
+## 🏗️ ARQUITECTURA DEL SISTEMA — Tacos Gavilan (TEG)
 
 ### Inventario y Costos
 - **La Bodega** es el almacén central de Tacos Gavilan. Compra al proveedor externo y revende a los restaurantes.
@@ -180,3 +180,27 @@ Cron sync-food-cost → pre-calcula cache mensual
 - CARNITAS se rastrea en el CRON para datos de bodega, pero se filtra del carousel de la tablet de parrilla
 - El acelerador intraday compara ventas reales de hoy vs proyección histórica para ajustar el pace en tiempo real
 - Los datos REAL (verde) vienen de `meat_consumption_history` y se refrescan cada 3 minutos
+
+---
+
+## 🧭 FILOSOFÍA DE TRABAJO E IDIOMA OBLIGATORIO
+- Analizar a fondo y con calma; prohibido dar respuestas rápidas, soluciones a medias, modos prueba o *mocks* (simulaciones falsas) — todo 100% real y terminado.
+- Responder siempre en **español**, dejando los tecnicismos en **inglés con su traducción al español**.
+- Si un patrón del sistema ya funciona bien, replicarlo para nuevas necesidades sin inventar arquitecturas paralelas.
+- Documentarse siempre de los archivos `.md` del proyecto antes de modificar módulos.
+
+## 🍞 PROTOCOLO TOAST API (CRÍTICO)
+1. **Mapeo de Dining Options**: NUNCA hardcodear GUIDs ni esperar strings fijos (`'Uber Eats'`, etc.); usar siempre `getDiningOptionsMap` para traducir `GUID -> Nombre` antes de procesar ventas.
+2. **Cálculo Exacto de Ventas**: Uber/DoorDash y canales deben cuadrar al centavo usando la misma fórmula de Net Sales sobre `selections`: `Sum(Item.Price) - Sum(Item.Discounts) - Sum(Item.Refunds) - Sum(UnlinkedRefunds)`. Prohibido sumar totales de cabecera.
+3. **Caché y Reparación**: `lib/toast-api.ts` usa `sales_daily_cache` y `punches`. Para reparar un día, borrar explícitamente `.delete().eq('business_date', date)` antes de llamar a `fetchToastData`.
+4. **Automatización Crons**: Mantener siempre en `vercel.json` los dos cron jobs críticos: `/api/cron/sync-sales` (Ventas) y `/api/cron/sync-labor` (Horarios/Punches).
+
+## 🌐 PROTOCOLO i18n (BILINGÜE OBLIGATORIO)
+- Todo módulo, componente o página nueva DEBE soportar **Español (`es`)** e **Inglés (`en`)** usando `useLanguage()` de `lib/i18n.tsx`.
+- Agregar TODAS las claves en ambos diccionarios (`es` y `en`) ANTES de usar `t('modulo.clave')`; prohibido dejar strings visibles hardcodeados en JSX.
+- Mantener intactos los valores persistidos en DB (ej. `'Apertura'`, `'Diario'`, `'REGULAR'`) y traducir únicamente el *label* (etiqueta visual) con `t()`.
+
+## ☁️ OPERACIÓN EN NUBE / REMOTE AGENTS (SIN PC)
+- **Supabase MCP Exclusivo**: Ejecutar operaciones de base de datos vía MCP de Supabase apuntando **ÚNICAMENTE** al proyecto **`teg-tacos-gavilan` (`project_id: ywwwdcvgfculqmcfkihq`, `us-west-1`)**. Queda terminantemente prohibido tocar otros proyectos de la cuenta (`MotoCruz` `cjuaolbneuyzvhdtqtiw` o `candy` `zwevlqbnqdynfkryewcq`).
+- **Vercel & GitHub**: Proyecto Vercel `tacosgavilan` (`prj_ZqezfSQCqko7rz64nQOsJS7Oqavp`, `teamId: team_gizPjG5JHpw8Bd580QMnSELN`) enlazado a `pedrozaroque-star/REPO` (`main`). Seguir siempre el *runbook* `.agents/skills/remote-cloud-ops/SKILL.md` y validar con `npm run preflight:cloud` antes de cualquier commit autorizado.
+

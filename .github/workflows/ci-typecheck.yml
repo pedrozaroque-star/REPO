@@ -1,0 +1,31 @@
+name: Cloud Typecheck & Preflight
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+  push:
+    branches:
+      - 'antigravity/**'
+      - 'remote/**'
+
+jobs:
+  preflight:
+    name: Next.js Typegen & TypeScript Preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies cleanly
+        run: npm ci --no-audit
+
+      - name: Run cloud preflight checks
+        run: npm run preflight:cloud
