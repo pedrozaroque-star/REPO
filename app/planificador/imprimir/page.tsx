@@ -4,12 +4,15 @@
  * Organizes morning (AM) and evening/night (PM) staff hierarchically by job role.
  * 
  * @businessRules
- * - Workday runs 6:00 AM to 5:59 AM next day.
- * - AM employees are sorted above PM employees based on shift start times.
+ * - Workday runs 6:00 AM to 5:59 AM next day; PM shift starts at 5:00 PM (17:00).
+ * - AM vs PM classification uses actual shift overlap hours (`totalPmHours > totalAmHours` against the 17:00 boundary), matching `getRoleWeight` in `app/planificador/lib/utils.ts` so a PM employee who enters at 4:00 PM on one day is never misclassified into AM.
  * - Shows store name, week dates, and clean shift times for physical kitchen posting.
  * 
  * @dataFlow
  * Supabase (stores, toast_employees, toast_jobs, shifts) -> Formatted printable HTML table
+ *
+ * @notes
+ * - Fixed bug where averaging `start_time` alone (`avg < 17`) caused PM employees with a single 4:00 PM entry (e.g., 4pm-2am + five 5pm-1am/3am shifts = avg 16.83) to jump into the AM print table.
  */
 
 'use client'
@@ -84,31 +87,14 @@ function PrintViewContent() {
 
         if (employees.length === 0) return { amEmployees: [], pmEmployees: [] }
 
-        // First distribute based on average time
-        employees.forEach(emp => {
-            const empShifts = relevantShifts.filter(s => s.employee_id === emp.id)
-            if (empShifts.length === 0) return
-
-            let totalHour = 0
-            empShifts.forEach(s => {
-                const { hour, minute } = getLAHoursMinutes(s.start_time)
-                const bizHour = (hour < 6 ? hour + 24 : hour) + minute / 60
-                totalHour += bizHour
-            })
-            const avg = totalHour / empShifts.length
-
-            if (avg < 17) am.push(emp)
-            else pm.push(emp)
-        })
-
         // Strict Sorter for Hierarchy based on ACTUAL SCHEDULED SHIFTS
         const getRank = (title: string) => {
             const t = (title || '').toLowerCase()
-            if (t.includes('manager') && !t.includes('asst') && !t.includes('shift') && !t.includes('assist')) return 1
+            if (t.includes('manager') && !t.includes('asst') && !t.includes('shift') && !t.includes('assist') && !t.includes('asistente')) return 1
             if (t.includes('asst') || t.includes('assist') || t.includes('asistente')) return 2
             if (t.includes('shift') || t.includes('leader') || t.includes('encargado')) return 3
             if (t.includes('cashier') || t.includes('cajero') || t.includes('cajera') || t.includes('frente')) return 4
-            if (t.includes('cook') || t.includes('cocina') || t.includes('cocinero') || t.includes('prep') || t.includes('taquero') || t.includes('tortilla')) return 5
+            if (t.includes('cook') || t.includes('cocina') || t.includes('cocinero') || t.includes('prep') || t.includes('preparador') || t.includes('taquero') || t.includes('tortilla')) return 5
             return 99
         }
 
@@ -137,6 +123,41 @@ function PrintViewContent() {
 
             return bestRank
         }
+
+        // Distribute into AM vs PM based on actual hours worked before vs after 5:00 PM (17:00)
+        // matching getRoleWeight in lib/utils.ts (Store Manager always stays at top of AM table)
+        employees.forEach(emp => {
+            const empShifts = relevantShifts.filter(s => s.employee_id === emp.id)
+            if (empShifts.length === 0) return
+
+            if (getEmployeeBestRank(emp) === 1) {
+                am.push(emp)
+                return
+            }
+
+            let totalAmHours = 0
+            let totalPmHours = 0
+            const amLimit = 17
+
+            empShifts.forEach(s => {
+                if (!s.start_time || !s.end_time) return
+                const startParts = getLAHoursMinutes(s.start_time)
+                const endParts = getLAHoursMinutes(s.end_time)
+
+                const startH = (startParts.hour < 6 ? startParts.hour + 24 : startParts.hour) + startParts.minute / 60
+                let endH = (endParts.hour < 6 ? endParts.hour + 24 : endParts.hour) + endParts.minute / 60
+                if (endH < startH) endH += 24
+
+                const overlapAm = Math.max(0, Math.min(endH, amLimit) - startH)
+                const overlapPm = Math.max(0, endH - Math.max(startH, amLimit))
+
+                totalAmHours += overlapAm
+                totalPmHours += overlapPm
+            })
+
+            if (totalPmHours > totalAmHours) pm.push(emp)
+            else am.push(emp)
+        })
 
         const sorter = (a: any, b: any) => {
             const rankA = getEmployeeBestRank(a)
