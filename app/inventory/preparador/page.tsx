@@ -621,6 +621,36 @@ export default function PreparadorPage() {
         }
     }, [currentStoreCode])
 
+    // Telemetría silenciosa de latido de Tableta de Preparación (cada 60s y al volver a primer plano)
+    useEffect(() => {
+        if (!currentStoreCode) return
+        const sendPrepHeartbeat = () => {
+            if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
+            fetch('/api/order-ready/telemetry', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                signal: AbortSignal.timeout(4000),
+                body: JSON.stringify({
+                    action: 'heartbeat',
+                    storeCode: currentStoreCode,
+                    deviceRole: 'prep_tablet'
+                })
+            }).catch(() => {})
+        }
+        sendPrepHeartbeat()
+        const hbInterval = setInterval(sendPrepHeartbeat, 60_000)
+        const onVisible = () => {
+            if (typeof document === 'undefined' || document.visibilityState === 'visible') {
+                sendPrepHeartbeat()
+            }
+        }
+        document.addEventListener('visibilitychange', onVisible)
+        return () => {
+            clearInterval(hbInterval)
+            document.removeEventListener('visibilitychange', onVisible)
+        }
+    }, [currentStoreCode])
+
     // Reiniciar seguimiento de observaciones del timer inteligente al cambiar de tienda o fecha laboral
     useEffect(() => {
         prepAutoObservedRef.current.clear()
@@ -1047,6 +1077,14 @@ export default function PreparadorPage() {
     const prepLastTouchAtRef = useRef<number>(0)
     const prepLastTouchKeyRef = useRef<string>('')
     const prepLastTouchByKeyRef = useRef<Map<string, number>>(new Map())
+    const activeOrderGestureRef = useRef<{
+        key: string
+        startedAt: number
+        fired: boolean
+        endedAt?: number
+        source?: 'touch' | 'mouse' | 'unknown'
+    } | null>(null)
+    const lastTouchSignalAtRef = useRef<number>(0)
 
     const triggerPrepDedupedAction = (key: string, action: () => void, dedupeMs = 340) => {
         const now = Date.now()
@@ -1058,79 +1096,159 @@ export default function PreparadorPage() {
         action()
     }
 
+    // 🛡️ Escudo 1 (Single-Gesture Lock): Garantiza que UN toque físico con guante (dure 0.05s o 8s)
+    // dispare la acción UNA SOLA VEZ en 0ms al primer contacto, bloqueando repeticiones al mantener
+    // presionado (`move`), soltar (`up`/`cancel`) o evento sintético posterior (`click`/`mousedown`),
+    // sin perder el rescate si un guante seco solo logra disparar en `up` o `click`.
+    const triggerGestureSafeTap = (
+        key: string,
+        phase: 'down' | 'move' | 'up' | 'cancel' | 'click',
+        action: () => void,
+        dedupeMs = 450,
+        source: 'touch' | 'mouse' | 'unknown' = 'unknown'
+    ) => {
+        const now = Date.now()
+        if (source === 'touch') {
+            lastTouchSignalAtRef.current = now
+        } else if (source === 'mouse' && phase === 'down' && now - lastTouchSignalAtRef.current < 1500) {
+            // Bloquear `mousedown` de compatibilidad sintetizado por Chromium tras soltar toque táctil
+            return
+        }
+
+        const active = activeOrderGestureRef.current
+
+        if (phase === 'down') {
+            if (active && active.key === key) {
+                if (active.endedAt === undefined && active.fired && now - active.startedAt < 450) {
+                    return
+                }
+                if (active.endedAt !== undefined && active.fired && now - active.endedAt < dedupeMs) {
+                    return
+                }
+            }
+            activeOrderGestureRef.current = { key, startedAt: now, fired: true, source }
+            triggerPrepDedupedAction(key, action, dedupeMs)
+            return
+        }
+
+        if (phase === 'move') {
+            if (active && active.key === key) {
+                if (active.fired || active.endedAt !== undefined) return
+                active.fired = true
+                triggerPrepDedupedAction(key, action, dedupeMs)
+                return
+            }
+            activeOrderGestureRef.current = { key, startedAt: now, fired: true, source }
+            triggerPrepDedupedAction(key, action, dedupeMs)
+            return
+        }
+
+        if (phase === 'up' || phase === 'cancel') {
+            if (active && active.key === key) {
+                if (active.endedAt === undefined) {
+                    active.endedAt = now
+                }
+                if (active.fired) return
+                active.fired = true
+                triggerPrepDedupedAction(key, action, dedupeMs)
+                return
+            }
+            if (phase === 'up') {
+                activeOrderGestureRef.current = { key, startedAt: now, endedAt: now, fired: true, source }
+                triggerPrepDedupedAction(key, action, dedupeMs)
+            }
+            return
+        }
+
+        // phase === 'click'
+        if (active && active.key === key && active.fired) {
+            if (active.endedAt === undefined) {
+                active.endedAt = now
+                return
+            }
+            if (now - active.endedAt < 1200) {
+                return
+            }
+        }
+        activeOrderGestureRef.current = { key, startedAt: now, endedAt: now, fired: true, source }
+        triggerPrepDedupedAction(key, action, dedupeMs)
+    }
+
     // Disparo ULTRA-SENSIBLE al PRIMER MICROSEGUNDO DE CONTACTO (0.0ms) en TODA el área del cuadro
-    // Diseñado especialmente para las tarjetas de Órdenes (#531) y Voz (Café/Champurrado) con guantes + mica:
-    // - No espera a levantar el dedo (onPointerUp) ni depende de si hay barra de scroll.
-    // - Captura cualquier roce o presión en onPointerDown, onTouchStart, onMouseDown, e incluso si la mica
-    //   recién detecta la electricidad del guante al apretar más fuerte a mitad del toque (onPointerMove / onTouchMove).
+    // blindado por gesto completo contra presiones largas (0.4s-8s) y rebotes al soltar.
     const bindOrderCardUltraTap = (key: string, action: () => void) => ({
         onPointerDown: (e: React.PointerEvent) => {
             if (e.pointerType === 'mouse' && e.button !== 0) return
-            triggerPrepDedupedAction(key, action, 380)
+            triggerGestureSafeTap(key, 'down', action, 450, e.pointerType === 'mouse' ? 'mouse' : 'touch')
         },
         onTouchStart: () => {
-            triggerPrepDedupedAction(key, action, 380)
+            triggerGestureSafeTap(key, 'down', action, 450, 'touch')
         },
         onMouseDown: (e: React.MouseEvent) => {
             if (e.button !== 0) return
-            triggerPrepDedupedAction(key, action, 380)
+            triggerGestureSafeTap(key, 'down', action, 450, 'mouse')
         },
         onPointerMove: (e: React.PointerEvent) => {
-            // Si el cocinero aprieta con el guante y la mica recién conduce capacitancia al aplastar la yema
             if (e.pointerType === 'touch' || e.pointerType === 'pen' || e.buttons > 0) {
-                triggerPrepDedupedAction(key, action, 480)
+                triggerGestureSafeTap(key, 'move', action, 450, e.pointerType === 'mouse' ? 'mouse' : 'touch')
             }
         },
         onTouchMove: () => {
-            triggerPrepDedupedAction(key, action, 480)
+            triggerGestureSafeTap(key, 'move', action, 450, 'touch')
         },
         onPointerUp: (e: React.PointerEvent) => {
             if (e.pointerType === 'mouse' && e.button !== 0) return
-            triggerPrepDedupedAction(key, action, 380)
+            triggerGestureSafeTap(key, 'up', action, 450, e.pointerType === 'mouse' ? 'mouse' : 'touch')
         },
         onTouchEnd: () => {
-            triggerPrepDedupedAction(key, action, 380)
+            triggerGestureSafeTap(key, 'up', action, 450, 'touch')
         },
-        onPointerCancel: () => {
-            triggerPrepDedupedAction(key, action, 380)
+        onPointerCancel: (e: React.PointerEvent) => {
+            triggerGestureSafeTap(key, 'cancel', action, 450, e.pointerType === 'mouse' ? 'mouse' : 'touch')
         },
         onTouchCancel: () => {
-            triggerPrepDedupedAction(key, action, 380)
+            triggerGestureSafeTap(key, 'cancel', action, 450, 'touch')
         },
         onContextMenu: (e: React.MouseEvent) => {
             e.preventDefault()
         },
         onClick: () => {
-            triggerPrepDedupedAction(key, action, 380)
+            triggerGestureSafeTap(key, 'click', action, 450, 'unknown')
         }
     })
 
     // Disparo instantáneo al PRIMER CONTACTO (0ms) para botones fijos fuera de listas con scroll
-    // Ideal para uso con guantes de cocina sobre mica protectora donde la señal capacitiva es breve o intermitente
+    // Ideal para uso con guantes de cocina sobre mica protectora, blindado por gesto completo
     const bindPrepInstantTap = (key: string, action: () => void) => ({
         onPointerDown: (e: React.PointerEvent) => {
             if (e.pointerType === 'mouse' && e.button !== 0) return
-            triggerPrepDedupedAction(key, action, 320)
+            triggerGestureSafeTap(key, 'down', action, 400, e.pointerType === 'mouse' ? 'mouse' : 'touch')
         },
         onTouchStart: () => {
-            triggerPrepDedupedAction(key, action, 320)
+            triggerGestureSafeTap(key, 'down', action, 400, 'touch')
         },
         onMouseDown: (e: React.MouseEvent) => {
             if (e.button !== 0) return
-            triggerPrepDedupedAction(key, action, 320)
+            triggerGestureSafeTap(key, 'down', action, 400, 'mouse')
         },
         onPointerUp: (e: React.PointerEvent) => {
             if (e.pointerType === 'mouse' && e.button !== 0) return
-            triggerPrepDedupedAction(key, action, 320)
+            triggerGestureSafeTap(key, 'up', action, 400, e.pointerType === 'mouse' ? 'mouse' : 'touch')
         },
         onTouchEnd: () => {
-            triggerPrepDedupedAction(key, action, 320)
+            triggerGestureSafeTap(key, 'up', action, 400, 'touch')
+        },
+        onPointerCancel: (e: React.PointerEvent) => {
+            triggerGestureSafeTap(key, 'cancel', action, 400, e.pointerType === 'mouse' ? 'mouse' : 'touch')
+        },
+        onTouchCancel: () => {
+            triggerGestureSafeTap(key, 'cancel', action, 400, 'touch')
         },
         onContextMenu: (e: React.MouseEvent) => {
             e.preventDefault()
         },
         onClick: () => {
-            triggerPrepDedupedAction(key, action, 320)
+            triggerGestureSafeTap(key, 'click', action, 400, 'unknown')
         }
     })
 
@@ -1196,7 +1314,13 @@ export default function PreparadorPage() {
 
     // Radar de proximidad capacitiva: si el cocinero con guante presiona sobre el borde exterior o entre dos cuadros
     // (hasta 24px afuera del borde del cuadro), detecta el cuadro más cercano y dispara el llamado en 0ms
-    const handleOrdersProximityRadar = (clientX: number, clientY: number, containerEl: HTMLElement | null) => {
+    const handleOrdersProximityRadar = (
+        clientX: number,
+        clientY: number,
+        containerEl: HTMLElement | null,
+        phase: 'down' | 'move' = 'down',
+        source: 'touch' | 'mouse' = 'touch'
+    ) => {
         if (!containerEl || !Number.isFinite(clientX) || !Number.isFinite(clientY)) return
         const cards = containerEl.querySelectorAll<HTMLButtonElement>('button[data-order-tap-id]')
         let closestBtn: HTMLButtonElement | null = null
@@ -1219,32 +1343,32 @@ export default function PreparadorPage() {
                 const ordId = tapId.slice(4)
                 const foundOrder = readyOrdersList.find((o) => String(o.id) === ordId)
                 if (foundOrder) {
-                    triggerPrepDedupedAction(tapId, () => handleCallOrderImpulse(foundOrder), 350)
+                    triggerGestureSafeTap(tapId, phase, () => handleCallOrderImpulse(foundOrder), 450, source)
                 }
             } else if (tapId === 'bev:bev-cafe') {
-                triggerPrepDedupedAction(tapId, () => handleCallOrderImpulse({
+                triggerGestureSafeTap(tapId, phase, () => handleCallOrderImpulse({
                     id: 'bev-cafe',
                     order_number: 'CAFE',
                     dining_option: 'TOGO',
                     label: t('prep.callCafeBtn'),
                     speech: t('prep.cafeReadySpeech')
-                }), 350)
+                }), 450, source)
             } else if (tapId === 'bev:bev-champurrado') {
-                triggerPrepDedupedAction(tapId, () => handleCallOrderImpulse({
+                triggerGestureSafeTap(tapId, phase, () => handleCallOrderImpulse({
                     id: 'bev-champurrado',
                     order_number: 'CHAMPURRADO',
                     dining_option: 'TOGO',
                     label: t('prep.callChampurradoBtn'),
                     speech: t('prep.champurradoReadySpeech')
-                }), 350)
+                }), 450, source)
             } else if (tapId === 'bev:bev-orden-pendiente') {
-                triggerPrepDedupedAction(tapId, () => handleCallOrderImpulse({
+                triggerGestureSafeTap(tapId, phase, () => handleCallOrderImpulse({
                     id: 'bev-orden-pendiente',
                     order_number: 'ORDEN_PENDIENTE',
                     dining_option: 'TOGO',
                     label: t('prep.callOrdenPendienteBtn'),
                     speech: t('prep.ordenPendienteReadySpeech')
-                }), 350)
+                }), 450, source)
             }
         }
     }
@@ -1252,9 +1376,9 @@ export default function PreparadorPage() {
     // Acción de llamado de orden (impulso táctil enviado a la PC del Manager; la voz suena EXCLUSIVAMENTE en la PC)
     const handleCallOrderImpulse = async (order: any) => {
         if (!order || !order.id) return
-        // Siempre reproducir el tick táctil inmediato al tocar el cuadro para confirmar que la pantalla reconoció el guante
-        playTabletTick()
         if (callingIdsRef.current.has(order.id)) return
+        // Reproducir el tick táctil solo después de validar el candado para evitar doble confirmación sonora
+        playTabletTick()
 
         callingIdsRef.current.add(order.id)
         setCallingOrderIds(prev => new Set(prev).add(order.id))
@@ -1323,7 +1447,8 @@ export default function PreparadorPage() {
         } catch (err) {
             console.error('Error enviando impulso de orden desde tableta:', err)
         } finally {
-            // Cooldown corto de 650ms por orden para permitir re-llamado rápido con guantes sin duplicar por rebote
+            // Cooldown de 1800ms por orden sincronizado con el debounce de 1.8s del tablero de bocina
+            // para evitar llamadas duplicadas si el guante rebota o mantiene presión larga
             setTimeout(() => {
                 callingIdsRef.current.delete(order.id)
                 setCallingOrderIds(prev => {
@@ -1331,7 +1456,7 @@ export default function PreparadorPage() {
                     next.delete(order.id)
                     return next
                 })
-            }, 650)
+            }, 1800)
             setTimeout(() => {
                 setCallSuccessOrderIds(prev => {
                     const next = new Set(prev)
@@ -2819,23 +2944,23 @@ export default function PreparadorPage() {
                             className={`flex-1 flex flex-col overflow-hidden p-2 sm:p-4 ${hideCookingPanel ? 'lg:pl-7' : ''}`}
                             onPointerDownCapture={(e) => {
                                 if (e.pointerType === 'mouse' && e.button !== 0) return
-                                handleOrdersProximityRadar(e.clientX, e.clientY, e.currentTarget)
+                                handleOrdersProximityRadar(e.clientX, e.clientY, e.currentTarget, 'down', e.pointerType === 'mouse' ? 'mouse' : 'touch')
                             }}
                             onTouchStartCapture={(e) => {
                                 const t0 = e.touches?.[0] || e.changedTouches?.[0]
-                                if (t0) handleOrdersProximityRadar(t0.clientX, t0.clientY, e.currentTarget)
+                                if (t0) handleOrdersProximityRadar(t0.clientX, t0.clientY, e.currentTarget, 'down', 'touch')
                             }}
                             onPointerDown={(e) => {
                                 if (e.pointerType === 'mouse' && e.button !== 0) return
-                                handleOrdersProximityRadar(e.clientX, e.clientY, e.currentTarget)
+                                handleOrdersProximityRadar(e.clientX, e.clientY, e.currentTarget, 'down', e.pointerType === 'mouse' ? 'mouse' : 'touch')
                             }}
                             onTouchStart={(e) => {
                                 const t0 = e.touches?.[0] || e.changedTouches?.[0]
-                                if (t0) handleOrdersProximityRadar(t0.clientX, t0.clientY, e.currentTarget)
+                                if (t0) handleOrdersProximityRadar(t0.clientX, t0.clientY, e.currentTarget, 'down', 'touch')
                             }}
                             onTouchMove={(e) => {
                                 const t0 = e.touches?.[0] || e.changedTouches?.[0]
-                                if (t0) handleOrdersProximityRadar(t0.clientX, t0.clientY, e.currentTarget)
+                                if (t0) handleOrdersProximityRadar(t0.clientX, t0.clientY, e.currentTarget, 'move', 'touch')
                             }}
                         >
                             {/* Cabecera del Panel de Órdenes */}

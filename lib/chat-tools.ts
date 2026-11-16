@@ -43,7 +43,7 @@
  * - Sitio Web Oficial Tacos Gavilan (tacosgavilan-web): Toast es el procesador transaccional exclusivo (order.online/business/-137616); Slauson Store ID es estrictamente 23989119 (sin colisión con LA Broadway 260769); West Covina canónico 725035; formulario de contacto persiste a customer_feedback con source='website_contact' y mapeo a las 15 tiendas activas. Centro de mando integral en /nueva-web (Diseño & Simulador responsive, Buzón & Leads de Supabase, Dominio & Vercel DNS en vivo, Historia / Origen / Futuro, y Biblioteca de Recursos de marca con 199.9 MB de respaldo de producción) servido por /api/web-preview.
  * - Tacos Gavilan App (/app, v2.1.0): Laboratorio protegido detrás de login TEG (/app, /app/v1, /app/v2, /ordenar) con rutas legales públicas (/app/privacy|terms|support|delete-account, /app/index.html, /clientes, /api/mobile/*); paridad operativa V1 (`/app/v1`, bundle Expo en `public/app/`) y V2 (`components/CustomerAppV2Pro.tsx` modularizado en `components/customer-app-v2/*` con menú en vivo `/api/mobile/menu`, modificadores, bolsa `/api/mobile/cart`, autocompletado `/api/mobile/address/autocomplete`, cotización `/api/mobile/order/quote`, rastreo `/api/mobile/order/status`, Google Maps + GPS Haversine en memoria, 23 platillos incluyendo `taco-buche` y Demo #12 aislado); 15 sucursales (IDs 1, 3..16), Email & SMS OTP 6 dígitos (TTL 10 min en app_mobile_otp_challenges, O(1) lookup, bloqueo 5 intentos), Camino 1 DoorDash Storefront (/api/mobile/doordash/checkout-session), y respaldo order.online Pickup/Delivery dentro de WebView endurecido.
  * - Gavilan POS Cashier Register (/gavilan-pos -> Caja POS, /api/gavilan-pos/register-catalog, /api/gavilan-pos/manager-approval): Diseñado sobre 13.48M unidades reales de pmix_daily_cache (349 días × 15 tiendas), con orden fijo y codificación por color de proteínas por memoria muscular (Asada rojo, Pastor naranja, Pollo ámbar, Cabeza vino, Lengua morado, Carnitas cobre, Buche turquesa, Chorizo carmesí, Vegetariano/Queso esmeralda, Bebidas Large 32oz azul rey / Medium 22oz azul cielo), Estación de Bebidas Drive-Thru & Mostrador (groupBeveragesByFlavor + findCounterpartBeverageSize: 3 secciones operativas Aguas Frescas -> Sodas -> Calientes/Botella, tarjetas pareadas por sabor con botones MED 22oz y LARGE 32oz lado a lado, barra de filtro por tamaño y cambio de tamaño en 1 toque ⇄ L 32oz / M 22oz en el ticket), Riel de Categorías en 2 Columnas Cero-Scroll (224px), Matriz Rápida Proteína × Familia, Franja de Complementos y Bebidas Frecuentes de 1 Toque, 414 modificadores activos en gavilan_pos_register_modifiers organizados en 5 Cubetas Semánticas Conversacionales (NO rojo coral, EXTRA verde esmeralda, PREP azul pizarra, HALF morado, NOTE índigo), validación de grupos obligatorios, encabezados interactivos de Plato/Bolsa (+ Agregando aquí) y botón × para quitar modificadores individuales en 1 toque, buscador instantáneo + teclado numérico de cantidad personalizada (×#), autorización con PIN de gerente (scrypt + salt en gavilan_pos_manager_pins y bitácora gavilan_pos_discount_approvals) para Empleado (50%), Policía (50%/100%) y Void Order, Franja de Cobro Rápido en 1 Toque (Fast Cash con denominaciones inteligentes smartCashDenominations, banner de Cambio a Entregar, Tarjeta y EBT 0% Tax), y Motor Universal de Pago Dividido y Multi-Tender en 4 Modos (BY_AMOUNT por monto libre/multi-método, BY_EQUAL partes iguales ÷2..÷6 con ajuste del centavo impar, BY_PLATE por Plato/Bolsa, y BY_ITEM por artículos individuales P1..P4) con exención parcial de impuestos EBT conforme a CDTFA Reg. 1603 / R&TC §6373 (0% tax en tramos EBT_FOOD, Sales Tax solo sobre el remanente no-EBT) y conteo multi-swipe de tarjetas (cardSwipeCount).
- * - Order Ready Board y Preparador KDS (/order-ready-board, /inventory/preparador, lib/order-ready-sync.ts, lib/order-ready-auto-timer.ts): items_summary usa la propiedad canónica quantity (aceptando qty heredado), consolida platillos con mismos modificadores ordenados sin alterar nombres visuales, descarta quantity <= 0, separa lecturas de BD (syncToast=false en eventos Realtime con debounce de 500ms y reconexiones) del polling explícito a Toast (syncToast=true) protegido por lease distribuido PostgreSQL (order_ready_sync_leases) y canales Realtime aislados por tienda (order-ready-realtime:{storeCode}). Incluye el Modo Manos Libres con Timer Inteligente Adaptativo por platillo y fila FIFO (order_ready_settings id='auto_call_timer_config': 165s rápido, 255s medio, 330s complejo incluyendo Chorizo/Buche/Milanesa/Cubana/Platos/Tortas/Nachos/10+ unidades, +20s por orden adelante hasta 540s) con respaldo táctil manual, activo actualmente en piloto exclusivo para SLAUSON mientras las otras 14 tiendas operan en modo Manual.
+ * - Order Ready Board y Preparador KDS (/order-ready-board, /inventory/preparador, lib/order-ready-sync.ts, lib/order-ready-auto-timer.ts): items_summary usa la propiedad canónica quantity (aceptando qty heredado), consolida platillos con mismos modificadores ordenados sin alterar nombres visuales, descarta quantity <= 0, separa lecturas de BD (syncToast=false en eventos Realtime con debounce de 500ms y reconexiones) del polling explícito a Toast (syncToast=true) protegido por lease distribuido PostgreSQL (order_ready_sync_leases) y canales Realtime aislados por tienda (order-ready-realtime:{storeCode}). Incluye el Modo Manos Libres con Timer Inteligente Adaptativo por platillo y fila FIFO (order_ready_settings id='auto_call_timer_config': 165s rápido, 255s medio, 330s complejo incluyendo Chorizo/Buche/Milanesa/Cubana/Platos/Tortas/Nachos/10+ unidades, +20s por orden adelante hasta 540s) con respaldo táctil manual, la Telemetría de Bocina AI y Tabletas de Cocina (/api/order-ready/telemetry, tablas order_ready_device_status y order_ready_voice_playbacks, RPC get_order_ready_telemetry_summary), y el Triple Blindaje Anti-Duplicación en Tableta y Bocina (triggerGestureSafeTap + client_called_at clock-skew reconciliation + localStorage cross-tab speaker lock).
  * - Conciliar Delivery y Pólizas QuickBooks (/admin/conciliar-delivery, /api/delivery-reconciliation, /api/delivery-reconciliation/quickbooks-journal): concilia Toast POS vs Uber Eats, DoorDash y Grubhub orden por orden y por corte semanal usando fuente única de verdad contable (`computePayoutAccountingAmounts`), rastrea recuperaciones en cortes posteriores diferenciando abiertas, verificadas y pérdidas cerradas (`ACCEPTED_LOSS`/`REJECTED`), excluye ajustes `$0.00`, mantiene `CONCILIATED_NEXT_PAYOUT` en tránsito fuera de `4. Listos`, y automatiza Settlement Journal Entries en QuickBooks Online (100XX Banco, 62145/62146/62147 Fees, 12050/12053/12054 Receivables, 40061/40062/40063 Refunds/Error Charges + línea 5 Cuenta 24001 para Sales Tax en reembolsos DoorDash/Grubhub) con estado explícito `PUBLISH_FAILED`.
  * - Contabilidad Externa ERP (/admin/contabilidad-externa, /api/external-accounting, /api/external-accounting/reports, /api/cron/sync-external-accounting): ERP contable 100% puro enfocado en las 8 empresas de Raquel en external_accounting_companies (6 ACTIVE_QBO con sync bidireccional cada 15 min y 2 RETIRED_FROM_QBO_LOCAL_ACTIVE — Chicken Taco Catering LLC y Elveze LLC — con lectura/escritura completa local y qbo_sync_enabled=false), sin publicidad comercial ni add-ons de Intuit, acceso global exclusivo validado por ID y email con expiración estricta JWT (ignoreExpiration: false) para Raquel (45), Roberto (46) y Roque (47), aislamiento Zero-Trust service_role en las 24 tablas external_accounting_*, RPCs y Storage, OAuth QBO con HMAC-SHA256 + nonce cookie y lock distribuido fn_acquire_ext_acct_token_refresh_lock, updates QBO con sparse: true y worker FOR UPDATE SKIP LOCKED (fn_claim_ext_acct_outbox_batch), cobertura ACID PostgreSQL total, protección de transacciones Reconciled (permitiendo reclasificar cuenta de gasto/ingreso pero bloqueando monto/banco/fecha/VOID/DELETE) y conciliación 1:1 para Bancos y Tarjetas de Crédito (PayDownCreditCard, Expense, CreditCardCredit y reversión de cargos/intereses al reabrir/eliminar), paginación determinista fetchAllTableRows sin tope de 1,000 filas, subida directa firmada hasta 15 MB hacia Supabase Storage (create_attachment_upload_url + finalize_attachment_upload con validación MIME/SHA-256), sanitización HTML allowlist (lib/external-accounting-html-sanitize.ts), guardas AbortController contra condiciones de carrera al cambiar de empresa, y motor de reportes CPA con paridad $0.00 en Accrual y Cash Basis sobre balance_sheet, trial_balance, pnl y kpi_scorecard más controles comparePeriod, only1099, hideZeroRows y showCents (.xlsx / .pdf).
  * - Auditoría Semanal Automática de Correos de Empleados Activos (/api/cron/audit-employee-emails, lib/employee-email-auditor.ts, scripts/run-weekly-email-audit.ts): ejecutada todos los sábados por la tarde hora LA California (0 22 * * 6 UTC = 2:00 PM PST / 3:00 PM PDT, con pre-escaneo local puerto 25 a la 1:30 PM), sincroniza las 15 sucursales desde Toast POS (syncToastEmployees), audita todos los correos activos (placeholders @example.com, typos de dominio, reglas de proveedor, Microsoft GetCredentialType, SMTP RCPT TO puerto 25 y caché persistente en integrations employee_email_audit_state) y notifica automáticamente a cada Store Manager involucrado (CC Supervisor) más resumen ejecutivo a carlos@tacosgavilan.com.
@@ -556,12 +556,13 @@ export const TOOL_DECLARATIONS = [
   },
   {
     name: 'query_order_ready_board',
-    description: 'Consulta el estado en vivo del Order Ready Board (tablero de órdenes listas y en preparación, canales Drive-Thru, ToGo, For Here, y órdenes anunciadas por voz) para una o todas las sucursales.',
+    description: 'Consulta el estado en vivo del Order Ready Board (órdenes listas y en preparación, canales For Here / To Go) y la auditoría en tiempo real de uso de tabletas de cocina y bocinas AI (Playback ACK, Mute, en línea) para una o todas las sucursales.',
     parameters: {
       type: 'OBJECT',
       properties: {
-        store_code: { type: 'STRING', description: 'Código de la sucursal (ej: "LYNWOOD", "LACENTRAL", "WCOVINA"). Si se omite, devuelve el resumen de todas las sucursales.' },
-        minutes: { type: 'NUMBER', description: 'Ventana de tiempo en minutos hacia atrás (por defecto 45 min).' }
+        store_code: { type: 'STRING', description: 'Código de la sucursal (ej: "LYNWOOD", "SLAUSON", "LACENTRAL", "WCOVINA"). Si se omite, devuelve el resumen de las 15 sucursales.' },
+        minutes: { type: 'NUMBER', description: 'Ventana de tiempo en minutos hacia atrás para órdenes activas en pantalla (por defecto 45 min).' },
+        range: { type: 'STRING', description: 'Ventana de auditoría de uso de tabletas y bocinas AI: "today" (hoy desde 6:00 AM PT, por defecto), "7d" (últimos 7 días) o "live" (solo órdenes recientes).' }
       }
     }
   },
@@ -3405,33 +3406,80 @@ async function queryGrubhubAudit(args: { business_date?: string }): Promise<stri
   }
 }
 
-async function queryOrderReadyBoardTool(args: { store_code?: string; minutes?: number }): Promise<string> {
+async function queryOrderReadyBoardTool(args: { store_code?: string; minutes?: number; range?: string }): Promise<string> {
   const minutes = args.minutes || 45
   const cutoff = new Date(Date.now() - minutes * 60 * 1000).toISOString()
+  const auditRange = String(args.range || 'today').toLowerCase() === '7d' ? '7d' : 'today'
+  const showLiveOnly = String(args.range || '').toLowerCase() === 'live'
+  const endDate = getCaliforniaBusinessDate()
+  const startDateObj = new Date(`${endDate}T12:00:00Z`)
+  startDateObj.setUTCDate(startDateObj.getUTCDate() - (auditRange === '7d' ? 6 : 0))
+  const startDate = startDateObj.toISOString().slice(0, 10)
 
   let q = supabaseAdmin
     .from('order_ready_announcements')
     .select('*')
     .gte('created_at', cutoff)
+    .in('dining_option', ['FOR_HERE', 'TOGO'])
     .order('created_at', { ascending: false })
 
   if (args.store_code) {
     q = q.eq('store_code', args.store_code.toUpperCase())
   }
 
-  const { data: orders, error } = await q
-  if (error) return `Error consultando Order Ready Board: ${error.message}`
-  if (!orders || orders.length === 0) {
-    return `No hay órdenes activas en el Order Ready Board en los últimos ${minutes} minutos${args.store_code ? ` para ${args.store_code}` : ''}.`
+  const [ordersRes, rpcRes] = await Promise.all([
+    q,
+    showLiveOnly
+      ? Promise.resolve({ data: null, error: null })
+      : supabaseAdmin.rpc('get_order_ready_telemetry_summary', {
+          p_start_date: startDate,
+          p_end_date: endDate,
+          p_store_codes: args.store_code ? [args.store_code.toUpperCase()] : null
+        })
+  ])
+
+  if (ordersRes.error) return `Error consultando Order Ready Board: ${ordersRes.error.message}`
+  const orders = (ordersRes.data || []).filter(
+    (o: any) => o.order_number !== 'CAFE' && o.order_number !== 'CHAMPURRADO' && o.order_number !== 'ORDEN_PENDIENTE'
+  )
+
+  const ready = orders.filter((o: any) => o.status === 'READY')
+  const inProgress = orders.filter((o: any) => o.status === 'IN_PROGRESS')
+
+  let out = `📢 **Order Ready Board Status (Últimos ${minutes} min)**:
+• **Total órdenes activas (Comedor / Para Llevar)**: ${orders.length}
+• **Listas / Entregadas recientes (READY)**: ${ready.length} (${ready.slice(0, 10).map((r: any) => `#${r.order_number} [${r.dining_option}]`).join(', ') || 'Ninguna'})
+• **En Preparación (IN_PROGRESS)**: ${inProgress.length} (${inProgress.slice(0, 10).map((p: any) => `#${p.order_number} [${p.dining_option}]`).join(', ') || 'Ninguna'}${inProgress.length > 10 ? ` ...y ${inProgress.length - 10} más` : ''})`
+
+  const telemetryRows = (rpcRes?.data || []) as any[]
+  if (!showLiveOnly && telemetryRows.length > 0) {
+    const nowMs = Date.now()
+    const totalOrd = telemetryRows.reduce((s, r) => s + Number(r.total_orders || 0), 0)
+    const totalCalled = telemetryRows.reduce((s, r) => s + Number(r.tablet_called_orders || 0), 0)
+    const totalAck = telemetryRows.reduce((s, r) => s + Number(r.total_playback_events || 0), 0)
+    const chainPct = totalOrd > 0 ? ((100 * totalCalled) / totalOrd).toFixed(1) : '0.0'
+
+    out += `\n\n🎙️ **Auditoría de Tabletas de Cocina & Bocinas AI (${startDate}${startDate !== endDate ? ` → ${endDate}` : ''})**:\n`
+    out += `• **Uso Global de Tableta**: ${totalCalled.toLocaleString('en-US')} / ${totalOrd.toLocaleString('en-US')} órdenes (**${chainPct}%**) | **Locuciones ACK confirmadas**: ${totalAck.toLocaleString('en-US')}\n\n`
+    out += `| Tienda | Tableta Cocina | Bocina AI (/order-ready-board) | Uso Tableta | Voz Emitida (ACK) |\n`
+    out += `|--------|----------------|--------------------------------|-------------|-------------------|\n`
+    for (const r of telemetryRows) {
+      const prepOnline = r.prep_last_heartbeat_at && nowMs - Date.parse(r.prep_last_heartbeat_at) <= 150_000
+      const spkOnline = r.speaker_last_heartbeat_at && nowMs - Date.parse(r.speaker_last_heartbeat_at) <= 150_000
+      const spkMuted = Boolean(r.speaker_is_muted) || Number(r.speaker_voice_volume ?? 1) <= 0
+      const spkStatus = !spkOnline
+        ? '⚪ Cerrada / Sin señal'
+        : spkMuted
+          ? '🔇 EN MUTE (Silenciada)'
+          : !r.speaker_audio_unlocked
+            ? '🟡 Audio bloqueado'
+            : `🟢 Activa (${r.speaker_voice_id || 'Kore'})`
+      const pct = Number(r.pct_tablet_called ?? 0).toFixed(1)
+      out += `| ${r.store_code} | ${prepOnline ? '🟢 En línea' : '⚪ Sin latido'} | ${spkStatus} | ${r.tablet_called_orders}/${r.total_orders} (${pct}%) | ${r.total_playback_events} ACK${Number(r.unheard_calls_since_active || 0) > 0 ? ` (⚠️ ${r.unheard_calls_since_active} sin sonar)` : ''} |\n`
+    }
   }
 
-  const ready = orders.filter(o => o.status === 'READY')
-  const inProgress = orders.filter(o => o.status === 'IN_PROGRESS')
-
-  return `📢 **Order Ready Board Status (Últimos ${minutes} min)**:
-• **Total órdenes activas**: ${orders.length}
-• **Listas para Recoger (READY)**: ${ready.length} (${ready.map(r => `#${r.order_number} [${r.dining_option}]`).join(', ') || 'Ninguna'})
-• **En Preparación (IN_PROGRESS)**: ${inProgress.length} (${inProgress.slice(0, 10).map(p => `#${p.order_number} [${p.dining_option}]`).join(', ') || 'Ninguna'}${inProgress.length > 10 ? ` ...y ${inProgress.length - 10} más` : ''})`
+  return out
 }
 
 // ── 37. Query QuickBooks Bills ──

@@ -191,6 +191,7 @@ export async function POST(request: Request) {
             dining_option: resolvedDining,
             store_name: resolvedStoreName,
             called_at: nowIso,
+            client_called_at: calledAt || nowIso,
             auto_timer: true
           }
           await fetch(`${supabaseUrl.replace(/\/$/, '')}/realtime/v1/api/broadcast`, {
@@ -303,7 +304,8 @@ export async function POST(request: Request) {
           store_code: normalizedStoreCode,
           dining_option: diningOption || 'TOGO',
           store_name: storeName || normalizedStoreCode,
-          called_at: nowIso
+          called_at: nowIso,
+          client_called_at: calledAt || nowIso
         }
         await fetch(`${supabaseUrl.replace(/\/$/, '')}/realtime/v1/api/broadcast`, {
           method: 'POST',

@@ -112,7 +112,8 @@ import {
   Save,
   RotateCcw,
   Bot,
-  Hand
+  Hand,
+  BarChart3
 } from 'lucide-react'
 import { useLanguage } from '@/lib/i18n'
 import { createClient } from '@supabase/supabase-js'
@@ -135,6 +136,7 @@ import {
 } from '@/lib/order-ready-auto-timer'
 import { purgeTabletStaleCaches, getTabletNoCacheHeaders } from '@/lib/tablet-cache-cleaner'
 import PhoneCallbackAlertBanner from '@/components/PhoneCallbackAlertBanner'
+import OrderReadyVoiceAuditModal from '@/components/OrderReadyVoiceAuditModal'
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
@@ -166,6 +168,10 @@ interface OrderItem {
   _manualReplay?: boolean
   /** Solo cliente: repeticiones de locución (1 o 2) */
   _repeats?: number
+  /** Solo cliente: timestamp ISO del toque original para calcular latencia real de bocina */
+  _calledAtIso?: string
+  /** Solo cliente: marca impulsos originados por Smart Auto-Timer */
+  _autoTimer?: boolean
 }
 
 /** Umbrales Speed of Service (SOS) en segundos: 🟢 ≤210s (3:30) | 🟡 211–300s (5:00) | 🔴 >300s */
@@ -310,6 +316,7 @@ function OrderReadyBoardContent() {
   const [selectedVoice, setSelectedVoice] = useState<VoiceId>('Kore')
   const [isSavingVoice, setIsSavingVoice] = useState<boolean>(false)
   const [isTestingVoice, setIsTestingVoice] = useState<boolean>(false)
+  const [showVoiceAuditModal, setShowVoiceAuditModal] = useState<boolean>(false)
   const [isOnline, setIsOnline] = useState<boolean>(true)
   const [availableVoices, setAvailableVoices] = useState<SpeechSynthesisVoice[]>([])
   const [announceToGo, setAnnounceToGo] = useState<boolean>(true)
@@ -809,6 +816,7 @@ function OrderReadyBoardContent() {
     setTabletCalledOrderNum(null)
     lastImpulseTimeRef.current.clear()
     lastAnnouncedAtMsRef.current.clear()
+    lastClientAnnouncedAtMsRef.current.clear()
     announcedIdsRef.current.clear()
     readyIdsRef.current.clear()
     autoTimerObservedCountingRef.current.clear()
@@ -995,6 +1003,8 @@ function OrderReadyBoardContent() {
   const currentlyPlayingOrderRef = useRef<OrderItem | null>(null)
   const lastImpulseTimeRef = useRef<Map<string, number>>(new Map())
   const lastAnnouncedAtMsRef = useRef<Map<string, number>>(new Map())
+  const lastClientAnnouncedAtMsRef = useRef<Map<string, number>>(new Map())
+  const tabSpeakerIdRef = useRef<string>('')
   const remindedOrderIdsRef = useRef<Set<string>>(new Set())
   // Ids ya encolados/anunciados en este dispositivo (evita repetir el anuncio mientras el PATCH aún no llega)
   const announcedIdsRef = useRef<Set<string>>(new Set())
@@ -1036,6 +1046,7 @@ function OrderReadyBoardContent() {
     readyIdsRef.current.clear()
     lastImpulseTimeRef.current.clear()
     lastAnnouncedAtMsRef.current.clear()
+    lastClientAnnouncedAtMsRef.current.clear()
     remindedOrderIdsRef.current.clear()
     autoTimerObservedCountingRef.current.clear()
     autoTimerClaimedIdsRef.current.clear()
@@ -1251,25 +1262,26 @@ function OrderReadyBoardContent() {
   // RESPALDO: voz del navegador (speechSynthesis). Solo se usa si el TTS neuronal no está disponible.
   // PROHIBICIÓN ESTRICTA: RAÚL NUNCA DEBE HABLAR BAJO NINGUNA CIRCUNSTANCIA.
   const speakOrderBrowser = useCallback(
-    (order: OrderItem, voiceId: VoiceId = selectedVoice, onlyLang?: 'en' | 'es'): Promise<void> => {
+    (order: OrderItem, voiceId: VoiceId = selectedVoice, onlyLang?: 'en' | 'es'): Promise<boolean> => {
       return new Promise((originalResolve) => {
         let settled = false
-        const resolve = () => {
+        let anyBrowserSpoke = false
+        const resolve = (spoken = anyBrowserSpoke) => {
           if (!settled) {
             settled = true
             clearTimeout(watchdogTimer)
-            originalResolve()
+            originalResolve(spoken)
           }
         }
         // Watchdog de seguridad de 15 segundos: garantiza que la cola nunca quede congelada si el navegador no dispara onend/onerror
         const watchdogTimer = setTimeout(() => {
           console.warn('[order-ready] speakOrderBrowser watchdog timeout alcanzado (15s), liberando cola.')
           setActiveSpeech(null)
-          resolve()
+          resolve(anyBrowserSpoke)
         }, 15000)
 
         if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
-          resolve()
+          resolve(false)
           return
         }
 
@@ -1330,6 +1342,9 @@ function OrderReadyBoardContent() {
             if (cancelExisting && (synth.speaking || synth.pending)) {
               synth.cancel()
             }
+            if (!isMuted && voiceVolume > 0) {
+              anyBrowserSpoke = true
+            }
             synth.speak(utt)
           } catch (e) {
             console.warn('[order-ready] Error en speechSynthesis.speak:', e)
@@ -1349,7 +1364,7 @@ function OrderReadyBoardContent() {
         // Si no hay ninguna voz garantizada no-Raúl en todo el sistema: SILENCIO ABSOLUTO (CERO RAÚL)
         if (!chosenEn || isForbiddenRaulVoice(chosenEn.name)) {
           console.warn('[order-ready] Bloqueo anti-Raúl: ninguna voz segura disponible en el navegador.')
-          resolve()
+          resolve(false)
           return
         }
 
@@ -1638,9 +1653,13 @@ function OrderReadyBoardContent() {
     return job
   }, [selectedVoice])
 
-  // Anuncia la orden con la voz natural seleccionada; si falla algún idioma individual, reintenta y respalda ese idioma sin omitir el español
+  // Anuncia la orden con la voz natural seleccionada; devuelve el motor real usado para telemetría ACK de bocina
   const speakOrder = useCallback(
-    async (order: OrderItem, repeats: number = 1, voiceOverride?: VoiceId): Promise<void> => {
+    async (
+      order: OrderItem,
+      repeats: number = 1,
+      voiceOverride?: VoiceId
+    ): Promise<'neural_wav' | 'browser_tts' | 'none'> => {
       const voice = voiceOverride || selectedVoice
       const bevKey = String(order.order_number || '').toUpperCase()
       const bevSpeech =
@@ -1654,8 +1673,13 @@ function OrderReadyBoardContent() {
 
       if (bevSpeech) {
         let clipUrl = await getBeverageClipUrl(bevKey, bevSpeech, voice)
-        if (!clipUrl) return speakOrderBrowser(order, voice, 'es')
+        if (!clipUrl) {
+          const spokeBrowser = await speakOrderBrowser(order, voice, 'es')
+          return spokeBrowser ? 'browser_tts' : 'none'
+        }
 
+        let playedNeural = false
+        let playedBrowser = false
         for (let rep = 0; rep < repeats; rep++) {
           setActiveSpeech(`${bevKey === 'ORDEN_PENDIENTE' ? '🔔' : '☕'} ${bevSpeech}`)
           let ok = clipUrl ? await playClip(clipUrl) : false
@@ -1667,25 +1691,36 @@ function OrderReadyBoardContent() {
               ok = await playClip(clipUrl)
             }
           }
-          if (!ok) {
-            await speakOrderBrowser(order, voice, 'es')
+          if (ok) {
+            playedNeural = true
+          } else {
+            const spokeBrowser = await speakOrderBrowser(order, voice, 'es')
+            if (spokeBrowser) playedBrowser = true
           }
           setActiveSpeech(null)
           if (rep < repeats - 1) await new Promise((r) => setTimeout(r, 700))
         }
         await new Promise((r) => setTimeout(r, 400))
-        return
+        return playedNeural ? 'neural_wav' : playedBrowser ? 'browser_tts' : 'none'
       }
 
       const isNumeric = /^\d{1,6}$/.test(order.order_number)
-      if (!isNumeric) return speakOrderBrowser(order, voice)
+      if (!isNumeric) {
+        const spokeBrowser = await speakOrderBrowser(order, voice)
+        return spokeBrowser ? 'browser_tts' : 'none'
+      }
 
       const num = String(parseInt(order.order_number, 10))
       const langs = clipLangs()
       const urls = await Promise.all(langs.map((l) => getClipUrl(l, num, voice)))
-      if (urls.every((u) => !u)) return speakOrderBrowser(order, voice)
+      if (urls.every((u) => !u)) {
+        const spokeBrowser = await speakOrderBrowser(order, voice)
+        return spokeBrowser ? 'browser_tts' : 'none'
+      }
 
       const phrase = 'Order #' + num + ' is ready, orden #' + num + ', ¡ya está!'
+      let playedNeural = false
+      let playedBrowser = false
 
       for (let rep = 0; rep < repeats; rep++) {
         setActiveSpeech(phrase)
@@ -1705,9 +1740,12 @@ function OrderReadyBoardContent() {
             }
           }
 
-          // Si aún así no pudo reproducirse el clip neuronal de este idioma, respaldar ese idioma específico con el navegador (NUNCA dejar mudo el español)
-          if (!ok) {
-            await speakOrderBrowser(order, voice, lang)
+          if (ok) {
+            playedNeural = true
+          } else {
+            // Si aún así no pudo reproducirse el clip neuronal de este idioma, respaldar ese idioma específico con el navegador (NUNCA dejar mudo el español)
+            const spokeBrowser = await speakOrderBrowser(order, voice, lang)
+            if (spokeBrowser) playedBrowser = true
           }
         }
         setActiveSpeech(null)
@@ -1715,6 +1753,7 @@ function OrderReadyBoardContent() {
         if (rep < repeats - 1) await new Promise((r) => setTimeout(r, 700))
       }
       await new Promise((r) => setTimeout(r, 400))
+      return playedNeural ? 'neural_wav' : playedBrowser ? 'browser_tts' : 'none'
     },
     [clipLangs, getClipUrl, getBeverageClipUrl, playClip, speakOrderBrowser, selectedVoice]
   )
@@ -1761,7 +1800,49 @@ function OrderReadyBoardContent() {
           // 2. Anunciar con la voz seleccionada:
           // Anuncio inicial automático, recordatorio o manual -> ANNOUNCE_REPEATS (1 sola vez).
           const repeats = nextOrder._repeats || (nextOrder._reminder || nextOrder._manualReplay || nextOrder._fromTablet ? 1 : ANNOUNCE_REPEATS)
-          await speakOrder(nextOrder, repeats, selectedVoice)
+          const engineUsed = await speakOrder(nextOrder, repeats, selectedVoice)
+
+          // 2b. Confirmación real de bocina activa (Playback ACK) en segundo plano sin frenar la cola de audio
+          if (
+            engineUsed !== 'none' &&
+            !isMuted &&
+            voiceVolume > 0 &&
+            !String(nextOrder.id || '').startsWith('test-')
+          ) {
+            const bevUpper = String(nextOrder.order_number || '').toUpperCase()
+            const triggerSource = nextOrder._reminder
+              ? 'reminder'
+              : bevUpper === 'CAFE' || bevUpper === 'CHAMPURRADO' || bevUpper === 'ORDEN_PENDIENTE'
+              ? 'special_button'
+              : nextOrder._autoTimer
+              ? 'smart_auto_timer'
+              : nextOrder._manualReplay
+              ? 'manual_board_replay'
+              : nextOrder._fromTablet
+              ? 'tablet_tap'
+              : 'auto_bump'
+
+            fetch('/api/order-ready/telemetry', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              signal: AbortSignal.timeout(4000),
+              body: JSON.stringify({
+                action: 'playback_ack',
+                storeCode: String(nextOrder.store_code || selectedStore).toUpperCase(),
+                orderId: nextOrder.id,
+                orderNumber: String(nextOrder.order_number),
+                diningOption: nextOrder.dining_option,
+                triggerSource,
+                engineUsed,
+                voiceId: selectedVoice,
+                voiceVolume,
+                calledAt: nextOrder._calledAtIso || nextOrder.announced_at || undefined,
+                isMuted: false,
+                audioUnlocked: true,
+                isFullscreen
+              })
+            }).catch(() => {})
+          }
 
           // 3. Marcar como anunciada en backend SOLO para el anuncio automático inicial
           if (!nextOrder._manualReplay && !nextOrder._fromTablet && !nextOrder._reminder) {
@@ -1819,7 +1900,7 @@ function OrderReadyBoardContent() {
         processAudioQueue()
       }
     }
-  }, [isMuted, enableChime, playChime, speakOrder, clipLangs, getClipUrl, getBeverageClipUrl, selectedVoice])
+  }, [isMuted, enableChime, playChime, speakOrder, clipLangs, getClipUrl, getBeverageClipUrl, selectedVoice, voiceVolume, isFullscreen, selectedStore])
 
   // Encolar una orden lista. La cola se mantiene ORDENADA por hora real de cierre (ready_at ascendente)
   const enqueueAnnouncement = useCallback(
@@ -2208,8 +2289,10 @@ function OrderReadyBoardContent() {
                 const lastAnnMs = lastAnnouncedAtMsRef.current.get(storeKey) || 0
                 const isSameTap = lastAnnMs > 0 && Math.abs(annMs - lastAnnMs) < 1400
                 const isRecentCall = lastCall > 0 && (Date.now() - lastCall) < 1800
-                if (isSameTap || isRecentCall) {
-                  if (isRecentCall) {
+                const isClockSkewAlignedSameCall =
+                  lastCall > 0 && (Date.now() - lastCall) < 9500 && Math.abs(annMs - lastCall) < 3200
+                if (isSameTap || isRecentCall || isClockSkewAlignedSameCall) {
+                  if (isRecentCall || isClockSkewAlignedSameCall) {
                     lastAnnouncedAtMsRef.current.set(storeKey, annMs)
                   }
                 } else {
@@ -2366,8 +2449,10 @@ function OrderReadyBoardContent() {
                   const lastAnnMs = lastAnnouncedAtMsRef.current.get(storeKey) || 0
                   const isSameTap = lastAnnMs > 0 && Math.abs(announcedMs - lastAnnMs) < 1400
                   const isRecentCall = lastCall > 0 && (Date.now() - lastCall) < 1800
-                  if (isSameTap || isRecentCall) {
-                    if (isRecentCall) {
+                  const isClockSkewAlignedSameCall =
+                    lastCall > 0 && (Date.now() - lastCall) < 9500 && Math.abs(announcedMs - lastCall) < 3200
+                  if (isSameTap || isRecentCall || isClockSkewAlignedSameCall) {
+                    if (isRecentCall || isClockSkewAlignedSameCall) {
                       lastAnnouncedAtMsRef.current.set(storeKey, announcedMs)
                     }
                   } else {
@@ -2490,6 +2575,35 @@ function OrderReadyBoardContent() {
     }
   }, [selectedStore])
 
+  // TELEMETRÍA EN VIVO DE BOCINA (/order-ready-board): reporta estado de conexión, Mute y desbloqueo de audio cada 60s y al cambiar de estado
+  useEffect(() => {
+    if (!storeOk || !selectedStore) return
+    const sendSpeakerHeartbeat = () => {
+      fetch('/api/order-ready/telemetry', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        signal: AbortSignal.timeout(4000),
+        body: JSON.stringify({
+          action: 'heartbeat',
+          storeCode: String(selectedStore).toUpperCase(),
+          deviceRole: 'speaker_board',
+          isMuted,
+          audioUnlocked,
+          voiceId: selectedVoice,
+          voiceVolume,
+          isFullscreen
+        })
+      }).catch(() => {})
+    }
+
+    const debounceTimer = setTimeout(sendSpeakerHeartbeat, 300)
+    const hbInterval = setInterval(sendSpeakerHeartbeat, 60_000)
+    return () => {
+      clearTimeout(debounceTimer)
+      clearInterval(hbInterval)
+    }
+  }, [storeOk, selectedStore, isMuted, audioUnlocked, selectedVoice, voiceVolume, isFullscreen])
+
   // MOTOR DE TIMER INTELIGENTE MANOS LIBRES (activo exclusivamente en tiendas con modo 'smart', piloto: SLAUSON)
   useEffect(() => {
     if (!storeOk || !isStoreSmartAutoCallEnabled(autoCallConfig, selectedStore)) {
@@ -2578,7 +2692,8 @@ function OrderReadyBoardContent() {
                 store_code: targetStoreCode,
                 dining_option: ord.dining_option,
                 store_name: targetStoreName,
-                called_at: annIso
+                called_at: annIso,
+                auto_timer: true
               })
             }
           } else if (overdueMs < 25_000) {
@@ -2808,10 +2923,60 @@ function OrderReadyBoardContent() {
     [unlockAudio, processAudioQueue]
   )
 
+  // Escudo 3 (Cross-Tab Speaker Lock): Garantiza que si una tienda abre /order-ready-board en varias pestañas
+  // de la misma PC, únicamente UNA pestaña con bocina activa hable cada orden (pestañas en Mute ceden el slot).
+  const claimCrossTabSpeakerSlot = useCallback(
+    (storeKey: string, calledMs: number): boolean => {
+      if (isMuted || voiceVolume <= 0) return false
+      if (typeof window === 'undefined' || typeof window.localStorage === 'undefined') return true
+
+      if (!tabSpeakerIdRef.current) {
+        tabSpeakerIdRef.current = `tab_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`
+      }
+      const myTabId = tabSpeakerIdRef.current
+      const storageKey = `teg_speaker_claim_${storeKey}`
+      const now = Date.now()
+
+      try {
+        const raw = window.localStorage.getItem(storageKey)
+        if (raw) {
+          const parsed = JSON.parse(raw) as { tabId?: string; calledAt?: number; claimedAt?: number }
+          if (parsed && parsed.tabId && parsed.tabId !== myTabId) {
+            const claimedAt = Number(parsed.claimedAt) || 0
+            const prevCalledAt = Number(parsed.calledAt) || 0
+            const sameTapClaimed =
+              prevCalledAt > 0 && Math.abs(calledMs - prevCalledAt) < 1600 && now - claimedAt < 15000
+            const recentClaim = claimedAt > 0 && now - claimedAt < 4200
+            if (sameTapClaimed || recentClaim) {
+              return false
+            }
+          }
+        }
+        window.localStorage.setItem(
+          storageKey,
+          JSON.stringify({ tabId: myTabId, calledAt: calledMs, claimedAt: now })
+        )
+        return true
+      } catch {
+        return true
+      }
+    },
+    [isMuted, voiceVolume]
+  )
+
   // Impulso recibido en tiempo real desde la tableta del preparador (entregador de cocina)
   // Regla de Negocio Tacos Gavilan: Encolar de manera unificada para esperar su turno si ya hay otro audio sonando
   const handleImpulseCallFromTablet = useCallback(
-    (data: { order_id?: string; order_number: string; store_code: string; dining_option?: string; store_name?: string; called_at?: string }) => {
+    (data: {
+      order_id?: string
+      order_number: string
+      store_code: string
+      dining_option?: string
+      store_name?: string
+      called_at?: string
+      client_called_at?: string
+      auto_timer?: boolean
+    }) => {
       if (data.dining_option && data.dining_option !== 'FOR_HERE' && data.dining_option !== 'TOGO') {
         return
       }
@@ -2822,22 +2987,40 @@ function OrderReadyBoardContent() {
       const normStore = String(data.store_code || selectedStore).toUpperCase()
       const storeKey = `${normStore}:${orderNumStr}`
       const incomingCalledMs = data.called_at ? Date.parse(data.called_at) : NaN
+      const incomingClientCalledMs = data.client_called_at ? Date.parse(data.client_called_at) : NaN
 
-      // 1. Deduplicación exacta por timestamp de toque (called_at) y debounce acústico corto (1.8s) para deduplicar las 4 capas de un mismo toque sin bloquear un 2do toque real.
-      const lastCallTime = lastImpulseTimeRef.current.get(storeKey) || 0
-      const lastAnnMs = lastAnnouncedAtMsRef.current.get(storeKey) || 0
-      const isSameTap = !isNaN(incomingCalledMs) && lastAnnMs > 0 && Math.abs(incomingCalledMs - lastAnnMs) < 1400
-      const isRecentCall = lastCallTime > 0 && (now - lastCallTime) < 1800
-      if (isSameTap || isRecentCall) {
-        if (isRecentCall && !isNaN(incomingCalledMs)) {
+      const syncAnnouncedRefs = () => {
+        if (!isNaN(incomingCalledMs)) {
           lastAnnouncedAtMsRef.current.set(storeKey, incomingCalledMs)
         }
+        if (!isNaN(incomingClientCalledMs)) {
+          lastClientAnnouncedAtMsRef.current.set(storeKey, incomingClientCalledMs)
+        }
+      }
+
+      // 1. Deduplicación exacta por timestamp (servidor + client_called_at anti-desfase horario) y debounce acústico corto (1.8s)
+      const lastCallTime = lastImpulseTimeRef.current.get(storeKey) || 0
+      const lastAnnMs = lastAnnouncedAtMsRef.current.get(storeKey) || 0
+      const lastClientAnnMs = lastClientAnnouncedAtMsRef.current.get(storeKey) || 0
+      const matchesServerRef =
+        !isNaN(incomingCalledMs) &&
+        ((lastAnnMs > 0 && Math.abs(incomingCalledMs - lastAnnMs) < 1400) ||
+          (lastClientAnnMs > 0 && Math.abs(incomingCalledMs - lastClientAnnMs) < 1400))
+      const matchesClientRef =
+        !isNaN(incomingClientCalledMs) &&
+        ((lastAnnMs > 0 && Math.abs(incomingClientCalledMs - lastAnnMs) < 1400) ||
+          (lastClientAnnMs > 0 && Math.abs(incomingClientCalledMs - lastClientAnnMs) < 1400))
+      const isSameTap = matchesServerRef || matchesClientRef
+      const isRecentCall = lastCallTime > 0 && (now - lastCallTime) < 1800
+      if (isSameTap || isRecentCall) {
+        syncAnnouncedRefs()
         console.log(`[OrderReadyBoard] Impulso duplicado ignorado por debounce para orden #${orderNumStr}`)
         return
       }
 
       // 2. Si la orden está sonando activamente en este instante en el altavoz, evitar duplicar el llamado
       if (currentlyPlayingOrderRef.current && String(currentlyPlayingOrderRef.current.order_number) === orderNumStr) {
+        syncAnnouncedRefs()
         console.log(`[OrderReadyBoard] Orden #${orderNumStr} ya está sonando en este instante`)
         return
       }
@@ -2878,20 +3061,36 @@ function OrderReadyBoardContent() {
       )
       if (!alreadyInQueue) {
         lastImpulseTimeRef.current.set(storeKey, now)
-        lastAnnouncedAtMsRef.current.set(storeKey, !isNaN(incomingCalledMs) ? incomingCalledMs : now)
+        const canonicalCalledMs = !isNaN(incomingCalledMs)
+          ? incomingCalledMs
+          : !isNaN(incomingClientCalledMs)
+          ? incomingClientCalledMs
+          : now
+        lastAnnouncedAtMsRef.current.set(storeKey, canonicalCalledMs)
+        if (!isNaN(incomingClientCalledMs)) {
+          lastClientAnnouncedAtMsRef.current.set(storeKey, incomingClientCalledMs)
+        }
+        if (!claimCrossTabSpeakerSlot(storeKey, canonicalCalledMs)) {
+          console.log(`[OrderReadyBoard] Slot de bocina cedido a otra pestaña activa o pestaña silenciada para orden #${orderNumStr}`)
+          return
+        }
         const impulseItem: OrderItem = {
           ...targetOrder,
           _fromTablet: true,
           _repeats: 1,
-          _sortAt: Date.now()
+          _sortAt: Date.now(),
+          _calledAtIso: data.called_at || data.client_called_at || new Date().toISOString(),
+          _autoTimer: Boolean(data.auto_timer)
         }
         audioQueueRef.current.push(impulseItem)
         if (!isPlayingRef.current) {
           processAudioQueue()
         }
+      } else {
+        syncAnnouncedRefs()
       }
     },
-    [unlockAudio, processAudioQueue, selectedStore]
+    [unlockAudio, processAudioQueue, selectedStore, claimCrossTabSpeakerSlot, isMuted, voiceVolume]
   )
 
   useEffect(() => {
@@ -3175,6 +3374,24 @@ function OrderReadyBoardContent() {
               )}
             </div>
           )}
+
+          {/* Botón de Auditoría en Vivo (Uso de Tabletas de Cocina & Estado de Bocinas AI) */}
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation()
+              setShowVoiceAuditModal(true)
+            }}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-semibold transition cursor-pointer ${
+              isDark
+                ? 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700'
+                : 'bg-white hover:bg-slate-50 text-slate-700 border-slate-200'
+            }`}
+            title={t('orderReadyBoard.audit_btn_tooltip')}
+          >
+            <BarChart3 className="w-3.5 h-3.5 text-emerald-500" />
+            <span className="hidden lg:inline">{t('orderReadyBoard.audit_btn_label')}</span>
+          </button>
 
           {/* Botón de Ajustes / Drawer de Controles */}
           <button
@@ -4960,6 +5177,15 @@ function OrderReadyBoardContent() {
           </div>
         </div>
       )}
+
+      {/* Modal de Auditoría en Vivo: Uso de Tabletas de Cocina & Estado de Bocinas AI */}
+      <OrderReadyVoiceAuditModal
+        isOpen={showVoiceAuditModal}
+        onClose={() => setShowVoiceAuditModal(false)}
+        isDark={isDark}
+        selectedStore={selectedStore}
+        isAdmin={isAdmin}
+      />
     </div>
   )
 }
