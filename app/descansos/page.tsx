@@ -12,9 +12,11 @@
  * - Aprendizaje Continuo (AI Learning): Movimientos manuales del mánager se guardan en `break_manual_overrides` y se aplican en futuros cálculos.
  * - Privacidad Operativa en Tableta: Al marcar un empleado como ausente (`is_callback = true`), su fila desaparece completamente del Timeline y de la pantalla de tableta (sin texto rojo ni etiquetas visibles al personal), ofreciendo al mánager un botón neutro discreto ("Ocultos") fuera del Modo Tableta por si desea restaurar el turno.
  * @dataFlow Sincroniza turnos de `shifts`, ponchadas de `punches` (Toast POS), proyección de ventas, y guarda preferencias aprendidas en `break_manual_overrides`.
- * @notes Renderizado progresivo ultrarrápido con caché en DB (<150ms), Motor V30 Universal Multi-Tienda
+ * @notes Renderizado progresivo ultrarrápido con caché en DB (<150ms), Motor V31 Universal Multi-Tienda
  *   (memoria por `employee_id`, puesto real del turno `s.job_id`, estaciones reales de `station_assignments`,
- *   auto-sincronización de semanas pre-publicadas ante nuevos aprendizajes y supresión de auto-eco Realtime/Polling).
+ *   auto-sincronización de semanas futuras ante nuevos aprendizajes y supresión de auto-eco Realtime/Polling).
+ *   Incluye Escenario 1 (apoyo temporal de puesto `[TEMP_ROLE:...]` en `shifts.notes` con reajuste automático de pendientes)
+ *   y Escenario 2 (ausencia de último minuto con Reajuste IA de pendientes futuros vs Solo Ocultar, protegiendo memoria semanal).
  *   Mantiene la pantalla siempre encendida 24/7 (Screen Wake Lock + video silencioso de respaldo, ver `lib/use-wake-lock.ts`).
  */
 
@@ -36,6 +38,7 @@ import { useAuth } from '@/components/ProtectedRoute'
 import {
     scheduleBreaksWithDemand,
     LearnedPreference,
+    TempFloorRole,
     getLocalDayOfWeek,
     getLocalHourMinute,
     getTypeSpecificBreakIndex,
@@ -44,6 +47,9 @@ import {
     decodeLearnedRoleMeta,
     normalizeRoleString,
     resolveShiftRoleTitle,
+    resolveShiftBaseRoleTitle,
+    extractTempFloorRole,
+    applyTempFloorRoleToNotes,
     resolveShiftIsLeader,
     resolveShiftStationSummary,
     getWallClockDurationHours,
@@ -107,6 +113,7 @@ export default function DescansosPage() {
     const [calendarOpen, setCalendarOpen] = useState(false)
     const [calendarViewDate, setCalendarViewDate] = useState(new Date())
     const lastLocalMutationAtRef = useRef<number>(0)
+    const autoSyncedDaysRef = useRef<Set<string>>(new Set())
 
     const resolveActiveStoreGuid = (): string => {
         return (
@@ -130,8 +137,24 @@ export default function DescansosPage() {
             .filter(s => s.id != null)
             .map(s => overrideMap.get(String(s.id)) || s)
             .sort((a, b) => String(a.id).localeCompare(String(b.id)))
-            .map(s => ({ id: s.id, bs: (s as any).breaks_schedule, ic: (s as any).is_callback }))
+            .map(s => ({ id: s.id, bs: (s as any).breaks_schedule, ic: (s as any).is_callback, n: (s as any).notes || '' }))
         lastPolledDbRef.current = JSON.stringify(merged)
+    }
+
+    const shouldSkipPermanentLearning = (
+        targetShiftStartMs: number,
+        targetShiftEndMs: number,
+        targetShift?: any
+    ): boolean => {
+        if (targetShift && extractTempFloorRole(targetShift.notes)) return true;
+        const allRawShifts: Shift[] = lastDataRef.current?.shifts || [];
+        return allRawShifts.some((rawS: any) => {
+            const os = new Date(rawS.start_time).getTime();
+            const oe = new Date(rawS.end_time).getTime();
+            if (!(os < targetShiftEndMs && oe > targetShiftStartMs)) return false;
+            const isEmpAbsent = rawS.employee_id != null && absentEmpIds.has(String(rawS.employee_id));
+            return isEmpAbsent || Boolean(extractTempFloorRole(rawS.notes));
+        });
     }
 
     const computeShiftCohortIndex = (targetShift: Shift): number => {
@@ -260,13 +283,21 @@ export default function DescansosPage() {
                 await supabase.from('shifts').update({ breaks_schedule: finalShiftBreaks }).eq('id', shift.id);
             }
 
-            // Guardar ÚNICAMENTE los descansos marcados como manuales (`is_manual === true`), ligados al `employee_id` exacto,
-            // sin contaminar `break_manual_overrides` con descansos automáticos que el gerente no movió.
-            const manualEntries = finalShiftBreaks
-                .map((brk, idx) => ({ brk, typeIdx: getTypeSpecificBreakIndex(finalShiftBreaks, idx) }))
-                .filter(entry => entry.brk.is_manual);
+            if (shouldSkipPermanentLearning(shiftStart, shiftEnd, shift)) {
+                setAiStatus({ message: t('descansos.saved_today_temp_team'), type: 'success' });
+                setTimeout(() => setAiStatus(null), 4000);
+                return;
+            }
 
-            for (const entry of manualEntries) {
+            // Guardar la coreografía COMPLETA de la fila del empleado editado en `break_manual_overrides`
+            // (los bloques sin arrastrar conservan `is_manual: false` en `shifts` para no pintar pines falsos 📌,
+            //  pero quedan guardados como preferencias aprobadas de ese empleado para evitar amnesia parcial).
+            const allRowEntries = finalShiftBreaks.map((brk, idx) => ({
+                brk,
+                typeIdx: getTypeSpecificBreakIndex(finalShiftBreaks, idx)
+            }));
+
+            for (const entry of allRowEntries) {
                 await supabase.from('break_manual_overrides').delete().match({
                     store_id: currentStoreGuid,
                     role: encodedEmpRole,
@@ -276,7 +307,7 @@ export default function DescansosPage() {
                 });
             }
 
-            const rowsToInsert = manualEntries.map(entry => ({
+            const rowsToInsert = allRowEntries.map(entry => ({
                 store_id: currentStoreGuid,
                 role: encodedEmpRole,
                 day_of_week: dayOfWeek,
@@ -452,8 +483,9 @@ export default function DescansosPage() {
             lastLocalMutationAtRef.current = Date.now();
             await supabase.from('shifts').update({ breaks_schedule: updatedBreaks }).eq('id', shift.id);
 
+            const skipPermanentLearning = shouldSkipPermanentLearning(sMs, eMs, shift);
             const currentStoreGuid = resolveActiveStoreGuid();
-            if (currentStoreGuid) {
+            if (currentStoreGuid && !skipPermanentLearning) {
                 const rk = normalizeRoleString((shift as any).job_title || shift.job_id || 'unknown');
                 const encodedEmpRole = encodeLearnedRoleMeta(rk, shift.employee_id);
                 const dayOfWeek = getLocalDayOfWeek(sMs);
@@ -499,7 +531,9 @@ export default function DescansosPage() {
             syncLocalPollingSnapshot(nextSmart);
 
             setAiStatus({
-                message: `✅ ${breakType === 'meal_30' ? 'Lunch (30 min)' : 'Break (10 min)'} agregado a ${emp.first_name}. Puedes arrastrarlo en la barra para ajustar la hora.`,
+                message: skipPermanentLearning
+                    ? t('descansos.saved_today_temp_team')
+                    : `✅ ${breakType === 'meal_30' ? 'Lunch (30 min)' : 'Break (10 min)'} agregado a ${emp.first_name}. Puedes arrastrarlo en la barra para ajustar la hora.`,
                 type: 'success'
             });
             setTimeout(() => setAiStatus(null), 5000);
@@ -507,6 +541,60 @@ export default function DescansosPage() {
         } catch (err) {
             console.error('Error adding manual break:', err);
             setAiStatus({ message: '❌ Error al agregar el descanso', type: 'alert' });
+            setTimeout(() => setAiStatus(null), 4000);
+        }
+    };
+
+    const handleSetTempFloorRole = async (emp: Employee, nextTempRole: TempFloorRole | null) => {
+        const baseList: Shift[] = (lastDataRef.current?.shifts && lastDataRef.current.shifts.length > 0)
+            ? lastDataRef.current.shifts
+            : todayShifts;
+        const targetShift = baseList.find((s: Shift) =>
+            String(s.employee_id) === String(emp.id) && !absentEmpIds.has(String(s.employee_id))
+        ) || smartShifts.find((s: Shift) => String(s.employee_id) === String(emp.id) && !(s as any)._isAbsent);
+
+        if (!targetShift || !targetShift.id) return;
+        const currentTemp = extractTempFloorRole(targetShift.notes);
+        if (currentTemp === nextTempRole) {
+            setAbsentModalEmp(null);
+            return;
+        }
+
+        const nextNotes = applyTempFloorRoleToNotes(targetShift.notes, nextTempRole);
+        try {
+            const supabase = await getSupabaseClient();
+            lastLocalMutationAtRef.current = Date.now();
+            const { error } = await supabase.from('shifts').update({ notes: nextNotes }).eq('id', targetShift.id);
+            if (error) throw error;
+
+            if (lastDataRef.current?.shifts) {
+                lastDataRef.current.shifts = lastDataRef.current.shifts.map((s: any) =>
+                    s.id === targetShift.id ? { ...s, notes: nextNotes, job_title: undefined } : s
+                );
+            }
+            setTodayShifts(prev =>
+                prev.map((s: any) => (s.id === targetShift.id ? { ...s, notes: nextNotes, job_title: undefined } : s))
+            );
+
+            setAbsentModalEmp(null);
+            await triggerAiRecalculation(
+                absentEmpIds,
+                lastDataRef.current,
+                true,
+                true,
+                false,
+                undefined,
+                false,
+                false,
+                {
+                    startMs: new Date(targetShift.start_time).getTime(),
+                    endMs: new Date(targetShift.end_time).getTime(),
+                    customStatusMsg: t('descansos.temp_role_applied')
+                }
+            );
+        } catch (err) {
+            console.error('Error updating temporary floor role:', err);
+            setAiStatus({ message: '❌ Error al actualizar rol temporal en piso', type: 'alert' });
             setTimeout(() => setAiStatus(null), 4000);
         }
     };
@@ -677,7 +765,9 @@ export default function DescansosPage() {
         forceRecalculate: boolean = false,
         isRealtimeReload: boolean = false,
         targetShiftIdToRecalculate?: string,
-        silentBackgroundSync: boolean = false
+        silentBackgroundSync: boolean = false,
+        preserveCoworkerBreaks: boolean = false,
+        rebalancePendingWindow?: { startMs: number; endMs: number; customStatusMsg?: string }
     ) => {
         if (!silentBackgroundSync) {
             setCalculating(true);
@@ -685,6 +775,7 @@ export default function DescansosPage() {
         }
 
         const { shifts, hours, employees, jobs, learnedPrefs, stationAssignments } = dataOverride || lastDataRef.current;
+        const effectiveHours = (hours && hours.length > 0) ? hours : operatingHours;
         if (!shifts || shifts.length === 0) {
             if (!silentBackgroundSync) setCalculating(false);
             return;
@@ -694,6 +785,16 @@ export default function DescansosPage() {
             if (s.employee_id === null) return true;
             return !absentSet.has(String(s.employee_id));
         });
+
+        const viewedDateStr = formatDateISO(currentDate);
+        const todayBDateStr = getCurrentCaliforniaBusinessDateStr();
+        const freezeCutoffMs = !rebalancePendingWindow
+            ? 0
+            : viewedDateStr === todayBDateStr
+              ? Date.now() + 15 * 60_000
+              : viewedDateStr < todayBDateStr
+                ? Number.POSITIVE_INFINITY
+                : Number.NEGATIVE_INFINITY;
 
         const shiftsForAi = presentShifts.map((s: Shift) => {
             const emp = employees.find((e: Employee) => String(e.id) === String(s.employee_id) || (e.toast_guid && e.toast_guid === (s as any).employee_toast_guid));
@@ -708,11 +809,38 @@ export default function DescansosPage() {
             const isLeader = resolveShiftIsLeader(extTitle);
             const stationName = resolveShiftStationSummary(s, stationAssignments);
             
-            // Si solo queremos recalcular un empleado (doble clic o colisión personal),
-            // congelamos temporalmente los breaks de todos los demás haciéndolos 'manuales'.
+            // Si solo queremos recalcular un empleado o reajustar descansos futuros del bloque afectado,
+            // congelamos temporalmente los breaks protegidos marcándolos en memoria (_tempFrozen).
             let safeBreaks = s.breaks_schedule;
             if (targetShiftIdToRecalculate && s.id !== targetShiftIdToRecalculate) {
                 safeBreaks = (s.breaks_schedule || []).map((b: any) => ({ ...b, is_manual: true }));
+            } else if (rebalancePendingWindow) {
+                const sStart = new Date(s.start_time).getTime();
+                const sEnd = new Date(s.end_time).getTime();
+                const overlapsWindow = sStart < rebalancePendingWindow.endMs && sEnd > rebalancePendingWindow.startMs;
+                if (!overlapsWindow) {
+                    safeBreaks = (s.breaks_schedule || []).map((b: any) =>
+                        b?.is_manual ? b : { ...b, is_manual: true, _tempFrozen: true }
+                    );
+                } else {
+                    safeBreaks = (s.breaks_schedule || [])
+                        .filter((b: any) => {
+                            if (!b) return false;
+                            if (b.is_manual === true) return true;
+                            const st = String(b.status || '').toLowerCase();
+                            if (
+                                st === 'active' ||
+                                st === 'completed' ||
+                                st === 'taken' ||
+                                st === 'waived' ||
+                                Boolean(b.actual_start)
+                            ) {
+                                return true;
+                            }
+                            return new Date(b.start_time).getTime() <= freezeCutoffMs;
+                        })
+                        .map((b: any) => (b.is_manual === true ? b : { ...b, is_manual: true, _tempFrozen: true }));
+                }
             }
 
             return {
@@ -735,8 +863,51 @@ export default function DescansosPage() {
                 .map((s: any) => s.id)
         );
 
-        // 🧠 BYPASS DE OPTIMIZACIÓN: Si TODOS los turnos >= 3.5h ya tienen breaks calculados, los reusamos.
-        if (!isManualAction && !forceRecalculate) {
+        // 🧠 BYPASS / CONGELAMIENTO DE COMPAÑEROS: Si TODOS los turnos presentes >= 3.5h ya tienen breaks
+        // (carga inicial o al marcar un ausente con preserveCoworkerBreaks), no mover los breaks de compañeros.
+        if (!rebalancePendingWindow && preserveCoworkerBreaks && missingBreakIds.size === 0) {
+            const absentShiftsForRender = shifts
+                .filter((s: Shift) => s.employee_id !== null && absentSet.has(String(s.employee_id)))
+                .map((s: Shift) => {
+                    const emp = employees.find((e: Employee) => String(e.id) === String(s.employee_id));
+                    const empName = emp ? `${emp.first_name || ''} ${emp.last_name || ''}`.replace(/\s+/g, ' ').trim().toLowerCase() : '';
+                    const extTitle = resolveShiftRoleTitle(s, emp, jobs);
+                    return { ...s, job_title: extTitle, breaks_schedule: [], _isAbsent: true, employee_name: empName };
+                });
+            setSmartShifts([...shiftsForAi, ...absentShiftsForRender]);
+            const nextRawDbShifts = shifts.map((s: Shift) => ({
+                ...s,
+                is_callback: (!isRealtimeReload && s.employee_id !== null)
+                    ? absentSet.has(String(s.employee_id))
+                    : s.is_callback
+            }));
+            lastDataRef.current = { ...lastDataRef.current, shifts: nextRawDbShifts };
+            if (!isRealtimeReload && shifts) {
+                const supabase = await getSupabaseClient();
+                lastLocalMutationAtRef.current = Date.now();
+                const validShifts = shifts.filter((s: Shift) => s.employee_id !== null && s.id != null);
+                await Promise.all(validShifts.map(async (s: Shift) => {
+                    const id = String(s.employee_id);
+                    if (absentSet.has(id) && s.is_callback !== true) {
+                        await supabase.from('shifts').update({ is_callback: true }).eq('id', s.id);
+                    } else if (!absentSet.has(id) && s.is_callback === true) {
+                        await supabase.from('shifts').update({ is_callback: false }).eq('id', s.id);
+                    }
+                }));
+                syncLocalPollingSnapshot(nextRawDbShifts);
+                setAiStatus({ message: t('descansos.schedule_updated_no_changes'), type: 'info' });
+            }
+            if (!silentBackgroundSync) setCalculating(false);
+            return;
+        }
+
+        if (!rebalancePendingWindow && preserveCoworkerBreaks && missingBreakIds.size > 0) {
+            shiftsForAi.forEach((s: any) => {
+                if (!missingBreakIds.has(s.id) && s.breaks_schedule && s.breaks_schedule.length > 0) {
+                    s.breaks_schedule = s.breaks_schedule.map((b: any) => ({ ...b, is_manual: true }));
+                }
+            });
+        } else if (!rebalancePendingWindow && !isManualAction && !forceRecalculate) {
             const someCalculated = shiftsForAi.some((s: any) => s.breaks_schedule && s.breaks_schedule.length > 0);
             
             if (someCalculated && missingBreakIds.size === 0) {
@@ -764,7 +935,40 @@ export default function DescansosPage() {
         }
 
         try {
-            const augmented = scheduleBreaksWithDemand(shiftsForAi, hours, learnedPrefs || []);
+            const hasSpecialTeamInWindow = Boolean(
+                rebalancePendingWindow &&
+                    (shifts.some((rawS: Shift) => {
+                        if (rawS.employee_id == null || !absentSet.has(String(rawS.employee_id))) return false;
+                        const os = new Date(rawS.start_time).getTime();
+                        const oe = new Date(rawS.end_time).getTime();
+                        return os < rebalancePendingWindow.endMs && oe > rebalancePendingWindow.startMs;
+                    }) ||
+                        shiftsForAi.some((s: any) => {
+                            const os = new Date(s.start_time).getTime();
+                            const oe = new Date(s.end_time).getTime();
+                            return (
+                                os < rebalancePendingWindow.endMs &&
+                                oe > rebalancePendingWindow.startMs &&
+                                extractTempFloorRole(s.notes) !== null
+                            );
+                        }))
+            );
+            const effectiveLearnedPrefs = hasSpecialTeamInWindow ? [] : (learnedPrefs || []);
+            const augmented = scheduleBreaksWithDemand(shiftsForAi, effectiveHours, effectiveLearnedPrefs);
+
+            if (rebalancePendingWindow) {
+                augmented.forEach((s: any) => {
+                    if (Array.isArray(s.breaks_schedule)) {
+                        s.breaks_schedule = s.breaks_schedule.map((b: any) => {
+                            if (b && b._tempFrozen) {
+                                const { _tempFrozen, ...clean } = b;
+                                return { ...clean, is_manual: false };
+                            }
+                            return b;
+                        });
+                    }
+                });
+            }
             
             // Descongelar los breaks de los demás empleados para no guardarlos con 'is_manual: true' falso
             if (targetShiftIdToRecalculate) {
@@ -774,7 +978,7 @@ export default function DescansosPage() {
                         s.breaks_schedule = original ? [...(original.breaks_schedule || [])] : [];
                     }
                 });
-            } else if (!isManualAction && !forceRecalculate && missingBreakIds.size > 0) {
+            } else if ((preserveCoworkerBreaks || (!isManualAction && !forceRecalculate)) && missingBreakIds.size > 0) {
                 augmented.forEach((s: any) => {
                     if (!missingBreakIds.has(s.id)) {
                         const original = presentShifts.find((old: Shift) => old.id === s.id);
@@ -837,7 +1041,12 @@ export default function DescansosPage() {
                 }));
                 syncLocalPollingSnapshot(nextRawDbShifts);
 
-                if (isManualAction) {
+                if (rebalancePendingWindow) {
+                    setAiStatus({
+                        message: rebalancePendingWindow.customStatusMsg || t('descansos.rebalance_pending_done'),
+                        type: 'success'
+                    });
+                } else if (isManualAction) {
                     setAiStatus({ message: t('descansos.schedule_rebalanced'), type: 'success' });
                 } else if (!silentBackgroundSync && !targetShiftIdToRecalculate) {
                     setAiStatus({ message: 'Inteligencia Artificial: Horario optimizado para maximizar cobertura en picos de venta', type: 'success' });
@@ -1275,12 +1484,21 @@ export default function DescansosPage() {
                 await triggerAiRecalculation(hydratedAbsentSet, data, false, false, isRealtimeReload);
                 setCalculating(false);
 
-                // Cargar Heatmap y Toast en segundo plano; si es hoy o futuro y existen preferencias más recientes
-                // para este día de la semana que la creación del turno pre-publicado, sincronizar silenciosamente
+                // Cargar Heatmap y Toast en segundo plano; únicamente para días FUTUROS sin ajustes manuales
+                // aún pendientes de sincronización (una sola vez por sesión y tienda+fecha)
                 fetchSlowData()
                     .then((loadedHours) => {
                         if (lastDataRef.current) lastDataRef.current.hours = loadedHours;
-                        if (!isRealtimeReload && dateStr >= getCurrentCaliforniaBusinessDateStr()) {
+                        const syncKey = `${storeGuid}|${dateStr}`;
+                        const hasAnyManualOnDay = todayRawShifts.some((s: any) =>
+                            Array.isArray(s.breaks_schedule) && s.breaks_schedule.some((b: any) => b?.is_manual)
+                        );
+                        if (
+                            !isRealtimeReload &&
+                            dateStr > getCurrentCaliforniaBusinessDateStr() &&
+                            !hasAnyManualOnDay &&
+                            !autoSyncedDaysRef.current.has(syncKey)
+                        ) {
                             const targetDow = getLocalDayOfWeek(new Date(dateStr + 'T12:00:00').getTime());
                             const shiftCreatedMs = todayRawShifts
                                 .map((s: any) => (s.created_at ? new Date(s.created_at).getTime() : 0))
@@ -1292,6 +1510,7 @@ export default function DescansosPage() {
                                 return ts ? new Date(ts).getTime() > oldestShiftCreated : false;
                             });
                             if (hasNewerOverrideForDay && lastDataRef.current) {
+                                autoSyncedDaysRef.current.add(syncKey);
                                 void triggerAiRecalculation(
                                     hydratedAbsentSet,
                                     { ...lastDataRef.current, hours: loadedHours },
@@ -1387,7 +1606,7 @@ export default function DescansosPage() {
                 const supabase = await getSupabaseClient();
                 const { data: freshShifts } = await supabase
                     .from('shifts')
-                    .select('id, breaks_schedule, is_callback')
+                    .select('id, breaks_schedule, is_callback, notes')
                     .eq('store_id', storeGuid)
                     .eq('shift_date', dateStr);
 
@@ -1399,7 +1618,7 @@ export default function DescansosPage() {
                         .filter(s => s.id != null)
                         .slice()
                         .sort((a, b) => String(a.id).localeCompare(String(b.id)))
-                        .map(s => ({ id: s.id, bs: s.breaks_schedule, ic: s.is_callback }))
+                        .map(s => ({ id: s.id, bs: s.breaks_schedule, ic: s.is_callback, n: (s as any).notes || '' }))
                 );
 
                 // Primera vez: guardar snapshot y salir (no hay con qué comparar)
@@ -1911,11 +2130,17 @@ export default function DescansosPage() {
                                             {emp.first_name} {emp.last_name}
                                         </div>
                                         {(() => {
-                                            // Resolver el título real del puesto asignado al turno de hoy (priorizando shift.job_id)
+                                            // Resolver el título real del puesto asignado al turno de hoy (apoyo temporal o Toast)
                                             const jobTitle = resolveShiftRoleTitle(shift || {}, emp, allJobs) || (shift as any)?.job_title || '';
+                                            const activeTempRole = shift ? extractTempFloorRole(shift.notes) : null;
                                             return jobTitle ? (
-                                                <div className="text-xs font-bold text-blue-500 truncate mt-0.5 uppercase tracking-wide">
-                                                    {jobTitle}
+                                                <div className="text-xs font-bold text-blue-500 truncate mt-0.5 uppercase tracking-wide flex items-center flex-wrap gap-1">
+                                                    <span className="truncate">{jobTitle}</span>
+                                                    {activeTempRole && (
+                                                        <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 text-[10px] font-black normal-case tracking-normal">
+                                                            {t('descansos.temp_role_badge')}
+                                                        </span>
+                                                    )}
                                                 </div>
                                             ) : null;
                                         })()}
@@ -2116,23 +2341,34 @@ export default function DescansosPage() {
                     <div className="bg-white rounded-3xl shadow-2xl p-8 w-full max-w-xl border border-slate-300 max-h-[90vh] overflow-y-auto">
                         <h3 className="text-3xl font-black text-slate-900 mb-1 flex items-center gap-3">
                             <Calendar size={32} className="text-indigo-600" />
-                            Gestión de Descansos y Asistencia
+                            {t('descansos.modal_title')}
                         </h3>
                         <p className="text-slate-900 text-2xl font-black mb-6 pb-4 border-b border-slate-200">
                             {absentModalEmp.first_name} {absentModalEmp.last_name}
                         </p>
 
                         {(() => {
-                            const shift = smartShifts.find(s => String(s.employee_id) === String(absentModalEmp.id));
-                            if (!shift) return <div className="text-slate-500 font-bold mb-6">Empleado sin turno programado hoy.</div>;
+                            const shift = smartShifts.find(s => String(s.employee_id) === String(absentModalEmp.id) && !(s as any)._isAbsent);
+                            const isEmpAbsent = absentEmpIds.has(String(absentModalEmp.id));
+                            if (!shift && !isEmpAbsent) return <div className="text-slate-500 font-bold mb-6">{t('descansos.no_shift_today')}</div>;
+                            if (!shift) return null;
 
                             const shiftStartStr = new Date(shift.start_time).toLocaleTimeString('en-US', { timeZone: 'America/Los_Angeles', hour: '2-digit', minute: '2-digit' });
                             const shiftEndStr = new Date(shift.end_time).toLocaleTimeString('en-US', { timeZone: 'America/Los_Angeles', hour: '2-digit', minute: '2-digit' });
                             const shiftDurHrs = getWallClockDurationHours(new Date(shift.start_time).getTime(), new Date(shift.end_time).getTime()).toFixed(1);
+                            const baseRole = resolveShiftBaseRoleTitle({ ...shift, job_title: undefined }, absentModalEmp, allJobs) || 'Toast';
+                            const currentTempRole = extractTempFloorRole(shift.notes);
+
+                            const tempRoleOptions: { role: TempFloorRole | null; label: string }[] = [
+                                { role: null, label: `${t('descansos.temp_role_original')} (${baseRole})` },
+                                { role: 'Cook', label: `🔥 ${t('descansos.temp_role_cook')}` },
+                                { role: 'Cashier', label: `🧾 ${t('descansos.temp_role_cashier')}` },
+                                { role: 'Shift Leader', label: `🛡️ ${t('descansos.temp_role_leader')}` },
+                            ];
 
                             return (
                                 <div className="mb-6">
-                                    <div className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Turno Asignado:</div>
+                                    <div className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">{t('descansos.assigned_shift')}</div>
                                     <div className="text-lg font-black text-slate-800 bg-slate-100 px-4 py-2.5 rounded-xl flex items-center justify-between mb-5 border border-slate-200">
                                         <span>{shiftStartStr} - {shiftEndStr}</span>
                                         <span className="text-xs bg-indigo-100 text-indigo-700 px-3 py-1 rounded-full font-bold">
@@ -2140,27 +2376,55 @@ export default function DescansosPage() {
                                         </span>
                                     </div>
 
+                                    {/* Escenario 1: Apoyo Temporal en Piso Hoy */}
+                                    <div className="mb-5 p-3.5 rounded-2xl bg-amber-50/70 border border-amber-200">
+                                        <div className="text-xs font-black text-amber-900 uppercase tracking-wider mb-1">
+                                            {t('descansos.temp_role_label')}
+                                        </div>
+                                        <p className="text-xs text-amber-800/90 font-medium mb-3 leading-snug">
+                                            {t('descansos.temp_role_hint')}
+                                        </p>
+                                        <div className="grid grid-cols-2 gap-2">
+                                            {tempRoleOptions.map(opt => {
+                                                const active = currentTempRole === opt.role;
+                                                const activeCls = opt.role === null
+                                                    ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
+                                                    : 'bg-amber-500 text-white border-amber-500 shadow-sm';
+                                                return (
+                                                    <button
+                                                        key={opt.role || 'original'}
+                                                        type="button"
+                                                        onClick={() => void handleSetTempFloorRole(absentModalEmp, opt.role)}
+                                                        className={`px-3 py-2.5 rounded-xl text-xs font-black border transition-all text-left truncate ${active ? activeCls : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'}`}
+                                                    >
+                                                        {opt.label}
+                                                    </button>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+
                                     {/* Botones para Agregar Descanso Manual */}
-                                    <div className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Agregar Descanso Manual:</div>
+                                    <div className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">{t('descansos.add_manual_break_label')}</div>
                                     <div className="grid grid-cols-2 gap-3 mb-6">
                                         <button
                                             onClick={() => handleAddManualBreak(absentModalEmp, 'meal_30')}
                                             className="px-4 py-3.5 bg-amber-500 hover:bg-amber-600 text-white font-black text-sm rounded-xl shadow-md flex items-center justify-center gap-2 transition-transform hover:scale-[1.02] active:scale-[0.98]"
                                         >
-                                            🍽️ + Agregar Lunch (30 min)
+                                            {t('descansos.add_lunch_btn')}
                                         </button>
                                         <button
                                             onClick={() => handleAddManualBreak(absentModalEmp, 'rest_10')}
                                             className="px-4 py-3.5 bg-emerald-500 hover:bg-emerald-600 text-white font-black text-sm rounded-xl shadow-md flex items-center justify-center gap-2 transition-transform hover:scale-[1.02] active:scale-[0.98]"
                                         >
-                                            ☕ + Agregar Break (10 min)
+                                            {t('descansos.add_break_btn')}
                                         </button>
                                     </div>
 
                                     {/* Lista de descansos actuales */}
                                     {shift.breaks_schedule && shift.breaks_schedule.length > 0 && (
                                         <div className="mb-4">
-                                            <div className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Descansos Programados en Turno:</div>
+                                            <div className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">{t('descansos.scheduled_breaks_label')}</div>
                                             <div className="space-y-2">
                                                 {shift.breaks_schedule.map((b: any, bIdx: number) => (
                                                     <div key={bIdx} className="flex items-center justify-between bg-slate-50 p-3 rounded-xl border border-slate-200">
@@ -2175,7 +2439,7 @@ export default function DescansosPage() {
                                                             onClick={() => handleRemoveBreak(shift, bIdx)}
                                                             className="text-xs bg-red-100 hover:bg-red-200 text-red-700 px-3 py-1.5 rounded-lg font-bold transition-colors"
                                                         >
-                                                            🗑️ Eliminar
+                                                            {t('descansos.delete_btn')}
                                                         </button>
                                                     </div>
                                                 ))}
@@ -2186,36 +2450,71 @@ export default function DescansosPage() {
                             );
                         })()}
 
-                        <div className="flex flex-col gap-3 pt-4 border-t border-slate-200">
-                            <button
-                                onClick={() => {
-                                    const newSet = new Set(absentEmpIds);
-                                    const empIdStr = String(absentModalEmp.id);
-                                    if (newSet.has(empIdStr)) {
-                                        newSet.delete(empIdStr);
-                                    } else {
-                                        newSet.add(empIdStr);
-                                    }
-                                    setAbsentEmpIds(newSet);
-                                    triggerAiRecalculation(newSet, null, true);
-                                    setAbsentModalEmp(null);
-                                }}
-                                className={`px-6 py-4 rounded-xl text-lg font-black shadow-md flex items-center justify-center gap-2 transition-transform hover:scale-[1.01] active:scale-[0.99] ${absentEmpIds.has(String(absentModalEmp.id))
-                                    ? 'bg-indigo-600 text-white hover:bg-indigo-700'
-                                    : 'bg-red-600 text-white hover:bg-red-700'
-                                    }`}
-                            >
-                                {absentEmpIds.has(String(absentModalEmp.id))
-                                    ? 'Restaurar Turno (Desmarcar Ausencia)'
-                                    : 'Marcar Ausente (Quitar del Horario)'}
-                            </button>
-                            <button
-                                onClick={() => setAbsentModalEmp(null)}
-                                className="px-6 py-3.5 rounded-xl text-base font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 transition-colors"
-                            >
-                                {t('descansos.close_modal')}
-                            </button>
-                        </div>
+                        {(() => {
+                            const empIdStr = String(absentModalEmp.id);
+                            const isCurrentlyAbsent = absentEmpIds.has(empIdStr);
+                            const targetModalShift =
+                                smartShifts.find(s => String(s.employee_id) === empIdStr) ||
+                                todayShifts.find(s => String(s.employee_id) === empIdStr) ||
+                                (lastDataRef.current?.shifts || []).find((s: Shift) => String(s.employee_id) === empIdStr);
+                            const shiftWindow = targetModalShift
+                                ? {
+                                      startMs: new Date(targetModalShift.start_time).getTime(),
+                                      endMs: new Date(targetModalShift.end_time).getTime()
+                                  }
+                                : undefined;
+
+                            const handleAbsenceChoice = (withRebalance: boolean) => {
+                                const newSet = new Set(absentEmpIds);
+                                if (isCurrentlyAbsent) {
+                                    newSet.delete(empIdStr);
+                                } else {
+                                    newSet.add(empIdStr);
+                                }
+                                setAbsentEmpIds(newSet);
+                                setAbsentModalEmp(null);
+                                if (withRebalance && shiftWindow) {
+                                    void triggerAiRecalculation(newSet, null, true, true, false, undefined, false, false, shiftWindow);
+                                } else {
+                                    void triggerAiRecalculation(newSet, null, true, false, false, undefined, false, true);
+                                }
+                            };
+
+                            return (
+                                <div className="flex flex-col gap-2.5 pt-4 border-t border-slate-200">
+                                    <div className="text-xs font-bold text-slate-500 uppercase tracking-wider">
+                                        {t('descansos.absence_section_label')}
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={() => handleAbsenceChoice(true)}
+                                        className={`px-5 py-3.5 rounded-xl text-base font-black shadow-md flex items-center justify-center gap-2 transition-transform hover:scale-[1.01] active:scale-[0.99] ${isCurrentlyAbsent
+                                            ? 'bg-indigo-600 text-white hover:bg-indigo-700'
+                                            : 'bg-red-600 text-white hover:bg-red-700'
+                                        }`}
+                                    >
+                                        {isCurrentlyAbsent ? t('descansos.restore_shift_rebalance') : t('descansos.mark_absent_rebalance')}
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => handleAbsenceChoice(false)}
+                                        className={`px-5 py-3 rounded-xl text-sm font-black shadow-sm flex items-center justify-center gap-2 transition-colors ${isCurrentlyAbsent
+                                            ? 'bg-slate-700 text-white hover:bg-slate-800'
+                                            : 'bg-slate-800 text-white hover:bg-slate-900'
+                                        }`}
+                                    >
+                                        {isCurrentlyAbsent ? t('descansos.restore_shift_only') : t('descansos.mark_absent_only_hide')}
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setAbsentModalEmp(null)}
+                                        className="px-6 py-3 rounded-xl text-base font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 transition-colors mt-1"
+                                    >
+                                        {t('descansos.close_modal')}
+                                    </button>
+                                </div>
+                            );
+                        })()}
                     </div>
                 </div>
             )}
@@ -2262,20 +2561,46 @@ export default function DescansosPage() {
                                                 {timeLabel && <span>{timeLabel}</span>}
                                             </div>
                                         </div>
-                                        <button
-                                            type="button"
-                                            onClick={() => {
-                                                const newSet = new Set(absentEmpIds)
-                                                newSet.delete(String(emp.id))
-                                                setAbsentEmpIds(newSet)
-                                                if (newSet.size === 0) setShowHiddenShiftsModal(false)
-                                                void triggerAiRecalculation(newSet, null, true)
-                                            }}
-                                            className="shrink-0 px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-black shadow-sm flex items-center gap-1.5 transition-colors"
-                                        >
-                                            <RotateCcw size={14} />
-                                            <span>{t('descansos.restore_shift')}</span>
-                                        </button>
+                                        <div className="shrink-0 flex items-center gap-2">
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    const newSet = new Set(absentEmpIds)
+                                                    newSet.delete(String(emp.id))
+                                                    setAbsentEmpIds(newSet)
+                                                    if (newSet.size === 0) setShowHiddenShiftsModal(false)
+                                                    const w = hiddenShift
+                                                        ? {
+                                                              startMs: new Date(hiddenShift.start_time).getTime(),
+                                                              endMs: new Date(hiddenShift.end_time).getTime()
+                                                          }
+                                                        : undefined
+                                                    if (w) {
+                                                        void triggerAiRecalculation(newSet, null, true, true, false, undefined, false, false, w)
+                                                    } else {
+                                                        void triggerAiRecalculation(newSet, null, true, false, false, undefined, false, true)
+                                                    }
+                                                }}
+                                                className="px-3.5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-black shadow-sm flex items-center gap-1.5 transition-colors"
+                                            >
+                                                <Zap size={14} />
+                                                <span>{t('descansos.restore_shift_rebalance_short')}</span>
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    const newSet = new Set(absentEmpIds)
+                                                    newSet.delete(String(emp.id))
+                                                    setAbsentEmpIds(newSet)
+                                                    if (newSet.size === 0) setShowHiddenShiftsModal(false)
+                                                    void triggerAiRecalculation(newSet, null, true, false, false, undefined, false, true)
+                                                }}
+                                                className="px-3 py-2.5 rounded-xl bg-slate-200 hover:bg-slate-300 text-slate-800 text-xs font-black flex items-center gap-1.5 transition-colors"
+                                            >
+                                                <RotateCcw size={14} />
+                                                <span>{t('descansos.restore_shift_only_short')}</span>
+                                            </button>
+                                        </div>
                                     </div>
                                 )
                             })}

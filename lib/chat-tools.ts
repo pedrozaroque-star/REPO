@@ -2096,7 +2096,7 @@ async function calculateBreaks(args: any): Promise<string> {
     const lines = [
       `📅 **California-Compliant AI Breaks Schedule for ${storeName} on ${targetDate}**`,
       `========================================================================`,
-      `🤖 *Processed by TEG AI Breaks Engine V30 Universal (Employee-Memory, Multi-Store & Peak-Aware)*`,
+      `🤖 *Processed by TEG AI Breaks Engine V31 Universal (Entry/Exit Order, ~2h Rest Cadence, Full-Row Learning, Temp Role Support & Pending Rebalance)*`,
       ``,
       `| Employee | Position | Shift Hours | Scheduled Lunches & Breaks |`,
       `| :--- | :--- | :--- | :--- |`
