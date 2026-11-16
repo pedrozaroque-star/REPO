@@ -33,7 +33,7 @@ export async function GET() {
       return NextResponse.json({
         success: true,
         emails: [
-          { id: '1', email: 'carlos@tacosgavilan.com', label: 'Carlos Roque (Administración)', use_count: 10 },
+          { id: '1', email: 'raquel@tacosgavilan.com', label: 'Recursos Humanos / Nómina', use_count: 10 },
           { id: '2', email: 'roberto@tacosgavilan.com', label: 'Roberto Velázquez (Dirección / Nómina)', use_count: 8 }
         ]
       })
@@ -43,6 +43,10 @@ export async function GET() {
     for (const item of emails || []) {
       const normalized = normalizeMilesMailbox(item.email || '')
       if (!normalized) continue
+      // No exponer buzones personales o protegidos como chips públicos a supervisores
+      if (normalized === 'carlos@tacosgavilan.com' || normalized === 'pedrozaroque@gmail.com') {
+        continue
+      }
       const existing = dedupMap.get(normalized)
       if (existing) {
         existing.use_count = (existing.use_count || 0) + (item.use_count || 0)
@@ -53,8 +57,8 @@ export async function GET() {
         dedupMap.set(normalized, {
           ...item,
           email: normalized,
-          label: normalized === 'carlos@tacosgavilan.com' && item.email?.toLowerCase().trim() === 'roque@tacosgavilan.com'
-            ? 'Carlos Roque (Administración)'
+          label: /carlos/i.test(String(item.label || ''))
+            ? 'Sistema de Monitoreo (Administración)'
             : item.label
         })
       }
@@ -81,6 +85,12 @@ export async function POST(req: NextRequest) {
     }
 
     const cleanEmail = normalizeMilesMailbox(email)
+    if (cleanEmail === 'carlos@tacosgavilan.com' || cleanEmail === 'pedrozaroque@gmail.com') {
+      return NextResponse.json({
+        success: true,
+        item: { id: 'system', email: 'noreply@tacosgavilan.com', label: 'Sistema de Monitoreo', use_count: 1 }
+      })
+    }
     const supabase = await getSupabaseAdminClient()
 
     const { data: existing } = await supabase

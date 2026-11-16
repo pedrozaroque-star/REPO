@@ -47,6 +47,7 @@ import { promises as dns } from 'dns'
 import nodemailer from 'nodemailer'
 import { getSupabaseAdminClient } from '@/lib/supabase'
 import { syncToastEmployees } from '@/lib/toast-labor'
+import { sendSystemEmail } from '@/lib/system-mailer'
 
 export type EmailIssueType =
     | 'VALID'
@@ -174,6 +175,7 @@ const KNOWN_TYPO_DOMAINS: Record<string, string> = {
 }
 
 const EXTRA_KNOWN_CORP_EMAILS = new Set([
+    'noreply@tacosgavilan.com',
     'eliseo@tacosgavilan.com',
     'alex@tacosgavilan.com',
 ])
@@ -307,7 +309,7 @@ function smtpProbeOnce(
                     sock.write('EHLO tacosgavilan.com\r\n')
                 } else if (step === 1 && code === 250) {
                     step = 2
-                    sock.write('MAIL FROM:<carlos@tacosgavilan.com>\r\n')
+                    sock.write('MAIL FROM:<noreply@tacosgavilan.com>\r\n')
                 } else if (step === 2 && code === 250) {
                     step = 3
                     sock.write(`RCPT TO:<${email}>\r\n`)
@@ -602,82 +604,7 @@ async function saveAuditState(
     }
 }
 
-async function getCarlosGmailAuth(supabase: any): Promise<{ accessToken: string; fromEmail: string }> {
-    const { data: carlos, error } = await supabase
-        .from('users')
-        .select('id, email, google_refresh_token, google_email_connected')
-        .eq('email', 'carlos@tacosgavilan.com')
-        .single()
-
-    if (error || !carlos?.google_refresh_token) {
-        throw new Error('No se encontró token Google OAuth activo para carlos@tacosgavilan.com')
-    }
-
-    const params = new URLSearchParams()
-    params.append('client_id', process.env.GOOGLE_CLIENT_ID!)
-    params.append('client_secret', process.env.GOOGLE_CLIENT_SECRET!)
-    params.append('refresh_token', carlos.google_refresh_token)
-    params.append('grant_type', 'refresh_token')
-
-    const refreshRes = await fetch('https://oauth2.googleapis.com/token', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: params,
-    })
-
-    if (!refreshRes.ok) {
-        const errText = await refreshRes.text()
-        throw new Error(`Fallo al refrescar token OAuth de Carlos: ${errText}`)
-    }
-
-    const tokens = await refreshRes.json()
-    return {
-        accessToken: tokens.access_token as string,
-        fromEmail: carlos.google_email_connected || carlos.email,
-    }
-}
-
-async function sendGmailMessage(
-    accessToken: string,
-    mailOptions: { from: string; to: string; cc?: string; subject: string; html: string }
-): Promise<string> {
-    const compiler = nodemailer.createTransport({
-        streamTransport: true,
-        newline: 'windows',
-    })
-    const info = await compiler.sendMail(mailOptions)
-    const rawBuffer = await new Promise<Buffer>((resolve, reject) => {
-        const message = info.message as any
-        if (Buffer.isBuffer(message)) return resolve(message)
-        const chunks: Buffer[] = []
-        message.on('data', (chunk: Buffer) => chunks.push(chunk))
-        message.on('end', () => resolve(Buffer.concat(chunks)))
-        message.on('error', (err: Error) => reject(err))
-    })
-
-    const raw = rawBuffer
-        .toString('base64')
-        .replace(/\+/g, '-')
-        .replace(/\//g, '_')
-        .replace(/=+$/, '')
-
-    const res = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
-        method: 'POST',
-        headers: {
-            Authorization: `Bearer ${accessToken}`,
-            'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ raw }),
-    })
-
-    const data = await res.json()
-    if (!res.ok) {
-        throw new Error(`Gmail API send failed (${res.status}): ${JSON.stringify(data)}`)
-    }
-    return data.id as string
-}
-
-function buildStoreManagerHtml(group: StoreManagerAuditGroup, dateLA: string): string {
+export function buildStoreManagerHtml(group: StoreManagerAuditGroup, dateLA: string): string {
     const count = group.employees.length
     const plural = count > 1
 
@@ -766,8 +693,8 @@ function buildStoreManagerHtml(group: StoreManagerAuditGroup, dateLA: string): s
 
             <p style="margin-top: 18px; margin-bottom: 0;">
                 Saludos cordiales,<br />
-                <strong>Carlos Velazquez</strong><br />
-                <span style="color: #64748b; font-size: 13px;">Tacos Gavilan • carlos@tacosgavilan.com</span>
+                <strong>Sistema de Monitoreo</strong><br />
+                <span style="color: #64748b; font-size: 13px;">Tacos Gavilan</span>
             </p>
         </div>
 
@@ -779,7 +706,7 @@ function buildStoreManagerHtml(group: StoreManagerAuditGroup, dateLA: string): s
 </html>`
 }
 
-function buildExecutiveSummaryHtml(result: EmployeeEmailAuditResult): string {
+export function buildExecutiveSummaryHtml(result: EmployeeEmailAuditResult): string {
     const allClean = result.flaggedEmployeesCount === 0
     const headerBg = allClean ? '#15803d' : '#1e293b'
 
@@ -1336,6 +1263,10 @@ export async function runEmployeeEmailAudit(
             const normEmpName = normalizeAuditText(emp.fullName)
             let matchedCorpEmail: string | undefined
             for (const [uName, uEmail] of corpUsersByNormalizedName.entries()) {
+                const lowerUEmail = String(uEmail || '').toLowerCase()
+                if (lowerUEmail === 'carlos@tacosgavilan.com' || lowerUEmail === 'roque@tacosgavilan.com') {
+                    continue
+                }
                 const uTokens = uName.split(' ').filter(Boolean)
                 if (uTokens.length >= 2 && uTokens.every((tok) => normEmpName.includes(tok))) {
                     matchedCorpEmail = uEmail
@@ -1372,11 +1303,18 @@ export async function runEmployeeEmailAudit(
         let group = groupsByStoreId.get(issue.storeId)
         if (!group) {
             const store = activeStores.find((s: any) => s.id === issue.storeId)!
-            const supervisor = allUsers.find((u: any) => u.id === store.supervisor_id)
+            const supervisor = allUsers.find(
+                (u: any) =>
+                    u.id === store.supervisor_id &&
+                    String(u.email || '').toLowerCase() !== 'carlos@tacosgavilan.com' &&
+                    String(u.email || '').toLowerCase() !== 'roque@tacosgavilan.com'
+            )
             const storeManager = allUsers.find(
                 (u: any) =>
                     u.is_active &&
                     u.role === 'manager' &&
+                    String(u.email || '').toLowerCase() !== 'carlos@tacosgavilan.com' &&
+                    String(u.email || '').toLowerCase() !== 'roque@tacosgavilan.com' &&
                     (u.store_id === store.id ||
                         (Array.isArray(u.store_scope) &&
                             (u.store_scope.includes(store.code) ||
@@ -1384,7 +1322,7 @@ export async function runEmployeeEmailAudit(
             )
 
             const supervisorName = supervisor?.full_name || 'Supervisor de Zona'
-            const supervisorEmail = supervisor?.email || 'carlos@tacosgavilan.com'
+            const supervisorEmail = supervisor?.email || 'noreply@tacosgavilan.com'
             const managerName = storeManager?.full_name || `Manager ${store.name}`
             const managerEmail = storeManager?.email || supervisorEmail
 
@@ -1448,8 +1386,7 @@ export async function runEmployeeEmailAudit(
         return result
     }
 
-    // 6. Dispatch Personalized Store Manager Emails + Carlos Executive Summary
-    const { accessToken, fromEmail } = await getCarlosGmailAuth(supabase)
+    // 6. Dispatch Personalized Store Manager Emails + Carlos Executive Summary via Official System Mailer
     const subjectPrefix = testTo ? '[PRUEBA] ' : ''
 
     for (const group of storeGroups) {
@@ -1467,30 +1404,31 @@ export async function runEmployeeEmailAudit(
                 ? undefined
                 : `"${group.supervisorName}" <${group.supervisorEmail}>`
 
-        const msgId = await sendGmailMessage(accessToken, {
-            from: `"Carlos Velazquez - Tacos Gavilan" <${fromEmail}>`,
+        const sentMgr = await sendSystemEmail({
+            fromName: 'Sistema de Monitoreo',
             to: toHeader,
             cc: ccHeader,
             subject,
             html,
         })
-        group.messageId = msgId
+        group.messageId = sentMgr.messageId
         result.managerEmailsSent++
         await sleep(350)
     }
 
-    // Send Weekly Executive Summary to Carlos
+    // Send Weekly Executive Summary
     const summarySubject =
         result.flaggedEmployeesCount === 0
             ? `${subjectPrefix}✅ Auditoría Semanal de Correos: 100% Válidos (${dateLA})`
             : `${subjectPrefix}📬 Resumen Auditoría Semanal de Correos: ${result.flaggedEmployeesCount} pendientes en ${result.affectedStoresCount} sucursales (${dateLA})`
 
-    result.summaryEmailMessageId = await sendGmailMessage(accessToken, {
-        from: `"Sistema TEG - Tacos Gavilan" <${fromEmail}>`,
+    const sentSummary = await sendSystemEmail({
+        fromName: 'Sistema de Monitoreo',
         to: testTo || 'carlos@tacosgavilan.com',
         subject: summarySubject,
         html: buildExecutiveSummaryHtml(result),
     })
+    result.summaryEmailMessageId = sentSummary.messageId
 
     // 7. Persist smtpCache and lastDispatchedDateLA (unless test_to was used)
     await saveAuditState(supabase, existingStateId, {

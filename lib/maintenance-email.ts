@@ -21,8 +21,8 @@
  * - Diseñado en modo no bloqueante ante fallos de red SMTP para no interrumpir jamás el guardado en base de datos.
  */
 
-import nodemailer from 'nodemailer'
 import { formatStoreName } from '@/lib/supabase'
+import { sendSystemEmail } from '@/lib/system-mailer'
 
 export const MAINTENANCE_NOTIFICATION_RECIPIENTS = [
   'raquel@tacosgavilan.com'
@@ -484,17 +484,6 @@ export async function sendMaintenanceServiceEmail(
   payload: MaintenanceEmailPayload,
   customRecipients?: string[]
 ): Promise<{ success: boolean; messageId?: string; recipients?: string[]; error?: string }> {
-  const smtpUser = process.env.SMTP_EMAIL || 'carlos@tacosgavilan.com'
-  const smtpPass = process.env.SMTP_PASSWORD
-
-  if (!smtpPass) {
-    console.warn('[MaintenanceEmail] ⚠️ SMTP_PASSWORD no configurado en variables de entorno.')
-    return {
-      success: false,
-      error: 'SMTP_PASSWORD no configurado en el servidor.'
-    }
-  }
-
   const recipients =
     customRecipients && customRecipients.length > 0
       ? customRecipients
@@ -509,18 +498,10 @@ export async function sendMaintenanceServiceEmail(
   const subject = `🛠️ Mantenimiento [${cleanStore}] — ${payload.company_name} (${payload.area_equipment})${costTag}`
 
   try {
-    const transporter = nodemailer.createTransport({
-      service: 'gmail',
-      auth: {
-        user: smtpUser,
-        pass: smtpPass
-      }
-    })
-
     const html = generateMaintenanceServiceEmailHtml(payload)
 
-    const info = await transporter.sendMail({
-      from: `"Tacos Gavilan · Mantenimiento" <${smtpUser}>`,
+    const info = await sendSystemEmail({
+      fromName: 'Sistema de Monitoreo',
       to: recipients.join(', '),
       subject,
       html

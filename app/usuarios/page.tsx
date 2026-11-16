@@ -226,6 +226,9 @@ function UsuariosPage() {
 
   // Filtrado inteligente
   const filteredUsers = users.filter(user => {
+    if (user.email?.toLowerCase() === 'carlos@tacosgavilan.com' && !user.is_active) {
+      return false
+    }
     const searchLower = searchTerm.toLowerCase()
     const matchesSearch =
       user.full_name?.toLowerCase().includes(searchLower) ||

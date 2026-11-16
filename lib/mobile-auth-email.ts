@@ -20,9 +20,9 @@
  */
 
 import crypto from 'crypto'
-import nodemailer from 'nodemailer'
 import { createClient } from '@supabase/supabase-js'
 import { supabaseAdmin } from './supabase'
+import { sendSystemEmail } from './system-mailer'
 
 export const EMAIL_OTP_TTL_MS = 10 * 60 * 1000 // 10 minutos
 export const APP_REVIEW_TEST_CODE = '123456'
@@ -522,36 +522,15 @@ export async function sendMobileOtpEmail(
     return { ok: true }
   }
 
-  const smtpUser = process.env.SMTP_EMAIL || 'carlos@tacosgavilan.com'
-  const smtpPass = process.env.SMTP_PASSWORD
-
-  if (!smtpPass) {
-    console.error('[MobileAuthEmail] SMTP_PASSWORD no está configurado en variables de entorno.')
-    return {
-      ok: false,
-      error: isEn
-        ? 'Email service is temporarily unavailable.'
-        : 'El servicio de correo no está disponible temporalmente.',
-    }
-  }
-
   const subject = isEn
     ? `${code} is your Tacos Gavilan verification code`
     : `${code} es tu código de verificación de Tacos Gavilan`
 
   try {
-    const transporter = nodemailer.createTransport({
-      service: 'gmail',
-      auth: {
-        user: smtpUser,
-        pass: smtpPass,
-      },
-    })
-
     const html = generateMobileOtpEmailHtml(code, isEn)
 
-    await transporter.sendMail({
-      from: `"Tacos Gavilan" <${smtpUser}>`,
+    await sendSystemEmail({
+      fromName: 'Tacos Gavilan',
       to: cleanEmail,
       subject,
       html,

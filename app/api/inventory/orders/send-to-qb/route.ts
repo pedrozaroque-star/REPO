@@ -427,7 +427,13 @@ export async function POST(request: NextRequest) {
             ClassRef: { value: "2" },
         }
         if (authenticatedUser.email) {
-            estimateData.BillEmail = { Address: authenticatedUser.email };
+            const cleanBillEmail = authenticatedUser.email.trim().toLowerCase()
+            estimateData.BillEmail = {
+                Address:
+                    cleanBillEmail === 'carlos@tacosgavilan.com' || cleanBillEmail === 'roque@tacosgavilan.com'
+                        ? 'noreply@tacosgavilan.com'
+                        : authenticatedUser.email,
+            };
         }
         if (nextDocNumber) {
             estimateData.DocNumber = nextDocNumber;

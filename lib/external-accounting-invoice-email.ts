@@ -22,8 +22,8 @@
  *   -> `generateQboInvoicePdfBuffer()` / `generateQboStatementPdfBuffer()` -> `sendQboInvoiceEmail()` / `sendQboStatementEmail()`.
  */
 
-import nodemailer from 'nodemailer'
 import { jsPDF } from 'jspdf'
+import { sendSystemEmail } from './system-mailer'
 
 export type QboDocumentType =
   | 'Invoice'
@@ -765,21 +765,8 @@ export async function sendQboInvoiceEmail(options: {
   const filename = `${metaCfg.filePrefix}_${pdfInput.invoiceNumber || 'Draft'}_from_${safeComp}.pdf`
   const pdfBase64 = pdfBuffer.toString('base64')
 
-  const smtpUser = process.env.SMTP_EMAIL || 'carlos@tacosgavilan.com'
-  const smtpPass = process.env.SMTP_PASSWORD
-
   const cleanTo = toEmails.map((e) => e.trim()).filter(Boolean)
   const cleanCc = ccEmails.map((e) => e.trim()).filter(Boolean)
-
-  if (!smtpPass) {
-    return {
-      success: false,
-      recipients: cleanTo,
-      filename,
-      pdfBase64,
-      error: 'SMTP_PASSWORD no configurado en el servidor.',
-    }
-  }
 
   if (cleanTo.length === 0) {
     return {
@@ -799,16 +786,8 @@ export async function sendQboInvoiceEmail(options: {
   const html = generateQboInvoiceEmailHtml(pdfInput, customMessage)
 
   try {
-    const transporter = nodemailer.createTransport({
-      service: 'gmail',
-      auth: {
-        user: smtpUser,
-        pass: smtpPass,
-      },
-    })
-
-    const info = await transporter.sendMail({
-      from: `"${pdfInput.companyName}" <${smtpUser}>`,
+    const info = await sendSystemEmail({
+      fromName: pdfInput.companyName,
       replyTo: pdfInput.companyEmail || 'raquel@tacosgavilan.com',
       to: cleanTo.join(', '),
       cc: cleanCc.length > 0 ? cleanCc.join(', ') : undefined,
@@ -1290,21 +1269,8 @@ export async function sendQboStatementEmail(options: {
   const filename = `Statement_${safeCust}_${statementInput.statementDate}.pdf`
   const pdfBase64 = pdfBuffer.toString('base64')
 
-  const smtpUser = process.env.SMTP_EMAIL || 'carlos@tacosgavilan.com'
-  const smtpPass = process.env.SMTP_PASSWORD
-
   const cleanTo = toEmails.map((e) => e.trim()).filter(Boolean)
   const cleanCc = ccEmails.map((e) => e.trim()).filter(Boolean)
-
-  if (!smtpPass) {
-    return {
-      success: false,
-      recipients: cleanTo,
-      filename,
-      pdfBase64,
-      error: 'SMTP_PASSWORD no configurado en el servidor.',
-    }
-  }
 
   if (cleanTo.length === 0) {
     return {
@@ -1324,16 +1290,8 @@ export async function sendQboStatementEmail(options: {
   const html = generateQboStatementEmailHtml(statementInput, customMessage)
 
   try {
-    const transporter = nodemailer.createTransport({
-      service: 'gmail',
-      auth: {
-        user: smtpUser,
-        pass: smtpPass,
-      },
-    })
-
-    const info = await transporter.sendMail({
-      from: `"${statementInput.companyName}" <${smtpUser}>`,
+    const info = await sendSystemEmail({
+      fromName: statementInput.companyName,
       replyTo: statementInput.companyEmail || 'raquel@tacosgavilan.com',
       to: cleanTo.join(', '),
       cc: cleanCc.length > 0 ? cleanCc.join(', ') : undefined,

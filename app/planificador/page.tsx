@@ -40,6 +40,7 @@ import { useLanguage } from '@/lib/i18n'
 // Libs & Types
 import { Shift, Employee, Job } from './lib/types'
 import { toast, formatDateISO, formatDateNice, addDays, getMonday, getRoleWeight, formatStoreName } from './lib/utils'
+import { evaluatePunchBreakViolation } from '@/lib/break-violations-policy'
 
 // Components
 import { PlanificadorHeader } from './components/PlanificadorHeader'
@@ -246,38 +247,23 @@ export default function SchedulePlanner() {
         punches.forEach((p: any) => {
             if (p.breaks && Array.isArray(p.breaks)) {
                 p.breaks.forEach((b: any) => {
-                    if (!b.inDate || !b.outDate) return;
-                    const start = new Date(b.inDate).getTime();
-                    const end = new Date(b.outDate).getTime();
-                    const diffMins = (end - start) / 60000;
+                    const evalRes = evaluatePunchBreakViolation({
+                        paid: b.paid,
+                        inDate: b.inDate,
+                        outDate: b.outDate,
+                    });
+                    if (!evalRes || !evalRes.isViolation) return;
 
-                    if (b.paid) {
-                        if (diffMins >= 13) {
-                            violations.push({
-                                employeeRef: p.employee_toast_guid,
-                                type: 'BRK',
-                                allowed: 10,
-                                actual: diffMins,
-                                date: p.business_date,
-                                inDate: b.inDate,
-                                outDate: b.outDate,
-                                isAnomaly: diffMins >= 60
-                            });
-                        }
-                    } else {
-                        if (diffMins >= 33) {
-                            violations.push({
-                                employeeRef: p.employee_toast_guid,
-                                type: 'LUN',
-                                allowed: 30,
-                                actual: diffMins,
-                                date: p.business_date,
-                                inDate: b.inDate,
-                                outDate: b.outDate,
-                                isAnomaly: diffMins >= 60
-                            });
-                        }
-                    }
+                    violations.push({
+                        employeeRef: p.employee_toast_guid,
+                        type: evalRes.type,
+                        allowed: evalRes.allowedMinutes,
+                        actual: evalRes.actualMinutes,
+                        date: p.business_date,
+                        inDate: b.inDate,
+                        outDate: b.outDate,
+                        isAnomaly: evalRes.isAnomaly
+                    });
                 });
             }
         });
@@ -352,18 +338,6 @@ export default function SchedulePlanner() {
             return;
         }
 
-        // 🔒 Pre-check: Si Gmail no está conectado, abrir modal de conexión
-        if (!googleConnected) {
-            setViolationModal(prev => ({ ...prev, isOpen: false }))
-            setIsGmailModalOpen(true)
-            toast.error(
-                language === 'en'
-                    ? 'You must connect your Gmail account first to send notifications. Click "Connect Gmail Now" in the popup.'
-                    : 'Debes vincular tu cuenta de Gmail primero para enviar avisos. Haz clic en "Conectar mi Gmail Ahora" en la ventana que se abrió.'
-            )
-            return;
-        }
-
         setIsSendingViolations(true);
         try {
             const res = await fetch('/api/scheduler/violations/notify', {
@@ -371,9 +345,6 @@ export default function SchedulePlanner() {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     violations: toSend,
-                    userEmail: user?.email,
-                    userRole: user?.role,
-                    userId: user?.id,
                     storeId: storeGuid
                 })
             })
@@ -381,23 +352,10 @@ export default function SchedulePlanner() {
             const resData = await res.json()
 
             if (!res.ok) {
-                if (resData.error && (resData.error.includes('GMAIL_AUTH_FAILED') || resData.error.includes('Gmail'))) {
-                   setViolationModal(prev => ({ ...prev, isOpen: false }))
-                   setGoogleConnected(false)
-                   setGoogleEmail('')
-                   setIsGmailModalOpen(true)
-                   throw new Error(
-                       language === 'en'
-                           ? 'Your Gmail connection has expired or was revoked. Please reconnect it to send emails.'
-                           : 'Tu conexión a Gmail ha expirado o fue revocada. Por favor, vuelve a conectarlo para enviar los correos.'
-                   );
-                }
                 throw new Error(resData.error || 'Failed to send notifications')
             }
 
-            if (!user?.role?.toLowerCase().includes('admin')) {
-                toast.success(resData.message || (language === 'en' ? 'Notifications sent and recorded.' : 'Notificaciones enviadas y guardadas.'))
-            }
+            toast.success(resData.message || (language === 'en' ? 'Notifications sent to employees and Store Manager.' : 'Notificaciones enviadas a empleados y Gerente de Tienda.'))
 
             setViolationModal(prev => ({ ...prev, isOpen: false }))
         } catch (error: any) {
@@ -2116,8 +2074,8 @@ export default function SchedulePlanner() {
                                     </div>
                                     <p className="text-xs text-amber-800 dark:text-amber-300 mt-1.5 leading-relaxed font-medium">
                                         {language === 'en'
-                                            ? 'The system detected the following punch anomalies and exceeded break times. You have until 11:59 AM to review and correct any punch mistakes in TOAST POS. At 11:59 AM, the system will automatically dispatch official notification emails to employees.'
-                                            : 'El sistema detectó las siguientes anomalías y tiempos excedidos en las ponchadas de ayer. Tienes hasta las 11:59 AM para revisar y corregir cualquier error de ponchada en TOAST POS. A las 11:59 AM, el sistema enviará automáticamente los avisos oficiales a los empleados.'}
+                                            ? 'The system detected the following punch anomalies and exceeded break/lunch times (10m Break / 30m Lunch). As Store Manager, you must audit any clock mistakes in TOAST POS before 11:59 AM and take direct action with each employee. At 11:59 AM, official notices are automatically sent to employees and Management.'
+                                            : 'El sistema detectó los siguientes excesos sobre los tiempos autorizados (10 min Break / 30 min Lunch). Como Gerente de Tienda, es tu responsabilidad auditar antes de las 11:59 AM cualquier error de reloj en TOAST POS y dar seguimiento inmediato con cada empleado. A las 11:59 AM se envían los avisos oficiales al empleado y a Gerencia.'}
                                     </p>
                                 </div>
 

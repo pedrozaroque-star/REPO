@@ -23,6 +23,16 @@ import {
   TrainingVoiceId,
 } from '@/lib/training-tts';
 import { getGeminiKeyPool } from '@/lib/order-ready-tts';
+import { getServerUser } from '@/lib/auth-server';
+
+const ALLOWED_TTS_ADMIN_ROLES = new Set([
+  'admin',
+  'supervisor',
+  'manager',
+  'asistente',
+  'assistant',
+  'gerente',
+]);
 
 export async function GET(req: NextRequest) {
   try {
@@ -36,6 +46,13 @@ export async function GET(req: NextRequest) {
       : DEFAULT_TRAINING_VOICE;
     const force = searchParams.get('regen') === '1';
     const format = searchParams.get('format');
+
+    if (force) {
+      const serverUser = await getServerUser(req);
+      if (!serverUser || !ALLOWED_TTS_ADMIN_ROLES.has(String(serverUser.role || '').trim().toLowerCase())) {
+        return NextResponse.json({ ok: false, error: 'No autorizado para regenerar audio.' }, { status: 401 });
+      }
+    }
 
     if (!text || text.length > 1500) {
       return NextResponse.json(
@@ -84,6 +101,11 @@ export async function POST(req: NextRequest) {
 
     // Modo IA: Generar o perfeccionar explicación de un paso con IA + sintetizar voz masculina
     if (mode === 'ai-explain') {
+      const serverUser = await getServerUser(req);
+      if (!serverUser || !ALLOWED_TTS_ADMIN_ROLES.has(String(serverUser.role || '').trim().toLowerCase())) {
+        return NextResponse.json({ ok: false, error: 'No autorizado para editar guiones con IA.' }, { status: 401 });
+      }
+
       const dishTitle = String(body.dishTitle || 'Platillo Tacos Gavilan').trim();
       const stepTitle = String(body.stepTitle || 'Paso de preparación').trim();
       const rawHint = String(body.rawHint || body.narrationEs || '').trim();
@@ -111,7 +133,7 @@ Devuelve ÚNICAMENTE un JSON válido con esta estructura exacta (sin markdown):
 {"narrationEs":"...","narrationEn":"...","keyPortionEs":"...","keyPortionEn":"..."}`;
 
       let narrationEs = rawHint;
-      let narrationEn = String(body.narrationEn || rawHint);
+      let narrationEn = String(body.narrationEn || '').trim();
       let keyPortionEs = String(body.keyPortionEs || '');
       let keyPortionEn = String(body.keyPortionEn || '');
 
@@ -148,18 +170,20 @@ Devuelve ÚNICAMENTE un JSON válido con esta estructura exacta (sin markdown):
       }
 
       const [ttsEs, ttsEn] = await Promise.all([
-        getTrainingStepSpeech(narrationEs, 'es', voice, true),
-        getTrainingStepSpeech(narrationEn, 'en', voice, true),
+        narrationEs ? getTrainingStepSpeech(narrationEs, 'es', voice, true) : Promise.resolve(null),
+        narrationEn && narrationEn !== narrationEs
+          ? getTrainingStepSpeech(narrationEn, 'en', voice, true)
+          : Promise.resolve(null),
       ]);
 
       return NextResponse.json({
         ok: true,
         narrationEs,
-        narrationEn,
+        narrationEn: narrationEn || `Step ${stepNumber} for ${dishTitle}: Follow the official Tacos Gavilan preparation standard.`,
         keyPortionEs,
         keyPortionEn,
-        audioUrlEs: ttsEs.publicUrl,
-        audioUrlEn: ttsEn.publicUrl,
+        audioUrlEs: ttsEs?.publicUrl || undefined,
+        audioUrlEn: ttsEn?.publicUrl || undefined,
       });
     }
 
@@ -167,6 +191,13 @@ Devuelve ÚNICAMENTE un JSON válido con esta estructura exacta (sin markdown):
     const text = String(body.text || '').trim();
     const lang: TrainingTtsLang = body.lang === 'en' ? 'en' : 'es';
     const forceRegenerate = Boolean(body.forceRegenerate);
+
+    if (forceRegenerate) {
+      const serverUser = await getServerUser(req);
+      if (!serverUser || !ALLOWED_TTS_ADMIN_ROLES.has(String(serverUser.role || '').trim().toLowerCase())) {
+        return NextResponse.json({ ok: false, error: 'No autorizado para regenerar audio.' }, { status: 401 });
+      }
+    }
 
     if (!text || text.length > 1500) {
       return NextResponse.json(

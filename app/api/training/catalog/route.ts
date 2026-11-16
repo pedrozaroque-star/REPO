@@ -24,6 +24,8 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
+import { getServerUser } from '@/lib/auth-server';
+import { getGeminiKeyPool } from '@/lib/order-ready-tts';
 import {
   DEFAULT_FOUR_DAY_METHOD,
   STATION_POSITIONS_CATALOG,
@@ -39,11 +41,69 @@ import {
 } from '@/lib/training-tts';
 import { getPositionMatchCandidates, normalizeText } from '@/lib/actividades-resolution';
 import { RONOS_STORES_MAP } from '@/lib/ronos-api';
+import { cleanRecipeIngredients } from '@/lib/training-video-analyzer';
+
+const TRAINING_ADMIN_ROLES = new Set([
+  'admin',
+  'supervisor',
+  'manager',
+  'asistente',
+  'assistant',
+  'gerente',
+]);
+
+function isTrainingAdminRole(role?: string | null): boolean {
+  return TRAINING_ADMIN_ROLES.has(String(role || '').trim().toLowerCase());
+}
+
+async function translateTrainingNarration(
+  text: string,
+  targetLang: 'en' | 'es'
+): Promise<string | null> {
+  const clean = text.trim();
+  if (!clean) return null;
+  const keys = getGeminiKeyPool();
+  if (keys.length === 0) return null;
+
+  const prompt =
+    targetLang === 'en'
+      ? `Translate this Tacos Gavilan kitchen SOP narration cleanly into natural American English (do NOT add extra notes, return ONLY the translated text):\n"${clean}"`
+      : `Traduce esta narración operativa de cocina de Tacos Gavilan al español neutro mexicano natural (NO agregues notas extra, devuelve ÚNICAMENTE el texto traducido):\n"${clean}"`;
+
+  for (const key of keys.slice(0, 3)) {
+    try {
+      const res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: prompt }] }],
+            generationConfig: { temperature: 0.2 },
+          }),
+        }
+      );
+      if (!res.ok) continue;
+      const data: any = await res.json();
+      const out =
+        data?.candidates?.[0]?.content?.parts
+          ?.map((p: any) => p.text)
+          .join(' ')
+          .replace(/^["“]|["”]$/g, '')
+          .trim() || '';
+      if (out) return out;
+    } catch {
+      // try next key
+    }
+  }
+  return null;
+}
 
 export interface JobRoleStationSpec {
   stationKey: string;
   activitiesKeys: string[];
   order: number;
+  dayTarget: 1 | 2 | 3 | 4;
   labelEs: string;
   labelEn: string;
   shortDescEs: string;
@@ -77,6 +137,7 @@ export const JOB_ROLES_CERTIFICATION_CATALOG: JobRoleCertificationSpec[] = [
         stationKey: 'CARNES',
         activitiesKeys: ['CARNES'],
         order: 1,
+        dayTarget: 1,
         labelEs: '1. Cocción de Carnes',
         labelEn: '1. Meat Grilling & Cooking',
         shortDescEs: 'Plancha a 250°F, Asada, Pastor, Pollo, Cabeza, Lengua, Carnitas, Buche y Chorizo.',
@@ -86,6 +147,7 @@ export const JOB_ROLES_CERTIFICATION_CATALOG: JobRoleCertificationSpec[] = [
         stationKey: 'TORTILLAS',
         activitiesKeys: ['TORTILLAS'],
         order: 2,
+        dayTarget: 1,
         labelEs: '2. Tortillas',
         labelEn: '2. Tortillas & Steamer',
         shortDescEs: 'Tortillas de maíz y harina, control de humedad en vaporera, chips y papelito.',
@@ -95,6 +157,7 @@ export const JOB_ROLES_CERTIFICATION_CATALOG: JobRoleCertificationSpec[] = [
         stationKey: 'TACOS',
         activitiesKeys: ['TACOS', 'TACOS/BURRITOS (DT)'],
         order: 3,
+        dayTarget: 2,
         labelEs: '3. Tacos y Platos',
         labelEn: '3. Tacos & Plates',
         shortDescEs: 'Tacos (2 tortillas maíz + 1.5 oz carne), Taco Plate, Platos de Carne y Desayunos.',
@@ -104,6 +167,7 @@ export const JOB_ROLES_CERTIFICATION_CATALOG: JobRoleCertificationSpec[] = [
         stationKey: 'TORTAS/QUESADILLAS',
         activitiesKeys: ['TORTAS/QUESADILLAS', 'TORTAS/MULITAS', 'TORTAS/QUESADILLAS (DT)'],
         order: 4,
+        dayTarget: 2,
         labelEs: '4. Plancha de Tortas, Mulitas y Quesadillas',
         labelEn: '4. Tortas, Mulitas & Quesadillas Flat-Top',
         shortDescEs: 'Tortas en Telera (sin crema), Mulitas, Super Mulitas, Quesadillas y Super Quesadillas.',
@@ -113,6 +177,7 @@ export const JOB_ROLES_CERTIFICATION_CATALOG: JobRoleCertificationSpec[] = [
         stationKey: 'BURRITOS',
         activitiesKeys: ['BURRITOS', 'TACOS/BURRITOS (DT)'],
         order: 5,
+        dayTarget: 3,
         labelEs: '5. Burritos',
         labelEn: '5. Burritos, Sopes & Nachos',
         shortDescEs: 'Burritos Regulares, Super Burritos, Pura Carne, Burritos de Desayuno, Sopes y Super Nachos.',
@@ -122,6 +187,7 @@ export const JOB_ROLES_CERTIFICATION_CATALOG: JobRoleCertificationSpec[] = [
         stationKey: 'PREPARACION',
         activitiesKeys: ['PREPARACION', 'CUBRIR DESCANSOS (COCINA)'],
         order: 6,
+        dayTarget: 3,
         labelEs: '6. Preparación',
         labelEn: '6. Kitchen Prep & Party Trays',
         shortDescEs: 'Arroz, Frijol, Cilindros de Crema y Aguacate, Salsas, Ollas y Party Trays (Catering).',
@@ -144,6 +210,7 @@ export const JOB_ROLES_CERTIFICATION_CATALOG: JobRoleCertificationSpec[] = [
         stationKey: 'Caja 1 / Salón',
         activitiesKeys: ['Caja 1 / Salón', 'Caja 2', 'Caja 3'],
         order: 1,
+        dayTarget: 1,
         labelEs: '1. Caja 1, 2 y 3 / Bebidas y Postres',
         labelEn: '1. Registers 1–3 / Drinks & Desserts',
         shortDescEs: 'Toma de orden en POS, Aguas Frescas y Sodas (Medium 22 oz / Large 32 oz), Café, Champurrado y Postres.',
@@ -153,6 +220,7 @@ export const JOB_ROLES_CERTIFICATION_CATALOG: JobRoleCertificationSpec[] = [
         stationKey: 'Uber + Salsas',
         activitiesKeys: ['Uber + Salsas', 'ENTREGA'],
         order: 2,
+        dayTarget: 2,
         labelEs: '2. Uber + Salsas y Entrega (Expo)',
         labelEn: '2. Uber + Salsas & Order Handoff (Expo)',
         shortDescEs: 'Empaque Blindado con PIN RONOS, salsas Roja/Verde, limones/cebolla y entrega de órdenes.',
@@ -162,6 +230,7 @@ export const JOB_ROLES_CERTIFICATION_CATALOG: JobRoleCertificationSpec[] = [
         stationKey: 'Ventana 1',
         activitiesKeys: ['Ventana 1', 'Ventana 2', 'Ventana 2 (B)'],
         order: 3,
+        dayTarget: 2,
         labelEs: '3. Drive-Thru (Ventana 1 y Ventana 2)',
         labelEn: '3. Drive-Thru (Window 1 & Window 2)',
         shortDescEs: 'Saludo inmediato por headset (< 5 seg), cobro ágil y entrega rápida en ventana.',
@@ -171,6 +240,7 @@ export const JOB_ROLES_CERTIFICATION_CATALOG: JobRoleCertificationSpec[] = [
         stationKey: 'LIMPIEZA',
         activitiesKeys: ['LIMPIEZA', 'CUBRIR DESCANSOS (SALÓN)'],
         order: 4,
+        dayTarget: 3,
         labelEs: '4. Limpieza de Salón y Baños',
         labelEn: '4. Dining Room & Restroom Upkeep',
         shortDescEs: 'Mesas, bancas, barra de salsas, vitroleros y sanitarios impecables durante el turno.',
@@ -193,6 +263,7 @@ export const JOB_ROLES_CERTIFICATION_CATALOG: JobRoleCertificationSpec[] = [
         stationKey: 'CARNES',
         activitiesKeys: ['CARNES'],
         order: 1,
+        dayTarget: 1,
         labelEs: '1. Cocción de Carnes',
         labelEn: '1. Meat Grilling & Cooking',
         shortDescEs: 'Plancha a 250°F, Asada, Pastor, Pollo, Cabeza, Lengua, Carnitas, Buche y Chorizo.',
@@ -202,6 +273,7 @@ export const JOB_ROLES_CERTIFICATION_CATALOG: JobRoleCertificationSpec[] = [
         stationKey: 'TORTILLAS',
         activitiesKeys: ['TORTILLAS'],
         order: 2,
+        dayTarget: 1,
         labelEs: '2. Tortillas',
         labelEn: '2. Tortillas & Steamer',
         shortDescEs: 'Tortillas de maíz y harina, vaporera, chips y papelito.',
@@ -211,6 +283,7 @@ export const JOB_ROLES_CERTIFICATION_CATALOG: JobRoleCertificationSpec[] = [
         stationKey: 'TACOS',
         activitiesKeys: ['TACOS'],
         order: 3,
+        dayTarget: 2,
         labelEs: '3. Tacos y Platos',
         labelEn: '3. Tacos & Plates',
         shortDescEs: 'Tacos, Taco Plate, Platos de Carne y Desayunos.',
@@ -220,6 +293,7 @@ export const JOB_ROLES_CERTIFICATION_CATALOG: JobRoleCertificationSpec[] = [
         stationKey: 'TORTAS/QUESADILLAS',
         activitiesKeys: ['TORTAS/QUESADILLAS', 'TORTAS/MULITAS'],
         order: 4,
+        dayTarget: 2,
         labelEs: '4. Plancha de Tortas, Mulitas y Quesadillas',
         labelEn: '4. Tortas, Mulitas & Quesadillas Flat-Top',
         shortDescEs: 'Tortas en Telera (sin crema), Mulitas, Super Mulitas, Quesadillas y Super Quesadillas.',
@@ -229,6 +303,7 @@ export const JOB_ROLES_CERTIFICATION_CATALOG: JobRoleCertificationSpec[] = [
         stationKey: 'BURRITOS',
         activitiesKeys: ['BURRITOS'],
         order: 5,
+        dayTarget: 3,
         labelEs: '5. Burritos',
         labelEn: '5. Burritos, Sopes & Nachos',
         shortDescEs: 'Burritos Regulares, Super Burritos, Pura Carne, Sopes y Super Nachos.',
@@ -238,6 +313,7 @@ export const JOB_ROLES_CERTIFICATION_CATALOG: JobRoleCertificationSpec[] = [
         stationKey: 'PREPARACION',
         activitiesKeys: ['PREPARACION'],
         order: 6,
+        dayTarget: 3,
         labelEs: '6. Preparación',
         labelEn: '6. Kitchen Prep & Party Trays',
         shortDescEs: 'Arroz, Frijol, Cilindros de Crema y Aguacate, Salsas, Ollas y Party Trays.',
@@ -247,6 +323,7 @@ export const JOB_ROLES_CERTIFICATION_CATALOG: JobRoleCertificationSpec[] = [
         stationKey: 'Caja 1 / Salón',
         activitiesKeys: ['Caja 1 / Salón', 'Uber + Salsas', 'MANAGER', 'ASSISTANT', 'SHIFT_LEADER_MALE'],
         order: 7,
+        dayTarget: 4,
         labelEs: '7. Caja, Entrega y Supervisión de Turno',
         labelEn: '7. Register, Expo & Shift Supervision',
         shortDescEs: 'Bebidas, Empaque Blindado, Auditoría de Báscula y Liderazgo de Turno.',
@@ -619,7 +696,14 @@ function classifyItemIntoMasterCategoryKey(cleanCategory: string, cleanName: str
     return 'CAJA_CALIENTES_POSTRES';
   }
 
-  return 'BURRITOS_BASE_ASADA';
+  if (
+    lowCat.includes('side') ||
+    lowName.startsWith('side order')
+  ) {
+    return 'PREP_CREMA_GUACAMOLE';
+  }
+
+  return 'PREP_CREMA_GUACAMOLE';
 }
 
 function inferPositionKeyFromCategory(category: string, name: string): string {
@@ -741,8 +825,11 @@ function formatSecLabel(sec: number): string {
   return `${m}:${String(rem).padStart(2, '0')}`;
 }
 
-export async function GET() {
+export async function GET(req?: NextRequest) {
   try {
+    const serverUser = req ? await getServerUser(req) : null;
+    const includePrivatePii = Boolean(serverUser && isTrainingAdminRole(serverUser.role));
+
     const [
       dbModulesRes,
       paRes,
@@ -751,10 +838,11 @@ export async function GET() {
       jobsRes,
       usersRes,
       assignRes,
-      shiftsRes,
-      ronosRes,
+      ronosPage1Res,
+      ronosPage2Res,
       menuItemsRes,
-      recipesRes,
+      recipesPage1Res,
+      recipesPage2Res,
     ] = await Promise.all([
       supabaseAdmin
         .from('training_sop_modules')
@@ -789,27 +877,39 @@ export async function GET() {
         .from('station_assignments')
         .select('store_id, employee_id, main_station, assignment_date')
         .order('assignment_date', { ascending: false })
-        .limit(1500),
-      supabaseAdmin
-        .from('shifts')
-        .select('employee_id, start_time, created_at')
-        .order('start_time', { ascending: true })
-        .limit(5000),
+        .range(0, 999),
       supabaseAdmin
         .from('ronos_employee_timecards_cache')
         .select('company_id, week_id, employee_user_id, employee_id, full_name, pin, job_title')
         .not('pin', 'is', null)
         .order('week_id', { ascending: false })
-        .limit(3000),
+        .range(0, 999),
+      supabaseAdmin
+        .from('ronos_employee_timecards_cache')
+        .select('company_id, week_id, employee_user_id, employee_id, full_name, pin, job_title')
+        .not('pin', 'is', null)
+        .order('week_id', { ascending: false })
+        .range(1000, 1999),
       supabaseAdmin
         .from('toast_menu_items')
         .select('guid, name, group_name, price, is_modifier, active, recipe_na')
         .eq('active', true)
-        .order('name', { ascending: true }),
+        .order('name', { ascending: true })
+        .range(0, 999),
       supabaseAdmin
         .from('recipes')
-        .select('id, toast_menu_item_guid, quantity, unit, type, inventory_item:inventory_items(id, name, unit_measure)'),
+        .select('id, toast_menu_item_guid, quantity, unit, type, inventory_item:inventory_items(id, name, unit_measure)')
+        .range(0, 999),
+      supabaseAdmin
+        .from('recipes')
+        .select('id, toast_menu_item_guid, quantity, unit, type, inventory_item:inventory_items(id, name, unit_measure)')
+        .range(1000, 1999),
     ]);
+
+    const ronosRows = [...(ronosPage1Res.data || []), ...(ronosPage2Res.data || [])];
+    const recipesRes = {
+      data: [...(recipesPage1Res.data || []), ...(recipesPage2Res.data || [])],
+    };
 
     const dbModules = dbModulesRes.data || [];
     const bySlug = new Map<string, any>();
@@ -954,21 +1054,9 @@ export async function GET() {
       }
     }
 
-    // Mapear fecha más antigua en el Planificador (shifts)
-    const earliestShiftByEmp = new Map<string, string>();
-    for (const s of shiftsRes.data || []) {
-      const dt = s.start_time || s.created_at;
-      if (!s.employee_id || !dt) continue;
-      const empId = String(s.employee_id);
-      const prev = earliestShiftByEmp.get(empId);
-      if (!prev || dt < prev) {
-        earliestShiftByEmp.set(empId, dt);
-      }
-    }
-
     // Mapear empleados de RONOS por nombre normalizado
     const ronosByNormName = new Map<string, { employeeUserId: number; companyId: number; jobTitle: string }>();
-    for (const r of ronosRes.data || []) {
+    for (const r of ronosRows) {
       const normName = normalizeText(String(r.full_name || ''));
       if (normName && !ronosByNormName.has(normName)) {
         ronosByNormName.set(normName, {
@@ -1055,17 +1143,13 @@ export async function GET() {
 
         const isLeader = roleSpec.roleKey === 'LIDERAZGO';
 
-        // Calcular antigüedad real en el Planificador (shifts / created_date)
-        const shiftDt = earliestShiftByEmp.get(String(emp.id));
+        // Calcular antigüedad real en el Planificador usando created_date / created_at de toast_employees
         const toastCreatedDt = emp.created_date || emp.created_at;
-        let firstSeenIso = toastCreatedDt || shiftDt || new Date(nowMs - 30 * 86400000).toISOString();
-        if (shiftDt && toastCreatedDt) {
-          firstSeenIso = shiftDt < toastCreatedDt ? shiftDt : toastCreatedDt;
-        }
+        const firstSeenIso = toastCreatedDt || new Date(nowMs).toISOString();
         const firstSeenMs = new Date(firstSeenIso).getTime();
         const tenureDays = Number.isFinite(firstSeenMs)
           ? Math.max(0, Math.floor((nowMs - firstSeenMs) / (1000 * 60 * 60 * 24)))
-          : 30;
+          : 0;
         const tenureWeeks = Math.floor(tenureDays / 7);
 
         // Regla de Negocio: 2 o más semanas (>= 14 días) en el Planificador = Ya Certificado Oficialmente en su Puesto
@@ -1083,8 +1167,8 @@ export async function GET() {
           first_name: String(emp.first_name || '').trim(),
           last_name: String(emp.last_name || '').trim(),
           full_name: fullName,
-          email: emp.email || null,
-          phone: emp.phone || null,
+          email: includePrivatePii ? emp.email || null : null,
+          phone: includePrivatePii ? emp.phone || null : null,
           store_ids: storeIds,
           job_titles: jobTitles,
           job_role_key: roleSpec.roleKey,
@@ -1164,7 +1248,7 @@ export async function GET() {
         .replace(/\(In Store\)/gi, '')
         .trim();
 
-      const ingredients = rawIngredients.map((ing: any) => {
+      const rawMappedIngredients = rawIngredients.map((ing: any) => {
         const inv = Array.isArray(ing.inventory_item) ? ing.inventory_item[0] : ing.inventory_item;
         const rawName = String(inv?.name || 'Ingrediente').trim();
         const unit = String(ing.unit || inv?.unit_measure || 'oz').trim();
@@ -1177,6 +1261,7 @@ export async function GET() {
           type: String(ing.type || 'food'),
         };
       });
+      const ingredients = cleanRecipeIngredients(rawMappedIngredients);
 
       const masterCategoryKey = classifyItemIntoMasterCategoryKey(cleanCategory, item.cleanName);
 
@@ -1253,6 +1338,26 @@ export async function GET() {
               utensilEn: ing.unit === 'oz' ? 'Official measure' : 'Line standard',
             }));
 
+      const hasCulinaryBase = baseItem.ingredients.some((i: any) =>
+        ['food', 'raw', 'cooked'].includes(String(i.type || 'food'))
+      );
+      const shouldUseModuleSpecsAsIngredients =
+        Boolean(linkedModule && Array.isArray(linkedModule.recipeSpecs) && linkedModule.recipeSpecs.length > 0) &&
+        (!hasCulinaryBase ||
+          linkedModule!.slug === 'plato-tacos' ||
+          linkedModule!.slug === 'preparar-cilindros-de-crema' ||
+          linkedModule!.slug === 'cocinar-asada');
+
+      const displayIngredients = shouldUseModuleSpecsAsIngredients
+        ? effectiveRecipeSpecs.map((spec, sIdx) => ({
+            id: `${effectiveSlug}-spec-${sIdx + 1}`,
+            name: spec.itemEs,
+            quantity: Number(parseFloat(String(spec.quantity))) || 1,
+            unit: spec.unit,
+            type: 'food',
+          }))
+        : baseItem.ingredients;
+
       const variantsIncluded = groupItems
         .map((g) => g.name)
         .sort((a, b) => {
@@ -1273,10 +1378,10 @@ export async function GET() {
         hasVideo: Boolean(linkedModule?.videoUrl),
         videoUrl: linkedModule?.videoUrl || null,
         sourceVideoFilename: linkedModule?.sourceVideoFilename || null,
-        durationSeconds: linkedModule?.durationSeconds || Math.max(24, baseItem.ingredients.length * 6),
+        durationSeconds: linkedModule?.durationSeconds || Math.max(24, displayIngredients.length * 6),
         targetPrepSeconds: linkedModule?.targetPrepSeconds || 45,
         grillTempFahrenheit: linkedModule?.grillTempFahrenheit ?? null,
-        ingredients: baseItem.ingredients,
+        ingredients: displayIngredients,
         steps: effectiveSteps,
         recipeSpecs: effectiveRecipeSpecs,
         variantCount: variantsIncluded.length,
@@ -1304,6 +1409,17 @@ export async function GET() {
 
 export async function PUT(req: NextRequest) {
   try {
+    const serverUser = await getServerUser(req);
+    if (!serverUser) {
+      return NextResponse.json({ ok: false, error: 'No autenticado.' }, { status: 401 });
+    }
+    if (!isTrainingAdminRole(serverUser.role)) {
+      return NextResponse.json(
+        { ok: false, error: 'Sin permiso para editar videos o pasos SOP.' },
+        { status: 403 }
+      );
+    }
+
     const body = await req.json();
     const {
       slug,
@@ -1346,11 +1462,15 @@ export async function PUT(req: NextRequest) {
       ? [...steps]
       : existingRow?.steps_json || baseModule?.steps || [];
 
-    // Ordenar pasos cronológicamente por startSec y renumerar 1..N
+    // Ordenar pasos cronológicamente por startSec, ajustar solapamientos y renumerar 1..N
     updatedSteps.sort((a, b) => Number(a.startSec || 0) - Number(b.startSec || 0));
-    updatedSteps = updatedSteps.map((st, idx) => {
+    updatedSteps = updatedSteps.map((st, idx, arr) => {
       const sSec = Math.max(0, Number(st.startSec || 0));
-      const eSec = Math.max(sSec + 2, Number(st.endSec || sSec + 6));
+      const nextStart = idx < arr.length - 1 ? Number(arr[idx + 1]?.startSec || 0) : null;
+      let eSec = Math.max(sSec + 2, Number(st.endSec || sSec + 6));
+      if (nextStart !== null && nextStart > sSec + 1 && eSec > nextStart) {
+        eSec = nextStart;
+      }
       return {
         ...st,
         id: st.id || `${slug}-step-${idx + 1}`,
@@ -1364,13 +1484,29 @@ export async function PUT(req: NextRequest) {
     if (regenerateVoice && updatedSteps.length > 0) {
       const syncedSteps: TrainingVideoStep[] = [];
       for (const st of updatedSteps) {
+        let finalNarrationEs = String(st.narrationEs || '').trim();
+        let finalNarrationEn = String(st.narrationEn || '').trim();
+
+        // Si se editó o agregó en un solo idioma y el otro quedó vacío o copiado, traducir antes de generar TTS
+        if (finalNarrationEs && (!finalNarrationEn || finalNarrationEn === finalNarrationEs)) {
+          const translatedEn = await translateTrainingNarration(finalNarrationEs, 'en');
+          if (translatedEn) {
+            finalNarrationEn = translatedEn;
+          }
+        } else if (finalNarrationEn && !finalNarrationEs) {
+          const translatedEs = await translateTrainingNarration(finalNarrationEn, 'es');
+          if (translatedEs) {
+            finalNarrationEs = translatedEs;
+          }
+        }
+
         let audioUrlEs = st.audioUrlEs;
         let audioUrlEn = st.audioUrlEn;
 
-        if (st.narrationEs) {
+        if (finalNarrationEs) {
           try {
             const ttsEs = await getTrainingStepSpeech(
-              st.narrationEs,
+              finalNarrationEs,
               'es',
               selectedVoice
             );
@@ -1380,10 +1516,10 @@ export async function PUT(req: NextRequest) {
           }
         }
 
-        if (st.narrationEn) {
+        if (finalNarrationEn && finalNarrationEn !== finalNarrationEs) {
           try {
             const ttsEn = await getTrainingStepSpeech(
-              st.narrationEn,
+              finalNarrationEn,
               'en',
               selectedVoice
             );
@@ -1395,6 +1531,8 @@ export async function PUT(req: NextRequest) {
 
         syncedSteps.push({
           ...st,
+          narrationEs: finalNarrationEs,
+          narrationEn: finalNarrationEn || finalNarrationEs,
           audioUrlEs,
           audioUrlEn,
         });
@@ -1474,6 +1612,17 @@ export async function PUT(req: NextRequest) {
 
 export async function DELETE(req: NextRequest) {
   try {
+    const serverUser = await getServerUser(req);
+    if (!serverUser) {
+      return NextResponse.json({ ok: false, error: 'No autenticado.' }, { status: 401 });
+    }
+    if (!isTrainingAdminRole(serverUser.role)) {
+      return NextResponse.json(
+        { ok: false, error: 'Sin permiso para eliminar videos SOP.' },
+        { status: 403 }
+      );
+    }
+
     const { searchParams } = new URL(req.url);
     const slug = searchParams.get('slug');
 

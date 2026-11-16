@@ -229,7 +229,11 @@ export async function POST(req: Request) {
     const storeFound = dynamicStores.find(s => s.ronosCompanyId === targetCompanyId) || RONOS_STORES_MAP.find(s => s.ronosCompanyId === targetCompanyId)
     const storeName = storeFound?.tegName ? `Tacos Gavilan - ${storeFound.tegName}` : 'Tacos Gavilan'
 
-    const senderEmail = auth.user?.email || 'notificaciones@tacosgavilan.com'
+    const rawAuthEmail = String(auth.user?.email || '').trim().toLowerCase()
+    const senderEmail =
+      !rawAuthEmail || rawAuthEmail === 'carlos@tacosgavilan.com' || rawAuthEmail === 'roque@tacosgavilan.com'
+        ? 'Sistema de Monitoreo'
+        : auth.user!.email
 
     // 8. Generación segura del correo y despacho con datos exclusivos del servidor
     const result = await sendRonosViolationWarningEmail({

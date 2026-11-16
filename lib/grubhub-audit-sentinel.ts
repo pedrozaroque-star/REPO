@@ -17,9 +17,9 @@
  * - Diseñado para verificar la actualización automática de Grubhub del 29/09/2026 y monitorear permanentemente.
  */
 
-import nodemailer from 'nodemailer'
 import { getAuthToken } from '@/lib/toast-api'
 import { getSupabaseClient } from '@/lib/supabase'
+import { sendSystemEmail } from '@/lib/system-mailer'
 
 const TOAST_API_HOST = process.env.TOAST_API_HOST || 'https://ws-api.toasttab.com'
 
@@ -324,19 +324,6 @@ export async function executeGrubhubAudit(targetDateYMD: string): Promise<Grubhu
  * Envía el informe por correo electrónico a carlos@tacosgavilan.com.
  */
 export async function sendGrubhubAuditEmail(report: GrubhubAuditReport): Promise<boolean> {
-    if (!process.env.SMTP_EMAIL || !process.env.SMTP_PASSWORD) {
-        console.error('[Grubhub Audit] Credenciales SMTP faltantes.')
-        return false
-    }
-
-    const transporter = nodemailer.createTransport({
-        service: 'gmail',
-        auth: {
-            user: process.env.SMTP_EMAIL,
-            pass: process.env.SMTP_PASSWORD
-        }
-    })
-
     const statusBadge = report.isBalanced
         ? '<span style="background:#10b981;color:#ffffff;font-weight:bold;padding:5px 12px;border-radius:6px;font-size:12px;">✅ CUADRE PERFECTO / BALANCED ($0.00 DIFERENCIA)</span>'
         : '<span style="background:#ef4444;color:#ffffff;font-weight:bold;padding:5px 12px;border-radius:6px;font-size:12px;">⚠️ ALERTA DE DESCUADRE / DISCREPANCY DETECTED</span>'
@@ -463,8 +450,8 @@ export async function sendGrubhubAuditEmail(report: GrubhubAuditReport): Promise
             </div>
 
             <div class="footer">
-                Tacos Gavilan Enterprise Platform • Auditoría Automática de Delivery de Terceros<br>
-                Generado el ${new Date(report.timestamp).toLocaleString('es-US', { timeZone: 'America/Los_Angeles' })} PST • Enviado a <strong>carlos@tacosgavilan.com</strong>
+                Tacos Gavilan • Auditoría Automática de Delivery de Terceros<br>
+                Generado el ${new Date(report.timestamp).toLocaleString('es-US', { timeZone: 'America/Los_Angeles' })} PST • <strong>Sistema de Monitoreo</strong>
             </div>
         </div>
     </body>
@@ -472,13 +459,13 @@ export async function sendGrubhubAuditEmail(report: GrubhubAuditReport): Promise
     `
 
     try {
-        await transporter.sendMail({
-            from: `"TEG Auditoría Grubhub" <${process.env.SMTP_EMAIL}>`,
+        await sendSystemEmail({
+            fromName: 'Sistema de Monitoreo',
             to: 'carlos@tacosgavilan.com',
             subject,
             html
         })
-        console.log(`[Grubhub Audit] Correo enviado exitosamente a carlos@tacosgavilan.com con asunto: ${subject}`)
+        console.log(`[Grubhub Audit] Correo enviado exitosamente desde Sistema de Monitoreo con asunto: ${subject}`)
         return true
     } catch (e: any) {
         console.error('[Grubhub Audit] Error enviando correo:', e.message)

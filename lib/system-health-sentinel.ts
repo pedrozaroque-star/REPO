@@ -19,8 +19,8 @@
  * - Diseñado para proteger la continuidad de las 15 sucursales de Tacos Gavilan sin generar falsas alarmas ni spam.
  */
 
-import nodemailer from 'nodemailer'
 import { getSupabaseAdminClient } from '@/lib/supabase'
+import { sendSystemEmail } from '@/lib/system-mailer'
 
 export type HealthStatusLevel = 'HEALTHY' | 'WARNING' | 'CRITICAL'
 
@@ -267,19 +267,6 @@ async function saveSentinelState(report: HealthReport, notified: boolean) {
  * Genera y envía el correo con formato ejecutivo y bilingüe a carlos@tacosgavilan.com.
  */
 export async function sendHealthAlertEmail(report: HealthReport, isTestOrReport: boolean = false): Promise<boolean> {
-    if (!process.env.SMTP_EMAIL || !process.env.SMTP_PASSWORD) {
-        console.error('[Sentinel] No hay credenciales SMTP configuradas.')
-        return false
-    }
-
-    const transporter = nodemailer.createTransport({
-        service: 'gmail',
-        auth: {
-            user: process.env.SMTP_EMAIL,
-            pass: process.env.SMTP_PASSWORD
-        }
-    })
-
     const statusBadge = report.overallStatus === 'CRITICAL'
         ? '<span style="background:#ef4444;color:#fff;font-weight:bold;padding:4px 10px;border-radius:4px;font-size:12px;">EMERGENCIA CRÍTICA / CRITICAL EMERGENCY</span>'
         : report.overallStatus === 'WARNING'
@@ -401,8 +388,8 @@ export async function sendHealthAlertEmail(report: HealthReport, isTestOrReport:
             </div>
 
             <div class="footer">
-                Tacos Gavilan Enterprise Platform • Notificación Automática Generada el ${new Date(report.timestamp).toLocaleString('es-US', { timeZone: 'America/Los_Angeles' })} PST<br>
-                Este correo fue enviado a <strong>carlos@tacosgavilan.com</strong>
+                Tacos Gavilan • Notificación Automática Generada el ${new Date(report.timestamp).toLocaleString('es-US', { timeZone: 'America/Los_Angeles' })} PST<br>
+                Emitido por <strong>Sistema de Monitoreo</strong>
             </div>
         </div>
     </body>
@@ -410,13 +397,13 @@ export async function sendHealthAlertEmail(report: HealthReport, isTestOrReport:
     `
 
     try {
-        await transporter.sendMail({
-            from: `"TEG Centinela de Salud" <${process.env.SMTP_EMAIL}>`,
+        await sendSystemEmail({
+            fromName: 'Sistema de Monitoreo',
             to: 'carlos@tacosgavilan.com',
             subject,
             html
         })
-        console.log(`[Sentinel] Correo de alerta enviado exitosamente a carlos@tacosgavilan.com con asunto: ${subject}`)
+        console.log(`[Sentinel] Correo de alerta enviado exitosamente desde Sistema de Monitoreo con asunto: ${subject}`)
         return true
     } catch (e: any) {
         console.error('[Sentinel] Error enviando correo:', e.message)

@@ -561,8 +561,8 @@ export default function SupplierPricesPage() {
 
       setSuccessMessage(
         language === 'en'
-          ? `Price alert email sent successfully to ${json.recipients?.join(', ')}`
-          : `Alerta por correo enviada con éxito a Roberto, Raquel, Gonzalo y Carlos.`
+          ? `Price alert email sent successfully by the Monitoring System`
+          : `Alerta por correo enviada con éxito por el Sistema de Monitoreo a Dirección General.`
       )
     } catch (err: any) {
       console.error('Error sending price alert email:', err)
@@ -948,17 +948,17 @@ export default function SupplierPricesPage() {
                       : "flex items-center gap-2 px-4 py-2 bg-red-50 hover:bg-red-100 dark:bg-red-950/40 dark:hover:bg-red-900/60 border border-red-200 dark:border-red-800/60 text-red-700 dark:text-red-300 rounded-xl text-xs font-bold shadow-xs transition-all shrink-0 cursor-pointer disabled:opacity-50"
 
                     const btnText = isOnlyDec
-                      ? (language === 'en' ? '🎉 Email Savings (4)' : '🎉 Notificar Ahorros (4)')
+                      ? (language === 'en' ? '🎉 Email Savings' : '🎉 Notificar Ahorros')
                       : isOnlyInc
-                      ? (language === 'en' ? '🚨 Email Increases (4)' : '🚨 Notificar Aumentos (4)')
-                      : (language === 'en' ? '📧 Email Alerts & Savings (4)' : '📧 Notificar Alertas & Ahorros (4)')
+                      ? (language === 'en' ? '🚨 Email Increases' : '🚨 Notificar Aumentos')
+                      : (language === 'en' ? '📧 Email Alerts & Savings' : '📧 Notificar Alertas & Ahorros')
 
                     return (
                       <button
                         onClick={handleSendEmailAlert}
                         disabled={isSendingEmail}
                         className={btnClass}
-                        title={language === 'en' ? 'Send price variations email to Roberto, Raquel, Gonzalo & Carlos' : 'Enviar reporte de variaciones por correo a Roberto, Raquel, Gonzalo y Carlos'}
+                        title={language === 'en' ? 'Send price variations report via Monitoring System' : 'Enviar reporte de variaciones a Dirección General desde el Sistema de Monitoreo'}
                       >
                         {isSendingEmail ? (
                           <>

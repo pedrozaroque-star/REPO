@@ -40,7 +40,7 @@ import crypto from 'crypto'
 const BASECAMP_ACCOUNT_ID = process.env.BASECAMP_ACCOUNT_ID || '5052386'
 const BASECAMP_API_BASE = `https://3.basecampapi.com/${BASECAMP_ACCOUNT_ID}`
 const BASECAMP_AUTH_BASE = 'https://launchpad.37signals.com'
-const BASECAMP_USER_AGENT = process.env.BASECAMP_USER_AGENT || 'SM-TEG-Sync (carlos@tacosgavilan.com)'
+const BASECAMP_USER_AGENT = process.env.BASECAMP_USER_AGENT || 'SM-TEG-Sync (noreply@tacosgavilan.com)'
 
 // Rate limiting: Basecamp allows 50 req/10s (conservative) – we enforce internally
 const RATE_LIMIT_WINDOW_MS = 10_000

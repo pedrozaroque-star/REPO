@@ -54,7 +54,7 @@ export async function GET(request: Request) {
 
     // 3. Get valid Basecamp token
     const token = await getValidToken()
-    const userAgent = process.env.BASECAMP_USER_AGENT || 'SM-TEG-Sync (carlos@tacosgavilan.com)'
+    const userAgent = process.env.BASECAMP_USER_AGENT || 'SM-TEG-Sync (noreply@tacosgavilan.com)'
 
     // 4. Fetch the attachment from Basecamp with manual redirect tracking
     const res = await fetch(targetUrl, {

@@ -49,7 +49,7 @@ export default function SystemHealthPage() {
                 setReport(data.report)
                 if (forceEmail) {
                     setToastMessage({
-                        text: t('system_health.toast_email_success') || 'Reporte enviado exitosamente a carlos@tacosgavilan.com',
+                        text: t('system_health.toast_email_success') || 'Reporte enviado exitosamente por el Sistema de Monitoreo',
                         type: 'success'
                     })
                 }

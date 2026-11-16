@@ -1,9 +1,9 @@
 /**
  * @module app/api/evaluacion/notify/route
  * @description Endpoint para notificar de inmediato a la Dirección General de Tacos Gavilan
- * (Raquel, Roberto, Gonzalo y Carlos) tras el registro de cada nueva evaluación de personal (STAFF y Corporativo).
+ * desde el Sistema de Monitoreo tras el registro de cada nueva evaluación de personal (STAFF y Corporativo).
  * @businessRules
- * - Destinatarios automáticos: raquel@tacosgavilan.com, roberto@tacosgavilan.com, gonzalo@tacosgavilan.com y carlos@tacosgavilan.com.
+ * - Destinatarios automáticos: raquel@tacosgavilan.com, roberto@tacosgavilan.com y gonzalo@tacosgavilan.com (con copia oculta ejecutiva del Sistema de Monitoreo).
  * - Recibe el payload completo de la evaluación recién registrada en Supabase.
  * - Devuelve confirmación de entrega y Message ID de Nodemailer.
  * - Diseñado para ser invocado de forma asíncrona no bloqueante desde el cliente web o tabletas de tienda.

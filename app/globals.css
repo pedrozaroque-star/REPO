@@ -79,3 +79,18 @@ a,
 [data-touch-pressing="true"] {
     filter: brightness(0.95);
 }
+
+/* Impresión limpia con fidelidad cromática (Certificados SOP, Hoja de Control y Bitácoras) */
+@media print {
+    html,
+    body {
+        background: #ffffff !important;
+        print-color-adjust: exact;
+        -webkit-print-color-adjust: exact;
+    }
+
+    * {
+        print-color-adjust: exact;
+        -webkit-print-color-adjust: exact;
+    }
+}

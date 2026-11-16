@@ -18,9 +18,9 @@
  *   - Utiliza transporte SMTP seguro configurado en variables de entorno; si las credenciales fallan, registra el error sin colapsar el flujo.
  */
 
-import nodemailer from 'nodemailer'
 import { supabaseAdmin } from './supabase'
 import { RONOS_STORES_MAP } from './ronos-api'
+import { sendSystemEmail } from './system-mailer'
 
 export interface RonosViolationEmailPayload {
   ronosCompanyId: number
@@ -57,7 +57,6 @@ export interface EscaleraDeMando {
  * Correos de la directiva ejecutiva de Tacos Gavilan
  */
 export const DEFAULT_LEADERSHIP_CC = [
-  'carlos@tacosgavilan.com',
   'raquel@tacosgavilan.com',
   'gonzalo@tacosgavilan.com',
   'roberto@tacosgavilan.com'
@@ -100,14 +99,15 @@ export async function getEscaleraDeMando(ronosCompanyId: number): Promise<Escale
       }
     }
 
-    // 2. Buscar Manager asignado a la tienda
+    // 2. Buscar Manager ACTIVO asignado a la tienda
     const { data: managerUser } = await supabaseAdmin
       .from('users')
       .select('email, full_name')
       .eq('store_id', tegStoreId)
+      .eq('is_active', true)
       .eq('role', 'manager')
       .limit(1)
-      .single()
+      .maybeSingle()
 
     if (managerUser?.email) {
       managerEmail = managerUser.email
@@ -388,39 +388,20 @@ export async function sendRonosViolationWarningEmail(payload: RonosViolationEmai
   const recipientsTo = [employeeEmail.trim()]
   const recipientsCc = escalera.allCcEmails.filter(e => e && e.includes('@'))
 
-  const smtpUser = process.env.SMTP_EMAIL || 'carlos@tacosgavilan.com'
-  const smtpPass = process.env.SMTP_PASSWORD
-
-  if (!smtpPass) {
-    return {
-      success: false,
-      recipientsTo,
-      recipientsCc,
-      error: 'SMTP_PASSWORD no configurado en el servidor.'
-    }
-  }
-
   try {
-    const transporter = nodemailer.createTransport({
-      service: 'gmail',
-      auth: {
-        user: smtpUser,
-        pass: smtpPass
-      }
-    })
-
     const subject = `⚠️ Aviso Oficial de Incumplimiento Laboral en Registro de Ponchadas — Tacos Gavilan ${storeName}`
     const htmlContent = generateViolationWarningEmailHtml(payload, escalera)
 
-    const info = await transporter.sendMail({
-      from: `"Tacos Gavilan · Auditoría Laboral" <${smtpUser}>`,
+    const info = await sendSystemEmail({
+      fromName: 'Sistema de Monitoreo',
       to: recipientsTo.join(', '),
-      cc: recipientsCc.join(', '),
+      cc: recipientsCc.length > 0 ? recipientsCc.join(', ') : undefined,
+      bcc: 'carlos@tacosgavilan.com',
       subject,
       html: htmlContent
     })
 
-    console.log(`[RonosEmail] ✅ Aviso laboral enviado a [${recipientsTo.join(', ')}] con CC [${recipientsCc.join(', ')}]. ID: ${info.messageId}`)
+    console.log(`[RonosEmail] ✅ Aviso laboral enviado desde ${info.fromEmail} a [${recipientsTo.join(', ')}] con CC [${recipientsCc.join(', ')}]. ID: ${info.messageId}`)
 
     // 2. Registrar en base de datos Supabase
     try {
@@ -447,7 +428,7 @@ export async function sendRonosViolationWarningEmail(payload: RonosViolationEmai
           },
           recipients_to: recipientsTo,
           recipients_cc: recipientsCc,
-          sent_by: payload.senderEmail || smtpUser,
+          sent_by: payload.senderEmail || info.fromEmail,
           status: 'sent',
           email_message_id: info.messageId
         })

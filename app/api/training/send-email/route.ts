@@ -1,117 +1,70 @@
 /**
  * @module app/api/training/send-email/route
- * @description Endpoint para enviar por correo electrónico (Gmail OAuth2) el enlace de acceso
- * a la plataforma de entrenamiento móvil/tableta al personal de nuevo ingreso de Tacos Gavilan.
+ * @description Endpoint para enviar por correo electrónico (`sendSystemEmail`) el enlace de acceso
+ * a la plataforma de entrenamiento móvil/tableta (`/training/portal`) al personal de Tacos Gavilan.
  *
  * @businessRules
- * - Utiliza las credenciales OAuth2 de Gmail conectadas en `public.users` (`google_refresh_token` y `google_email_connected`),
- *   priorizando al usuario autenticado, al Gerente de la Sucursal seleccionada o a la cuenta corporativa autorizada.
+ * - Exige usuario autenticado con rol de tienda/administración (`admin`, `supervisor`, `manager`, `asistente`, `assistant`, `gerente`).
  * - Si el empleado no tenía correo registrado en `toast_employees` o se actualizó, lo guarda automáticamente en `public.toast_employees`.
- * - El correo incluye el botón directo a `/training/portal?store={storeId}&emp={employeeId}` e instrucciones claras para ingresar
- *   con su clave de 4 dígitos de RONOS.
+ * - Escapa todo texto HTML interpolado y restringe la URL base al dominio oficial de la plataforma (previniendo phishing / open redirect).
+ * - Envía el enlace directo a `/training/portal?store={storeId}&emp={employeeId}` con instrucciones para ingresar con su PIN de 4 dígitos de RONOS.
  *
  * @dataFlow
- * - `POST /api/training/send-email` -> actualiza `toast_employees.email` -> Gmail API (`/gmail/v1/users/me/messages/send`)
+ * - `POST /api/training/send-email` -> `getServerUser` -> `toast_employees.email` -> `sendSystemEmail()`
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import nodemailer from 'nodemailer';
 import { supabaseAdmin } from '@/lib/supabase';
+import { sendSystemEmail } from '@/lib/system-mailer';
 import { getServerUser } from '@/lib/auth-server';
 
-async function resolveGmailSender(storeId?: number, authUserId?: string | number | null) {
-  const candidates: any[] = [];
+const ALLOWED_EMAIL_ROLES = new Set([
+  'admin',
+  'supervisor',
+  'manager',
+  'asistente',
+  'assistant',
+  'gerente',
+]);
 
-  if (authUserId) {
-    const { data: u } = await supabaseAdmin
-      .from('users')
-      .select('id, full_name, email, google_refresh_token, google_email_connected')
-      .eq('id', authUserId)
-      .maybeSingle();
-    if (u?.google_refresh_token && u?.google_email_connected) {
-      candidates.push(u);
-    }
+function escapeHtml(raw: string): string {
+  return String(raw || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function resolveSafeAppOrigin(req: NextRequest): string {
+  const configured = (process.env.NEXT_PUBLIC_APP_URL || '').trim();
+  if (configured.startsWith('https://') || configured.startsWith('http://localhost')) {
+    return configured.replace(/\/$/, '');
   }
-
-  if (storeId && storeId > 0) {
-    const { data: storeUsers } = await supabaseAdmin
-      .from('users')
-      .select('id, full_name, email, google_refresh_token, google_email_connected')
-      .eq('store_id', storeId)
-      .not('google_refresh_token', 'is', null);
-    for (const su of storeUsers || []) {
-      if (su.google_refresh_token && su.google_email_connected) {
-        candidates.push(su);
-      }
-    }
+  const reqOrigin = req.nextUrl.origin;
+  if (
+    reqOrigin.startsWith('https://tacosgavilan') ||
+    reqOrigin.startsWith('http://localhost:') ||
+    reqOrigin.startsWith('http://127.0.0.1:')
+  ) {
+    return reqOrigin.replace(/\/$/, '');
   }
-
-  const corpId = process.env.CORPORATE_SCHEDULE_SENDER_USER_ID?.trim();
-  if (corpId) {
-    const { data: cu } = await supabaseAdmin
-      .from('users')
-      .select('id, full_name, email, google_refresh_token, google_email_connected')
-      .eq('id', corpId)
-      .maybeSingle();
-    if (cu?.google_refresh_token && cu?.google_email_connected) {
-      candidates.push(cu);
-    }
-  }
-
-  // Respaldo a cualquier cuenta corporativa conectada en users (ej. id 25)
-  const { data: fallbackUsers } = await supabaseAdmin
-    .from('users')
-    .select('id, full_name, email, google_refresh_token, google_email_connected')
-    .not('google_refresh_token', 'is', null)
-    .order('id', { ascending: true })
-    .limit(5);
-
-  for (const fu of fallbackUsers || []) {
-    if (fu.google_refresh_token && fu.google_email_connected) {
-      candidates.push(fu);
-    }
-  }
-
-  let lastErr = 'No hay cuenta de Gmail conectada en el sistema.';
-
-  for (const targetUser of candidates) {
-    try {
-      const params = new URLSearchParams();
-      params.append('client_id', process.env.GOOGLE_CLIENT_ID || '');
-      params.append('client_secret', process.env.GOOGLE_CLIENT_SECRET || '');
-      params.append('refresh_token', targetUser.google_refresh_token);
-      params.append('grant_type', 'refresh_token');
-
-      const refreshRes = await fetch('https://oauth2.googleapis.com/token', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: params,
-      });
-
-      if (!refreshRes.ok) {
-        const errData = await refreshRes.json().catch(() => ({}));
-        lastErr = errData.error_description || errData.error || 'Token refresh failed';
-        continue;
-      }
-
-      const tokens = await refreshRes.json();
-      const accessToken = tokens.access_token;
-
-      return {
-        accessToken,
-        fromEmail: targetUser.google_email_connected || targetUser.email,
-        senderName: targetUser.full_name || 'Academia SOP Tacos Gavilan',
-      };
-    } catch (e: any) {
-      lastErr = e?.message || 'OAuth error';
-    }
-  }
-
-  throw new Error(`No fue posible autenticar con Gmail OAuth2: ${lastErr}`);
+  return 'https://tacosgavilan.vercel.app';
 }
 
 export async function POST(req: NextRequest) {
   try {
+    const serverUser = await getServerUser(req);
+    if (!serverUser) {
+      return NextResponse.json({ ok: false, error: 'No autenticado.' }, { status: 401 });
+    }
+    if (!ALLOWED_EMAIL_ROLES.has(String(serverUser.role || '').trim().toLowerCase())) {
+      return NextResponse.json(
+        { ok: false, error: 'Sin permiso para enviar invitaciones de capacitación.' },
+        { status: 403 }
+      );
+    }
+
     const body = await req.json();
     const {
       storeId,
@@ -121,7 +74,6 @@ export async function POST(req: NextRequest) {
       email,
       stationLabel,
       trainerName,
-      originUrl,
     } = body || {};
 
     const cleanEmail = String(email || '').trim().toLowerCase();
@@ -132,7 +84,6 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Si tenemos employeeId de toast_employees, guardar/actualizar su email en el Planificador
     if (employeeId) {
       await supabaseAdmin
         .from('toast_employees')
@@ -140,26 +91,16 @@ export async function POST(req: NextRequest) {
         .eq('id', String(employeeId));
     }
 
-    const authUser = await getServerUser(req).catch(() => null);
-    const { accessToken, fromEmail } = await resolveGmailSender(
-      Number(storeId || 0),
-      authUser?.id
-    );
-
-    const baseOrigin =
-      originUrl ||
-      process.env.NEXT_PUBLIC_APP_URL ||
-      req.headers.get('origin') ||
-      'https://teg-modernizado.vercel.app';
-
-    const portalUrl = `${baseOrigin.replace(/\/$/, '')}/training/portal?store=${encodeURIComponent(
+    const baseOrigin = resolveSafeAppOrigin(req);
+    const portalUrl = `${baseOrigin}/training/portal?store=${encodeURIComponent(
       String(storeId || 1)
     )}&emp=${encodeURIComponent(String(employeeId || ''))}`;
 
-    const displayName = String(employeeName || 'Integrante').trim();
-    const displayStore = String(storeName || 'Tacos Gavilan').trim();
-    const displayStation = String(stationLabel || 'Estación Operativa').trim();
-    const displayTrainer = String(trainerName || 'Gerente de Sucursal').trim();
+    const displayName = escapeHtml(String(employeeName || 'Integrante').trim());
+    const displayStore = escapeHtml(String(storeName || 'Tacos Gavilan').trim());
+    const displayStation = escapeHtml(String(stationLabel || 'Puesto Operativo').trim());
+    const displayTrainer = escapeHtml(String(trainerName || 'Gerente de Sucursal').trim());
+    const safePortalUrl = escapeHtml(portalUrl);
 
     const html = `
       <!DOCTYPE html>
@@ -197,7 +138,7 @@ export async function POST(req: NextRequest) {
                         <td style="padding:6px 0;font-size:14px;font-weight:800;color:#0F172A;text-align:right;">${displayStore}</td>
                       </tr>
                       <tr>
-                        <td style="padding:6px 0;font-size:13px;color:#64748B;">Estación de Entrenamiento:</td>
+                        <td style="padding:6px 0;font-size:13px;color:#64748B;">Puesto a Certificar:</td>
                         <td style="padding:6px 0;font-size:14px;font-weight:800;color:#DA291C;text-align:right;">${displayStation}</td>
                       </tr>
                       <tr>
@@ -211,7 +152,7 @@ export async function POST(req: NextRequest) {
                     </table>
 
                     <div style="text-align:center;margin:26px 0;">
-                      <a href="${portalUrl}" style="display:inline-block;background-color:#DA291C;color:#FFFFFF;text-decoration:none;font-size:16px;font-weight:800;padding:16px 32px;border-radius:14px;box-shadow:0 6px 16px rgba(218,41,28,0.28);">
+                      <a href="${safePortalUrl}" style="display:inline-block;background-color:#DA291C;color:#FFFFFF;text-decoration:none;font-size:16px;font-weight:800;padding:16px 32px;border-radius:14px;box-shadow:0 6px 16px rgba(218,41,28,0.28);">
                         📱 Abrir Mi Entrenamiento en el Teléfono
                       </a>
                     </div>
@@ -226,8 +167,8 @@ export async function POST(req: NextRequest) {
                 </tr>
                 <tr>
                   <td style="background-color:#F8FAFC;padding:16px 28px;text-align:center;border-top:1px solid #E2E8F0;font-size:12px;color:#64748B;">
-                    <strong>Tacos Gavilan</strong> • Academia de Operaciones & Estándares de Receta<br/>
-                    <span style="font-size:11px;color:#94A3B8;">Enlace directo: ${portalUrl}</span>
+                    <strong>Sistema de Monitoreo</strong> • Tacos Gavilan • Academia de Operaciones<br/>
+                    <span style="font-size:11px;color:#94A3B8;">Enlace directo: ${safePortalUrl}</span>
                   </td>
                 </tr>
               </table>
@@ -238,51 +179,17 @@ export async function POST(req: NextRequest) {
       </html>
     `;
 
-    const compiler = nodemailer.createTransport({
-      streamTransport: true,
-      newline: 'windows',
-    });
-
-    const info = await compiler.sendMail({
-      from: `"Academia SOP Tacos Gavilan" <${fromEmail}>`,
+    const mailRes = await sendSystemEmail({
+      fromName: 'Sistema de Monitoreo',
       to: cleanEmail,
-      subject: `🎓 Tu Capacitación Oficial en Tacos Gavilan (${displayStore})`,
+      subject: `🎓 Tu Capacitación Oficial en Tacos Gavilan (${String(storeName || 'Tacos Gavilan').trim()})`,
       html,
     });
-
-    const rawBuffer = await new Promise<Buffer>((resolve, reject) => {
-      const message = info.message as any;
-      if (Buffer.isBuffer(message)) return resolve(message);
-      const chunks: Buffer[] = [];
-      message.on('data', (chunk: Buffer) => chunks.push(chunk));
-      message.on('end', () => resolve(Buffer.concat(chunks)));
-      message.on('error', (err: Error) => reject(err));
-    });
-
-    const raw = rawBuffer
-      .toString('base64')
-      .replace(/\+/g, '-')
-      .replace(/\//g, '_')
-      .replace(/=+$/, '');
-
-    const sendRes = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ raw }),
-    });
-
-    if (!sendRes.ok) {
-      const errTxt = await sendRes.text();
-      throw new Error(`Error enviando correo vía Gmail API: ${errTxt}`);
-    }
 
     return NextResponse.json({
       ok: true,
       sentTo: cleanEmail,
-      fromEmail,
+      fromEmail: mailRes.fromEmail,
       portalUrl,
     });
   } catch (err: any) {

@@ -1,61 +1,11 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import nodemailer from 'nodemailer'
-import path from 'path'
-import fs from 'fs'
+import { sendSystemEmail } from '@/lib/system-mailer'
 
 // Initialize clients
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co'
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'placeholder'
 const supabase = createClient(supabaseUrl, supabaseKey)
-
-/**
- * Fallback: Obtain Gmail API access using Carlos's master account.
- */
-async function getSystemTransporter(inspectorId?: string) {
-    let userToUse = null;
-
-    if (inspectorId) {
-        const { data: inspector } = await supabase.from('users')
-            .select('id, google_refresh_token, google_email_connected')
-            .eq('id', inspectorId)
-            .single();
-
-        if (inspector?.google_refresh_token && inspector?.google_email_connected) {
-            userToUse = inspector;
-        }
-    }
-
-    if (!userToUse) {
-        const { data: fallbackUser, error } = await supabase.from('users')
-            .select('id, google_refresh_token, google_email_connected')
-            .eq('email', 'carlos@tacosgavilan.com')
-            .single();
-
-        if (error || !fallbackUser?.google_refresh_token) {
-            throw new Error('No se encontró la cuenta de respaldo (carlos@tacosgavilan.com) o no tiene token configurado.');
-        }
-        userToUse = fallbackUser;
-    }
-
-    const tokenUrl = 'https://oauth2.googleapis.com/token';
-    const params = new URLSearchParams();
-    params.append('client_id', process.env.GOOGLE_CLIENT_ID!);
-    params.append('client_secret', process.env.GOOGLE_CLIENT_SECRET!);
-    params.append('refresh_token', userToUse.google_refresh_token);
-    params.append('grant_type', 'refresh_token');
-
-    const refreshRes = await fetch(tokenUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: params
-    });
-
-    if (!refreshRes.ok) throw new Error('Falló la actualización del token de correo.');
-
-    const tokens = await refreshRes.json();
-    return { accessToken: tokens.access_token, fromEmail: userToUse.google_email_connected };
-}
 
 export async function POST(req: Request) {
     try {
@@ -128,11 +78,7 @@ export async function POST(req: Request) {
             return NextResponse.json({ message: 'Managers found but they lack email' })
         }
 
-        // 4. Authenticate System Transporter
-        // Uses supervisor's email if connected, otherwise falls back to system account
-        const { accessToken, fromEmail } = await getSystemTransporter(inspection.inspector_id)
-
-        // 5. Build HTML Email
+        // 4. Build HTML Email
         const storeName = inspection.store?.name || 'Tienda Gavilán'
         const inspectorName = inspection.inspector?.full_name || inspection.supervisor_name || 'Supervisor'
         const score = inspection.overall_score || 0
@@ -204,7 +150,7 @@ export async function POST(req: Request) {
                     </tr>
                     <tr>
                         <td style="padding: 30px; background: #f8fafc; border-top: 1px solid #e2e8f0; text-align: center;">
-                            <p style="margin: 0; color: #94a3b8; font-size: 12px;">Este es un mensaje automático generado por el Sistema de Monitoreo TEG.</p>
+                            <p style="margin: 0; color: #94a3b8; font-size: 12px;">Este es un mensaje automático generado por el Sistema de Monitoreo.</p>
                             <div style="margin-top: 15px;">
                                 <a href="https://tacosgavilan.vercel.app/inspecciones?id=${inspection_id}" style="display: inline-block; background: #4f46e5; color: #ffffff; padding: 10px 20px; border-radius: 8px; text-decoration: none; font-weight: bold; font-size: 14px;">Ver Inspección Completa</a>
                             </div>
@@ -221,44 +167,13 @@ export async function POST(req: Request) {
 
         for (const toEmail of managerEmails) {
             try {
-                const mailOptions = {
-                    from: `"Supervisión TEG" <${fromEmail}>`,
+                await sendSystemEmail({
+                    fromName: 'Sistema de Monitoreo',
                     to: toEmail,
                     subject: `📝 Comentarios de Inspección: ${storeName} (${inspectionDate})`,
-                    html: fullHtml
-                }
-
-                const compiler = nodemailer.createTransport({ streamTransport: true, newline: 'windows' })
-                const info = await compiler.sendMail(mailOptions)
-
-                const rawBuffer = await new Promise<Buffer>((resolve, reject) => {
-                    const message = info.message as any
-                    if (Buffer.isBuffer(message)) return resolve(message)
-                    if (typeof message.pipe === 'function') {
-                        const chunks: Buffer[] = []
-                        message.on('data', (chunk: Buffer) => chunks.push(chunk))
-                        message.on('end', () => resolve(Buffer.concat(chunks)))
-                        message.on('error', (err: Error) => reject(err))
-                        return
-                    }
-                    reject(new Error('Unknown message format'))
+                    html: fullHtml,
+                    preferredUserId: inspection.inspector_id,
                 })
-
-                const raw = rawBuffer.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
-
-                const sendRes = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
-                    method: 'POST',
-                    headers: {
-                        'Authorization': `Bearer ${accessToken}`,
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({ raw })
-                })
-
-                if (!sendRes.ok) {
-                    throw new Error(`Gmail API status ${sendRes.status}`)
-                }
-
                 successCount++
             } catch (err: any) {
                 console.error(`❌ [API] Email failed for ${toEmail}:`, err.message)

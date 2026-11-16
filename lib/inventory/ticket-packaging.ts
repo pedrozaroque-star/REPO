@@ -131,14 +131,14 @@ export function calculateTicketPackaging(ticket: TicketPackagingTicket): TicketP
       if (color) {
         addColoredSalsa(lines, color, quantity * 2, `${quantity} torta(s) sin carne identificable: no se asignó salsa.`, warnings)
       } else {
-        add(lines, 'salsa_roja_pack', quantity * 2, 'Torta especial (Cubana/Milanesa/Jamon/Queso): 2 salsas rojas por defecto confirmadas por Carlos')
+        add(lines, 'salsa_roja_pack', quantity * 2, 'Torta especial (Cubana/Milanesa/Jamon/Queso): 2 salsas rojas por defecto del Sistema de Monitoreo')
       }
     } else if (kind === 'burrito') {
       add(lines, 'lime_bag', quantity * 2, 'Burrito: 2 limones')
       if (color) {
         addColoredSalsa(lines, color, quantity * 2, `${quantity} burrito(s) sin carne identificable: no se asignó salsa.`, warnings)
       } else {
-        add(lines, 'salsa_roja_pack', quantity * 2, 'Burrito frijol/queso/vegetariano: 2 salsas rojas por defecto confirmadas por Carlos')
+        add(lines, 'salsa_roja_pack', quantity * 2, 'Burrito frijol/queso/vegetariano: 2 salsas rojas por defecto del Sistema de Monitoreo')
       }
     } else if (kind === 'quesadilla') {
       add(lines, 'plate_9in', quantity, 'Quesadilla: un plato por pieza'); if (channel !== 'for_here') add(lines, 'taco_cover', quantity, 'Quesadilla fuera de For Here: cover')
@@ -146,27 +146,27 @@ export function calculateTicketPackaging(ticket: TicketPackagingTicket): TicketP
       if (color) {
         addColoredSalsa(lines, color, quantity * 2, `${quantity} quesadilla(s) sin carne identificable: no se asignó salsa.`, warnings)
       } else {
-        add(lines, 'salsa_roja_pack', quantity * 2, 'Quesadilla queso: 2 salsas rojas por defecto confirmadas por Carlos')
+        add(lines, 'salsa_roja_pack', quantity * 2, 'Quesadilla queso: 2 salsas rojas por defecto del Sistema de Monitoreo')
       }
     } else if (kind === 'frijol_dlo') {
-      add(lines, 'cup_4oz', quantity, 'Frijol D/L/O: vaso 4 oz confirmado por Carlos')
+      add(lines, 'cup_4oz', quantity, 'Frijol D/L/O: vaso 4 oz oficial del Sistema de Monitoreo')
       add(lines, 'lid_4oz', quantity, 'Frijol D/L/O: tapa para vaso 4 oz')
     } else if (kind === 'rice_beans') {
-      add(lines, 'cup_8oz_paper', quantity, 'Rice/Beans/Side Carne: vaso 8 oz papel confirmado por Carlos')
+      add(lines, 'cup_8oz_paper', quantity, 'Rice/Beans/Side Carne: vaso 8 oz papel oficial del Sistema de Monitoreo')
       add(lines, 'lid_8oz_flat', quantity, 'Rice/Beans/Side Carne: tapa plana para vaso 8 oz')
     } else if (kind === 'guacamole') {
-      add(lines, 'cup_4oz', quantity, 'Guacamole: vasito 4 oz transparente con tapa confirmado por Carlos')
+      add(lines, 'cup_4oz', quantity, 'Guacamole: vasito 4 oz transparente con tapa oficial del Sistema de Monitoreo')
       add(lines, 'lid_4oz', quantity, 'Guacamole: tapa para vasito 4 oz')
     } else if (kind === 'catering_meat') {
       const text = normalize(selection.name)
       if (text.includes('2 lb') || text.includes('2lb')) {
-        add(lines, 'RC478', quantity, '2 lb Meat: contenedor redondo de aluminio RC478 confirmado por Carlos')
+        add(lines, 'RC478', quantity, '2 lb Meat: contenedor redondo de aluminio RC478 oficial del Sistema de Monitoreo')
         add(lines, '709DO', quantity, '2 lb Meat: tapa domo plástico transparente 709DO')
       } else if (text.includes('6 lb') || text.includes('6lb')) {
-        add(lines, 'half_pan', quantity, '6 lb Meat: charola aluminio Half Pan confirmada por Carlos')
+        add(lines, 'half_pan', quantity, '6 lb Meat: charola aluminio Half Pan oficial del Sistema de Monitoreo')
         add(lines, 'half_pan_lid', quantity, '6 lb Meat: tapa aluminio Half Pan')
       } else if (text.includes('12 lb') || text.includes('12lb')) {
-        add(lines, 'full_pan', quantity, '12 lb Meat: charola aluminio Full Pan confirmada por Carlos')
+        add(lines, 'full_pan', quantity, '12 lb Meat: charola aluminio Full Pan oficial del Sistema de Monitoreo')
         add(lines, 'full_pan_lid', quantity, '12 lb Meat: tapa aluminio Full Pan')
       }
     } else if (kind === 'drink') {

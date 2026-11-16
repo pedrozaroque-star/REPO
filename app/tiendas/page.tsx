@@ -517,7 +517,7 @@ export default function TiendasPage() {
                         className="w-full px-4 py-3 bg-gray-50 dark:bg-slate-800 border-none rounded-2xl font-bold text-gray-900 dark:text-white outline-none focus:ring-2 focus:ring-orange-500/20"
                         value={editingStore.supervisor_name}
                         onChange={e => setEditingStore({ ...editingStore, supervisor_name: e.target.value })}
-                        placeholder="e.g.: Carlos Perez"
+                        placeholder="e.g.: Juan Perez"
                       />
                     </div>
                     <div className="space-y-1.5">

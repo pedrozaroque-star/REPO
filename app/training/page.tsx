@@ -2,38 +2,35 @@
 
 /**
  * @module TrainingAcademyPage
- * @description Módulo Oficial de Entrenamiento Operativo (Academia SOP Tacos Gavilan)
- * conectado 100% en tiempo real con las 15 sucursales reales (`public.stores`), la plantilla real
- * del Planificador (`toast_employees`, `shifts`, `station_assignments`), el padrón en vivo de RONOS
- * (`verifyRonosPin`) y el catálogo completo de los 218+ productos vendidos con receta (`toast_menu_items` + `recipes`).
+ * @description Módulo Oficial de Entrenamiento Operativo (Academia SOP 4 Días — Tacos Gavilan).
+ * Conectado 100% en tiempo real con las 15 sucursales reales (`public.stores`), plantilla real
+ * del Planificador (`toast_employees`), PIN en vivo de RONOS (`/api/training/ronos-auth`),
+ * expediente unificado por Puesto (`public.training_enrollments`), catálogo agrupado en
+ * Categorías Maestras Base Carne Asada y subida firmada de videos SOP (`Orus`).
  *
  * @businessRules
- * 1. Regla de Antigüedad (2+ Semanas en Planificador = Ya Certificados) vs Nuevo Ingreso:
- *    - Todos los empleados activos con 2 o más semanas (>= 14 días) en el Planificador ya cuentan automáticamente
- *      con su Certificado Oficial de Competencia Operativa listo para ver e imprimir.
- *    - Solo los empleados de nuevo ingreso (< 2 semanas en el Planificador) entran al flujo activo de capacitación
- *      (con opción de habilitar re-entrenamiento si un veterano cambia de estación).
- * 2. Clave de 4 Dígitos de RONOS Sincronizada:
- *    - Valida el PIN real de 4 dígitos de RONOS en vivo (`POST /api/training/ronos-auth` -> `verifyRonosPin`),
- *      exactamente igual que el módulo Blindaje Delivery.
- * 3. Envío de Link por Email (Cero SMS) + Modo PC del Manager:
- *    - Permite enviar el enlace directo de capacitación al correo electrónico del nuevo ingreso vía Gmail OAuth2
- *      (`POST /api/training/send-email`) para que entre desde su teléfono con su PIN de RONOS, o iniciar la capacitación
- *      directamente en la PC/Tableta del Manager.
- * 4. 100% Adaptado a Móviles y Tabletas (Vertical y Horizontal):
- *    - Diseño responsivo completo en orientación vertical (portrait) y horizontal (landscape).
- * 5. Catálogo Completo de Productos Vendidos con Receta + Subir / Editar / Eliminar Video + Voz IA (`Orus`):
- *    - Lista todos los productos vendidos con receta real del sistema, permitiendo subir, reemplazar o eliminar su video,
- *      y pausar el video en cualquier segundo para agregar un paso con texto que al guardar se convierte en Voz IA (`Orus`).
- * 6. Reproductor de Video 100% Limpio:
- *    - Sin barra de progreso nativa. Solo permite Pausar/Reproducir o Pantalla Completa (Fullscreen).
- *    - Cada vez que el video se pausa automáticamente para explicar un paso, NO muestra controles sobre el video.
+ * 1. Flujo Guiado Sin Caos Visual:
+ *    - Usuarios ADMIN (`role === 'admin'`) acceden directo a `Revisar Videos y Pasos` (`mainView === 'videos'`) por las 8 estaciones y 23 Categorías Maestras sin tener que seleccionar un empleado.
+ *    - Managers / Supervisores en `Personal y Capacitación` eligen Sucursal y Persona antes de mostrar el plan de 4 días.
+ *    - Empleados con 2+ semanas (>= 14 días) muestran su Certificado Oficial automático por Puesto.
+ *    - Nuevos ingresos (< 14 días) siguen el plan secuencial de 4 días en una vista limpia (máx. 1 nivel activo).
+ * 2. Entrenamiento por Categoría Maestra (Base Carne Asada):
+ *    - Cada categoría utiliza Carne Asada como platillo de referencia (mismo procedimiento para todas las proteínas).
+ * 3. Reproductor 100% Limpio y Mudo:
+ *    - Audio original `.mp4` siempre silenciado (`muted`, `volume = 0`) para escuchar solo al Tutor de Voz (`Orus`).
+ *    - Sin barra de progreso; únicamente Play/Pausa y Pantalla Completa (ocultos al pausarse por explicación de paso).
+ * 4. Subida Segura de Videos Reales (> 4.5 MB):
+ *    - Flujo firmado directo a Supabase Storage (`create-upload-url` -> `PUT` -> `finalize-upload`) evitando el límite de Vercel.
+ * 5. Impresión Limpia (`@media print`):
+ *    - Certificado Oficial e Inventario de Categorías imprimibles en papel sin arrastrar barras de navegación ni vistas previas.
  *
  * @dataFlow
  * - `GET / PUT / DELETE /api/training/catalog`
+ * - `GET / POST / PUT /api/training/enrollments`
  * - `POST /api/training/video`
  * - `POST /api/training/ronos-auth`
  * - `POST /api/training/send-email`
+ * - `POST /api/training/tts`
  */
 
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
@@ -44,6 +41,7 @@ import type {
   TrainingSopModuleSpec,
   TrainingVideoStep,
   StationPositionMeta,
+  TrainingQuizQuestion,
 } from '@/lib/training-sop-catalog';
 import {
   OfficialCertificateView,
@@ -62,31 +60,29 @@ import {
   Scale,
   Thermometer,
   ChefHat,
-  Users,
-  Car,
-  Crown,
   Timer,
   Printer,
   Wand2,
   ExternalLink,
-  AlertTriangle,
   ChevronRight,
   ChevronLeft,
   Plus,
   Minus,
   Trash2,
   HelpCircle,
-  MapPin,
   Store as StoreIcon,
   UserCheck,
   Mail,
-  Monitor,
   Upload,
   Maximize2,
   Search,
   Video,
   ShieldCheck,
   PlusCircle,
+  Loader2,
+  AlertCircle,
+  Sparkles,
+  X,
 } from 'lucide-react';
 
 interface EnrichedPosition extends StationPositionMeta {
@@ -116,6 +112,17 @@ interface RealStoreInfo {
   }[];
 }
 
+interface RoleStationItem {
+  stationKey: string;
+  activitiesKeys: string[];
+  order: number;
+  dayTarget?: 1 | 2 | 3 | 4;
+  labelEs: string;
+  labelEn: string;
+  shortDescEs: string;
+  shortDescEn: string;
+}
+
 interface RealPlanificadorEmployee {
   id: string;
   toast_guid: string;
@@ -131,15 +138,7 @@ interface RealPlanificadorEmployee {
   job_role_title_en?: string;
   job_role_badge_es?: string;
   job_role_badge_en?: string;
-  required_stations?: {
-    stationKey: string;
-    activitiesKeys: string[];
-    order: number;
-    labelEs: string;
-    labelEn: string;
-    shortDescEs: string;
-    shortDescEn: string;
-  }[];
+  required_stations?: RoleStationItem[];
   assigned_station: string;
   is_leader: boolean;
   sort_order: number;
@@ -189,6 +188,14 @@ interface TrainingEnrollment {
   created_at: string;
 }
 
+const DEFAULT_DAY4_AUDIT_STATE: Record<string, boolean> = {
+  hygiene: false,
+  temp: false,
+  portion: false,
+  presentation: false,
+  speed: false,
+};
+
 function formatSeconds(sec: number): string {
   const safe = Math.max(0, Math.floor(sec));
   const mins = Math.floor(safe / 60);
@@ -196,12 +203,85 @@ function formatSeconds(sec: number): string {
   return `${String(mins).padStart(2, '0')}:${String(rem).padStart(2, '0')}`;
 }
 
+function getClientAuthHeaders(extra?: Record<string, string>): Record<string, string> {
+  const headers: Record<string, string> = { ...(extra || {}) };
+  if (typeof window !== 'undefined') {
+    const token = localStorage.getItem('teg_token');
+    if (token) {
+      headers.Authorization = `Bearer ${token}`;
+    }
+  }
+  return headers;
+}
+
+function buildFallbackQuizForModule(mod: TrainingSopModuleSpec): TrainingQuizQuestion[] {
+  if (Array.isArray(mod.quiz) && mod.quiz.length > 0) {
+    return mod.quiz;
+  }
+  const firstSpec = mod.recipeSpecs?.[0];
+  const itemEs = firstSpec?.itemEs || mod.titleEs;
+  const itemEn = firstSpec?.itemEn || mod.titleEn;
+  const qtyText = firstSpec ? `${firstSpec.quantity} ${firstSpec.unit}` : '6 oz';
+
+  return [
+    {
+      id: `${mod.slug}-auto-q1`,
+      questionEs: `¿Cuál es la medida oficial de "${itemEs}" al preparar ${mod.titleEs}?`,
+      questionEn: `What is the official portion of "${itemEn}" when preparing ${mod.titleEn}?`,
+      optionsEs: [
+        `${qtyText} exactos`,
+        'Al cálculo sin medir',
+        'El doble de la porción estándar',
+        'Media porción para ahorrar producto',
+      ],
+      optionsEn: [
+        `Exactly ${qtyText}`,
+        'Guessing without measuring',
+        'Double the standard portion',
+        'Half portion to save product',
+      ],
+      correctIndex: 0,
+      explanationEs: `Siempre se sirve exactamente ${qtyText} de ${itemEs} usando la báscula o utensilio oficial.`,
+      explanationEn: `Always serve exactly ${qtyText} of ${itemEn} using the official scale or scoop.`,
+    },
+    {
+      id: `${mod.slug}-auto-q2`,
+      questionEs: 'Para mantener consistencia e inocuidad en la línea de Tacos Gavilan, ¿con qué se verifica la porción?',
+      questionEn: 'To maintain consistency and food safety on the Tacos Gavilan line, how is the portion verified?',
+      optionsEs: [
+        'Báscula calibrada, porcionador oficial y guantes limpios',
+        'A ojo sin usar herramientas',
+        'Solo cuando sobra tiempo al final del turno',
+        'Con cualquier cuchara grande disponible',
+      ],
+      optionsEn: [
+        'Calibrated scale, official scoop, and clean gloves',
+        'By eye without using any tools',
+        'Only when extra time is left at end of shift',
+        'With any large spoon nearby',
+      ],
+      correctIndex: 0,
+      explanationEs: 'La báscula y el porcionador oficial garantizan sabor uniforme y control de inventario.',
+      explanationEn: 'Calibrated scales and official scoops ensure uniform taste and inventory control.',
+    },
+  ];
+}
+
 export default function TrainingAcademyPage() {
-  const { language, setLanguage, t } = useLanguage();
+  const { language, t } = useLanguage();
   const { user } = useAuth();
   const lang = language === 'en' ? 'en' : 'es';
 
-  // Real Data from Supabase & Planificador
+  const userRole = String(user?.role || '').trim().toLowerCase();
+  const isAdmin = userRole === 'admin';
+  const canManageCatalog = useMemo(
+    () => ['admin', 'supervisor', 'manager', 'asistente', 'assistant', 'gerente'].includes(userRole),
+    [userRole]
+  );
+
+  // Catalog & Roster State
+  const [loadingData, setLoadingData] = useState<boolean>(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [videos, setVideos] = useState<TrainingSopModuleSpec[]>([]);
   const [positions, setPositions] = useState<EnrichedPosition[]>([]);
   const [stores, setStores] = useState<RealStoreInfo[]>([]);
@@ -209,14 +289,21 @@ export default function TrainingAcademyPage() {
   const [recipeProducts, setRecipeProducts] = useState<RecipeProductItem[]>([]);
   const [enrollments, setEnrollments] = useState<TrainingEnrollment[]>([]);
 
-  // Real Store & Real Planificador Employee Selection
-  const [selectedStoreId, setSelectedStoreId] = useState<number>(14);
+  // Navigation & Primary View (Máximo 1 vista principal a la vez: Videos Admin / Personal / Catálogo)
+  const [mainView, setMainView] = useState<'videos' | 'staff' | 'catalog'>('staff');
+  const adminViewInitRef = useRef<boolean>(false);
+  const [selectedStoreId, setSelectedStoreId] = useState<number>(0);
+  const storeInitializedRef = useRef<boolean>(false);
+
+  // Employee Selection & Filter
   const [employeeFilterMode, setEmployeeFilterMode] = useState<'new_hires' | 'certified' | 'all'>('all');
+  const [employeeSearch, setEmployeeSearch] = useState<string>('');
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<string>('');
   const [selectedTrainerName, setSelectedTrainerName] = useState<string>('');
   const [allowVeteranRetraining, setAllowVeteranRetraining] = useState<boolean>(false);
+  const [activeTraineeId, setActiveTraineeId] = useState<string | null>(null);
 
-  // RONOS PIN Verification state
+  // RONOS Verification
   const [ronosPinInput, setRonosPinInput] = useState<string>('');
   const [ronosVerifiedInfo, setRonosVerifiedInfo] = useState<{
     employeeUserId: number;
@@ -226,147 +313,262 @@ export default function TrainingAcademyPage() {
   const [ronosVerifyBusy, setRonosVerifyBusy] = useState<boolean>(false);
   const [ronosErrorMsg, setRonosErrorMsg] = useState<string | null>(null);
 
-  // Email Invitation state (Point 4: Email only, zero SMS)
+  // Email Invitation Modal
   const [showEmailModal, setShowEmailModal] = useState<boolean>(false);
   const [emailInput, setEmailInput] = useState<string>('');
-  const [sendingEmailBusy, setSendingEmailBusy] = useState<boolean>(false);
+  const [emailSending, setEmailSending] = useState<boolean>(false);
   const [emailFeedback, setEmailFeedback] = useState<{ ok: boolean; msg: string } | null>(null);
 
-  // Printable Master Recipe Checklist Modal (Point 8)
-  const [showPrintableChecklistModal, setShowPrintableChecklistModal] = useState<boolean>(false);
-
-  // Navigation state
-  const [selectedGroup, setSelectedGroup] = useState<'cocina' | 'salon' | 'drive_thru' | 'liderazgo'>('cocina');
+  // Station & Active Day Flow
   const [selectedPositionKey, setSelectedPositionKey] = useState<string>('BURRITOS');
   const [selectedVideoSlug, setSelectedVideoSlug] = useState<string>('burrito-ok');
-  const [activeTab, setActiveTab] = useState<'day1' | 'day2' | 'day3' | 'day4' | 'catalog'>('day1');
+  const [showAllVideosInSelector, setShowAllVideosInSelector] = useState<boolean>(false);
+  const [activeTab, setActiveTab] = useState<'day1' | 'day2' | 'day3' | 'day4'>('day1');
   const [day1SubStep, setDay1SubStep] = useState<'video' | 'portions' | 'quiz'>('video');
-  const [day3ShiftTab, setDay3ShiftTab] = useState<'Apertura' | 'Regular' | 'Cierre'>('Apertura');
-  const [activeTraineeId, setActiveTraineeId] = useState<string | null>(null);
 
-  // Recipe Catalog & Video Upload / Replace / Delete state (Point 6)
+  // Search States (Separados para evitar conflictos entre Pestaña 2 y Día 1)
   const [catalogSearch, setCatalogSearch] = useState<string>('');
   const [catalogCategory, setCatalogCategory] = useState<string>('ALL');
-  const [uploadingVideoSlug, setUploadingVideoSlug] = useState<string | null>(null);
-  const [deletingVideoSlug, setDeletingVideoSlug] = useState<string | null>(null);
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const [pendingUploadProduct, setPendingUploadProduct] = useState<{
+  const [stationSearch, setStationSearch] = useState<string>('');
+
+  // Upload / Delete / Pause-Add-Step States
+  const uploadInputRef = useRef<HTMLInputElement | null>(null);
+  const [uploadTargetProduct, setUploadTargetProduct] = useState<{
     slug: string;
     name: string;
     positionKey: string;
     ingredients: any[];
   } | null>(null);
+  const [uploadingVideoSlug, setUploadingVideoSlug] = useState<string | null>(null);
+  const [deletingVideoSlug, setDeletingVideoSlug] = useState<string | null>(null);
+  const [videoActionFeedback, setVideoActionFeedback] = useState<{ ok: boolean; msg: string } | null>(null);
 
-  // Pause-to-Add-Step with AI Voice state (Point 7)
   const [showAddStepAtPauseBox, setShowAddStepAtPauseBox] = useState<boolean>(false);
   const [pausedTimestampSec, setPausedTimestampSec] = useState<number>(0);
   const [newStepTitle, setNewStepTitle] = useState<string>('');
-  const [newStepNarration, setNewStepNarration] = useState<string>('');
   const [newStepPortion, setNewStepPortion] = useState<string>('');
+  const [newStepNarration, setNewStepNarration] = useState<string>('');
   const [savingPausedStepBusy, setSavingPausedStepBusy] = useState<boolean>(false);
+  const [pausedStepError, setPausedStepError] = useState<string | null>(null);
 
-  // Modals
-  const [showStationModal, setShowStationModal] = useState<boolean>(false);
+  // Printable Checklist Modal & Help Modal
+  const [showPrintableChecklistModal, setShowPrintableChecklistModal] = useState<boolean>(false);
   const [showHowItWorksModal, setShowHowItWorksModal] = useState<boolean>(false);
-  const [showStepEditorModal, setShowStepEditorModal] = useState<boolean>(false);
 
-  // Video & Orus Neural Male Voice Player state (Point 9: Clean player, no progress bar)
+  // Video & AI Audio State
   const videoContainerRef = useRef<HTMLDivElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const lastSpokenStepIdRef = useRef<string | null>(null);
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [currentTime, setCurrentTime] = useState(0);
-  const [voiceEnabled, setVoiceEnabled] = useState(true);
-  const [autoPausePerStep, setAutoPausePerStep] = useState(true);
-  const [isVoiceSpeaking, setIsVoiceSpeaking] = useState(false);
-  const [autoPausedForVoice, setAutoPausedForVoice] = useState(false);
-  const [showAllVideosInSelector, setShowAllVideosInSelector] = useState(false);
+  const autoPausedForVoiceRef = useRef<boolean>(false);
+  const pausedBoundaryStepIdRef = useRef<string | null>(null);
 
-  // Day 1 Quiz state
+  const [isPlaying, setIsPlaying] = useState<boolean>(false);
+  const [currentTime, setCurrentTime] = useState<number>(0);
+  const [voiceEnabled, setVoiceEnabled] = useState<boolean>(true);
+  const [isVoiceSpeaking, setIsVoiceSpeaking] = useState<boolean>(false);
+  const [autoPausedForVoice, setAutoPausedForVoice] = useState<boolean>(false);
+  const [reprocessingVideoSlug, setReprocessingVideoSlug] = useState<string | null>(null);
+
+  // Day 1 Quiz State
   const [quizAnswers, setQuizAnswers] = useState<Record<string, number>>({});
   const [quizSubmittedResult, setQuizSubmittedResult] = useState<{ score: number; passed: boolean } | null>(null);
 
-  // Day 2 Supervised Practice state
+  // Day 2 Guided Reps & Rubric
   const [day2Rubric, setDay2Rubric] = useState<Record<string, boolean>>({});
   const [day2Reps, setDay2Reps] = useState<number>(0);
+  const [day2Notes, setDay2Notes] = useState<string>('');
   const [day2SavedBanner, setDay2SavedBanner] = useState<boolean>(false);
+  const [day2WarningMsg, setDay2WarningMsg] = useState<string | null>(null);
+  const day2BannerTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Day 3 Solo Execution + Stopwatch state
+  // Day 3 Stopwatch & Real Activities
   const [stopwatchRunning, setStopwatchRunning] = useState<boolean>(false);
   const [stopwatchElapsedDeci, setStopwatchElapsedDeci] = useState<number>(0);
   const [day3BestTimeSec, setDay3BestTimeSec] = useState<number | null>(null);
   const [day3SoloReps, setDay3SoloReps] = useState<number>(0);
+  const [day3ShiftTab, setDay3ShiftTab] = useState<'Apertura' | 'Regular' | 'Cierre'>('Apertura');
   const [day3ActivitiesChecked, setDay3ActivitiesChecked] = useState<Record<string, boolean>>({});
+  const [day3WarningMsg, setDay3WarningMsg] = useState<string | null>(null);
 
-  // Day 4 Final Certification state
+  // Day 4 Final Evaluation & Audit
   const [day4ExamAnswers, setDay4ExamAnswers] = useState<Record<string, number>>({});
-  const [day4AuditChecks, setDay4AuditChecks] = useState<Record<string, boolean>>({
-    scale_accuracy: true,
-    assembly_technique: true,
-    speed_benchmark: true,
-    temp_food_safety: true,
-    autonomous_routines: true,
-  });
+  const [day4AuditChecks, setDay4AuditChecks] = useState<Record<string, boolean>>(DEFAULT_DAY4_AUDIT_STATE);
   const [certificationResult, setCertificationResult] = useState<{
     passed: boolean;
     combinedScore: number;
-    examScore: number;
-    practicalScore: number;
     folio: string | null;
   } | null>(null);
+  const [day4SavingBusy, setDay4SavingBusy] = useState<boolean>(false);
+  const [day4WarningMsg, setDay4WarningMsg] = useState<string | null>(null);
 
-  // AI Step & Voice Editor state
-  const [editableSteps, setEditableSteps] = useState<TrainingVideoStep[]>([]);
-  const [aiGeneratingStepIdx, setAiGeneratingStepIdx] = useState<number | null>(null);
+  // Step Editor Modal
+  const [showStepEditorModal, setShowStepEditorModal] = useState<boolean>(false);
+  const [editingSteps, setEditingSteps] = useState<TrainingVideoStep[]>([]);
   const [savingStepsBusy, setSavingStepsBusy] = useState<boolean>(false);
+  const [aiExplainStepBusyId, setAiExplainStepBusyId] = useState<string | null>(null);
+  const [editorErrorMsg, setEditorErrorMsg] = useState<string | null>(null);
 
+  const stopAllMedia = useCallback(() => {
+    if (videoRef.current && !videoRef.current.paused) {
+      videoRef.current.pause();
+    }
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.currentTime = 0;
+    }
+    setIsPlaying(false);
+    setIsVoiceSpeaking(false);
+    autoPausedForVoiceRef.current = false;
+    setAutoPausedForVoice(false);
+    lastSpokenStepIdRef.current = null;
+    pausedBoundaryStepIdRef.current = null;
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      stopAllMedia();
+      if (day2BannerTimerRef.current) {
+        clearTimeout(day2BannerTimerRef.current);
+      }
+    };
+  }, [stopAllMedia]);
+
+  const resetAndHydrateEnrollmentState = useCallback(
+    (targetEnrollment: TrainingEnrollment | null) => {
+      stopAllMedia();
+      setCurrentTime(0);
+      setRonosPinInput('');
+      setRonosVerifiedInfo(null);
+      setRonosErrorMsg(null);
+      setQuizAnswers({});
+      setQuizSubmittedResult(null);
+      setStopwatchRunning(false);
+      setStopwatchElapsedDeci(0);
+      setDay2SavedBanner(false);
+      setDay2WarningMsg(null);
+      setDay3WarningMsg(null);
+      setDay4WarningMsg(null);
+      setDay4ExamAnswers({});
+      setDay4AuditChecks(DEFAULT_DAY4_AUDIT_STATE);
+      setCertificationResult(null);
+
+      if (targetEnrollment) {
+        setActiveTraineeId(targetEnrollment.id);
+        setDay2Reps(Number(targetEnrollment.day2_supervised_reps || 0));
+        setDay2Rubric(
+          targetEnrollment.day2_checklist_json && typeof targetEnrollment.day2_checklist_json === 'object'
+            ? targetEnrollment.day2_checklist_json
+            : {}
+        );
+        setDay2Notes(String(targetEnrollment.day2_supervisor_notes || ''));
+        setDay3SoloReps(Number(targetEnrollment.day3_solo_reps || 0));
+        setDay3BestTimeSec(
+          targetEnrollment.day3_best_time_seconds !== null &&
+            targetEnrollment.day3_best_time_seconds !== undefined
+            ? Number(targetEnrollment.day3_best_time_seconds)
+            : null
+        );
+        setDay3ActivitiesChecked(
+          targetEnrollment.day3_checklist_json && typeof targetEnrollment.day3_checklist_json === 'object'
+            ? targetEnrollment.day3_checklist_json
+            : {}
+        );
+        if (targetEnrollment.day4_completed) {
+          setCertificationResult({
+            passed: true,
+            combinedScore: Number(targetEnrollment.day4_final_score ?? 100),
+            folio: targetEnrollment.certificate_folio || null,
+          });
+        }
+        const dayNum = Number(targetEnrollment.current_day || 1);
+        setActiveTab(dayNum >= 4 ? 'day4' : dayNum === 3 ? 'day3' : dayNum === 2 ? 'day2' : 'day1');
+        setDay1SubStep('video');
+      } else {
+        setActiveTraineeId(null);
+        setDay2Reps(0);
+        setDay2Rubric({});
+        setDay2Notes('');
+        setDay3SoloReps(0);
+        setDay3BestTimeSec(null);
+        setDay3ActivitiesChecked({});
+        setActiveTab('day1');
+        setDay1SubStep('video');
+      }
+    },
+    [stopAllMedia]
+  );
+
+  // Load real Supabase catalog, stores, roster and enrollments
   const loadTrainingData = useCallback(async () => {
+    setLoadingData(true);
+    setLoadError(null);
     try {
+      const authHeaders = getClientAuthHeaders();
       const [catRes, enrRes] = await Promise.all([
-        fetch('/api/training/catalog'),
-        fetch('/api/training/enrollments'),
+        fetch('/api/training/catalog', { cache: 'no-store', headers: authHeaders, credentials: 'include' }),
+        fetch('/api/training/enrollments', { cache: 'no-store', headers: authHeaders, credentials: 'include' }),
       ]);
       const catJson = await catRes.json();
-      const enrJson = await enrRes.json();
+      if (!catRes.ok || !catJson.ok) {
+        throw new Error(catJson.error || 'Error loading training catalog');
+      }
+      setVideos(catJson.modules || []);
+      setPositions(catJson.positions || []);
+      const realStores: RealStoreInfo[] = catJson.stores || [];
+      setStores(realStores);
+      setAllEmployees(catJson.employees || []);
+      setRecipeProducts(catJson.recipeProducts || []);
 
-      if (catJson.ok) {
-        setVideos(catJson.modules || []);
-        setPositions(catJson.positions || []);
-        const realStores: RealStoreInfo[] = catJson.stores || [];
-        setStores(realStores);
-        setAllEmployees(catJson.employees || []);
-        setRecipeProducts(catJson.recipeProducts || []);
-
-        if (realStores.length > 0) {
-          const userStoreId = user?.store_id ? Number(user.store_id) : null;
-          const preferred =
-            (userStoreId && realStores.find((s) => Number(s.id) === userStoreId)) ||
-            realStores.find((s) => Number(s.id) === 14) ||
-            realStores[0];
-          if (preferred) {
-            setSelectedStoreId((prev) =>
-              realStores.some((s) => Number(s.id) === Number(prev)) ? prev : Number(preferred.id)
-            );
-          }
+      if (enrRes.ok) {
+        const enrJson = await enrRes.json();
+        if (enrJson.ok) {
+          setEnrollments(enrJson.enrollments || []);
         }
       }
-      if (enrJson.ok) {
-        setEnrollments(enrJson.enrollments || []);
-      }
-    } catch (err) {
-      console.error('[TrainingAcademyPage] Error loading data:', err);
+    } catch (err: any) {
+      console.error('[TrainingPage] Load error:', err);
+      setLoadError(err?.message || 'load_error');
+    } finally {
+      setLoadingData(false);
     }
-  }, [user?.store_id]);
+  }, []);
 
   useEffect(() => {
     loadTrainingData();
   }, [loadTrainingData]);
 
-  const selectedStore = useMemo(() => {
-    return stores.find((s) => Number(s.id) === Number(selectedStoreId)) || stores[0] || null;
-  }, [stores, selectedStoreId]);
+  // Default ADMIN directly into Videos & Steps Review (without requiring employee selection)
+  useEffect(() => {
+    if (isAdmin && !adminViewInitRef.current) {
+      adminViewInitRef.current = true;
+      if (!selectedEmployeeId) {
+        setMainView('videos');
+      }
+    }
+  }, [isAdmin, selectedEmployeeId]);
 
+  // Initialize store once stores & user are available
+  useEffect(() => {
+    if (stores.length === 0 || storeInitializedRef.current) return;
+    const userStoreNum = Number(user?.store_id || 0);
+    const preferred =
+      (userStoreNum > 0 && stores.find((s) => Number(s.id) === userStoreNum)) ||
+      stores.find((s) => Number(s.id) === 14) ||
+      stores[0];
+    if (preferred) {
+      setSelectedStoreId(Number(preferred.id));
+      storeInitializedRef.current = true;
+    }
+  }, [stores, user?.store_id]);
+
+  // 15 Active Real Stores & Selected Store
+  const selectedStore = useMemo(
+    () => stores.find((s) => Number(s.id) === Number(selectedStoreId)) || stores[0] || null,
+    [stores, selectedStoreId]
+  );
+
+  // Active Roster of Selected Store from Planificador
   const storeEmployees = useMemo(() => {
     if (!selectedStore) return [];
     const extId = String(selectedStore.external_id || '');
@@ -377,36 +579,57 @@ export default function TrainingAcademyPage() {
     () => storeEmployees.filter((emp) => emp.is_new_hire),
     [storeEmployees]
   );
-
   const certifiedStoreEmployees = useMemo(
-    () => storeEmployees.filter((emp) => emp.auto_certified),
+    () => storeEmployees.filter((emp) => !emp.is_new_hire),
     [storeEmployees]
   );
 
   const filteredStoreEmployees = useMemo(() => {
-    if (employeeFilterMode === 'new_hires') return newHireStoreEmployees;
-    if (employeeFilterMode === 'certified') return certifiedStoreEmployees;
-    return storeEmployees;
-  }, [employeeFilterMode, newHireStoreEmployees, certifiedStoreEmployees, storeEmployees]);
+    const base =
+      employeeFilterMode === 'new_hires'
+        ? newHireStoreEmployees
+        : employeeFilterMode === 'certified'
+        ? certifiedStoreEmployees
+        : storeEmployees;
+    const q = employeeSearch.trim().toLowerCase();
+    if (!q) return base;
+    return base.filter(
+      (e) =>
+        e.full_name.toLowerCase().includes(q) ||
+        e.job_titles.some((j) => j.toLowerCase().includes(q)) ||
+        (e.job_role_title_es || '').toLowerCase().includes(q) ||
+        (e.job_role_title_en || '').toLowerCase().includes(q)
+    );
+  }, [
+    employeeFilterMode,
+    employeeSearch,
+    newHireStoreEmployees,
+    certifiedStoreEmployees,
+    storeEmployees,
+  ]);
 
+  // Real Managers & Shift Leaders at Selected Store
   const storeTrainers = useMemo(() => {
-    const names = new Set<string>();
-    if (selectedStore?.managers) {
+    const list: string[] = [];
+    if (selectedStore?.managers?.length) {
       for (const m of selectedStore.managers) {
-        if (m.fullName) names.add(`${m.fullName} (${m.role})`);
+        if (m.fullName && !list.includes(m.fullName)) {
+          list.push(m.fullName);
+        }
       }
     }
     for (const emp of storeEmployees) {
-      if (emp.is_leader && emp.full_name) {
-        const roleLabel = emp.job_titles[0] || 'Líder';
-        names.add(`${emp.full_name} (${roleLabel})`);
+      if (emp.is_leader) {
+        if (!list.includes(emp.full_name)) {
+          list.push(emp.full_name);
+        }
       }
     }
-    if (selectedStore?.supervisor_name) {
-      names.add(`${selectedStore.supervisor_name} (Supervisor)`);
+    if (user?.name && !list.includes(user.name)) {
+      list.unshift(user.name);
     }
-    return Array.from(names);
-  }, [selectedStore, storeEmployees]);
+    return list.length > 0 ? list : [t('training.fallback_store_manager')];
+  }, [selectedStore, storeEmployees, user?.name, t]);
 
   useEffect(() => {
     if (storeTrainers.length > 0 && (!selectedTrainerName || !storeTrainers.includes(selectedTrainerName))) {
@@ -414,220 +637,45 @@ export default function TrainingAcademyPage() {
     }
   }, [storeTrainers, selectedTrainerName]);
 
-  const selectedEmployee = useMemo(() => {
-    if (!selectedEmployeeId) return null;
-    return storeEmployees.find((e) => e.id === selectedEmployeeId) || null;
-  }, [storeEmployees, selectedEmployeeId]);
+  const selectedEmployee = useMemo(
+    () =>
+      storeEmployees.find((e) => e.id === selectedEmployeeId) ||
+      allEmployees.find((e) => e.id === selectedEmployeeId) ||
+      null,
+    [storeEmployees, allEmployees, selectedEmployeeId]
+  );
 
   const activeTrainee = useMemo(
     () => enrollments.find((e) => e.id === activeTraineeId) || null,
     [enrollments, activeTraineeId]
   );
 
-  const ensureEnrollmentForEmployee = useCallback(
-    async (
-      emp: RealPlanificadorEmployee,
-      stationKey: string,
-      store: RealStoreInfo | null,
-      trainer: string
-    ): Promise<TrainingEnrollment | null> => {
-      if (!store) return null;
-      const existingLocal = enrollments.find(
-        (enr) =>
-          Number(enr.store_id) === Number(store.id) &&
-          enr.employee_name.toLowerCase() === emp.full_name.toLowerCase() &&
-          enr.position_key === stationKey
-      );
-      if (existingLocal) {
-        setActiveTraineeId(existingLocal.id);
-        return existingLocal;
-      }
-
-      try {
-        const res = await fetch('/api/training/enrollments', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            employeeName: emp.full_name,
-            employeeId: emp.id,
-            employeePhone: emp.phone,
-            storeId: store.id,
-            storeName: store.name,
-            positionKey: stationKey,
-            trainerName: trainer || storeTrainers[0] || 'Manager',
-            durationDays: 4,
-          }),
-        });
-        const data = await res.json();
-        if (data.ok && data.enrollment) {
-          setEnrollments((prev) => {
-            const without = prev.filter((x) => x.id !== data.enrollment.id);
-            return [data.enrollment, ...without];
-          });
-          setActiveTraineeId(data.enrollment.id);
-          return data.enrollment;
-        }
-      } catch (err) {
-        console.error('[TrainingAcademyPage] Error ensuring employee enrollment:', err);
-      }
-      return null;
-    },
-    [enrollments, storeTrainers]
-  );
-
-  const handleSelectPlanificadorEmployee = async (empId: string) => {
-    setSelectedEmployeeId(empId);
-    setRonosVerifiedInfo(null);
-    setRonosPinInput('');
-    setRonosErrorMsg(null);
-    setAllowVeteranRetraining(false);
-
-    if (!empId) {
-      setActiveTraineeId(null);
-      return;
-    }
-    const emp = storeEmployees.find((e) => e.id === empId);
-    if (!emp) return;
-
-    setEmailInput(emp.email || '');
-
-    const validStation = positions.some((p) => p.positionKey === emp.assigned_station)
-      ? emp.assigned_station
-      : selectedPositionKey;
-    setSelectedPositionKey(validStation);
-
-    if (emp.is_new_hire) {
-      await ensureEnrollmentForEmployee(emp, validStation, selectedStore, selectedTrainerName);
-    }
-  };
-
-  // Point 3: Verify 4-digit RONOS PIN live
-  const handleVerifyRonosPin = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!selectedStore || !/^\d{4}$/.test(ronosPinInput.trim())) {
-      setRonosErrorMsg('Ingresa los 4 dígitos numéricos del PIN de RONOS.');
-      return;
-    }
-    setRonosVerifyBusy(true);
-    setRonosErrorMsg(null);
-    try {
-      const res = await fetch('/api/training/ronos-auth', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          storeId: selectedStore.id,
-          storeName: selectedStore.name,
-          pin: ronosPinInput.trim(),
-          employeeId: selectedEmployee?.id || null,
-          expectedEmployeeName: selectedEmployee?.full_name || null,
-          stationKey: selectedPositionKey,
-          trainerName: selectedTrainerName,
-          autoCertified: selectedEmployee?.auto_certified || false,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok || !data.ok) {
-        setRonosErrorMsg(data.error || 'PIN de RONOS inválido.');
-      } else {
-        setRonosVerifiedInfo(data.ronosEmployee);
-        // Si no había empleado seleccionado, intentar seleccionarlo por nombre
-        if (!selectedEmployeeId && data.ronosEmployee?.fullName) {
-          const matched = storeEmployees.find(
-            (emp) => emp.full_name.toLowerCase() === String(data.ronosEmployee.fullName).toLowerCase()
-          );
-          if (matched) {
-            setSelectedEmployeeId(matched.id);
-          }
-        }
-      }
-    } catch {
-      setRonosErrorMsg('Error de conexión con RONOS.');
-    } finally {
-      setRonosVerifyBusy(false);
-    }
-  };
-
-  // Point 4: Send Training Link by Email (Zero SMS)
-  const handleSendTrainingEmail = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!selectedStore || !selectedEmployee) return;
-    setSendingEmailBusy(true);
-    setEmailFeedback(null);
-    try {
-      const res = await fetch('/api/training/send-email', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          storeId: selectedStore.id,
-          storeName: selectedStore.name,
-          employeeId: selectedEmployee.id,
-          employeeName: selectedEmployee.full_name,
-          email: emailInput.trim(),
-          stationLabel: selectedPositionKey,
-          trainerName: selectedTrainerName,
-          originUrl: typeof window !== 'undefined' ? window.location.origin : undefined,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok || !data.ok) {
-        setEmailFeedback({
-          ok: false,
-          msg: data.error || 'No se pudo enviar el correo.',
-        });
-      } else {
-        setEmailFeedback({
-          ok: true,
-          msg: `Correo enviado exitosamente a ${data.sentTo}. El empleado ya puede abrirlo desde su teléfono e ingresar con su clave de RONOS.`,
-        });
-        setAllEmployees((prev) =>
-          prev.map((emp) =>
-            emp.id === selectedEmployee.id ? { ...emp, email: emailInput.trim() } : emp
-          )
-        );
-      }
-    } catch {
-      setEmailFeedback({ ok: false, msg: 'Error de red enviando el correo.' });
-    } finally {
-      setSendingEmailBusy(false);
-    }
-  };
-
-  const currentPosition = useMemo(
-    () => positions.find((p) => p.positionKey === selectedPositionKey) || positions[0] || null,
-    [positions, selectedPositionKey]
-  );
-
-  const groupPositions = useMemo(
-    () => positions.filter((p) => p.groupKey === selectedGroup),
-    [positions, selectedGroup]
-  );
-
-  // Combine modules with recipeProducts that have custom/uploaded videos or steps
+  // Unify all SOP modules (catalog videos + recipeProducts that have custom uploaded videos)
   const allAvailableModules = useMemo(() => {
     const bySlug = new Map<string, TrainingSopModuleSpec>();
     for (const v of videos) {
       bySlug.set(v.slug, v);
     }
     for (const rp of recipeProducts) {
-      if (!bySlug.has(rp.slug)) {
+      if (!bySlug.has(rp.slug) && rp.videoUrl) {
         bySlug.set(rp.slug, {
           slug: rp.slug,
           positionKey: rp.positionKey,
           groupKey: 'cocina',
           titleEs: rp.name,
           titleEn: rp.name,
-          subtitleEs: `${rp.category} • Receta Oficial`,
-          subtitleEn: `${rp.category} • Official Recipe`,
+          subtitleEs: rp.category,
+          subtitleEn: rp.category,
           sourceVideoFilename: rp.sourceVideoFilename,
           videoSlug: rp.slug,
           videoUrl: rp.videoUrl,
-          durationSeconds: rp.durationSeconds,
-          targetPrepSeconds: rp.targetPrepSeconds,
+          durationSeconds: rp.durationSeconds || 45,
+          targetPrepSeconds: rp.targetPrepSeconds || 45,
           grillTempFahrenheit: rp.grillTempFahrenheit,
           steps: rp.steps || [],
           recipeSpecs: rp.recipeSpecs || [],
           quiz: [],
-          dayPlan: [],
+          dayPlan: videos[0]?.dayPlan || [],
           sortOrder: 99,
         });
       }
@@ -635,712 +683,209 @@ export default function TrainingAcademyPage() {
     return Array.from(bySlug.values());
   }, [videos, recipeProducts]);
 
-  const stationVideos = useMemo(() => {
-    const withVideoOnly = allAvailableModules.filter((v) => Boolean(v.videoUrl));
-    if (!currentPosition) return withVideoOnly;
-    if (showAllVideosInSelector) return withVideoOnly;
-    const matched = withVideoOnly.filter(
-      (v) =>
-        currentPosition.primaryVideoSlugs.includes(v.slug) ||
-        v.positionKey === currentPosition.positionKey
-    );
-    return matched.length > 0 ? matched : withVideoOnly;
-  }, [allAvailableModules, currentPosition, showAllVideosInSelector]);
+  // Role Stations (from employee's real job role)
+  const roleRequiredStations = useMemo<RoleStationItem[]>(() => {
+    if (selectedEmployee?.required_stations?.length) {
+      return selectedEmployee.required_stations;
+    }
+    return [];
+  }, [selectedEmployee]);
 
-  const currentVideo = useMemo(() => {
-    const exactMatch = allAvailableModules.find((v) => v.slug === selectedVideoSlug);
-    if (exactMatch && exactMatch.videoUrl) return exactMatch;
-    if (stationVideos.length > 0) return stationVideos[0];
-    return exactMatch || allAvailableModules[0] || null;
-  }, [allAvailableModules, stationVideos, selectedVideoSlug]);
-
-  const currentStepIndex = useMemo(() => {
-    if (!currentVideo || !currentVideo.steps.length) return 0;
-    const idx = currentVideo.steps.findIndex(
-      (s) => currentTime >= s.startSec && currentTime < s.endSec
-    );
-    return idx >= 0 ? idx : currentVideo.steps.length - 1;
-  }, [currentVideo, currentTime]);
-
-  const currentStep = useMemo(() => {
-    if (!currentVideo || !currentVideo.steps.length) return null;
-    return currentVideo.steps[currentStepIndex] || currentVideo.steps[0];
-  }, [currentVideo, currentStepIndex]);
-
-  const playStepVoiceover = useCallback(
-    (step: TrainingVideoStep) => {
-      if (!voiceEnabled) return;
-      const audioEl = audioRef.current;
-      if (!audioEl) return;
-
-      const textToSpeak = lang === 'en' ? step.narrationEn : step.narrationEs;
-      const srcUrl =
-        lang === 'en' && step.audioUrlEn
-          ? step.audioUrlEn
-          : lang === 'es' && step.audioUrlEs
-          ? step.audioUrlEs
-          : `/api/training/tts?text=${encodeURIComponent(textToSpeak)}&voice=Orus&lang=${lang}`;
-
-      if (videoRef.current) {
-        videoRef.current.muted = true;
-        videoRef.current.volume = 0;
-      }
-
-      audioEl.src = srcUrl;
-      setIsVoiceSpeaking(true);
-      audioEl.play().catch(() => {
-        setIsVoiceSpeaking(false);
-      });
-    },
-    [voiceEnabled, lang]
+  const currentPosition = useMemo(
+    () => positions.find((p) => p.positionKey === selectedPositionKey) || positions[0] || null,
+    [positions, selectedPositionKey]
   );
 
-  const handleAudioEnded = useCallback(() => {
-    setIsVoiceSpeaking(false);
-    if (videoRef.current) {
-      videoRef.current.muted = true;
-      videoRef.current.volume = 0;
-      if (autoPausedForVoice) {
-        setAutoPausedForVoice(false);
-        videoRef.current.play().catch(() => {});
-      }
-    }
-  }, [autoPausedForVoice]);
+  const pickVideoSlugForStation = useCallback(
+    (stationKey: string): string => {
+      const posMeta = positions.find((p) => p.positionKey === stationKey);
+      const isTortasStation = stationKey === 'TORTAS/QUESADILLAS' || stationKey === 'TORTAS/MULITAS';
 
-  const handleVideoTimeUpdate = useCallback(() => {
-    const vid = videoRef.current;
-    if (!vid || !currentVideo) return;
-    const nowSec = vid.currentTime;
-    setCurrentTime(nowSec);
+      const stationWithVideo = allAvailableModules.find(
+        (v) =>
+          Boolean(v.videoUrl) &&
+          (isTortasStation
+            ? v.positionKey === 'TORTAS/QUESADILLAS' || v.positionKey === 'TORTAS/MULITAS'
+            : v.positionKey === stationKey || Boolean(posMeta?.primaryVideoSlugs.includes(v.slug)))
+      );
+      if (stationWithVideo) return stationWithVideo.slug;
 
-    const activeStep = currentVideo.steps.find(
-      (s) => nowSec >= s.startSec && nowSec < s.endSec
+      const stationCategory = recipeProducts.find((p) =>
+        isTortasStation
+          ? p.positionKey === 'TORTAS/QUESADILLAS' || p.positionKey === 'TORTAS/MULITAS'
+          : p.positionKey === stationKey
+      );
+      if (stationCategory) return stationCategory.slug;
+
+      const anyActive = allAvailableModules.find((v) => Boolean(v.videoUrl));
+      return anyActive?.slug || 'burrito-ok';
+    },
+    [allAvailableModules, positions, recipeProducts]
+  );
+
+  const stationVideos = useMemo(() => {
+    const activeOnly = allAvailableModules.filter((v) => Boolean(v.videoUrl) && v.videoUrl !== 'DELETED');
+    if (showAllVideosInSelector) return activeOnly;
+    const isTortas =
+      selectedPositionKey === 'TORTAS/QUESADILLAS' || selectedPositionKey === 'TORTAS/MULITAS';
+    const matched = activeOnly.filter(
+      (v) =>
+        Boolean(currentPosition?.primaryVideoSlugs.includes(v.slug)) ||
+        (isTortas
+          ? v.positionKey === 'TORTAS/QUESADILLAS' || v.positionKey === 'TORTAS/MULITAS'
+          : v.positionKey === selectedPositionKey)
     );
+    return matched;
+  }, [allAvailableModules, currentPosition, selectedPositionKey, showAllVideosInSelector]);
 
-    if (activeStep) {
-      if (!vid.paused && lastSpokenStepIdRef.current !== activeStep.id) {
-        lastSpokenStepIdRef.current = activeStep.id;
-        playStepVoiceover(activeStep);
-      }
-
-      if (
-        autoPausePerStep &&
-        voiceEnabled &&
-        isVoiceSpeaking &&
-        !vid.paused &&
-        nowSec >= activeStep.endSec - 0.35
-      ) {
-        vid.pause();
-        setAutoPausedForVoice(true);
-      }
-    }
-  }, [currentVideo, playStepVoiceover, autoPausePerStep, voiceEnabled, isVoiceSpeaking]);
-
-  const jumpToStep = (step: TrainingVideoStep) => {
-    const vid = videoRef.current;
-    if (!vid) return;
-    setAutoPausedForVoice(false);
-    lastSpokenStepIdRef.current = step.id;
-    vid.currentTime = step.startSec;
-    setCurrentTime(step.startSec);
-    vid
-      .play()
-      .then(() => {
-        setIsPlaying(true);
-        playStepVoiceover(step);
-      })
-      .catch(() => {});
-  };
-
-  const togglePlayVideo = () => {
-    const vid = videoRef.current;
-    if (!vid) return;
-    setAutoPausedForVoice(false);
-    if (vid.paused) {
-      if (vid.currentTime < 0.3 && currentVideo?.steps[0]) {
-        lastSpokenStepIdRef.current = currentVideo.steps[0].id;
-        playStepVoiceover(currentVideo.steps[0]);
-      }
-      vid
-        .play()
-        .then(() => setIsPlaying(true))
-        .catch(() => {});
-    } else {
-      vid.pause();
-      if (audioRef.current) audioRef.current.pause();
-      setIsPlaying(false);
-      setIsVoiceSpeaking(false);
-    }
-  };
-
-  // Point 9: Fullscreen handler on clean video player
-  const handleToggleFullscreen = () => {
-    const container = videoContainerRef.current || videoRef.current;
-    if (!container) return;
-    if (document.fullscreenElement) {
-      document.exitFullscreen().catch(() => {});
-    } else if (container.requestFullscreen) {
-      container.requestFullscreen().catch(() => {});
-    }
-  };
-
-  // Point 7: Pause video at current second and open box to add step with text -> AI Voice
-  const handlePauseToAddStepHere = () => {
-    const vid = videoRef.current;
-    if (vid && !vid.paused) {
-      vid.pause();
-    }
-    if (audioRef.current) {
-      audioRef.current.pause();
-    }
-    setIsPlaying(false);
-    setAutoPausedForVoice(false);
-    const sec = vid ? Math.floor(vid.currentTime) : Math.floor(currentTime);
-    setPausedTimestampSec(sec);
-    setNewStepTitle('');
-    setNewStepNarration('');
-    setNewStepPortion('');
-    setShowAddStepAtPauseBox(true);
-  };
-
-  const handleSavePausedStepWithAiVoice = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!currentVideo || !newStepNarration.trim()) return;
-    setSavingPausedStepBusy(true);
-    try {
-      const startSec = Math.max(0, pausedTimestampSec);
-      const endSec = startSec + 6;
-      const newStep: TrainingVideoStep = {
-        id: `${currentVideo.slug}-step-${Date.now()}`,
-        stepNumber: currentVideo.steps.length + 1,
-        startSec,
-        endSec,
-        timestampLabel: `${formatSeconds(startSec)} - ${formatSeconds(endSec)}`,
-        titleEs: newStepTitle.trim() || `Paso en ${formatSeconds(startSec)}`,
-        titleEn: newStepTitle.trim() || `Step at ${formatSeconds(startSec)}`,
-        narrationEs: newStepNarration.trim(),
-        narrationEn: newStepNarration.trim(),
-        keyPortionEs: newStepPortion.trim() || 'Estándar SOP',
-        keyPortionEn: newStepPortion.trim() || 'SOP Standard',
-        utensilEs: 'Estándar de línea',
-        utensilEn: 'Line standard',
-      };
-
-      const nextSteps = [...currentVideo.steps, newStep];
-
-      const res = await fetch('/api/training/catalog', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          slug: currentVideo.slug,
-          positionKey: currentVideo.positionKey,
-          titleEs: currentVideo.titleEs,
-          titleEn: currentVideo.titleEn,
-          steps: nextSteps,
-          regenerateVoice: true,
-        }),
-      });
-      const data = await res.json();
-      if (data.ok && data.steps) {
-        setVideos((prev) => {
-          const exists = prev.some((v) => v.slug === currentVideo.slug);
-          if (exists) {
-            return prev.map((v) =>
-              v.slug === currentVideo.slug ? { ...v, steps: data.steps } : v
-            );
-          }
-          return [...prev, { ...currentVideo, steps: data.steps }];
-        });
-        setRecipeProducts((prev) =>
-          prev.map((rp) =>
-            rp.slug === currentVideo.slug ? { ...rp, steps: data.steps } : rp
-          )
-        );
-        setShowAddStepAtPauseBox(false);
-        // Play the newly generated AI voice immediately
-        const added = data.steps.find((s: TrainingVideoStep) => s.startSec === startSec);
-        if (added) {
-          playStepVoiceover(added);
-        }
-      }
-    } catch (err) {
-      console.error('[TrainingAcademyPage] Error saving paused step:', err);
-    } finally {
-      setSavingPausedStepBusy(false);
-    }
-  };
-
-  // Point 6: Upload / Replace Video for any Recipe Product
-  const triggerVideoUploadForProduct = (prod: {
-    slug: string;
-    name: string;
-    positionKey: string;
-    ingredients: any[];
-  }) => {
-    setPendingUploadProduct(prod);
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
-      fileInputRef.current.click();
-    }
-  };
-
-  const handleVideoFileSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file || !pendingUploadProduct) return;
-
-    setUploadingVideoSlug(pendingUploadProduct.slug);
-    try {
-      // Read actual video duration in browser before uploading so AI voice steps adapt 100% to the video length
-      const videoDurationSec = await new Promise<number>((resolve) => {
-        const tempVid = document.createElement('video');
-        tempVid.preload = 'metadata';
-        tempVid.onloadedmetadata = () => {
-          URL.revokeObjectURL(tempVid.src);
-          const dur = Number(tempVid.duration);
-          resolve(Number.isFinite(dur) && dur > 2 ? Math.round(dur) : 45);
-        };
-        tempVid.onerror = () => resolve(45);
-        tempVid.src = URL.createObjectURL(file);
-      });
-
-      const formData = new FormData();
-      formData.append('file', file);
-      formData.append('slug', pendingUploadProduct.slug);
-      formData.append('titleEs', pendingUploadProduct.name);
-      formData.append('titleEn', pendingUploadProduct.name);
-      formData.append('positionKey', pendingUploadProduct.positionKey);
-      formData.append('durationSeconds', String(videoDurationSec));
-      formData.append('ingredientsJson', JSON.stringify(pendingUploadProduct.ingredients || []));
-      formData.append('autoAdaptVoice', 'true');
-
-      const res = await fetch('/api/training/video', {
-        method: 'POST',
-        body: formData,
-      });
-      const data = await res.json();
-      if (data.ok && data.videoUrl) {
-        await loadTrainingData();
-        setSelectedVideoSlug(pendingUploadProduct.slug);
-        setActiveTab('day1');
-        setDay1SubStep('video');
-      }
-    } catch (err) {
-      console.error('[TrainingAcademyPage] Video upload error:', err);
-    } finally {
-      setUploadingVideoSlug(null);
-      setPendingUploadProduct(null);
-    }
-  };
-
-  // Point 6: Delete Video if procedure changes
-  const handleDeleteProductVideo = async (slug: string) => {
-    setDeletingVideoSlug(slug);
-    try {
-      const res = await fetch(`/api/training/catalog?slug=${encodeURIComponent(slug)}`, {
-        method: 'DELETE',
-      });
-      const data = await res.json();
-      if (data.ok) {
-        setVideos((prev) =>
-          prev.map((v) => (v.slug === slug ? { ...v, videoUrl: null } : v))
-        );
-        setRecipeProducts((prev) =>
-          prev.map((rp) =>
-            rp.slug === slug ? { ...rp, hasVideo: false, videoUrl: null } : rp
-          )
-        );
-      }
-    } catch (err) {
-      console.error('[TrainingAcademyPage] Delete video error:', err);
-    } finally {
-      setDeletingVideoSlug(null);
-    }
-  };
-
-  useEffect(() => {
-    if (!stopwatchRunning) return;
-    const timer = setInterval(() => {
-      setStopwatchElapsedDeci((prev) => prev + 1);
-    }, 100);
-    return () => clearInterval(timer);
-  }, [stopwatchRunning]);
-
-  const saveTraineeProgress = async (action: string, payload: Record<string, any>) => {
-    let targetEnrollment = activeTrainee;
-    if (!targetEnrollment && selectedEmployee) {
-      targetEnrollment = await ensureEnrollmentForEmployee(
-        selectedEmployee,
-        selectedPositionKey,
-        selectedStore,
-        selectedTrainerName
-      );
-    }
-    if (!targetEnrollment) return;
-
-    try {
-      const res = await fetch('/api/training/enrollments', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          id: targetEnrollment.id,
-          action,
-          ...payload,
-        }),
-      });
-      const data = await res.json();
-      if (data.ok && data.enrollment) {
-        setEnrollments((prev) =>
-          prev.map((e) => (e.id === data.enrollment.id ? data.enrollment : e))
-        );
-      }
-    } catch (err) {
-      console.error('[TrainingAcademyPage] Error saving progress:', err);
-    }
-  };
-
-  const handleGradeDay1Quiz = async () => {
-    if (!currentVideo) return;
-    const questions = currentVideo.quiz;
-    if (!questions.length) {
-      setQuizSubmittedResult({ score: 100, passed: true });
-      return;
-    }
-    let correctCount = 0;
-    for (const q of questions) {
-      if (quizAnswers[q.id] === q.correctIndex) {
-        correctCount++;
-      }
-    }
-    const score = Math.round((correctCount / questions.length) * 100);
-    const passed = score >= 80;
-    setQuizSubmittedResult({ score, passed });
-
-    if (passed) {
-      const watched = Array.from(
-        new Set([...(activeTrainee?.day1_videos_watched || []), currentVideo.slug])
-      );
-      await saveTraineeProgress('complete_day1', {
-        quizScore: score,
-        videosWatched: watched,
-      });
-    }
-  };
-
-  const handleCompleteDay2 = async () => {
-    setDay2SavedBanner(true);
-    setTimeout(() => setDay2SavedBanner(false), 4500);
-    await saveTraineeProgress('complete_day2', {
-      supervisedReps: day2Reps,
-      checklistJson: day2Rubric,
-      approvedBy: selectedTrainerName,
-      supervisorNotes: '',
-    });
-    setActiveTab('day3');
-  };
-
-  const handleStopAndRecordStopwatch = async () => {
-    setStopwatchRunning(false);
-    const recordedSec = Math.max(1, Math.round(stopwatchElapsedDeci / 10));
-    const newBest =
-      day3BestTimeSec === null ? recordedSec : Math.min(day3BestTimeSec, recordedSec);
-    const newReps = day3SoloReps + 1;
-    setDay3BestTimeSec(newBest);
-    setDay3SoloReps(newReps);
-
-    await saveTraineeProgress('update_progress', {
-      day3SoloReps: newReps,
-      day3BestTimeSeconds: newBest,
-      day3ChecklistJson: day3ActivitiesChecked,
-    });
-  };
-
-  const handleCompleteDay3 = async () => {
-    await saveTraineeProgress('complete_day3', {
-      soloReps: day3SoloReps,
-      bestTimeSeconds: day3BestTimeSec,
-      checklistJson: day3ActivitiesChecked,
-      approvedBy: selectedTrainerName,
-    });
-    setActiveTab('day4');
-  };
-
-  const handleIssueDay4Certification = async () => {
-    if (!currentVideo) return;
-    const questions = currentVideo.quiz;
-    let correct = 0;
-    for (const q of questions) {
-      if (day4ExamAnswers[q.id] === q.correctIndex) correct++;
-    }
-    const examScore = questions.length > 0 ? Math.round((correct / questions.length) * 100) : 100;
-
-    const weights: Record<string, number> = {
-      scale_accuracy: 25,
-      assembly_technique: 25,
-      speed_benchmark: 20,
-      temp_food_safety: 15,
-      autonomous_routines: 15,
-    };
-    let practicalScore = 0;
-    for (const [k, pts] of Object.entries(weights)) {
-      if (day4AuditChecks[k]) practicalScore += pts;
-    }
-
-    const combinedScore = Math.round((examScore + practicalScore) / 2);
-    const passed = combinedScore >= 90;
-    const fallbackFolio = passed
-      ? selectedEmployee?.certificate_folio ||
-        `TG-CERT-${new Date().getFullYear()}-S${selectedStore?.id || 14}-${String(
-          Math.floor(1000 + Math.random() * 9000)
-        )}`
-      : null;
-
-    setCertificationResult({
-      passed,
-      combinedScore,
-      examScore,
-      practicalScore,
-      folio: activeTrainee?.certificate_folio || fallbackFolio,
-    });
-
-    await saveTraineeProgress('certify_day4', {
-      examScore,
-      practicalScore,
-      certifiedBy: selectedTrainerName,
-    });
-  };
-
-  const openStepEditor = () => {
-    if (!currentVideo) return;
-    setEditableSteps(JSON.parse(JSON.stringify(currentVideo.steps)));
-    setShowStepEditorModal(true);
-  };
-
-  const handleAiRefineStep = async (idx: number) => {
-    if (!currentVideo) return;
-    const step = editableSteps[idx];
-    if (!step) return;
-    setAiGeneratingStepIdx(idx);
-    try {
-      const res = await fetch('/api/training/tts', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          mode: 'ai-explain',
-          dishTitle: lang === 'en' ? currentVideo.titleEn : currentVideo.titleEs,
-          stepTitle: lang === 'en' ? step.titleEn : step.titleEs,
-          rawHint: lang === 'en' ? step.narrationEn : step.narrationEs,
-          stepNumber: step.stepNumber,
-          voice: 'Orus',
-        }),
-      });
-      const data = await res.json();
-      if (data.ok) {
-        setEditableSteps((prev) => {
-          const next = [...prev];
-          next[idx] = {
-            ...next[idx],
-            narrationEs: data.narrationEs || next[idx].narrationEs,
-            narrationEn: data.narrationEn || next[idx].narrationEn,
-            keyPortionEs: data.keyPortionEs || next[idx].keyPortionEs,
-            keyPortionEn: data.keyPortionEn || next[idx].keyPortionEn,
-            audioUrlEs: data.audioUrlEs || next[idx].audioUrlEs,
-            audioUrlEn: data.audioUrlEn || next[idx].audioUrlEn,
-          };
-          return next;
-        });
-      }
-    } catch (err) {
-      console.error('[TrainingAcademyPage] AI refine error:', err);
-    } finally {
-      setAiGeneratingStepIdx(null);
-    }
-  };
-
-  const handleSaveEditedSteps = async () => {
-    if (!currentVideo) return;
-    setSavingStepsBusy(true);
-    try {
-      const res = await fetch('/api/training/catalog', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          slug: currentVideo.slug,
-          positionKey: currentVideo.positionKey,
-          titleEs: currentVideo.titleEs,
-          titleEn: currentVideo.titleEn,
-          steps: editableSteps,
-          regenerateVoice: true,
-        }),
-      });
-      const data = await res.json();
-      if (data.ok && data.steps) {
-        setVideos((prev) =>
-          prev.map((v) => (v.slug === currentVideo.slug ? { ...v, steps: data.steps } : v))
-        );
-        setRecipeProducts((prev) =>
-          prev.map((rp) => (rp.slug === currentVideo.slug ? { ...rp, steps: data.steps } : rp))
-        );
-        setShowStepEditorModal(false);
-      }
-    } catch (err) {
-      console.error('[TrainingAcademyPage] Save steps error:', err);
-    } finally {
-      setSavingStepsBusy(false);
-    }
-  };
-
-  const groupedActivities = useMemo(() => {
-    const live = currentPosition?.activities || [];
-    const groups: Record<'Apertura' | 'Regular' | 'Cierre', { id: string; name: string; time?: string }[]> = {
-      Apertura: [],
-      Regular: [],
-      Cierre: [],
-    };
-
-    if (live.length > 0) {
-      for (const act of live) {
-        const rawType = (act.shiftType || 'Regular').toLowerCase();
-        const key: 'Apertura' | 'Regular' | 'Cierre' = rawType.includes('aper')
-          ? 'Apertura'
-          : rawType.includes('cier')
-          ? 'Cierre'
-          : 'Regular';
-        groups[key].push({
-          id: `live-${act.id}`,
-          name: act.activity,
-          time: `${act.durationMinutes || 15} min`,
-        });
-      }
-    } else if (currentPosition) {
-      groups.Apertura = [
-        {
-          id: 'f-ap-1',
-          name:
-            lang === 'es'
-              ? `Encender equipo de ${currentPosition.labelEs}, revisar temperatura y sanitizar estación.`
-              : `Turn on ${currentPosition.labelEn} equipment, check temperature, and sanitize station.`,
-          time: '06:00 AM',
-        },
-        {
-          id: 'f-ap-2',
-          name:
-            lang === 'es'
-              ? 'Colocar utensilios medidores limpios y revisar báscula digital en cero (0.0 oz).'
-              : 'Place clean measuring utensils and verify digital scale is zeroed (0.0 oz).',
-          time: '06:30 AM',
-        },
-      ];
-      groups.Regular = (lang === 'es'
-        ? currentPosition.keyRulesEs
-        : currentPosition.keyRulesEn
-      ).map((rule, idx) => ({
-        id: `f-reg-${idx}`,
-        name: rule,
-        time: lang === 'es' ? 'Turno' : 'Shift',
-      }));
-      groups.Cierre = [
-        {
-          id: 'f-ci-1',
-          name:
-            lang === 'es'
-              ? 'Tapar, poner etiqueta de fecha y guardar alimentos según regla FIFO.'
-              : 'Cover, date-label, and store food items following FIFO rule.',
-          time: lang === 'es' ? 'Cierre' : 'Closing',
-        },
-        {
-          id: 'f-ci-2',
-          name:
-            lang === 'es'
-              ? 'Lavar, desengrasar y dejar la estación lista para mañana a las 6:00 AM.'
-              : 'Wash, degrease, and leave station ready for tomorrow at 6:00 AM.',
-          time: lang === 'es' ? 'Cierre' : 'Closing',
-        },
-      ];
-    }
-    return groups;
-  }, [currentPosition, lang]);
-
-  const DEFAULT_COOK_STATIONS = useMemo(
+  const adminAllStations = useMemo(
     () => [
-      {
-        stationKey: 'CARNES',
-        activitiesKeys: ['CARNES'],
-        order: 1,
-        labelEs: '1. Cocción de Carnes',
-        labelEn: '1. Meat Grilling & Cooking',
-        shortDescEs: 'Plancha a 250°F, Asada, Pastor, Pollo, Cabeza, Lengua, Carnitas, Buche y Chorizo.',
-        shortDescEn: 'Flat-top at 250°F, Asada, Pastor, Pollo, Cabeza, Lengua, Carnitas, Buche, and Chorizo.',
-      },
-      {
-        stationKey: 'TORTILLAS',
-        activitiesKeys: ['TORTILLAS'],
-        order: 2,
-        labelEs: '2. Tortillas',
-        labelEn: '2. Tortillas & Steamer',
-        shortDescEs: 'Tortillas de maíz y harina, control de humedad en vaporera, chips y papelito.',
-        shortDescEn: 'Corn and flour tortillas, steamer moisture control, chips, and wax paper.',
-      },
-      {
-        stationKey: 'TACOS',
-        activitiesKeys: ['TACOS'],
-        order: 3,
-        labelEs: '3. Tacos y Platos',
-        labelEn: '3. Tacos & Plates',
-        shortDescEs: 'Tacos (2 tortillas maíz + 1.5 oz carne), Taco Plate, Platos de Carne y Desayunos.',
-        shortDescEn: 'Tacos (2 corn tortillas + 1.5 oz meat), Taco Plate, Meat Plates, and Breakfast plates.',
-      },
-      {
-        stationKey: 'TORTAS/QUESADILLAS',
-        activitiesKeys: ['TORTAS/QUESADILLAS', 'TORTAS/MULITAS'],
-        order: 4,
-        labelEs: '4. Plancha de Tortas, Mulitas y Quesadillas',
-        labelEn: '4. Tortas, Mulitas & Quesadillas Flat-Top',
-        shortDescEs: 'Tortas en Telera (sin crema), Mulitas, Super Mulitas, Quesadillas y Super Quesadillas.',
-        shortDescEn: 'Telera Tortas (no sour cream), Mulitas, Super Mulitas, Quesadillas, and Super Quesadillas.',
-      },
-      {
-        stationKey: 'BURRITOS',
-        activitiesKeys: ['BURRITOS'],
-        order: 5,
-        labelEs: '5. Burritos',
-        labelEn: '5. Burritos, Sopes & Nachos',
-        shortDescEs: 'Burritos Regulares, Super Burritos, Pura Carne, Burritos de Desayuno, Sopes y Super Nachos.',
-        shortDescEn: 'Regular Burritos, Super Burritos, All-Meat Burritos, Breakfast Burritos, Sopes, and Super Nachos.',
-      },
-      {
-        stationKey: 'PREPARACION',
-        activitiesKeys: ['PREPARACION'],
-        order: 6,
-        labelEs: '6. Preparación',
-        labelEn: '6. Kitchen Prep & Party Trays',
-        shortDescEs: 'Arroz, Frijol, Cilindros de Crema y Aguacate, Salsas, Ollas y Party Trays (Catering).',
-        shortDescEn: 'Rice, Beans, Sour Cream & Avocado Cylinders, Salsas, Pots, and Party Trays (Catering).',
-      },
+      { stationKey: 'CARNES', labelKey: 'training.admin_station_carnes' },
+      { stationKey: 'TORTILLAS', labelKey: 'training.admin_station_tortillas' },
+      { stationKey: 'TACOS', labelKey: 'training.admin_station_tacos' },
+      { stationKey: 'TORTAS/QUESADILLAS', labelKey: 'training.admin_station_plancha' },
+      { stationKey: 'BURRITOS', labelKey: 'training.admin_station_burritos' },
+      { stationKey: 'PREPARACION', labelKey: 'training.admin_station_preparacion' },
+      { stationKey: 'Caja 1 / Salón', labelKey: 'training.admin_station_caja' },
+      { stationKey: 'Uber + Salsas', labelKey: 'training.admin_station_uber' },
     ],
     []
   );
 
-  const roleRequiredStations = useMemo(() => {
-    if (selectedEmployee?.required_stations && selectedEmployee.required_stations.length > 0) {
-      return selectedEmployee.required_stations;
+  // Active video/category fallback-safe selection (honors explicit category clicks even before .mp4 upload)
+  const currentVideo = useMemo<TrainingSopModuleSpec | null>(() => {
+    const exactInAll = allAvailableModules.find((v) => v.slug === selectedVideoSlug);
+    const exactRp = recipeProducts.find((rp) => rp.slug === selectedVideoSlug);
+    if (exactInAll && (exactInAll.videoUrl || exactRp)) {
+      return {
+        ...exactInAll,
+        steps: exactInAll.steps.length > 0 ? exactInAll.steps : exactRp?.steps || [],
+        recipeSpecs:
+          exactInAll.recipeSpecs.length > 0 ? exactInAll.recipeSpecs : exactRp?.recipeSpecs || [],
+      };
     }
-    return DEFAULT_COOK_STATIONS;
-  }, [selectedEmployee, DEFAULT_COOK_STATIONS]);
 
-  // Productos con receta al interior de la Estación de Trabajo seleccionada
+    if (exactRp) {
+      return {
+        slug: exactRp.slug,
+        positionKey: exactRp.positionKey,
+        groupKey: 'cocina',
+        titleEs: exactRp.name,
+        titleEn: exactRp.name,
+        subtitleEs: exactRp.category,
+        subtitleEn: exactRp.category,
+        sourceVideoFilename: exactRp.sourceVideoFilename,
+        videoSlug: exactRp.slug,
+        videoUrl: exactRp.videoUrl,
+        durationSeconds: exactRp.durationSeconds || 45,
+        targetPrepSeconds: exactRp.targetPrepSeconds || 45,
+        grillTempFahrenheit: exactRp.grillTempFahrenheit,
+        steps: exactRp.steps || [],
+        recipeSpecs: exactRp.recipeSpecs || [],
+        quiz: [],
+        dayPlan: videos[0]?.dayPlan || [],
+        sortOrder: 99,
+      };
+    }
+
+    if (stationVideos.length > 0) {
+      return stationVideos[0];
+    }
+
+    // Si la estación elegida aún no tiene video .mp4, construir vista limpia de categoría para permitir "Subir Video"
+    const matchingRp = recipeProducts.find((rp) => rp.positionKey === selectedPositionKey);
+    if (matchingRp) {
+      return {
+        slug: matchingRp.slug,
+        positionKey: matchingRp.positionKey,
+        groupKey: 'cocina',
+        titleEs: matchingRp.name,
+        titleEn: matchingRp.name,
+        subtitleEs: matchingRp.category,
+        subtitleEn: matchingRp.category,
+        sourceVideoFilename: matchingRp.sourceVideoFilename,
+        videoSlug: matchingRp.slug,
+        videoUrl: matchingRp.videoUrl,
+        durationSeconds: matchingRp.durationSeconds || 45,
+        targetPrepSeconds: matchingRp.targetPrepSeconds || 45,
+        grillTempFahrenheit: matchingRp.grillTempFahrenheit,
+        steps: matchingRp.steps || [],
+        recipeSpecs: matchingRp.recipeSpecs || [],
+        quiz: [],
+        dayPlan: videos[0]?.dayPlan || [],
+        sortOrder: 99,
+      };
+    }
+
+    return allAvailableModules[0] || null;
+  }, [allAvailableModules, stationVideos, recipeProducts, selectedPositionKey, selectedVideoSlug, videos]);
+
+  const activeDay1Quiz = useMemo(
+    () => (currentVideo ? buildFallbackQuizForModule(currentVideo) : []),
+    [currentVideo]
+  );
+
+  // Corregir índice de paso activo: NUNCA saltar al último paso en huecos o en t = 0
+  const currentStepIndex = useMemo(() => {
+    if (!currentVideo || currentVideo.steps.length === 0) return 0;
+    const directIdx = currentVideo.steps.findIndex(
+      (s) => currentTime >= s.startSec && currentTime < s.endSec
+    );
+    if (directIdx >= 0) return directIdx;
+
+    if (currentTime < currentVideo.steps[0].startSec) return 0;
+
+    let latestStartedIdx = 0;
+    for (let i = 0; i < currentVideo.steps.length; i++) {
+      if (currentTime >= currentVideo.steps[i].startSec) {
+        latestStartedIdx = i;
+      }
+    }
+    return latestStartedIdx;
+  }, [currentVideo, currentTime]);
+
+  const currentStep = currentVideo?.steps[currentStepIndex] || null;
+
+  // Categories / Products belonging to the selected station
   const stationRecipeProducts = useMemo(() => {
     return recipeProducts.filter((p) => {
       if (selectedPositionKey === 'TORTAS/QUESADILLAS' || selectedPositionKey === 'TORTAS/MULITAS') {
         return p.positionKey === 'TORTAS/QUESADILLAS' || p.positionKey === 'TORTAS/MULITAS';
       }
+      if (selectedPositionKey === 'Ventana 1' || selectedPositionKey === 'Ventana 2') {
+        return p.positionKey === 'Caja 1 / Salón' || p.positionKey === 'Uber + Salsas';
+      }
       return p.positionKey === selectedPositionKey;
     });
   }, [recipeProducts, selectedPositionKey]);
 
-  const catalogCategories = useMemo(
-    () => Array.from(new Set(recipeProducts.map((p) => p.category))).sort(),
-    [recipeProducts]
-  );
+  const stationReviewItems = useMemo(() => {
+    const seen = new Set<string>();
+    const items: Array<{ slug: string; label: string; hasVideo: boolean }> = [];
+    for (const v of stationVideos) {
+      if (seen.has(v.slug)) continue;
+      seen.add(v.slug);
+      items.push({
+        slug: v.slug,
+        label: lang === 'en' ? v.titleEn : v.titleEs,
+        hasVideo: Boolean(v.videoUrl),
+      });
+    }
+    for (const rp of stationRecipeProducts) {
+      if (seen.has(rp.slug)) continue;
+      seen.add(rp.slug);
+      items.push({
+        slug: rp.slug,
+        label: rp.name,
+        hasVideo: rp.hasVideo,
+      });
+    }
+    return items;
+  }, [stationVideos, stationRecipeProducts, lang]);
+
+  const catalogCategories = useMemo(() => {
+    return Array.from(new Set(recipeProducts.map((p) => p.category))).sort();
+  }, [recipeProducts]);
 
   const filteredRecipeProducts = useMemo(() => {
     return recipeProducts.filter((p) => {
@@ -1350,6 +895,7 @@ export default function TrainingAcademyPage() {
         return (
           p.name.toLowerCase().includes(q) ||
           p.category.toLowerCase().includes(q) ||
+          p.positionKey.toLowerCase().includes(q) ||
           p.ingredients.some((i) => i.name.toLowerCase().includes(q))
         );
       }
@@ -1357,1671 +903,3227 @@ export default function TrainingAcademyPage() {
     });
   }, [recipeProducts, catalogCategory, catalogSearch]);
 
-  // Determinar si el empleado seleccionado tiene 2+ semanas en el Planificador y debe mostrar su Certificado Oficial directamente
+  // Day 3 Grouped Shift Activities
+  const groupedActivities = useMemo(() => {
+    const acts = currentPosition?.activities || [];
+    const apertura = acts.filter((a) => a.shiftType.toLowerCase().includes('apertura'));
+    const cierre = acts.filter((a) => a.shiftType.toLowerCase().includes('cierre'));
+    const regular = acts.filter(
+      (a) =>
+        !a.shiftType.toLowerCase().includes('apertura') &&
+        !a.shiftType.toLowerCase().includes('cierre')
+    );
+
+    return {
+      Apertura: apertura.map((a) => ({
+        id: String(a.id),
+        name: a.activity,
+        time: `${a.durationMinutes} min`,
+      })),
+      Regular: regular.map((a) => ({
+        id: String(a.id),
+        name: a.activity,
+        time: `${a.durationMinutes} min`,
+      })),
+      Cierre: cierre.map((a) => ({
+        id: String(a.id),
+        name: a.activity,
+        time: `${a.durationMinutes} min`,
+      })),
+    };
+  }, [currentPosition]);
+
+  // Enrollment Creation / Retrieval (unified per store + employee for Role Certification)
+  const ensureEnrollmentForEmployee = useCallback(
+    async (
+      emp: RealPlanificadorEmployee,
+      stationKey: string,
+      trainer?: string
+    ): Promise<TrainingEnrollment | null> => {
+      if (!selectedStore) return null;
+      const existing = enrollments.find(
+        (enr) =>
+          Number(enr.store_id) === Number(selectedStore.id) &&
+          enr.employee_name.toLowerCase() === emp.full_name.toLowerCase()
+      );
+      if (existing) return existing;
+
+      try {
+        const res = await fetch('/api/training/enrollments', {
+          method: 'POST',
+          headers: getClientAuthHeaders({ 'Content-Type': 'application/json' }),
+          credentials: 'include',
+          body: JSON.stringify({
+            employeeName: emp.full_name,
+            employeeId: emp.id,
+            employeePhone: emp.phone,
+            storeId: selectedStore.id,
+            storeName: selectedStore.name,
+            positionKey: stationKey,
+            trainerName: trainer || selectedTrainerName || storeTrainers[0] || 'Manager',
+            durationDays: 4,
+          }),
+        });
+        const data = await res.json();
+        if (data.ok && data.enrollment) {
+          setEnrollments((prev) => {
+            if (prev.some((x) => x.id === data.enrollment.id)) {
+              return prev.map((x) => (x.id === data.enrollment.id ? data.enrollment : x));
+            }
+            return [data.enrollment, ...prev];
+          });
+          return data.enrollment;
+        }
+      } catch (err) {
+        console.error('[TrainingPage] Error ensuring enrollment:', err);
+      }
+      return null;
+    },
+    [enrollments, selectedStore, selectedTrainerName, storeTrainers]
+  );
+
+  // Select Planificador Employee (Hydrates / Clears ALL state cleanly)
+  const handleSelectPlanificadorEmployee = async (empId: string) => {
+    setSelectedEmployeeId(empId);
+    setAllowVeteranRetraining(false);
+
+    if (!empId) {
+      resetAndHydrateEnrollmentState(null);
+      return;
+    }
+
+    const emp =
+      storeEmployees.find((e) => e.id === empId) ||
+      allEmployees.find((e) => e.id === empId);
+    if (!emp) {
+      resetAndHydrateEnrollmentState(null);
+      return;
+    }
+
+    setEmailInput(emp.email || '');
+    const validStation = positions.some((p) => p.positionKey === emp.assigned_station)
+      ? emp.assigned_station
+      : emp.required_stations?.[0]?.stationKey || 'CARNES';
+
+    setSelectedPositionKey(validStation);
+    setSelectedVideoSlug(pickVideoSlugForStation(validStation));
+
+    if (emp.is_new_hire && selectedStore) {
+      const enr = await ensureEnrollmentForEmployee(emp, validStation);
+      resetAndHydrateEnrollmentState(enr);
+    } else {
+      const existingVetEnr =
+        enrollments.find(
+          (enr) =>
+            selectedStore &&
+            Number(enr.store_id) === Number(selectedStore.id) &&
+            enr.employee_name.toLowerCase() === emp.full_name.toLowerCase()
+        ) || null;
+      resetAndHydrateEnrollmentState(existingVetEnr);
+    }
+  };
+
+  // Switch station pill while keeping selected employee's enrollment cleanly
+  const handleSelectStationPill = (stationKey: string) => {
+    stopAllMedia();
+    setCurrentTime(0);
+    setSelectedPositionKey(stationKey);
+    setSelectedVideoSlug(pickVideoSlugForStation(stationKey));
+    setQuizAnswers({});
+    setQuizSubmittedResult(null);
+    setDay4ExamAnswers({});
+    setDay4WarningMsg(null);
+  };
+
+  // RONOS PIN Verification (with anti-spoofing ownership validation)
+  const handleVerifyRonosPin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedStore || !selectedEmployee) return;
+
+    const cleanPin = ronosPinInput.replace(/\D/g, '').trim();
+    if (cleanPin.length !== 4) {
+      setRonosErrorMsg(t('training.ronos_enter_4_digits'));
+      return;
+    }
+
+    setRonosVerifyBusy(true);
+    setRonosErrorMsg(null);
+    try {
+      const res = await fetch('/api/training/ronos-auth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          storeId: selectedStore.id,
+          storeName: selectedStore.name,
+          pin: cleanPin,
+          employeeId: selectedEmployee.id,
+          expectedEmployeeName: selectedEmployee.full_name,
+          stationKey: selectedPositionKey,
+          trainerName: selectedTrainerName || storeTrainers[0],
+          autoCertified: selectedEmployee.auto_certified,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        if (data.code === 'PIN_OWNER_MISMATCH' && data.pinOwnerName) {
+          setRonosErrorMsg(
+            t('training.ronos_mismatch_error', {
+              owner: data.pinOwnerName,
+              selected: selectedEmployee.full_name,
+            })
+          );
+        } else {
+          setRonosErrorMsg(data.error || t('training.ronos_pin_invalid'));
+        }
+        setRonosVerifiedInfo(null);
+      } else {
+        setRonosVerifiedInfo(data.ronosEmployee);
+        setRonosErrorMsg(null);
+        if (data.enrollment) {
+          setEnrollments((prev) => {
+            if (prev.some((x) => x.id === data.enrollment.id)) {
+              return prev.map((x) => (x.id === data.enrollment.id ? data.enrollment : x));
+            }
+            return [data.enrollment, ...prev];
+          });
+          setActiveTraineeId(data.enrollment.id);
+        }
+      }
+    } catch {
+      setRonosErrorMsg(t('training.ronos_connection_error'));
+    } finally {
+      setRonosVerifyBusy(false);
+    }
+  };
+
+  // Send Email Link (Zero SMS)
+  const handleSendTrainingEmail = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedStore || !selectedEmployee) return;
+    setEmailSending(true);
+    setEmailFeedback(null);
+    try {
+      const res = await fetch('/api/training/send-email', {
+        method: 'POST',
+        headers: getClientAuthHeaders({ 'Content-Type': 'application/json' }),
+        credentials: 'include',
+        body: JSON.stringify({
+          storeId: selectedStore.id,
+          storeName: selectedStore.name,
+          employeeId: selectedEmployee.id,
+          employeeName: selectedEmployee.full_name,
+          email: emailInput.trim(),
+          stationLabel:
+            lang === 'en'
+              ? selectedEmployee.job_role_title_en
+              : selectedEmployee.job_role_title_es,
+          trainerName: selectedTrainerName || storeTrainers[0] || t('training.fallback_store_manager'),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        setEmailFeedback({ ok: false, msg: data.error || t('training.email_send_error') });
+      } else {
+        setEmailFeedback({
+          ok: true,
+          msg: t('training.email_sent_ok', { email: data.sentTo }),
+        });
+        setAllEmployees((prev) =>
+          prev.map((emp) => (emp.id === selectedEmployee.id ? { ...emp, email: data.sentTo } : emp))
+        );
+      }
+    } catch {
+      setEmailFeedback({ ok: false, msg: t('training.email_network_error') });
+    } finally {
+      setEmailSending(false);
+    }
+  };
+
+  // Audio playback of AI Male Tutor Voice (Orus) — Video remains 100% muted
+  const playStepVoiceover = useCallback(
+    async (step: TrainingVideoStep, pauseVideoUntilDone = false) => {
+      if (!voiceEnabled) return;
+      const vid = videoRef.current;
+      if (vid) {
+        vid.muted = true;
+        vid.volume = 0;
+      }
+
+      const textToSpeak = lang === 'en' ? step.narrationEn || step.narrationEs : step.narrationEs;
+      if (!textToSpeak) return;
+
+      const prebuiltUrl = lang === 'en' ? step.audioUrlEn : step.audioUrlEs;
+      const audioSrc =
+        prebuiltUrl ||
+        `/api/training/tts?text=${encodeURIComponent(textToSpeak)}&lang=${lang}&voice=Orus`;
+
+      if (pauseVideoUntilDone && vid && !vid.paused) {
+        vid.pause();
+        autoPausedForVoiceRef.current = true;
+        setAutoPausedForVoice(true);
+      }
+
+      try {
+        const audio = audioRef.current;
+        if (!audio) return;
+        audio.pause();
+        audio.src = audioSrc;
+        audio.load();
+        setIsVoiceSpeaking(true);
+        await audio.play();
+      } catch (err) {
+        console.warn('[TrainingPlayer] Audio playback blocked:', err);
+        setIsVoiceSpeaking(false);
+        autoPausedForVoiceRef.current = false;
+        setAutoPausedForVoice(false);
+      }
+    },
+    [voiceEnabled, lang]
+  );
+
+  const resumeAfterVoiceOrError = () => {
+    setIsVoiceSpeaking(false);
+    const vid = videoRef.current;
+    if (vid) {
+      vid.muted = true;
+      vid.volume = 0;
+    }
+    if (autoPausedForVoiceRef.current && vid) {
+      autoPausedForVoiceRef.current = false;
+      setAutoPausedForVoice(false);
+      const pausedStep = currentVideo?.steps.find((s) => s.id === pausedBoundaryStepIdRef.current);
+      if (
+        pausedStep &&
+        vid.currentTime < pausedStep.endSec &&
+        Number.isFinite(vid.duration) &&
+        pausedStep.endSec < vid.duration - 0.15
+      ) {
+        vid.currentTime = pausedStep.endSec;
+      }
+      if (!vid.ended && (!Number.isFinite(vid.duration) || vid.currentTime < vid.duration - 0.15)) {
+        vid.play().then(() => setIsPlaying(true)).catch(() => {});
+      }
+    } else {
+      autoPausedForVoiceRef.current = false;
+      setAutoPausedForVoice(false);
+    }
+  };
+
+  // Auto-trigger AI Voice & Smart Pause at step boundary
+  const handleVideoTimeUpdate = () => {
+    const vid = videoRef.current;
+    if (!vid || !currentVideo) return;
+    if (!vid.muted || vid.volume !== 0) {
+      vid.muted = true;
+      vid.volume = 0;
+    }
+    const now = vid.currentTime;
+    setCurrentTime(now);
+
+    const activeStep = currentVideo.steps.find((s) => now >= s.startSec && now < s.endSec);
+    if (!activeStep) return;
+
+    if (lastSpokenStepIdRef.current !== activeStep.id && voiceEnabled) {
+      lastSpokenStepIdRef.current = activeStep.id;
+      playStepVoiceover(activeStep, false);
+    }
+
+    const isAudioActuallyPlaying = Boolean(
+      audioRef.current && !audioRef.current.paused && !audioRef.current.ended
+    );
+    if (
+      isAudioActuallyPlaying &&
+      pausedBoundaryStepIdRef.current !== activeStep.id &&
+      now >= activeStep.endSec - 0.35 &&
+      !vid.paused
+    ) {
+      pausedBoundaryStepIdRef.current = activeStep.id;
+      autoPausedForVoiceRef.current = true;
+      vid.pause();
+      setIsPlaying(false);
+      setAutoPausedForVoice(true);
+    }
+  };
+
+  const togglePlayVideo = () => {
+    const vid = videoRef.current;
+    if (!vid) return;
+    vid.muted = true;
+    vid.volume = 0;
+    autoPausedForVoiceRef.current = false;
+    setAutoPausedForVoice(false);
+    if (vid.paused) {
+      if (vid.ended || (Number.isFinite(vid.duration) && vid.duration > 0 && vid.currentTime >= vid.duration - 0.3)) {
+        vid.currentTime = 0;
+        lastSpokenStepIdRef.current = null;
+        pausedBoundaryStepIdRef.current = null;
+      }
+      if (vid.currentTime < 0.3 && currentVideo?.steps[0] && voiceEnabled) {
+        lastSpokenStepIdRef.current = currentVideo.steps[0].id;
+        playStepVoiceover(currentVideo.steps[0], false);
+      }
+      vid.play().then(() => setIsPlaying(true)).catch(() => {});
+    } else {
+      vid.pause();
+      if (audioRef.current) audioRef.current.pause();
+      setIsVoiceSpeaking(false);
+      setIsPlaying(false);
+    }
+  };
+
+  const handleToggleFullscreen = () => {
+    const target = videoContainerRef.current || videoRef.current;
+    if (!target) return;
+    if (document.fullscreenElement) {
+      document.exitFullscreen().catch(() => {});
+    } else if (target.requestFullscreen) {
+      target.requestFullscreen().catch(() => {});
+    } else if ((videoRef.current as any)?.webkitEnterFullscreen) {
+      (videoRef.current as any).webkitEnterFullscreen();
+    }
+  };
+
+  const jumpToStep = (step: TrainingVideoStep) => {
+    const vid = videoRef.current;
+    lastSpokenStepIdRef.current = step.id;
+    pausedBoundaryStepIdRef.current = null;
+    autoPausedForVoiceRef.current = false;
+    setAutoPausedForVoice(false);
+    setCurrentTime(step.startSec);
+    if (vid) {
+      vid.muted = true;
+      vid.volume = 0;
+      vid.currentTime = step.startSec;
+      vid.pause();
+      setIsPlaying(false);
+    }
+    playStepVoiceover(step, false);
+  };
+
+  // Pause video right here to add a text step -> auto AI voice (Orus)
+  const handlePauseToAddStepHere = () => {
+    const vid = videoRef.current;
+    let sec = currentTime;
+    if (vid) {
+      vid.pause();
+      sec = vid.currentTime;
+      setIsPlaying(false);
+    }
+    if (audioRef.current) {
+      audioRef.current.pause();
+      setIsVoiceSpeaking(false);
+    }
+    setPausedTimestampSec(sec);
+    setNewStepTitle('');
+    setNewStepPortion('');
+    setNewStepNarration('');
+    setPausedStepError(null);
+    setShowAddStepAtPauseBox(true);
+  };
+
+  const handleSavePausedStepWithAiVoice = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!currentVideo || !newStepNarration.trim()) return;
+    setSavingPausedStepBusy(true);
+    setPausedStepError(null);
+    try {
+      const sSec = Math.max(0, Math.floor(pausedTimestampSec));
+      const eSec = sSec + 6;
+      const narration = newStepNarration.trim();
+
+      const newStep: TrainingVideoStep = {
+        id: `${currentVideo.slug}-custom-${Date.now()}`,
+        stepNumber: currentVideo.steps.length + 1,
+        startSec: sSec,
+        endSec: eSec,
+        timestampLabel: `${formatSeconds(sSec)} - ${formatSeconds(eSec)}`,
+        titleEs: newStepTitle.trim() || `Paso en ${formatSeconds(sSec)}`,
+        titleEn: newStepTitle.trim() || `Step at ${formatSeconds(sSec)}`,
+        narrationEs: narration,
+        narrationEn: '', // El backend traduce limpiamente al inglés cuando viene vacío
+        keyPortionEs: newStepPortion.trim() || 'Estándar SOP',
+        keyPortionEn: newStepPortion.trim() || 'SOP Standard',
+        utensilEs: 'Estándar de línea',
+        utensilEn: 'Line standard',
+      };
+
+      const combinedSteps = [...currentVideo.steps, newStep];
+
+      const res = await fetch('/api/training/catalog', {
+        method: 'PUT',
+        headers: getClientAuthHeaders({ 'Content-Type': 'application/json' }),
+        credentials: 'include',
+        body: JSON.stringify({
+          slug: currentVideo.slug,
+          positionKey: currentVideo.positionKey,
+          titleEs: currentVideo.titleEs,
+          titleEn: currentVideo.titleEn,
+          steps: combinedSteps,
+          recipeSpecs: currentVideo.recipeSpecs,
+          voiceId: 'Orus',
+          regenerateVoice: true,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        setPausedStepError(data.error || t('training.step_save_error'));
+        return;
+      }
+
+      if (data.steps) {
+        setVideos((prev) =>
+          prev.some((v) => v.slug === currentVideo.slug)
+            ? prev.map((v) => (v.slug === currentVideo.slug ? { ...v, steps: data.steps } : v))
+            : [...prev, { ...currentVideo, steps: data.steps }]
+        );
+        setRecipeProducts((prev) =>
+          prev.map((rp) => (rp.slug === currentVideo.slug ? { ...rp, steps: data.steps } : rp))
+        );
+        const savedCreated = data.steps.find((st: TrainingVideoStep) => st.id === newStep.id) || data.steps[data.steps.length - 1];
+        setShowAddStepAtPauseBox(false);
+        if (savedCreated) {
+          playStepVoiceover(savedCreated, false);
+        }
+      }
+    } catch (err: any) {
+      setPausedStepError(err?.message || t('training.step_save_error'));
+    } finally {
+      setSavingPausedStepBusy(false);
+    }
+  };
+
+  // Signed Direct Upload to Supabase Storage (supports heavy .mp4 files without Vercel 4.5MB limit)
+  const triggerVideoUploadForProduct = (product: {
+    slug: string;
+    name: string;
+    positionKey: string;
+    ingredients: any[];
+  }) => {
+    setVideoActionFeedback(null);
+    setUploadTargetProduct(product);
+    if (uploadInputRef.current) {
+      uploadInputRef.current.value = '';
+      uploadInputRef.current.click();
+    }
+  };
+
+  const handleVideoFileSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !uploadTargetProduct) return;
+
+    const target = uploadTargetProduct;
+    setUploadingVideoSlug(target.slug);
+    setVideoActionFeedback(null);
+
+    try {
+      const durationSec = await new Promise<number>((resolve) => {
+        const tempVid = document.createElement('video');
+        tempVid.preload = 'metadata';
+        const objectUrl = URL.createObjectURL(file);
+        tempVid.onloadedmetadata = () => {
+          URL.revokeObjectURL(objectUrl);
+          resolve(Math.max(12, Math.round(tempVid.duration || 45)));
+        };
+        tempVid.onerror = () => {
+          URL.revokeObjectURL(objectUrl);
+          resolve(45);
+        };
+        tempVid.src = objectUrl;
+      });
+
+      const authHeaders = getClientAuthHeaders({ 'Content-Type': 'application/json' });
+
+      // Step 1: Request signed upload URL
+      const signRes = await fetch('/api/training/video', {
+        method: 'POST',
+        headers: authHeaders,
+        credentials: 'include',
+        body: JSON.stringify({
+          action: 'create-upload-url',
+          slug: target.slug,
+          fileName: file.name,
+          contentType: file.type || 'video/mp4',
+        }),
+      });
+      const signJson = await signRes.json();
+      if (!signRes.ok || !signJson.ok || !signJson.signedUrl) {
+        throw new Error(signJson.error || 'Error creating upload URL');
+      }
+
+      // Step 2: Upload binary directly to Supabase Storage
+      const putRes = await fetch(signJson.signedUrl, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': file.type || 'video/mp4',
+          'x-upsert': 'true',
+        },
+        body: file,
+      });
+      if (!putRes.ok) {
+        throw new Error(`Storage upload failed (${putRes.status})`);
+      }
+
+      // Step 3: Finalize DB record & generate adaptive AI voice steps
+      const finRes = await fetch('/api/training/video', {
+        method: 'POST',
+        headers: authHeaders,
+        credentials: 'include',
+        body: JSON.stringify({
+          action: 'finalize-upload',
+          slug: target.slug,
+          titleEs: target.name,
+          titleEn: target.name,
+          positionKey: target.positionKey,
+          durationSeconds: durationSec,
+          ingredients: target.ingredients || [],
+          publicUrl: signJson.publicUrl,
+          sourceVideoFilename: file.name,
+          autoAdaptVoice: true,
+        }),
+      });
+      const finJson = await finRes.json();
+      if (!finRes.ok || !finJson.ok) {
+        throw new Error(finJson.error || 'Error finalizing video upload');
+      }
+
+      await loadTrainingData();
+      setSelectedPositionKey(target.positionKey);
+      setSelectedVideoSlug(target.slug);
+      setVideoActionFeedback({ ok: true, msg: t('training.video_upload_success') });
+    } catch (err: any) {
+      console.error('[TrainingPage] Upload error:', err);
+      setVideoActionFeedback({
+        ok: false,
+        msg: t('training.video_upload_error', { error: err?.message || 'Error' }),
+      });
+    } finally {
+      setUploadingVideoSlug(null);
+      setUploadTargetProduct(null);
+    }
+  };
+
+  const handleDeleteProductVideo = async (slug: string, productName: string) => {
+    if (typeof window !== 'undefined') {
+      const confirmed = window.confirm(t('training.confirm_delete_video', { name: productName }));
+      if (!confirmed) return;
+    }
+
+    setDeletingVideoSlug(slug);
+    setVideoActionFeedback(null);
+    try {
+      const res = await fetch(`/api/training/catalog?slug=${encodeURIComponent(slug)}`, {
+        method: 'DELETE',
+        headers: getClientAuthHeaders(),
+        credentials: 'include',
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        throw new Error(data.error || t('training.video_delete_error'));
+      }
+      await loadTrainingData();
+    } catch (err: any) {
+      setVideoActionFeedback({
+        ok: false,
+        msg: err?.message || t('training.video_delete_error'),
+      });
+    } finally {
+      setDeletingVideoSlug(null);
+    }
+  };
+
+  const handleReprocessVideoWithAi = async () => {
+    if (!currentVideo || !currentVideo.videoUrl) return;
+    stopAllMedia();
+    setReprocessingVideoSlug(currentVideo.slug);
+    setVideoActionFeedback(null);
+    try {
+      const res = await fetch('/api/training/video', {
+        method: 'POST',
+        headers: getClientAuthHeaders({ 'Content-Type': 'application/json' }),
+        credentials: 'include',
+        body: JSON.stringify({
+          action: 'reprocess-video',
+          slug: currentVideo.slug,
+          titleEs: currentVideo.titleEs,
+          titleEn: currentVideo.titleEn,
+          positionKey: currentVideo.positionKey,
+          durationSeconds: currentVideo.durationSeconds,
+          ingredients: currentVideo.recipeSpecs.map((r) => ({
+            name: r.itemEs,
+            quantity: Number(r.quantity) || 1,
+            unit: r.unit,
+          })),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        throw new Error(data.error || t('training.step_save_error'));
+      }
+      await loadTrainingData();
+      setVideoActionFeedback({ ok: true, msg: t('training.video_reprocessed_ok') });
+    } catch (err: any) {
+      setVideoActionFeedback({
+        ok: false,
+        msg: err?.message || t('training.step_save_error'),
+      });
+    } finally {
+      setReprocessingVideoSlug(null);
+    }
+  };
+
+  // Stopwatch Loop
+  useEffect(() => {
+    if (!stopwatchRunning) return;
+    const interval = setInterval(() => {
+      setStopwatchElapsedDeci((prev) => prev + 1);
+    }, 100);
+    return () => clearInterval(interval);
+  }, [stopwatchRunning]);
+
+  const saveTraineeProgress = async (action: string, payload: Record<string, any>) => {
+    let targetEnrollment = activeTrainee;
+    if (!targetEnrollment && selectedEmployee) {
+      targetEnrollment = await ensureEnrollmentForEmployee(selectedEmployee, selectedPositionKey);
+    }
+    if (!targetEnrollment) return null;
+
+    const res = await fetch('/api/training/enrollments', {
+      method: 'PUT',
+      headers: getClientAuthHeaders({ 'Content-Type': 'application/json' }),
+      credentials: 'include',
+      body: JSON.stringify({
+        id: targetEnrollment.id,
+        action,
+        ...payload,
+      }),
+    });
+    const data = await res.json();
+    if (res.ok && data.ok && data.enrollment) {
+      setEnrollments((prev) => prev.map((e) => (e.id === data.enrollment.id ? data.enrollment : e)));
+      setActiveTraineeId(data.enrollment.id);
+      return data.enrollment as TrainingEnrollment;
+    }
+    return null;
+  };
+
+  const handleGradeDay1Quiz = async () => {
+    if (!currentVideo) return;
+    if (!selectedEmployee) {
+      setDay4WarningMsg(t('training.select_employee_first_warning'));
+      return;
+    }
+
+    const questions = activeDay1Quiz;
+    let correct = 0;
+    for (const q of questions) {
+      if (quizAnswers[q.id] === q.correctIndex) correct++;
+    }
+    const score = questions.length > 0 ? Math.round((correct / questions.length) * 100) : 100;
+    const passed = score >= 80;
+    setQuizSubmittedResult({ score, passed });
+
+    await saveTraineeProgress('complete_day1', {
+      quizScore: score,
+      videosWatched: [currentVideo.slug],
+    });
+  };
+
+  const handleCompleteDay2 = async () => {
+    if (!currentPosition) return;
+    if (!selectedEmployee) {
+      setDay2WarningMsg(t('training.select_employee_first_warning'));
+      return;
+    }
+
+    const minRequiredReps = Math.min(3, currentPosition.day2TargetReps || 3);
+    const verifiedStepsCount = Object.values(day2Rubric).filter(Boolean).length;
+    if (day2Reps < minRequiredReps || verifiedStepsCount === 0) {
+      setDay2WarningMsg(t('training.day2_validation_warning', { minReps: minRequiredReps }));
+      return;
+    }
+
+    setDay2WarningMsg(null);
+    const saved = await saveTraineeProgress('complete_day2', {
+      supervisedReps: day2Reps,
+      checklistJson: day2Rubric,
+      approvedBy: selectedTrainerName || storeTrainers[0] || t('training.fallback_store_manager'),
+      supervisorNotes: day2Notes,
+    });
+
+    if (saved) {
+      setDay2SavedBanner(true);
+      if (day2BannerTimerRef.current) clearTimeout(day2BannerTimerRef.current);
+      day2BannerTimerRef.current = setTimeout(() => setDay2SavedBanner(false), 3500);
+    }
+  };
+
+  const handleStopAndRecordStopwatch = async () => {
+    setStopwatchRunning(false);
+    if (stopwatchElapsedDeci < 10) {
+      setDay3WarningMsg(t('training.day3_min_sec_warning'));
+      return;
+    }
+    setDay3WarningMsg(null);
+    const recordedSec = Math.round(stopwatchElapsedDeci / 10);
+    const nextReps = day3SoloReps + 1;
+    const nextBest =
+      day3BestTimeSec === null ? recordedSec : Math.min(day3BestTimeSec, recordedSec);
+
+    setDay3SoloReps(nextReps);
+    setDay3BestTimeSec(nextBest);
+    setStopwatchElapsedDeci(0);
+
+    await saveTraineeProgress('update_progress', {
+      day3SoloReps: nextReps,
+      day3BestTimeSeconds: nextBest,
+      day3ChecklistJson: day3ActivitiesChecked,
+    });
+  };
+
+  const handleCompleteDay3 = async () => {
+    if (!selectedEmployee) {
+      setDay3WarningMsg(t('training.select_employee_first_warning'));
+      return;
+    }
+    if (day3SoloReps < 1 && day3BestTimeSec === null) {
+      setDay3WarningMsg(t('training.day3_validation_warning'));
+      return;
+    }
+    setDay3WarningMsg(null);
+    const saved = await saveTraineeProgress('complete_day3', {
+      soloReps: Math.max(1, day3SoloReps),
+      bestTimeSeconds: day3BestTimeSec,
+      checklistJson: day3ActivitiesChecked,
+      approvedBy: selectedTrainerName || storeTrainers[0] || t('training.fallback_store_manager'),
+    });
+    if (saved) {
+      setActiveTab('day4');
+    }
+  };
+
+  // Live Day 4 score calculation
+  const day4LiveScores = useMemo(() => {
+    const questions = activeDay1Quiz;
+    let correct = 0;
+    for (const q of questions) {
+      if (day4ExamAnswers[q.id] === q.correctIndex) correct++;
+    }
+    const examScore = questions.length > 0 ? Math.round((correct / questions.length) * 100) : 100;
+
+    const auditVals = Object.values(day4AuditChecks);
+    const practicalPassed = auditVals.filter(Boolean).length;
+    const practicalScore = Math.round((practicalPassed / auditVals.length) * 100);
+    const combinedScore = Math.round((examScore + practicalScore) / 2);
+    return { examScore, practicalScore, combinedScore };
+  }, [activeDay1Quiz, day4ExamAnswers, day4AuditChecks]);
+
+  const handleIssueDay4Certification = async () => {
+    if (!currentVideo || !currentPosition) return;
+    if (!selectedEmployee) {
+      setDay4WarningMsg(t('training.day4_select_employee_warning'));
+      return;
+    }
+
+    setDay4SavingBusy(true);
+    setDay4WarningMsg(null);
+    try {
+      const { examScore, practicalScore, combinedScore } = day4LiveScores;
+      const passed = combinedScore >= 90;
+
+      const updatedEnr = await saveTraineeProgress('certify_day4', {
+        examScore,
+        practicalScore,
+        certifiedBy: selectedTrainerName || storeTrainers[0] || t('training.fallback_store_manager'),
+      });
+
+      setCertificationResult({
+        passed,
+        combinedScore,
+        folio: updatedEnr?.certificate_folio || null,
+      });
+
+      if (!passed) {
+        setDay4WarningMsg(t('training.day4_fail_retry_msg', { score: combinedScore }));
+      }
+    } finally {
+      setDay4SavingBusy(false);
+    }
+  };
+
+  // AI Step Editor (modal with separate ES and EN inputs)
+  const openStepEditor = () => {
+    if (!currentVideo) return;
+    setEditingSteps(currentVideo.steps.map((s) => ({ ...s })));
+    setEditorErrorMsg(null);
+    setShowStepEditorModal(true);
+  };
+
+  const handleAiExplainStep = async (stepIndex: number) => {
+    if (!currentVideo) return;
+    const step = editingSteps[stepIndex];
+    if (!step) return;
+    setAiExplainStepBusyId(step.id);
+    setEditorErrorMsg(null);
+    try {
+      const res = await fetch('/api/training/tts', {
+        method: 'POST',
+        headers: getClientAuthHeaders({ 'Content-Type': 'application/json' }),
+        credentials: 'include',
+        body: JSON.stringify({
+          mode: 'ai-explain',
+          voice: 'Orus',
+          dishTitle: currentVideo.titleEs,
+          stepTitle: step.titleEs,
+          stepNumber: step.stepNumber,
+          rawHint: step.narrationEs || step.titleEs,
+          narrationEn: step.narrationEn,
+          keyPortionEs: step.keyPortionEs,
+          keyPortionEn: step.keyPortionEn,
+        }),
+      });
+      const data = await res.json();
+      if (res.ok && data.ok) {
+        setEditingSteps((prev) =>
+          prev.map((s, idx) =>
+            idx === stepIndex
+              ? {
+                  ...s,
+                  narrationEs: data.narrationEs || s.narrationEs,
+                  narrationEn: data.narrationEn || s.narrationEn,
+                  keyPortionEs: data.keyPortionEs || s.keyPortionEs,
+                  keyPortionEn: data.keyPortionEn || s.keyPortionEn,
+                  audioUrlEs: data.audioUrlEs || s.audioUrlEs,
+                  audioUrlEn: data.audioUrlEn || s.audioUrlEn,
+                }
+              : s
+          )
+        );
+      } else {
+        setEditorErrorMsg(data.error || t('training.step_save_error'));
+      }
+    } catch (err: any) {
+      setEditorErrorMsg(err?.message || t('training.step_save_error'));
+    } finally {
+      setAiExplainStepBusyId(null);
+    }
+  };
+
+  const handleSaveEditedSteps = async () => {
+    if (!currentVideo) return;
+    setSavingStepsBusy(true);
+    setEditorErrorMsg(null);
+    try {
+      const res = await fetch('/api/training/catalog', {
+        method: 'PUT',
+        headers: getClientAuthHeaders({ 'Content-Type': 'application/json' }),
+        credentials: 'include',
+        body: JSON.stringify({
+          slug: currentVideo.slug,
+          positionKey: currentVideo.positionKey,
+          titleEs: currentVideo.titleEs,
+          titleEn: currentVideo.titleEn,
+          steps: editingSteps,
+          recipeSpecs: currentVideo.recipeSpecs,
+          voiceId: 'Orus',
+          regenerateVoice: true,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        setEditorErrorMsg(data.error || t('training.step_save_error'));
+        return;
+      }
+      if (data.steps) {
+        setVideos((prev) =>
+          prev.some((v) => v.slug === currentVideo.slug)
+            ? prev.map((v) => (v.slug === currentVideo.slug ? { ...v, steps: data.steps } : v))
+            : [...prev, { ...currentVideo, steps: data.steps }]
+        );
+        setRecipeProducts((prev) =>
+          prev.map((rp) => (rp.slug === currentVideo.slug ? { ...rp, steps: data.steps } : rp))
+        );
+      }
+      setShowStepEditorModal(false);
+    } catch (err: any) {
+      setEditorErrorMsg(err?.message || t('training.step_save_error'));
+    } finally {
+      setSavingStepsBusy(false);
+    }
+  };
+
   const showAutoVeteranCertificate =
+    mainView === 'staff' &&
     Boolean(selectedEmployee && selectedEmployee.auto_certified) &&
-    !allowVeteranRetraining &&
-    activeTab !== 'catalog';
+    !allowVeteranRetraining;
+
+  const isDay4Certified = Boolean(
+    activeTrainee?.day4_completed || certificationResult?.passed
+  );
+
+  const isAdminFreeVideoReview = isAdmin && mainView === 'videos';
+  const isStaffActiveTraining =
+    mainView === 'staff' && Boolean(selectedEmployee) && !showAutoVeteranCertificate;
 
   return (
     <div
-      className="min-h-screen w-full text-[#0F172A] selection:bg-[#DA291C] selection:text-white"
-      style={{
-        backgroundColor: '#FFFAF5',
-        colorScheme: 'light',
-      }}
+      className="min-h-screen w-full text-[#0F172A]"
+      style={{ backgroundColor: '#FFFAF5', colorScheme: 'light' }}
     >
+      {/* Hidden Audio Player for Male AI Voice (Orus) */}
       <audio
         ref={audioRef}
-        onEnded={handleAudioEnded}
-        onError={() => setIsVoiceSpeaking(false)}
+        onEnded={resumeAfterVoiceOrError}
+        onError={resumeAfterVoiceOrError}
         className="hidden"
       />
 
-      {/* Input oculto para subir o reemplazar videos (.mp4 / .webm / .mov) */}
+      {/* Hidden File Input for Signed Direct Video Upload */}
       <input
-        ref={fileInputRef}
+        ref={uploadInputRef}
         type="file"
-        accept="video/mp4,video/webm,video/quicktime"
+        accept="video/mp4,video/quicktime,video/webm"
         onChange={handleVideoFileSelected}
         className="hidden"
       />
 
-      {/* =====================================================================
-          1. BARRA SUPERIOR RESPONSIVA (MÓVIL, TABLETA VERTICAL/HORIZONTAL Y PC)
-         ===================================================================== */}
-      <header className="sticky top-0 z-30 border-b-2 border-[#DA291C]/15 bg-white shadow-xs print:hidden">
-        <div className="max-w-7xl mx-auto px-3 sm:px-6 py-3 flex flex-wrap items-center justify-between gap-3">
-          {/* Logo & Title */}
-          <div className="flex items-center gap-3">
-            <div className="w-11 h-11 rounded-2xl bg-[#FFF5EB] border-2 border-[#FFC72C] flex items-center justify-center p-1.5 shrink-0">
-              <img src="/logo.png" alt="Tacos Gavilan" className="w-full h-full object-contain" />
-            </div>
-            <div>
-              <h1 className="text-lg sm:text-2xl font-black text-[#0F172A] tracking-tight leading-tight">
-                {t('training.simple_title')} — Tacos Gavilan
-              </h1>
-              <p className="text-xs font-semibold text-slate-600 hidden sm:block">
-                {t('training.simple_subtitle')}
-              </p>
-            </div>
-          </div>
-
-          {/* Botones de Acción Rápida */}
-          <div className="flex flex-wrap items-center gap-2">
-            {/* Punto 6: Catálogo de Todos los Productos con Receta + Videos */}
-            <button
-              type="button"
-              onClick={() => setActiveTab(activeTab === 'catalog' ? 'day1' : 'catalog')}
-              className={`inline-flex items-center gap-1.5 px-3.5 py-2.5 rounded-2xl text-xs sm:text-sm font-black border-2 transition-all cursor-pointer ${
-                activeTab === 'catalog'
-                  ? 'bg-[#DA291C] text-white border-[#DA291C]'
-                  : 'bg-[#FFF8E7] hover:bg-[#FFC72C]/30 text-[#0F172A] border-[#FFC72C]'
-              }`}
-            >
-              <Video className="w-4 h-4 text-[#DA291C] shrink-0" />
-              <span>
-                {t('training.all_recipe_products_tab', { count: recipeProducts.length })}
-              </span>
-            </button>
-
-            {/* Punto 8: Botón para Imprimir la Lista de Artículos Vendidos (Control en Papel y Digital) */}
-            <button
-              type="button"
-              onClick={() => setShowPrintableChecklistModal(true)}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2.5 rounded-2xl text-xs sm:text-sm font-black bg-white hover:bg-[#FFF5EB] text-[#0F172A] border-2 border-slate-200 cursor-pointer transition-all"
-            >
-              <Printer className="w-4 h-4 text-[#DA291C] shrink-0" />
-              <span>{t('training.print_items_checklist_btn')}</span>
-            </button>
-
-            {/* Portal Móvil / Kiosco */}
-            <Link
-              href={
-                selectedStore
-                  ? `/training/portal?store=${selectedStore.id}${
-                      selectedEmployee ? `&emp=${selectedEmployee.id}` : ''
-                    }`
-                  : '/training/portal'
-              }
-              className="inline-flex items-center gap-1.5 px-3.5 py-2.5 rounded-2xl text-xs sm:text-sm font-bold bg-[#FFF5EB] hover:bg-[#FFE8D1] text-[#DA291C] border border-[#FED7AA] transition-all"
-            >
-              <ExternalLink className="w-4 h-4" />
-              <span className="hidden md:inline">{t('training.btn_open_portal')}</span>
-            </Link>
-
-            <button
-              type="button"
-              onClick={() => setShowHowItWorksModal(true)}
-              className="inline-flex items-center gap-1 px-3 py-2.5 rounded-2xl text-xs font-bold bg-white hover:bg-slate-50 text-slate-600 border border-slate-200 cursor-pointer"
-              title={t('training.how_it_works_btn')}
-            >
-              <HelpCircle className="w-4 h-4 text-[#DA291C]" />
-            </button>
-
-            {/* ES / EN Switch */}
-            <div className="inline-flex rounded-2xl border-2 border-slate-200 bg-white p-1">
-              <button
-                type="button"
-                onClick={() => setLanguage('es')}
-                className={`px-2.5 py-1 rounded-xl text-xs font-black cursor-pointer ${
-                  lang === 'es' ? 'bg-[#DA291C] text-white' : 'text-slate-600'
-                }`}
-              >
-                ES
-              </button>
-              <button
-                type="button"
-                onClick={() => setLanguage('en')}
-                className={`px-2.5 py-1 rounded-xl text-xs font-black cursor-pointer ${
-                  lang === 'en' ? 'bg-[#DA291C] text-white' : 'text-slate-600'
-                }`}
-              >
-                EN
-              </button>
-            </div>
-          </div>
-        </div>
-      </header>
-
-      <main className="max-w-7xl mx-auto px-3 sm:px-6 py-4 sm:py-6 space-y-5 print:p-0">
-        {/* =====================================================================
-            2. BARRA LIMPIA CONECTADA AL PLANIFICADOR Y RONOS:
-               SUCURSAL REAL + EMPLEADO + CLAVE RONOS + 6 ESTACIONES DEL PUESTO
-           ===================================================================== */}
-        <section className="bg-white rounded-3xl border-2 border-[#FED7AA] p-4 sm:p-5 shadow-xs space-y-3.5 print:hidden">
-          {/* Fila 1: Filtro Rápido de Personal + Estado RONOS */}
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div className="flex flex-wrap items-center gap-1.5">
-              <button
-                type="button"
-                onClick={() => {
-                  setEmployeeFilterMode('new_hires');
-                  setSelectedEmployeeId('');
-                }}
-                className={`px-3 py-1.5 rounded-xl text-xs font-black cursor-pointer border transition-all ${
-                  employeeFilterMode === 'new_hires'
-                    ? 'bg-[#DA291C] text-white border-[#DA291C]'
-                    : 'bg-[#FFF5EB] text-[#DA291C] border-[#FED7AA]'
-                }`}
-              >
-                🆕 {t('training.filter_new_hires')} ({newHireStoreEmployees.length})
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setEmployeeFilterMode('certified');
-                  setSelectedEmployeeId('');
-                }}
-                className={`px-3 py-1.5 rounded-xl text-xs font-black cursor-pointer border transition-all ${
-                  employeeFilterMode === 'certified'
-                    ? 'bg-emerald-700 text-white border-emerald-700'
-                    : 'bg-emerald-50 text-emerald-800 border-emerald-200'
-                }`}
-              >
-                🎓 {t('training.filter_veterans_certified')} ({certifiedStoreEmployees.length})
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setEmployeeFilterMode('all');
-                }}
-                className={`px-3 py-1.5 rounded-xl text-xs font-black cursor-pointer border transition-all ${
-                  employeeFilterMode === 'all'
-                    ? 'bg-[#0F172A] text-white border-[#0F172A]'
-                    : 'bg-slate-100 text-slate-700 border-slate-200'
-                }`}
-              >
-                👥 {t('training.filter_all_employees')} ({storeEmployees.length})
-              </button>
-            </div>
-
-            {ronosVerifiedInfo && (
-              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-100 border border-emerald-300 text-emerald-900 text-xs font-black">
-                <ShieldCheck className="w-4 h-4 text-emerald-700" />
-                <span>
-                  {t('training.ronos_verified_badge')}: {ronosVerifiedInfo.fullName} (
-                  {ronosVerifiedInfo.ronosCode})
-                </span>
+      {/* Contenedor Principal de UI (Oculto cuando el Modal de Lista Maestra está abierto para impresión limpia) */}
+      <div className={showPrintableChecklistModal ? 'print:hidden' : ''}>
+        {/* 1. ENCABEZADO ÚNICO COMPACTO */}
+        <header className="sticky top-0 z-30 border-b border-[#F1E4D8] bg-white shadow-xs print:hidden">
+          <div className="max-w-7xl mx-auto px-3 sm:px-6 py-3 flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-[#FFF5EB] border border-[#FFC72C] flex items-center justify-center p-1 shrink-0">
+                <img src="/logo.png" alt="Tacos Gavilan" className="w-full h-full object-contain" />
               </div>
-            )}
-          </div>
-
-          {/* Fila 2: 3 Controles Limpios (Sucursal + Empleado Planificador + Clave RONOS) */}
-          <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-center">
-            {/* 1. Sucursal Real */}
-            <div className="md:col-span-3 flex items-center gap-2.5 bg-[#FFFAF5] border border-[#FED7AA] rounded-2xl px-3.5 py-2">
-              <StoreIcon className="w-4 h-4 text-[#DA291C] shrink-0" />
-              <div className="flex flex-col min-w-0 flex-1">
-                <span className="text-[10px] font-extrabold uppercase text-slate-500">
-                  {t('training.store_label')}
-                </span>
-                <select
-                  value={selectedStoreId}
-                  onChange={(e) => {
-                    setSelectedStoreId(Number(e.target.value));
-                    setSelectedEmployeeId('');
-                    setRonosVerifiedInfo(null);
-                  }}
-                  className="bg-transparent text-sm font-black text-[#0F172A] focus:outline-none cursor-pointer truncate"
-                >
-                  {stores.map((st) => (
-                    <option key={st.id} value={st.id}>
-                      {st.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-
-            {/* 2. Empleado Real del Planificador */}
-            <div className="md:col-span-6 flex items-center gap-2.5 bg-[#FFFAF5] border border-[#FED7AA] rounded-2xl px-3.5 py-2">
-              <UserCheck className="w-4 h-4 text-[#DA291C] shrink-0" />
-              <div className="flex flex-col min-w-0 flex-1">
-                <span className="text-[10px] font-extrabold uppercase text-slate-500">
-                  {t('training.employee_planificador_label')} ({filteredStoreEmployees.length})
-                </span>
-                <select
-                  value={selectedEmployeeId}
-                  onChange={(e) => handleSelectPlanificadorEmployee(e.target.value)}
-                  className="bg-transparent text-sm font-black text-[#0F172A] focus:outline-none cursor-pointer truncate"
-                >
-                  <option value="">{t('training.select_employee_option')}</option>
-                  {filteredStoreEmployees.map((emp) => {
-                    const jobLabel = emp.job_titles[0] || emp.assigned_station;
-                    const badge = emp.is_new_hire
-                      ? '🆕 NUEVO INGRESO'
-                      : `🎓 CERTIFICADO (${emp.tenure_weeks} sem)`;
-                    return (
-                      <option key={emp.id} value={emp.id}>
-                        {emp.full_name} — {jobLabel} [{badge}]
-                      </option>
-                    );
-                  })}
-                </select>
-              </div>
-            </div>
-
-            {/* 3. Clave de 4 Dígitos de RONOS Sincronizada */}
-            <form
-              onSubmit={handleVerifyRonosPin}
-              className="md:col-span-3 flex items-center gap-2 bg-[#FFF8E7] border border-[#FFC72C] rounded-2xl px-3 py-2"
-            >
-              <KeyRound className="w-4 h-4 text-[#DA291C] shrink-0" />
-              <div className="flex flex-col min-w-0 flex-1">
-                <span className="text-[10px] font-extrabold uppercase text-slate-600">
-                  {t('training.ronos_pin_label')}
-                </span>
-                <input
-                  type="password"
-                  inputMode="numeric"
-                  maxLength={4}
-                  value={ronosPinInput}
-                  onChange={(e) =>
-                    setRonosPinInput(e.target.value.replace(/\D/g, '').slice(0, 4))
-                  }
-                  placeholder="••••"
-                  className="w-full bg-transparent text-sm font-mono font-black tracking-widest text-[#0F172A] focus:outline-none"
-                />
-              </div>
-              <button
-                type="submit"
-                disabled={ronosVerifyBusy || ronosPinInput.length !== 4}
-                className="px-2.5 py-1 rounded-xl bg-[#0F172A] text-white text-xs font-black cursor-pointer disabled:opacity-40 shrink-0"
-              >
-                {ronosVerifyBusy ? '...' : 'OK'}
-              </button>
-            </form>
-          </div>
-
-          {/* Fila 3: Barra Compacta de Estaciones de Trabajo del Puesto */}
-          <div className="pt-2.5 border-t border-slate-100 flex flex-wrap items-center gap-2">
-            <span className="text-[11px] font-black uppercase text-slate-500 mr-1">
-              {selectedEmployee
-                ? lang === 'en'
-                  ? `${selectedEmployee.job_role_badge_en}:`
-                  : `${selectedEmployee.job_role_badge_es}:`
-                : lang === 'en'
-                ? 'Stations (4 Days):'
-                : 'Estaciones (4 Días):'}
-            </span>
-
-            {roleRequiredStations.map((st) => {
-              const isSelected = selectedPositionKey === st.stationKey;
-              return (
-                <button
-                  key={st.stationKey}
-                  type="button"
-                  onClick={() => {
-                    setSelectedPositionKey(st.stationKey);
-                    const firstVidWithUrl = videos.find(
-                      (v) =>
-                        Boolean(v.videoUrl) &&
-                        (st.stationKey === 'TORTAS/QUESADILLAS'
-                          ? v.positionKey === 'TORTAS/QUESADILLAS' ||
-                            v.positionKey === 'TORTAS/MULITAS'
-                          : v.positionKey === st.stationKey)
-                    );
-                    if (firstVidWithUrl) {
-                      setSelectedVideoSlug(firstVidWithUrl.slug);
-                    }
-                  }}
-                  className={`px-3 py-1.5 rounded-xl border text-xs font-black transition-all cursor-pointer ${
-                    isSelected
-                      ? 'bg-[#DA291C] text-white border-[#DA291C] shadow-xs'
-                      : 'bg-[#FFFAF5] hover:bg-[#FFF0E5] text-[#0F172A] border-[#FED7AA]'
-                  }`}
-                >
-                  {lang === 'en' ? st.labelEn : st.labelEs}
-                </button>
-              );
-            })}
-          </div>
-
-          {ronosErrorMsg && (
-            <div className="p-2.5 rounded-xl bg-red-50 border border-red-200 text-red-700 text-xs font-bold">
-              ⚠️ {ronosErrorMsg}
-            </div>
-          )}
-
-          {/* Punto 4: Si hay un empleado seleccionado, mostrar barra para Enviar Link a su Email o Iniciar en la PC del Manager */}
-          {selectedEmployee && (
-            <div className="pt-2 border-t border-slate-100 flex flex-wrap items-center justify-between gap-3">
-              <div className="flex flex-wrap items-center gap-2 text-xs sm:text-sm font-bold">
-                <span className="text-[#0F172A] font-black">{selectedEmployee.full_name}</span>
-                <span className="px-2.5 py-1 rounded-full bg-[#FFF8E7] border border-[#FFC72C] text-[#0F172A] text-xs font-black">
-                  {lang === 'en'
-                    ? selectedEmployee.job_role_title_en
-                    : selectedEmployee.job_role_title_es}
-                </span>
-                {selectedEmployee.is_new_hire ? (
-                  <span className="px-2.5 py-1 rounded-full bg-red-100 text-[#DA291C] text-xs font-black">
-                    🆕 Nuevo Ingreso ({selectedEmployee.tenure_days} días en Planificador)
-                  </span>
-                ) : (
-                  <span className="px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-800 text-xs font-black">
-                    🎓 Certificado Oficial ({selectedEmployee.tenure_weeks} semanas en Planificador)
-                  </span>
-                )}
-              </div>
-
-              <div className="flex flex-wrap items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setEmailInput(selectedEmployee.email || '');
-                    setEmailFeedback(null);
-                    setShowEmailModal(true);
-                  }}
-                  className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-[#DA291C] hover:bg-[#B91C1C] text-white text-xs sm:text-sm font-black shadow-xs cursor-pointer transition-all"
-                >
-                  <Mail className="w-4 h-4" />
-                  <span>{t('training.send_email_link_btn')}</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    setAllowVeteranRetraining(true);
-                    setActiveTab('day1');
-                    setDay1SubStep('video');
-                  }}
-                  className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-[#0F172A] hover:bg-slate-800 text-white text-xs sm:text-sm font-black cursor-pointer transition-all"
-                >
-                  <Monitor className="w-4 h-4 text-[#FFC72C]" />
-                  <span>{t('training.start_on_manager_pc_btn')}</span>
-                </button>
-              </div>
-            </div>
-          )}
-        </section>
-
-        {/* =====================================================================
-            PUNTO 1 & 2: SI EL EMPLEADO YA TIENE 2+ SEMANAS EN EL PLANIFICADOR,
-            MOSTRAR AUTOMÁTICAMENTE SU CERTIFICADO OFICIAL POR PUESTO Y ESTACIONES
-           ===================================================================== */}
-        {showAutoVeteranCertificate && selectedEmployee && (
-          <section className="py-2">
-            <OfficialCertificateView
-              employeeName={selectedEmployee.full_name}
-              storeName={selectedStore?.name || 'Lynwood'}
-              stationName={
-                (lang === 'en'
-                  ? selectedEmployee.job_role_title_en
-                  : selectedEmployee.job_role_title_es) ||
-                selectedEmployee.job_titles[0] ||
-                'Cocinero Certificado'
-              }
-              jobRoleTitle={
-                lang === 'en'
-                  ? selectedEmployee.job_role_title_en
-                  : selectedEmployee.job_role_title_es
-              }
-              certifiedStations={selectedEmployee.required_stations}
-              folio={selectedEmployee.certificate_folio}
-              issuedDate={selectedEmployee.first_seen_date}
-              managerName={
-                selectedStore?.managers?.[0]?.fullName ||
-                selectedTrainerName.replace(/\s*\(.*\)/, '') ||
-                'Gerente de Sucursal'
-              }
-              supervisorName={selectedStore?.supervisor_name}
-              tenureWeeks={selectedEmployee.tenure_weeks}
-              score={100}
-              lang={lang}
-              showRetrainingBtn={true}
-              onEnableRetraining={() => {
-                setAllowVeteranRetraining(true);
-                setActiveTab('day1');
-              }}
-            />
-          </section>
-        )}
-
-        {/* =====================================================================
-            PUNTO 6: CATÁLOGO DE CATEGORÍAS CON RECETA Y VIDEO (BASE CARNE ASADA)
-            (SUBIR, EDITAR O ELIMINAR VIDEO + VER RECETA OFICIAL)
-           ===================================================================== */}
-        {activeTab === 'catalog' && (
-          <section className="bg-white rounded-3xl border-2 border-[#FFC72C] p-5 sm:p-7 shadow-xs space-y-5 print:hidden">
-            <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
-                <span className="px-3 py-1 rounded-full bg-[#FFF0E5] text-[#DA291C] text-xs font-black uppercase">
-                  ENTRENAMIENTO ÁGIL POR CATEGORÍA (BASE CARNE ASADA)
-                </span>
-                <h2 className="text-xl sm:text-2xl font-black text-[#0F172A] mt-1">
-                  Catálogo por Categoría y Video Base ({recipeProducts.length} Categorías Maestras)
-                </h2>
-                <p className="text-xs sm:text-sm font-semibold text-slate-600">
-                  Cada categoría utiliza el platillo de Carne Asada como referencia maestra (el procedimiento es idéntico para las demás proteínas). Sube, reemplaza o elimina el video cuando cambie su procedimiento.
+                <div className="flex items-center gap-1.5">
+                  <h1 className="text-base sm:text-xl font-black text-[#0F172A] tracking-tight">
+                    {t('training.simple_title')} — Tacos Gavilan
+                  </h1>
+                  <button
+                    type="button"
+                    onClick={() => setShowHowItWorksModal(true)}
+                    className="p-1 rounded-full text-slate-400 hover:text-[#DA291C] cursor-pointer"
+                    title={t('training.how_it_works_btn')}
+                  >
+                    <HelpCircle className="w-4 h-4" />
+                  </button>
+                </div>
+                <p className="text-xs font-medium text-slate-500 hidden sm:block">
+                  {t('training.simple_subtitle')}
                 </p>
               </div>
+            </div>
+
+            {/* Pestañas Principales + Hoja de Control */}
+            <div className="flex flex-wrap items-center gap-2">
+              {isAdmin && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    stopAllMedia();
+                    if (day1SubStep === 'quiz') setDay1SubStep('video');
+                    setMainView('videos');
+                  }}
+                  className={`inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs sm:text-sm font-black transition-all cursor-pointer ${
+                    mainView === 'videos'
+                      ? 'bg-[#DA291C] text-white shadow-xs'
+                      : 'bg-[#FFFAF5] hover:bg-[#FFF0E5] text-[#0F172A] border border-[#F1E4D8]'
+                  }`}
+                >
+                  <Play className="w-4 h-4 fill-current" />
+                  <span>{t('training.tab_admin_videos_review')}</span>
+                </button>
+              )}
+
               <button
                 type="button"
-                onClick={() => setActiveTab('day1')}
-                className="px-4 py-2.5 rounded-2xl border-2 border-slate-200 text-xs sm:text-sm font-black text-slate-700 hover:bg-slate-50 cursor-pointer"
+                onClick={() => {
+                  stopAllMedia();
+                  setMainView('staff');
+                }}
+                className={`inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs sm:text-sm font-black transition-all cursor-pointer ${
+                  mainView === 'staff'
+                    ? 'bg-[#DA291C] text-white shadow-xs'
+                    : 'bg-[#FFFAF5] hover:bg-[#FFF0E5] text-[#0F172A] border border-[#F1E4D8]'
+                }`}
               >
-                ← {t('training.back_to_video')}
+                <UserCheck className="w-4 h-4" />
+                <span>{t('training.tab_staff_training')}</span>
+              </button>
+
+              {canManageCatalog && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    stopAllMedia();
+                    setMainView('catalog');
+                  }}
+                  className={`inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs sm:text-sm font-black transition-all cursor-pointer ${
+                    mainView === 'catalog'
+                      ? 'bg-[#DA291C] text-white shadow-xs'
+                      : 'bg-[#FFFAF5] hover:bg-[#FFF0E5] text-[#0F172A] border border-[#F1E4D8]'
+                  }`}
+                >
+                  <Video className="w-4 h-4" />
+                  <span>{t('training.tab_video_catalog', { count: recipeProducts.length })}</span>
+                </button>
+              )}
+
+              <button
+                type="button"
+                onClick={() => setShowPrintableChecklistModal(true)}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs sm:text-sm font-bold bg-white hover:bg-[#FFF5EB] text-[#0F172A] border border-slate-200 cursor-pointer transition-all"
+              >
+                <Printer className="w-4 h-4 text-[#DA291C]" />
+                <span>{t('training.btn_print_control_sheet')}</span>
               </button>
             </div>
+          </div>
+        </header>
 
-            {/* Buscador y Filtro por Categoría */}
-            <div className="grid grid-cols-1 sm:grid-cols-12 gap-3">
-              <div className="sm:col-span-7 relative">
-                <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-                <input
-                  type="text"
-                  value={catalogSearch}
-                  onChange={(e) => setCatalogSearch(e.target.value)}
-                  placeholder="Buscar categoría o platillo (ej. Burrito Asada, Taco Asada, Torta, Quesadilla)..."
-                  className="w-full pl-10 pr-4 py-3 rounded-2xl border-2 border-slate-200 bg-[#FFFAF5] text-sm font-bold"
-                />
-              </div>
-              <div className="sm:col-span-5">
-                <select
-                  value={catalogCategory}
-                  onChange={(e) => setCatalogCategory(e.target.value)}
-                  className="w-full px-4 py-3 rounded-2xl border-2 border-slate-200 bg-[#FFFAF5] text-sm font-bold cursor-pointer"
-                >
-                  <option value="ALL">Todas las Categorías ({recipeProducts.length})</option>
-                  {catalogCategories.map((cat) => (
-                    <option key={cat} value={cat}>
-                      {cat}
-                    </option>
-                  ))}
-                </select>
-              </div>
+        <main className="max-w-7xl mx-auto px-3 sm:px-6 py-5 space-y-5 print:p-0">
+          {/* Feedback global de carga o subida de video */}
+          {videoActionFeedback && (
+            <div
+              className={`rounded-2xl px-4 py-3 text-xs sm:text-sm font-bold flex items-center justify-between gap-3 border print:hidden ${
+                videoActionFeedback.ok
+                  ? 'bg-emerald-50 border-emerald-300 text-emerald-900'
+                  : 'bg-red-50 border-red-200 text-red-700'
+              }`}
+            >
+              <span>{videoActionFeedback.msg}</span>
+              <button
+                type="button"
+                onClick={() => setVideoActionFeedback(null)}
+                className="p-1 rounded-lg hover:bg-black/5 cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
             </div>
+          )}
 
-            {/* Tarjetas de Categorías Maestras (Base Asada) con su Receta y Botones de Video */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {filteredRecipeProducts.map((prod) => {
-                const isUploading = uploadingVideoSlug === prod.slug;
-                const isDeleting = deletingVideoSlug === prod.slug;
-                return (
-                  <div
-                    key={prod.guid}
-                    className="rounded-3xl bg-[#FFFAF5] border-2 border-[#FED7AA] p-4 flex flex-col justify-between gap-3.5"
-                  >
-                    <div className="space-y-2">
-                      <div className="flex items-start justify-between gap-2">
-                        <div>
-                          <div className="text-base font-black text-[#0F172A] leading-snug">
-                            {prod.name}
-                          </div>
-                          <div className="text-xs font-bold text-[#DA291C]">
-                            {prod.category} • {prod.positionKey}
-                          </div>
-                        </div>
-                        {prod.hasVideo ? (
-                          <span className="px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-800 text-[11px] font-black shrink-0">
-                            🎬 Video Activo
-                          </span>
-                        ) : (
-                          <span className="px-2.5 py-1 rounded-full bg-slate-200 text-slate-700 text-[11px] font-bold shrink-0">
-                            Sin Video
-                          </span>
-                        )}
-                      </div>
+          {loadError && (
+            <div className="rounded-2xl bg-red-50 border border-red-200 p-4 flex flex-wrap items-center justify-between gap-3 print:hidden">
+              <div className="flex items-center gap-2 text-sm font-bold text-red-700">
+                <AlertCircle className="w-5 h-5 shrink-0" />
+                <span>{t('training.load_error_banner')}</span>
+              </div>
+              <button
+                type="button"
+                onClick={loadTrainingData}
+                className="px-4 py-2 rounded-xl bg-[#DA291C] text-white text-xs font-black cursor-pointer"
+              >
+                {t('training.retry_btn')}
+              </button>
+            </div>
+          )}
 
-                      {/* Ingredientes Reales de la Receta Base (Asada) */}
-                      <div className="flex flex-wrap gap-1.5 pt-1">
-                        {prod.ingredients.map((ing, i) => (
-                          <span
-                            key={i}
-                            className="px-2.5 py-1 rounded-xl bg-white border border-slate-200 text-xs font-bold text-slate-800"
-                          >
-                            <strong className="text-[#DA291C]">
-                              {ing.quantity} {ing.unit}
-                            </strong>{' '}
-                            {ing.name}
-                          </span>
-                        ))}
-                      </div>
+          {loadingData && (
+            <div className="bg-white rounded-3xl border border-[#F1E4D8] p-12 flex flex-col items-center justify-center gap-3 text-slate-600 print:hidden">
+              <Loader2 className="w-8 h-8 animate-spin text-[#DA291C]" />
+              <span className="text-sm font-bold">{t('training.loading_training_data')}</span>
+            </div>
+          )}
 
-                      {/* Proteínas / Variantes que cubre este mismo video */}
-                      {prod.variantsIncluded && prod.variantsIncluded.length > 1 && (
-                        <div className="p-2.5 rounded-2xl bg-[#FFF8E7] border border-[#FFC72C] text-[11px] font-bold text-slate-700 leading-snug">
-                          <span className="text-[#DA291C] font-black">
-                            📌 Mismo procedimiento para {prod.variantCount || prod.variantsIncluded.length} variantes (solo cambia la proteína):
-                          </span>{' '}
-                          {prod.variantsIncluded.join(', ')}
-                        </div>
-                      )}
+          {/* =====================================================================
+              VISTA 1: PERSONAL Y CAPACITACIÓN (FLUJO GUIADO SIN CAOS VISUAL)
+             ===================================================================== */}
+          {!loadingData && mainView === 'staff' && (
+            <>
+              {/* PASO A: SI NO HAY COLABORADOR ELEGIDO, MOSTRAR SOLO SELECTOR LIMPIO DE PERSONAS */}
+              {!selectedEmployee && (
+                <section className="bg-white rounded-3xl border border-[#F1E4D8] p-5 sm:p-6 shadow-xs space-y-5 print:hidden">
+                  <div className="flex flex-wrap items-start justify-between gap-4">
+                    <div>
+                      <h2 className="text-lg sm:text-xl font-black text-[#0F172A]">
+                        {t('training.select_person_step_title')}
+                      </h2>
+                      <p className="text-xs sm:text-sm font-medium text-slate-600 mt-0.5">
+                        {t('training.select_person_step_desc')}
+                      </p>
                     </div>
 
-                    {/* Botones de Acción: Ver / Subir / Cambiar / Eliminar Video */}
-                    <div className="pt-2 border-t border-[#FED7AA] flex flex-wrap items-center gap-2">
-                      {prod.hasVideo && (
+                    {/* Filtros Limpios */}
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => setEmployeeFilterMode('new_hires')}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-bold cursor-pointer border transition-all ${
+                          employeeFilterMode === 'new_hires'
+                            ? 'bg-[#0F172A] text-white border-[#0F172A]'
+                            : 'bg-[#FFFAF5] text-slate-700 border-[#F1E4D8] hover:bg-[#FFF0E5]'
+                        }`}
+                      >
+                        {t('training.filter_new_hires')} ({newHireStoreEmployees.length})
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setEmployeeFilterMode('certified')}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-bold cursor-pointer border transition-all ${
+                          employeeFilterMode === 'certified'
+                            ? 'bg-emerald-700 text-white border-emerald-700'
+                            : 'bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100'
+                        }`}
+                      >
+                        {t('training.filter_veterans_certified')} ({certifiedStoreEmployees.length})
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setEmployeeFilterMode('all')}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-bold cursor-pointer border transition-all ${
+                          employeeFilterMode === 'all'
+                            ? 'bg-[#DA291C] text-white border-[#DA291C]'
+                            : 'bg-[#FFFAF5] text-slate-700 border-[#F1E4D8] hover:bg-[#FFF0E5]'
+                        }`}
+                      >
+                        {t('training.filter_all_employees')} ({storeEmployees.length})
+                      </button>
+                      {isAdmin && (
                         <button
                           type="button"
                           onClick={() => {
-                            setSelectedVideoSlug(prod.slug);
-                            setActiveTab('day1');
-                            setDay1SubStep('video');
+                            stopAllMedia();
+                            if (day1SubStep === 'quiz') setDay1SubStep('video');
+                            setMainView('videos');
                           }}
-                          className="flex-1 py-2 px-3 rounded-xl bg-[#DA291C] hover:bg-[#B91C1C] text-white text-xs font-black flex items-center justify-center gap-1.5 cursor-pointer"
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-black cursor-pointer border border-[#FFC72C] bg-[#FFF8E7] text-[#92400E] hover:bg-[#FFC72C]/25 transition-all"
                         >
-                          <Play className="w-3.5 h-3.5 fill-current" />
-                          <span>Ver Video y Pasos</span>
-                        </button>
-                      )}
-
-                      <button
-                        type="button"
-                        disabled={isUploading}
-                        onClick={() =>
-                          triggerVideoUploadForProduct({
-                            slug: prod.slug,
-                            name: prod.name,
-                            positionKey: prod.positionKey,
-                            ingredients: prod.ingredients,
-                          })
-                        }
-                        className="py-2 px-3 rounded-xl bg-[#FFF8E7] hover:bg-[#FFC72C]/40 border border-[#FFC72C] text-[#0F172A] text-xs font-black flex items-center gap-1.5 cursor-pointer"
-                      >
-                        <Upload className="w-3.5 h-3.5 text-[#DA291C]" />
-                        <span>
-                          {isUploading
-                            ? 'Subiendo y Adaptando Voz IA...'
-                            : prod.hasVideo
-                            ? t('training.replace_video_btn')
-                            : t('training.upload_video_btn')}
-                        </span>
-                      </button>
-
-                      {prod.hasVideo && (
-                        <button
-                          type="button"
-                          disabled={isDeleting}
-                          onClick={() => handleDeleteProductVideo(prod.slug)}
-                          title={t('training.delete_video_btn')}
-                          className="p-2 rounded-xl bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 cursor-pointer"
-                        >
-                          <Trash2 className="w-4 h-4" />
+                          <Play className="w-3.5 h-3.5 fill-current text-[#DA291C]" />
+                          <span>{t('training.admin_shortcut_no_employee_btn')}</span>
                         </button>
                       )}
                     </div>
                   </div>
-                );
-              })}
-            </div>
-          </section>
-        )}
 
-        {/* =====================================================================
-            3. FLUJO DE ENTRENAMIENTO DE 4 DÍAS (PARA NUEVOS INGRESOS O PRÁCTICA)
-           ===================================================================== */}
-        {!showAutoVeteranCertificate && activeTab !== 'catalog' && (
-          <>
-            <section className="grid grid-cols-2 lg:grid-cols-4 gap-3 print:hidden">
-              {[
-                {
-                  id: 'day1' as const,
-                  num: '1',
-                  title: t('training.day1_short'),
-                  desc: t('training.day1_short_desc'),
-                  done: activeTrainee?.day1_completed,
-                },
-                {
-                  id: 'day2' as const,
-                  num: '2',
-                  title: t('training.day2_short'),
-                  desc: t('training.day2_short_desc'),
-                  done: activeTrainee?.day2_completed,
-                },
-                {
-                  id: 'day3' as const,
-                  num: '3',
-                  title: t('training.day3_short'),
-                  desc: t('training.day3_short_desc'),
-                  done: activeTrainee?.day3_completed,
-                },
-                {
-                  id: 'day4' as const,
-                  num: '4',
-                  title: t('training.day4_short'),
-                  desc: t('training.day4_short_desc'),
-                  done: activeTrainee?.day4_completed,
-                },
-              ].map((dayCard) => {
-                const isSelected = activeTab === dayCard.id;
-                return (
-                  <button
-                    key={dayCard.id}
-                    type="button"
-                    onClick={() => setActiveTab(dayCard.id)}
-                    className={`text-left p-3.5 sm:p-4 rounded-3xl border-2 transition-all cursor-pointer flex items-center gap-3 ${
-                      isSelected
-                        ? 'bg-[#DA291C] text-white border-[#DA291C] shadow-md'
-                        : 'bg-white hover:bg-[#FFF5EB] text-[#0F172A] border-slate-200'
-                    }`}
-                  >
-                    <div
-                      className={`w-10 h-10 sm:w-12 sm:h-12 rounded-2xl flex items-center justify-center text-lg sm:text-xl font-black shrink-0 ${
-                        isSelected
-                          ? 'bg-[#FFC72C] text-[#0F172A]'
-                          : dayCard.done
-                          ? 'bg-emerald-100 text-emerald-700'
-                          : 'bg-[#FFF0E5] text-[#DA291C]'
-                      }`}
-                    >
-                      {dayCard.done ? <CheckCircle2 className="w-6 h-6" /> : dayCard.num}
-                    </div>
-                    <div className="min-w-0">
-                      <div className="text-sm sm:text-base font-black leading-tight truncate">
-                        {dayCard.title}
+                  {/* Controles: Sucursal + Entrenador en Turno + Buscador */}
+                  <div className="grid grid-cols-1 md:grid-cols-12 gap-3">
+                    <div className="md:col-span-4 flex items-center gap-2.5 bg-[#FFFAF5] border border-[#F1E4D8] rounded-2xl px-3.5 py-2.5">
+                      <StoreIcon className="w-4 h-4 text-[#DA291C] shrink-0" />
+                      <div className="flex flex-col min-w-0 flex-1">
+                        <span className="text-[10px] font-bold uppercase text-slate-500">
+                          {t('training.store_label')}
+                        </span>
+                        <select
+                          value={selectedStoreId}
+                          onChange={(e) => {
+                            setSelectedStoreId(Number(e.target.value));
+                            setSelectedEmployeeId('');
+                            resetAndHydrateEnrollmentState(null);
+                          }}
+                          className="bg-transparent text-sm font-black text-[#0F172A] focus:outline-none cursor-pointer truncate"
+                        >
+                          {stores.map((st) => (
+                            <option key={st.id} value={st.id}>
+                              {st.name}
+                            </option>
+                          ))}
+                        </select>
                       </div>
-                      <div
-                        className={`text-[11px] sm:text-xs font-medium mt-0.5 line-clamp-1 ${
-                          isSelected ? 'text-white/90' : 'text-slate-500'
-                        }`}
+                    </div>
+
+                    <div className="md:col-span-4 flex items-center gap-2.5 bg-[#FFFAF5] border border-[#F1E4D8] rounded-2xl px-3.5 py-2.5">
+                      <ChefHat className="w-4 h-4 text-[#DA291C] shrink-0" />
+                      <div className="flex flex-col min-w-0 flex-1">
+                        <span className="text-[10px] font-bold uppercase text-slate-500">
+                          {t('training.trainer_select_label')}
+                        </span>
+                        <select
+                          value={selectedTrainerName}
+                          onChange={(e) => setSelectedTrainerName(e.target.value)}
+                          className="bg-transparent text-sm font-black text-[#0F172A] focus:outline-none cursor-pointer truncate"
+                        >
+                          {storeTrainers.map((tr) => (
+                            <option key={tr} value={tr}>
+                              {tr}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+
+                    <div className="md:col-span-4 relative flex items-center">
+                      <Search className="w-4 h-4 text-slate-400 absolute left-3.5" />
+                      <input
+                        type="text"
+                        value={employeeSearch}
+                        onChange={(e) => setEmployeeSearch(e.target.value)}
+                        placeholder={t('training.search_employee_placeholder')}
+                        className="w-full pl-10 pr-4 py-3 rounded-2xl border border-[#F1E4D8] bg-[#FFFAF5] text-sm font-semibold focus:outline-none focus:border-[#DA291C]"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Cuadrícula de Personas Reales del Planificador */}
+                  {filteredStoreEmployees.length === 0 ? (
+                    <div className="p-8 rounded-2xl bg-[#FFFAF5] border border-[#F1E4D8] text-center text-sm font-semibold text-slate-500">
+                      {t('training.no_employees_match')}
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 max-h-[560px] overflow-y-auto pr-1">
+                      {filteredStoreEmployees.map((emp) => {
+                        const stationCount = emp.required_stations?.length || 6;
+                        return (
+                          <button
+                            key={emp.id}
+                            type="button"
+                            onClick={() => handleSelectPlanificadorEmployee(emp.id)}
+                            className="text-left p-4 rounded-2xl bg-[#FFFAF5] hover:bg-white border border-[#F1E4D8] hover:border-[#DA291C] hover:shadow-sm transition-all cursor-pointer flex items-center justify-between gap-3"
+                          >
+                            <div className="min-w-0 space-y-1">
+                              <div className="text-sm sm:text-base font-black text-[#0F172A] truncate">
+                                {emp.full_name}
+                              </div>
+                              <div className="text-xs font-bold text-slate-600 truncate">
+                                {emp.job_titles[0] ||
+                                  (lang === 'en' ? emp.job_role_title_en : emp.job_role_title_es)}
+                                {' • '}
+                                {t('training.role_stations_count', { count: stationCount })}
+                              </div>
+                              <div>
+                                {emp.is_new_hire ? (
+                                  <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-red-100 text-[#DA291C] text-[11px] font-black">
+                                    {t('training.new_hire_days_badge', { days: emp.tenure_days })}
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[11px] font-black">
+                                    {t('training.certified_weeks_badge', { weeks: emp.tenure_weeks })}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                            <ChevronRight className="w-5 h-5 text-slate-400 shrink-0" />
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </section>
+              )}
+
+              {/* PASO B: EMPLEADO ELEGIDO -> BARRA COMPACTA DE CONTEXTO */}
+              {selectedEmployee && (
+                <section className="bg-white rounded-2xl border border-[#F1E4D8] p-3.5 sm:p-4 shadow-xs space-y-3 print:hidden">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="flex flex-wrap items-center gap-2.5">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          stopAllMedia();
+                          setSelectedEmployeeId('');
+                          setAllowVeteranRetraining(false);
+                          resetAndHydrateEnrollmentState(null);
+                        }}
+                        className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-[#FFFAF5] hover:bg-[#FFF0E5] border border-[#F1E4D8] text-xs font-bold text-[#0F172A] cursor-pointer"
                       >
-                        {dayCard.desc}
+                        <ChevronLeft className="w-4 h-4" />
+                        <span>{t('training.change_employee_btn')}</span>
+                      </button>
+
+                      <div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-base sm:text-lg font-black text-[#0F172A]">
+                            {selectedEmployee.full_name}
+                          </span>
+                          <span className="px-2.5 py-0.5 rounded-full bg-[#FFF8E7] border border-[#FFC72C] text-xs font-bold text-[#0F172A]">
+                            {lang === 'en'
+                              ? selectedEmployee.job_role_badge_en
+                              : selectedEmployee.job_role_badge_es}
+                          </span>
+                          {selectedEmployee.is_new_hire ? (
+                            <span className="px-2.5 py-0.5 rounded-full bg-red-100 text-[#DA291C] text-xs font-bold">
+                              {t('training.new_hire_days_badge', { days: selectedEmployee.tenure_days })}
+                            </span>
+                          ) : (
+                            <span className="px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-xs font-bold">
+                              {t('training.certified_weeks_badge', { weeks: selectedEmployee.tenure_weeks })}
+                            </span>
+                          )}
+                          {activeTrainee?.access_code && (
+                            <span className="px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-700 font-mono text-xs font-bold">
+                              {t('training.temp_code_badge', { code: activeTrainee.access_code })}
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-xs font-medium text-slate-500">
+                          {selectedStore?.name} • {t('training.trainer_select_label')}{' '}
+                          <strong className="text-slate-700">{selectedTrainerName}</strong>
+                        </div>
                       </div>
                     </div>
-                  </button>
-                );
-              })}
-            </section>
 
-            {/* VISTA DÍA 1: VIDEO LIMPIO SIN BARRA DE PROGRESO + PAUSAR PARA AGREGAR PASO CON VOZ IA */}
-            {activeTab === 'day1' && currentVideo && (
-              <div className="space-y-4">
-                {/* Barra única de Sub-Pasos del Día 1 + Acciones de Video */}
-                <div className="bg-white rounded-3xl border border-slate-200 p-3 flex flex-wrap items-center justify-between gap-2">
-                  <div className="flex flex-wrap items-center gap-2">
+                    {/* Acciones Derecha: Verificación RONOS + Email Link + Portal */}
+                    <div className="flex flex-wrap items-center gap-2">
+                      {!showAutoVeteranCertificate && selectedEmployee.auto_certified && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            stopAllMedia();
+                            setAllowVeteranRetraining(false);
+                          }}
+                          className="px-3 py-2 rounded-xl bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-800 text-xs font-bold cursor-pointer"
+                        >
+                          {t('training.back_to_certificate_btn')}
+                        </button>
+                      )}
+
+                      {(!selectedEmployee.auto_certified || allowVeteranRetraining) && (
+                        <>
+                          {/* Mini verificación RONOS (anti-suplantación) */}
+                          {ronosVerifiedInfo ? (
+                            <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-bold">
+                              <ShieldCheck className="w-4 h-4 text-emerald-600" />
+                              <span>{ronosVerifiedInfo.ronosCode}</span>
+                            </div>
+                          ) : (
+                            <form
+                              onSubmit={handleVerifyRonosPin}
+                              className="inline-flex items-center gap-1.5 bg-[#FFFDF9] border border-[#FFC72C] rounded-xl px-2.5 py-1"
+                            >
+                              <KeyRound className="w-3.5 h-3.5 text-[#DA291C] shrink-0" />
+                              <input
+                                type="password"
+                                inputMode="numeric"
+                                maxLength={4}
+                                value={ronosPinInput}
+                                onChange={(e) =>
+                                  setRonosPinInput(e.target.value.replace(/\D/g, '').slice(0, 4))
+                                }
+                                placeholder="PIN RONOS"
+                                className="w-20 bg-transparent text-xs font-mono font-black tracking-widest text-[#0F172A] focus:outline-none"
+                              />
+                              <button
+                                type="submit"
+                                disabled={ronosVerifyBusy || ronosPinInput.length !== 4}
+                                className="px-2 py-1 rounded-lg bg-[#0F172A] text-white text-[11px] font-black cursor-pointer disabled:opacity-40"
+                              >
+                                {ronosVerifyBusy ? '...' : t('training.ronos_ok_btn')}
+                              </button>
+                            </form>
+                          )}
+
+                          {canManageCatalog && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEmailInput(selectedEmployee.email || '');
+                                setEmailFeedback(null);
+                                setShowEmailModal(true);
+                              }}
+                              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white hover:bg-[#FFF5EB] border border-slate-200 text-xs font-bold text-[#0F172A] cursor-pointer"
+                            >
+                              <Mail className="w-3.5 h-3.5 text-[#DA291C]" />
+                              <span>{t('training.send_to_phone_email_btn')}</span>
+                            </button>
+                          )}
+
+                          {selectedStore && (
+                            <Link
+                              href={`/training/portal?store=${selectedStore.id}&emp=${selectedEmployee.id}${
+                                activeTrainee?.access_code
+                                  ? `&code=${encodeURIComponent(activeTrainee.access_code)}`
+                                  : ''
+                              }`}
+                              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white hover:bg-[#FFF5EB] border border-slate-200 text-xs font-bold text-[#DA291C]"
+                            >
+                              <ExternalLink className="w-3.5 h-3.5" />
+                              <span className="hidden sm:inline">{t('training.btn_open_portal')}</span>
+                            </Link>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  </div>
+
+                  {ronosErrorMsg && (
+                    <div className="p-2.5 rounded-xl bg-red-50 border border-red-200 text-red-700 text-xs font-bold">
+                      {ronosErrorMsg}
+                    </div>
+                  )}
+
+                  {/* Estaciones del Puesto: Solo visibles cuando estamos en capacitación o repaso (NO encima del certificado automático) */}
+                  {!showAutoVeteranCertificate && roleRequiredStations.length > 0 && (
+                    <div className="pt-2.5 border-t border-slate-100 flex flex-wrap items-center gap-2">
+                      <span className="text-[11px] font-bold uppercase text-slate-500 mr-1">
+                        {t('training.stations_header_role')}
+                      </span>
+                      {roleRequiredStations.map((st) => {
+                        const isSelected = selectedPositionKey === st.stationKey;
+                        return (
+                          <button
+                            key={st.stationKey}
+                            type="button"
+                            onClick={() => handleSelectStationPill(st.stationKey)}
+                            className={`px-3 py-1.5 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
+                              isSelected
+                                ? 'bg-[#0F172A] text-white border-[#0F172A]'
+                                : 'bg-[#FFFAF5] hover:bg-[#FFF0E5] text-[#0F172A] border-[#F1E4D8]'
+                            }`}
+                          >
+                            {lang === 'en' ? st.labelEn : st.labelEs}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </section>
+              )}
+
+              {/* VETERANO CERTIFICADO: SOLO DIPLOMA OFICIAL */}
+              {selectedEmployee && showAutoVeteranCertificate && (
+                <section className="py-1">
+                  <OfficialCertificateView
+                    employeeName={selectedEmployee.full_name}
+                    storeName={selectedStore?.name || 'Tacos Gavilan'}
+                    stationName={
+                      (lang === 'en'
+                        ? selectedEmployee.job_role_title_en
+                        : selectedEmployee.job_role_title_es) || t('training.fallback_certified_cook')
+                    }
+                    jobRoleTitle={
+                      lang === 'en'
+                        ? selectedEmployee.job_role_title_en
+                        : selectedEmployee.job_role_title_es
+                    }
+                    certifiedStations={selectedEmployee.required_stations}
+                    folio={selectedEmployee.certificate_folio}
+                    issuedDate={selectedEmployee.first_seen_date}
+                    managerName={
+                      selectedStore?.managers?.[0]?.fullName ||
+                      selectedTrainerName ||
+                      t('training.fallback_store_manager')
+                    }
+                    supervisorName={selectedStore?.supervisor_name}
+                    tenureWeeks={selectedEmployee.tenure_weeks}
+                    score={100}
+                    lang={lang}
+                    showRetrainingBtn={true}
+                    onEnableRetraining={() => {
+                      setAllowVeteranRetraining(true);
+                      setActiveTab('day1');
+                      setDay1SubStep('video');
+                    }}
+                  />
+                </section>
+              )}
+
+              {/* NUEVO INGRESO (O VETERANO EN MODO REPASO): PROGRAMA DE 4 DÍAS LIMPIO */}
+              {selectedEmployee && !showAutoVeteranCertificate && (
+                <>
+                  {/* Selectores Limpios de los 4 Días */}
+                  <section className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 print:hidden">
                     {[
-                      { id: 'video' as const, label: `🎬 ${t('training.substep_video')}` },
                       {
-                        id: 'portions' as const,
-                        label: `⚖️ ${t('training.substep_portions')} (${stationRecipeProducts.length})`,
+                        id: 'day1' as const,
+                        num: '1',
+                        title: t('training.day1_title_clean'),
+                        desc: t('training.day1_desc_clean'),
+                        done: activeTrainee?.day1_completed,
                       },
-                      { id: 'quiz' as const, label: `✅ ${t('training.substep_quiz')}` },
-                    ].map((sub) => {
-                      const active = day1SubStep === sub.id;
+                      {
+                        id: 'day2' as const,
+                        num: '2',
+                        title: t('training.day2_title_clean'),
+                        desc: t('training.day2_desc_clean'),
+                        done: activeTrainee?.day2_completed,
+                      },
+                      {
+                        id: 'day3' as const,
+                        num: '3',
+                        title: t('training.day3_title_clean'),
+                        desc: t('training.day3_desc_clean'),
+                        done: activeTrainee?.day3_completed,
+                      },
+                      {
+                        id: 'day4' as const,
+                        num: '4',
+                        title: t('training.day4_title_clean'),
+                        desc: t('training.day4_desc_clean'),
+                        done: activeTrainee?.day4_completed,
+                      },
+                    ].map((dayCard) => {
+                      const isSelected = activeTab === dayCard.id;
                       return (
                         <button
-                          key={sub.id}
+                          key={dayCard.id}
                           type="button"
-                          onClick={() => setDay1SubStep(sub.id)}
-                          className={`px-4 py-2 rounded-2xl text-xs sm:text-sm font-black transition-all cursor-pointer ${
-                            active
-                              ? 'bg-[#0F172A] text-white shadow-xs'
-                              : 'bg-[#FFFAF5] hover:bg-[#FFF0E5] text-slate-700 border border-slate-200'
+                          onClick={() => {
+                            stopAllMedia();
+                            setActiveTab(dayCard.id);
+                          }}
+                          className={`text-left p-3 sm:p-4 rounded-2xl border transition-all cursor-pointer flex items-center gap-3 ${
+                            isSelected
+                              ? 'bg-[#DA291C] text-white border-[#DA291C] shadow-sm'
+                              : 'bg-white hover:bg-[#FFF5EB] text-[#0F172A] border-[#F1E4D8]'
                           }`}
                         >
-                          {sub.label}
+                          <div
+                            className={`w-9 h-9 rounded-xl flex items-center justify-center text-base font-black shrink-0 ${
+                              isSelected
+                                ? 'bg-[#FFC72C] text-[#0F172A]'
+                                : dayCard.done
+                                ? 'bg-emerald-100 text-emerald-700'
+                                : 'bg-[#FFF5EB] text-[#DA291C]'
+                            }`}
+                          >
+                            {dayCard.done ? <CheckCircle2 className="w-5 h-5" /> : dayCard.num}
+                          </div>
+                          <div className="min-w-0">
+                            <div className="text-xs sm:text-sm font-black leading-tight">
+                              {dayCard.title}
+                            </div>
+                            <div
+                              className={`text-[11px] font-medium mt-0.5 hidden sm:block ${
+                                isSelected ? 'text-white/85' : 'text-slate-500'
+                              }`}
+                            >
+                              {dayCard.desc}
+                            </div>
+                          </div>
                         </button>
                       );
                     })}
-                  </div>
+                  </section>
+                </>
+              )}
+            </>
+          )}
 
-                  <div className="flex flex-wrap items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() =>
-                        triggerVideoUploadForProduct({
-                          slug: currentVideo.slug,
-                          name: currentVideo.titleEs,
-                          positionKey: currentVideo.positionKey,
-                          ingredients: currentVideo.recipeSpecs.map((r) => ({
-                            name: r.itemEs,
-                            quantity: Number(r.quantity) || 1,
-                            unit: r.unit,
-                          })),
-                        })
-                      }
-                      className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-extrabold bg-[#FFFAF5] hover:bg-[#FFF0E5] text-[#0F172A] border border-slate-200 cursor-pointer"
-                    >
-                      <Upload className="w-3.5 h-3.5 text-[#DA291C]" />
-                      <span>{t('training.replace_video_btn')}</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={openStepEditor}
-                      className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-extrabold bg-[#FFF8E7] hover:bg-[#FFC72C]/30 text-[#B45309] border border-[#FFC72C] cursor-pointer"
-                    >
-                      <Wand2 className="w-4 h-4 text-[#DA291C]" />
-                      {t('training.btn_edit_steps_ai')}
-                    </button>
-                  </div>
+          {/* =====================================================================
+              VISTA ADMIN DIRECTA: SELECCIÓN DE ESTACIÓN Y VIDEO SIN ELEGIR EMPLEADO
+             ===================================================================== */}
+          {!loadingData && isAdminFreeVideoReview && (
+            <section className="bg-white rounded-3xl border border-[#F1E4D8] p-4 sm:p-5 shadow-xs space-y-3 print:hidden">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="px-2.5 py-1 rounded-full bg-[#FFF0E5] text-[#DA291C] text-[11px] font-black uppercase">
+                    {t('training.admin_review_badge')}
+                  </span>
+                  <span className="text-xs sm:text-sm font-medium text-slate-600">
+                    {t('training.admin_review_desc')}
+                  </span>
                 </div>
+              </div>
 
-                {day1SubStep === 'video' && (
-                  <div className="grid grid-cols-1 md:landscape:grid-cols-12 lg:grid-cols-12 gap-5 items-start">
-                    {/* Left 7 Cols: Reproductor de Video 100% Limpio (con selector de video integrado arriba) */}
-                    <div className="md:landscape:col-span-7 lg:col-span-7 bg-white rounded-3xl border-2 border-slate-200 p-4 sm:p-5 shadow-xs space-y-3.5">
-                      {/* Selector compacto de videos de la estación */}
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <div className="flex flex-wrap items-center gap-1.5">
-                          {stationVideos.map((vid) => {
-                            const isCurrent = vid.slug === currentVideo.slug;
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="text-[11px] font-bold uppercase text-slate-500 mr-1">
+                  {t('training.admin_review_station_label')}
+                </span>
+                {adminAllStations.map((st) => {
+                  const isSelected = selectedPositionKey === st.stationKey;
+                  return (
+                    <button
+                      key={st.stationKey}
+                      type="button"
+                      onClick={() => handleSelectStationPill(st.stationKey)}
+                      className={`px-3 py-1.5 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
+                        isSelected
+                          ? 'bg-[#0F172A] text-white border-[#0F172A]'
+                          : 'bg-[#FFFAF5] hover:bg-[#FFF0E5] text-[#0F172A] border-[#F1E4D8]'
+                      }`}
+                    >
+                      {t(st.labelKey)}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {stationReviewItems.length > 0 && (
+                <div className="pt-2.5 border-t border-slate-100 flex flex-wrap items-center gap-1.5">
+                  <span className="text-[11px] font-bold uppercase text-slate-500 mr-1">
+                    {t('training.admin_review_items_label')}
+                  </span>
+                  {stationReviewItems.map((item) => {
+                    const isCurrent = currentVideo?.slug === item.slug;
+                    return (
+                      <button
+                        key={item.slug}
+                        type="button"
+                        onClick={() => {
+                          stopAllMedia();
+                          setCurrentTime(0);
+                          setSelectedVideoSlug(item.slug);
+                          setDay1SubStep('video');
+                        }}
+                        className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
+                          isCurrent
+                            ? 'bg-[#DA291C] text-white border-[#DA291C]'
+                            : 'bg-[#FFFAF5] hover:bg-[#FFF0E5] text-[#0F172A] border-[#F1E4D8]'
+                        }`}
+                      >
+                        <Play
+                          className={`w-3 h-3 shrink-0 ${
+                            item.hasVideo
+                              ? isCurrent
+                                ? 'fill-current text-white'
+                                : 'fill-current text-emerald-600'
+                              : isCurrent
+                              ? 'text-white/75'
+                              : 'text-slate-400'
+                          }`}
+                        />
+                        <span>{item.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </section>
+          )}
+
+          {/* ===========================================================
+              DÍA 1 / MODO ADMIN: VIDEO LIMPIO + PASOS + MEDIDAS (+ QUIZ EN PERSONAL)
+             =========================================================== */}
+          {!loadingData && currentVideo && (isAdminFreeVideoReview || (isStaffActiveTraining && activeTab === 'day1')) && (
+            <div className="space-y-4">
+              {/* Barra única de sub-pasos */}
+              <div className="bg-white rounded-2xl border border-[#F1E4D8] p-2.5 flex flex-wrap items-center justify-between gap-2 print:hidden">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {[
+                    { id: 'video' as const, label: t('training.substep_video') },
+                    {
+                      id: 'portions' as const,
+                      label: `${t('training.substep_portions')} (${stationRecipeProducts.length})`,
+                    },
+                    ...(isAdminFreeVideoReview
+                      ? []
+                      : [{ id: 'quiz' as const, label: t('training.substep_quiz') }]),
+                  ].map((sub) => {
+                            const active = day1SubStep === sub.id;
                             return (
                               <button
-                                key={vid.slug}
+                                key={sub.id}
                                 type="button"
                                 onClick={() => {
-                                  setSelectedVideoSlug(vid.slug);
-                                  setIsPlaying(false);
-                                  setCurrentTime(0);
-                                  setAutoPausedForVoice(false);
-                                  lastSpokenStepIdRef.current = null;
-                                  if (audioRef.current) audioRef.current.pause();
+                                  if (sub.id !== 'video') stopAllMedia();
+                                  setDay1SubStep(sub.id);
                                 }}
-                                className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer flex items-center gap-1.5 border ${
-                                  isCurrent
-                                    ? 'bg-[#DA291C] text-white border-[#DA291C] shadow-xs'
-                                    : 'bg-[#FFFAF5] hover:bg-[#FFF0E5] text-[#0F172A] border-slate-200'
+                                className={`px-3.5 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer ${
+                                  active
+                                    ? 'bg-[#0F172A] text-white'
+                                    : 'bg-[#FFFAF5] hover:bg-[#FFF0E5] text-slate-700'
                                 }`}
                               >
-                                <Play className="w-3 h-3 fill-current shrink-0" />
-                                <span>{lang === 'en' ? vid.titleEn : vid.titleEs}</span>
+                                {sub.label}
                               </button>
                             );
                           })}
                         </div>
 
-                        <button
-                          type="button"
-                          onClick={() => setShowAllVideosInSelector((prev) => !prev)}
-                          className="text-[11px] font-extrabold text-[#DA291C] hover:underline cursor-pointer"
-                        >
-                          {showAllVideosInSelector
-                            ? t('training.show_station_videos_only')
-                            : t('training.show_all_9_videos')}
-                        </button>
-                      </div>
-
-                      {/* Marco del Reproductor de Video (Mudo para escuchar únicamente la Voz IA del Tutor) */}
-                      <div
-                        ref={videoContainerRef}
-                        className="relative rounded-2xl overflow-hidden bg-black aspect-video border-2 border-slate-900/10 select-none"
-                      >
-                        {currentVideo.videoUrl ? (
-                          <video
-                            key={currentVideo.videoUrl || currentVideo.slug}
-                            ref={videoRef}
-                            src={currentVideo.videoUrl}
-                            muted
-                            onLoadedMetadata={(e) => {
-                              e.currentTarget.muted = true;
-                              e.currentTarget.volume = 0;
-                            }}
-                            onTimeUpdate={handleVideoTimeUpdate}
-                            onPlay={(e) => {
-                              e.currentTarget.muted = true;
-                              e.currentTarget.volume = 0;
-                              setIsPlaying(true);
-                            }}
-                            onPause={() => setIsPlaying(false)}
-                            onClick={togglePlayVideo}
-                            playsInline
-                            controls={false}
-                            disablePictureInPicture
-                            controlsList="nodownload nofullscreen noremoteplayback"
-                            className="w-full h-full object-contain bg-black cursor-pointer"
-                          />
-                        ) : (
-                          <div className="w-full h-full flex flex-col items-center justify-center text-white p-6 text-center space-y-3">
-                            <Video className="w-12 h-12 text-[#FFC72C]" />
-                            <div className="text-base font-black">
-                              Este producto aún no tiene video asignado
-                            </div>
+                        {canManageCatalog && (
+                          <div className="flex flex-wrap items-center gap-2">
                             <button
                               type="button"
+                              disabled={uploadingVideoSlug === currentVideo.slug}
                               onClick={() =>
                                 triggerVideoUploadForProduct({
                                   slug: currentVideo.slug,
-                                  name: currentVideo.titleEs,
+                                  name: lang === 'en' ? currentVideo.titleEn : currentVideo.titleEs,
                                   positionKey: currentVideo.positionKey,
-                                  ingredients: [],
+                                  ingredients: currentVideo.recipeSpecs.map((r) => ({
+                                    name: r.itemEs,
+                                    quantity: Number(r.quantity) || 1,
+                                    unit: r.unit,
+                                  })),
                                 })
                               }
-                              className="px-4 py-2.5 rounded-xl bg-[#DA291C] text-white text-xs font-black cursor-pointer"
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-[#FFFAF5] hover:bg-[#FFF0E5] text-[#0F172A] border border-slate-200 cursor-pointer"
                             >
-                              Subir Video para {currentVideo.titleEs}
-                            </button>
-                          </div>
-                        )}
-
-                        {/* PUNTO 9: Cuando el video se pausa por la explicación del paso (autoPausedForVoice),
-                            NO mostrar ningún control del reproductor sobre el video */}
-                        {!autoPausedForVoice && currentVideo.videoUrl && (
-                          <div className="absolute bottom-3 right-3 flex items-center gap-2 z-10">
-                            <button
-                              type="button"
-                              onClick={togglePlayVideo}
-                              className="px-3.5 py-2 rounded-xl bg-black/75 hover:bg-black text-white text-xs font-black flex items-center gap-1.5 backdrop-blur-xs cursor-pointer"
-                            >
-                              {isPlaying ? (
-                                <>
-                                  <Pause className="w-4 h-4 fill-current" />
-                                  <span>{lang === 'es' ? 'Pausar' : 'Pause'}</span>
-                                </>
-                              ) : (
-                                <>
-                                  <Play className="w-4 h-4 fill-current" />
-                                  <span>{lang === 'es' ? 'Reproducir' : 'Play'}</span>
-                                </>
-                              )}
+                              <Upload className="w-3.5 h-3.5 text-[#DA291C]" />
+                              <span>
+                                {uploadingVideoSlug === currentVideo.slug
+                                  ? t('training.uploading_video_status')
+                                  : t('training.replace_video_btn')}
+                              </span>
                             </button>
 
                             <button
                               type="button"
-                              onClick={handleToggleFullscreen}
-                              className="p-2 rounded-xl bg-black/75 hover:bg-black text-white backdrop-blur-xs cursor-pointer"
-                              title={t('training.fullscreen_btn')}
+                              onClick={openStepEditor}
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-[#FFF8E7] hover:bg-[#FFC72C]/30 text-[#92400E] border border-[#FFC72C] cursor-pointer"
                             >
-                              <Maximize2 className="w-4 h-4" />
+                              <Wand2 className="w-3.5 h-3.5 text-[#DA291C]" />
+                              <span>{t('training.btn_edit_steps_ai')}</span>
                             </button>
+
+                            {isAdmin && Boolean(currentVideo.videoUrl) && (
+                              <button
+                                type="button"
+                                disabled={reprocessingVideoSlug === currentVideo.slug}
+                                onClick={handleReprocessVideoWithAi}
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-[#FFFAF5] hover:bg-[#FFF0E5] disabled:opacity-50 text-[#0F172A] border border-[#F1E4D8] cursor-pointer"
+                              >
+                                <Sparkles className="w-3.5 h-3.5 text-[#DA291C]" />
+                                <span>
+                                  {reprocessingVideoSlug === currentVideo.slug
+                                    ? t('training.reprocessing_video_status')
+                                    : t('training.reprocess_video_ai_btn')}
+                                </span>
+                              </button>
+                            )}
                           </div>
                         )}
                       </div>
 
-                      {/* Barra Única de Controles debajo del Video (sin duplicados) */}
-                      <div className="flex flex-wrap items-center justify-between gap-2 pt-0.5">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <button
-                            type="button"
-                            onClick={togglePlayVideo}
-                            className={`px-4 py-2.5 rounded-xl text-xs sm:text-sm font-black shadow-xs flex items-center gap-1.5 cursor-pointer transition-all ${
-                              isPlaying
-                                ? 'bg-amber-500 hover:bg-amber-600 text-white'
-                                : 'bg-[#DA291C] hover:bg-[#B91C1C] text-white'
-                            }`}
-                          >
-                            {isPlaying ? (
-                              <>
-                                <Pause className="w-4 h-4 fill-current" />
-                                <span>{t('training.big_pause_btn')}</span>
-                              </>
-                            ) : (
-                              <>
-                                <Play className="w-4 h-4 fill-current" />
-                                <span>{t('training.big_play_btn')}</span>
-                              </>
+                      {day1SubStep === 'video' && (
+                        <div className="grid grid-cols-1 md:grid-cols-12 gap-5 items-start">
+                          {/* Izquierda 7 Cols: Reproductor de Video 100% Limpio & Silenciado */}
+                          <div className="md:col-span-7 bg-white rounded-3xl border border-[#F1E4D8] p-4 sm:p-5 shadow-xs space-y-3.5">
+                            {(stationVideos.length > 1 || showAllVideosInSelector) && (
+                              <div className="flex flex-wrap items-center justify-between gap-2">
+                                <div className="flex flex-wrap items-center gap-1.5">
+                                  {stationVideos.map((vid) => {
+                                    const isCurrent = vid.slug === currentVideo.slug;
+                                    return (
+                                      <button
+                                        key={vid.slug}
+                                        type="button"
+                                        onClick={() => {
+                                          stopAllMedia();
+                                          setSelectedVideoSlug(vid.slug);
+                                          setCurrentTime(0);
+                                        }}
+                                        className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 border ${
+                                          isCurrent
+                                            ? 'bg-[#0F172A] text-white border-[#0F172A]'
+                                            : 'bg-[#FFFAF5] hover:bg-[#FFF0E5] text-[#0F172A] border-[#F1E4D8]'
+                                        }`}
+                                      >
+                                        <Play className="w-3 h-3 fill-current shrink-0" />
+                                        <span>{lang === 'en' ? vid.titleEn : vid.titleEs}</span>
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+
+                                <button
+                                  type="button"
+                                  onClick={() => setShowAllVideosInSelector((prev) => !prev)}
+                                  className="text-[11px] font-bold text-[#DA291C] hover:underline cursor-pointer"
+                                >
+                                  {showAllVideosInSelector
+                                    ? t('training.show_station_videos_only')
+                                    : t('training.show_all_9_videos')}
+                                </button>
+                              </div>
                             )}
-                          </button>
 
-                          <button
-                            type="button"
-                            onClick={() => {
-                              if (currentStep) jumpToStep(currentStep);
-                            }}
-                            className="px-3.5 py-2.5 rounded-xl text-xs font-black bg-[#FFF8E7] hover:bg-[#FFC72C]/40 text-[#0F172A] border border-[#FFC72C] flex items-center gap-1.5 cursor-pointer"
-                          >
-                            <RotateCcw className="w-3.5 h-3.5 text-[#DA291C]" />
-                            <span>{t('training.listen_again_btn')}</span>
-                          </button>
+                            {!showAllVideosInSelector && stationVideos.length <= 1 && (
+                              <div className="flex items-center justify-between gap-2">
+                                <h3 className="text-sm sm:text-base font-black text-[#0F172A] truncate">
+                                  {lang === 'en' ? currentVideo.titleEn : currentVideo.titleEs}
+                                </h3>
+                                <button
+                                  type="button"
+                                  onClick={() => setShowAllVideosInSelector(true)}
+                                  className="text-[11px] font-bold text-[#DA291C] hover:underline cursor-pointer shrink-0"
+                                >
+                                  {t('training.show_all_9_videos')}
+                                </button>
+                              </div>
+                            )}
 
-                          <button
-                            type="button"
-                            onClick={handlePauseToAddStepHere}
-                            className="px-3.5 py-2.5 rounded-xl bg-[#FFF0E5] hover:bg-[#FED7AA]/60 text-[#DA291C] border border-[#FED7AA] text-xs font-black flex items-center gap-1.5 cursor-pointer"
-                          >
-                            <PlusCircle className="w-3.5 h-3.5" />
-                            <span>{t('training.pause_add_step_btn')}</span>
-                          </button>
+                            {/* Video sin barra de progreso + sin controles cuando autoPausedForVoice === true */}
+                            <div
+                              ref={videoContainerRef}
+                              className="relative rounded-2xl overflow-hidden bg-black aspect-video border border-slate-900/10 select-none"
+                            >
+                              {currentVideo.videoUrl ? (
+                                <video
+                                  key={currentVideo.videoUrl}
+                                  ref={videoRef}
+                                  src={currentVideo.videoUrl}
+                                  muted
+                                  onLoadedMetadata={(e) => {
+                                    e.currentTarget.muted = true;
+                                    e.currentTarget.volume = 0;
+                                  }}
+                                  onTimeUpdate={handleVideoTimeUpdate}
+                                  onPlay={(e) => {
+                                    e.currentTarget.muted = true;
+                                    e.currentTarget.volume = 0;
+                                    setIsPlaying(true);
+                                  }}
+                                  onPause={() => setIsPlaying(false)}
+                                  onEnded={() => {
+                                    setIsPlaying(false);
+                                    autoPausedForVoiceRef.current = false;
+                                    setAutoPausedForVoice(false);
+                                    lastSpokenStepIdRef.current = null;
+                                    pausedBoundaryStepIdRef.current = null;
+                                  }}
+                                  onClick={togglePlayVideo}
+                                  playsInline
+                                  controls={false}
+                                  disablePictureInPicture
+                                  controlsList="nodownload nofullscreen noremoteplayback"
+                                  className="w-full h-full object-contain bg-black cursor-pointer"
+                                />
+                              ) : (
+                                <div className="w-full h-full flex flex-col items-center justify-center text-white p-6 text-center space-y-3">
+                                  <Video className="w-11 h-11 text-[#FFC72C]" />
+                                  <div className="text-sm sm:text-base font-black">
+                                    {t('training.no_video_yet_title')}
+                                  </div>
+                                  {canManageCatalog && (
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        triggerVideoUploadForProduct({
+                                          slug: currentVideo.slug,
+                                          name: currentVideo.titleEs,
+                                          positionKey: currentVideo.positionKey,
+                                          ingredients: [],
+                                        })
+                                      }
+                                      className="px-4 py-2.5 rounded-xl bg-[#DA291C] text-white text-xs font-black cursor-pointer"
+                                    >
+                                      {t('training.upload_video_for_btn', {
+                                        name: lang === 'en' ? currentVideo.titleEn : currentVideo.titleEs,
+                                      })}
+                                    </button>
+                                  )}
+                                </div>
+                              )}
+
+                              {/* Al pausar automáticamente por voz explicativa NO mostrar ningún control sobre el video */}
+                              {!autoPausedForVoice && currentVideo.videoUrl && (
+                                <div className="absolute bottom-3 right-3 flex items-center gap-2 z-10">
+                                  <button
+                                    type="button"
+                                    onClick={togglePlayVideo}
+                                    className="px-3.5 py-2 rounded-xl bg-black/75 hover:bg-black text-white text-xs font-black flex items-center gap-1.5 backdrop-blur-xs cursor-pointer"
+                                  >
+                                    {isPlaying ? (
+                                      <>
+                                        <Pause className="w-4 h-4 fill-current" />
+                                        <span>{t('training.pause_btn')}</span>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <Play className="w-4 h-4 fill-current" />
+                                        <span>{t('training.play_btn')}</span>
+                                      </>
+                                    )}
+                                  </button>
+
+                                  <button
+                                    type="button"
+                                    onClick={handleToggleFullscreen}
+                                    className="p-2 rounded-xl bg-black/75 hover:bg-black text-white backdrop-blur-xs cursor-pointer"
+                                    title={t('training.fullscreen_btn')}
+                                  >
+                                    <Maximize2 className="w-4 h-4" />
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Única Barra Compacta de Acciones debajo del Video (sin controles duplicados) */}
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={togglePlayVideo}
+                                  className={`px-4 py-2.5 rounded-xl text-xs sm:text-sm font-black shadow-xs flex items-center gap-1.5 cursor-pointer transition-all ${
+                                    isPlaying
+                                      ? 'bg-amber-500 hover:bg-amber-600 text-white'
+                                      : 'bg-[#DA291C] hover:bg-[#B91C1C] text-white'
+                                  }`}
+                                >
+                                  {isPlaying ? (
+                                    <>
+                                      <Pause className="w-4 h-4 fill-current" />
+                                      <span>{t('training.pause_btn')}</span>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Play className="w-4 h-4 fill-current" />
+                                      <span>{t('training.play_btn')}</span>
+                                    </>
+                                  )}
+                                </button>
+
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    if (currentStep) jumpToStep(currentStep);
+                                  }}
+                                  className="px-3.5 py-2.5 rounded-xl text-xs font-bold bg-[#FFFAF5] hover:bg-[#FFF0E5] text-[#0F172A] border border-[#F1E4D8] flex items-center gap-1.5 cursor-pointer"
+                                >
+                                  <RotateCcw className="w-3.5 h-3.5 text-[#DA291C]" />
+                                  <span>{t('training.repeat_step_btn')}</span>
+                                </button>
+
+                                {canManageCatalog && (
+                                  <button
+                                    type="button"
+                                    onClick={handlePauseToAddStepHere}
+                                    className="px-3 py-2.5 rounded-xl bg-[#FFF8E7] hover:bg-[#FFC72C]/30 text-[#92400E] border border-[#FFC72C] text-xs font-bold flex items-center gap-1.5 cursor-pointer"
+                                  >
+                                    <PlusCircle className="w-3.5 h-3.5 text-[#DA291C]" />
+                                    <span>{t('training.add_step_here_btn')}</span>
+                                  </button>
+                                )}
+                              </div>
+
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const next = !voiceEnabled;
+                                  setVoiceEnabled(next);
+                                  if (!next && audioRef.current) {
+                                    audioRef.current.pause();
+                                    setIsVoiceSpeaking(false);
+                                  }
+                                }}
+                                className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold border cursor-pointer ${
+                                  voiceEnabled
+                                    ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                                    : 'bg-slate-100 text-slate-600 border-slate-200'
+                                }`}
+                              >
+                                {voiceEnabled ? (
+                                  <Volume2 className="w-4 h-4 text-emerald-600" />
+                                ) : (
+                                  <VolumeX className="w-4 h-4 text-slate-500" />
+                                )}
+                                <span>
+                                  {voiceEnabled
+                                    ? t('training.voice_tutor_on')
+                                    : t('training.voice_tutor_off')}
+                                </span>
+                              </button>
+                            </div>
+
+                            {/* Formulario Inline al Pausar Video para Agregar Paso -> Voz IA */}
+                            {showAddStepAtPauseBox && (
+                              <form
+                                onSubmit={handleSavePausedStepWithAiVoice}
+                                className="p-4 rounded-2xl bg-[#FFFDF9] border border-[#FFC72C] space-y-3"
+                              >
+                                <div className="flex items-center justify-between">
+                                  <span className="text-xs font-black text-[#DA291C]">
+                                    {t('training.new_step_modal_title')} ({formatSeconds(pausedTimestampSec)})
+                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={() => setShowAddStepAtPauseBox(false)}
+                                    className="text-xs font-black text-slate-500 cursor-pointer"
+                                  >
+                                    <X className="w-4 h-4" />
+                                  </button>
+                                </div>
+
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                                  <input
+                                    type="text"
+                                    value={newStepTitle}
+                                    onChange={(e) => setNewStepTitle(e.target.value)}
+                                    placeholder={t('training.new_step_title_ph')}
+                                    className="px-3.5 py-2 rounded-xl border border-slate-300 bg-white text-xs sm:text-sm font-semibold"
+                                  />
+                                  <input
+                                    type="text"
+                                    value={newStepPortion}
+                                    onChange={(e) => setNewStepPortion(e.target.value)}
+                                    placeholder={t('training.new_step_portion_ph')}
+                                    className="px-3.5 py-2 rounded-xl border border-slate-300 bg-white text-xs sm:text-sm font-semibold"
+                                  />
+                                </div>
+
+                                <textarea
+                                  rows={2}
+                                  required
+                                  value={newStepNarration}
+                                  onChange={(e) => setNewStepNarration(e.target.value)}
+                                  placeholder={t('training.new_step_narration_ph')}
+                                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 bg-white text-sm font-semibold"
+                                />
+
+                                {pausedStepError && (
+                                  <div className="text-xs font-bold text-red-600">{pausedStepError}</div>
+                                )}
+
+                                <div className="flex justify-end gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => setShowAddStepAtPauseBox(false)}
+                                    className="px-3.5 py-2 rounded-xl bg-white border border-slate-300 text-xs font-bold text-slate-600 cursor-pointer"
+                                  >
+                                    {t('common.cancel')}
+                                  </button>
+                                  <button
+                                    type="submit"
+                                    disabled={savingPausedStepBusy || !newStepNarration.trim()}
+                                    className="px-4 py-2 rounded-xl bg-[#DA291C] hover:bg-[#B91C1C] text-white text-xs font-black cursor-pointer disabled:opacity-40"
+                                  >
+                                    {savingPausedStepBusy
+                                      ? t('training.generating_ai_voice')
+                                      : t('training.save_step_ai_voice_btn')}
+                                  </button>
+                                </div>
+                              </form>
+                            )}
+                          </div>
+
+                          {/* Derecha 5 Cols: Tarjeta Limpia del Paso Actual */}
+                          <div className="md:col-span-5 bg-white rounded-3xl border border-[#F1E4D8] p-5 shadow-xs space-y-4">
+                            <div className="space-y-2">
+                              <div className="text-xs font-bold uppercase text-slate-500">
+                                {t('training.steps_header')}
+                              </div>
+                              <div className="flex flex-wrap gap-2">
+                                {currentVideo.steps.map((st, idx) => {
+                                  const isActive = idx === currentStepIndex;
+                                  return (
+                                    <button
+                                      key={st.id}
+                                      type="button"
+                                      onClick={() => jumpToStep(st)}
+                                      className={`w-10 h-10 rounded-xl text-sm font-black transition-all cursor-pointer border ${
+                                        isActive
+                                          ? 'bg-[#0F172A] text-white border-[#0F172A] shadow-xs'
+                                          : 'bg-[#FFFAF5] hover:bg-[#FFF0E5] text-[#0F172A] border-[#F1E4D8]'
+                                      }`}
+                                    >
+                                      {st.stepNumber}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </div>
+
+                            {currentStep && (
+                              <div className="rounded-2xl bg-[#FFFAF5] border border-[#F1E4D8] p-4 space-y-3">
+                                <div className="flex items-center justify-between gap-2">
+                                  <span className="px-2.5 py-1 rounded-full bg-[#FFF0E5] text-[#DA291C] text-xs font-black">
+                                    {t('training.player_step_of', {
+                                      current: currentStep.stepNumber,
+                                      total: currentVideo.steps.length,
+                                    })}
+                                  </span>
+                                  {isVoiceSpeaking && (
+                                    <span className="inline-flex items-center gap-1.5 text-xs font-bold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-200">
+                                      <Volume2 className="w-3.5 h-3.5 animate-pulse" />
+                                      {t('training.tutor_speaking_badge')}
+                                    </span>
+                                  )}
+                                </div>
+
+                                <h3 className="text-base sm:text-lg font-black text-[#0F172A] leading-snug">
+                                  {lang === 'en' ? currentStep.titleEn : currentStep.titleEs}
+                                </h3>
+
+                                <p className="text-sm font-semibold text-slate-800 leading-relaxed bg-white p-3.5 rounded-xl border border-slate-200">
+                                  “{lang === 'en' ? currentStep.narrationEn : currentStep.narrationEs}”
+                                </p>
+
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                  {currentStep.keyPortionEs && (
+                                    <div className="p-2.5 rounded-xl bg-[#FFF8E7] border border-[#FFC72C] flex items-center gap-2">
+                                      <Scale className="w-4 h-4 text-[#DA291C] shrink-0" />
+                                      <span className="text-xs font-bold text-[#0F172A]">
+                                        {lang === 'en'
+                                          ? currentStep.keyPortionEn
+                                          : currentStep.keyPortionEs}
+                                      </span>
+                                    </div>
+                                  )}
+                                  {currentStep.utensilEs && (
+                                    <div className="p-2.5 rounded-xl bg-white border border-[#F1E4D8] flex items-center gap-2">
+                                      <Thermometer className="w-4 h-4 text-[#DA291C] shrink-0" />
+                                      <span className="text-xs font-bold text-[#0F172A]">
+                                        {lang === 'en' ? currentStep.utensilEn : currentStep.utensilEs}
+                                      </span>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            )}
+
+                            <div className="grid grid-cols-2 gap-2.5">
+                              <button
+                                type="button"
+                                disabled={currentStepIndex <= 0}
+                                onClick={() => {
+                                  const prev = currentVideo.steps[currentStepIndex - 1];
+                                  if (prev) jumpToStep(prev);
+                                }}
+                                className="py-2.5 px-4 rounded-xl border border-slate-200 bg-[#FFFAF5] hover:bg-slate-100 disabled:opacity-40 text-xs sm:text-sm font-bold text-[#0F172A] flex items-center justify-center gap-1 cursor-pointer"
+                              >
+                                <ChevronLeft className="w-4 h-4" />
+                                <span>{t('training.prev_step_btn')}</span>
+                              </button>
+
+                              <button
+                                type="button"
+                                disabled={currentStepIndex >= currentVideo.steps.length - 1}
+                                onClick={() => {
+                                  const next = currentVideo.steps[currentStepIndex + 1];
+                                  if (next) jumpToStep(next);
+                                }}
+                                className="py-2.5 px-4 rounded-xl bg-[#0F172A] hover:bg-slate-800 disabled:opacity-40 text-xs sm:text-sm font-bold text-white flex items-center justify-center gap-1 cursor-pointer"
+                              >
+                                <span>{t('training.next_step_btn')}</span>
+                                <ChevronRight className="w-4 h-4" />
+                              </button>
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={() => {
+                                stopAllMedia();
+                                setDay1SubStep('portions');
+                              }}
+                              className="w-full py-3 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-black shadow-xs flex items-center justify-center gap-2 cursor-pointer"
+                            >
+                              <span>{t('training.next_go_to_portions')}</span>
+                              <ChevronRight className="w-4 h-4" />
+                            </button>
+                          </div>
                         </div>
+                      )}
 
+                      {day1SubStep === 'portions' && (
+                        <div className="space-y-5">
+                          <div className="bg-white rounded-3xl border border-[#F1E4D8] p-5 sm:p-6 space-y-5 shadow-xs">
+                            <div className="flex flex-wrap items-center justify-between gap-3">
+                              <h3 className="text-lg sm:text-xl font-black text-[#0F172A]">
+                                {t('training.recipe_specs_title')} —{' '}
+                                {lang === 'en' ? currentVideo.titleEn : currentVideo.titleEs}
+                              </h3>
+                              <div className="flex items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => setDay1SubStep('video')}
+                                  className="px-4 py-2 rounded-xl border border-slate-200 text-xs sm:text-sm font-bold text-slate-700 cursor-pointer"
+                                >
+                                  ← {t('training.back_to_video')}
+                                </button>
+                                {!isAdminFreeVideoReview && (
+                                  <button
+                                    type="button"
+                                    onClick={() => setDay1SubStep('quiz')}
+                                    className="px-4 py-2 rounded-xl bg-emerald-600 text-white text-xs sm:text-sm font-black cursor-pointer"
+                                  >
+                                    {t('training.next_go_to_quiz')} →
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
+                              {currentVideo.recipeSpecs.map((spec, idx) => (
+                                <div
+                                  key={idx}
+                                  className="rounded-2xl bg-[#FFFAF5] border border-[#F1E4D8] p-4 flex flex-col justify-between gap-2.5"
+                                >
+                                  <div className="flex items-start justify-between gap-3">
+                                    <div className="text-sm sm:text-base font-black text-[#0F172A]">
+                                      {lang === 'en' ? spec.itemEn : spec.itemEs}
+                                    </div>
+                                    <span className="px-3 py-1 rounded-xl bg-[#DA291C] text-white text-xs sm:text-sm font-black shrink-0">
+                                      {spec.quantity} {spec.unit}
+                                    </span>
+                                  </div>
+                                  <div className="text-xs font-semibold text-slate-600 bg-white px-3 py-1.5 rounded-xl border border-slate-200">
+                                    {lang === 'en' ? spec.utensilEn : spec.utensilEs}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+
+                          {stationRecipeProducts.length > 0 && (
+                            <div className="bg-white rounded-3xl border border-[#F1E4D8] p-5 space-y-4 shadow-xs">
+                              <div className="flex flex-wrap items-center justify-between gap-3">
+                                <div>
+                                  <span className="text-[11px] font-black uppercase text-[#DA291C]">
+                                    {lang === 'en' ? currentPosition?.labelEn : currentPosition?.labelEs}
+                                  </span>
+                                  <h3 className="text-lg font-black text-[#0F172A]">
+                                    {t('training.station_categories_title', {
+                                      count: stationRecipeProducts.length,
+                                    })}
+                                  </h3>
+                                </div>
+
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <div className="relative">
+                                    <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                                    <input
+                                      type="text"
+                                      value={stationSearch}
+                                      onChange={(e) => setStationSearch(e.target.value)}
+                                      placeholder={t('training.filter_dish_ph')}
+                                      className="pl-8 pr-3 py-1.5 rounded-xl border border-slate-200 bg-[#FFFAF5] text-xs font-semibold"
+                                    />
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={() => setShowPrintableChecklistModal(true)}
+                                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#FFFAF5] border border-[#FFC72C] text-xs font-bold text-[#0F172A] cursor-pointer"
+                                  >
+                                    <Printer className="w-3.5 h-3.5 text-[#DA291C]" />
+                                    <span>{t('training.print_list_btn')}</span>
+                                  </button>
+                                </div>
+                              </div>
+
+                              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 max-h-[520px] overflow-y-auto pr-1">
+                                {stationRecipeProducts
+                                  .filter(
+                                    (prod) =>
+                                      !stationSearch.trim() ||
+                                      prod.name.toLowerCase().includes(stationSearch.trim().toLowerCase())
+                                  )
+                                  .map((prod) => {
+                                    const isUploading = uploadingVideoSlug === prod.slug;
+                                    return (
+                                      <div
+                                        key={prod.guid}
+                                        className="rounded-2xl bg-[#FFFAF5] border border-[#F1E4D8] p-3.5 flex flex-col justify-between gap-2.5"
+                                      >
+                                        <div>
+                                          <div className="flex items-start justify-between gap-2">
+                                            <div className="text-sm font-black text-[#0F172A]">
+                                              {prod.name}
+                                            </div>
+                                            {prod.hasVideo ? (
+                                              <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-bold shrink-0">
+                                                {t('training.video_badge')}
+                                              </span>
+                                            ) : (
+                                              <span className="px-2 py-0.5 rounded-full bg-slate-200 text-slate-700 text-[10px] font-bold shrink-0">
+                                                {t('training.recipe_badge')}
+                                              </span>
+                                            )}
+                                          </div>
+                                          <div className="flex flex-wrap gap-1 mt-2">
+                                            {prod.ingredients.map((ing, i) => (
+                                              <span
+                                                key={i}
+                                                className="px-2 py-0.5 rounded-lg bg-white border border-slate-200 text-[11px] font-semibold text-slate-800"
+                                              >
+                                                <strong className="text-[#DA291C]">
+                                                  {ing.quantity} {ing.unit}
+                                                </strong>{' '}
+                                                {ing.name}
+                                              </span>
+                                            ))}
+                                          </div>
+                                          {prod.variantsIncluded && prod.variantsIncluded.length > 1 && (
+                                            <div className="mt-2 p-2 rounded-xl bg-[#FFF8E7] border border-[#FFC72C] text-[10px] font-semibold text-slate-700 leading-snug">
+                                              <span className="text-[#DA291C] font-black">
+                                                {t('training.covers_variants_label', {
+                                                  count: prod.variantCount || prod.variantsIncluded.length,
+                                                })}
+                                              </span>{' '}
+                                              {prod.variantsIncluded.join(', ')}
+                                            </div>
+                                          )}
+                                        </div>
+
+                                        <div className="pt-2 border-t border-[#F1E4D8] flex items-center gap-1.5">
+                                          {prod.hasVideo && (
+                                            <button
+                                              type="button"
+                                              onClick={() => {
+                                                stopAllMedia();
+                                                setSelectedVideoSlug(prod.slug);
+                                                setDay1SubStep('video');
+                                                setCurrentTime(0);
+                                              }}
+                                              className="flex-1 py-1.5 px-2.5 rounded-xl bg-[#DA291C] text-white text-xs font-bold flex items-center justify-center gap-1 cursor-pointer"
+                                            >
+                                              <Play className="w-3 h-3 fill-current" />
+                                              <span>{t('training.product_watch_video')}</span>
+                                            </button>
+                                          )}
+                                          {canManageCatalog && (
+                                            <button
+                                              type="button"
+                                              disabled={isUploading}
+                                              onClick={() =>
+                                                triggerVideoUploadForProduct({
+                                                  slug: prod.slug,
+                                                  name: prod.name,
+                                                  positionKey: prod.positionKey,
+                                                  ingredients: prod.ingredients,
+                                                })
+                                              }
+                                              className="py-1.5 px-2.5 rounded-xl bg-white border border-[#FFC72C] text-[#0F172A] text-xs font-bold flex items-center gap-1 cursor-pointer"
+                                            >
+                                              <Upload className="w-3 h-3 text-[#DA291C]" />
+                                              <span>
+                                                {isUploading
+                                                  ? '...'
+                                                  : prod.hasVideo
+                                                  ? t('training.replace_video_btn')
+                                                  : t('training.upload_video_btn')}
+                                              </span>
+                                            </button>
+                                          )}
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {day1SubStep === 'quiz' && !isAdminFreeVideoReview && (
+                        <div className="bg-white rounded-3xl border border-[#F1E4D8] p-5 sm:p-6 space-y-5 shadow-xs">
+                          <h3 className="text-lg sm:text-xl font-black text-[#0F172A]">
+                            {t('training.quiz_day1_title')}
+                          </h3>
+                          <div className="space-y-4">
+                            {activeDay1Quiz.map((q, qIdx) => (
+                              <div
+                                key={q.id}
+                                className="p-4 sm:p-5 rounded-2xl bg-[#FFFAF5] border border-[#F1E4D8] space-y-3"
+                              >
+                                <div className="text-sm sm:text-base font-black text-[#0F172A]">
+                                  {qIdx + 1}. {lang === 'en' ? q.questionEn : q.questionEs}
+                                </div>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                                  {(lang === 'en' ? q.optionsEn : q.optionsEs).map((opt, oIdx) => {
+                                    const isSelected = quizAnswers[q.id] === oIdx;
+                                    return (
+                                      <button
+                                        key={oIdx}
+                                        type="button"
+                                        onClick={() =>
+                                          setQuizAnswers((prev) => ({ ...prev, [q.id]: oIdx }))
+                                        }
+                                        className={`text-left p-3.5 rounded-xl border text-xs sm:text-sm font-bold cursor-pointer ${
+                                          isSelected
+                                            ? 'bg-[#0F172A] text-white border-[#0F172A]'
+                                            : 'bg-white text-slate-800 border-slate-200 hover:border-[#DA291C]'
+                                        }`}
+                                      >
+                                        {opt}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+
+                          <div className="flex flex-wrap items-center gap-3">
+                            <button
+                              type="button"
+                              onClick={handleGradeDay1Quiz}
+                              className="px-7 py-3.5 rounded-2xl bg-[#DA291C] hover:bg-[#B91C1C] text-white text-sm sm:text-base font-black cursor-pointer"
+                            >
+                              {t('training.quiz_submit_btn')}
+                            </button>
+                          </div>
+
+                          {quizSubmittedResult && (
+                            <div
+                              className={`p-4 rounded-2xl border flex flex-wrap items-center justify-between gap-3 ${
+                                quizSubmittedResult.passed
+                                  ? 'bg-emerald-50 border-emerald-300 text-emerald-900'
+                                  : 'bg-red-50 border-red-200 text-red-800'
+                              }`}
+                            >
+                              <div className="text-sm sm:text-base font-bold">
+                                {quizSubmittedResult.passed
+                                  ? t('training.quiz_passed_msg', { score: quizSubmittedResult.score })
+                                  : t('training.quiz_failed_msg', { score: quizSubmittedResult.score })}
+                              </div>
+                              {quizSubmittedResult.passed ? (
+                                <button
+                                  type="button"
+                                  onClick={() => setActiveTab('day2')}
+                                  className="px-4 py-2 rounded-xl bg-emerald-600 text-white text-xs sm:text-sm font-black cursor-pointer"
+                                >
+                                  {t('training.quiz_continue_day2_btn')}
+                                </button>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setQuizAnswers({});
+                                    setQuizSubmittedResult(null);
+                                  }}
+                                  className="px-4 py-2 rounded-xl bg-white border border-red-300 text-red-700 text-xs font-bold cursor-pointer"
+                                >
+                                  {t('training.quiz_retry_btn')}
+                                </button>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+          {/* ===========================================================
+              DÍAS 2, 3 Y 4: SOLO CUANDO HAY COLABORADOR ACTIVO SELECCIONADO
+             =========================================================== */}
+          {!loadingData && isStaffActiveTraining && selectedEmployee && (
+            <>
+                  {/* ===========================================================
+                      DÍA 2: PRÁCTICA SUPERVISADA (CON VALIDACIÓN, RÚBRICA Y NOTAS)
+                     =========================================================== */}
+                  {activeTab === 'day2' && currentPosition && (
+                    <div className="max-w-4xl mx-auto bg-white rounded-3xl border border-[#F1E4D8] p-5 sm:p-6 space-y-5 shadow-xs">
+                      <div>
+                        <h3 className="text-lg sm:text-xl font-black text-[#0F172A]">
+                          {t('training.day2_title')}
+                        </h3>
+                        <p className="text-xs sm:text-sm font-medium text-slate-600 mt-1">
+                          {t('training.day2_subtitle')}
+                        </p>
+                      </div>
+
+                      <div className="rounded-2xl bg-[#FFFAF5] border border-[#F1E4D8] p-4 flex flex-wrap items-center justify-between gap-4">
+                        <div>
+                          <div className="text-xs font-bold uppercase text-slate-500">
+                            {t('training.day2_reps_title')}
+                          </div>
+                          <div className="text-3xl font-black text-[#DA291C]">
+                            {day2Reps} / {currentPosition.day2TargetReps}
+                          </div>
+                        </div>
                         <div className="flex items-center gap-2">
                           <button
                             type="button"
-                            onClick={() => {
-                              const next = !voiceEnabled;
-                              setVoiceEnabled(next);
-                              if (!next && audioRef.current) {
-                                audioRef.current.pause();
-                                setIsVoiceSpeaking(false);
-                              }
-                            }}
-                            className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-black border cursor-pointer ${
-                              voiceEnabled
-                                ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
-                                : 'bg-slate-100 text-slate-600 border-slate-300'
-                            }`}
+                            onClick={() => setDay2Reps((r) => Math.max(0, r - 1))}
+                            className="p-3 rounded-xl bg-white border border-slate-300 cursor-pointer"
                           >
-                            {voiceEnabled ? (
-                              <Volume2 className="w-4 h-4 text-emerald-600" />
-                            ) : (
-                              <VolumeX className="w-4 h-4 text-slate-500" />
-                            )}
-                            <span>
-                              {voiceEnabled
-                                ? t('training.player_voice_active')
-                                : t('training.player_voice_muted')}
-                            </span>
+                            <Minus className="w-5 h-5" />
                           </button>
-
                           <button
                             type="button"
-                            onClick={handleToggleFullscreen}
-                            className="p-2 rounded-xl bg-[#0F172A] hover:bg-slate-800 text-white cursor-pointer"
-                            title={t('training.fullscreen_btn')}
+                            onClick={() => setDay2Reps((r) => r + 1)}
+                            className="px-5 py-3 rounded-xl bg-[#DA291C] text-white text-sm sm:text-base font-black flex items-center gap-2 cursor-pointer"
                           >
-                            <Maximize2 className="w-4 h-4 text-[#FFC72C]" />
+                            <Plus className="w-5 h-5" />
+                            <span>{t('training.add_one_dish_btn')}</span>
                           </button>
                         </div>
                       </div>
 
-                      {/* Formulario Inline al Pausar Video para Agregar Paso con Texto -> Voz IA */}
-                      {showAddStepAtPauseBox && (
-                        <form
-                          onSubmit={handleSavePausedStepWithAiVoice}
-                          className="p-4 rounded-2xl bg-[#FFF8E7] border-2 border-[#FFC72C] space-y-3"
-                        >
-                          <div className="flex items-center justify-between">
-                            <span className="text-xs font-black uppercase text-[#DA291C]">
-                              🎙️ Nuevo Paso con Voz IA (Orus) en este punto del video
-                            </span>
-                            <button
-                              type="button"
-                              onClick={() => setShowAddStepAtPauseBox(false)}
-                              className="text-xs font-black text-slate-500 cursor-pointer"
-                            >
-                              ✕
-                            </button>
-                          </div>
-
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                            <input
-                              type="text"
-                              value={newStepTitle}
-                              onChange={(e) => setNewStepTitle(e.target.value)}
-                              placeholder="Título corto del paso (ej. Doblar laterales)"
-                              className="px-3.5 py-2 rounded-xl border border-slate-300 bg-white text-xs sm:text-sm font-bold"
-                            />
-                            <input
-                              type="text"
-                              value={newStepPortion}
-                              onChange={(e) => setNewStepPortion(e.target.value)}
-                              placeholder="Medida o regla clave (ej. 6 oz Carne Asada)"
-                              className="px-3.5 py-2 rounded-xl border border-slate-300 bg-white text-xs sm:text-sm font-bold"
-                            />
-                          </div>
-
-                          <textarea
-                            rows={2}
-                            required
-                            value={newStepNarration}
-                            onChange={(e) => setNewStepNarration(e.target.value)}
-                            placeholder="Escribe aquí la explicación del paso... Al guardar se convertirá automáticamente en la Voz IA masculina (Orus)."
-                            className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 bg-white text-sm font-semibold"
-                          />
-
-                          <div className="flex justify-end gap-2">
-                            <button
-                              type="button"
-                              onClick={() => setShowAddStepAtPauseBox(false)}
-                              className="px-3.5 py-2 rounded-xl bg-white border border-slate-300 text-xs font-bold text-slate-600 cursor-pointer"
-                            >
-                              {t('common.cancel')}
-                            </button>
-                            <button
-                              type="submit"
-                              disabled={savingPausedStepBusy || !newStepNarration.trim()}
-                              className="px-4 py-2 rounded-xl bg-[#DA291C] hover:bg-[#B91C1C] text-white text-xs font-black cursor-pointer disabled:opacity-40"
-                            >
-                              {savingPausedStepBusy
-                                ? 'Generando Voz IA...'
-                                : `💾 ${t('training.save_step_ai_voice_btn')}`}
-                            </button>
-                          </div>
-                        </form>
-                      )}
-                    </div>
-
-                    {/* Right 5 Cols: Tarjeta Limpia del Paso Actual */}
-                    <div className="md:landscape:col-span-5 lg:col-span-5 bg-white rounded-3xl border-2 border-[#FFC72C] p-5 space-y-4">
                       <div className="space-y-2">
-                        <div className="text-xs font-black uppercase text-slate-500">
-                          {lang === 'es'
-                            ? 'Pasos del Procedimiento (Toca para escuchar):'
-                            : 'Procedure Steps (Tap to listen):'}
+                        <div className="text-xs font-bold uppercase text-slate-500">
+                          {t('training.day2_steps_check_label')}
                         </div>
-                        <div className="flex flex-wrap gap-2">
-                          {currentVideo.steps.map((st, idx) => {
-                            const isActive = idx === currentStepIndex;
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                          {(currentVideo?.steps || []).map((st) => {
+                            const checked = !!day2Rubric[st.id];
                             return (
                               <button
                                 key={st.id}
                                 type="button"
-                                onClick={() => jumpToStep(st)}
-                                className={`w-10 h-10 rounded-2xl text-sm font-black transition-all cursor-pointer border-2 ${
-                                  isActive
-                                    ? 'bg-[#DA291C] text-white border-[#DA291C] shadow-xs scale-105'
-                                    : 'bg-[#FFFAF5] hover:bg-[#FFF0E5] text-[#0F172A] border-slate-200'
+                                onClick={() =>
+                                  setDay2Rubric((prev) => ({ ...prev, [st.id]: !prev[st.id] }))
+                                }
+                                className={`text-left p-3.5 rounded-xl border flex items-center justify-between gap-2 cursor-pointer ${
+                                  checked
+                                    ? 'bg-emerald-50 border-emerald-400 text-emerald-950'
+                                    : 'bg-[#FFFAF5] border-[#F1E4D8] text-[#0F172A]'
                                 }`}
                               >
-                                {st.stepNumber}
+                                <span className="text-xs sm:text-sm font-bold">
+                                  {t('training.day2_step_prefix', {
+                                    num: st.stepNumber,
+                                    title: lang === 'en' ? st.titleEn : st.titleEs,
+                                  })}
+                                </span>
+                                <span
+                                  className={`w-5 h-5 rounded-md border flex items-center justify-center text-xs font-black shrink-0 ${
+                                    checked
+                                      ? 'bg-emerald-600 border-emerald-600 text-white'
+                                      : 'bg-white border-slate-300 text-transparent'
+                                  }`}
+                                >
+                                  ✓
+                                </span>
                               </button>
                             );
                           })}
                         </div>
                       </div>
 
-                      {currentStep && (
-                        <div className="rounded-2xl bg-[#FFFDF9] border-2 border-[#FED7AA] p-4 sm:p-5 space-y-3.5">
-                          <div className="flex items-center justify-between gap-2">
-                            <span className="px-3 py-1 rounded-full bg-[#DA291C] text-white text-xs font-black uppercase">
-                              {t('training.player_step_of', {
-                                current: currentStep.stepNumber,
-                                total: currentVideo.steps.length,
-                              })}
-                            </span>
-                            {isVoiceSpeaking && (
-                              <span className="inline-flex items-center gap-1.5 text-xs font-black text-emerald-700 bg-emerald-50 px-3 py-1 rounded-full border border-emerald-200">
-                                <Volume2 className="w-4 h-4 animate-bounce" />
-                                {lang === 'es' ? 'Voz IA explicando...' : 'AI Voice speaking...'}
-                              </span>
-                            )}
-                          </div>
+                      <div className="space-y-1.5">
+                        <label className="text-xs font-bold uppercase text-slate-500">
+                          {t('training.day2_notes_label')}
+                        </label>
+                        <textarea
+                          rows={2}
+                          value={day2Notes}
+                          onChange={(e) => setDay2Notes(e.target.value)}
+                          placeholder={t('training.day2_notes_ph')}
+                          className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 bg-[#FFFAF5] text-sm font-medium"
+                        />
+                      </div>
 
-                          <h3 className="text-lg sm:text-xl font-black text-[#0F172A] leading-snug">
-                            {lang === 'en' ? currentStep.titleEn : currentStep.titleEs}
-                          </h3>
-
-                          <p className="text-sm sm:text-base font-bold text-slate-800 leading-relaxed bg-white p-3.5 rounded-2xl border border-slate-200">
-                            “{lang === 'en' ? currentStep.narrationEn : currentStep.narrationEs}”
-                          </p>
-
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                            {currentStep.keyPortionEs && (
-                              <div className="p-2.5 rounded-2xl bg-[#FFF8E7] border border-[#FFC72C] flex items-center gap-2">
-                                <Scale className="w-4 h-4 text-[#DA291C] shrink-0" />
-                                <div className="text-xs font-black text-[#0F172A]">
-                                  {lang === 'en'
-                                    ? currentStep.keyPortionEn
-                                    : currentStep.keyPortionEs}
-                                </div>
-                              </div>
-                            )}
-                            {currentStep.utensilEs && (
-                              <div className="p-2.5 rounded-2xl bg-[#FFF0E5] border border-[#FED7AA] flex items-center gap-2">
-                                <Thermometer className="w-4 h-4 text-[#DA291C] shrink-0" />
-                                <div className="text-xs font-black text-[#0F172A]">
-                                  {lang === 'en'
-                                    ? currentStep.utensilEn
-                                    : currentStep.utensilEs}
-                                </div>
-                              </div>
-                            )}
-                          </div>
+                      {day2WarningMsg && (
+                        <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-xs font-bold">
+                          {day2WarningMsg}
                         </div>
                       )}
 
-                      <div className="grid grid-cols-2 gap-2.5">
-                        <button
-                          type="button"
-                          disabled={currentStepIndex <= 0}
-                          onClick={() => {
-                            const prev = currentVideo.steps[currentStepIndex - 1];
-                            if (prev) jumpToStep(prev);
-                          }}
-                          className="py-3 px-4 rounded-2xl border-2 border-slate-200 bg-[#FFFAF5] hover:bg-slate-100 disabled:opacity-40 text-xs sm:text-sm font-black text-[#0F172A] flex items-center justify-center gap-1 cursor-pointer"
-                        >
-                          <ChevronLeft className="w-4 h-4" />
-                          {t('training.prev_step_btn')}
-                        </button>
-
-                        <button
-                          type="button"
-                          disabled={currentStepIndex >= currentVideo.steps.length - 1}
-                          onClick={() => {
-                            const next = currentVideo.steps[currentStepIndex + 1];
-                            if (next) jumpToStep(next);
-                          }}
-                          className="py-3 px-4 rounded-2xl bg-[#0F172A] hover:bg-slate-800 disabled:opacity-40 text-xs sm:text-sm font-black text-white flex items-center justify-center gap-1 cursor-pointer"
-                        >
-                          {t('training.next_step_btn')}
-                          <ChevronRight className="w-4 h-4" />
-                        </button>
-                      </div>
-
-                      <button
-                        type="button"
-                        onClick={() => setDay1SubStep('portions')}
-                        className="w-full py-3.5 px-4 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-black shadow-xs flex items-center justify-center gap-2 cursor-pointer"
-                      >
-                        <span>{t('training.next_go_to_portions')}</span>
-                        <ChevronRight className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </div>
-                )}
-
-                {day1SubStep === 'portions' && (
-                  <div className="space-y-5">
-                    <div className="bg-white rounded-3xl border-2 border-[#FFC72C] p-6 space-y-5">
-                      <div className="flex flex-wrap items-center justify-between gap-3">
-                        <h3 className="text-xl sm:text-2xl font-black text-[#0F172A]">
-                          {t('training.recipe_specs_title')} —{' '}
-                          {lang === 'en' ? currentVideo.titleEn : currentVideo.titleEs}
-                        </h3>
-                        <div className="flex items-center gap-2">
+                      {day2SavedBanner && (
+                        <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-300 text-emerald-900 text-sm font-bold flex flex-wrap items-center justify-between gap-2">
+                          <span>{t('training.day2_saved_ok')}</span>
                           <button
                             type="button"
-                            onClick={() => setDay1SubStep('video')}
-                            className="px-4 py-2 rounded-2xl border-2 border-slate-200 text-xs sm:text-sm font-black text-slate-700 cursor-pointer"
+                            onClick={() => setActiveTab('day3')}
+                            className="px-4 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-black cursor-pointer"
                           >
-                            ← {t('training.back_to_video')}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setDay1SubStep('quiz')}
-                            className="px-4 py-2 rounded-2xl bg-emerald-600 text-white text-xs sm:text-sm font-black cursor-pointer"
-                          >
-                            {t('training.next_go_to_quiz')} →
+                            {t('training.day3_title_clean')} →
                           </button>
                         </div>
-                      </div>
+                      )}
 
-                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                        {currentVideo.recipeSpecs.map((spec, idx) => (
-                          <div
-                            key={idx}
-                            className="rounded-3xl bg-[#FFFAF5] border-2 border-[#FED7AA] p-5 flex flex-col justify-between gap-3"
-                          >
-                            <div className="flex items-start justify-between gap-3">
-                              <div className="text-base sm:text-lg font-black text-[#0F172A]">
-                                {lang === 'en' ? spec.itemEn : spec.itemEs}
-                              </div>
-                              <span className="px-3.5 py-1.5 rounded-2xl bg-[#DA291C] text-white text-sm sm:text-base font-black shrink-0">
-                                {spec.quantity} {spec.unit}
-                              </span>
-                            </div>
-                            <div className="text-xs sm:text-sm font-bold text-slate-700 bg-white px-3.5 py-2 rounded-2xl border border-slate-200">
-                              🥄 {lang === 'en' ? spec.utensilEn : spec.utensilEs}
-                            </div>
-                          </div>
-                        ))}
+                      <div className="flex flex-wrap items-center gap-3">
+                        <button
+                          type="button"
+                          onClick={handleCompleteDay2}
+                          className="flex-1 py-3.5 px-5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm sm:text-base font-black cursor-pointer"
+                        >
+                          {t('training.day2_complete_btn')}
+                        </button>
                       </div>
                     </div>
+                  )}
 
-                    {/* PRODUCTOS DE LAS RECETAS AL INTERIOR DE ESTA ESTACIÓN DE TRABAJO (MOVIDO AQUÍ PARA EVITAR RUIDO DEBAJO DEL VIDEO) */}
-                    {stationRecipeProducts.length > 0 && (
-                      <div className="bg-white rounded-3xl border-2 border-[#FED7AA] p-5 space-y-4">
-                        <div className="flex flex-wrap items-center justify-between gap-3">
-                          <div>
-                            <span className="px-3 py-1 rounded-full bg-[#FFF5EB] border border-[#FFC72C] text-[#DA291C] text-[11px] font-black uppercase">
-                              CATEGORÍAS DE LA ESTACIÓN (BASE CARNE ASADA):{' '}
-                              {currentPosition?.labelEs || selectedPositionKey}
-                            </span>
-                            <h3 className="text-lg sm:text-xl font-black text-[#0F172A] mt-1">
-                              🍲 Categorías y Recetas Base de esta Estación ({stationRecipeProducts.length})
-                            </h3>
+                  {/* ===========================================================
+                      DÍA 3: CRONÓMETRO COMPLETO CON RESET Y ACTIVIDADES DE TURNO
+                     =========================================================== */}
+                  {activeTab === 'day3' && currentPosition && (
+                    <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
+                      <div className="lg:col-span-5 bg-white rounded-3xl border border-[#F1E4D8] p-5 sm:p-6 space-y-4 text-center shadow-xs">
+                        <h3 className="text-lg sm:text-xl font-black text-[#0F172A] flex items-center justify-center gap-2">
+                          <Timer className="w-5 h-5 text-[#DA291C]" />
+                          <span>{t('training.day3_stopwatch_title')}</span>
+                        </h3>
+
+                        <div className="rounded-2xl bg-[#FFFAF5] border border-[#F1E4D8] p-5 space-y-4">
+                          <div className="text-5xl font-black font-mono text-[#0F172A]">
+                            {formatSeconds(Math.floor(stopwatchElapsedDeci / 10))}
+                            <span className="text-2xl text-[#DA291C]">.{stopwatchElapsedDeci % 10}s</span>
                           </div>
 
-                          <div className="flex flex-wrap items-center gap-2">
-                            <div className="relative">
-                              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                              <input
-                                type="text"
-                                value={catalogSearch}
-                                onChange={(e) => setCatalogSearch(e.target.value)}
-                                placeholder={
-                                  lang === 'es' ? 'Filtrar platillo...' : 'Filter dish...'
-                                }
-                                className="pl-8 pr-3 py-1.5 rounded-xl border border-slate-200 bg-[#FFFAF5] text-xs font-bold"
-                              />
+                          <div className="grid grid-cols-3 gap-2 text-xs">
+                            <div className="p-2 rounded-xl bg-white border border-slate-200">
+                              <div className="text-[10px] font-bold text-slate-500">
+                                {t('training.day3_target_time')}
+                              </div>
+                              <div className="font-black text-[#0F172A]">
+                                {currentVideo?.targetPrepSeconds || 45}s
+                              </div>
                             </div>
+                            <div className="p-2 rounded-xl bg-white border border-slate-200">
+                              <div className="text-[10px] font-bold text-slate-500">
+                                {t('training.day3_best_time')}
+                              </div>
+                              <div className="font-black text-emerald-700">
+                                {day3BestTimeSec !== null
+                                  ? `${day3BestTimeSec}s`
+                                  : t('training.day3_no_best_time')}
+                              </div>
+                            </div>
+                            <div className="p-2 rounded-xl bg-white border border-slate-200">
+                              <div className="text-[10px] font-bold text-slate-500">
+                                {t('training.day3_attempts_count', { count: day3SoloReps })}
+                              </div>
+                              <div className="font-black text-[#DA291C]">
+                                {day3SoloReps}
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="flex flex-wrap gap-2">
+                            {!stopwatchRunning ? (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setDay3WarningMsg(null);
+                                  setStopwatchRunning(true);
+                                }}
+                                className="flex-1 py-3 rounded-xl bg-[#DA291C] text-white text-sm font-black cursor-pointer"
+                              >
+                                ▶ {t('training.day3_start_timer')}
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={handleStopAndRecordStopwatch}
+                                className="flex-1 py-3 rounded-xl bg-emerald-600 text-white text-sm font-black cursor-pointer"
+                              >
+                                ⏹ {t('training.day3_stop_record')}
+                              </button>
+                            )}
+
                             <button
                               type="button"
-                              onClick={() => setShowPrintableChecklistModal(true)}
-                              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#FFF8E7] border border-[#FFC72C] text-xs font-black text-[#0F172A] cursor-pointer"
+                              onClick={() => {
+                                setStopwatchRunning(false);
+                                setStopwatchElapsedDeci(0);
+                              }}
+                              className="px-4 py-3 rounded-xl bg-white border border-slate-300 text-slate-700 text-xs font-bold cursor-pointer"
                             >
-                              <Printer className="w-4 h-4 text-[#DA291C]" />
-                              <span>Imprimir Lista</span>
+                              {t('training.day3_reset_timer')}
                             </button>
                           </div>
                         </div>
-
-                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 max-h-[540px] overflow-y-auto pr-1">
-                          {stationRecipeProducts
-                            .filter(
-                              (prod) =>
-                                !catalogSearch.trim() ||
-                                prod.name.toLowerCase().includes(catalogSearch.trim().toLowerCase())
-                            )
-                            .map((prod) => {
-                              const isUploading = uploadingVideoSlug === prod.slug;
-                              return (
-                                <div
-                                  key={prod.guid}
-                                  className="rounded-2xl bg-[#FFFAF5] border border-[#FED7AA] p-3.5 flex flex-col justify-between gap-2.5"
-                                >
-                                  <div>
-                                    <div className="flex items-start justify-between gap-2">
-                                      <div className="text-sm font-black text-[#0F172A]">
-                                        {prod.name}
-                                      </div>
-                                      {prod.hasVideo ? (
-                                        <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-black shrink-0">
-                                          🎬 Video
-                                        </span>
-                                      ) : (
-                                        <span className="px-2 py-0.5 rounded-full bg-slate-200 text-slate-700 text-[10px] font-bold shrink-0">
-                                          Receta
-                                        </span>
-                                      )}
-                                    </div>
-                                    <div className="flex flex-wrap gap-1 mt-2">
-                                      {prod.ingredients.map((ing, i) => (
-                                        <span
-                                          key={i}
-                                          className="px-2 py-0.5 rounded-lg bg-white border border-slate-200 text-[11px] font-bold text-slate-800"
-                                        >
-                                          <strong className="text-[#DA291C]">
-                                            {ing.quantity} {ing.unit}
-                                          </strong>{' '}
-                                          {ing.name}
-                                        </span>
-                                      ))}
-                                    </div>
-                                    {prod.variantsIncluded && prod.variantsIncluded.length > 1 && (
-                                      <div className="mt-2 p-2 rounded-xl bg-[#FFF8E7] border border-[#FFC72C] text-[10px] font-bold text-slate-700 leading-snug">
-                                        <span className="text-[#DA291C] font-black">
-                                          Cubre {prod.variantCount || prod.variantsIncluded.length} variantes:
-                                        </span>{' '}
-                                        {prod.variantsIncluded.join(', ')}
-                                      </div>
-                                    )}
-                                  </div>
-
-                                  <div className="pt-2 border-t border-[#FED7AA]/60 flex items-center gap-1.5">
-                                    {prod.hasVideo && (
-                                      <button
-                                        type="button"
-                                        onClick={() => {
-                                          setSelectedVideoSlug(prod.slug);
-                                          setDay1SubStep('video');
-                                          setIsPlaying(false);
-                                          setCurrentTime(0);
-                                        }}
-                                        className="flex-1 py-1.5 px-2.5 rounded-xl bg-[#DA291C] text-white text-xs font-black flex items-center justify-center gap-1 cursor-pointer"
-                                      >
-                                        <Play className="w-3 h-3 fill-current" />
-                                        <span>Ver Video</span>
-                                      </button>
-                                    )}
-                                    <button
-                                      type="button"
-                                      disabled={isUploading}
-                                      onClick={() =>
-                                        triggerVideoUploadForProduct({
-                                          slug: prod.slug,
-                                          name: prod.name,
-                                          positionKey: prod.positionKey,
-                                          ingredients: prod.ingredients,
-                                        })
-                                      }
-                                      className="py-1.5 px-2.5 rounded-xl bg-white border border-[#FFC72C] text-[#0F172A] text-xs font-black flex items-center gap-1 cursor-pointer"
-                                    >
-                                      <Upload className="w-3 h-3 text-[#DA291C]" />
-                                      <span>
-                                        {isUploading
-                                          ? '...'
-                                          : prod.hasVideo
-                                          ? 'Cambiar Video'
-                                          : 'Subir Video'}
-                                      </span>
-                                    </button>
-                                  </div>
-                                </div>
-                              );
-                            })}
-                        </div>
                       </div>
-                    )}
-                  </div>
-                )}
 
-                {day1SubStep === 'quiz' && (
-                  <div className="bg-white rounded-3xl border-2 border-[#FFC72C] p-6 space-y-5">
-                    <h3 className="text-xl sm:text-2xl font-black text-[#0F172A]">
-                      {t('training.quiz_day1_title')}
-                    </h3>
-                    <div className="space-y-4">
-                      {currentVideo.quiz.map((q, qIdx) => (
-                        <div
-                          key={q.id}
-                          className="p-4 sm:p-5 rounded-3xl bg-[#FFFAF5] border-2 border-slate-200 space-y-3"
-                        >
-                          <div className="text-base font-black text-[#0F172A]">
-                            {qIdx + 1}. {lang === 'en' ? q.questionEn : q.questionEs}
+                      <div className="lg:col-span-7 bg-white rounded-3xl border border-[#F1E4D8] p-5 sm:p-6 space-y-4 shadow-xs">
+                        <div className="text-xs font-bold uppercase text-slate-500">
+                          {t('training.day3_activities_title')}
+                        </div>
+
+                        <div className="grid grid-cols-3 gap-2">
+                          {(
+                            [
+                              { key: 'Apertura' as const, label: t('training.shift_opening') },
+                              { key: 'Regular' as const, label: t('training.shift_regular') },
+                              { key: 'Cierre' as const, label: t('training.shift_closing') },
+                            ] as const
+                          ).map((sTab) => (
+                            <button
+                              key={sTab.key}
+                              type="button"
+                              onClick={() => setDay3ShiftTab(sTab.key)}
+                              className={`py-2 px-3 rounded-xl text-xs font-bold cursor-pointer border ${
+                                day3ShiftTab === sTab.key
+                                  ? 'bg-[#0F172A] text-white border-[#0F172A]'
+                                  : 'bg-[#FFFAF5] text-slate-700 border-[#F1E4D8]'
+                              }`}
+                            >
+                              {sTab.label} ({groupedActivities[sTab.key].length})
+                            </button>
+                          ))}
+                        </div>
+
+                        <div className="space-y-2 max-h-[340px] overflow-y-auto pr-1">
+                          {groupedActivities[day3ShiftTab].map((act) => {
+                            const checked = !!day3ActivitiesChecked[act.id];
+                            return (
+                              <button
+                                key={act.id}
+                                type="button"
+                                onClick={() =>
+                                  setDay3ActivitiesChecked((prev) => ({
+                                    ...prev,
+                                    [act.id]: !prev[act.id],
+                                  }))
+                                }
+                                className={`w-full text-left flex items-center justify-between gap-2 p-3 rounded-xl border cursor-pointer ${
+                                  checked
+                                    ? 'bg-emerald-50 border-emerald-400 text-emerald-950'
+                                    : 'bg-[#FFFAF5] border-[#F1E4D8] text-[#0F172A]'
+                                }`}
+                              >
+                                <div className="flex items-center gap-2.5 min-w-0">
+                                  <span
+                                    className={`w-5 h-5 rounded-md border flex items-center justify-center text-xs font-black shrink-0 ${
+                                      checked
+                                        ? 'bg-emerald-600 border-emerald-600 text-white'
+                                        : 'bg-white border-slate-300 text-transparent'
+                                    }`}
+                                  >
+                                    ✓
+                                  </span>
+                                  <span className="text-xs sm:text-sm font-bold">{act.name}</span>
+                                </div>
+                                <span className="text-xs font-semibold text-slate-500 shrink-0">
+                                  {act.time}
+                                </span>
+                              </button>
+                            );
+                          })}
+                        </div>
+
+                        {day3WarningMsg && (
+                          <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-xs font-bold">
+                            {day3WarningMsg}
                           </div>
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                            {(lang === 'en' ? q.optionsEn : q.optionsEs).map((opt, oIdx) => {
-                              const isSelected = quizAnswers[q.id] === oIdx;
+                        )}
+
+                        <button
+                          type="button"
+                          onClick={handleCompleteDay3}
+                          className="w-full py-3.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm sm:text-base font-black cursor-pointer"
+                        >
+                          {t('training.day3_complete_btn')}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* ===========================================================
+                      DÍA 4: EXAMEN TEÓRICO REAL + AUDITORÍA PRÁCTICA REAL + CERTIFICADO
+                     =========================================================== */}
+                  {activeTab === 'day4' && currentPosition && (
+                    <div className="space-y-6">
+                      <div className="max-w-4xl mx-auto bg-white rounded-3xl border border-[#F1E4D8] p-5 sm:p-6 space-y-5 shadow-xs print:hidden">
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div>
+                            <h3 className="text-lg sm:text-xl font-black text-[#0F172A]">
+                              {t('training.day4_title_role', {
+                                role:
+                                  (lang === 'en'
+                                    ? selectedEmployee.job_role_badge_en
+                                    : selectedEmployee.job_role_badge_es) ||
+                                  currentPosition.labelEs,
+                              })}
+                            </h3>
+                            <p className="text-xs sm:text-sm font-medium text-slate-600 mt-1">
+                              {t('training.day4_subtitle_role')}
+                            </p>
+                          </div>
+
+                          <div
+                            className={`px-3.5 py-2 rounded-xl text-xs font-black border ${
+                              day4LiveScores.combinedScore >= 90
+                                ? 'bg-emerald-50 border-emerald-300 text-emerald-800'
+                                : 'bg-amber-50 border-amber-200 text-amber-900'
+                            }`}
+                          >
+                            {t('training.day4_live_score_label', {
+                              score: day4LiveScores.combinedScore,
+                              exam: day4LiveScores.examScore,
+                              practical: day4LiveScores.practicalScore,
+                            })}
+                          </div>
+                        </div>
+
+                        {/* 1. Verificación Teórica */}
+                        <div className="space-y-3">
+                          <div className="text-xs font-black uppercase text-[#DA291C]">
+                            {t('training.day4_theory_section')}
+                          </div>
+                          {activeDay1Quiz.map((q, qIdx) => (
+                            <div
+                              key={q.id}
+                              className="p-4 rounded-2xl bg-[#FFFAF5] border border-[#F1E4D8] space-y-2.5"
+                            >
+                              <div className="text-sm font-bold text-[#0F172A]">
+                                {qIdx + 1}. {lang === 'en' ? q.questionEn : q.questionEs}
+                              </div>
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                {(lang === 'en' ? q.optionsEn : q.optionsEs).map((opt, oIdx) => {
+                                  const isSelected = day4ExamAnswers[q.id] === oIdx;
+                                  return (
+                                    <button
+                                      key={oIdx}
+                                      type="button"
+                                      onClick={() =>
+                                        setDay4ExamAnswers((prev) => ({ ...prev, [q.id]: oIdx }))
+                                      }
+                                      className={`text-left p-3 rounded-xl border text-xs sm:text-sm font-bold cursor-pointer ${
+                                        isSelected
+                                          ? 'bg-[#0F172A] text-white border-[#0F172A]'
+                                          : 'bg-white text-slate-800 border-slate-200 hover:border-[#DA291C]'
+                                      }`}
+                                    >
+                                      {opt}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+
+                        {/* 2. Auditoría Práctica en Línea (5 Puntos Reales) */}
+                        <div className="space-y-2.5">
+                          <div className="text-xs font-black uppercase text-[#DA291C]">
+                            {t('training.day4_practical_section')}
+                          </div>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                            {(
+                              [
+                                { key: 'hygiene', label: t('training.day4_audit_item_1') },
+                                { key: 'temp', label: t('training.day4_audit_item_2') },
+                                { key: 'portion', label: t('training.day4_audit_item_3') },
+                                { key: 'presentation', label: t('training.day4_audit_item_4') },
+                                { key: 'speed', label: t('training.day4_audit_item_5') },
+                              ] as const
+                            ).map((item) => {
+                              const checked = !!day4AuditChecks[item.key];
                               return (
                                 <button
-                                  key={oIdx}
+                                  key={item.key}
                                   type="button"
                                   onClick={() =>
-                                    setQuizAnswers((prev) => ({ ...prev, [q.id]: oIdx }))
+                                    setDay4AuditChecks((prev) => ({
+                                      ...prev,
+                                      [item.key]: !prev[item.key],
+                                    }))
                                   }
-                                  className={`text-left p-3.5 rounded-2xl border-2 text-sm font-bold cursor-pointer ${
-                                    isSelected
-                                      ? 'bg-[#DA291C] text-white border-[#DA291C]'
-                                      : 'bg-white text-slate-800 border-slate-200'
+                                  className={`text-left p-3 rounded-xl border flex items-center justify-between gap-2 cursor-pointer ${
+                                    checked
+                                      ? 'bg-emerald-50 border-emerald-400 text-emerald-950'
+                                      : 'bg-[#FFFAF5] border-[#F1E4D8] text-[#0F172A]'
                                   }`}
                                 >
-                                  {opt}
+                                  <span className="text-xs sm:text-sm font-bold">{item.label}</span>
+                                  <span
+                                    className={`w-5 h-5 rounded-md border flex items-center justify-center text-xs font-black shrink-0 ${
+                                      checked
+                                        ? 'bg-emerald-600 border-emerald-600 text-white'
+                                        : 'bg-white border-slate-300 text-transparent'
+                                    }`}
+                                  >
+                                    ✓
+                                  </span>
                                 </button>
                               );
                             })}
                           </div>
                         </div>
-                      ))}
-                    </div>
-                    <button
-                      type="button"
-                      onClick={handleGradeDay1Quiz}
-                      className="px-7 py-3.5 rounded-2xl bg-[#DA291C] text-white text-sm sm:text-base font-black cursor-pointer"
-                    >
-                      ✅ {t('training.quiz_submit_btn')}
-                    </button>
-                    {quizSubmittedResult && (
-                      <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-300 text-emerald-900 font-black text-sm">
-                        {quizSubmittedResult.passed
-                          ? t('training.quiz_passed_msg', { score: quizSubmittedResult.score })
-                          : t('training.quiz_failed_msg', { score: quizSubmittedResult.score })}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
 
-            {/* VISTA DÍA 2 */}
-            {activeTab === 'day2' && currentPosition && (
-              <div className="max-w-4xl mx-auto bg-white rounded-3xl border-2 border-[#FFC72C] p-6 space-y-5">
-                <h3 className="text-2xl font-black text-[#0F172A]">{t('training.day2_title')}</h3>
-                <div className="rounded-3xl bg-[#FFF9F2] border-2 border-[#FED7AA] p-5 flex flex-wrap items-center justify-between gap-4">
-                  <div>
-                    <div className="text-xs font-extrabold uppercase text-slate-500">
-                      {t('training.day2_reps_title')}
-                    </div>
-                    <div className="text-3xl font-black text-[#DA291C]">
-                      {day2Reps} / {currentPosition.day2TargetReps}
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2.5">
-                    <button
-                      type="button"
-                      onClick={() => setDay2Reps((r) => Math.max(0, r - 1))}
-                      className="w-11 h-11 rounded-2xl bg-white border-2 border-slate-200 flex items-center justify-center cursor-pointer"
-                    >
-                      <Minus className="w-5 h-5" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setDay2Reps((r) => r + 1)}
-                      className="px-5 py-3 rounded-2xl bg-[#DA291C] text-white font-black text-sm flex items-center gap-2 cursor-pointer"
-                    >
-                      <Plus className="w-4 h-4" />
-                      {t('training.add_one_dish_btn')}
-                    </button>
-                  </div>
-                </div>
+                        {day4WarningMsg && (
+                          <div className="p-3.5 rounded-xl bg-red-50 border border-red-200 text-red-700 text-xs sm:text-sm font-bold">
+                            {day4WarningMsg}
+                          </div>
+                        )}
 
-                <div className="space-y-2.5">
-                  {currentVideo?.steps.map((st) => {
-                    const key = `step-${st.id}`;
-                    const checked = !!day2Rubric[key];
-                    return (
-                      <button
-                        key={key}
-                        type="button"
-                        onClick={() =>
-                          setDay2Rubric((prev) => ({ ...prev, [key]: !prev[key] }))
-                        }
-                        className={`w-full text-left flex items-center gap-3.5 p-3.5 rounded-2xl border-2 cursor-pointer ${
-                          checked
-                            ? 'bg-emerald-50 border-emerald-400 text-emerald-950'
-                            : 'bg-[#FFFAF5] border-slate-200 text-[#0F172A]'
-                        }`}
-                      >
-                        <div
-                          className={`w-7 h-7 rounded-xl flex items-center justify-center font-black shrink-0 ${
-                            checked ? 'bg-emerald-600 text-white' : 'bg-white border-2 border-slate-300 text-transparent'
-                          }`}
+                        {isDay4Certified && (
+                          <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-300 text-emerald-900 text-xs sm:text-sm font-bold">
+                            {t('training.day4_completed_banner', {
+                              score:
+                                certificationResult?.combinedScore ??
+                                activeTrainee?.day4_final_score ??
+                                100,
+                              folio:
+                                certificationResult?.folio ||
+                                activeTrainee?.certificate_folio ||
+                                selectedEmployee.certificate_folio,
+                            })}
+                          </div>
+                        )}
+
+                        <button
+                          type="button"
+                          disabled={day4SavingBusy}
+                          onClick={handleIssueDay4Certification}
+                          className="w-full py-4 rounded-2xl bg-[#DA291C] hover:bg-[#B91C1C] disabled:opacity-50 text-white text-sm sm:text-base font-black cursor-pointer flex items-center justify-center gap-2"
                         >
-                          ✓
-                        </div>
-                        <div className="text-sm font-black">
-                          Paso {st.stepNumber}: {lang === 'en' ? st.titleEn : st.titleEs}
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
+                          <Award className="w-5 h-5 text-[#FFC72C]" />
+                          <span>{t('training.day4_certify_btn')}</span>
+                        </button>
+                      </div>
 
+                      {/* Solo mostrar el Diploma Oficial cuando haya sido realmente aprobado */}
+                      {isDay4Certified && (
+                        <OfficialCertificateView
+                          employeeName={
+                            selectedEmployee.full_name ||
+                            activeTrainee?.employee_name ||
+                            t('training.fallback_certified_worker')
+                          }
+                          storeName={selectedStore?.name || 'Tacos Gavilan'}
+                          stationName={
+                            (lang === 'en'
+                              ? selectedEmployee.job_role_title_en
+                              : selectedEmployee.job_role_title_es) ||
+                            t('training.fallback_certified_cook')
+                          }
+                          jobRoleTitle={
+                            lang === 'en'
+                              ? selectedEmployee.job_role_title_en
+                              : selectedEmployee.job_role_title_es
+                          }
+                          certifiedStations={roleRequiredStations}
+                          folio={
+                            certificationResult?.folio ||
+                            activeTrainee?.certificate_folio ||
+                            selectedEmployee.certificate_folio
+                          }
+                          issuedDate={activeTrainee?.day4_completed_at || undefined}
+                          managerName={
+                            selectedStore?.managers?.[0]?.fullName ||
+                            selectedTrainerName ||
+                            t('training.fallback_store_manager')
+                          }
+                          supervisorName={selectedStore?.supervisor_name}
+                          score={
+                            certificationResult?.combinedScore ??
+                            activeTrainee?.day4_final_score ??
+                            100
+                          }
+                          lang={lang}
+                        />
+                      )}
+                    </div>
+                  )}
+            </>
+          )}
+
+          {/* =====================================================================
+              VISTA 2: CATÁLOGO DE CATEGORÍAS CON RECETA Y VIDEO (BASE CARNE ASADA)
+             ===================================================================== */}
+          {!loadingData && mainView === 'catalog' && canManageCatalog && (
+            <section className="bg-white rounded-3xl border border-[#F1E4D8] p-5 sm:p-7 shadow-xs space-y-5 print:hidden">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <span className="px-3 py-1 rounded-full bg-[#FFF0E5] text-[#DA291C] text-xs font-black uppercase">
+                    {t('training.catalog_badge')}
+                  </span>
+                  <h2 className="text-xl sm:text-2xl font-black text-[#0F172A] mt-1">
+                    {t('training.catalog_title', { count: recipeProducts.length })}
+                  </h2>
+                  <p className="text-xs sm:text-sm font-medium text-slate-600">
+                    {t('training.catalog_subtitle')}
+                  </p>
+                </div>
                 <button
                   type="button"
-                  onClick={handleCompleteDay2}
-                  className="w-full py-4 rounded-2xl bg-emerald-600 text-white text-base font-black cursor-pointer"
+                  onClick={() => setMainView('staff')}
+                  className="px-4 py-2 rounded-xl border border-slate-200 text-xs sm:text-sm font-bold text-slate-700 hover:bg-slate-50 cursor-pointer"
                 >
-                  ✅ {t('training.day2_complete_btn')}
+                  ← {t('training.tab_staff_training')}
                 </button>
-                {day2SavedBanner && (
-                  <div className="p-3 rounded-xl bg-emerald-50 text-emerald-800 text-xs font-bold text-center">
-                    ✅ Día 2 guardado exitosamente.
-                  </div>
-                )}
               </div>
-            )}
 
-            {/* VISTA DÍA 3 */}
-            {activeTab === 'day3' && currentPosition && (
-              <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
-                <div className="lg:col-span-5 bg-white rounded-3xl border-2 border-[#FFC72C] p-6 space-y-4 text-center">
-                  <h3 className="text-xl font-black text-[#0F172A] flex items-center justify-center gap-2">
-                    <Timer className="w-5 h-5 text-[#DA291C]" />
-                    {t('training.day3_stopwatch_title')}
-                  </h3>
-                  <div className="rounded-3xl bg-[#FFF9F2] border-2 border-[#FED7AA] p-6 space-y-4">
-                    <div className="text-5xl font-black font-mono text-[#0F172A]">
-                      {formatSeconds(Math.floor(stopwatchElapsedDeci / 10))}
-                      <span className="text-2xl text-[#DA291C]">.{stopwatchElapsedDeci % 10}s</span>
-                    </div>
-                    {!stopwatchRunning ? (
-                      <button
-                        type="button"
-                        onClick={() => setStopwatchRunning(true)}
-                        className="w-full py-3.5 rounded-2xl bg-[#DA291C] text-white text-base font-black cursor-pointer"
-                      >
-                        ▶ {t('training.day3_start_timer')}
-                      </button>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={handleStopAndRecordStopwatch}
-                        className="w-full py-3.5 rounded-2xl bg-emerald-600 text-white text-base font-black cursor-pointer"
-                      >
-                        ⏹ {t('training.day3_stop_record')}
-                      </button>
-                    )}
-                  </div>
+              {/* Buscador y Filtro por Categoría */}
+              <div className="grid grid-cols-1 sm:grid-cols-12 gap-3">
+                <div className="sm:col-span-7 relative">
+                  <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    value={catalogSearch}
+                    onChange={(e) => setCatalogSearch(e.target.value)}
+                    placeholder={t('training.catalog_search_ph')}
+                    className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 bg-[#FFFAF5] text-sm font-semibold"
+                  />
                 </div>
-
-                <div className="lg:col-span-7 bg-white rounded-3xl border border-slate-200 p-6 space-y-4">
-                  <div className="grid grid-cols-3 gap-2">
-                    {(['Apertura', 'Regular', 'Cierre'] as const).map((sTab) => (
-                      <button
-                        key={sTab}
-                        type="button"
-                        onClick={() => setDay3ShiftTab(sTab)}
-                        className={`py-2.5 px-3 rounded-2xl text-xs font-black cursor-pointer border-2 ${
-                          day3ShiftTab === sTab
-                            ? 'bg-[#0F172A] text-white border-[#0F172A]'
-                            : 'bg-[#FFFAF5] text-slate-700 border-slate-200'
-                        }`}
-                      >
-                        {sTab} ({groupedActivities[sTab].length})
-                      </button>
+                <div className="sm:col-span-5">
+                  <select
+                    value={catalogCategory}
+                    onChange={(e) => setCatalogCategory(e.target.value)}
+                    className="w-full px-4 py-2.5 rounded-xl border border-slate-200 bg-[#FFFAF5] text-sm font-bold cursor-pointer"
+                  >
+                    <option value="ALL">
+                      {t('training.catalog_all_categories', { count: recipeProducts.length })}
+                    </option>
+                    {catalogCategories.map((cat) => (
+                      <option key={cat} value={cat}>
+                        {cat}
+                      </option>
                     ))}
-                  </div>
-                  <div className="space-y-2">
-                    {groupedActivities[day3ShiftTab].map((act) => {
-                      const checked = !!day3ActivitiesChecked[act.id];
-                      return (
+                  </select>
+                </div>
+              </div>
+
+              {/* Tarjetas de Categorías Maestras Base Asada */}
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {filteredRecipeProducts.map((prod) => {
+                  const isUploading = uploadingVideoSlug === prod.slug;
+                  const isDeleting = deletingVideoSlug === prod.slug;
+                  return (
+                    <div
+                      key={prod.guid}
+                      className="rounded-2xl bg-[#FFFAF5] border border-[#F1E4D8] p-4 flex flex-col justify-between gap-3.5"
+                    >
+                      <div className="space-y-2">
+                        <div className="flex items-start justify-between gap-2">
+                          <div>
+                            <div className="text-sm sm:text-base font-black text-[#0F172A] leading-snug">
+                              {prod.name}
+                            </div>
+                            <div className="text-xs font-bold text-[#DA291C]">
+                              {prod.category} • {prod.positionKey}
+                            </div>
+                          </div>
+                          {prod.hasVideo ? (
+                            <span className="px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[11px] font-bold shrink-0">
+                              {t('training.video_active_badge')}
+                            </span>
+                          ) : (
+                            <span className="px-2.5 py-0.5 rounded-full bg-slate-200 text-slate-700 text-[11px] font-bold shrink-0">
+                              {t('training.no_video_badge')}
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="flex flex-wrap gap-1.5 pt-1">
+                          {prod.ingredients.map((ing, i) => (
+                            <span
+                              key={i}
+                              className="px-2 py-0.5 rounded-lg bg-white border border-slate-200 text-xs font-semibold text-slate-800"
+                            >
+                              <strong className="text-[#DA291C]">
+                                {ing.quantity} {ing.unit}
+                              </strong>{' '}
+                              {ing.name}
+                            </span>
+                          ))}
+                        </div>
+
+                        {prod.variantsIncluded && prod.variantsIncluded.length > 1 && (
+                          <div className="p-2.5 rounded-xl bg-[#FFF8E7] border border-[#FFC72C] text-[11px] font-semibold text-slate-700 leading-snug">
+                            <span className="text-[#DA291C] font-black">
+                              {t('training.same_procedure_note', {
+                                count: prod.variantCount || prod.variantsIncluded.length,
+                              })}
+                            </span>{' '}
+                            {prod.variantsIncluded.join(', ')}
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="pt-2 border-t border-[#F1E4D8] flex flex-wrap items-center gap-2">
+                        {prod.hasVideo ? (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              stopAllMedia();
+                              setSelectedPositionKey(prod.positionKey);
+                              setSelectedVideoSlug(prod.slug);
+                              setDay1SubStep('video');
+                              if (isAdmin && !selectedEmployee) {
+                                setMainView('videos');
+                              } else {
+                                if (selectedEmployee?.auto_certified) {
+                                  setAllowVeteranRetraining(true);
+                                }
+                                setMainView('staff');
+                                setActiveTab('day1');
+                              }
+                            }}
+                            className="flex-1 py-2 px-3 rounded-xl bg-[#DA291C] hover:bg-[#B91C1C] text-white text-xs font-black flex items-center justify-center gap-1.5 cursor-pointer"
+                          >
+                            <Play className="w-3.5 h-3.5 fill-current" />
+                            <span>{t('training.watch_video_btn')}</span>
+                          </button>
+                        ) : isAdmin ? (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              stopAllMedia();
+                              setSelectedPositionKey(prod.positionKey);
+                              setSelectedVideoSlug(prod.slug);
+                              setMainView('videos');
+                              setDay1SubStep('video');
+                            }}
+                            className="flex-1 py-2 px-3 rounded-xl bg-[#FFF8E7] hover:bg-[#FFC72C]/30 border border-[#FFC72C] text-[#92400E] text-xs font-black flex items-center justify-center gap-1.5 cursor-pointer"
+                          >
+                            <Wand2 className="w-3.5 h-3.5 text-[#DA291C]" />
+                            <span>{t('training.review_steps_btn')}</span>
+                          </button>
+                        ) : null}
+
                         <button
-                          key={act.id}
                           type="button"
+                          disabled={isUploading}
                           onClick={() =>
-                            setDay3ActivitiesChecked((prev) => ({
-                              ...prev,
-                              [act.id]: !prev[act.id],
-                            }))
+                            triggerVideoUploadForProduct({
+                              slug: prod.slug,
+                              name: prod.name,
+                              positionKey: prod.positionKey,
+                              ingredients: prod.ingredients,
+                            })
                           }
-                          className={`w-full text-left flex items-center justify-between p-3.5 rounded-2xl border-2 cursor-pointer ${
-                            checked
-                              ? 'bg-emerald-50 border-emerald-400 text-emerald-950'
-                              : 'bg-[#FFFAF5] border-slate-200 text-[#0F172A]'
-                          }`}
+                          className="py-2 px-3 rounded-xl bg-white hover:bg-[#FFF8E7] border border-[#FFC72C] text-[#0F172A] text-xs font-bold flex items-center gap-1.5 cursor-pointer"
                         >
-                          <span className="text-sm font-bold">{act.name}</span>
-                          <span className="text-xs font-bold text-slate-500">{act.time}</span>
+                          <Upload className="w-3.5 h-3.5 text-[#DA291C]" />
+                          <span>
+                            {isUploading
+                              ? t('training.uploading_video_status')
+                              : prod.hasVideo
+                              ? t('training.replace_video_btn')
+                              : t('training.upload_video_btn')}
+                          </span>
                         </button>
-                      );
-                    })}
-                  </div>
-                  <button
-                    type="button"
-                    onClick={handleCompleteDay3}
-                    className="w-full py-3.5 rounded-2xl bg-emerald-600 text-white text-base font-black cursor-pointer"
-                  >
-                    ✅ {t('training.day3_complete_btn')}
-                  </button>
-                </div>
+
+                        {prod.hasVideo && (
+                          <button
+                            type="button"
+                            disabled={isDeleting}
+                            onClick={() => handleDeleteProductVideo(prod.slug, prod.name)}
+                            title={t('training.delete_video_btn')}
+                            className="p-2 rounded-xl bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 cursor-pointer"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
-            )}
+            </section>
+          )}
+        </main>
+      </div>
 
-            {/* VISTA DÍA 4: CERTIFICADO OFICIAL EJECUTIVO IMPRIMIBLE */}
-            {activeTab === 'day4' && currentPosition && (
-              <div className="space-y-6">
-                <div className="max-w-4xl mx-auto bg-white rounded-3xl border-2 border-[#FFC72C] p-6 space-y-5 print:hidden">
-                  <h3 className="text-2xl font-black text-[#0F172A]">
-                    {t('training.day4_practical_title')} ({currentPosition.positionKey})
-                  </h3>
-                  <button
-                    type="button"
-                    onClick={handleIssueDay4Certification}
-                    className="w-full py-4 rounded-2xl bg-[#DA291C] hover:bg-[#B91C1C] text-white text-base font-black cursor-pointer flex items-center justify-center gap-2"
-                  >
-                    <Award className="w-5 h-5 text-[#FFC72C]" />
-                    {t('training.day4_certify_btn')}
-                  </button>
-                </div>
-
-                <OfficialCertificateView
-                  employeeName={
-                    selectedEmployee?.full_name ||
-                    activeTrainee?.employee_name ||
-                    'Colaborador Certificado'
-                  }
-                  storeName={selectedStore?.name || 'Lynwood'}
-                  stationName={
-                    (lang === 'en'
-                      ? selectedEmployee?.job_role_title_en
-                      : selectedEmployee?.job_role_title_es) ||
-                    'Cocinero Certificado (Todas las Estaciones de Cocina)'
-                  }
-                  jobRoleTitle={
-                    lang === 'en'
-                      ? selectedEmployee?.job_role_title_en
-                      : selectedEmployee?.job_role_title_es
-                  }
-                  certifiedStations={roleRequiredStations}
-                  folio={
-                    certificationResult?.folio ||
-                    selectedEmployee?.certificate_folio ||
-                    `TG-CERT-2026-S${selectedStore?.id || 14}`
-                  }
-                  managerName={
-                    selectedStore?.managers?.[0]?.fullName ||
-                    selectedTrainerName.replace(/\s*\(.*\)/, '') ||
-                    'Gerente de Sucursal'
-                  }
-                  supervisorName={selectedStore?.supervisor_name}
-                  tenureWeeks={selectedEmployee?.tenure_weeks}
-                  score={certificationResult?.combinedScore || 100}
-                  lang={lang}
-                />
-              </div>
-            )}
-          </>
-        )}
-      </main>
-
-      {/* =====================================================================
-          MODAL: ENVIAR LINK DE CAPACITACIÓN POR EMAIL AL EMPLEADO (PUNTO 4)
-         ===================================================================== */}
+      {/* MODAL: ENVIAR LINK DE CAPACITACIÓN POR EMAIL */}
       {showEmailModal && selectedEmployee && (
         <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4 print:hidden">
-          <div className="bg-white rounded-3xl border-2 border-[#FFC72C] max-w-md w-full p-6 shadow-2xl space-y-4">
+          <div className="bg-white rounded-3xl border border-[#FFC72C] max-w-md w-full p-6 shadow-2xl space-y-4">
             <div className="flex items-center justify-between">
               <h3 className="text-lg font-black text-[#0F172A] flex items-center gap-2">
                 <Mail className="w-5 h-5 text-[#DA291C]" />
-                <span>Enviar Capacitación por Email</span>
+                <span>{t('training.email_modal_title')}</span>
               </h3>
               <button
                 type="button"
                 onClick={() => setShowEmailModal(false)}
-                className="w-8 h-8 rounded-full bg-slate-100 text-slate-700 font-black cursor-pointer"
+                className="w-8 h-8 rounded-full bg-slate-100 text-slate-700 font-black cursor-pointer flex items-center justify-center"
               >
-                ✕
+                <X className="w-4 h-4" />
               </button>
             </div>
 
-            <p className="text-xs sm:text-sm font-semibold text-slate-600">
-              Se enviará el enlace directo a <strong>{selectedEmployee.full_name}</strong> para que abra su entrenamiento desde su teléfono e ingrese con su <strong>clave de 4 dígitos de RONOS</strong>.
+            <p className="text-xs sm:text-sm font-medium text-slate-600">
+              {t('training.email_modal_desc', { name: selectedEmployee.full_name })}
             </p>
 
-            <form onSubmit={handleSendTrainingEmail} className="space-y-3">
+            <form onSubmit={handleSendTrainingEmail} className="space-y-4">
               <div>
-                <label className="block text-xs font-black uppercase text-slate-500 mb-1">
-                  Correo Electrónico del Empleado:
+                <label className="block text-xs font-bold uppercase text-slate-500 mb-1">
+                  {t('training.email_label')}
                 </label>
                 <input
                   type="email"
                   required
                   value={emailInput}
                   onChange={(e) => setEmailInput(e.target.value)}
-                  placeholder="ejemplo@correo.com"
-                  className="w-full px-4 py-3 rounded-2xl border-2 border-slate-200 bg-[#FFFAF5] text-sm font-bold"
+                  placeholder={t('training.email_placeholder')}
+                  className="w-full px-4 py-2.5 rounded-xl border border-slate-300 bg-[#FFFAF5] text-sm font-semibold"
                 />
               </div>
 
               {emailFeedback && (
                 <div
-                  className={`p-3 rounded-2xl text-xs font-bold ${
+                  className={`p-3 rounded-xl text-xs font-bold border ${
                     emailFeedback.ok
-                      ? 'bg-emerald-50 border border-emerald-300 text-emerald-900'
-                      : 'bg-red-50 border border-red-200 text-red-700'
+                      ? 'bg-emerald-50 border-emerald-300 text-emerald-900'
+                      : 'bg-red-50 border-red-200 text-red-700'
                   }`}
                 >
                   {emailFeedback.msg}
                 </div>
               )}
 
-              <div className="flex justify-end gap-2 pt-2">
+              <div className="flex justify-end gap-2">
                 <button
                   type="button"
                   onClick={() => setShowEmailModal(false)}
-                  className="px-4 py-2.5 rounded-xl border border-slate-200 text-xs font-bold text-slate-600 cursor-pointer"
+                  className="px-4 py-2 rounded-xl border border-slate-200 text-xs font-bold text-slate-600 cursor-pointer"
                 >
-                  Cerrar
+                  {t('training.close_btn')}
                 </button>
                 <button
                   type="submit"
-                  disabled={sendingEmailBusy || !emailInput.trim()}
-                  className="px-5 py-2.5 rounded-xl bg-[#DA291C] hover:bg-[#B91C1C] text-white text-xs font-black cursor-pointer disabled:opacity-40"
+                  disabled={emailSending || !emailInput.trim()}
+                  className="px-5 py-2 rounded-xl bg-[#DA291C] hover:bg-[#B91C1C] text-white text-xs sm:text-sm font-black cursor-pointer disabled:opacity-40"
                 >
-                  {sendingEmailBusy ? 'Enviando Correo...' : '📧 Enviar Link a su Email'}
+                  {emailSending ? t('training.email_sending') : t('training.send_email_link_btn')}
                 </button>
               </div>
             </form>
@@ -3029,190 +4131,151 @@ export default function TrainingAcademyPage() {
         </div>
       )}
 
-      {/* =====================================================================
-          MODAL: LISTA MAESTRA IMPRIMIBLE DE ARTÍCULOS VENDIDOS CON RECETA (PUNTO 8)
-         ===================================================================== */}
+      {/* MODAL: LISTA IMPRIMIBLE EN PAPEL Y DIGITAL */}
       <PrintableRecipeChecklistModal
         isOpen={showPrintableChecklistModal}
         onClose={() => setShowPrintableChecklistModal(false)}
         recipeProducts={recipeProducts}
-        storeName={selectedStore?.name || 'Lynwood'}
+        storeName={selectedStore?.name || 'Tacos Gavilan'}
         employeeName={selectedEmployee?.full_name || ''}
-        trainerName={selectedTrainerName}
+        trainerName={selectedTrainerName || t('training.fallback_store_manager')}
         lang={lang}
       />
-
-      {/* MODAL SELECTOR DE ESTACIÓN */}
-      {showStationModal && (
-        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4 print:hidden">
-          <div className="bg-white rounded-3xl border-2 border-[#FFC72C] max-w-3xl w-full max-h-[85vh] flex flex-col p-6 shadow-2xl space-y-4">
-            <div className="flex items-center justify-between">
-              <h3 className="text-lg font-black text-[#0F172A]">
-                {t('training.section_groups_title')}
-              </h3>
-              <button
-                type="button"
-                onClick={() => setShowStationModal(false)}
-                className="w-8 h-8 rounded-full bg-slate-100 text-slate-700 font-black cursor-pointer"
-              >
-                ✕
-              </button>
-            </div>
-
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-              {[
-                { id: 'cocina' as const, label: t('training.group_cocina'), icon: ChefHat },
-                { id: 'salon' as const, label: t('training.group_salon'), icon: Users },
-                { id: 'drive_thru' as const, label: t('training.group_drive_thru'), icon: Car },
-                { id: 'liderazgo' as const, label: t('training.group_liderazgo'), icon: Crown },
-              ].map((grp) => {
-                const Icon = grp.icon;
-                const isSelected = selectedGroup === grp.id;
-                return (
-                  <button
-                    key={grp.id}
-                    type="button"
-                    onClick={() => setSelectedGroup(grp.id)}
-                    className={`p-3 rounded-2xl text-xs font-black flex flex-col items-center gap-1 cursor-pointer border-2 ${
-                      isSelected
-                        ? 'bg-[#DA291C] text-white border-[#DA291C]'
-                        : 'bg-[#FFFAF5] text-[#0F172A] border-slate-200'
-                    }`}
-                  >
-                    <Icon className="w-5 h-5" />
-                    <span className="text-center">{grp.label}</span>
-                  </button>
-                );
-              })}
-            </div>
-
-            <div className="overflow-y-auto grid grid-cols-1 sm:grid-cols-2 gap-2.5 pr-1">
-              {groupPositions.map((pos) => (
-                <button
-                  key={pos.positionKey}
-                  type="button"
-                  onClick={() => {
-                    setSelectedPositionKey(pos.positionKey);
-                    setShowStationModal(false);
-                  }}
-                  className="text-left p-3.5 rounded-2xl border-2 border-slate-200 hover:bg-[#FFF0E5] cursor-pointer flex items-center justify-between"
-                >
-                  <div>
-                    <div className="text-sm font-black text-[#0F172A]">
-                      {lang === 'en' ? pos.labelEn : pos.labelEs}
-                    </div>
-                    <div className="text-xs text-slate-500 line-clamp-1">
-                      {lang === 'en' ? pos.shortDescEn : pos.shortDescEs}
-                    </div>
-                  </div>
-                  <ChevronRight className="w-4 h-4 text-[#DA291C]" />
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* MODAL ¿CÓMO FUNCIONA? */}
       {showHowItWorksModal && (
         <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4 print:hidden">
-          <div className="bg-white rounded-3xl border-2 border-[#FFC72C] max-w-xl w-full p-6 shadow-2xl space-y-4">
-            <div className="flex items-start justify-between">
+          <div className="bg-white rounded-3xl border border-[#FFC72C] max-w-xl w-full p-6 shadow-2xl space-y-4">
+            <div className="flex items-start justify-between gap-2">
               <h3 className="text-lg font-black text-[#0F172A]">
                 {t('training.boss_question_title')}
               </h3>
               <button
                 type="button"
                 onClick={() => setShowHowItWorksModal(false)}
-                className="w-8 h-8 rounded-full bg-slate-100 text-slate-700 font-black cursor-pointer"
+                className="w-8 h-8 rounded-full bg-slate-100 text-slate-700 font-black cursor-pointer flex items-center justify-center shrink-0"
               >
-                ✕
+                <X className="w-4 h-4" />
               </button>
             </div>
-            <p className="text-sm text-slate-700">{t('training.boss_question_desc')}</p>
+            <p className="text-sm text-slate-700 leading-relaxed">{t('training.boss_question_desc')}</p>
             <button
               type="button"
               onClick={() => setShowHowItWorksModal(false)}
-              className="w-full py-3 rounded-2xl bg-[#DA291C] text-white text-sm font-black cursor-pointer"
+              className="w-full py-3 rounded-xl bg-[#DA291C] text-white text-sm font-black cursor-pointer"
             >
-              ¡Entendido!
+              {t('training.understood_btn')}
             </button>
           </div>
         </div>
       )}
 
-      {/* MODAL EDITOR DE PASOS Y VOZ IA */}
+      {/* MODAL EDITOR DE PASOS Y VOZ (CAMPOS ES Y EN SEPARADOS) */}
       {showStepEditorModal && currentVideo && (
         <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4 print:hidden">
-          <div className="bg-white rounded-3xl border-2 border-[#FFC72C] max-w-3xl w-full max-h-[88vh] flex flex-col p-6 shadow-2xl space-y-4">
+          <div className="bg-white rounded-3xl border border-[#FFC72C] max-w-3xl w-full max-h-[88vh] flex flex-col p-6 shadow-2xl space-y-4">
             <div className="flex items-center justify-between">
               <h3 className="text-lg font-black text-[#0F172A]">
-                Editar Pasos y Voz IA (Orus) — {currentVideo.titleEs}
+                {t('training.editor_modal_title', {
+                  name: lang === 'en' ? currentVideo.titleEn : currentVideo.titleEs,
+                })}
               </h3>
               <button
                 type="button"
                 onClick={() => setShowStepEditorModal(false)}
-                className="w-8 h-8 rounded-full bg-slate-100 text-slate-700 font-black cursor-pointer"
+                className="w-8 h-8 rounded-full bg-slate-100 text-slate-700 font-black cursor-pointer flex items-center justify-center"
               >
-                ✕
+                <X className="w-4 h-4" />
               </button>
             </div>
 
-            <div className="overflow-y-auto space-y-3 pr-1 flex-1">
-              {editableSteps.map((st, idx) => (
+            {editorErrorMsg && (
+              <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-red-700 text-xs font-bold">
+                {editorErrorMsg}
+              </div>
+            )}
+
+            <div className="overflow-y-auto space-y-3 pr-1">
+              {editingSteps.map((st, idx) => (
                 <div
                   key={st.id}
-                  className="p-4 rounded-2xl bg-[#FFFAF5] border border-slate-200 space-y-2"
+                  className="p-4 rounded-2xl bg-[#FFFAF5] border border-[#F1E4D8] space-y-2.5"
                 >
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <span className="text-sm font-black text-[#DA291C]">
-                      Paso {st.stepNumber} ({st.timestampLabel}): {st.titleEs}
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs font-black text-[#DA291C]">
+                      {t('training.editor_step_header', {
+                        num: st.stepNumber,
+                        time: st.timestampLabel,
+                      })}
+                      : {lang === 'en' ? st.titleEn : st.titleEs}
                     </span>
                     <div className="flex items-center gap-2">
                       <button
                         type="button"
-                        disabled={aiGeneratingStepIdx === idx}
-                        onClick={() => handleAiRefineStep(idx)}
-                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-[#FFF8E7] border border-[#FFC72C] text-xs font-extrabold text-[#0F172A] cursor-pointer"
+                        disabled={aiExplainStepBusyId === st.id}
+                        onClick={() => handleAiExplainStep(idx)}
+                        className="px-3 py-1 rounded-lg bg-[#FFF8E7] border border-[#FFC72C] text-xs font-bold text-[#92400E] cursor-pointer"
                       >
-                        <Wand2 className="w-3.5 h-3.5 text-[#DA291C]" />
-                        {aiGeneratingStepIdx === idx
-                          ? 'Generando...'
+                        <Wand2 className="w-3.5 h-3.5 inline mr-1" />
+                        {aiExplainStepBusyId === st.id
+                          ? t('training.editor_generating_btn')
                           : t('training.player_regenerate_ai')}
                       </button>
                       <button
                         type="button"
                         onClick={() =>
-                          setEditableSteps((prev) => prev.filter((_, i) => i !== idx))
+                          setEditingSteps((prev) => prev.filter((_, i) => i !== idx))
                         }
-                        className="p-1.5 rounded-lg bg-red-50 text-red-600 cursor-pointer"
+                        className="p-1.5 rounded-lg text-red-500 hover:bg-red-50 cursor-pointer"
                       >
-                        <Trash2 className="w-3.5 h-3.5" />
+                        <Trash2 className="w-4 h-4" />
                       </button>
                     </div>
                   </div>
-                  <textarea
-                    rows={2}
-                    value={lang === 'en' ? st.narrationEn : st.narrationEs}
-                    onChange={(e) => {
-                      const val = e.target.value;
-                      setEditableSteps((prev) => {
-                        const next = [...prev];
-                        next[idx] = {
-                          ...next[idx],
-                          narrationEs: val,
-                          narrationEn: val,
-                        };
-                        return next;
-                      });
-                    }}
-                    className="w-full px-3 py-2 rounded-xl border border-slate-300 text-sm font-semibold bg-white"
-                  />
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    <div>
+                      <label className="block text-[10px] font-bold uppercase text-slate-500 mb-1">
+                        {t('training.editor_es_label')}
+                      </label>
+                      <textarea
+                        rows={2}
+                        value={st.narrationEs}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setEditingSteps((prev) =>
+                            prev.map((item, i) =>
+                              i === idx ? { ...item, narrationEs: val } : item
+                            )
+                          );
+                        }}
+                        className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs sm:text-sm font-medium"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold uppercase text-slate-500 mb-1">
+                        {t('training.editor_en_label')}
+                      </label>
+                      <textarea
+                        rows={2}
+                        value={st.narrationEn}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setEditingSteps((prev) =>
+                            prev.map((item, i) =>
+                              i === idx ? { ...item, narrationEn: val } : item
+                            )
+                          );
+                        }}
+                        className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs sm:text-sm font-medium"
+                      />
+                    </div>
+                  </div>
                 </div>
               ))}
             </div>
 
-            <div className="flex justify-end gap-2 pt-2 border-t border-slate-200">
+            <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
               <button
                 type="button"
                 onClick={() => setShowStepEditorModal(false)}
@@ -3224,9 +4287,11 @@ export default function TrainingAcademyPage() {
                 type="button"
                 disabled={savingStepsBusy}
                 onClick={handleSaveEditedSteps}
-                className="px-5 py-2 rounded-xl bg-[#DA291C] text-white text-xs font-black cursor-pointer"
+                className="px-5 py-2.5 rounded-xl bg-[#DA291C] text-white text-xs sm:text-sm font-black cursor-pointer"
               >
-                {savingStepsBusy ? 'Convirtiendo a Voz IA...' : t('training.save_step_ai_voice_btn')}
+                {savingStepsBusy
+                  ? t('training.editor_converting_btn')
+                  : t('training.save_step_ai_voice_btn')}
               </button>
             </div>
           </div>

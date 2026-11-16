@@ -520,13 +520,14 @@ function stripHeaderCrlf(val) {
     return String(val || '').replace(/[\r\n]+/g, ' ').trim();
 }
 
-function buildMimeBase64Url({ from, to, cc, replyTo, subject, html }) {
+function buildMimeBase64Url({ from, to, cc, bcc, replyTo, subject, html }) {
     const cleanSubject = stripHeaderCrlf(subject);
     const encodedSubject = `=?UTF-8?B?${Buffer.from(cleanSubject, 'utf8').toString('base64')}?=`;
     const headers = [
         `From: ${stripHeaderCrlf(from)}`,
         `To: ${stripHeaderCrlf(to)}`,
         ...(cc ? [`Cc: ${stripHeaderCrlf(cc)}`] : []),
+        ...(bcc ? [`Bcc: ${stripHeaderCrlf(bcc)}`] : []),
         ...(replyTo ? [`Reply-To: ${stripHeaderCrlf(replyTo)}`] : []),
         `Subject: ${encodedSubject}`,
         'MIME-Version: 1.0',
@@ -579,7 +580,10 @@ async function dispatchContactEmails({ supabaseUrl, supabaseKey, name, email, ph
         if (!accessToken) return false;
 
         const supportEmail = cfg.support_email || 'support@tacosgavilan.com';
-        const fromHeader = `Tacos Gavilan Website <${cfg.from_email || 'carlos@tacosgavilan.com'}>`;
+        const resolvedSender = (!cfg.from_email || cfg.from_email.toLowerCase() === 'carlos@tacosgavilan.com')
+            ? 'noreply@tacosgavilan.com'
+            : cfg.from_email;
+        const fromHeader = `Tacos Gavilan <${resolvedSender}>`;
         const safeName = escapeHtml(name);
         const safeEmail = escapeHtml(email);
         const safePhone = escapeHtml(phone || 'N/A');
@@ -587,7 +591,7 @@ async function dispatchContactEmails({ supabaseUrl, supabaseKey, name, email, ph
         const safeStore = escapeHtml(rawStore || 'Corporate / General');
         const safeMessage = escapeHtml(message);
 
-        // 1. Internal notification to support@tacosgavilan.com (CC carlos@tacosgavilan.com)
+        // 1. Internal notification to support@tacosgavilan.com (BCC executive copy)
         const internalHtml = `
 <div style="font-family: 'Segoe UI', Arial, sans-serif; max-width: 620px; margin: 0 auto; background: #141210; color: #ffffff; border: 1px solid #FFC72C; border-radius: 12px; overflow: hidden;">
   <div style="background: linear-gradient(135deg, #DA291C 0%, #9e1b11 100%); padding: 20px 24px; border-bottom: 2px solid #FFC72C;">
@@ -616,7 +620,7 @@ async function dispatchContactEmails({ supabaseUrl, supabaseKey, name, email, ph
         const rawInternal = buildMimeBase64Url({
             from: fromHeader,
             to: supportEmail,
-            cc: 'carlos@tacosgavilan.com',
+            bcc: 'carlos@tacosgavilan.com',
             replyTo: `${name.replace(/["<>]/g, '')} <${email}>`,
             subject: `[Tacos Gavilan Web] Contact (${rawReason} - ${rawStore || 'General'}) — ${name} (${referenceId})`,
             html: internalHtml

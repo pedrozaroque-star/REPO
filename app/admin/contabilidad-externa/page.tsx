@@ -9940,7 +9940,7 @@ function ExternalAccountingContent() {
                                                 </td>
                                                 <td className="py-3 px-4 font-mono">{dynamicClosePeriod}</td>
                                                 <td className="py-3 px-4">Raquel Velasquez</td>
-                                                <td className="py-3 px-4">Carlos Velasquez</td>
+                                                <td className="py-3 px-4">Sistema de Monitoreo</td>
                                                 <td className="py-3 px-4 font-mono">{dynamicDueSlash}</td>
                                                 <td className="py-3 px-4 text-right">
                                                     <button

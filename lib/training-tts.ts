@@ -98,12 +98,12 @@ export async function ensureTrainingBucket(): Promise<void> {
     if (!exists) {
       await supabaseAdmin.storage.createBucket(TRAINING_MEDIA_BUCKET, {
         public: true,
-        fileSizeLimit: 52428800, // 50 MB
+        fileSizeLimit: 104857600, // 100 MB
       });
     } else {
       await supabaseAdmin.storage.updateBucket(TRAINING_MEDIA_BUCKET, {
         public: true,
-        fileSizeLimit: 52428800,
+        fileSizeLimit: 104857600,
       });
     }
     bucketInitialized = true;

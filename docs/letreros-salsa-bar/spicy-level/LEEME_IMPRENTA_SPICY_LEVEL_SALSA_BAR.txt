@@ -1,0 +1,29 @@
+===============================================================================
+TACOS GAVILAN — GUIA DE IMPRESION / PRINT SHOP SPECIFICATION SHEET
+STICKERS TRANSPARENTES NIVEL DE PICOR EN SALSA BAR ("SPICY LEVEL")
+===============================================================================
+
+PROPOSITO Y UBICACION:
+- Se colocan directamente sobre el vidrio protector del Salsa Bar encima de cada charola:
+  1) SALSA VERDE -> MEDIUM / PICOR MEDIO (2 de 4 chiles encendidos)
+  2) SALSA ROJA  -> HOT / PICANTE (3 de 4 chiles encendidos; 4o chile APAGADO)
+
+MATERIAL Y ACABADO OBLIGATORIO:
+- Sustrato: Clear Vinyl (Vinil adhesivo transparente de grado comercial)
+- Tinta Blanca: 100% Spot White Ink Underbase (cama selectiva de tinta blanca opaca)
+  strictly behind all colors, outlines, text and white halos; leave Alpha=0 areas 0% ink.
+- Laminado: Clear UV Gloss/Semi-Gloss Overlaminate (soporta limpieza y sanitizante diario).
+- Escala: Imprimir siempre al 100% Actual Size (NO usar Fit to Page).
+
+MEDIDAS EXACTAS @ 600 DPI:
+- Sticker Individual (Verde o Roja): 4.5" x 2.0" (11.43 x 5.08 cm | 2700 x 1200 px)
+  -> Ideal para cada charola estandar (~6.4" de ancho) sin tocar la charola vecina.
+- Pliego Par (Verde + Roja juntos): 10.0" x 2.5" (25.40 x 6.35 cm | 6000 x 1500 px)
+  -> Ambas calcomanias en una sola pasada de corte (Kiss-Cut) por sucursal.
+
+METODOS DE INSTALACION:
+- Montaje EXTERIOR (frente del vidrio / Right-Reading):
+  Enviar "*_PRINT_READY.png" o "*_1to1.pdf".
+- Montaje INTERIOR (por dentro del vidrio viendo hacia afuera / Second-Surface Mirror):
+  Enviar "*_MODO_ESPEJO_OPCIONAL.png" (impreso al reves + tinta blanca por detras).
+===============================================================================

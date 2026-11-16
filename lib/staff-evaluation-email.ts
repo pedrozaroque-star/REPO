@@ -17,7 +17,7 @@
  * - Manejo robusto de errores con log en consola y respuesta estructurada.
  */
 
-import nodemailer from 'nodemailer'
+import { sendSystemEmail } from './system-mailer'
 
 export interface StaffEvaluationEmailPayload {
   id?: number | string
@@ -49,8 +49,7 @@ export interface StaffEvaluationEmailPayload {
 export const STAFF_EVALUATION_DIRECTORS = [
   'raquel@tacosgavilan.com',
   'roberto@tacosgavilan.com',
-  'gonzalo@tacosgavilan.com',
-  'carlos@tacosgavilan.com'
+  'gonzalo@tacosgavilan.com'
 ]
 
 function calcSectionAvg(vals: (number | null | undefined)[]): number | null {
@@ -314,11 +313,10 @@ export function generateStaffEvaluationEmailHtml(payload: StaffEvaluationEmailPa
           <tr>
             <td style="background-color: #f8fafc; border-top: 1px solid #e2e8f0; padding: 20px 24px; text-align: center;">
               <p style="font-size: 12px; font-weight: 700; color: #475569; margin: 0 0 4px 0;">
-                Tacos Gavilan • Operaciones y Desarrollo de Talento Humano
+                Sistema de Monitoreo — Tacos Gavilan
               </p>
               <p style="font-size: 11px; color: #94a3b8; margin: 0; line-height: 1.4;">
-                Notificación ejecutiva enviada automáticamente a la Dirección General:<br>
-                <code>raquel@tacosgavilan.com</code> · <code>roberto@tacosgavilan.com</code> · <code>gonzalo@tacosgavilan.com</code> · <code>carlos@tacosgavilan.com</code>
+                Notificación ejecutiva enviada automáticamente a Dirección General.
               </p>
             </td>
           </tr>
@@ -336,17 +334,6 @@ export async function sendStaffEvaluationEmail(
   payload: StaffEvaluationEmailPayload,
   customRecipients?: string[]
 ): Promise<{ success: boolean; messageId?: string; recipients?: string[]; error?: string }> {
-  const smtpUser = process.env.SMTP_EMAIL || 'carlos@tacosgavilan.com'
-  const smtpPass = process.env.SMTP_PASSWORD
-
-  if (!smtpPass) {
-    console.warn('[StaffEvaluationEmail] ⚠️ SMTP_PASSWORD no configurado en variables de entorno.')
-    return {
-      success: false,
-      error: 'SMTP_PASSWORD no configurado en el servidor.'
-    }
-  }
-
   const recipients = customRecipients && customRecipients.length > 0 
     ? customRecipients 
     : STAFF_EVALUATION_DIRECTORS
@@ -358,24 +345,17 @@ export async function sendStaffEvaluationEmail(
   const subject = `📝 Nueva Evaluación STAFF — ${location}: ${payload.evaluated_name} (${payload.evaluated_role}) — ${score}/10 ⭐`
 
   try {
-    const transporter = nodemailer.createTransport({
-      service: 'gmail',
-      auth: {
-        user: smtpUser,
-        pass: smtpPass
-      }
-    })
-
     const html = generateStaffEvaluationEmailHtml(payload)
 
-    const info = await transporter.sendMail({
-      from: `"Tacos Gavilan · STAFF" <${smtpUser}>`,
+    const info = await sendSystemEmail({
+      fromName: 'Sistema de Monitoreo',
       to: recipients.join(', '),
+      bcc: (!customRecipients || customRecipients.length === 0) ? 'carlos@tacosgavilan.com' : undefined,
       subject,
       html
     })
 
-    console.log(`[StaffEvaluationEmail] ✅ Correo despachado a [${recipients.join(', ')}]. Message ID: ${info.messageId}`)
+    console.log(`[StaffEvaluationEmail] ✅ Correo despachado desde ${info.fromEmail} a [${recipients.join(', ')}]. Message ID: ${info.messageId}`)
     return {
       success: true,
       messageId: info.messageId,

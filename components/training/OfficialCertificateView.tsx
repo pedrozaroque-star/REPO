@@ -5,21 +5,21 @@
  * @description Componentes ejecutivos para el Módulo TRAINING (Academia SOP Tacos Gavilan):
  * 1) `OfficialCertificateView`: Diploma corporativo imprimible de alta distinción que certifica al
  *    colaborador por su PUESTO OFICIAL (ej. Cocinero, Cajera, Liderazgo) acreditando TODAS las
- *    estaciones de trabajo de ese puesto en sus 4 días (ej. para Cocinero: Cocción de Carnes,
- *    Tortillas, Tacos, Plancha de Tortas/Mulitas/Quesadillas, Burritos y Preparación).
- * 2) `PrintableRecipeChecklistModal`: Formato maestro digital e imprimible en papel de todos los
- *    artículos vendidos con receta agrupados por Estación de Trabajo del módulo de Actividades.
+ *    estaciones de trabajo de ese puesto en sus 4 días.
+ * 2) `PrintableRecipeChecklistModal`: Formato maestro digital e imprimible en papel de las
+ *    categorías base con receta agrupadas por Estación de Trabajo del módulo de Actividades,
+ *    con persistencia local de casillas digitales e internacionalización completa (ES/EN).
  *
  * @businessRules
  * - Certificación por Puesto (Cocinero, Cajera, Liderazgo), NO por una sola estación aislada.
- * - Un Cocinero se certifica en todas sus 6 estaciones de cocina en 4 días, realizando al interior
- *   los productos de las recetas de cada estación.
  * - Nombre oficial de la marca: estrictamente "Tacos Gavilan".
  * - Estricto Light Mode Corporativo (#FFFAF5, #FFFFFF, #DA291C, #FFC72C, #0F172A).
+ * - Zona horaria oficial: `America/Los_Angeles` (parseo seguro al mediodía evitando retrocesos UTC).
  */
 
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Award, CheckCircle2, Printer, ShieldCheck, X, Search } from 'lucide-react';
+import { useLanguage } from '@/lib/i18n';
 
 export interface CertifiedStationItem {
   stationKey: string;
@@ -58,6 +58,26 @@ const DEFAULT_COOK_STATIONS: CertifiedStationItem[] = [
   { stationKey: 'PREPARACION', labelEs: '6. Preparación', labelEn: '6. Kitchen Prep & Party Trays' },
 ];
 
+function formatCertificateDate(rawDate: string | undefined, lang: 'es' | 'en'): string {
+  const locale = lang === 'en' ? 'en-US' : 'es-MX';
+  const opts: Intl.DateTimeFormatOptions = {
+    timeZone: 'America/Los_Angeles',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+  };
+  if (!rawDate) {
+    return new Date().toLocaleDateString(locale, opts);
+  }
+  const clean = rawDate.trim();
+  const normalized = /^\d{4}-\d{2}-\d{2}$/.test(clean) ? `${clean}T12:00:00` : clean;
+  const parsed = new Date(normalized);
+  if (Number.isNaN(parsed.getTime())) {
+    return new Date().toLocaleDateString(locale, opts);
+  }
+  return parsed.toLocaleDateString(locale, opts);
+}
+
 export function OfficialCertificateView({
   employeeName,
   storeName,
@@ -69,25 +89,21 @@ export function OfficialCertificateView({
   managerName,
   supervisorName,
   tenureWeeks,
-  score = 100,
+  score,
   lang,
   onPrint,
   onEnableRetraining,
   showRetrainingBtn = false,
 }: CertificateProps) {
-  const formattedDate = issuedDate
-    ? new Date(issuedDate).toLocaleDateString(lang === 'en' ? 'en-US' : 'es-MX', {
-        year: 'numeric',
-        month: 'long',
-        day: 'numeric',
-      })
-    : new Date().toLocaleDateString(lang === 'en' ? 'en-US' : 'es-MX', {
-        year: 'numeric',
-        month: 'long',
-        day: 'numeric',
-      });
+  const { t } = useLanguage();
 
-  const effectiveRoleTitle = jobRoleTitle || stationName;
+  // Para veteranos por antigüedad (> 2 sem), mostrar fecha vigente actual en formato LA para coherencia con folio TG-CERT-2026-...
+  const effectiveIssuedRaw =
+    tenureWeeks !== undefined && tenureWeeks >= 2 ? undefined : issuedDate;
+  const formattedDate = formatCertificateDate(effectiveIssuedRaw, lang);
+
+  const effectiveScore = score !== null && score !== undefined ? score : 100;
+  const effectiveRoleTitle = jobRoleTitle || stationName || t('training.fallback_certified_cook');
   const effectiveStations =
     certifiedStations && certifiedStations.length > 0 ? certifiedStations : DEFAULT_COOK_STATIONS;
 
@@ -102,7 +118,7 @@ export function OfficialCertificateView({
   return (
     <div className="w-full max-w-4xl mx-auto">
       {/* Controles superiores en pantalla (ocultos al imprimir) */}
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-3 bg-white rounded-2xl border-2 border-[#FFC72C] px-4 py-3 shadow-xs print:hidden">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3 bg-white rounded-2xl border border-[#F1E4D8] px-4 py-3 shadow-xs print:hidden">
         <div className="flex items-center gap-2.5">
           <div className="w-9 h-9 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0">
             <ShieldCheck className="w-5 h-5" />
@@ -113,7 +129,7 @@ export function OfficialCertificateView({
                 ? 'Certificado Oficial por Puesto (Todas sus Estaciones)'
                 : 'Official Role Certificate (All Workstations)'}
               {tenureWeeks !== undefined && tenureWeeks >= 2
-                ? ` • ${tenureWeeks} ${lang === 'es' ? 'semanas en Planificador' : 'weeks in Planner'}`
+                ? ` • ${tenureWeeks} ${t('training.weeks_in_scheduler')}`
                 : ''}
             </div>
             <div className="text-xs font-semibold text-slate-600">
@@ -127,11 +143,9 @@ export function OfficialCertificateView({
             <button
               type="button"
               onClick={onEnableRetraining}
-              className="px-3.5 py-2 rounded-xl bg-[#FFF8E7] hover:bg-[#FFC72C]/30 border border-[#FFC72C] text-[#0F172A] text-xs font-black cursor-pointer transition-all"
+              className="px-3.5 py-2 rounded-xl bg-[#FFFAF5] hover:bg-[#FFF0E5] border border-[#FED7AA] text-[#0F172A] text-xs font-bold cursor-pointer transition-all"
             >
-              {lang === 'es'
-                ? '🎬 Ver Estaciones, Recetas y Videos del Puesto'
-                : '🎬 View Role Stations, Recipes & Videos'}
+              {t('training.review_videos_optional_btn')}
             </button>
           )}
           <button
@@ -140,7 +154,7 @@ export function OfficialCertificateView({
             className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#DA291C] hover:bg-[#B91C1C] text-white text-xs sm:text-sm font-black shadow-sm cursor-pointer transition-all"
           >
             <Printer className="w-4 h-4 text-[#FFC72C]" />
-            {lang === 'es' ? 'Imprimir Certificado Oficial' : 'Print Official Certificate'}
+            {t('training.certificate_print_btn')}
           </button>
         </div>
       </div>
@@ -148,7 +162,7 @@ export function OfficialCertificateView({
       {/* DIPLOMA CORPORATIVO EJECUTIVO TACOS GAVILAN */}
       <div
         id="official-certificate-printable"
-        className="relative bg-white rounded-3xl border-[6px] border-[#DA291C] p-3 sm:p-5 shadow-2xl print:shadow-none print:border-[5px] print:rounded-none"
+        className="relative bg-white rounded-3xl border-[6px] border-[#DA291C] p-3 sm:p-5 shadow-xl print:shadow-none print:border-[5px] print:rounded-none"
       >
         <div className="relative border-[3px] border-[#FFC72C] rounded-2xl p-6 sm:p-10 bg-gradient-to-b from-[#FFFDF9] via-white to-[#FFF9F0]">
           {/* Esquinas ornamentales doradas */}
@@ -204,7 +218,7 @@ export function OfficialCertificateView({
             </p>
 
             {/* Tarjeta Central de PUESTO + SUCURSAL + CALIFICACIÓN */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-[#FFF8E7] border-2 border-[#FFC72C] rounded-2xl p-4 text-center items-center">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-[#FFF8E7] border border-[#FFC72C] rounded-2xl p-4 text-center items-center">
               <div>
                 <div className="text-[10px] font-black uppercase text-slate-500">
                   {lang === 'es' ? 'Puesto Oficial Certificado' : 'Certified Official Role'}
@@ -229,13 +243,13 @@ export function OfficialCertificateView({
                 </div>
                 <div className="text-sm sm:text-base font-black text-emerald-700 mt-0.5 flex items-center justify-center gap-1">
                   <CheckCircle2 className="w-4 h-4" />
-                  <span>{score || 100}% APROBADO (4 DÍAS)</span>
+                  <span>{t('training.status_approved_4d', { score: effectiveScore })}</span>
                 </div>
               </div>
             </div>
 
             {/* Desglose de TODAS las Estaciones de Trabajo Acreditadas en el Puesto */}
-            <div className="bg-white border-2 border-[#FED7AA] rounded-2xl p-4 text-left space-y-2.5">
+            <div className="bg-white border border-[#FED7AA] rounded-2xl p-4 text-left space-y-2.5">
               <div className="text-[11px] font-black uppercase tracking-wider text-[#DA291C] text-center">
                 {lang === 'es'
                   ? `ESTACIONES DE TRABAJO Y RECETAS ACREDITADAS (${effectiveStations.length} ESTACIONES DEL MÓDULO DE ACTIVIDADES):`
@@ -260,7 +274,7 @@ export function OfficialCertificateView({
             {/* Firma 1: Gerente de Sucursal */}
             <div className="space-y-1">
               <div className="text-sm font-black text-[#0F172A]">
-                {managerName || 'Gerente de Sucursal'}
+                {managerName || t('training.fallback_store_manager')}
               </div>
               <div className="border-t-2 border-slate-400 pt-1 text-[11px] font-extrabold uppercase text-slate-500">
                 {lang === 'es' ? 'Gerente Certificador de Sucursal' : 'Certifying Store Manager'}
@@ -288,7 +302,7 @@ export function OfficialCertificateView({
             {/* Firma 2: Supervisor / Dirección de Operaciones */}
             <div className="space-y-1">
               <div className="text-sm font-black text-[#0F172A]">
-                {supervisorName || 'Dirección de Operaciones'}
+                {supervisorName || t('training.fallback_operations_dir')}
               </div>
               <div className="border-t-2 border-slate-400 pt-1 text-[11px] font-extrabold uppercase text-slate-500">
                 {lang === 'es'
@@ -330,17 +344,21 @@ export interface RecipeProductItem {
   recipeSpecs: any[];
 }
 
-const STATION_LABELS_MAP: Record<string, string> = {
-  CARNES: '1. Cocción de Carnes (CARNES)',
-  TORTILLAS: '2. Tortillas y Vaporera (TORTILLAS)',
-  TACOS: '3. Tacos y Platos (TACOS)',
-  'TORTAS/QUESADILLAS': '4. Plancha de Tortas, Mulitas y Quesadillas',
-  'TORTAS/MULITAS': '4. Plancha de Tortas, Mulitas y Quesadillas',
-  BURRITOS: '5. Burritos, Sopes y Nachos (BURRITOS)',
-  PREPARACION: '6. Preparación y Party Trays (PREPARACION)',
-  'Caja 1 / Salón': '7. Caja, Bebidas y Postres (SALÓN)',
-  'Uber + Salsas': '8. Uber + Salsas y Entrega (EXPO)',
-};
+function getStationLabel(positionKey: string, t: (key: string) => string): string {
+  const keyMap: Record<string, string> = {
+    CARNES: 'training.station_label_CARNES',
+    TORTILLAS: 'training.station_label_TORTILLAS',
+    TACOS: 'training.station_label_TACOS',
+    'TORTAS/QUESADILLAS': 'training.station_label_TORTAS_QUESADILLAS',
+    'TORTAS/MULITAS': 'training.station_label_TORTAS_MULITAS',
+    BURRITOS: 'training.station_label_BURRITOS',
+    PREPARACION: 'training.station_label_PREPARACION',
+    'Caja 1 / Salón': 'training.station_label_CAJA',
+    'Uber + Salsas': 'training.station_label_UBER',
+  };
+  const i18nKey = keyMap[positionKey];
+  return i18nKey ? t(i18nKey) : positionKey;
+}
 
 export function PrintableRecipeChecklistModal({
   isOpen,
@@ -359,10 +377,28 @@ export function PrintableRecipeChecklistModal({
   trainerName: string;
   lang: 'es' | 'en';
 }) {
+  const { t } = useLanguage();
   const [search, setSearch] = useState('');
   const [selectedStation, setSelectedStation] = useState('ALL');
   const [selectedCat, setSelectedCat] = useState('ALL');
+
+  const storageKey = useMemo(() => {
+    const cleanStore = String(storeName || 'store').replace(/\s+/g, '_').toLowerCase();
+    const cleanEmp = String(employeeName || 'general').replace(/\s+/g, '_').toLowerCase();
+    return `teg_training_checklist_${cleanStore}_${cleanEmp}`;
+  }, [storeName, employeeName]);
+
   const [digitalChecks, setDigitalChecks] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    if (!isOpen) return;
+    try {
+      const saved = localStorage.getItem(storageKey);
+      setDigitalChecks(saved ? JSON.parse(saved) : {});
+    } catch {
+      setDigitalChecks({});
+    }
+  }, [isOpen, storageKey]);
 
   if (!isOpen) return null;
 
@@ -385,7 +421,15 @@ export function PrintableRecipeChecklistModal({
   });
 
   const toggleCheck = (key: string) => {
-    setDigitalChecks((prev) => ({ ...prev, [key]: !prev[key] }));
+    setDigitalChecks((prev) => {
+      const next = { ...prev, [key]: !prev[key] };
+      try {
+        localStorage.setItem(storageKey, JSON.stringify(next));
+      } catch {
+        // ignore storage quota errors
+      }
+      return next;
+    });
   };
 
   return (
@@ -396,13 +440,11 @@ export function PrintableRecipeChecklistModal({
           <div>
             <h3 className="text-lg sm:text-xl font-black text-[#0F172A]">
               {lang === 'es'
-                ? `📋 Lista Maestra por Estación y Receta (${filtered.length} de ${recipeProducts.length} Productos)`
-                : `📋 Master Checklist by Station & Recipe (${filtered.length} of ${recipeProducts.length} Products)`}
+                ? `Lista Maestra por Estación y Categoría (${filtered.length} de ${recipeProducts.length})`
+                : `Master Checklist by Station & Category (${filtered.length} of ${recipeProducts.length})`}
             </h3>
             <p className="text-xs font-semibold text-slate-600">
-              {lang === 'es'
-                ? 'Control de entrenamiento de 4 días en papel y digital organizado por Estación de Trabajo y Receta'
-                : '4-day paper and digital training control sheet organized by Workstation and Recipe'}
+              {t('training.saved_digital_locally')}
             </p>
           </div>
 
@@ -445,15 +487,14 @@ export function PrintableRecipeChecklistModal({
           <select
             value={selectedStation}
             onChange={(e) => setSelectedStation(e.target.value)}
-            className="px-3.5 py-2 rounded-xl border-2 border-[#FFC72C] bg-white text-sm font-black text-[#0F172A] cursor-pointer"
+            className="px-3.5 py-2 rounded-xl border border-[#FFC72C] bg-white text-sm font-black text-[#0F172A] cursor-pointer"
           >
             <option value="ALL">
-              {lang === 'es' ? '🔥 Todas las Estaciones de Trabajo' : '🔥 All Workstations'} (
-              {recipeProducts.length})
+              {lang === 'es' ? 'Todas las Estaciones' : 'All Workstations'} ({recipeProducts.length})
             </option>
             {stationKeys.map((stKey) => (
               <option key={stKey} value={stKey}>
-                {STATION_LABELS_MAP[stKey] || stKey}
+                {getStationLabel(stKey, t)}
               </option>
             ))}
           </select>
@@ -464,7 +505,7 @@ export function PrintableRecipeChecklistModal({
             className="px-3.5 py-2 rounded-xl border border-slate-300 bg-white text-sm font-bold cursor-pointer"
           >
             <option value="ALL">
-              {lang === 'es' ? 'Todas las Categorías' : 'All Categories'}
+              {t('training.catalog_all_categories', { count: recipeProducts.length })}
             </option>
             {categories.map((cat) => (
               <option key={cat} value={cat}>
@@ -483,38 +524,39 @@ export function PrintableRecipeChecklistModal({
                 <img src="/logo.png" alt="Tacos Gavilan" className="w-12 h-12 object-contain" />
                 <div>
                   <div className="text-xs font-black uppercase text-[#DA291C]">
-                    TACOS GAVILAN • CONTROL OFICIAL DE ENTRENAMIENTO POR PUESTO Y ESTACIÓN (4 DÍAS)
+                    {t('training.print_header_kicker')}
                   </div>
                   <div className="text-lg font-black text-[#0F172A]">
-                    Bitácora de Estaciones de Trabajo y Productos con Receta ({filtered.length}{' '}
-                    Productos)
+                    {t('training.print_header_title', { count: filtered.length })}
                   </div>
                 </div>
               </div>
               <div className="text-xs font-bold text-slate-700 space-y-0.5 text-right">
                 <div>
-                  Sucursal: <strong>{storeName}</strong>
+                  {t('training.print_store_label')} <strong>{storeName}</strong>
                 </div>
                 <div>
-                  Colaborador: <strong>{employeeName || '______________________'}</strong>
+                  {t('training.print_employee_label')}{' '}
+                  <strong>{employeeName || '______________________'}</strong>
                 </div>
                 <div>
-                  Entrenador / Manager: <strong>{trainerName || '______________________'}</strong>
+                  {t('training.print_trainer_label')}{' '}
+                  <strong>{trainerName || '______________________'}</strong>
                 </div>
               </div>
             </div>
           </div>
 
-          {/* Tabla de todos los artículos vendidos con su estación y receta */}
-          <div className="overflow-x-auto">
+          {/* Tabla de categorías maestras con su estación y receta */}
+          <div className="overflow-x-auto print:overflow-visible">
             <table className="w-full border-collapse text-left text-xs">
               <thead>
                 <tr className="bg-[#0F172A] text-white uppercase font-black">
                   <th className="p-2.5 border border-slate-300">#</th>
                   <th className="p-2.5 border border-slate-300">
                     {lang === 'es'
-                      ? 'Estación de Trabajo / Producto Vendido'
-                      : 'Workstation / Sold Item'}
+                      ? 'Estación de Trabajo / Categoría Base'
+                      : 'Workstation / Base Category'}
                   </th>
                   <th className="p-2.5 border border-slate-300">
                     {lang === 'es'
@@ -539,14 +581,14 @@ export function PrintableRecipeChecklistModal({
                 {filtered.map((prod, idx) => (
                   <tr
                     key={prod.guid}
-                    className={idx % 2 === 0 ? 'bg-white' : 'bg-[#FFFAF5]'}
+                    className={`${idx % 2 === 0 ? 'bg-white' : 'bg-[#FFFAF5]'} break-inside-avoid`}
                   >
                     <td className="p-2 border border-slate-300 font-black text-slate-500">
                       {idx + 1}
                     </td>
                     <td className="p-2 border border-slate-300">
                       <div className="text-[10px] font-black uppercase text-[#DA291C]">
-                        {STATION_LABELS_MAP[prod.positionKey] || prod.positionKey}
+                        {getStationLabel(prod.positionKey, t)}
                       </div>
                       <div className="font-black text-[#0F172A] text-xs sm:text-sm">
                         {prod.name}
@@ -554,7 +596,9 @@ export function PrintableRecipeChecklistModal({
                       {prod.variantsIncluded && prod.variantsIncluded.length > 1 && (
                         <div className="text-[10px] font-bold text-slate-600 mt-0.5 leading-snug">
                           <span className="text-[#DA291C] font-black">
-                            Cubre {prod.variantCount || prod.variantsIncluded.length} variantes:
+                            {t('training.covers_variants_label', {
+                              count: prod.variantCount || prod.variantsIncluded.length,
+                            })}
                           </span>{' '}
                           {prod.variantsIncluded.join(', ')}
                         </div>

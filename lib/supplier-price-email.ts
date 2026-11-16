@@ -19,7 +19,7 @@
  *   -> sendSupplierPriceAlertEmail() -> Nodemailer (SMTP Gmail) -> Destinatarios.
  */
 
-import nodemailer from 'nodemailer'
+import { sendSystemEmail } from './system-mailer'
 
 export interface PriceChangeItem {
   supplierSku: string
@@ -56,8 +56,7 @@ export interface PriceAlertEmailOptions {
 export const DEFAULT_PRICE_ALERT_RECIPIENTS = [
   'roberto@tacosgavilan.com',
   'raquel@tacosgavilan.com',
-  'gonzalo@tacosgavilan.com',
-  'carlos@tacosgavilan.com'
+  'gonzalo@tacosgavilan.com'
 ]
 
 /**
@@ -372,8 +371,8 @@ export function generatePriceAlertEmailHtml(options: PriceAlertEmailOptions): st
           <!-- PIE DE PÁGINA LIMPIO -->
           <tr>
             <td style="background-color: #f8fafc; padding: 16px 28px; border-top: 1px solid #e2e8f0; font-size: 11px; color: #64748b; text-align: center; line-height: 1.5;">
-              <strong style="color: #0f172a;">Tacos Gavilan</strong> · Sistema SM TEG<br>
-              Notificación automática para directivos: <code>roberto@tacosgavilan.com</code>, <code>raquel@tacosgavilan.com</code>, <code>gonzalo@tacosgavilan.com</code>, <code>carlos@tacosgavilan.com</code>
+              <strong style="color: #0f172a;">Sistema de Monitoreo</strong> · Tacos Gavilan<br>
+              Notificación automática para Dirección General.
             </td>
           </tr>
 
@@ -413,17 +412,6 @@ export async function sendSupplierPriceAlertEmail(options: PriceAlertEmailOption
     }
   }
 
-  const smtpUser = process.env.SMTP_EMAIL || 'carlos@tacosgavilan.com'
-  const smtpPass = process.env.SMTP_PASSWORD
-
-  if (!smtpPass) {
-    console.warn('[SupplierPriceEmail] ⚠️ SMTP_PASSWORD no configurado en variables de entorno.')
-    return {
-      success: false,
-      error: 'SMTP_PASSWORD no configurado en el servidor.'
-    }
-  }
-
   const hasIncreases = increases.length > 0
   const hasDecreases = decreases.length > 0
 
@@ -449,24 +437,17 @@ export async function sendSupplierPriceAlertEmail(options: PriceAlertEmailOption
   }
 
   try {
-    const transporter = nodemailer.createTransport({
-      service: 'gmail',
-      auth: {
-        user: smtpUser,
-        pass: smtpPass
-      }
-    })
-
     const html = generatePriceAlertEmailHtml(options)
 
-    const info = await transporter.sendMail({
-      from: `"Tacos Gavilan · SM TEG" <${smtpUser}>`,
+    const info = await sendSystemEmail({
+      fromName: 'Sistema de Monitoreo',
       to: recipients.join(', '),
+      bcc: !isTest ? 'carlos@tacosgavilan.com' : undefined,
       subject,
       html
     })
 
-    console.log(`[SupplierPriceEmail] ✅ Correo despachado con éxito. ID: ${info.messageId}`)
+    console.log(`[SupplierPriceEmail] ✅ Correo despachado desde ${info.fromEmail} con éxito. ID: ${info.messageId}`)
     return {
       success: true,
       messageId: info.messageId,

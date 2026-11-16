@@ -1640,7 +1640,7 @@ export async function finalizeInventoryPilotCount(
 /**
  * Cambia el modo operativo de automatización de Orden Diaria en una sucursal
  * ('auto_order_visible', 'assisted_2tier', 'shadow_blind', 'off').
- * Restringido a Administración, Roque y Carlos Velázquez.
+ * Restringido al Sistema de Monitoreo y Administración autorizada.
  */
 export async function setStoreInventoryAutomationMode(
     storeId: string | number,
@@ -1666,7 +1666,7 @@ export async function setStoreInventoryAutomationMode(
         if (!allowed) {
             return {
                 success: false,
-                error: 'Solo Administración, Roque o Carlos Velázquez pueden cambiar el modo operativo.',
+                error: 'Solo el Sistema de Monitoreo o Administración autorizada pueden cambiar el modo operativo.',
             }
         }
 

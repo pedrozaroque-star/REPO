@@ -7,7 +7,7 @@
  *   - Extracción y normalización de tarjetas de tiempo, horas regulares, horas extras (OT/DT), PTO (Vacation, Sick, Holiday) y ponchadas atómicas con fotos AWS S3.
  *   - Analizador algorítmico de cumplimiento laboral de California (California Labor Law - IWC Wage Order 5 / Labor Code § 512):
  *     * Detección de Meal Penalties (inicio de comida después de la 5ta hora: > 5.0h).
- *     * Detección de descansos cortos (< 30 min) y excesivos (> 35 min).
+ *     * Detección de descansos cortos (< 30 min) y excesos sobre los 30 min autorizados.
  *     * Detección de tarjetas rotas/incompletas (Broken Timecards).
  *     * Estimación del costo financiero de penalizaciones y horas extras.
  *
@@ -964,12 +964,13 @@ export function analyzeDayCompliance(
         })
       }
 
-      if (m.durationMinutes > 35) {
+      if (Math.floor(m.durationMinutes) >= 31) {
+        const excessMins = Number((m.durationMinutes - 30).toFixed(2))
         violations.push({
           type: 'LONG_LUNCH',
           severity: 'warning',
-          title: m.index === 1 ? 'Exceso de Tiempo en Lunch' : `Exceso de Tiempo en Lunch #${m.index}`,
-          description: `El empleado tomó ${m.durationMinutes} min en el descanso #${m.index} (${m.durationMinutes - 30} min en exceso).`,
+          title: m.index === 1 ? 'Exceso de Tiempo en Lunch (30 min autorizados)' : `Exceso de Tiempo en Lunch #${m.index} (30 min autorizados)`,
+          description: `El empleado tomó ${m.durationMinutes} min en el descanso #${m.index} (+${excessMins} min sobre los 30 min autorizados).`,
           estimatedCostUsd: 0,
           minutes: m.durationMinutes
         })

@@ -22,6 +22,19 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin, formatStoreName } from '@/lib/supabase';
+import { getServerUser } from '@/lib/auth-server';
+
+const ENROLLMENT_ADMIN_ROLES = new Set([
+  'admin',
+  'supervisor',
+  'manager',
+  'asistente',
+  'assistant',
+  'gerente',
+  'shift_leader',
+  'shift leader',
+  'shiftleader',
+]);
 
 function generateTemporaryCode(): string {
   const digits = Math.floor(1000 + Math.random() * 9000);
@@ -37,7 +50,8 @@ function generateCertificateFolio(storeId: number): string {
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
-    const codeParam = (searchParams.get('code') || '').trim().toUpperCase();
+    const rawCodeParam = (searchParams.get('code') || '').trim().toUpperCase();
+    const codeParam = rawCodeParam.replace(/[^A-Z0-9-]/g, '');
     const storeIdParam = searchParams.get('store_id');
     const statusParam = searchParams.get('status');
 
@@ -96,7 +110,11 @@ export async function GET(req: NextRequest) {
       });
     }
 
-    // 2. Consulta general administrativa (Managers / Supervisores / Admins)
+    // 2. Consulta general administrativa (Exige sesión autenticada)
+    const serverUser = await getServerUser(req);
+    if (!serverUser || !ENROLLMENT_ADMIN_ROLES.has(String(serverUser.role || '').trim().toLowerCase())) {
+      return NextResponse.json({ ok: false, error: 'No autorizado.' }, { status: 401 });
+    }
     let query = supabaseAdmin
       .from('training_enrollments')
       .select('*')
@@ -146,6 +164,11 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
+    const serverUser = await getServerUser(req);
+    if (!serverUser || !ENROLLMENT_ADMIN_ROLES.has(String(serverUser.role || '').trim().toLowerCase())) {
+      return NextResponse.json({ ok: false, error: 'No autenticado.' }, { status: 401 });
+    }
+
     const body = await req.json();
     const employeeName = String(body.employeeName || '').trim();
     const storeId = Number(body.storeId);
@@ -180,26 +203,30 @@ export async function POST(req: NextRequest) {
       storeName = formatStoreName(storeRow?.name || `Sucursal #${storeId}`);
     }
 
-    // Verificar si el empleado del Planificador ya tiene un entrenamiento para esta sucursal y estación
+    // Reutilizar el expediente unificado de 4 días del colaborador en la sucursal (certificación por Puesto, no fragmentado por estación)
     const { data: existingEnrollment } = await supabaseAdmin
       .from('training_enrollments')
       .select('*')
       .eq('store_id', storeId)
       .ilike('employee_name', employeeName)
-      .eq('position_key', positionKey)
       .order('created_at', { ascending: false })
       .limit(1)
       .maybeSingle();
 
     if (existingEnrollment) {
       const expMs = new Date(existingEnrollment.expires_at).getTime();
-      if (expMs < Date.now() && existingEnrollment.status !== 'CERTIFIED') {
-        const refreshedExp = new Date(Date.now() + durationDays * 24 * 60 * 60 * 1000).toISOString();
+      const needsRefresh = expMs < Date.now() && existingEnrollment.status !== 'CERTIFIED';
+      const needsStationUpdate = positionKey && existingEnrollment.position_key !== positionKey;
+      if (needsRefresh || needsStationUpdate) {
+        const refreshedExp = needsRefresh
+          ? new Date(Date.now() + durationDays * 24 * 60 * 60 * 1000).toISOString()
+          : existingEnrollment.expires_at;
         const { data: refreshed } = await supabaseAdmin
           .from('training_enrollments')
           .update({
             expires_at: refreshedExp,
-            status: 'IN_PROGRESS',
+            status: needsRefresh ? 'IN_PROGRESS' : existingEnrollment.status,
+            position_key: positionKey || existingEnrollment.position_key,
             trainer_name: trainerName || existingEnrollment.trainer_name,
             updated_at: new Date().toISOString(),
           })
@@ -311,15 +338,22 @@ export async function PUT(req: NextRequest) {
     };
 
     if (action === 'complete_day1') {
-      const quizScore = Number(body.quizScore ?? existing.day1_quiz_score ?? 100);
-      const videosWatched = Array.isArray(body.videosWatched)
-        ? body.videosWatched
-        : existing.day1_videos_watched || [];
-      patch.day1_completed = true;
-      patch.day1_completed_at = nowIso;
+      const quizScore = Math.max(0, Math.min(100, Number(body.quizScore ?? existing.day1_quiz_score ?? 100)));
+      const incomingWatched = Array.isArray(body.videosWatched) ? body.videosWatched.map(String) : [];
+      const existingWatched = Array.isArray(existing.day1_videos_watched)
+        ? existing.day1_videos_watched.map(String)
+        : [];
+      const mergedWatched = Array.from(new Set([...existingWatched, ...incomingWatched]));
+
       patch.day1_quiz_score = quizScore;
-      patch.day1_videos_watched = videosWatched;
-      patch.current_day = Math.max(Number(existing.current_day || 1), 2);
+      patch.day1_videos_watched = mergedWatched;
+      if (quizScore >= 80 || existing.day1_completed) {
+        patch.day1_completed = true;
+        patch.day1_completed_at = existing.day1_completed_at || nowIso;
+        patch.current_day = Math.max(Number(existing.current_day || 1), 2);
+      } else {
+        patch.day1_completed = false;
+      }
     } else if (action === 'complete_day2') {
       patch.day2_completed = true;
       patch.day2_completed_at = nowIso;
@@ -424,6 +458,11 @@ export async function PUT(req: NextRequest) {
 
 export async function DELETE(req: NextRequest) {
   try {
+    const serverUser = await getServerUser(req);
+    if (!serverUser || !ENROLLMENT_ADMIN_ROLES.has(String(serverUser.role || '').trim().toLowerCase())) {
+      return NextResponse.json({ ok: false, error: 'No autorizado.' }, { status: 401 });
+    }
+
     const { searchParams } = new URL(req.url);
     const id = (searchParams.get('id') || '').trim();
     if (!id) {

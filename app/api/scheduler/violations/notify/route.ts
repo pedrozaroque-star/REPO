@@ -1,129 +1,331 @@
+/**
+ * @module api/scheduler/violations/notify
+ * @description Endpoint oficial de despacho manual inmediato de infracciones de descansos (Breaks de 10 min)
+ * y almuerzos (Lunches de 30 min) desde el detector del Planificador (`/planificador`).
+ *
+ * @businessRules
+ * - Autentica al usuario en servidor vía `getServerUser` y verifica permisos (`admin`, `supervisor`, `manager`).
+ * - Revalida en servidor cada infracción mediante `evaluatePunchBreakViolation` (`lib/break-violations-policy.ts`).
+ * - CERO mención de tolerancia en correos; envía desde `noreply@tacosgavilan.com` vía `sendSystemEmail`
+ *   tanto a cada empleado con correo entregable como al Gerente de Tienda activo (con CC al Supervisor de Zona),
+ *   recordándole sus responsabilidades gerenciales obligatorias.
+ *
+ * @dataFlow
+ * - POST `/api/scheduler/violations/notify` -> `stores` + `users` + `toast_employees` -> `sendSystemEmail` -> `punch_violations`.
+ */
+
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import nodemailer from 'nodemailer'
+import {
+    buildEmployeeBreakViolationEmailHtml,
+    buildManagerDailyViolationReportHtml,
+    evaluatePunchBreakViolation,
+    ManagerDailyViolationItem,
+    validateEmployeeViolationEmail,
+} from '@/lib/break-violations-policy'
+import { sendSystemEmail } from '@/lib/system-mailer'
+import { authorizeStoreScope, getServerUser } from '@/lib/auth-server'
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co'
-const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'placeholder'
+const supabaseKey =
+    process.env.SUPABASE_SERVICE_ROLE_KEY ||
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
+    'placeholder'
 const supabase = createClient(supabaseUrl, supabaseKey)
 
-// Función para obtener transporte (ESTRICTO: Solo OAuth por Usuario)
-async function getTransporter(userId?: string) {
-    if (!userId) {
-        throw new Error('Usuario no identificado. No se pueden enviar correos anónimos.')
+function normalizeCorporateEmail(raw?: string | null): string | null {
+    if (!raw) return null
+    const clean = raw.trim().toLowerCase()
+    if (!clean) return null
+    if (clean === 'roque@tacosgavilan.com') return 'carlos@tacosgavilan.com'
+    if (clean.includes('ricardo') && clean.endsWith('@tacosgavilan.com')) {
+        return 'ricardo@tacosgavilan.com'
     }
-
-    const { data: user, error } = await supabase.from('users')
-        .select('google_refresh_token, google_email_connected')
-        .eq('id', userId)
-        .single()
-
-    if (error) {
-        console.error('❌ [API] DB Error fetching user:', error)
+    if (clean.includes('javier') && clean.endsWith('@tacosgavilan.com')) {
+        return 'javier@tacosgavilan.com'
     }
-
-    if (user?.google_refresh_token && user?.google_email_connected) {
-        try {
-            const tokenUrl = 'https://oauth2.googleapis.com/token'
-            const params = new URLSearchParams()
-            params.append('client_id', process.env.GOOGLE_CLIENT_ID!)
-            params.append('client_secret', process.env.GOOGLE_CLIENT_SECRET!)
-            params.append('refresh_token', user.google_refresh_token)
-            params.append('grant_type', 'refresh_token')
-
-            const refreshRes = await fetch(tokenUrl, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                body: params
-            })
-
-            if (!refreshRes.ok) {
-                const errData = await refreshRes.json()
-                throw new Error(`Token Refresh Failed: ${errData.error_description || errData.error}`)
-            }
-
-            const tokens = await refreshRes.json()
-            const accessToken = tokens.access_token
-
-            const profileRes = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
-                headers: { Authorization: `Bearer ${accessToken}` }
-            })
-            const profile = await profileRes.json()
-
-            return {
-                accessToken,
-                fromEmail: profile.email
-            }
-        } catch (e) {
-            throw new Error('GMAIL_AUTH_FAILED: ' + (e as Error).message)
-        }
-    }
-
-    throw new Error('GMAIL_NOT_CONNECTED')
-}
-
-// Helpers format
-function formatTime(isoString?: string) {
-    if (!isoString) return '--'
-    return new Date(isoString).toLocaleTimeString('en-US', {
-        timeZone: 'America/Los_Angeles',
-        hour: 'numeric', minute: '2-digit', hour12: true
-    })
-}
-
-function formatDateNice(isoString: string) {
-    if (!isoString) return ''
-    const date = new Date(isoString)
-    return date.toLocaleDateString('es-ES', {
-        timeZone: 'America/Los_Angeles',
-        day: '2-digit', month: 'short', year: 'numeric'
-    })
+    return clean
 }
 
 export async function POST(req: Request) {
     try {
-        const { violations, userEmail, userRole, userId, storeId } = await req.json()
+        const authUser = await getServerUser(req)
+        if (!authUser) {
+            return NextResponse.json({ error: 'No autenticado.' }, { status: 401 })
+        }
+
+        const body = await req.json()
+        const { violations, storeId } = body
 
         if (!violations || !Array.isArray(violations) || violations.length === 0) {
             return NextResponse.json({ error: 'No violations provided' }, { status: 400 })
         }
-
-        const isManagerOrSupervisor = userRole?.toLowerCase().includes('manager') || userRole?.toLowerCase().includes('supervisor')
-        const isAdmin = userRole?.toLowerCase().includes('admin')
-
-        // 1. Si es Admin, abortamos.
-        if (isAdmin) {
-            return NextResponse.json({ success: true, message: 'Modal closed purely. No emails sent and no DB records made (Admin rule).' })
+        if (!storeId) {
+            return NextResponse.json({ error: 'Missing storeId' }, { status: 400 })
         }
 
-        // 2. Load Google Transporter to verify connectivity FIRST
-        let authObj = null;
-        try {
-            authObj = await getTransporter(userId)
-        } catch (e: any) {
-            console.error('Email failed to init:', e)
-            if (e.message.includes('NOT_CONNECTED')) {
-                return NextResponse.json({ error: 'Debes conectar tu cuenta de Gmail en tu perfil para mandar avisos.' }, { status: 403 })
+        const scopeCheck = await authorizeStoreScope(authUser, storeId, supabase, {
+            requireWrite: true,
+            allowedRoles: ['admin', 'supervisor', 'manager'],
+        })
+        if (!scopeCheck.authorized) {
+            return NextResponse.json(
+                { error: scopeCheck.error || 'Sin autorización para esta sucursal.' },
+                { status: scopeCheck.status || 403 }
+            )
+        }
+
+        const cleanStoreParam = String(storeId).trim()
+        const isNumericStore = /^\d+$/.test(cleanStoreParam)
+        const storeQuery = supabase
+            .from('stores')
+            .select('id, name, external_id, supervisor_id, users!stores_supervisor_id_fkey(email)')
+
+        const { data: storeData } = isNumericStore
+            ? await storeQuery.eq('id', Number(cleanStoreParam)).maybeSingle()
+            : await storeQuery.eq('external_id', cleanStoreParam).maybeSingle()
+
+        if (!storeData) {
+            return NextResponse.json({ error: 'Sucursal no encontrada.' }, { status: 404 })
+        }
+
+        const resolvedStoreGuid = storeData.external_id
+        const storeName = (storeData.name || 'Tacos Gavilan').replace(/toast/i, '').trim()
+        const supervisorEmail = normalizeCorporateEmail((storeData.users as any)?.email || null)
+
+        const [{ data: allUsers }, { data: emps }, { data: existingViolations }] = await Promise.all([
+            supabase
+                .from('users')
+                .select('id, full_name, email, role, store_id, is_active, google_email_connected'),
+            supabase
+                .from('toast_employees')
+                .select('toast_guid, email, first_name, last_name, chosen_name')
+                .in(
+                    'toast_guid',
+                    Array.from(new Set(violations.map((v: any) => v.employeeRef).filter(Boolean)))
+                ),
+            supabase
+                .from('punch_violations')
+                .select('employee_toast_guid, business_date, in_time')
+                .eq('store_id', resolvedStoreGuid),
+        ])
+
+        const registeredCorporateEmails = new Set<string>()
+        for (const u of allUsers || []) {
+            if (u.email) registeredCorporateEmails.add(String(u.email).trim().toLowerCase())
+            if (u.google_email_connected) {
+                registeredCorporateEmails.add(String(u.google_email_connected).trim().toLowerCase())
             }
-            return NextResponse.json({ error: 'Fallo al autenticar correo: ' + e.message }, { status: 500 })
         }
-        const { accessToken, fromEmail } = authObj;
 
-        // 3. Guardar en Base de Datos (punch_violations) para managers/supervisores
-        const recordsToInsert = violations.map((v: any) => ({
-            store_id: storeId,
+        const activeManagers = (allUsers || []).filter((u: any) => {
+            if (!u.is_active) return false
+            if (Number(u.store_id) !== Number(storeData.id)) return false
+            const r = String(u.role || '').toLowerCase()
+            return (
+                (r.includes('manager') || r.includes('gerente')) &&
+                !r.includes('asst') &&
+                !r.includes('assist') &&
+                !r.includes('asistente') &&
+                !r.includes('shift')
+            )
+        })
+
+        const managerEmails = Array.from(
+            new Set(
+                activeManagers
+                    .map((m: any) => normalizeCorporateEmail(m.google_email_connected || m.email))
+                    .filter(
+                        (e): e is string =>
+                            Boolean(e) &&
+                            e !== 'carlos@tacosgavilan.com' &&
+                            e !== 'roque@tacosgavilan.com'
+                    )
+            )
+        )
+        const safeSupervisorEmail =
+            supervisorEmail &&
+            supervisorEmail !== 'carlos@tacosgavilan.com' &&
+            supervisorEmail !== 'roque@tacosgavilan.com'
+                ? supervisorEmail
+                : null
+        const primaryManagerEmail = managerEmails[0] || safeSupervisorEmail || null
+
+        // Filtrar y revalidar en servidor evitando duplicados
+        const validatedList: Array<{
+            employeeRef: string
+            employeeName: string
+            rawEmail: string | null
+            validEmail: string | null
+            type: 'BRK' | 'LUN'
+            allowed: number
+            actualMinutes: number
+            date: string
+            inDate: string
+            outDate: string
+            isAnomaly: boolean
+        }> = []
+
+        for (const v of violations) {
+            const evalRes = evaluatePunchBreakViolation({
+                paid: v.type === 'BRK' ? true : v.type === 'LUN' ? false : Boolean(v.paid),
+                inDate: v.inDate,
+                outDate: v.outDate,
+            })
+            if (!evalRes || !evalRes.isViolation) continue
+
+            const alreadySaved = existingViolations?.some(
+                (dbV: any) =>
+                    dbV.employee_toast_guid === v.employeeRef &&
+                    dbV.business_date === v.date &&
+                    new Date(dbV.in_time).getTime() === new Date(v.inDate).getTime()
+            )
+            if (alreadySaved) continue
+
+            const empDb = emps?.find((e: any) => e.toast_guid === v.employeeRef)
+            const empName =
+                v.name ||
+                (empDb
+                    ? `${empDb.chosen_name || empDb.first_name || ''} ${empDb.last_name || ''}`.trim()
+                    : 'Empleado')
+            const emailValidation = validateEmployeeViolationEmail(
+                empDb?.email,
+                registeredCorporateEmails
+            )
+
+            validatedList.push({
+                employeeRef: v.employeeRef,
+                employeeName: empName || 'Empleado',
+                rawEmail: empDb?.email || null,
+                validEmail: emailValidation.cleanEmail,
+                type: evalRes.type,
+                allowed: evalRes.allowedMinutes,
+                actualMinutes: evalRes.actualMinutes,
+                date: String(v.date).slice(0, 10),
+                inDate: v.inDate,
+                outDate: v.outDate,
+                isAnomaly: evalRes.isAnomaly,
+            })
+        }
+
+        if (validatedList.length === 0) {
+            return NextResponse.json({
+                success: true,
+                message: 'Todas las infracciones seleccionadas ya habían sido notificadas previamente.',
+            })
+        }
+
+        let senderUsed = 'noreply@tacosgavilan.com'
+        const managerTableItems: ManagerDailyViolationItem[] = []
+        const sentFlags = new Map<number, boolean>()
+
+        for (let idx = 0; idx < validatedList.length; idx++) {
+            const v = validatedList[idx]
+            let sent = false
+            let statusLabel = '⚠️ Sin correo en Toast POS (Notificar en persona)'
+
+            if (v.validEmail) {
+                const { subject, html } = buildEmployeeBreakViolationEmailHtml({
+                    storeName,
+                    employeeName: v.employeeName,
+                    type: v.type,
+                    businessDate: v.date,
+                    inDate: v.inDate,
+                    outDate: v.outDate,
+                    allowedMinutes: v.allowed,
+                    actualMinutes: v.actualMinutes,
+                    managerContactEmail: primaryManagerEmail,
+                })
+
+                try {
+                    const mailRes = await sendSystemEmail({
+                        fromName: 'Sistema de Monitoreo',
+                        to: v.validEmail,
+                        replyTo: primaryManagerEmail || undefined,
+                        subject,
+                        html,
+                    })
+                    senderUsed = mailRes.fromEmail
+                    sent = true
+                    statusLabel = `✓ Enviado (${v.validEmail})`
+                } catch (empErr) {
+                    console.error('Failed employee violation email:', empErr)
+                    statusLabel = `⚠️ Error al enviar (${v.validEmail})`
+                }
+            } else if (v.rawEmail) {
+                statusLabel = `⚠️ Correo inválido en Toast (${v.rawEmail})`
+            }
+
+            sentFlags.set(idx, sent)
+            managerTableItems.push({
+                employeeName: v.employeeName,
+                type: v.type,
+                allowedMinutes: v.allowed,
+                actualMinutes: v.actualMinutes,
+                inDate: v.inDate,
+                outDate: v.outDate,
+                isAnomaly: v.isAnomaly,
+                deliveryStatusLabel: statusLabel,
+                emailDelivered: sent,
+            })
+        }
+
+        // Enviar siempre el reporte oficial al Gerente de Tienda activo (y CC Supervisor; jamás exponer buzones ejecutivos protegidos en CC/To)
+        const initiatorEmail = normalizeCorporateEmail(authUser.email)
+        const isProtectedInitiator =
+            initiatorEmail === 'carlos@tacosgavilan.com' || initiatorEmail === 'roque@tacosgavilan.com'
+        const managerTo =
+            managerEmails.length > 0
+                ? managerEmails
+                : safeSupervisorEmail
+                  ? [safeSupervisorEmail]
+                  : initiatorEmail && !isProtectedInitiator
+                    ? [initiatorEmail]
+                    : ['noreply@tacosgavilan.com']
+
+        const ccSet = new Set<string>()
+        if (safeSupervisorEmail && !managerTo.includes(safeSupervisorEmail)) ccSet.add(safeSupervisorEmail)
+        if (initiatorEmail && !isProtectedInitiator && !managerTo.includes(initiatorEmail)) {
+            ccSet.add(initiatorEmail)
+        }
+
+        const targetDateLabel = validatedList[0].date
+        const { subject: mgrSubject, html: mgrHtml } = buildManagerDailyViolationReportHtml({
+            storeName,
+            businessDate: targetDateLabel,
+            items: managerTableItems,
+            isManualDispatch: true,
+        })
+
+        const mgrRes = await sendSystemEmail({
+            fromName: 'Sistema de Monitoreo',
+            to: managerTo,
+            cc: ccSet.size > 0 ? Array.from(ccSet) : undefined,
+            bcc: isProtectedInitiator ? 'carlos@tacosgavilan.com' : undefined,
+            subject: mgrSubject,
+            html: mgrHtml,
+        })
+        senderUsed = mgrRes.fromEmail
+
+        const recordsToInsert = validatedList.map((v, idx) => ({
+            store_id: resolvedStoreGuid,
             employee_toast_guid: v.employeeRef,
             business_date: v.date,
             violation_type: v.type,
             in_time: v.inDate,
             out_time: v.outDate,
             allowed_minutes: v.allowed,
-            actual_minutes: Math.round(v.actual),
+            actual_minutes: v.actualMinutes,
             status: 'Avisado',
             notified_recipients: {
-                initiator: userEmail,
-                initiator_role: userRole,
-                email_sent: true
-            }
+                initiator: isProtectedInitiator ? 'Sistema de Monitoreo' : authUser.email,
+                initiator_role: authUser.role,
+                email_sent: Boolean(sentFlags.get(idx)),
+                employee_email: v.validEmail,
+                manager_emails: managerTo,
+                from_email: senderUsed,
+                dispatched_at: new Date().toISOString(),
+            },
         }))
 
         const { error: dbError } = await supabase.from('punch_violations').insert(recordsToInsert)
@@ -132,180 +334,17 @@ export async function POST(req: Request) {
             return NextResponse.json({ error: 'Failed to record violations' }, { status: 500 })
         }
 
-        // 4. Preparar Send() Function (vía Gmail API RAW Buffer)
-        const sendViaGmail = async (mailOptions: any) => {
-            const compiler = nodemailer.createTransport({ streamTransport: true, newline: 'windows' })
-            const info = await compiler.sendMail(mailOptions)
-
-            const rawBuffer = await new Promise<Buffer>((resolve, reject) => {
-                const message = info.message as any
-                if (Buffer.isBuffer(message)) return resolve(message)
-                if (typeof message.pipe === 'function') {
-                    const chunks: Buffer[] = []
-                    message.on('data', (chunk: Buffer) => chunks.push(chunk))
-                    message.on('end', () => resolve(Buffer.concat(chunks)))
-                    message.on('error', (err: Error) => reject(err))
-                    return
-                }
-                reject(new Error('Nodemailer returned unknown format'))
-            })
-
-            const raw = rawBuffer.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
-
-            const sendRes = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
-                method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${accessToken}`,
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({ raw })
-            })
-
-            if (!sendRes.ok) {
-                const err = await sendRes.json()
-                throw new Error(JSON.stringify(err))
-            }
-        }
-
-        // 5. Enviar Correos a Empleados
-        const emailsToFetch = violations.map((v: any) => v.employeeRef)
-        const { data: emps } = await supabase.from('toast_employees').select('toast_guid, email, first_name').in('toast_guid', emailsToFetch)
-
-        for (const v of violations) {
-            const empDb = emps?.find((e: any) => e.toast_guid === v.employeeRef)
-            const empEmail = empDb?.email
-            const empName = v.name || empDb?.first_name || 'Empleado'
-
-            if (empEmail) {
-                const typeName = v.type === 'BRK' ? 'Break de 10 minutos' : 'Lunch de 30 minutos'
-                const subject = `⚠️ Aviso de Tiempo Excedido: ${typeName}`
-                const bodyHtml = `
-                    <div style="font-family: Arial, sans-serif; color: #333; max-width: 600px; margin: 0 auto; border: 1px solid #e5e7eb; border-radius: 8px; overflow: hidden;">
-                        <div style="background-color: #ef4444; color: white; padding: 20px; text-align: center;">
-                            <h2 style="margin: 0;">ALERTA DE TIEMPO EXCEDIDO</h2>
-                        </div>
-                        <div style="padding: 20px;">
-                            <p>Hola <strong>${empName}</strong>,</p>
-                            <p>Te escribimos para informarte que el sistema registró un tiempo excedido en tu <strong>${typeName}</strong> del día <strong>${formatDateNice(v.date)}</strong>.</p>
-                            
-                            <div style="background-color: #fee2e2; border-left: 4px solid #ef4444; padding: 15px; margin: 20px 0;">
-                                <p style="margin: 0; padding-bottom: 5px;"><strong>Detalles del registro:</strong></p>
-                                <ul style="margin: 0; padding-left: 20px;">
-                                    <li>Hora de salida: <strong>${formatTime(v.inDate)}</strong></li>
-                                    <li>Hora de regreso: <strong>${formatTime(v.outDate)}</strong></li>
-                                    <li>Tiempo permitido: <strong>${v.allowed} minutos</strong></li>
-                                    <li>Tiempo real tomado: <strong style="color: #b91c1c;">${Math.round(v.actual)} minutos</strong></li>
-                                </ul>
-                            </div>
-                            
-                            <p style="font-size: 14px; color: #475569;">
-                                Te invitamos a respetar tus tiempos de descanso para mantener una buena operación en equipo. Si crees que este registro es un error (por ejemplo, olvidaste punchar tu regreso), comunícate inmediatamente con este correo respondíendole a tu gerente.
-                            </p>
-                            <br/>
-                            <p>Atte,<br/><strong>El Equipo Gerencial (${fromEmail})</strong><br/>Sistema de Monitoreo Tacos Gavilan</p>
-                        </div>
-                    </div>
-                `
-                try {
-                    await sendViaGmail({
-                        from: `"Gerencia" <${fromEmail}>`,
-                        to: empEmail,
-                        subject: subject,
-                        html: bodyHtml
-                    })
-                } catch (e) { console.error('Failed employee email:', e) }
-            }
-        }
-
-        // 6. Enviar Correo Resumen a Gerencia
-        if (isManagerOrSupervisor) {
-            let tableRows = ''
-            violations.forEach((v: any) => {
-                const empDb = emps?.find((e: any) => e.toast_guid === v.employeeRef)
-                const typeName = v.type === 'BRK' ? 'Break (10m)' : 'Lunch (30m)'
-                const empName = v.name || empDb?.first_name || 'Desconocido'
-                tableRows += `
-                    <tr>
-                        <td style="padding: 10px; border-bottom: 1px solid #e5e7eb;">${empName}</td>
-                        <td style="padding: 10px; border-bottom: 1px solid #e5e7eb;">${typeName}</td>
-                        <td style="padding: 10px; border-bottom: 1px solid #e5e7eb;">${v.allowed} min</td>
-                        <td style="padding: 10px; border-bottom: 1px solid #e5e7eb; color: #dc2626; font-weight: bold;">${Math.round(v.actual)} min</td>
-                        <td style="padding: 10px; border-bottom: 1px solid #e5e7eb;">${formatTime(v.inDate)} ➔ ${formatTime(v.outDate)}</td>
-                    </tr>
-                `
-            })
-
-            const summaryHtml = `
-                <div style="font-family: Arial, sans-serif; color: #333; max-width: 700px; margin: 0 auto; border: 1px solid #e5e7eb; border-radius: 8px; overflow: hidden;">
-                    <div style="background-color: #1e293b; color: white; padding: 20px; text-align: center;">
-                        <h2 style="margin: 0; text-transform: uppercase;">Resumen de Infracciones de Break/Lunch</h2>
-                    </div>
-                    <div style="padding: 20px;">
-                        <p><strong>Hola,</strong></p>
-                        <p>A continuación te presentamos el resumen de las infracciones de tiempo de descanso (Break/Lunch) que acabas de avalar y notificar al personal:</p>
-                        
-                        <table style="width: 100%; border-collapse: collapse; margin: 20px 0; font-size: 14px; text-align: left;">
-                            <thead>
-                                <tr style="background-color: #f8fafc; color: #475569; border-bottom: 2px solid #cbd5e1;">
-                                    <th style="padding: 10px;">Empleado</th>
-                                    <th style="padding: 10px;">Tipo</th>
-                                    <th style="padding: 10px;">Permitido</th>
-                                    <th style="padding: 10px;">Real</th>
-                                    <th style="padding: 10px;">Hora</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                ${tableRows}
-                            </tbody>
-                        </table>
-                        
-                        <p style="font-size: 13px; color: #64748b; font-style: italic;">
-                            Nota: Los empleados con correo electrónico registrado han sido notificados individualmente de forma automática usando tu cuenta Google vinculada.
-                        </p>
-                        
-                        <p>Atte,<br/><strong>Sistema de Monitoreo Tacos Gavilan</strong></p>
-                    </div>
-                </div>
-            `
-
-            let supervisorEmail = undefined;
-            try {
-                // Obtenemos el correo del supervisor de la tienda asignada
-                const { data: storeData } = await supabase
-                    .from('stores')
-                    .select('users!stores_supervisor_id_fkey(email)')
-                    .eq('external_id', storeId)
-                    .single()
-
-                if (storeData && storeData.users) {
-                    const u = storeData.users as any;
-                    supervisorEmail = u.email;
-                }
-            } catch (e) {
-                console.error('No se pudo encontrar el correo del supervisor de la tienda', e);
-            }
-
-            try {
-                const mailOptions: any = {
-                    from: `"Sistema de Reportes V5" <${fromEmail}>`,
-                    to: fromEmail,
-                    subject: `📋 Resumen de Infracciones Avaladas`,
-                    html: summaryHtml
-                };
-
-                // Si se encontró el supervisor y no es la misma persona que el manager actual
-                if (supervisorEmail && supervisorEmail !== fromEmail) {
-                    mailOptions.cc = supervisorEmail;
-                }
-
-                await sendViaGmail(mailOptions)
-            } catch (e) { console.error('Failed summary email:', e) }
-        }
-
-        return NextResponse.json({ success: true, message: 'Violations recorded and official notifications dispatched via Gmail OAuth.' })
-
+        return NextResponse.json({
+            success: true,
+            senderUsed,
+            notifiedCount: validatedList.length,
+            message: 'Notificaciones enviadas a empleados y Gerente de Tienda exitosamente.',
+        })
     } catch (error: any) {
         console.error('Error in violations notify endpoint:', error)
-        return NextResponse.json({ error: error.message || 'Internal Server Error' }, { status: 500 })
+        return NextResponse.json(
+            { error: error.message || 'Internal Server Error' },
+            { status: 500 }
+        )
     }
 }

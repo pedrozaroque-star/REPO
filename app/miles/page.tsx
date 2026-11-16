@@ -154,11 +154,16 @@ function MilesIQContent() {
   const { user } = useAuth()
   const { t, language } = useLanguage()
 
-  const currentUser = useMemo(() => ({
-    id: String(user?.id || '00000000-0000-0000-0000-000000000000'),
-    name: user?.name || 'Supervisor',
-    email: resolveMilesEmail(user?.email) || 'supervisor@tacosgavilan.com'
-  }), [user])
+  const currentUser = useMemo(() => {
+    const rawEmail = String(user?.email || '').trim().toLowerCase()
+    const isProtected = rawEmail === 'roque@tacosgavilan.com' || rawEmail === 'carlos@tacosgavilan.com'
+    return {
+      id: String(user?.id || '00000000-0000-0000-0000-000000000000'),
+      name: isProtected ? 'Sistema de Monitoreo' : (user?.name || 'Supervisor'),
+      email: isProtected ? 'noreply@tacosgavilan.com' : (resolveMilesEmail(user?.email) || 'supervisor@tacosgavilan.com'),
+      testRecipientEmail: resolveMilesEmail(user?.email) || 'noreply@tacosgavilan.com',
+    }
+  }, [user])
 
   const isAdmin = user?.role === 'admin'
 
@@ -189,7 +194,7 @@ function MilesIQContent() {
   })
 
   // HR Dispatch state
-  const [selectedRecipientEmail, setSelectedRecipientEmail] = useState<string>('carlos@tacosgavilan.com')
+  const [selectedRecipientEmail, setSelectedRecipientEmail] = useState<string>('raquel@tacosgavilan.com')
   const [customEmailInput, setCustomEmailInput] = useState<string>('')
   const [sendingHr, setSendingHr] = useState<boolean>(false)
   const [syncingInspections, setSyncingInspections] = useState<boolean>(false)
@@ -535,7 +540,7 @@ function MilesIQContent() {
           sender_id: currentUser.id,
           sender_name: currentUser.name,
           sender_email: currentUser.email,
-          recipient_email: currentUser.email,
+          recipient_email: currentUser.testRecipientEmail,
           period_start: dateRange.start,
           period_end: dateRange.end,
           is_test: true

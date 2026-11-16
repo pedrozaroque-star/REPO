@@ -153,14 +153,14 @@ export async function authorizeExternalAccounting(
     return {
       authorized: false,
       status: 403,
-      error: 'Acceso restringido: Este módulo es exclusivo para Raquel Velazquez, Roberto Velazquez y Roque.'
+      error: 'Acceso restringido: Este módulo es exclusivo para Dirección Financiera y Sistema de Monitoreo autorizado.'
     }
   }
 
   // Verificar en base de datos que la cuenta exista, esté activa y coincida simultáneamente en ID y correo
   const numericId = Number(userIdStr)
   let dbUser: any = null
-  if (Number.isFinite(numericId) && numericId > 0) {
+  if (Number.isFinite(numericId) && Number.isInteger(numericId) && numericId > 0) {
     const { data } = await supabase
       .from('users')
       .select('id, email, full_name, role, is_active')
@@ -187,17 +187,20 @@ export async function authorizeExternalAccounting(
     return {
       authorized: false,
       status: 403,
-      error: 'Acceso restringido: Solo Raquel (45), Roberto (46) y Roque (47) con su correo corporativo verificado tienen acceso.'
+      error: 'Acceso restringido: Solo Dirección Financiera y Sistema de Monitoreo con correo corporativo verificado tienen acceso.'
     }
   }
+
+  const isMonitoringIdentity =
+    dbIdStr === '47' || dbEmailLower === 'roque@tacosgavilan.com' || dbEmailLower === 'carlos@tacosgavilan.com'
 
   return {
     authorized: true,
     user: {
       ...user,
       id: dbIdStr,
-      email: dbUser.email,
-      name: dbUser.full_name || user.name
+      email: isMonitoringIdentity ? 'noreply@tacosgavilan.com' : dbUser.email,
+      name: isMonitoringIdentity ? 'Sistema de Monitoreo' : (dbUser.full_name || user.name)
     }
   }
 }

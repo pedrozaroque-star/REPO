@@ -83,7 +83,7 @@ function BasecampWorkspace() {
         setCurrentTodoId(searchParams.get('todoId'))
     }, [searchParams])
 
-    const currentUserName = user?.name || 'Carlos Roque'
+    const currentUserName = user?.name || 'Sistema de Monitoreo'
 
     // 1. Fetch authorization status and projects
     const checkAuthAndLoadProjects = useCallback(async (opts?: { silent?: boolean }) => {

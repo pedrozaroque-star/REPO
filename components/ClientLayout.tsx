@@ -204,21 +204,23 @@ export default function ClientLayout({
                     <div className="min-h-screen bg-transparent relative transition-colors duration-300">
                         {/* Background pattern */}
                         <div
-                            className="fixed inset-0 z-0 opacity-[0.2] dark:opacity-[0.4] invert dark:invert-0 pointer-events-none bg-[url('https://www.transparenttextures.com/patterns/cubes.png')]"
+                            className="fixed inset-0 z-0 opacity-[0.2] dark:opacity-[0.4] invert dark:invert-0 pointer-events-none bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] print:hidden"
                             aria-hidden="true"
                         />
 
-                        {/* Sidebar (desktop) + Mobile top bar + Mobile drawer */}
-                        <AppSidebar
-                            isCollapsed={isCollapsed}
-                            setIsCollapsed={setIsCollapsed}
-                            mobileDrawerOpen={mobileDrawerOpen}
-                            setMobileDrawerOpen={setMobileDrawerOpen}
-                        />
+                        {/* Sidebar (desktop) + Mobile top bar + Mobile drawer (oculto al imprimir) */}
+                        <div className="print:hidden">
+                            <AppSidebar
+                                isCollapsed={isCollapsed}
+                                setIsCollapsed={setIsCollapsed}
+                                mobileDrawerOpen={mobileDrawerOpen}
+                                setMobileDrawerOpen={setMobileDrawerOpen}
+                            />
+                        </div>
 
                         {/* Main Content Area */}
                         <div
-                            className={`relative min-h-screen overflow-x-clip transition-all duration-300 ease-in-out ${
+                            className={`relative min-h-screen overflow-x-clip transition-all duration-300 ease-in-out print:ml-0! print:pt-0! print:pb-0! ${
                                 /* Desktop: offset by sidebar width */
                                 isCollapsed ? 'lg:ml-[64px]' : 'lg:ml-[276px]'
                             } ${
@@ -227,7 +229,7 @@ export default function ClientLayout({
                             }`}
                         >
                             <main
-                                className={`w-full mx-auto animate-in fade-in duration-500 ${
+                                className={`w-full mx-auto animate-in fade-in duration-500 print:max-w-none! print:p-0! ${
                                     pathname === '/inicio'
                                         ? 'max-w-[1720px] px-4 sm:px-6 lg:px-8 pt-2 pb-6'
                                         : isFullWidth
@@ -239,17 +241,19 @@ export default function ClientLayout({
                             </main>
                         </div>
 
-                        {/* Bottom Tab Bar (mobile only) */}
-                        <BottomTabBar
-                            onOpenDrawer={() => setMobileDrawerOpen(prev => !prev)}
-                            isDrawerOpen={mobileDrawerOpen}
-                        />
-                        
-                        {/* TEG Assistant Chat Widget */}
-                        <SupportChatWidget />
+                        {/* Bottom Tab Bar (mobile only) & floating widgets (ocultos al imprimir) */}
+                        <div className="print:hidden">
+                            <BottomTabBar
+                                onOpenDrawer={() => setMobileDrawerOpen(prev => !prev)}
+                                isDrawerOpen={mobileDrawerOpen}
+                            />
 
-                        {/* Supervisor Smart Mileage Auto-Tracker */}
-                        <SupervisorAutoTracker />
+                            {/* TEG Assistant Chat Widget */}
+                            <SupportChatWidget />
+
+                            {/* Supervisor Smart Mileage Auto-Tracker */}
+                            <SupervisorAutoTracker />
+                        </div>
                     </div>
                 </ProtectedRoute>
             )}

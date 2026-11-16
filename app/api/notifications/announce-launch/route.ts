@@ -1,75 +1,25 @@
 
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import nodemailer from 'nodemailer'
 import path from 'path'
 import fs from 'fs'
+import { sendSystemEmail } from '@/lib/system-mailer'
+import { getServerUser } from '@/lib/auth-server'
 
 // Initialize Supabase
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co'
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'placeholder'
 const supabase = createClient(supabaseUrl, supabaseKey)
 
-// --- HELPER: Get OAuth Transporter ---
-async function getTransporter(userId?: string) {
-    if (!userId) throw new Error('Usuario no identificado. No se pueden enviar correos anónimos.')
-
-    const { data: user } = await supabase.from('users')
-        .select('google_refresh_token, google_email_connected')
-        .eq('id', userId)
-        .single()
-
-    if (!user?.google_refresh_token || !user?.google_email_connected) {
-        throw new Error('GMAIL_NOT_CONNECTED: El usuario no tiene Gmail conectado.')
-    }
-
-    try {
-        const tokenUrl = 'https://oauth2.googleapis.com/token'
-        const params = new URLSearchParams()
-        params.append('client_id', process.env.GOOGLE_CLIENT_ID!)
-        params.append('client_secret', process.env.GOOGLE_CLIENT_SECRET!)
-        params.append('refresh_token', user.google_refresh_token)
-        params.append('grant_type', 'refresh_token')
-
-        const refreshRes = await fetch(tokenUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: params
-        })
-
-        if (!refreshRes.ok) throw new Error('Token Refresh Failed')
-
-        const tokens = await refreshRes.json()
-
-        // Fetch User Profile to confirm email match
-        const profileRes = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
-            headers: { Authorization: `Bearer ${tokens.access_token}` }
-        })
-        const profile = await profileRes.json()
-
-        return {
-            accessToken: tokens.access_token,
-            fromEmail: profile.email
-        }
-    } catch (e: any) {
-        console.error('Auth Error:', e)
-        throw new Error('GMAIL_AUTH_FAILED: ' + e.message)
-    }
-}
-
 export async function POST(req: Request) {
     try {
-        const body = await req.json()
-        const { sender_user_id } = body
-
-        if (!sender_user_id) {
-            return NextResponse.json({ error: 'Missing sender_user_id' }, { status: 400 })
+        const authUser = await getServerUser(req)
+        if (!authUser || authUser.role !== 'admin') {
+            return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
         }
+        await req.json().catch(() => ({}))
 
-        // 1. Get Sender Credentials (Carlos)
-        const { accessToken, fromEmail } = await getTransporter(sender_user_id)
-
-        // 2. Find Lynwood Store ID
+        // 1. Find Lynwood Store ID
         const { data: stores } = await supabase
             .from('stores')
             .select('external_id')
@@ -121,7 +71,7 @@ export async function POST(req: Request) {
                             <div style="background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); padding: 30px; text-align: center;">
                                 ${hasLogo ? '<img src="cid:logo" alt="Tacos Gavilan" style="width: 80px; margin-bottom: 15px;">' : ''}
                                 <h1 style="color: white; margin: 0; font-size: 24px;">🧪 ENTRENAMIENTO: Nuevo Portal</h1>
-                                <p style="color: rgba(255,255,255,0.9); margin-top: 5px;">Tacos Gavilán - Lynwood (Prueba Piloto)</p>
+                                <p style="color: rgba(255,255,255,0.9); margin-top: 5px;">Tacos Gavilan - Lynwood (Prueba Piloto)</p>
                             </div>
 
                             <!-- Body -->
@@ -129,7 +79,7 @@ export async function POST(req: Request) {
                                 <p style="font-size: 16px; color: #374151;">**¡Hola, ${emp.first_name}! 👋**</p>
                                 
                                 <p style="font-size: 16px; color: #374151; line-height: 1.6;">
-                                    Estamos estrenando el nuevo <strong>Portal de Horarios de Tacos Gavilán (Lynwood)</strong> y queremos que tú seas de los primeros en probarlo.
+                                    Estamos estrenando el nuevo <strong>Portal de Horarios de Tacos Gavilan (Lynwood)</strong> y queremos que tú seas de los primeros en probarlo.
                                 </p>
 
                                 <div style="background-color: #fff7ed; border: 2px solid #f97316; border-radius: 8px; padding: 20px; margin: 25px 0; text-align: center;">
@@ -164,8 +114,8 @@ export async function POST(req: Request) {
                                 </div>
                                     Cualquier duda, estamos aquí para apoyarte.<br>
                                     Atentamente,<br>
-                                    <strong>Carlos</strong><br>
-                                    Gerente General
+                                    <strong>Sistema de Monitoreo</strong><br>
+                                    Tacos Gavilan
                                 </p>
                             </div>
                         </div>
@@ -173,43 +123,14 @@ export async function POST(req: Request) {
                     </html>
                 `
 
-                const mailOptions = {
-                    from: `"${fromEmail}" <${fromEmail}>`, // Carlos's email as sender
-                    to: emp.email,
-                    subject: '🚀 ¡Lanzamiento Oficial! Tu Nuevo Portal de Horarios Tacos Gavilán',
-                    html: htmlContent,
-                    attachments: hasLogo ? [{ filename: 'logo.png', path: logoPath, cid: 'logo' }] : []
-                }
-
                 try {
-                    // Nodemailer Stream Transport -> Raw Buffer -> Gmail API
-                    const compiler = nodemailer.createTransport({ streamTransport: true, newline: 'windows' })
-                    const info = await compiler.sendMail(mailOptions)
-
-                    const rawBuffer = await new Promise<Buffer>((resolve, reject) => {
-                        const message = info.message as any
-                        if (Buffer.isBuffer(message)) return resolve(message)
-                        if (typeof message.pipe === 'function') {
-                            const chunks: Buffer[] = []
-                            message.on('data', (c: Buffer) => chunks.push(c))
-                            message.on('end', () => resolve(Buffer.concat(chunks)))
-                            return
-                        }
-                        reject(new Error('Unknown format'))
+                    await sendSystemEmail({
+                        fromName: 'Sistema de Monitoreo',
+                        to: emp.email,
+                        subject: '🚀 ¡Lanzamiento Oficial! Tu Nuevo Portal de Horarios Tacos Gavilan',
+                        html: htmlContent,
+                        attachments: hasLogo ? [{ filename: 'logo.png', path: logoPath, cid: 'logo' }] : []
                     })
-
-                    const raw = rawBuffer.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
-
-                    const sendRes = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
-                        method: 'POST',
-                        headers: {
-                            'Authorization': `Bearer ${accessToken}`,
-                            'Content-Type': 'application/json'
-                        },
-                        body: JSON.stringify({ raw })
-                    })
-
-                    if (!sendRes.ok) throw new Error('Gmail API Error')
 
                     results.sent++
                     console.log(`✅ Sent to ${emp.email}`)

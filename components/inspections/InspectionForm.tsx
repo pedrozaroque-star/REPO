@@ -1039,7 +1039,7 @@ export default function InspectionForm({ user, initialData, stores }: { user: an
                       <span className="text-sm font-black text-gray-800">{language === 'en' ? 'yourname' : 'tunombre'}<span className="text-blue-600">@tacosgavilan.com</span></span>
                     </div>
                     <p className="text-[10px] text-gray-400 mt-1.5 italic">
-                      {language === 'en' ? 'Ex: carlos@tacosgavilan.com, maria@tacosgavilan.com' : 'Ej: carlos@tacosgavilan.com, maria@tacosgavilan.com'}
+                      {language === 'en' ? 'Ex: gerente@tacosgavilan.com, maria@tacosgavilan.com' : 'Ej: gerente@tacosgavilan.com, maria@tacosgavilan.com'}
                     </p>
                   </div>
 

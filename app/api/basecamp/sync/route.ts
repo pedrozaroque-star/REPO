@@ -187,7 +187,7 @@ async function downloadAndUploadAttachment(
     const res = await fetch(targetUrl, {
       headers: {
         Authorization: `Bearer ${token}`,
-        'User-Agent': process.env.BASECAMP_USER_AGENT || 'SM-TEG-Sync (carlos@tacosgavilan.com)',
+        'User-Agent': process.env.BASECAMP_USER_AGENT || 'SM-TEG-Sync (noreply@tacosgavilan.com)',
       },
       redirect: 'manual',
     })

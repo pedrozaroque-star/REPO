@@ -228,75 +228,124 @@ const supabaseKey =
     'placeholder'
 const supabase = createClient(supabaseUrl, supabaseKey)
 
-// Función para obtener transporte OAuth2 de Gmail (ESTRICTO: Solo usuario autenticado o cuenta corporativa explícita)
-async function getTransporter(authenticatedUserId: string) {
+// Función para obtener transporte OAuth2 de Gmail (ESTRICTO: Prioriza al Manager activo de la sucursal; jamás expone cuentas de administración comprometidas)
+async function refreshGoogleOAuthToken(refreshToken: string, fallbackEmail?: string) {
+    const tokenUrl = 'https://oauth2.googleapis.com/token'
+    const params = new URLSearchParams()
+    params.append('client_id', process.env.GOOGLE_CLIENT_ID!)
+    params.append('client_secret', process.env.GOOGLE_CLIENT_SECRET!)
+    params.append('refresh_token', refreshToken)
+    params.append('grant_type', 'refresh_token')
+
+    const refreshRes = await fetch(tokenUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: params,
+    })
+
+    if (!refreshRes.ok) {
+        const errData = await refreshRes.json().catch(() => ({}))
+        throw new Error(`Token Refresh Failed: ${errData.error_description || errData.error || refreshRes.status}`)
+    }
+
+    const tokens = await refreshRes.json()
+    const accessToken = tokens.access_token as string
+    const profileRes = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
+        headers: { Authorization: `Bearer ${accessToken}` },
+    })
+    const profile = await profileRes.json().catch(() => ({}))
+    const realEmail = String(profile.email || fallbackEmail || '').trim()
+    return { accessToken, fromEmail: realEmail }
+}
+
+function isProtectedExecutiveMailbox(email?: string | null): boolean {
+    const clean = String(email || '').trim().toLowerCase()
+    return clean === 'carlos@tacosgavilan.com' || clean === 'roque@tacosgavilan.com'
+}
+
+async function getTransporter(authenticatedUserId: string, storeNumericId?: number | null) {
     if (!authenticatedUserId) {
         throw new Error('Usuario no identificado. No se pueden enviar correos anónimos.')
     }
 
-    const { data: user, error } = await supabase
+    // 1. Buscar siempre primero al Manager activo de la sucursal correspondiente
+    let storeManager: any = null
+    if (storeNumericId && Number.isFinite(Number(storeNumericId))) {
+        const { data: mgrs } = await supabase
+            .from('users')
+            .select('id, full_name, email, role, is_active, google_refresh_token, google_email_connected')
+            .eq('store_id', Number(storeNumericId))
+            .in('role', ['manager', 'gerente'])
+            .eq('is_active', true)
+            .order('id', { ascending: true })
+
+        storeManager = (mgrs || []).find(
+            (m: any) => !isProtectedExecutiveMailbox(m.email) && !isProtectedExecutiveMailbox(m.google_email_connected)
+        ) || null
+
+        if (storeManager?.google_refresh_token && storeManager?.google_email_connected) {
+            try {
+                const creds = await refreshGoogleOAuthToken(
+                    storeManager.google_refresh_token,
+                    storeManager.google_email_connected
+                )
+                if (!isProtectedExecutiveMailbox(creds.fromEmail)) {
+                    return {
+                        accessToken: creds.accessToken,
+                        fromEmail: creds.fromEmail,
+                        managerEmail: String(storeManager.email || creds.fromEmail).trim(),
+                    }
+                }
+            } catch (mgrErr) {
+                console.warn('⚠️ [API] Store manager OAuth refresh failed, trying fallback:', mgrErr)
+            }
+        }
+    }
+
+    // 2. Si el usuario autenticado NO es buzón ejecutivo protegido, intentar su propio OAuth
+    const { data: user } = await supabase
         .from('users')
         .select('id, email, google_refresh_token, google_email_connected')
         .eq('id', authenticatedUserId)
         .maybeSingle()
 
-    if (error) {
-        console.error('❌ [API] DB Error fetching user OAuth credentials:', error)
-    }
-
-    let targetUser = user
-    const delegatedCorporateUserId = process.env.CORPORATE_SCHEDULE_SENDER_USER_ID?.trim()
-
-    if ((!targetUser?.google_refresh_token || !targetUser?.google_email_connected) && delegatedCorporateUserId) {
-        const { data: corpUser } = await supabase
-            .from('users')
-            .select('id, email, google_refresh_token, google_email_connected')
-            .eq('id', delegatedCorporateUserId)
-            .maybeSingle()
-        if (corpUser?.google_refresh_token && corpUser?.google_email_connected) {
-            console.log(
-                `ℹ️ [API] Using explicitly configured corporate sender (${corpUser.google_email_connected}) on behalf of user ${authenticatedUserId}`
-            )
-            targetUser = corpUser
+    if (
+        user?.google_refresh_token &&
+        user?.google_email_connected &&
+        !isProtectedExecutiveMailbox(user.email) &&
+        !isProtectedExecutiveMailbox(user.google_email_connected)
+    ) {
+        try {
+            const creds = await refreshGoogleOAuthToken(user.google_refresh_token, user.google_email_connected)
+            if (!isProtectedExecutiveMailbox(creds.fromEmail)) {
+                return {
+                    accessToken: creds.accessToken,
+                    fromEmail: creds.fromEmail,
+                    managerEmail: String(storeManager?.email || creds.fromEmail).trim(),
+                }
+            }
+        } catch (userErr) {
+            console.warn('⚠️ [API] Authenticated user OAuth refresh failed, trying system OAuth:', userErr)
         }
     }
 
-    if (targetUser?.google_refresh_token && targetUser?.google_email_connected) {
+    // 3. Respaldo institucional `noreply@tacosgavilan.com` (`system_gmail_oauth`) para sucursales cuyo manager aún no vincula OAuth
+    const { data: sysRow } = await supabase
+        .from('integrations')
+        .select('refresh_token')
+        .eq('service_name', 'system_gmail_oauth')
+        .maybeSingle()
+
+    if (sysRow?.refresh_token) {
         try {
-            const tokenUrl = 'https://oauth2.googleapis.com/token'
-            const params = new URLSearchParams()
-            params.append('client_id', process.env.GOOGLE_CLIENT_ID!)
-            params.append('client_secret', process.env.GOOGLE_CLIENT_SECRET!)
-            params.append('refresh_token', targetUser.google_refresh_token)
-            params.append('grant_type', 'refresh_token')
-
-            const refreshRes = await fetch(tokenUrl, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                body: params,
-            })
-
-            if (!refreshRes.ok) {
-                const errData = await refreshRes.json()
-                console.error('❌ [API] Failed to refresh token:', errData)
-                throw new Error(`Token Refresh Failed: ${errData.error_description || errData.error}`)
-            }
-
-            const tokens = await refreshRes.json()
-            const accessToken = tokens.access_token
-
-            const profileRes = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
-                headers: { Authorization: `Bearer ${accessToken}` },
-            })
-            const profile = await profileRes.json()
-            const realEmail = profile.email || targetUser.google_email_connected
-
+            const creds = await refreshGoogleOAuthToken(sysRow.refresh_token, 'noreply@tacosgavilan.com')
             return {
-                accessToken,
-                fromEmail: realEmail,
+                accessToken: creds.accessToken,
+                fromEmail: creds.fromEmail || 'noreply@tacosgavilan.com',
+                managerEmail: String(storeManager?.email || creds.fromEmail || 'noreply@tacosgavilan.com').trim(),
             }
         } catch (e) {
-            console.error('❌ [API] Critical Auth Error during refresh:', e)
+            console.error('❌ [API] System OAuth refresh failed in publish-schedule:', e)
             throw new Error('GMAIL_AUTH_FAILED: ' + (e as Error).message)
         }
     }
@@ -410,14 +459,16 @@ export async function POST(req: Request) {
             }
         }
 
-        // 1. Obtener credenciales de envío SOLO si no es preview_only
+        // 1. Obtener credenciales de envío del Manager activo de la sucursal SOLO si no es preview_only
         let accessToken = ''
-        let fromEmail = authUser.email
+        let fromEmail = 'noreply@tacosgavilan.com'
+        let managerRecipientEmail = 'noreply@tacosgavilan.com'
 
         if (!previewOnly) {
-            const creds = await getTransporter(authUser.id)
+            const creds = await getTransporter(authUser.id, store.id)
             accessToken = creds.accessToken
             fromEmail = creds.fromEmail
+            managerRecipientEmail = creds.managerEmail || creds.fromEmail
         }
 
         // 2. Actualizar estado a 'published' SOLO cuando no es preview_only ni resend_only y con scope estricto de tienda/rango
@@ -1239,9 +1290,14 @@ export async function POST(req: Request) {
                     return
                 }
 
-                const mailOptions = {
+                const mailOptions: any = {
                     from: `"${storeName} Schedule" <${fromEmail}>`,
                     to: emailCheck.normalizedEmail,
+                    ...(managerRecipientEmail &&
+                    managerRecipientEmail.toLowerCase() !== fromEmail.toLowerCase() &&
+                    !isProtectedExecutiveMailbox(managerRecipientEmail)
+                        ? { replyTo: managerRecipientEmail }
+                        : {}),
                     subject: `📅 Horario: ${storeName}`,
                     html: fullHtml,
                     attachments,
@@ -1707,7 +1763,7 @@ export async function POST(req: Request) {
                 doc.setFontSize(8)
                 doc.setTextColor(150)
                 doc.text(
-                    `Sistema TEG Tacos Gavilan | Página ${i} de ${pageCount}`,
+                    `Sistema de Monitoreo - Tacos Gavilan | Página ${i} de ${pageCount}`,
                     doc.internal.pageSize.width / 2,
                     doc.internal.pageSize.height - 10,
                     { align: 'center' }
@@ -1722,8 +1778,8 @@ export async function POST(req: Request) {
                     newline: 'windows',
                 })
                 const info = await compiler.sendMail({
-                    from: `"Sistema TEG" <${fromEmail}>`,
-                    to: fromEmail,
+                    from: `"Sistema de Monitoreo" <${fromEmail}>`,
+                    to: managerRecipientEmail || fromEmail,
                     subject: `📑 RESUMEN PUBLICACIÓN: ${storeName}`,
                     html: managerHtml,
                     attachments: [

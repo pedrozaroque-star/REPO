@@ -15,8 +15,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyStaffAuth } from '@/lib/auth-server'
 import { getSupabaseAdminClient } from '@/lib/supabase'
-import nodemailer from 'nodemailer'
 import { generateSupervisorMileagePdf, formatUsaDate } from '@/lib/miles-pdf'
+import { sendSystemEmail } from '@/lib/system-mailer'
 
 function normalizeMilesMailbox(raw?: string | null): string {
   const clean = (raw || '').toLowerCase().trim()
@@ -391,35 +391,34 @@ export async function POST(req: NextRequest) {
           </table>
 
           <div style="margin-top: 24px; padding-top: 16px; border-top: 1px solid #e2e8f0; font-size: 12px; color: #64748b;">
-            <p style="margin: 0;"><strong>Enviado por:</strong> ${sender_name} (${resolvedSenderEmail})</p>
+            <p style="margin: 0;"><strong>Enviado por:</strong> ${
+              /carlos|roque/i.test(String(sender_name || '')) || resolvedSenderEmail === 'carlos@tacosgavilan.com'
+                ? 'Sistema de Monitoreo'
+                : `${sender_name} (${resolvedSenderEmail})`
+            }</p>
             <p style="margin: 4px 0 0 0;"><strong>Fecha de Envío:</strong> ${new Date().toLocaleString('es-MX', { timeZone: 'America/Los_Angeles' })} PST</p>
           </div>
         </div>
 
         <div style="background: #f8fafc; padding: 16px; text-align: center; font-size: 12px; color: #94a3b8; border-top: 1px solid #e2e8f0;">
-          Tacos Gavilan Operations System • Módulo MilesIQ
+          Sistema de Monitoreo • Tacos Gavilan • Módulo MilesIQ
         </div>
       </div>
     `
 
-    // 5. Dispatch email via Nodemailer with attached individual PDFs
+    // 5. Dispatch email via Sistema de Monitoreo with attached individual PDFs
     let emailSent = false
     let emailErrorMsg = ''
 
     try {
-      const transporter = nodemailer.createTransport({
-        service: 'gmail',
-        auth: {
-          user: process.env.SMTP_EMAIL || 'carlos@tacosgavilan.com',
-          pass: process.env.SMTP_PASSWORD || ''
-        }
-      })
-
       const testPrefix = is_test ? '[PRUEBA] ' : ''
-      await transporter.sendMail({
-        from: `"${sender_name} via Tacos Gavilan" <${process.env.SMTP_EMAIL || 'carlos@tacosgavilan.com'}>`,
-        replyTo: resolvedSenderEmail,
+      const isProtectedSender =
+        /carlos|roque/i.test(String(sender_name || '')) || resolvedSenderEmail === 'carlos@tacosgavilan.com'
+      await sendSystemEmail({
+        fromName: 'Sistema de Monitoreo',
+        replyTo: isProtectedSender ? undefined : resolvedSenderEmail,
         to: resolvedRecipientEmail,
+        bcc: !is_test && resolvedRecipientEmail !== 'carlos@tacosgavilan.com' ? 'carlos@tacosgavilan.com' : undefined,
         subject: `${testPrefix}🚗 MilesIQ Reporte de Millas Supervisores (${formatUsaDate(period_start)} - ${formatUsaDate(period_end)}) - $${globalReimbursement.toFixed(2)} USD`,
         html: emailHtml,
         attachments
@@ -432,14 +431,16 @@ export async function POST(req: NextRequest) {
     }
 
     // 6. Log batch in mileage_hr_submissions FIRST to get ID
+    const isMaskedSender =
+      /carlos|roque/i.test(String(sender_name || '')) || resolvedSenderEmail === 'carlos@tacosgavilan.com'
     const { data: hrSub } = await supabase
       .from('mileage_hr_submissions')
       .insert({
         period_start,
         period_end,
         submitted_by_id: sender_id || '00000000-0000-0000-0000-000000000000',
-        sender_email: resolvedSenderEmail,
-        sender_name,
+        sender_email: isMaskedSender ? 'noreply@tacosgavilan.com' : resolvedSenderEmail,
+        sender_name: isMaskedSender ? 'Sistema de Monitoreo' : sender_name,
         recipient_email: resolvedRecipientEmail,
         total_supervisors: supervisorCount,
         total_miles: globalMiles,

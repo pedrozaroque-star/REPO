@@ -62,9 +62,9 @@ import type {
 } from '../types'
 
 const DEMO_PREVIEW_USER: V2UserProfile = {
-  firstName: 'Carlos',
+  firstName: 'Cliente',
   lastName: 'Gavilan',
-  email: 'carlos@tacosgavilan.com',
+  email: 'noreply@tacosgavilan.com',
   phone: '(213) 555-0199',
   provider: 'email',
 }
