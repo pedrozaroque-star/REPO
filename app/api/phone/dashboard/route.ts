@@ -13,8 +13,9 @@
  *     en `/order-ready-board`.
  * - **KPIs Exactos en Base de Datos**: Calcula conteos reales directamente en PostgreSQL (`count: 'exact'`) sin truncarse al límite
  *   de paginación de la tabla visual, y calcula `resolvedByAiPct` únicamente sobre llamadas con `turns_count > 0`.
- * - **Validación Telefónica E.164 y Anti-Bucle**: Valida unicidad de `twilio_phone_number` y bloquea `manager_transfer_phone` que coincida
- *   con teléfonos de tienda o Twilio (`validateNoForwardingLoop`).
+ * - **Cero Desvío a Celulares de Gerentes (`allow_live_transfer = false`)**: Por política de Tacos Gavilan, jamás se desvían
+ *   llamadas a teléfonos personales de gerentes; `PATCH store_config` fuerza `allow_live_transfer = false` y
+ *   `manager_transfer_phone = null`, validando únicamente unicidad E.164 de `twilio_phone_number`.
  *
  * @dataFlow
  * - `/admin/llamadas` o `/order-ready-board` -> `GET / POST / PATCH / DELETE /api/phone/dashboard` -> `supabaseAdmin`.
@@ -33,8 +34,7 @@ import {
   authorizePhoneModuleRequest,
   extractPhoneDigits,
   isFictitiousNanpPhone,
-  normalizeUsPhoneE164,
-  validateNoForwardingLoop
+  normalizeUsPhoneE164
 } from '@/lib/phone-agent-access'
 import {
   CarrierType,
@@ -750,7 +750,9 @@ export async function PATCH(request: NextRequest) {
         updates.default_language = body.default_language === 'en' ? 'en' : 'es'
       }
       if (body.accepts_ebt !== undefined) updates.accepts_ebt = Boolean(body.accepts_ebt)
-      if (body.allow_live_transfer !== undefined) updates.allow_live_transfer = Boolean(body.allow_live_transfer)
+      // Política estricta de Tacos Gavilan: nunca desviar llamadas a teléfonos personales de gerentes
+      updates.allow_live_transfer = false
+      updates.manager_transfer_phone = null
 
       for (const textField of ['custom_greeting_es', 'custom_greeting_en', 'parking_notes_es', 'parking_notes_en'] as const) {
         if (body[textField] !== undefined) {
@@ -826,58 +828,6 @@ export async function PATCH(request: NextRequest) {
           updates.forwarding_status = 'pending'
           updates.forwarding_verified_at = null
         }
-      }
-
-      // Validar y normalizar `manager_transfer_phone` + protección anti-bucle
-      let effectiveTransferPhone: string | null = prevCfg?.manager_transfer_phone || null
-      if (body.manager_transfer_phone !== undefined) {
-        const parsedMgr = normalizeUsPhoneE164(body.manager_transfer_phone)
-        if (!parsedMgr.valid) {
-          return NextResponse.json({ error: `Teléfono del gerente inválido: ${parsedMgr.error}` }, { status: 400 })
-        }
-        if (parsedMgr.tenDigits && isFictitiousNanpPhone(parsedMgr.tenDigits, false)) {
-          return NextResponse.json(
-            { error: 'El celular del gerente no puede ser un número ficticio (ej. 555-xxxx).' },
-            { status: 400 }
-          )
-        }
-        if (parsedMgr.normalized) {
-          const simulatedConfigs = (allConfigs || []).map((c: any) =>
-            Number(c.store_id) === storeId ? { ...c, twilio_phone_number: effectiveTwilioPhone } : c
-          )
-          if (!simulatedConfigs.some((c: any) => Number(c.store_id) === storeId)) {
-            simulatedConfigs.push({ store_id: storeId, twilio_phone_number: effectiveTwilioPhone })
-          }
-          const loopCheck = validateNoForwardingLoop(parsedMgr.normalized, allStores || [], simulatedConfigs)
-          if (!loopCheck.safe) {
-            return NextResponse.json(
-              { error: loopCheck.conflictDescription || 'Teléfono de transferencia no permitido por seguridad anti-bucle.' },
-              { status: 400 }
-            )
-          }
-        }
-        updates.manager_transfer_phone = parsedMgr.normalized
-        effectiveTransferPhone = parsedMgr.normalized
-      } else if (body.twilio_phone_number !== undefined && effectiveTransferPhone) {
-        const simulatedConfigs = (allConfigs || []).map((c: any) =>
-          Number(c.store_id) === storeId ? { ...c, twilio_phone_number: effectiveTwilioPhone } : c
-        )
-        const loopCheck = validateNoForwardingLoop(effectiveTransferPhone, allStores || [], simulatedConfigs)
-        if (!loopCheck.safe) {
-          return NextResponse.json(
-            { error: loopCheck.conflictDescription || 'Conflicto anti-bucle entre el nuevo número Twilio y el teléfono de transferencia.' },
-            { status: 400 }
-          )
-        }
-      }
-
-      const effectiveAllowTransfer =
-        updates.allow_live_transfer !== undefined ? Boolean(updates.allow_live_transfer) : Boolean(prevCfg?.allow_live_transfer)
-      if (effectiveAllowTransfer && !effectiveTransferPhone) {
-        return NextResponse.json(
-          { error: 'Para activar la transferencia en vivo al gerente debes ingresar un celular directo válido (+1 de 10 dígitos).' },
-          { status: 400 }
-        )
       }
 
       const { data: updated, error } = await supabaseAdmin

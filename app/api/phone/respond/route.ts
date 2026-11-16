@@ -2,7 +2,7 @@
  * @module api/phone/respond
  * @description Webhook de continuación de conversación de Twilio (`POST /api/phone/respond`).
  * Recibe `SpeechResult` o `Digits` desde `<Gather>`, ejecuta `processPhoneAgentTurn()` con herramientas en vivo,
- * y responde con TwiML que reproduce la voz neuronal configurada (`<Play>`), transfiere al gerente (`<Dial>`) o finaliza (`<Hangup>`).
+ * y responde con TwiML que reproduce la voz neuronal configurada (`<Play>`) o finaliza (`<Hangup>`).
  *
  * @businessRules
  * - Valida la firma criptográfica `X-Twilio-Signature`.
@@ -11,15 +11,16 @@
  *   el aviso legal completo sin interrupción antes de abrir el micrófono.
  * - Tecla `9` a mitad de llamada cambia de idioma de inmediato reproduciendo también el aviso CIPA del nuevo idioma.
  * - Flujo de silencio en 2 pasos reales (`silence=1` -> pregunta `"¿Sigues en la línea?"` -> `retry=1` -> cierra llamada en DB + `<Hangup/>`).
- * - Transferencia en vivo `<Dial timeout="20" action="...&dialFallback=1">` con respaldo automático si el gerente no alcanza a contestar.
+ * - Toda escalación con el gerente registra una Alerta Prioritaria en la PC de la sucursal (`/order-ready-board` y `/admin/llamadas`),
+ *   sin desviar ni transferir llamadas a teléfonos personales de los gerentes (`<Dial>` deshabilitado permanentemente por política).
  *
  * @dataFlow
- * - Twilio `<Gather>` / `<Dial>` -> `POST /api/phone/respond` -> `processPhoneAgentTurn()` -> TwiML.
+ * - Twilio `<Gather>` -> `POST /api/phone/respond` -> `processPhoneAgentTurn()` -> TwiML.
  *
  * @notes
  * - Todos los `<Gather input="speech dtmf">` usan `buildTwilioGatherAttrs()` (`speechTimeout="1" speechModel="phone_call" enhanced="true"` + hints Tacos Gavilan).
  * - Optimización 2026-11-12: cero suplantación de Lynwood #14, `deferDbFlush: true`, cero doble TTS sobre `firstChunk` (solo pre-calienta `restChunk` en `after()`),
- *   tecla `9` concisa a mitad de llamada, DTMF `0`/no asignados seguros, `&retry=1` correcto tras silencio y resolución automática de callback cuando `<Dial>` es contestado.
+ *   tecla `9` concisa a mitad de llamada, DTMF `0`/no asignados seguros, `&retry=1` correcto tras silencio y rama defensiva heredada `<Dial>` desactivada por política.
  */
 
 import { after } from 'next/server'

@@ -63,7 +63,7 @@
  * - AUDITORÍA PROFUNDA PRE-PRODUCCIÓN 2026-11-11:
  *   * URLs reales verificadas `order.online` para las 15 sucursales.
  *   * Separación estricta `source: 'twilio' | 'simulator'` en `phone_callback_requests` para no contaminar tablets en tienda.
- *   * Validación E.164 + anti-bucle en `shouldTransferToPhone` (`<Dial>`), gramática `"a la 1:00 AM"`, lookahead +7 días
+ *   * Cero desvío/transferencia a celulares personales de gerentes (`shouldTransferToPhone = null`, escalación en PC de tienda), gramática `"a la 1:00 AM"`, lookahead +7 días
  *     en cierres festivos consecutivos, preservación legal CIPA + tecla `9` en saludos personalizados, herramientas
  *     declaradas completas (`get_fiesta_platter_packages` >40 invitados y `get_store_hours_and_status`), filtro de
  *     sustantivos del menú (`Piña`, `Jalapeño`) en `detectPhoneTextLanguage`, y pronunciación vial/telefónica natural
@@ -2381,7 +2381,7 @@ const PHONE_AGENT_TOOLS = [
       {
         name: 'create_manager_callback',
         description:
-          'Registra un Recado Prioritario en Vivo en la pantalla del Gerente. Úsalo ÚNICAMENTE cuando ya tengas nombre y teléfono real de 10 dígitos (o cuando en llamada Twilio el cliente pida devolverle la llamada a su mismo número). Si solo desea dejar recado (sin transferir), pon transfer_now=false.',
+          'Registra un Recado Prioritario en Vivo en la pantalla del Gerente en la computadora de la tienda (sin transferir llamadas a celulares personales). Úsalo ÚNICAMENTE cuando ya tengas nombre y teléfono real de 10 dígitos (o cuando en llamada Twilio el cliente pida devolverle la llamada a su mismo número).',
         parameters: {
           type: 'OBJECT',
           properties: {
@@ -2412,28 +2412,9 @@ const PHONE_AGENT_TOOLS = [
             ticket_or_order_number: {
               type: 'STRING',
               description: 'Número de ticket u orden si aplica (opcional).'
-            },
-            transfer_now: {
-              type: 'BOOLEAN',
-              description: 'True solo si además pidieron transferencia telefónica en vivo ahora mismo.'
             }
           },
           required: ['caller_name', 'caller_phone', 'reason_summary']
-        }
-      },
-      {
-        name: 'transfer_to_store_phone',
-        description:
-          'Inicia transferencia telefónica en vivo hacia el celular configurado del gerente en turno (solo cuando la sucursal está abierta, transferencia activa y el cliente pide hablar en vivo ahora mismo).',
-        parameters: {
-          type: 'OBJECT',
-          properties: {
-            reason: {
-              type: 'STRING',
-              description: 'Motivo breve de la transferencia en vivo.'
-            }
-          },
-          required: ['reason']
         }
       },
       {
@@ -2756,6 +2737,94 @@ async function callGeminiPhoneWithFailover(
 }
 
 /**
+ * Detecta si la respuesta generada prometió/confirmó enviar una alerta o recado al gerente sin haber invocado
+ * `create_manager_callback`, y extrae datos de contacto reales dichos por quien llama para garantizar persistencia.
+ */
+function inspectMissingCallbackGuard(params: {
+  replyText: string
+  transcript: TranscriptEntry[]
+  blockedStoreTenDigits: string[]
+  source: 'twilio' | 'simulator'
+  callerNumber?: string | null
+  allowDev555: boolean
+}): {
+  claimedSent: boolean
+  callerPhone: string | null
+  callerName: string
+  summary: string
+} {
+  const normReply = normalizeSearchText(params.replyText)
+  const isAskingDetails =
+    /\b(necesito|dame|regala|comparte|proporciona|cual es|indica(?:me|nos)|me das|me puedes dar|tu nombre|tu numero|su nombre|su numero|your name|your phone|10 digitos|10 digits|would you like me to|quieres que|deseas que|gustaria que|can i send|si me das|if you share)\b/i.test(
+      normReply
+    )
+  const claimedSent =
+    !isAskingDetails &&
+    (/\b(envio|envie|enviando|mando|mandando|deje|dejando|registre|registrando|notifico|notifique|notificando|genere|cree|paso|sending|sent|logging|logged|leaving|left|notifying|notified|creating|created|submitting|submitted)\b.{0,65}\b(alerta|recado|aviso|mensaje|notificacion|pantalla|gerente|manager|priority\s+alert|callback)\b/i.test(
+      normReply
+    ) ||
+      /\b(ya\s+(?:tiene|recibio|esta\s+en\s+(?:la\s+)?pantalla)|already\s+(?:has|received|on\s+(?:the\s+)?screen))\b.{0,45}\b(gerente|manager|alerta|recado|pantalla|screen|alert|callback)\b/i.test(
+        normReply
+      ))
+
+  if (!claimedSent) {
+    return { claimedSent: false, callerPhone: null, callerName: 'Cliente en línea', summary: '' }
+  }
+
+  const userTexts = params.transcript.filter((t) => t.role === 'user').map((t) => String(t.text || '').trim())
+  const combinedUser = userTexts.join(' | ').trim()
+  const blocked = new Set(params.blockedStoreTenDigits.filter(Boolean))
+
+  let detectedPhone: string | null = null
+  const phoneMatches = combinedUser.match(/(?:\+?1[\s.\-]?)?\(?\d{3}\)?[\s.\-]?\d{3}[\s.\-]?\d{4}/g) || []
+  for (let i = phoneMatches.length - 1; i >= 0; i--) {
+    const parsed = normalizeUsPhoneE164(phoneMatches[i])
+    if (
+      parsed.valid &&
+      parsed.normalized &&
+      parsed.tenDigits &&
+      !blocked.has(parsed.tenDigits) &&
+      !isFictitiousNanpPhone(parsed.tenDigits, params.allowDev555)
+    ) {
+      detectedPhone = parsed.normalized
+      break
+    }
+  }
+
+  if (
+    !detectedPhone &&
+    params.source === 'twilio' &&
+    params.callerNumber &&
+    /\b(este mismo numero|este numero|mi numero|same number|this number|caller id)\b/i.test(normalizeSearchText(combinedUser))
+  ) {
+    const parsedCaller = normalizeUsPhoneE164(params.callerNumber)
+    if (parsedCaller.valid && parsedCaller.normalized && parsedCaller.tenDigits && !isFictitiousNanpPhone(parsedCaller.tenDigits, false)) {
+      detectedPhone = parsedCaller.normalized
+    }
+  }
+
+  let detectedName = 'Cliente en línea'
+  const nameMatch = combinedUser.match(
+    /(?:^|[.,;|]\s*|\b)(?:hola\s+)?(?:soy|me llamo|mi nombre es|habla|this is|my name is|i am|i'm)\s+([A-Za-z0-9_ÁÉÍÓÚÑáéíóúñ]+(?:\s+[A-Za-zÁÉÍÓÚÑáéíóúñ]+){0,2})/i
+  )
+  if (nameMatch?.[1]) {
+    const candidate = nameMatch[1]
+      .replace(/\b(?:de|del|en|por|para|con|y|mi|telefono|phone|numero|number|porque|que|un|una|el|la|empleado|cliente|manager|gerente).*$/i, '')
+      .trim()
+    if (candidate.length >= 2 && !/^(un|una|el|la|cliente|empleado|empleada|customer|caller)$/i.test(normalizeSearchText(candidate))) {
+      detectedName = candidate
+    }
+  }
+
+  return {
+    claimedSent: true,
+    callerPhone: detectedPhone,
+    callerName: detectedName,
+    summary: combinedUser.slice(0, 500)
+  }
+}
+
+/**
  * Clasifica la intención y categoría de la llamada a partir del texto del usuario y herramientas usadas,
  * respetando estrictamente el orden de prioridad operativa para evitar colisiones entre escenarios.
  */
@@ -3046,33 +3115,6 @@ export async function processPhoneAgentTurn(params: {
     })
     .join('\n')
 
-  // Validar de antemano si la transferencia en vivo al gerente es segura (E.164 válido + tienda abierta + sin bucle hacia ninguna sucursal ni forwardedFrom)
-  const liveTransferCandidatePhone: string | null = (() => {
-    if (!scheduleEval.isOpenNow || !config.allow_live_transfer || !config.manager_transfer_phone) return null
-    const parsed = normalizeUsPhoneE164(config.manager_transfer_phone)
-    if (!parsed.valid || !parsed.normalized || !parsed.tenDigits) return null
-    const normalizeTen = (raw: string | null | undefined) => {
-      const d = extractPhoneDigits(raw)
-      return d.length === 11 && d.startsWith('1') ? d.slice(1) : d
-    }
-    const blockedTenDigits = new Set<string>()
-    const store10 = normalizeTen(store.phone)
-    const tw10 = normalizeTen(config.twilio_phone_number)
-    const fwd10 = normalizeTen(forwardedFrom)
-    if (store10) blockedTenDigits.add(store10)
-    if (tw10) blockedTenDigits.add(tw10)
-    if (fwd10) blockedTenDigits.add(fwd10)
-    for (const s of allActiveStores) {
-      const other10 = normalizeTen(s.phone)
-      if (other10) blockedTenDigits.add(other10)
-    }
-    if (blockedTenDigits.has(parsed.tenDigits)) {
-      console.warn(`[phone-agent] Transferencia bloqueada por protección anti-bucle en tienda #${store.id}`)
-      return null
-    }
-    return parsed.normalized
-  })()
-
   const hadPriorCallbackInCall =
     callRecord?.status === 'callback_requested' ||
     callRecord?.status === 'transferred' ||
@@ -3196,11 +3238,9 @@ export async function processPhoneAgentTurn(params: {
     ? `\nESTADO DE ESTA LLAMADA: En un turno previo de esta misma llamada YA quedó registrado el recado prioritario para el gerente de ${store.name}. NO vuelvas a pedir nombre ni teléfono; solo llama \`create_manager_callback\` si la persona desea agregar información nueva al recado.`
     : ''
 
-  const callbackOutcomeInstruction = liveTransferCandidatePhone
-    ? 'si pidió explícitamente transferencia en vivo (o es urgencia grave en tienda abierta), usa transfer_now=true o `transfer_to_store_phone` e infórmale que en este instante lo comunicas con el gerente; si solo pidió dejar recado, confirma que ya aparece en la pantalla del gerente.'
-    : scheduleEval.isOpenNow
-      ? 'confírmale que el gerente en turno ya recibió la alerta prioritaria en su pantalla para devolverle la llamada.'
-      : 'aclárale con transparencia que como la sucursal está cerrada en este momento, su recado prioritario quedó registrado para que el gerente se comunique en cuanto abramos.'
+  const callbackOutcomeInstruction = scheduleEval.isOpenNow
+    ? 'confírmale con calidez que el gerente en turno en la sucursal ya recibió la alerta prioritaria en su pantalla para devolverle la llamada enseguida (por política de Tacos Gavilan NUNCA desviamos llamadas a teléfonos personales).'
+    : 'aclárale con transparencia que como la sucursal está cerrada en este momento, su recado prioritario quedó registrado en la pantalla de la tienda para que el gerente se comunique en cuanto abramos.'
 
   const spokenStoreAddress = formatStoreAddressForAgent(store.address, turnLangGuess, { includeZip: false })
   const storeZipCode = extractZipCodeFromAddress(store.address)
@@ -3272,9 +3312,10 @@ MAPA DE EJECUCIÓN DE ESCENARIOS Y REGLAS ESTRICTAS DE DIÁLOGO:
    - ${store.has_drive_thru ? `En esta sucursal (${store.name}), mientras el comedor esté abierto recogen en el mostrador; si el comedor ya cerró pero el Drive-Thru sigue abierto, pueden recoger por la ventanilla del Drive-Thru mostrando el nombre y código de la orden. Si la sucursal ya está totalmente cerrada, díselo con claridad.` : `En esta sucursal (${store.name}) NO tenemos Drive-Thru, por lo que todas las órdenes de DoorDash y Uber Eats se recogen en el mostrador dentro del horario de la tienda (usa el "Estado actual en vivo" de arriba). Si tiene algún inconveniente, ofrécele avisar en vivo al gerente.`}
    - Si quien llama es un CLIENTE con un problema en su pedido de DoorDash/Uber Eats (faltantes, cobro, orden equivocada), trátalo como reclamo (regla 6), no como repartidor.
 6. **Reclamos de Órdenes, Cobros, Objetos Olvidados, Empleados (Retardos/Faltas), Proveedores o "quiero hablar con el gerente"**:
-   - Si la persona YA proporcionó su nombre y un teléfono real de contacto, ejecuta DE INMEDIATO \`create_manager_callback\` con EXACTAMENTE el nombre, teléfono y detalle que dijo (NUNCA inventes ni completes datos) y ${callbackOutcomeInstruction}
-   - Si aún NO ha dado su nombre o su número de teléfono de 10 dígitos, pídeselos con empatía en una sola frase corta ANTES de llamar \`create_manager_callback\`.
-   - Si ya enviaste la alerta en esta misma llamada, no la vuelvas a enviar salvo que agregue datos nuevos: confirma que el gerente ya la tiene.
+   - **ACCIÓN OBLIGATORIA CON HERRAMIENTA**: Si la persona YA dio su nombre y teléfono real de 10 dígitos (o en llamada Twilio pidió marcarle a su Caller ID), **EJECUTA PRIMERO \`create_manager_callback\`** con EXACTAMENTE esos datos antes de responder. **PROHIBIDO** decir en texto que "envías / dejaste / registraste una alerta o recado" sin haber invocado \`create_manager_callback\`.
+   - Después de ejecutar \`create_manager_callback\`, aclara amablemente que por política estricta de Tacos Gavilan no desviamos llamadas a celulares personales de los gerentes y ${callbackOutcomeInstruction}
+   - Si aún NO ha dado su nombre o teléfono real de 10 dígitos, aclara que no transferimos a celulares personales y pídeselos con empatía en una sola frase corta ANTES de intentar registrar el recado.
+   - Si ya enviaste la alerta en esta misma llamada, no la dupliques salvo que agregue datos nuevos: confirma que el gerente ya la tiene en su pantalla.
 7. **Idioma y Agilidad Telefónica (REGLA CRÍTICA DE VELOCIDAD)**:
    - Idioma detectado del cliente: ${turnLangGuess === 'en' ? 'Inglés' : 'Español'}. Responde SIEMPRE en el mismo idioma de su último mensaje (español mexicano cálido o inglés natural).
    - Sé concisa y directa: **12 a 28 palabras** (1–2 oraciones ágiles). Excepciones autorizadas hasta **65–75 palabras**: (a) cuando pidan el **calendario de días festivos especiales en general**, DEBES resumir las **7 fechas reales** (cerrados Viernes Santo y Navidad 25 dic; cierre temprano 4 PM en Thanksgiving, Nochebuena 24 dic y Fin de Año 31 dic; apertura tarde 11 AM en Año Nuevo 1 ene y Black Friday); o (b) direcciones de varias sucursales a la vez. Sin comerciales de relleno, viñetas, emojis ni markdown.
@@ -3326,7 +3367,6 @@ MAPA DE EJECUCIÓN DE ESCENARIOS Y REGLAS ESTRICTAS DE DIÁLOGO:
 
   let callbackCreated: any | null = null
   let callbackWasNew = false
-  let transferRequestedLive = false
   let unansweredFlagged: string | null = null
   let replyText = ''
   let geminiFailed = false
@@ -3501,38 +3541,14 @@ MAPA DE EJECUCIÓN DE ESCENARIOS Y REGLAS ESTRICTAS DE DIÁLOGO:
         ticketOrOrderNumber: toolArgs?.ticket_or_order_number ? String(toolArgs.ticket_or_order_number) : null
       })
       callbackWasNew = true
-      const explicitTransfer =
-        Boolean(toolArgs?.transfer_now) ||
-        /\b(transfer|transfiere|comunicame|pasa con|connect me|speak live|hablar ahorita)\b/i.test(normUser)
-      if (explicitTransfer && liveTransferCandidatePhone) {
-        transferRequestedLive = true
-      }
       return {
         success: true,
         storeOpenNow: scheduleEval.isOpenNow,
-        willTransferLive: Boolean(transferRequestedLive && liveTransferCandidatePhone),
+        willTransferLive: false,
         callbackId: callbackCreated.id,
-        message: transferRequestedLive && liveTransferCandidatePhone
-          ? `Alerta registrada y transferencia en vivo ACTIVA: infórmale que ya registraste su aviso y que en este momento le transfieres la llamada con el gerente en turno de ${store.name} (NO te despidas).`
-          : scheduleEval.isOpenNow
-            ? `Alerta enviada en vivo a la pantalla del Manager de ${store.name}.`
-            : `Recado prioritario registrado para el Manager de ${store.name}. IMPORTANTE: La sucursal está CERRADA ahora (${scheduleEval.statusMessageEs}); informa al cliente que el gerente le devolverá la llamada al reabrir.`
-      }
-    }
-    if (toolName === 'transfer_to_store_phone') {
-      if (!scheduleEval.isOpenNow || !config.allow_live_transfer || !liveTransferCandidatePhone) {
-        return {
-          canTransferLive: false,
-          storeOpenNow: scheduleEval.isOpenNow,
-          message:
-            'Transferencia en vivo no disponible en este momento (sucursal cerrada o sin celular configurado); pídele nombre y teléfono de 10 dígitos para registrar recado prioritario con `create_manager_callback`.'
-        }
-      }
-      transferRequestedLive = true
-      return {
-        canTransferLive: true,
-        transferPhone: liveTransferCandidatePhone,
-        message: `Transferencia en vivo confirmada con el gerente de ${store.name}. Indícale brevemente que lo comunicas en este instante.`
+        message: scheduleEval.isOpenNow
+          ? `Alerta enviada en vivo a la pantalla del Manager en la sucursal ${store.name} (sin desviar a teléfonos personales). Confírmale que el gerente se comunicará enseguida desde la tienda.`
+          : `Recado prioritario registrado para el Manager de ${store.name}. IMPORTANTE: La sucursal está CERRADA ahora (${scheduleEval.statusMessageEs}); informa al cliente que el gerente le devolverá la llamada al reabrir.`
       }
     }
     if (toolName === 'flag_unanswered_question') {
@@ -3616,16 +3632,77 @@ MAPA DE EJECUCIÓN DE ESCENARIOS Y REGLAS ESTRICTAS DE DIÁLOGO:
     contents.push({ role: 'user', parts: responseParts })
   }
 
-  const shouldTransferToPhone = transferRequestedLive && liveTransferCandidatePhone ? liveTransferCandidatePhone : null
+  // Política oficial Tacos Gavilan: cero desvíos a teléfonos personales; escalación vía Alerta Prioritaria en PC de tienda
+  const shouldTransferToPhone: string | null = null
+
+  // Blindaje determinista: si un modelo rápido confirmó envío de alerta sin invocar `create_manager_callback`,
+  // persistimos el recado con los datos reales dichos por quien llama o evitamos una confirmación falsa si falta el teléfono.
+  if (!callbackCreated && !hadPriorCallbackInCall && !geminiFailed && replyText) {
+    const store10 = extractPhoneDigits(store.phone).slice(-10)
+    const twilio10 = extractPhoneDigits(config.twilio_phone_number).slice(-10)
+    const allowDev555 = source === 'simulator' && /^TEST_SMOKE_/i.test(callSid)
+    const guard = inspectMissingCallbackGuard({
+      replyText,
+      transcript,
+      blockedStoreTenDigits: [store10, twilio10],
+      source,
+      callerNumber,
+      allowDev555
+    })
+    if (guard.claimedSent) {
+      if (guard.callerPhone) {
+        const inferredForCb = inferCallMetadata(guard.summary || userText, toolsUsed, true)
+        const inferredReason =
+          inferredForCb.primaryIntent === 'complaint_missing_item'
+            ? /\b(cobro|cobraron|reembolso|refund|overcharged|billing)\b/i.test(normalizeSearchText(guard.summary))
+              ? 'billing_refund'
+              : 'missing_or_wrong_item'
+            : inferredForCb.primaryIntent === 'lost_and_found'
+              ? 'lost_item'
+              : inferredForCb.primaryIntent === 'employee_callout'
+                ? 'employee_callout'
+                : inferredForCb.primaryIntent === 'vendor_service'
+                  ? 'vendor_arrival'
+                  : 'other'
+        const inferredCallerType =
+          inferredForCb.callerCategory === 'employee'
+            ? 'employee'
+            : inferredForCb.callerCategory === 'vendor'
+              ? 'vendor'
+              : inferredForCb.callerCategory === 'delivery_driver'
+                ? 'delivery_driver'
+                : 'customer'
+        try {
+          const forcedRes = await executeTool('create_manager_callback', {
+            caller_name: guard.callerName,
+            caller_phone: guard.callerPhone,
+            caller_type: inferredCallerType,
+            urgency: /\b(emergencia|emergency|intoxic|got sick|cobro doble|overcharged|fraud)\b/i.test(normalizeSearchText(guard.summary)) ? 'critical' : 'high',
+            reason_category: inferredReason,
+            reason_summary: guard.summary || userText
+          })
+          toolsUsed.push('create_manager_callback')
+          transcript.push({
+            role: 'tool',
+            text: JSON.stringify(forcedRes),
+            timestamp: new Date().toISOString(),
+            toolName: 'create_manager_callback'
+          })
+        } catch (cbErr) {
+          console.error('[phone-agent] Error en blindaje de recado obligatorio:', cbErr)
+        }
+      } else {
+        replyText =
+          turnLangGuess === 'en'
+            ? "By Tacos Gavilan policy we don't transfer calls to managers' personal phones, but I'd gladly send a priority alert to the store manager's screen. Could you give me your name and 10-digit phone number?"
+            : 'Por política de Tacos Gavilan no transferimos llamadas a celulares personales, pero con gusto envío una alerta prioritaria a la pantalla del gerente en sucursal. ¿Me compartes tu nombre y número de teléfono de 10 dígitos para que se comunique contigo?'
+      }
+    }
+  }
 
   if (!replyText) {
     if (callbackCreated) {
-      if (shouldTransferToPhone) {
-        replyText =
-          turnLangGuess === 'en'
-            ? `I have logged your message and am connecting you with the ${store.name} manager on duty right now. Please hold for a moment.`
-            : `Ya registré tu aviso y en este momento te estoy comunicando con el gerente en turno de ${store.name}. Un momento en la línea, por favor.`
-      } else if (!scheduleEval.isOpenNow) {
+      if (!scheduleEval.isOpenNow) {
         replyText =
           turnLangGuess === 'en'
             ? `Since our ${store.name} location is currently closed, your priority message has been saved so the manager can call you back as soon as we reopen. Is there anything else I can help you with?`

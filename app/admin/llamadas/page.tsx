@@ -5,7 +5,7 @@
  * 1. Simulador Interactivo de Llamada en Vivo con micrófono (barge-in real) y voz neuronal `Kore` en streaming PCM 24kHz.
  * 2. Base de Conocimiento Editable en tiempo real (`phone_knowledge_base`) global o por sucursal + Detector Automático de
  *    Preguntas Nuevas (con opción de convertir en regla o descartar) + Días Festivos (`phone_special_hours` crear/editar/borrar).
- * 3. Configuración avanzada de las 15 Sucursales (idioma inicial, transferencia en vivo, segundos de timbrado, EBT, voz,
+ * 3. Configuración avanzada de las 15 Sucursales (idioma inicial, escalación fija a PC de tienda, segundos de timbrado, EBT, voz,
  *    estacionamiento y saludo personalizado) y Asistente de Desvío Condicional para Spectrum Business y AT&T Android.
  * 4. Bitácora de Llamadas (`phone_calls`) con filtro de origen (Twilio Real vs Simulador) y reproducción de voz bajo demanda,
  *    más Panel de Recados Prioritarios (`phone_callback_requests`) con notas de resolución.
@@ -3412,17 +3412,11 @@ export default function ContestadoraIaPage() {
 
                       <div>
                         <label className="block text-[11px] font-bold text-slate-500 mb-1">
-                          {t('phone_agent.stores_manager_phone')}
+                          {t('phone_agent.stores_escalation_label')}
                         </label>
-                        <input
-                          type="text"
-                          value={s.config.manager_transfer_phone || ''}
-                          onChange={(e) =>
-                            updateLocalStoreConfig(s.id, 'manager_transfer_phone', e.target.value)
-                          }
-                          placeholder={t('phone_agent.stores_manager_placeholder')}
-                          className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-2.5 py-1.5 text-xs font-bold"
-                        />
+                        <div className="w-full rounded-xl border border-emerald-200 dark:border-emerald-800/70 bg-emerald-50/70 dark:bg-emerald-950/30 px-2.5 py-1.5 text-[11px] font-black text-emerald-800 dark:text-emerald-300 truncate">
+                          {t('phone_agent.stores_escalation_pc_badge')}
+                        </div>
                       </div>
 
                       <div>
@@ -3510,39 +3504,18 @@ export default function ContestadoraIaPage() {
 
                       <div>
                         <label className="block text-[11px] font-bold text-slate-500 mb-1">
-                          {t('phone_agent.stores_default_lang')} • {t('phone_agent.stores_live_transfer_label')}
+                          {t('phone_agent.stores_default_lang')}
                         </label>
-                        <div className="flex items-center gap-1.5">
-                          <select
-                            value={s.config.default_language || 'es'}
-                            onChange={(e) =>
-                              updateLocalStoreConfig(s.id, 'default_language', e.target.value)
-                            }
-                            className="w-1/2 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-2 py-1.5 text-xs font-bold"
-                          >
-                            <option value="es">ES</option>
-                            <option value="en">EN</option>
-                          </select>
-                          <button
-                            type="button"
-                            onClick={() =>
-                              updateLocalStoreConfig(
-                                s.id,
-                                'allow_live_transfer',
-                                !s.config.allow_live_transfer
-                              )
-                            }
-                            className={`w-1/2 py-1.5 rounded-xl text-[10px] font-black border ${
-                              s.config.allow_live_transfer
-                                ? 'bg-indigo-100 border-indigo-300 text-indigo-900'
-                                : 'bg-slate-100 border-slate-300 text-slate-500'
-                            }`}
-                          >
-                            {s.config.allow_live_transfer
-                              ? t('phone_agent.stores_live_transfer_yes')
-                              : t('phone_agent.stores_live_transfer_no')}
-                          </button>
-                        </div>
+                        <select
+                          value={s.config.default_language || 'es'}
+                          onChange={(e) =>
+                            updateLocalStoreConfig(s.id, 'default_language', e.target.value)
+                          }
+                          className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-2 py-1.5 text-xs font-bold"
+                        >
+                          <option value="es">{t('phone_agent.stores_lang_es')}</option>
+                          <option value="en">{t('phone_agent.stores_lang_en')}</option>
+                        </select>
                       </div>
                     </div>
 
