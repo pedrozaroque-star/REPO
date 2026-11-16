@@ -1,0 +1,36 @@
+{
+  "generatedAt": "2026-11-16T16:54:39.390Z",
+  "brandName": "Tacos Gavilan",
+  "qrTargetUrl": "https://tacosgavilan.vercel.app/mantenimiento/registro",
+  "qrEccLevel": "Q",
+  "qrModuleCount": 37,
+  "outputs": {
+    "vertical": {
+      "dimensionsInches": {
+        "width": 5,
+        "height": 7
+      },
+      "rasterPx": {
+        "width": 1500,
+        "height": 2100,
+        "dpi": 300
+      },
+      "pdfPath": "exports/vendor-maintenance-sticker-5x7/Tacos_Gavilan_Sticker_Proveedores_Mantenimiento_5x7in_Vertical.pdf",
+      "pngPath": "exports/vendor-maintenance-sticker-5x7/Tacos_Gavilan_Sticker_Proveedores_Mantenimiento_5x7in_Vertical_300DPI.png"
+    },
+    "horizontal": {
+      "dimensionsInches": {
+        "width": 7,
+        "height": 5
+      },
+      "rasterPx": {
+        "width": 2100,
+        "height": 1500,
+        "dpi": 300
+      },
+      "pdfPath": "exports/vendor-maintenance-sticker-5x7/Tacos_Gavilan_Sticker_Proveedores_Mantenimiento_7x5in_Horizontal.pdf",
+      "pngPath": "exports/vendor-maintenance-sticker-5x7/Tacos_Gavilan_Sticker_Proveedores_Mantenimiento_7x5in_Horizontal_300DPI.png"
+    },
+    "qrSvgPath": "exports/vendor-maintenance-sticker-5x7/qr_mantenimiento_proveedores_oficial.svg"
+  }
+}

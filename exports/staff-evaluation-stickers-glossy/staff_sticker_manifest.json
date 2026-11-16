@@ -1,0 +1,36 @@
+{
+  "generatedAt": "2026-11-16T16:42:58.254Z",
+  "brandName": "Tacos Gavilan",
+  "qrTargetUrl": "https://tacosgavilan.vercel.app/evaluacion/kiosk",
+  "qrEccLevel": "Q",
+  "qrModuleCount": 37,
+  "outputs": {
+    "vertical": {
+      "dimensionsInches": {
+        "width": 5,
+        "height": 7
+      },
+      "rasterPx": {
+        "width": 1500,
+        "height": 2100,
+        "dpi": 300
+      },
+      "pdfPath": "exports/staff-evaluation-stickers-glossy/Tacos_Gavilan_Sticker_STAFF_5x7in_Vertical.pdf",
+      "pngPath": "exports/staff-evaluation-stickers-glossy/Tacos_Gavilan_Sticker_STAFF_5x7in_Vertical_300DPI.png"
+    },
+    "horizontal": {
+      "dimensionsInches": {
+        "width": 7,
+        "height": 5
+      },
+      "rasterPx": {
+        "width": 2100,
+        "height": 1500,
+        "dpi": 300
+      },
+      "pdfPath": "exports/staff-evaluation-stickers-glossy/Tacos_Gavilan_Sticker_STAFF_7x5in_Horizontal.pdf",
+      "pngPath": "exports/staff-evaluation-stickers-glossy/Tacos_Gavilan_Sticker_STAFF_7x5in_Horizontal_300DPI.png"
+    },
+    "qrSvgPath": "exports/staff-evaluation-stickers-glossy/qr_evaluacion_staff_oficial.svg"
+  }
+}

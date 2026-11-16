@@ -101,6 +101,9 @@ export default function PhoneCallbackAlertBanner({
       const AudioCtx = window.AudioContext || (window as any).webkitAudioContext
       if (!AudioCtx) return
       const ctx = new AudioCtx()
+      if (ctx.state === 'suspended') {
+        void ctx.resume().catch(() => {})
+      }
       const playTone = (freq: number, startOffset: number, duration: number) => {
         const osc = ctx.createOscillator()
         const gain = ctx.createGain()
@@ -305,8 +308,28 @@ export default function PhoneCallbackAlertBanner({
                   {getCallerTypeLabel(cb.caller_type)} • {getUrgencyLabel(cb.urgency)}
                 </span>
                 <span className="font-extrabold">
-                  {cb.caller_name} ({cb.caller_phone})
+                  {cb.caller_name}{' '}
+                  {cb.caller_phone ? (
+                    <a
+                      href={`tel:${cb.caller_phone.replace(/[^+\d]/g, '')}`}
+                      onClick={(e) => e.stopPropagation()}
+                      className="underline decoration-rose-200 hover:text-rose-100"
+                    >
+                      ({cb.caller_phone})
+                    </a>
+                  ) : null}
                 </span>
+                {cb.created_at && (
+                  <span className="ml-2 px-1.5 py-0.5 rounded bg-black/20 text-[10px] font-bold">
+                    ⏱️{' '}
+                    {(() => {
+                      const mins = Math.max(0, Math.floor((Date.now() - new Date(cb.created_at).getTime()) / 60000))
+                      return mins < 1
+                        ? t('phone_agent.banner_elapsed_now')
+                        : t('phone_agent.banner_elapsed_min').replace('{m}', String(mins))
+                    })()}
+                  </span>
+                )}
                 <span className="mx-1.5 opacity-75">•</span>
                 <span className="font-medium">{cb.reason_summary}</span>
                 {cb.ticket_or_order_number && (

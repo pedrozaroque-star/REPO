@@ -97,7 +97,7 @@ import { getCaliforniaBusinessDate, getCaliforniaShift } from '@/lib/business-da
 import { getGeminiKeyPoolWithRemote, VoiceId, resolvePhoneFemaleVoice } from '@/lib/order-ready-tts'
 import { PARTY_TRAY_GUIDELINES } from '@/lib/inventory/party-tray-guidelines'
 import { getOfficialStoreHolidaySchedule, getUpcomingOfficialStoreHolidays } from '@/lib/holidays'
-import { extractPhoneDigits, normalizeUsPhoneE164 } from '@/lib/phone-agent-access'
+import { extractPhoneDigits, isFictitiousNanpPhone, normalizeUsPhoneE164 } from '@/lib/phone-agent-access'
 import {
   expandStreetAbbreviationsInText,
   extractZipCodeFromAddress,
@@ -111,13 +111,13 @@ const GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta/models'
 // ('gemini-3.6-flash' y 'gemini-3.8-flash' se omiten: sufrieron 429/503 y 3.8 rechaza thinking minimal).
 const MODERN_CHAT_MODELS = [
   'gemini-3.5-flash-lite',
-  'gemini-3-flash-preview',
-  'gemini-3.1-flash-lite-preview'
+  'gemini-flash-lite-latest',
+  'gemini-3-flash-preview'
 ]
 const CLASSIC_CHAT_MODELS = [
   'gemini-3.5-flash-lite',
-  'gemini-3-flash-preview',
-  'gemini-3.1-flash-lite-preview'
+  'gemini-flash-lite-latest',
+  'gemini-3-flash-preview'
 ]
 
 const keyQuarantineUntil = new Map<string, number>()
@@ -125,19 +125,47 @@ const modelUnavailableUntil = new Map<string, number>()
 const keyModelCooldownUntil = new Map<string, number>()
 let keyRoundRobin = 0
 
-// Caché en memoria de corta duración para eliminar latencia de DB en cada turno de voz
-const storeMenuRamCache = new Map<number, { items: any[]; fetchedAt: number }>()
+// Cachés en RAM con SWR (Stale-While-Revalidate) y Singleflight para mantener ~0 ms de latencia DB por turno
+interface StoreMenuCacheEntry {
+  items: any[]
+  compactCatalogEs: string
+  compactCatalogEn: string
+  fetchedAt: number
+}
+const storeMenuRamCache = new Map<number, StoreMenuCacheEntry>()
+const storeMenuInFlight = new Map<number, Promise<StoreMenuCacheEntry | null>>()
 const storeContextRamCache = new Map<number, { data: any; fetchedAt: number }>()
+const storeContextInFlight = new Map<number, Promise<any>>()
 let specialHoursRamCache: { rows: any[]; fetchedAt: number } | null = null
+let specialHoursInFlight: Promise<any[]> | null = null
+let allKbRamCache: { rows: any[]; fetchedAt: number } | null = null
+let allKbInFlight: Promise<any[]> | null = null
+const crossStoreCmpRamCache = new Map<string, { text: string; fetchedAt: number }>()
+
+interface PhoneRoutingDirectoryEntry {
+  fetchedAt: number
+  configs: Array<{ store_id: number; twilio_phone_number: string | null }>
+  activeStores: Array<{ id: number; phone: string | null; is_active: boolean | null }>
+}
+let phoneRoutingDirCache: PhoneRoutingDirectoryEntry | null = null
+let phoneRoutingDirInFlight: Promise<PhoneRoutingDirectoryEntry> | null = null
+
+export function invalidatePhoneRoutingDirectoryCache() {
+  phoneRoutingDirCache = null
+}
 
 export function invalidateStorePhoneContextCache(storeId?: number) {
-  allStoresDirectoryCache = null
+  crossStoreCmpRamCache.clear()
   specialHoursRamCache = null
+  allKbRamCache = null
+  invalidatePhoneRoutingDirectoryCache()
   if (storeId && Number.isFinite(storeId)) {
     const id = Number(storeId)
     storeContextRamCache.delete(id)
     storeMenuRamCache.delete(id)
+    allStoresDirectoryCache = null
   } else {
+    allStoresDirectoryCache = null
     storeContextRamCache.clear()
     storeMenuRamCache.clear()
   }
@@ -237,12 +265,18 @@ export function cleanPhoneStoreName(name: string | null | undefined): string {
 /**
  * Convierte una hora en formato "HH:MM" (24h) a minutos desde las 00:00.
  */
+function isClosedTimeToken(raw: unknown): boolean {
+  const s = String(raw || '').trim().toLowerCase()
+  return !s || s === 'closed' || s === 'cerrado' || s === 'cerrada' || s === 'off'
+}
+
 export function parseTimeToMinutes(hhmm: string | null | undefined): number {
-  if (!hhmm || typeof hhmm !== 'string') return 480 // default 08:00
+  if (!hhmm || typeof hhmm !== 'string') return 480
+  if (isClosedTimeToken(hhmm)) return 480
   const parts = hhmm.trim().split(':')
   const h = Number(parts[0])
   const m = Number(parts[1] ?? 0)
-  if (!Number.isFinite(h) || !Number.isFinite(m) || h < 0 || h > 24 || m < 0 || m > 59) return 480
+  if (!Number.isFinite(h) || !Number.isFinite(m) || h < 0 || h > 24 || m < 0 || m > 59 || (h === 24 && m > 0)) return 480
   return h * 60 + m
 }
 
@@ -250,12 +284,13 @@ export function parseTimeToMinutes(hhmm: string | null | undefined): number {
  * Formatea una hora "HH:MM" (24h) en formato limpio de 12 horas (ej. "8:00 AM", "12:00 AM", "12:00 PM")
  * sin paréntesis hablados para que el motor TTS pronuncie las horas con total fluidez.
  */
-export function formatTime12h(hhmm: string | null | undefined, _lang: PhoneLang = 'es'): string {
+export function formatTime12h(hhmm: string | null | undefined, lang: PhoneLang = 'es'): string {
   if (!hhmm) return ''
+  if (isClosedTimeToken(hhmm)) return lang === 'en' ? 'Closed' : 'Cerrado'
   const parts = hhmm.trim().split(':')
   const hRaw = Number(parts[0])
   const m = Number(parts[1] ?? 0)
-  if (!Number.isFinite(hRaw) || !Number.isFinite(m) || hRaw < 0 || hRaw > 24 || m < 0 || m > 59) return hhmm
+  if (!Number.isFinite(hRaw) || !Number.isFinite(m) || hRaw < 0 || hRaw > 24 || m < 0 || m > 59 || (hRaw === 24 && m > 0)) return hhmm
 
   const h = hRaw === 24 ? 0 : hRaw
   const minStr = String(m).padStart(2, '0')
@@ -264,8 +299,19 @@ export function formatTime12h(hhmm: string | null | undefined, _lang: PhoneLang 
   return `${hour12}:${minStr} ${period}`
 }
 
+const PACIFIC_PARTS_DTF = new Intl.DateTimeFormat('en-US', {
+  timeZone: 'America/Los_Angeles',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+  weekday: 'short',
+  hour: '2-digit',
+  minute: '2-digit',
+  hour12: false
+})
+
 /**
- * Extrae las partes de fecha y hora en la zona horaria oficial `America/Los_Angeles`.
+ * Extrae las partes de fecha y hora en la zona horaria oficial `America/Los_Angeles` usando formatter singleton.
  */
 export function getPacificDateParts(now: Date = new Date()): {
   dateStr: string
@@ -276,18 +322,7 @@ export function getPacificDateParts(now: Date = new Date()): {
   minute: number
   currentMinutes: number
 } {
-  const formatter = new Intl.DateTimeFormat('en-US', {
-    timeZone: 'America/Los_Angeles',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    weekday: 'short',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false
-  })
-
-  const parts = formatter.formatToParts(now)
+  const parts = PACIFIC_PARTS_DTF.formatToParts(now)
   const get = (type: string) => parts.find((p) => p.type === type)?.value || ''
 
   const year = Number(get('year'))
@@ -362,12 +397,23 @@ export function normalizeWeeklyHours(raw: unknown): Record<string, StoreSchedule
       return {}
     }
   }
+  const toSlot = (entry: any): StoreScheduleDay | null => {
+    if (!entry) return null
+    if (entry.is_closed === true || isClosedTimeToken(entry.open) || isClosedTimeToken(entry.close)) {
+      return { open: 'CLOSED', close: 'CLOSED' }
+    }
+    if (entry.open && entry.close) {
+      return { open: String(entry.open).trim(), close: String(entry.close).trim() }
+    }
+    return null
+  }
   const out: Record<string, StoreScheduleDay> = {}
   if (Array.isArray(source)) {
     for (const row of source) {
       const day = resolveDayIndex(row?.day)
-      if (day !== null && row?.open && row?.close) {
-        out[String(day)] = { open: String(row.open), close: String(row.close) }
+      const slot = toSlot(row)
+      if (day !== null && slot) {
+        out[String(day)] = slot
       }
     }
     return out
@@ -375,8 +421,9 @@ export function normalizeWeeklyHours(raw: unknown): Record<string, StoreSchedule
   if (source && typeof source === 'object') {
     for (const [k, v] of Object.entries(source as Record<string, any>)) {
       const day = resolveDayIndex(k)
-      if (day !== null && v?.open && v?.close) {
-        out[String(day)] = { open: String(v.open), close: String(v.close) }
+      const slot = toSlot(v)
+      if (day !== null && slot) {
+        out[String(day)] = slot
       }
     }
   }
@@ -410,14 +457,14 @@ function normalizeHhMm(raw: string | null | undefined): string | null {
   if (!match) return null
   const h = Number(match[1])
   const m = Number(match[2])
-  if (!Number.isFinite(h) || !Number.isFinite(m) || h < 0 || h > 24 || m < 0 || m > 59) return null
+  if (!Number.isFinite(h) || !Number.isFinite(m) || h < 0 || h > 24 || m < 0 || m > 59 || (h === 24 && m > 0)) return null
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`
 }
 
 /**
  * Fusiona los días festivos configurados en `phone_special_hours` (override por sucursal > regla global)
  * con las 7 fechas oficiales perpetuas de `lib/holidays.ts`, calculando las horas reales de apertura y cierre
- * para la sucursal consultada (`weeklyHours`).
+ * para la sucursal consultada (`weeklyHours`). Respeta estrictamente el límite superior `<= endDateStr`.
  */
 export function buildEffectiveUpcomingHolidaysForStore(params: {
   storeId: number
@@ -436,6 +483,9 @@ export function buildEffectiveUpcomingHolidaysForStore(params: {
   const { storeId, specialHours = [], fromDateStr, daysAhead = 180 } = params
   const wh = normalizeWeeklyHours(params.weeklyHours)
   const officialUpcoming = getUpcomingOfficialStoreHolidays(fromDateStr, daysAhead)
+  const endUtc = new Date(`${fromDateStr}T12:00:00Z`)
+  endUtc.setUTCDate(endUtc.getUTCDate() + Math.max(1, Math.trunc(daysAhead)))
+  const endDateStr = Number.isNaN(endUtc.getTime()) ? '9999-12-31' : endUtc.toISOString().slice(0, 10)
 
   const allDates = new Set<string>()
   const numericStoreId = Number(storeId)
@@ -443,6 +493,7 @@ export function buildEffectiveUpcomingHolidaysForStore(params: {
     if (
       s?.event_date &&
       s.event_date >= fromDateStr &&
+      s.event_date <= endDateStr &&
       (s.store_id === null || Number(s.store_id) === numericStoreId)
     ) {
       allDates.add(s.event_date)
@@ -457,6 +508,7 @@ export function buildEffectiveUpcomingHolidaysForStore(params: {
   return sortedDates.map((dStr) => {
     const dow = new Date(`${dStr}T12:00:00Z`).getUTCDay()
     const regular = wh[String(dow)] || { open: '10:00', close: '00:00' }
+    const regularClosed = isClosedTimeToken(regular.open) || isClosedTimeToken(regular.close)
 
     const storeSpecific = specialHours.find(
       (s) => s.event_date === dStr && s.store_id !== null && Number(s.store_id) === numericStoreId
@@ -467,8 +519,14 @@ export function buildEffectiveUpcomingHolidaysForStore(params: {
     if (dbMatch) {
       const openOverride = normalizeHhMm(dbMatch.open_time)
       const closeOverride = normalizeHhMm(dbMatch.close_time)
-      const isClosed = Boolean(dbMatch.is_closed)
-      const effectiveOpen = isClosed ? 'CLOSED' : openOverride || regular.open
+      const isClosed = Boolean(dbMatch.is_closed) || (!openOverride && !closeOverride && regularClosed)
+      let effectiveOpen = regular.open
+      if (!isClosed && openOverride) {
+        effectiveOpen =
+          !storeSpecific && !regularClosed && parseTimeToMinutes(openOverride) < parseTimeToMinutes(regular.open)
+            ? regular.open
+            : openOverride
+      }
       const effectiveClose = isClosed ? 'CLOSED' : closeOverride || regular.close
       return {
         event_date: dStr,
@@ -573,7 +631,7 @@ export function evaluateStoreSchedulePure(params: {
   const formatHolidayForParenhEs = (raw: string | null | undefined) => {
     const s = String(raw || '').trim()
     if (!s) return ''
-    return s.replace(/\s*\(([^)]*)\)/g, ', $1').replace(/\s+,/g, ',').trim()
+    return s.replace(/\s*\(([^)]*)\)/g, ' — $1').replace(/\s+,/g, ',').trim()
   }
   const formatHolidayForParenEn = (raw: string | null | undefined) => {
     const s = expandHolidayMonthsEn(raw).trim()
@@ -583,13 +641,21 @@ export function evaluateStoreSchedulePure(params: {
 
   const getScheduleForDay = (dayIdx: number, dStr: string) => {
     const regular = wh[String(dayIdx)] || { open: '10:00', close: '00:00' }
+    const regularClosed = isClosedTimeToken(regular.open) || isClosedTimeToken(regular.close)
     const sp = findSpecialForDate(dStr)
     if (sp) {
       const openOverride = normalizeHhMm(sp.open_time)
       const closeOverride = normalizeHhMm(sp.close_time)
+      let effOpen = regular.open
+      if (openOverride) {
+        effOpen =
+          sp.store_id === null && !regularClosed && parseTimeToMinutes(openOverride) < parseTimeToMinutes(regular.open)
+            ? regular.open
+            : openOverride
+      }
       return {
-        isClosedAllDay: Boolean(sp.is_closed),
-        open: openOverride || regular.open,
+        isClosedAllDay: Boolean(sp.is_closed) || (!openOverride && !closeOverride && regularClosed),
+        open: effOpen,
         close: closeOverride || regular.close,
         isSpecial: true,
         holidayName: localizeHolidayLabel(sp.holiday_name, 'es', dStr) || sp.holiday_name,
@@ -615,9 +681,9 @@ export function evaluateStoreSchedulePure(params: {
     }
 
     return {
-      isClosedAllDay: false,
-      open: regular.open || '10:00',
-      close: regular.close || '00:00',
+      isClosedAllDay: regularClosed,
+      open: regularClosed ? 'CLOSED' : regular.open || '10:00',
+      close: regularClosed ? 'CLOSED' : regular.close || '00:00',
       isSpecial: false,
       holidayName: null as string | null,
       holidayNameEn: null as string | null
@@ -650,6 +716,13 @@ export function evaluateStoreSchedulePure(params: {
       const closeEn = formatTime12h(yesterdaySched.close, 'en')
       const dayEs = DAY_NAMES_ES[pt.yesterdayDayOfWeek]
       const dayEn = DAY_NAMES_EN[pt.yesterdayDayOfWeek]
+      const todayCalSched = getScheduleForDay(pt.dayOfWeek, pt.dateStr)
+      const closedDayNoteEs = todayCalSched.isClosedAllDay
+        ? ` (Nota: después de cerrar ${atTimeEs(closeEs)}, permaneceremos cerrados el resto del día por ${cleanSpokenHoliday(todayCalSched.holidayName) || 'día festivo'})`
+        : ''
+      const closedDayNoteEn = todayCalSched.isClosedAllDay
+        ? ` (Note: after closing at ${closeEn}, we remain closed for the rest of the day for ${cleanSpokenHoliday(todayCalSched.holidayNameEn || todayCalSched.holidayName) || 'the holiday'})`
+        : ''
 
       return {
         storeId,
@@ -665,10 +738,10 @@ export function evaluateStoreSchedulePure(params: {
         todayOpenFormattedEn: openEn,
         todayCloseFormattedEn: closeEn,
         isAfterMidnightSpillover: true,
-        isSpecialHolidaySchedule: yesterdaySched.isSpecial,
-        specialHolidayName: yesterdaySched.holidayName,
-        statusMessageEs: `La sucursal ${storeName} está ABIERTA en este momento; nuestro turno nocturno de ${dayEs} cierra hoy ${atTimeEs(closeEs)}.`,
-        statusMessageEn: `Our ${storeName} location is OPEN right now; our ${dayEn} late-night shift closes at ${closeEn}.`,
+        isSpecialHolidaySchedule: yesterdaySched.isSpecial || todayCalSched.isSpecial,
+        specialHolidayName: todayCalSched.holidayName || yesterdaySched.holidayName,
+        statusMessageEs: `La sucursal ${storeName} está ABIERTA en este momento; nuestro turno nocturno de ${dayEs} cierra hoy ${atTimeEs(closeEs)}${closedDayNoteEs}.`,
+        statusMessageEn: `Our ${storeName} location is OPEN right now; our ${dayEn} late-night shift closes at ${closeEn}${closedDayNoteEn}.`,
         closedGreetingPromptEs: null,
         closedGreetingPromptEn: null,
         weeklySummaryEs: buildWeeklySummary(wh, 'es'),
@@ -873,7 +946,12 @@ function buildWeeklySummary(wh: Record<string, StoreScheduleDay>, lang: PhoneLan
   for (let d = 0; d <= 6; d++) {
     const slot = wh[String(d)]
     if (!slot) continue
-    parts.push(`${names[d]}: ${formatTime12h(slot.open, lang)} - ${formatTime12h(slot.close, lang)}`)
+    const closed = isClosedTimeToken(slot.open) || isClosedTimeToken(slot.close)
+    parts.push(
+      closed
+        ? `${names[d]}: ${lang === 'en' ? 'Closed' : 'Cerrado'}`
+        : `${names[d]}: ${formatTime12h(slot.open, lang)} - ${formatTime12h(slot.close, lang)}`
+    )
   }
   return parts.join(' | ')
 }
@@ -904,7 +982,10 @@ export function buildCompactWeeklyHours(rawWeeklyHours: unknown, lang: PhoneLang
   return groups
     .map((g) => {
       const dayLabel = g.start === g.end ? names[g.start] : `${names[g.start]}-${names[g.end]}`
-      return `${dayLabel} ${formatTime12h(g.open, lang)}-${formatTime12h(g.close, lang)}`
+      const closed = isClosedTimeToken(g.open) || isClosedTimeToken(g.close)
+      return closed
+        ? `${dayLabel} ${lang === 'en' ? 'Closed' : 'Cerrado'}`
+        : `${dayLabel} ${formatTime12h(g.open, lang)}-${formatTime12h(g.close, lang)}`
     })
     .join('; ')
 }
@@ -924,10 +1005,18 @@ export function buildCrossStoreHoursComparison(
   stores: Array<{ id: number; name: string; has_drive_thru?: boolean; weekly_hours: unknown }>,
   lang: PhoneLang,
   specialHours: any[] = [],
-  now: Date = new Date()
+  now?: Date
 ): string {
   if (!Array.isArray(stores) || stores.length === 0) return ''
-  const ptNow = getPacificDateParts(now)
+  const useCache = !now
+  const cacheKey = `${lang}:${stores.length}:${specialHours.length}`
+  if (useCache) {
+    const cachedCmp = crossStoreCmpRamCache.get(cacheKey)
+    if (cachedCmp && Date.now() - cachedCmp.fetchedAt < 30_000) {
+      return cachedCmp.text
+    }
+  }
+  const ptNow = getPacificDateParts(now || new Date())
 
   const shortEs = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb']
   const shortEn = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
@@ -1039,11 +1128,17 @@ export function buildCrossStoreHoursComparison(
     if (openCalToday.length > 0) {
       const maxClose = Math.max(...openCalToday.map((x) => x.closeEff))
       const latest = openCalToday.filter((x) => x.closeEff === maxClose)
-      todayLatestStr = `${joinAnd(latest.map((x) => x.name))} (${latest[0].closeFmt})`
+      todayLatestStr =
+        latest.length >= 10 && latest.length === openCalToday.length
+          ? `${lang === 'en' ? 'All open locations' : 'Todas las sucursales abiertas'} (${latest[0].closeFmt})`
+          : `${joinAnd(latest.map((x) => x.name))} (${latest[0].closeFmt})`
 
       const minOpen = Math.min(...openCalToday.map((x) => x.openMin))
       const earliest = openCalToday.filter((x) => x.openMin === minOpen)
-      todayEarliestStr = `${joinAnd(earliest.map((x) => x.name))} (${earliest[0].openFmt})`
+      todayEarliestStr =
+        earliest.length >= 10 && earliest.length === openCalToday.length
+          ? `${lang === 'en' ? 'All open locations' : 'Todas las sucursales abiertas'} (${earliest[0].openFmt})`
+          : `${joinAnd(earliest.map((x) => x.name))} (${earliest[0].openFmt})`
     }
 
     const dailyLatestClose: Array<{ d: number; text: string }> = []
@@ -1052,7 +1147,7 @@ export function buildCrossStoreHoursComparison(
       const dayEntries = normalized
         .map((s) => {
           const slot = s.wh[String(d)]
-          if (!slot) return null
+          if (!slot || isClosedTimeToken(slot.open) || isClosedTimeToken(slot.close)) return null
           return {
             name: s.name,
             open: slot.open,
@@ -1111,7 +1206,9 @@ export function buildCrossStoreHoursComparison(
         `- DRIVE-THRU ONLY (${dtSummary.count} stores: ${dtSummary.names.join(', ')}) -> Today (${dtSummary.todayLabel}): latest close ${dtSummary.todayLatestStr} | earliest open ${dtSummary.todayEarliestStr} | Latest close by day (Drive-Thru): ${dtSummary.weeklyLatestStr} | Earliest open (Drive-Thru): ${dtSummary.weeklyEarliestStr}`
       )
     }
-    return lines.join('\n')
+    const outEn = lines.join('\n')
+    if (useCache) crossStoreCmpRamCache.set(cacheKey, { text: outEn, fetchedAt: Date.now() })
+    return outEn
   }
 
   const lines = [
@@ -1128,7 +1225,9 @@ export function buildCrossStoreHoursComparison(
       `- SOLO CON DRIVE-THRU (${dtSummary.count} sucursales: ${dtSummary.names.join(', ')}) -> Hoy (${dtSummary.todayLabel}): cierra más tarde ${dtSummary.todayLatestStr} | abre más temprano ${dtSummary.todayEarliestStr} | Cierre más tarde por día (Drive-Thru): ${dtSummary.weeklyLatestStr} | Apertura más temprana (Drive-Thru): ${dtSummary.weeklyEarliestStr}`
     )
   }
-  return lines.join('\n')
+  const outEs = lines.join('\n')
+  if (useCache) crossStoreCmpRamCache.set(cacheKey, { text: outEs, fetchedAt: Date.now() })
+  return outEs
 }
 
 /**
@@ -1292,8 +1391,10 @@ export function recommendFiestaPlatters(guestCountInput?: number | null) {
         descPartsEs.push(`${q} ${q === 1 ? 'paquete' : 'paquetes'} de ${sizeLabel} personas ($${packages[i].price.toFixed(2)}${q > 1 ? ' c/u' : ''})`)
         descPartsEn.push(`${q} × ${sizeLabelEn} people ${q === 1 ? 'package' : 'packages'} ($${packages[i].price.toFixed(2)}${q > 1 ? ' each' : ''})`)
       }
-      recommendationEs = `Para ${guests} personas la combinación más económica es ${descPartsEs.join(' + ')} (cubre ${bestCombo.minCap} a ${bestCombo.maxCap} personas, total $${bestCombo.total.toFixed(2)}).`
-      recommendationEn = `For ${guests} guests the most cost-effective combination is ${descPartsEn.join(' + ')} (serves ${bestCombo.minCap} to ${bestCombo.maxCap} guests, total $${bestCombo.total.toFixed(2)}).`
+      const countDisplay = guests > 500 ? `${cappedGuests} (máximo cotizable por paquete directo)` : String(guests)
+      const countDisplayEn = guests > 500 ? `${cappedGuests} (max per automated package quote)` : String(guests)
+      recommendationEs = `Para ${countDisplay} personas la combinación más económica es ${descPartsEs.join(' + ')} (cubre ${bestCombo.minCap} a ${bestCombo.maxCap} personas, total $${bestCombo.total.toFixed(2)}).`
+      recommendationEn = `For ${countDisplayEn} guests the most cost-effective combination is ${descPartsEn.join(' + ')} (serves ${bestCombo.minCap} to ${bestCombo.maxCap} guests, total $${bestCombo.total.toFixed(2)}).`
     }
   }
 
@@ -1398,32 +1499,68 @@ export function getCarrierForwardingInstructions(
 /**
  * Carga (con caché RAM de 5 min) los productos disponibles del menú oficial en línea (`app_menu_cache`) de una sucursal.
  */
-export async function loadStoreMenuItems(storeId: number): Promise<any[]> {
+async function loadStoreMenuEntry(storeId: number, storeNameFallback = ''): Promise<StoreMenuCacheEntry> {
   const now = Date.now()
   const cachedMenu = storeMenuRamCache.get(storeId)
-  if (cachedMenu && now - cachedMenu.fetchedAt <= 5 * 60 * 1000) return cachedMenu.items
+  if (cachedMenu && now - cachedMenu.fetchedAt <= 60 * 1000) return cachedMenu
 
-  const { data: items, error } = await supabaseAdmin
-    .from('app_menu_cache')
-    .select('name, description, price, category_name, is_available')
-    .eq('store_id', storeId)
-    .eq('is_available', true)
-
-  if (error || !Array.isArray(items)) {
-    // Si falla la lectura pero había caché vieja, es mejor usarla que dejar a la IA sin precios
-    return cachedMenu?.items || []
-  }
-  const sanitized = items.map((item: any) => {
-    if (item?.name && /\blengua\b/i.test(String(item.name)) && item?.description && /Steamed Beef Head/i.test(String(item.description))) {
-      return {
-        ...item,
-        description: String(item.description).replace(/Steamed Beef Head/gi, 'Steamed Beef Tongue')
-      }
+  const refresh = async (): Promise<StoreMenuCacheEntry> => {
+    let job = storeMenuInFlight.get(storeId)
+    if (!job) {
+      job = (async () => {
+        const { data: items, error } = await supabaseAdmin
+          .from('app_menu_cache')
+          .select('name, description, price, category_name, is_available')
+          .eq('store_id', storeId)
+          .eq('is_available', true)
+        if (error || !Array.isArray(items)) {
+          return cachedMenu || null
+        }
+        const sanitized = items.map((item: any) => {
+          if (item?.name && /\blengua\b/i.test(String(item.name)) && item?.description && /Steamed Beef Head/i.test(String(item.description))) {
+            return {
+              ...item,
+              description: String(item.description).replace(/Steamed Beef Head/gi, 'Steamed Beef Tongue')
+            }
+          }
+          return item
+        })
+        const storeLabel = storeNameFallback || `Sucursal #${storeId}`
+        const entry: StoreMenuCacheEntry = {
+          items: sanitized,
+          compactCatalogEs: buildLiveMenuCatalogText(storeLabel, sanitized, { includeFiestaPlat: false }),
+          compactCatalogEn: buildLiveMenuCatalogText(storeLabel, sanitized, { includeFiestaPlat: false }),
+          fetchedAt: Date.now()
+        }
+        storeMenuRamCache.set(storeId, entry)
+        return entry
+      })().finally(() => {
+        storeMenuInFlight.delete(storeId)
+      })
+      storeMenuInFlight.set(storeId, job)
     }
-    return item
-  })
-  storeMenuRamCache.set(storeId, { items: sanitized, fetchedAt: now })
-  return sanitized
+    const res = await job
+    return (
+      res ||
+      cachedMenu || {
+        items: [],
+        compactCatalogEs: buildLiveMenuCatalogText(storeNameFallback || `Sucursal #${storeId}`, []),
+        compactCatalogEn: buildLiveMenuCatalogText(storeNameFallback || `Sucursal #${storeId}`, []),
+        fetchedAt: now
+      }
+    )
+  }
+
+  if (cachedMenu && now - cachedMenu.fetchedAt <= 5 * 60 * 1000) {
+    void refresh().catch(() => null)
+    return cachedMenu
+  }
+  return refresh()
+}
+
+export async function loadStoreMenuItems(storeId: number): Promise<any[]> {
+  const entry = await loadStoreMenuEntry(storeId)
+  return entry.items
 }
 
 const STANDARD_SINGLE_MEAT_PREFIX_RE =
@@ -1446,7 +1583,36 @@ function normalizeToastMenuPrep(rawDesc: string): string {
  * (ej. "- Tacos: Taco Asada, Taco Pastor, ...: $2.29 [Prep Toast: ...]"). Incluye las descripciones reales de Toast
  * (`app_menu_cache.description`) de forma compacta para responder con exactitud qué lleva cada platillo y la diferencia Regular vs Super.
  */
-export function buildLiveMenuCatalogText(storeName: string, items: any[]): string {
+function compactNameGroupList(names: string[]): string {
+  if (names.length <= 2) return names.join(', ')
+  // Detectar prefijo común (ej. "Super Burrito Asada", "Super Burrito Pastor" -> "Super Burrito [Asada, Pastor, ...]")
+  const tokenized = names.map((n) => n.trim().split(/\s+/))
+  const minWords = Math.min(...tokenized.map((w) => w.length))
+  if (minWords >= 2) {
+    let prefixLen = 0
+    for (let k = 0; k < minWords - 1; k++) {
+      const ref = tokenized[0][k]
+      if (tokenized.every((w) => w[k] === ref)) {
+        prefixLen = k + 1
+      } else {
+        break
+      }
+    }
+    if (prefixLen >= 1) {
+      const prefix = tokenized[0].slice(0, prefixLen).join(' ')
+      const suffixes = tokenized.map((w) => w.slice(prefixLen).join(' '))
+      return `${prefix} [${suffixes.join(', ')}]`
+    }
+  }
+  return names.join(', ')
+}
+
+export function buildLiveMenuCatalogText(
+  storeName: string,
+  items: any[],
+  opts?: { includeFiestaPlat?: boolean }
+): string {
+  const includeFiestaPlat = opts?.includeFiestaPlat !== false
   const byCategory = new Map<
     string,
     {
@@ -1459,6 +1625,7 @@ export function buildLiveMenuCatalogText(storeName: string, items: any[]): strin
     const name = String(it?.name || '').trim()
     if (!name || !Number.isFinite(price) || price <= 0) continue
     const category = String(it?.category_name || 'Otros').trim()
+    if (!includeFiestaPlat && /fiesta\s*platter/i.test(category)) continue
     if (!byCategory.has(category)) byCategory.set(category, { priceGroups: new Map(), itemPreps: [] })
     const entry = byCategory.get(category)!
     const priceKey = price.toFixed(2)
@@ -1479,7 +1646,7 @@ export function buildLiveMenuCatalogText(storeName: string, items: any[]): strin
   for (const [category, entry] of byCategory) {
     const segments = Array.from(entry.priceGroups.entries())
       .sort((a, b) => Number(b[0]) - Number(a[0]))
-      .map(([price, names]) => `${names.join(', ')}: $${price}`)
+      .map(([price, names]) => `${compactNameGroupList(names)}: $${price}`)
 
     let prepSuffix = ''
     if (entry.itemPreps.length > 0) {
@@ -1514,155 +1681,36 @@ export function buildLiveMenuCatalogText(storeName: string, items: any[]): strin
 
     lines.push(`- ${category}: ${segments.join(' | ')}${prepSuffix}`)
   }
-  return `CATÁLOGO COMPLETO DE PRECIOS Y PREPARACIÓN EN VIVO DE ${storeName.toUpperCase()} (menú oficial Toast POS; usa "Prep Toast" para explicar ingredientes exactos sin inventar; nombres en inglés tal como aparecen en el menú, ej. "Large" = Grande, "Medium" = Mediana, "Beans" = Frijol, "Rice" = Arroz):\n${lines.join('\n')}`
+  lines.push(
+    '- Bebidas Físicas y Sabores Oficiales: Mediana = vaso ELDP22 22 oz ($3.59), Grande = vaso ELDP32 32 oz ($4.09), Galón Agua Fresca = 128 oz ($14.59, ~5 medianos). Sabores Agua Fresca: Horchata, Jamaica, Piña y Tamarindo (NO Pepino). Champurrado individual = vaso térmico ELSDR16 16 oz ($4.09); Caja Champurrado 96 oz ($27.89, 6×16 oz + 8 vasitos 12 oz). Café = vaso 16 oz ($2.59). Agua Embotellada ($1.19).'
+  )
+  lines.push(
+    '- Quesos y Desayunos Oficiales: Tortas (Cubana, Milanesa, etc.) = Queso Fresco en rebanada (NUNCA crema ni queso fundido; sí mayonesa y aguacate). Quesadillas/Mulitas/Super Burritos = Queso blanco Monterey Jack fundido. Sopes/Platos/Taco Plate/Desayunos = Queso Cotija (Sope Queso añade Queso Fresco). Super Nachos = Queso Amarillo caliente Nacho Cheese. Breakfast: Burrito Huevo ($9.19 c/arroz y frijol), Plato Huevos ($10.59 c/arroz, frijol c/cotija, ensalada y tortillas), Torta Huevo ($9.69).'
+  )
+  return `CATÁLOGO EN VIVO DE ${storeName.toUpperCase()} (Toast POS; "Large"=Grande, "Medium"=Mediana):\n${lines.join('\n')}`
 }
 
 /**
- * Busca precios reales en `app_menu_cache` para una sucursal con tolerancia a tildes, mayúsculas
- * y sinónimos bilingües Español <-> Inglés (ej. "grande" <-> "large", "mediana" <-> "medium", "galon" <-> "gallon").
+ * Normaliza colisiones fonéticas frecuentes de Speech-to-Text en telefonía/navegador para tacos, bebidas y servicios
+ * (ej. "torta corona" -> "torta cubana", "salad burrito" -> "asada burrito", "muleta" -> "mulita", "driver" -> "drive-thru").
  */
-export async function searchStoreMenuPrices(storeId: number, query: string, limit: number = 12) {
-  const stopWords = new Set([
-    'de', 'el', 'la', 'los', 'las', 'un', 'una', 'unos', 'unas', 'con', 'por', 'para', 'del', 'al', 'que',
-    'cuesta', 'cuanto', 'precio', 'precios', 'tienen', 'hay', 'me', 'puedes', 'decir', 'hola', 'quiero',
-    'saber', 'how', 'much', 'is', 'the', 'and', 'for', 'do', 'you', 'have', 'can', 'tell', 'cost'
-  ])
-  const synonymMap: Record<string, string[]> = {
-    grande: ['large'],
-    grandes: ['large'],
-    large: ['grande'],
-    mediana: ['medium'],
-    mediano: ['medium'],
-    medianas: ['medium'],
-    medium: ['mediana', 'mediano'],
-    galon: ['gallon'],
-    galones: ['gallon'],
-    gallon: ['galon'],
-    agua: ['horchata', 'jamaica', 'pina', 'tamarindo', 'lemonade', 'water', 'fresca'],
-    aguas: ['horchata', 'jamaica', 'pina', 'tamarindo', 'fresca'],
-    fresca: ['agua', 'horchata', 'jamaica', 'pina', 'tamarindo'],
-    frijol: ['beans', 'frijol'],
-    frijoles: ['beans', 'frijol'],
-    arroz: ['rice'],
-    queso: ['cheese', 'queso'],
-    crema: ['sour', 'cream'],
-    cafe: ['coffee'],
-    coca: ['coke'],
-    totopos: ['chips'],
-    limonada: ['lemonade'],
-    helado: ['iced', 'tea'],
-    te: ['tea', 'iced'],
-    refresco: ['coke', 'sprite', 'fanta'],
-    soda: ['coke', 'sprite', 'fanta'],
-    postre: ['flan', 'cheesecake'],
-    postres: ['flan', 'cheesecake'],
-    desayuno: ['huevos', 'breakfast'],
-    huevo: ['huevos', 'breakfast'],
-    milanesa: ['breaded', 'milanesa'],
-    breaded: ['milanesa'],
-    jamon: ['ham', 'jamon'],
-    ham: ['jamon'],
-    salchicha: ['wiener', 'salchicha'],
-    wiener: ['salchicha'],
-  }
-
-  const normQuery = normalizeSearchText(query)
-  const rawTokens = normQuery
-    .split(/\s+/)
-    .filter((t) => (t.length >= 3 || t === 'oz' || t === 'te') && !stopWords.has(t))
-
-  const directTokens = new Set<string>()
-  const synonymTokens = new Set<string>()
-  for (const tok of rawTokens) {
-    directTokens.add(tok)
-    if (tok.length > 4 && tok.endsWith('es')) {
-      directTokens.add(tok.slice(0, -2))
-    } else if (tok.length > 4 && tok.endsWith('s')) {
-      directTokens.add(tok.slice(0, -1))
-    }
-    const syns = synonymMap[tok]
-    if (syns) {
-      for (const s of syns) {
-        if (!directTokens.has(s)) synonymTokens.add(s)
-      }
-    }
-  }
-  const directList = Array.from(directTokens)
-  const synonymList = Array.from(synonymTokens).filter((s) => !directTokens.has(s))
-  const allSearchTokens = [...directList, ...synonymList]
-
-  const items = await loadStoreMenuItems(storeId)
-  if (items.length === 0) return []
-
-  // Asegurar cobertura multi-platillo priorizando coincidencias directas antes que sinónimos
-  const pickedMap = new Map<string, { item: any; score: number }>()
-
-  for (const tok of allSearchTokens) {
-    const isDirect = directTokens.has(tok)
-    const baseScore = isDirect ? 30 : 10
-    const tokenMatches = items
-      .filter((it) => normalizeSearchText(it.name).includes(tok))
-      .slice(0, 4)
-    for (const m of tokenMatches) {
-      const prev = pickedMap.get(m.name)
-      if (!prev || baseScore > prev.score) {
-        pickedMap.set(m.name, { item: m, score: baseScore })
-      }
-    }
-  }
-
-  for (const item of items) {
-    const metaHay = normalizeSearchText(`${item.category_name || ''} ${item.description || ''}`)
-    const nameNorm = normalizeSearchText(item.name)
-    let score = 0
-    let directNameMatches = 0
-    let synNameMatches = 0
-    if (nameNorm === normQuery) score += 140
-    if (normQuery.length >= 4 && nameNorm.includes(normQuery)) score += 70
-    for (const tok of directList) {
-      if (nameNorm.includes(tok)) {
-        score += 45
-        directNameMatches++
-      } else if (metaHay.includes(tok)) {
-        score += 15
-      }
-    }
-    for (const syn of synonymList) {
-      if (nameNorm.includes(syn)) {
-        score += 12
-        synNameMatches++
-      } else if (metaHay.includes(syn)) {
-        score += 5
-      }
-    }
-    if (directNameMatches >= 2) {
-      score += directNameMatches * 30
-    } else if (directNameMatches + synNameMatches >= 2) {
-      score += 12
-    }
-    if (score > 0) {
-      const prev = pickedMap.get(item.name)
-      if (!prev || score > prev.score) {
-        pickedMap.set(item.name, { item, score })
-      }
-    }
-  }
-
-  const scored = Array.from(pickedMap.values())
-    .sort((a, b) => b.score - a.score)
-    .slice(0, limit)
-    .map((entry) => ({
-      name: entry.item.name,
-      category: entry.item.category_name || 'Menú',
-      price: Number(entry.item.price || 0),
-      priceFormatted: `$${Number(entry.item.price || 0).toFixed(2)}`,
-      description: entry.item.description || ''
-    }))
-
-  return scored
+export function normalizePhoneSttTranscript(rawText: string): string {
+  return String(rawText || '')
+    .replace(/\btorta(?:s)?\s+corona\b/gi, 'torta cubana')
+    .replace(/\b(?:a\s+)?salad\s+burritos?\b/gi, 'asada burrito')
+    .replace(/\bmuletas\b/gi, 'mulitas')
+    .replace(/\bmuleta\b/gi, 'mulita')
+    .replace(/\bch[ao]mpur?ado\b/gi, 'champurrado')
+    .replace(/\bchapurrado\b/gi, 'champurrado')
+    .replace(/\blingua\b/gi, 'lengua')
+    .replace(/\b(?:puche|guche)\b/gi, 'buche')
+    .replace(/\b(tienen|tiene|con|hay|su|las?|los?)\s+drivers?\b/gi, '$1 drive-thru')
+    .replace(/\b(drive\s*tru|dry\s*thru)\b/gi, 'drive-thru')
+    .replace(/\b(?:call|car)\s+fresh\b/gi, 'calfresh')
+    .replace(/\b(?:e\s+b\s+t|i\s+b\s+t)\b/gi, 'ebt')
 }
 
-function rankMenuItemsForPrompt(items: any[], query: string, limit: number = 12) {
+export function rankMenuItemsForPrompt(items: any[], query: string, limit: number = 12) {
   if (!Array.isArray(items) || items.length === 0) return []
   const stopWords = new Set([
     'de', 'el', 'la', 'los', 'las', 'un', 'una', 'unos', 'unas', 'con', 'por', 'para', 'del', 'al', 'que',
@@ -1676,6 +1724,13 @@ function rankMenuItemsForPrompt(items: any[], query: string, limit: number = 12)
     agua: ['horchata', 'jamaica', 'pina', 'tamarindo', 'lemonade', 'water', 'fresca'],
     aguas: ['horchata', 'jamaica', 'pina', 'tamarindo', 'fresca'],
     fresca: ['agua', 'horchata', 'jamaica', 'pina', 'tamarindo'],
+    embotellada: ['bottled', 'water'],
+    botella: ['bottled', 'water'],
+    bottled: ['water', 'embotellada'],
+    water: ['bottled', 'agua'],
+    fresa: ['strawberry'],
+    naranja: ['orange'],
+    dieta: ['diet'],
     frijol: ['beans', 'frijol'], frijoles: ['beans', 'frijol'],
     arroz: ['rice'], queso: ['cheese', 'queso'], crema: ['sour', 'cream'],
     cafe: ['coffee'], coca: ['coke'], totopos: ['chips'],
@@ -1687,17 +1742,30 @@ function rankMenuItemsForPrompt(items: any[], query: string, limit: number = 12)
     jamon: ['ham', 'jamon'], ham: ['jamon'],
     salchicha: ['wiener', 'salchicha'], wiener: ['salchicha'],
   }
-  const normQuery = normalizeSearchText(query)
+  const fixedQuery = normalizePhoneSttTranscript(query)
+  const normQuery = normalizeSearchText(fixedQuery)
   const rawTokens = normQuery
     .split(/\s+/)
     .filter((t) => (t.length >= 3 || t === 'oz' || t === 'te') && !stopWords.has(t))
+
+  const isBottledQuery = rawTokens.includes('embotellada') || rawTokens.includes('botella') || rawTokens.includes('bottled')
+  const wantsFiesta = /fiesta|platter|charola|paquete|persona|people|catering/i.test(normQuery)
 
   const directTokens = new Set<string>()
   const synonymTokens = new Set<string>()
   for (const tok of rawTokens) {
     directTokens.add(tok)
-    if (tok.length > 4 && tok.endsWith('es')) directTokens.add(tok.slice(0, -2))
-    else if (tok.length > 4 && tok.endsWith('s')) directTokens.add(tok.slice(0, -1))
+    // Quitar 's' simple en sustantivos (sopes->sope, tortas->torta, mulitas->mulita) y '-es' solo en terminaciones castellanas reales (-nes/-res/-les/-mes/-ces)
+    if (tok.length > 4 && /(?:ciones|siones|nes|res|les|mes|ces)$/.test(tok)) {
+      directTokens.add(tok.slice(0, -2))
+    } else if (tok.length > 4 && tok.endsWith('s')) {
+      directTokens.add(tok.slice(0, -1))
+    }
+    if (tok === 'agua' && isBottledQuery) {
+      synonymTokens.add('bottled')
+      synonymTokens.add('water')
+      continue
+    }
     const syns = synonymMap[tok]
     if (syns) for (const s of syns) if (!directTokens.has(s)) synonymTokens.add(s)
   }
@@ -1726,11 +1794,14 @@ function rankMenuItemsForPrompt(items: any[], query: string, limit: number = 12)
       else if (metaHay.includes(tok)) score += 15
     }
     for (const syn of synonymList) {
-      if (nameNorm.includes(syn)) { score += 12; synNameMatches++ }
+      if (nameNorm.includes(syn)) { score += 28; synNameMatches++ }
       else if (metaHay.includes(syn)) score += 5
     }
     if (directNameMatches >= 2) score += directNameMatches * 30
-    else if (directNameMatches + synNameMatches >= 2) score += 12
+    else if (directNameMatches + synNameMatches >= 2) score += 14
+    if (!wantsFiesta && /fiesta\s*platter/i.test(String(item.category_name || ''))) {
+      score = Math.max(0, score - 25)
+    }
     if (score > 0) {
       const prev = pickedMap.get(item.name)
       if (!prev || score > prev.score) pickedMap.set(item.name, { item, score })
@@ -1748,6 +1819,14 @@ function rankMenuItemsForPrompt(items: any[], query: string, limit: number = 12)
     }))
 }
 
+/**
+ * Busca precios reales en `app_menu_cache` para una sucursal delegando en `rankMenuItemsForPrompt`.
+ */
+export async function searchStoreMenuPrices(storeId: number, query: string, limit: number = 12) {
+  const items = await loadStoreMenuItems(storeId)
+  return rankMenuItemsForPrompt(items, query, limit)
+}
+
 let allStoresDirectoryCache: {
   fetchedAt: number
   stores: Array<{
@@ -1762,55 +1841,210 @@ let allStoresDirectoryCache: {
   }>
 } | null = null
 
+let allStoresInFlight: Promise<any[]> | null = null
+
 export async function loadAllActiveStoresDirectory() {
   const now = Date.now()
-  if (allStoresDirectoryCache && now - allStoresDirectoryCache.fetchedAt < 5 * 60 * 1000) {
+  if (allStoresDirectoryCache && now - allStoresDirectoryCache.fetchedAt < 60 * 1000) {
     return allStoresDirectoryCache.stores
   }
-  const { data, error } = await supabaseAdmin
-    .from('stores')
-    .select('id, name, address, phone, has_drive_thru, weekly_hours, is_active')
-    .eq('is_active', true)
-    .order('id', { ascending: true })
-  if (error || !data || data.length === 0) {
-    return allStoresDirectoryCache?.stores || []
+  const fetchStores = async () => {
+    if (allStoresInFlight) return allStoresInFlight
+    allStoresInFlight = (async () => {
+      const { data, error } = await supabaseAdmin
+        .from('stores')
+        .select('id, name, address, phone, has_drive_thru, weekly_hours, is_active')
+        .eq('is_active', true)
+        .order('id', { ascending: true })
+      if (error || !data || data.length === 0) {
+        return allStoresDirectoryCache?.stores || []
+      }
+      const stores = data.map((s: any) => ({
+        id: Number(s.id),
+        name: cleanPhoneStoreName(s.name),
+        address: String(s.address || ''),
+        phone: String(s.phone || ''),
+        has_drive_thru: Boolean(s.has_drive_thru),
+        weekly_hours: s.weekly_hours || null,
+        compactHoursEs: buildCompactWeeklyHours(s.weekly_hours, 'es'),
+        compactHoursEn: buildCompactWeeklyHours(s.weekly_hours, 'en')
+      }))
+      allStoresDirectoryCache = { fetchedAt: Date.now(), stores }
+      return stores
+    })().finally(() => {
+      allStoresInFlight = null
+    })
+    return allStoresInFlight
   }
-  const stores = data.map((s: any) => ({
-    id: Number(s.id),
-    name: cleanPhoneStoreName(s.name),
-    address: String(s.address || ''),
-    phone: String(s.phone || ''),
-    has_drive_thru: Boolean(s.has_drive_thru),
-    weekly_hours: s.weekly_hours || null,
-    compactHoursEs: buildCompactWeeklyHours(s.weekly_hours, 'es'),
-    compactHoursEn: buildCompactWeeklyHours(s.weekly_hours, 'en')
-  }))
-  allStoresDirectoryCache = { fetchedAt: now, stores }
-  return stores
+
+  if (allStoresDirectoryCache && now - allStoresDirectoryCache.fetchedAt < 5 * 60 * 1000) {
+    void fetchStores().catch(() => null)
+    return allStoresDirectoryCache.stores
+  }
+  return fetchStores()
 }
 
-async function loadAllSpecialHoursCached(): Promise<any[]> {
+export async function loadAllSpecialHoursCached(): Promise<any[]> {
   const now = Date.now()
-  if (specialHoursRamCache && now - specialHoursRamCache.fetchedAt < 60 * 1000) {
+  if (specialHoursRamCache && now - specialHoursRamCache.fetchedAt < 12 * 1000) {
     return specialHoursRamCache.rows
   }
-  const { data, error } = await supabaseAdmin.from('phone_special_hours').select('*')
-  if (error || !Array.isArray(data)) {
-    return specialHoursRamCache?.rows || []
+  const fetchSp = async () => {
+    if (specialHoursInFlight) return specialHoursInFlight
+    specialHoursInFlight = (async () => {
+      const { data, error } = await supabaseAdmin
+        .from('phone_special_hours')
+        .select('*')
+        .order('event_date', { ascending: true })
+      if (error || !Array.isArray(data)) {
+        return specialHoursRamCache?.rows || []
+      }
+      specialHoursRamCache = { rows: data, fetchedAt: Date.now() }
+      return data
+    })().finally(() => {
+      specialHoursInFlight = null
+    })
+    return specialHoursInFlight
   }
-  specialHoursRamCache = { rows: data, fetchedAt: now }
-  return data
+  if (specialHoursRamCache && now - specialHoursRamCache.fetchedAt < 120 * 1000) {
+    void fetchSp().catch(() => null)
+    return specialHoursRamCache.rows
+  }
+  return fetchSp()
+}
+
+async function loadAllActiveKnowledgeBaseCached(): Promise<any[]> {
+  const now = Date.now()
+  if (allKbRamCache && now - allKbRamCache.fetchedAt < 12 * 1000) {
+    return allKbRamCache.rows
+  }
+  const fetchKb = async () => {
+    if (allKbInFlight) return allKbInFlight
+    allKbInFlight = (async () => {
+      const { data, error } = await supabaseAdmin
+        .from('phone_knowledge_base')
+        .select('*')
+        .eq('is_active', true)
+        .order('priority', { ascending: false })
+      if (error || !Array.isArray(data)) {
+        return allKbRamCache?.rows || []
+      }
+      allKbRamCache = { rows: data, fetchedAt: Date.now() }
+      return data
+    })().finally(() => {
+      allKbInFlight = null
+    })
+    return allKbInFlight
+  }
+  if (allKbRamCache && now - allKbRamCache.fetchedAt < 120 * 1000) {
+    void fetchKb().catch(() => null)
+    return allKbRamCache.rows
+  }
+  return fetchKb()
+}
+
+export async function getPhoneRoutingDirectory(): Promise<PhoneRoutingDirectoryEntry> {
+  const now = Date.now()
+  if (phoneRoutingDirCache && now - phoneRoutingDirCache.fetchedAt < 15 * 1000) {
+    return phoneRoutingDirCache
+  }
+  if (phoneRoutingDirInFlight) return phoneRoutingDirInFlight
+  phoneRoutingDirInFlight = (async () => {
+    const [{ data: configs, error: cfgErr }, { data: stores, error: storeErr }] = await Promise.all([
+      supabaseAdmin.from('phone_agent_config').select('store_id, twilio_phone_number'),
+      supabaseAdmin.from('stores').select('id, phone, is_active')
+    ])
+    if ((cfgErr || storeErr) && phoneRoutingDirCache) {
+      return phoneRoutingDirCache
+    }
+    const entry: PhoneRoutingDirectoryEntry = {
+      fetchedAt: Date.now(),
+      configs: (configs || []) as Array<{ store_id: number; twilio_phone_number: string | null }>,
+      activeStores: ((stores || []) as Array<{ id: number; phone: string | null; is_active: boolean | null }>).filter(
+        (s) => s.is_active !== false
+      )
+    }
+    phoneRoutingDirCache = entry
+    return entry
+  })().finally(() => {
+    phoneRoutingDirInFlight = null
+  })
+  return phoneRoutingDirInFlight
+}
+
+function normalizeRouteDigits10(phone: string | null | undefined): string {
+  const digits = String(phone || '').replace(/\D/g, '')
+  return digits.length === 11 && digits.startsWith('1') ? digits.slice(1) : digits
 }
 
 /**
- * Obtiene el contexto completo de una sucursal (datos de `stores`, `phone_agent_config`, `phone_special_hours` y `phone_knowledge_base`).
- * Incluye caché en RAM de 45s para máxima velocidad en conversaciones telefónicas.
+ * Resuelve la sucursal de destino para llamadas Twilio reales con precedencia segura para piloto con 1 solo número
+ * o 15 números dedicados:
+ * 1) Query param `?storeId=`,
+ * 2) `ForwardedFrom` contra `stores.phone` (PRIORITARIO sobre `To` para soportar desvíos de múltiples tiendas al mismo número piloto),
+ * 3) `To` contra `phone_agent_config.twilio_phone_number`,
+ * 4) Respaldo piloto opcional via `TWILIO_DEFAULT_STORE_ID`.
+ */
+export async function resolveStoreFromIncomingCall(params: {
+  queryStoreId?: string | null
+  toNumber?: string | null
+  forwardedFrom?: string | null
+  directory?: PhoneRoutingDirectoryEntry
+  defaultPilotStoreId?: number | null
+}): Promise<{ storeId: number | null; matchedStorePhone: string | null; matchedBy: 'query' | 'forwarded_from' | 'to_twilio' | 'pilot_env' | null }> {
+  const dir = params.directory || (await getPhoneRoutingDirectory())
+  const storeById = new Map<number, any>(dir.activeStores.map((s) => [Number(s.id), s]))
+
+  if (params.queryStoreId && Number.isFinite(Number(params.queryStoreId))) {
+    const candidate = Number(params.queryStoreId)
+    const found = storeById.get(candidate)
+    if (found) {
+      return { storeId: candidate, matchedStorePhone: found.phone || null, matchedBy: 'query' }
+    }
+  }
+
+  const fwdDigits = normalizeRouteDigits10(params.forwardedFrom)
+  if (fwdDigits.length === 10) {
+    const matchByForwarded = dir.activeStores.find((s) => s.phone && normalizeRouteDigits10(s.phone) === fwdDigits)
+    if (matchByForwarded) {
+      return {
+        storeId: Number(matchByForwarded.id),
+        matchedStorePhone: matchByForwarded.phone || null,
+        matchedBy: 'forwarded_from'
+      }
+    }
+  }
+
+  const toDigits = normalizeRouteDigits10(params.toNumber)
+  if (toDigits.length === 10 && dir.configs) {
+    const matchByTwilio = dir.configs.find(
+      (c) => c.twilio_phone_number && normalizeRouteDigits10(c.twilio_phone_number) === toDigits
+    )
+    if (matchByTwilio && storeById.has(Number(matchByTwilio.store_id))) {
+      const s = storeById.get(Number(matchByTwilio.store_id))
+      return { storeId: Number(matchByTwilio.store_id), matchedStorePhone: s?.phone || null, matchedBy: 'to_twilio' }
+    }
+  }
+
+  const envPilotRaw =
+    params.defaultPilotStoreId ??
+    (process.env.TWILIO_DEFAULT_STORE_ID ? Number(process.env.TWILIO_DEFAULT_STORE_ID) : null)
+  if (envPilotRaw && Number.isFinite(envPilotRaw) && storeById.has(Number(envPilotRaw))) {
+    const s = storeById.get(Number(envPilotRaw))
+    return { storeId: Number(envPilotRaw), matchedStorePhone: s?.phone || null, matchedBy: 'pilot_env' }
+  }
+
+  return { storeId: null, matchedStorePhone: null, matchedBy: null }
+}
+
+/**
+ * Obtiene el contexto completo de una sucursal (`stores`, `phone_agent_config`, `phone_special_hours`, `phone_knowledge_base`)
+ * usando caché en RAM SWR (12s fresco / 120s stale) y compartiendo catálogos globales entre las 15 sucursales.
  */
 export async function getStorePhoneContext(storeId: number) {
   const now = Date.now()
   const cached = storeContextRamCache.get(storeId)
-  if (cached && now - cached.fetchedAt < 45 * 1000) {
-    // Re-evaluar horario en vivo (0ms en memoria) por si cruzó el minuto de apertura/cierre
+  if (cached && now - cached.fetchedAt < 12 * 1000) {
     const freshEval = evaluateStoreSchedulePure({
       storeId: cached.data.store.id,
       storeName: cached.data.store.name,
@@ -1823,75 +2057,99 @@ export async function getStorePhoneContext(storeId: number) {
     }
   }
 
-  const [storeRes, configRes, specialRes, kbRes] = await Promise.all([
-    supabaseAdmin
-      .from('stores')
-      .select('id, name, address, phone, has_drive_thru, weekly_hours, latitude, longitude')
-      .eq('id', storeId)
-      .single(),
-    supabaseAdmin
-      .from('phone_agent_config')
-      .select('*')
-      .eq('store_id', storeId)
-      .maybeSingle(),
-    supabaseAdmin
-      .from('phone_special_hours')
-      .select('*')
-      .or(`store_id.is.null,store_id.eq.${storeId}`)
-      .order('event_date', { ascending: true }),
-    supabaseAdmin
-      .from('phone_knowledge_base')
-      .select('*')
-      .eq('is_active', true)
-      .or(`store_id.is.null,store_id.eq.${storeId}`)
-      .order('priority', { ascending: false })
-  ])
+  const refreshContext = async () => {
+    const inFlight = storeContextInFlight.get(storeId)
+    if (inFlight) return inFlight
+    const job = (async () => {
+      const [allStores, configRes, allSpecialHours, allKb] = await Promise.all([
+        loadAllActiveStoresDirectory(),
+        supabaseAdmin.from('phone_agent_config').select('*').eq('store_id', storeId).maybeSingle(),
+        loadAllSpecialHoursCached(),
+        loadAllActiveKnowledgeBaseCached()
+      ])
 
-  const rawStore = storeRes.data
-  if (!rawStore) {
-    throw new Error(`Sucursal #${storeId} no encontrada`)
-  }
-  const store = {
-    ...rawStore,
-    name: cleanPhoneStoreName(rawStore.name)
+      let store = allStores.find((s) => Number(s.id) === Number(storeId)) || null
+      if (!store) {
+        const { data: rawStore } = await supabaseAdmin
+          .from('stores')
+          .select('id, name, address, phone, has_drive_thru, weekly_hours')
+          .eq('id', storeId)
+          .single()
+        if (!rawStore) throw new Error(`Sucursal #${storeId} no encontrada`)
+        store = {
+          id: Number(rawStore.id),
+          name: cleanPhoneStoreName(rawStore.name),
+          address: String(rawStore.address || ''),
+          phone: String(rawStore.phone || ''),
+          has_drive_thru: Boolean(rawStore.has_drive_thru),
+          weekly_hours: rawStore.weekly_hours || null,
+          compactHoursEs: buildCompactWeeklyHours(rawStore.weekly_hours, 'es'),
+          compactHoursEn: buildCompactWeeklyHours(rawStore.weekly_hours, 'en')
+        }
+      }
+
+      const storeSpecial = allSpecialHours.filter(
+        (s: any) => s.store_id === null || Number(s.store_id) === Number(storeId)
+      )
+      const storeKb = allKb.filter(
+        (k: any) => k.store_id === null || Number(k.store_id) === Number(storeId)
+      )
+
+      const config = configRes.data || {
+        store_id: store.id,
+        is_enabled: true,
+        routing_mode: 'conditional_forward',
+        carrier_type: [1, 8, 14, 16].includes(store.id) ? 'spectrum_landline' : 'att_wireless',
+        twilio_phone_number: null,
+        forwarding_status: 'pending',
+        ring_timeout_seconds: 20,
+        voice_id: 'Kore',
+        default_language: 'es',
+        custom_greeting_es: null,
+        custom_greeting_en: null,
+        manager_transfer_phone: null,
+        allow_live_transfer: false,
+        accepts_ebt: ![1, 9].includes(store.id),
+        parking_notes_es: null,
+        parking_notes_en: null
+      }
+
+      const scheduleEval = evaluateStoreSchedulePure({
+        storeId: store.id,
+        storeName: store.name,
+        weeklyHours: store.weekly_hours,
+        specialHours: storeSpecial
+      })
+
+      const result = {
+        store,
+        config,
+        scheduleEval,
+        specialHours: storeSpecial,
+        allSpecialHours,
+        knowledgeBase: storeKb,
+        onlineOrderUrl: OFFICIAL_STORE_URLS[store.id] || OFFICIAL_ORDER_FALLBACK_URL
+      }
+      storeContextRamCache.set(storeId, { data: result, fetchedAt: Date.now() })
+      return result
+    })().finally(() => {
+      storeContextInFlight.delete(storeId)
+    })
+    storeContextInFlight.set(storeId, job)
+    return job
   }
 
-  const config = configRes.data || {
-    store_id: store.id,
-    is_enabled: true,
-    routing_mode: 'conditional_forward',
-    carrier_type: [1, 8, 14, 16].includes(store.id) ? 'spectrum_landline' : 'att_wireless',
-    twilio_phone_number: null,
-    forwarding_status: 'pending',
-    ring_timeout_seconds: 20,
-    voice_id: 'Kore',
-    default_language: 'es',
-    custom_greeting_es: null,
-    custom_greeting_en: null,
-    manager_transfer_phone: null,
-    allow_live_transfer: false,
-    accepts_ebt: ![1, 9].includes(store.id),
-    parking_notes_es: null,
-    parking_notes_en: null
+  if (cached && now - cached.fetchedAt < 120 * 1000) {
+    void refreshContext().catch(() => null)
+    const freshEval = evaluateStoreSchedulePure({
+      storeId: cached.data.store.id,
+      storeName: cached.data.store.name,
+      weeklyHours: cached.data.store.weekly_hours,
+      specialHours: cached.data.specialHours || []
+    })
+    return { ...cached.data, scheduleEval: freshEval }
   }
-
-  const scheduleEval = evaluateStoreSchedulePure({
-    storeId: store.id,
-    storeName: store.name,
-    weeklyHours: store.weekly_hours,
-    specialHours: specialRes.data || []
-  })
-
-  const result = {
-    store,
-    config,
-    scheduleEval,
-    specialHours: specialRes.data || [],
-    knowledgeBase: kbRes.data || [],
-    onlineOrderUrl: OFFICIAL_STORE_URLS[store.id] || OFFICIAL_ORDER_FALLBACK_URL
-  }
-  storeContextRamCache.set(storeId, { data: result, fetchedAt: now })
-  return result
+  return refreshContext()
 }
 
 /**
@@ -2048,13 +2306,29 @@ export function buildInitialGreeting(
   return `¡Gracias por llamar a Tacos Gavilan sucursal ${cleanName}! Te atiende nuestra asistente de inteligencia artificial. Esta llamada puede ser grabada y transcrita con tecnología de IA para atenderte; al continuar aceptas este uso.${switchEn}${postPrompt}`
 }
 
+const REGION_STORE_IDS: Record<string, number[]> = {
+  'east la': [11, 13],
+  'este de los angeles': [11, 13],
+  'south la': [5, 6, 7],
+  'sur de los angeles': [5, 6, 7],
+  'downtown': [5, 6],
+  'southeast la': [11, 12, 13, 14, 15, 16],
+  'gateway cities': [11, 12, 13, 14, 15, 16],
+  'orange county': [9],
+  'condado de orange': [9],
+  'inland empire': [1],
+  'san bernardino': [1],
+  'san gabriel': [3, 4, 10],
+  'sgv': [3, 4, 10]
+}
+
 const PHONE_AGENT_TOOLS = [
   {
     functionDeclarations: [
       {
         name: 'get_store_hours_and_status',
         description:
-          'Obtiene el estado exacto en tiempo real (abierto/cerrado), horario semanal, horarios festivos, dirección, Drive-Thru y formas de pago ÚNICAMENTE de esta sucursal actual atendida. NO sirve para comparar horarios de otras sucursales (para comparar qué tienda abre/cierra más tarde o ver otras tiendas, usa `find_other_stores`).',
+          'Respaldo: los DATOS EN VIVO de tu contexto ya incluyen estado abierto/cerrado, horario y dirección de esta sucursal. Úsala solo si falta algún dato festivo.',
         parameters: {
           type: 'OBJECT',
           properties: {}
@@ -2063,7 +2337,7 @@ const PHONE_AGENT_TOOLS = [
       {
         name: 'search_menu_item_price',
         description:
-          'SOLO úsala si el platillo, bebida o postre NO aparece ya con su precio en el CATÁLOGO EN VIVO ni en COINCIDENCIAS DEL MENÚ del prompt. Si el precio o ingredientes ya están en tu contexto, RESPONDE DIRECTO sin llamar herramientas.',
+          'Respaldo: úsala SOLO si el platillo, bebida o postre NO aparece ya en CATÁLOGO EN VIVO ni en COINCIDENCIAS DEL MENÚ del prompt.',
         parameters: {
           type: 'OBJECT',
           properties: {
@@ -2078,7 +2352,7 @@ const PHONE_AGENT_TOOLS = [
       {
         name: 'get_fiesta_platter_packages',
         description:
-          'Calcula combinaciones exactas de charolas Fiesta Platter para eventos GRANDES de MÁS DE 40 personas (ej. 50, 60, 80 o 100 invitados). Para eventos de 15 a 40 personas, los precios y contenidos ya están en tu contexto: responde directo sin llamar herramientas.',
+          'Respaldo: úsala SOLO si la cotización exacta para un evento de MÁS DE 40 invitados NO aparece ya calculada en CHAROLAS FIESTA PLATTER de tu contexto.',
         parameters: {
           type: 'OBJECT',
           properties: {
@@ -2093,7 +2367,7 @@ const PHONE_AGENT_TOOLS = [
       {
         name: 'find_other_stores',
         description:
-          'Úsala ÚNICAMENTE si necesitas filtrar una zona específica o verificar un día que no veas claro en el DIRECTORIO OFICIAL DE LAS 15 SUCURSALES o en COMPARATIVA EXACTA EN VIVO de tu contexto. Si los datos de esa sucursal o el ganador ya están en el contexto, RESPONDE DIRECTO sin llamar esta herramienta.',
+          'Respaldo: úsala ÚNICAMENTE si el usuario pregunta por otra sucursal, zona o comparativa y esa información NO aparece ya en tu contexto.',
         parameters: {
           type: 'OBJECT',
           properties: {
@@ -2107,7 +2381,7 @@ const PHONE_AGENT_TOOLS = [
       {
         name: 'create_manager_callback',
         description:
-          'Registra un Recado Prioritario en Vivo que suena y aparece inmediatamente en la pantalla del Gerente de esta sucursal. Úsalo ÚNICAMENTE cuando ya tengas el nombre y el número telefónico real de 10 dígitos de la persona para: (1) comida faltante, queja o cobro erróneo, (2) objeto olvidado en la tienda, (3) empleado que reporta retardo o falta, (4) proveedor/técnico urgente, o (5) solicitud de hablar con el gerente.',
+          'Registra un Recado Prioritario en Vivo en la pantalla del Gerente. Úsalo ÚNICAMENTE cuando ya tengas nombre y teléfono real de 10 dígitos (o cuando en llamada Twilio el cliente pida devolverle la llamada a su mismo número). Si solo desea dejar recado (sin transferir), pon transfer_now=false.',
         parameters: {
           type: 'OBJECT',
           properties: {
@@ -2117,7 +2391,7 @@ const PHONE_AGENT_TOOLS = [
             },
             caller_phone: {
               type: 'STRING',
-              description: 'Teléfono real de 10 dígitos confirmado por la persona para devolverle la llamada (NUNCA envíes "No proporcionado" ni inventes números).'
+              description: 'Teléfono real de 10 dígitos confirmado por la persona (NUNCA "No proporcionado" ni números 555). Si en llamada real pide marcar a este mismo número, envía "CALLER_ID".'
             },
             caller_type: {
               type: 'STRING',
@@ -2138,9 +2412,28 @@ const PHONE_AGENT_TOOLS = [
             ticket_or_order_number: {
               type: 'STRING',
               description: 'Número de ticket u orden si aplica (opcional).'
+            },
+            transfer_now: {
+              type: 'BOOLEAN',
+              description: 'True solo si además pidieron transferencia telefónica en vivo ahora mismo.'
             }
           },
           required: ['caller_name', 'caller_phone', 'reason_summary']
+        }
+      },
+      {
+        name: 'transfer_to_store_phone',
+        description:
+          'Inicia transferencia telefónica en vivo hacia el celular configurado del gerente en turno (solo cuando la sucursal está abierta, transferencia activa y el cliente pide hablar en vivo ahora mismo).',
+        parameters: {
+          type: 'OBJECT',
+          properties: {
+            reason: {
+              type: 'STRING',
+              description: 'Motivo breve de la transferencia en vivo.'
+            }
+          },
+          required: ['reason']
         }
       },
       {
@@ -2239,34 +2532,68 @@ export function clampPhoneReplyLength(text: string, maxChars = 480): string {
  * Filtra primero sustantivos propios del menú mexicano ("Piña", "Jalapeño", "Gavilán") que también se usan
  * dentro de frases en inglés para evitar cambiar la voz a español por error cuando la respuesta está en inglés.
  */
+const MENU_LOANWORDS_RE =
+  /\b(los\s+[aá]ngeles|piña|pina|jalapeños?|jalapenos?|horchata|jamaica|tamarindo|champurrado|asada|pastor|carnitas|lengua|cabeza|buche|chorizo|mulitas?|quesadillas?|sopes?|tacos?|burritos?|tortas?|platos?|frijoles?|arroz|queso|lim[oó]n|chiles?|salsas?|caf[eé]|monterey\s+jack|gavil[aá]n)\b/gi
+
+const ES_STRONG_WORDS = new Set([
+  'de', 'la', 'el', 'que', 'en', 'los', 'las', 'por', 'para', 'con', 'una', 'un', 'es', 'esta', 'estamos', 'tenemos',
+  'hoy', 'puedes', 'nuestra', 'nuestro', 'sucursal', 'tu', 'te', 'si', 'cuanto', 'cuesta', 'horario', 'abren', 'cierran',
+  'quiero', 'tienen', 'gracias', 'hola', 'gerente', 'orden', 'algo', 'mas', 'ayudar', 'pedido', 'ahorita', 'donde', 'aceptan',
+  'mi', 'no', 'muy', 'pero', 'como', 'ya', 'solo', 'todo', 'bueno', 'buenas', 'tardes', 'dias', 'noches', 'cual', 'lleva'
+])
+const EN_STRONG_WORDS = new Set([
+  'the', 'and', 'you', 'your', 'we', 'our', 'is', 'are', 'to', 'of', 'for', 'at', 'with', 'can', 'do', 'have', 'today',
+  'open', 'close', 'closing', 'what', 'how', 'much', 'please', 'thank', 'thanks', 'hello', 'location', 'would', 'like',
+  'help', 'there', 'does', 'accept', 'where', 'when', 'my', 'it', 'this', 'that', 'address', 'hours', 'price', 'many'
+])
+
 export function detectPhoneTextLanguage(text: string, fallback: PhoneLang): PhoneLang {
   const raw = String(text || '')
   if (!raw.trim()) return fallback
-  const strippedMenuLoanwords = raw.replace(
-    /\b(los\s+[aá]ngeles|piña|pina|jalapeños?|jalapenos?|horchata|jamaica|tamarindo|champurrado|asada|pastor|carnitas|lengua|cabeza|buche|chorizo|mulitas?|quesadillas?|sopes?|gavil[aá]n)\b/gi,
-    ' '
-  )
+  const strippedMenuLoanwords = raw.replace(MENU_LOANWORDS_RE, ' ')
   const norm = normalizeSearchText(strippedMenuLoanwords)
   const words = norm.split(/\s+/).filter(Boolean)
-  const esWords = new Set([
-    'de', 'la', 'el', 'que', 'en', 'los', 'las', 'por', 'para', 'con', 'una', 'un', 'es', 'esta', 'estamos', 'tenemos',
-    'hoy', 'puedes', 'nuestra', 'nuestro', 'sucursal', 'tu', 'te', 'si', 'cuanto', 'cuesta', 'horario', 'abren', 'cierran',
-    'quiero', 'tienen', 'gracias', 'hola', 'gerente', 'orden', 'algo', 'mas', 'ayudar', 'pedido', 'ahorita', 'donde', 'aceptan'
-  ])
-  const enWords = new Set([
-    'the', 'and', 'you', 'your', 'we', 'our', 'is', 'are', 'to', 'of', 'for', 'at', 'with', 'can', 'do', 'have', 'today',
-    'open', 'close', 'what', 'how', 'much', 'please', 'thank', 'thanks', 'hello', 'hi', 'order', 'my', 'it', 'this', 'that',
-    'location', 'would', 'like', 'help', 'there', 'does', 'accept', 'where', 'when'
-  ])
   let es = /[¿¡]/.test(raw) || /[ñáéíóú]/i.test(strippedMenuLoanwords) ? 3 : 0
   let en = 0
   for (const w of words) {
-    if (esWords.has(w)) es++
-    if (enWords.has(w)) en++
+    if (ES_STRONG_WORDS.has(w)) es++
+    if (EN_STRONG_WORDS.has(w)) en++
   }
   if (es === en) return fallback
   if (Math.abs(es - en) < 2 && words.length > 3) return fallback
   return es > en ? 'es' : 'en'
+}
+
+/**
+ * Detecta cambios de idioma en la entrada cruda/STT del usuario exigiendo evidencia sólida para evitar
+ * falsos cambios ante frases cortas mixtas ("tacos de pastor", "one café please", "mi order", "ok", "drive thru").
+ */
+export function detectCallerLanguageSwitch(userText: string, currentLang: PhoneLang): PhoneLang {
+  const raw = String(userText || '').trim()
+  if (!raw) return currentLang
+  const normRaw = normalizeSearchText(raw)
+  if (/\b(speak english|in english|english please|switch to english|hablas ingles)\b/i.test(normRaw)) return 'en'
+  if (/\b(habla espanol|en espanol|spanish please|switch to spanish|prefiero espanol)\b/i.test(normRaw)) return 'es'
+
+  const stripped = raw
+    .replace(MENU_LOANWORDS_RE, ' ')
+    .replace(/\b(ok|okay|bye|super|regular|combo|drive|thru|manager|ticket|order|ebt|calfresh|hi)\b/gi, ' ')
+  const norm = normalizeSearchText(stripped)
+  const words = norm.split(/\s+/).filter(Boolean)
+  let es = /[¿¡]/.test(raw) || /[ñáéíóú]/i.test(stripped) ? 2 : 0
+  let en = 0
+  for (const w of words) {
+    if (ES_STRONG_WORDS.has(w)) es++
+    if (EN_STRONG_WORDS.has(w)) en++
+  }
+  const targetLang: PhoneLang = es > en ? 'es' : 'en'
+  if (targetLang === currentLang) return currentLang
+  const targetScore = targetLang === 'es' ? es : en
+  const currentScore = currentLang === 'es' ? es : en
+  if (targetScore >= 2 && targetScore - currentScore >= 2) {
+    return targetLang
+  }
+  return currentLang
 }
 
 async function callGeminiPhoneWithFailover(
@@ -2303,7 +2630,8 @@ async function callGeminiPhoneWithFailover(
       if (pass === 'fresh' && (modelUnavailableUntil.get(model) || 0) > Date.now()) continue
       let attemptsOnModel = 0
       let overloadsOnModel = 0
-      const maxAttemptsOnThisModel = pass === 'fresh' ? (model === 'gemini-3.5-flash-lite' ? 4 : 3) : 2
+      const isFollowUpRound = Boolean(preferredModel)
+      const maxAttemptsOnThisModel = pass === 'fresh' ? (isFollowUpRound ? 2 : model === 'gemini-3.5-flash-lite' ? 3 : 2) : 2
       const supportsMinimalThinking = !model.includes('3.8')
 
       for (const key of orderedKeys) {
@@ -2355,10 +2683,11 @@ async function callGeminiPhoneWithFailover(
             generationConfig: genCfg
           }
 
+          const attemptLimitMs = pass === 'fresh' ? 2500 : 3200
           const res = await fetch(url, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            signal: AbortSignal.timeout(Math.min(3500, remaining - 300)),
+            signal: AbortSignal.timeout(Math.min(attemptLimitMs, remaining - 250)),
             body: JSON.stringify(requestBody)
           })
           const data = await res.json().catch(() => ({}))
@@ -2455,7 +2784,7 @@ function inferCallMetadata(
     return {
       callerCategory: 'employee',
       primaryIntent: 'employee_callout',
-      resolvedByAi: !callbackCreated,
+      resolvedByAi: false,
       detectedLang
     }
   }
@@ -2463,7 +2792,7 @@ function inferCallMetadata(
     return {
       callerCategory: 'post_order_issue',
       primaryIntent: 'complaint_missing_item',
-      resolvedByAi: !callbackCreated,
+      resolvedByAi: false,
       detectedLang
     }
   }
@@ -2475,7 +2804,7 @@ function inferCallMetadata(
     return {
       callerCategory: 'post_order_issue',
       primaryIntent: 'lost_and_found',
-      resolvedByAi: !callbackCreated,
+      resolvedByAi: false,
       detectedLang
     }
   }
@@ -2505,7 +2834,7 @@ function inferCallMetadata(
   ) {
     return { callerCategory: 'customer', primaryIntent: 'fiesta_platters', resolvedByAi: true, detectedLang }
   }
-  if (/\b(ebt|calfresh|food stamps|estampillas|tarjeta|efectivo|apple pay|formas de pago)\b/i.test(norm)) {
+  if (/\b(ebt|calfresh|cal fresh|call fresh|car fresh|e b t|i b t|food stamps|estampillas|tarjeta|efectivo|apple pay|formas de pago)\b/i.test(norm)) {
     return { callerCategory: 'customer', primaryIntent: 'payment_ebt', resolvedByAi: true, detectedLang }
   }
   if (toolsUsed.includes('search_menu_item_price') || /\b(precio|cuanto cuesta|how much|cost|menu|taco|burrito|mulita|quesadilla|torta|plato|sope|nachos|horchata|jamaica|champurrado|carnes)\b/i.test(norm)) {
@@ -2575,15 +2904,15 @@ export async function processPhoneAgentTurn(params: {
   const turnBudgetMs = source === 'twilio' ? 11200 : 12800
   const turnDeadline = turnStartedAt + turnBudgetMs
 
-  // Ejecutar TODAS las lecturas iniciales en paralelo (incluyendo pool de llaves Gemini y menú crudo en caché)
-  const [ctx, existingCallRes, liveMenuItems, allActiveStores] = await Promise.all([
+  // Ejecutar TODAS las lecturas iniciales en paralelo (incluyendo pool de llaves Gemini y menú pre-compilado en caché SWR)
+  const [ctx, existingCallRes, menuEntry, allActiveStores] = await Promise.all([
     getStorePhoneContext(storeId),
     supabaseAdmin.from('phone_calls').select('*').eq('call_sid', callSid).maybeSingle(),
-    loadStoreMenuItems(storeId),
+    loadStoreMenuEntry(storeId),
     loadAllActiveStoresDirectory(),
     getGeminiKeyPoolWithRemote()
   ])
-  const preFetchedMenu = rankMenuItemsForPrompt(liveMenuItems, userText, 12)
+  const liveMenuItems = menuEntry.items
 
   const { store, config, scheduleEval, knowledgeBase, onlineOrderUrl } = ctx
   const voiceId: VoiceId = resolvePhoneFemaleVoice(config.voice_id)
@@ -2668,11 +2997,46 @@ export async function processPhoneAgentTurn(params: {
 
   // Idioma de la llamada: el que ya venía en la bitácora (persistido turno a turno) o el default de la tienda.
   const callLang: PhoneLang = callRecord?.language === 'en' ? 'en' : callRecord?.language === 'es' ? 'es' : defaultCallLang
-  // Detectar si el cliente habló claramente en otro idioma (ej. habla en inglés aunque la tienda inició en español)
-  const turnLangGuess: PhoneLang = detectPhoneTextLanguage(userText, preferredLang || callLang)
+  const normalizedUserForMatch = normalizePhoneSttTranscript(userText)
+  // Detectar si el cliente pidió o habló claramente en otro idioma evitando falsos flips en frases cortas mixtas
+  const turnLangGuess: PhoneLang = detectCallerLanguageSwitch(userText, preferredLang || callLang)
 
-  // 2. Construir las reglas de la Base de Conocimiento Editable únicamente en el idioma activo del turno (-4,450 chars / llamada)
-  const kbFormatted = knowledgeBase
+  // Contexto combinado con el último turno de usuario si hace repregunta corta ("¿y qué lleva?", "¿y en súper?", "¿y para 65?")
+  const prevUserTexts = transcript
+    .slice(0, -1)
+    .filter((t) => t.role === 'user')
+    .slice(-2)
+    .map((t) => normalizePhoneSttTranscript(t.text))
+  const combinedMenuQuery =
+    normalizedUserForMatch.split(/\s+/).length <= 7 && prevUserTexts.length > 0
+      ? `${prevUserTexts[prevUserTexts.length - 1]} ${normalizedUserForMatch}`
+      : normalizedUserForMatch
+  const preFetchedMenu = rankMenuItemsForPrompt(liveMenuItems, combinedMenuQuery, 12)
+
+  const normCombinedForScope = normalizeSearchText(`${prevUserTexts.join(' ')} ${normalizedUserForMatch}`)
+  const wantsHolidayContext =
+    Boolean(scheduleEval.isSpecialHolidaySchedule) ||
+    /\b(festiv|holiday|navidad|nochebuena|christmas|thanksgiving|accion de gracias|black friday|fin de ano|ano nuevo|new year|viernes santo|good friday|pascua|easter|cinco de mayo|madres|mothers|julio|july|labor|memorial|septiembre|halloween|guadalupe|especial)\b/i.test(
+      normCombinedForScope
+    )
+  const wantsMultiStoreContext =
+    /\b(otra|otras|sucursal|ubicacion|locacion|tienda|cerca|ciudad|zonas?|east la|este de los angeles|south la|sur de los angeles|downtown|sgv|san gabriel|orange|inland|drive thru|drive-thru|ventanilla|cierra mas|abre mas|todas|cuantas|covina|azusa|broadway|central|slauson|hollywood|santa ana|la puente|huntington|norwalk|bell|lynwood|south gate|downey|rialto)\b/i.test(
+      normCombinedForScope
+    )
+  const wantsMenuCatalogContext =
+    preFetchedMenu.length > 0 ||
+    /\b(precio|precios|cuesta|cuanto|menu|comer|platillo|taco|burrito|mulita|quesadilla|torta|plato|sope|nacho|bebida|agua|soda|coca|sprite|fanta|champurrado|cafe|coffee|flan|cheesecake|postre|desayuno|huevo|carne|asada|pastor|pollo|lengua|cabeza|buche|chorizo|carnitas|queso|crema|guacamole|ingredient|lleva|diferencia|regular|super|vegetar|alerg|frijol|arroz|oz|onza|galon)\b/i.test(
+      normCombinedForScope
+    )
+
+  // 2. Construir reglas KB evitando duplicar las 4 áreas ya inyectadas de forma canónica (salvo overrides específicos de sucursal)
+  const kbFiltered = knowledgeBase.filter((rule: any) => {
+    if (rule.store_id) return true
+    const cat = String(rule.category || '').toLowerCase()
+    if (cat === 'catering' && /fiesta platter/i.test(String(rule.title || ''))) return false
+    return true
+  })
+  const kbFormatted = kbFiltered
     .map((rule: any, idx: number) => {
       const ruleText =
         turnLangGuess === 'en' && rule.answer_en && String(rule.answer_en).trim()
@@ -2726,46 +3090,54 @@ export async function processPhoneAgentTurn(params: {
   const todayDayLabelEs = DAY_NAMES_ES[ptNow.dayOfWeek]
   const tomorrowDayLabelEs = DAY_NAMES_ES[tomorrowDow]
 
-  // Días festivos próximos (fusión en tiempo real: overrides por tienda/globales en `phone_special_hours` + calendario perpetuo `lib/holidays.ts`)
+  // Días festivos próximos (anclado al día calendario en California ptNow.dateStr, límite exacto 365 días para incluir las 7 fechas oficiales)
   const upcomingHolidays = buildEffectiveUpcomingHolidaysForStore({
     storeId: store.id,
     weeklyHours: store.weekly_hours,
     specialHours: ctx.specialHours || [],
-    fromDateStr: businessDate,
-    daysAhead: 180
+    fromDateStr: ptNow.dateStr,
+    daysAhead: 365
   })
   const todayHoliday = upcomingHolidays.find((h) => h.event_date === ptNow.dateStr) || null
   const tomorrowHoliday = upcomingHolidays.find((h) => h.event_date === tomorrowDateStr) || null
-  const calendarDateLine = `- Fecha calendario actual en California: HOY es ${todayDayLabelEs} ${ptNow.dateStr} (${todayHoliday ? `SÍ es día festivo: ${todayHoliday.holiday_name}` : 'día laboral normal SIN horario festivo'}) | MAÑANA es ${tomorrowDayLabelEs} ${tomorrowDateStr} (${tomorrowHoliday ? `SÍ es día festivo: ${tomorrowHoliday.holiday_name}` : 'día normal SIN horario festivo; aplica horario semanal regular'}).`
+  const todayHolName = todayHoliday ? (turnLangGuess === 'en' ? todayHoliday.holiday_name_en : todayHoliday.holiday_name_es) : ''
+  const tomHolName = tomorrowHoliday ? (turnLangGuess === 'en' ? tomorrowHoliday.holiday_name_en : tomorrowHoliday.holiday_name_es) : ''
+  const calendarDateLine = `- Fecha calendario actual en California: HOY es ${todayDayLabelEs} ${ptNow.dateStr} (${todayHoliday ? `SÍ es festivo: ${todayHolName}` : 'día normal SIN horario festivo'}) | MAÑANA es ${tomorrowDayLabelEs} ${tomorrowDateStr} (${tomorrowHoliday ? `SÍ es festivo: ${tomHolName}` : 'día normal SIN horario festivo; aplica horario semanal regular'}).`
 
-  const holidaysContextLine =
-    upcomingHolidays.length > 0
-      ? `- Horarios Especiales / Días Festivos FUTUROS de esta sucursal (${store.name}): ` +
+  const holidaysContextLine = wantsHolidayContext
+    ? upcomingHolidays.length > 0
+      ? `- Horarios Especiales / 7 Fechas Oficiales Festivas de ${store.name}: ` +
         upcomingHolidays
-          .slice(0, 10)
+          .slice(0, 7)
           .map((h) => {
+            const label = turnLangGuess === 'en' ? h.holiday_name_en : h.holiday_name_es
             const relTag =
               h.event_date === ptNow.dateStr
-                ? ' [APLICA HOY]'
+                ? ' [HOY]'
                 : h.event_date === tomorrowDateStr
-                  ? ' [APLICA MAÑANA]'
-                  : ' [FECHA FUTURA - NO aplica hoy ni mañana]'
+                  ? ' [MAÑANA]'
+                  : ' [FUTURA]'
             if (h.is_closed) {
-              return `${h.event_date} (${h.holiday_name}): CERRADO TODO EL DÍA${relTag}`
+              return `${h.event_date} (${label}): CERRADO TODO EL DÍA${relTag}`
             }
             const note = h.is_early_close_only
               ? ' [cierre temprano]'
               : h.is_late_open_only
                 ? ' [apertura tarde]'
                 : ' [horario especial]'
-            return `${h.event_date} (${h.holiday_name}): ${formatTime12h(h.effective_open, 'es')} a ${formatTime12h(h.effective_close, 'es')}${note}${relTag}`
+            return `${h.event_date} (${label}): ${formatTime12h(h.effective_open, turnLangGuess)} a ${formatTime12h(h.effective_close, turnLangGuess)}${note}${relTag}`
           })
           .join(' | ') +
-        `\n  (Todos los demás días festivos como Super Bowl, Domingo de Pascua, Cinco de Mayo, Día de las Madres, Memorial Day, 4 de Julio, Labor Day, 15 y 16 de Septiembre, Halloween y 12 de Diciembre operan en nuestro horario semanal regular normal).`
-      : `- Horarios Especiales / Días Festivos: No hay cierres festivos especiales próximos; aplica el horario semanal regular.`
+        `\n  (Regla obligatoria si preguntan por festivos en general: menciona las 3 categorías completas — Cerrado todo el día: Viernes Santo y Navidad 25 dic; Cierre temprano 4:00 PM: Thanksgiving, Nochebuena 24 dic y Fin de Año 31 dic; Apertura tarde 11:00 AM: Año Nuevo 1 ene y Viernes después de Thanksgiving/Black Friday. Todos los demás festivos —Super Bowl, Pascua, Cinco de Mayo, Día de las Madres, 4 de Julio, Labor Day, 15/16 Sep— operan en horario regular).`
+      : `- Horarios Especiales: aplica el horario semanal regular.`
+    : ''
 
-  // Catálogo de precios generado EN VIVO desde `app_menu_cache` (ya cargado en paralelo en el paso 0)
-  const menuCatalogSummary = buildLiveMenuCatalogText(store.name, liveMenuItems)
+  // Catálogo en vivo compilado 1 sola vez en caché SWR e inyectado únicamente cuando el turno toca menú/precios/comida/bebidas
+  const menuCatalogSummary = wantsMenuCatalogContext
+    ? turnLangGuess === 'en'
+      ? menuEntry.compactCatalogEn
+      : menuEntry.compactCatalogEs
+    : ''
 
   const menuPreContext =
     preFetchedMenu.length > 0
@@ -2778,15 +3150,24 @@ export async function processPhoneAgentTurn(params: {
           .join('\n')
       : ''
 
-  const platterInfo = recommendFiestaPlatters(null)
-  const platterPreContext =
-    `\nCHAROLAS FIESTA PLATTER OFICIALES (se piden en línea en tacosgavilan.com con mínimo 1 hora de anticipación; incluyen carne a elegir entre Carne Asada, Pollo o Al Pastor, arroz, frijol, aguas frescas de Horchata, Jamaica, Piña o Tamarindo, tortillas de maíz o harina, salsas, verdura y desechables completos; para más de 40 personas usa \`get_fiesta_platter_packages\`):\n` +
-    platterInfo.packages
-      .map(
-        (p) =>
-          `- ${p.labelEs}: $${p.price.toFixed(2)} (${p.meatLbs} lbs carne, ${p.riceBeansTrayEs}, ${p.cornTortillasDozens} docenas maíz o ${p.flourTortillasDozens} harina, ${p.aguasGallons} galones agua fresca)`
-      )
-      .join('\n')
+  const guestMatch = combinedMenuQuery.match(/\b([1-9]\d{0,2})\s*(?:personas?|invitados?|gente|people|guests?|adultos?|adults?)\b/i)
+  const detectedGuestCount = guestMatch ? Math.min(500, Math.max(1, Number(guestMatch[1]))) : null
+  const wantsFiestaContext =
+    detectedGuestCount !== null ||
+    /\b(charola|charolas|fiesta\s*platter|party\s*tray|catering|taquiza|banquete)\b/i.test(normCombinedForScope)
+  const platterInfo = recommendFiestaPlatters(detectedGuestCount)
+  const platterPreContext = wantsFiestaContext
+    ? `\nCHAROLAS FIESTA PLATTER OFICIALES (orden exclusivo en línea en tacosgavilan.com con mínimo 1 hora de anticipación; carnes: Carne Asada, Pollo o Al Pastor; aguas frescas: Horchata, Jamaica, Piña o Tamarindo; incluye arroz, frijol, tortillas, salsas, verdura y desechables):\n` +
+      platterInfo.packages
+        .map(
+          (p) =>
+            `- ${p.labelEs}: $${p.price.toFixed(2)} (${p.meatLbs} lbs carne, ${p.riceBeansTrayEs}, ${p.cornTortillasDozens} doc maíz o ${p.flourTortillasDozens} harina, ${p.aguasGallons} gal agua)`
+        )
+        .join('\n') +
+      (detectedGuestCount
+        ? `\n  -> CÁLCULO EXACTO PARA ${detectedGuestCount} PERSONAS (RESPONDE DIRECTO SIN LLAMAR HERRAMIENTAS): ${turnLangGuess === 'en' ? platterInfo.recommendationEn : platterInfo.recommendationEs}`
+        : '')
+    : ''
 
   const atTimePromptEs = (formatted12h: string) =>
     /^1:/i.test(formatted12h.trim()) ? `a la ${formatted12h}` : `a las ${formatted12h}`
@@ -2816,27 +3197,38 @@ export async function processPhoneAgentTurn(params: {
     : ''
 
   const callbackOutcomeInstruction = liveTransferCandidatePhone
-    ? 'infórmale con calidez que ya registraste su aviso y que en este instante le estás transfiriendo la llamada al gerente en turno (NO te despidas ni digas que le llamarán después, porque la línea sonará con el gerente).'
+    ? 'si pidió explícitamente transferencia en vivo (o es urgencia grave en tienda abierta), usa transfer_now=true o `transfer_to_store_phone` e infórmale que en este instante lo comunicas con el gerente; si solo pidió dejar recado, confirma que ya aparece en la pantalla del gerente.'
     : scheduleEval.isOpenNow
       ? 'confírmale que el gerente en turno ya recibió la alerta prioritaria en su pantalla para devolverle la llamada.'
       : 'aclárale con transparencia que como la sucursal está cerrada en este momento, su recado prioritario quedó registrado para que el gerente se comunique en cuanto abramos.'
 
   const spokenStoreAddress = formatStoreAddressForAgent(store.address, turnLangGuess, { includeZip: false })
   const storeZipCode = extractZipCodeFromAddress(store.address)
+  const allSpecialForCross = (ctx as any).allSpecialHours || ctx.specialHours || []
+  const regionalMatchIds = Object.entries(REGION_STORE_IDS).find(([alias]) => normCombinedForScope.includes(alias))?.[1] || null
   const crossStoreComparison =
-    allActiveStores.length > 0
-      ? buildCrossStoreHoursComparison(allActiveStores, turnLangGuess, ctx.specialHours || [])
+    wantsMultiStoreContext && allActiveStores.length > 0
+      ? buildCrossStoreHoursComparison(allActiveStores, turnLangGuess, allSpecialForCross)
+      : ''
+  const regionalPreContext =
+    regionalMatchIds && allActiveStores.length > 0
+      ? `\nCOINCIDENCIAS REGIONALES PRE-CALCULADAS (RESPONDE DIRECTO SIN TOOL): ` +
+        allActiveStores
+          .filter((s) => regionalMatchIds.includes(Number(s.id)))
+          .map((s) => `#${s.id} ${s.name} (${formatStoreAddressForAgent(s.address, turnLangGuess, { includeZip: false })}, Tel: ${s.phone}, ${s.has_drive_thru ? 'CON Drive-Thru' : 'Sin Drive-Thru'})`)
+          .join(' | ')
       : ''
   const storesDirectoryBlock =
-    allActiveStores.length > 0
-      ? `\nDIRECTORIO OFICIAL VERIFICADO DE LAS 15 SUCURSALES DE TACOS GAVILAN (USA EXCLUSIVAMENTE ESTAS DIRECCIONES, TELÉFONOS Y HORARIOS REALES; JAMÁS INVENTES CALLES NI NÚMEROS. CADA SUCURSAL TIENE SU PROPIO HORARIO — NUNCA ASUMAS QUE TODAS LAS SUCURSALES O TODAS LAS DRIVE-THRU CIERRAN A LA MISMA HORA. Si preguntan cuál abre o cierra más tarde, revisa primero el bloque COMPARATIVA EXACTA EN VIVO de abajo o llama \`find_other_stores\`):\n` +
+    wantsMultiStoreContext && allActiveStores.length > 0
+      ? `\nDIRECTORIO OFICIAL VERIFICADO DE LAS 15 SUCURSALES (USA ESTOS DATOS REALES; NUNCA INVENTES CALLES):\n` +
         allActiveStores
           .map(
             (s) =>
               `- #${s.id} ${s.name}: ${formatStoreAddressForAgent(s.address, turnLangGuess, { includeZip: false })} | Tel: ${s.phone} | ${s.has_drive_thru ? 'CON Drive-Thru' : 'Sin Drive-Thru'} | Horario: ${turnLangGuess === 'en' ? s.compactHoursEn : s.compactHoursEs}`
           )
           .join('\n') +
-        (crossStoreComparison ? `\n\n${crossStoreComparison}` : '')
+        (crossStoreComparison ? `\n\n${crossStoreComparison}` : '') +
+        regionalPreContext
       : ''
 
   const systemInstruction = `Eres la recepcionista telefónica virtual oficial de **Tacos Gavilan** en la sucursal **${store.name}** (Sucursal #${store.id}).
@@ -2844,14 +3236,13 @@ El nombre oficial de la marca es estrictamente **Tacos Gavilan** (NUNCA digas "T
 
 DATOS EN VIVO DE ESTA SUCURSAL (${store.name}):
 ${calendarDateLine}
-- Estado actual en vivo (Zona Horaria Pacífico): ${scheduleEval.statusMessageEs} / ${scheduleEval.statusMessageEn}
-- Horario de la semana: ${scheduleEval.weeklySummaryEs}
-${holidaysContextLine}
-- Dirección exacta para decir por teléfono (SIN abreviaturas): ${spokenStoreAddress}${storeZipCode ? ` (Código postal / Zip Code solo si el cliente lo pregunta explícitamente: ${storeZipCode})` : ''}
-- Teléfono de la sucursal: ${store.phone}
-- ¿Tiene Drive-Thru?: ${store.has_drive_thru ? 'Esta sucursal SÍ tiene servicio de Drive-Thru, además de Comedor y Para Llevar.' : 'Esta sucursal NO tiene Drive-Thru (únicamente servicio en Comedor y Para Llevar en mostrador). Las 6 sucursales con Drive-Thru son Central, West Covina, La Puente, Norwalk, Lynwood y South Gate.'}
-- ¿Acepta EBT CalFresh en caja?: ${config.accepts_ebt ? 'En esta sucursal aceptamos tarjeta EBT CalFresh (Restaurant Meals Program) directamente en caja, además de efectivo, tarjetas Visa/Mastercard/Amex/Discover y Apple Pay/Google Pay.' : 'En esta sucursal no está activo el cobro con EBT CalFresh RMP; aceptamos efectivo, tarjetas de débito/crédito y Apple Pay/Google Pay.'}
-- Sitio web para ordenar en línea: tacosgavilan.com (NUNCA dictes URLs largas con https o IDs numéricos por teléfono)
+- Estado actual en vivo (Zona Horaria Pacífico): ${turnLangGuess === 'en' ? scheduleEval.statusMessageEn : scheduleEval.statusMessageEs}
+- Horario de la semana: ${turnLangGuess === 'en' ? scheduleEval.weeklySummaryEn : scheduleEval.weeklySummaryEs}
+${holidaysContextLine ? holidaysContextLine + '\n' : ''}- Dirección exacta para decir por teléfono (SIN abreviaturas): ${spokenStoreAddress}${storeZipCode ? ` (Código postal solo si lo piden: ${storeZipCode})` : ''}
+- Teléfono: ${store.phone}
+- Drive-Thru: ${store.has_drive_thru ? 'Esta sucursal SÍ tiene Drive-Thru.' : 'Esta sucursal NO tiene Drive-Thru (solo Comedor y Para Llevar).'} Las únicas 6 sucursales con Drive-Thru son Central, West Covina, La Puente, Norwalk, Lynwood y South Gate.
+- Pagos / EBT: ${config.accepts_ebt ? 'Aceptamos EBT CalFresh RMP en caja, efectivo, tarjetas y Apple Pay/Google Pay.' : 'NO aceptamos EBT CalFresh aquí; sí efectivo, tarjetas y Apple Pay/Google Pay.'}
+- Web / Ordenar en línea: tacosgavilan.com (NUNCA dictes URLs largas ni IDs numéricos)${source === 'twilio' && callerNumber ? `\n- Caller ID Twilio entrante: ${callerNumber} (solo úsalo si piden marcar a este mismo número)` : ''}
 ${parkingNotesBlock}${priorCallbackNote}
 ${storesDirectoryBlock}
 
@@ -2869,13 +3260,12 @@ MAPA DE EJECUCIÓN DE ESCENARIOS Y REGLAS ESTRICTAS DE DIÁLOGO:
 1. **CERO MULETILLAS Y CERO REPETICIÓN DE "¡SÍ!"**:
    - **PROHIBIDO** empezar tus respuestas con "¡Sí!", "¡Claro que sí!", "¡Claro!", "¡Por supuesto!", "¡Hola!" o "Yes!".
    - Cuando el cliente hace varias preguntas a la vez (ej. "¿Están abiertos, a qué hora cierran y tienen Drive-Thru?"), **NUNCA** digas "Sí" dos veces. Integra todo en una sola oración fluida. Ejemplo para este momento: ${hoursExampleEs}
-2. **Precios del Menú, Medidas de Bebidas, Ingredientes (Regular vs Super) y Platillos No Manejados**:
-   - Da los precios exactos del CATÁLOGO EN VIVO de arriba, respetando el tamaño (Medium/Mediana vs Large/Grande) y la carne que pidió. Si el dato YA aparece en el CATÁLOGO EN VIVO, COINCIDENCIAS DEL MENÚ, DIRECTORIO o CHAROLAS de arriba, **RESPONDE DE INMEDIATO SIN LLAMAR HERRAMIENTAS** para mantener la llamada telefónica ultrarrápida.
-   - Medidas reales de bebidas: Aguas Frescas y Sodas de fuente vienen en vaso **Mediano de 22 onzas ($3.59)**, vaso **Grande de 32 onzas ($4.09)** y **Galón de 128 onzas ($14.59, rinde aprox. 5 vasos medianos)**; **Agua Embotellada ($1.19)**; bebidas calientes incluyen **Champurrado ($4.09)** en vaso individual, **Caja de Champurrado para llevar de 96 onzas ($27.89, rinde aprox. 8 vasos de 12 onzas)** y **Café ($2.59)**.
-   - Si preguntan qué incluye un platillo o la diferencia entre Regular/sencillo y Super, responde ÚNICAMENTE con los ingredientes de la Base de Conocimiento y las notas \`Prep Toast\` del catálogo (NUNCA digas que la diferencia es solo el tamaño ni inventes ingredientes externos como pierna de puerco, cebolla, cilantro o jalapeños donde Toast no los lista): en Quesadillas y Mulitas, la Super agrega guacamole y crema al queso (y carne opcional); en Burritos, el Regular lleva carne, arroz y frijol, y el Super agrega queso, guacamole y crema; en Torta Cubana, lleva exactamente milanesa de res (Breaded Steak), jamón y salchicha (Wiener) con lechuga, tomate, mayonesa, guacamole, frijoles y queso.
-   - Si preguntan por platillos o bebidas que NO vendemos (ej. menudo, birria, pozole, cerveza) o hacen preguntas fuera de tema (chistes, música, deportes, trivia), contesta breve y cordialmente sin inventar y **NUNCA** llames \`flag_unanswered_question\`. Reserva \`flag_unanswered_question\` únicamente para dudas operativas legítimas del negocio que no estén en la Base de Conocimiento.
+2. **Menú, STT Fonético, Bebidas, Quesos, Regular vs Super y No Manejados**:
+   - Si el precio/ingrediente YA está en tu contexto, **RESPONDE DIRECTO SIN LLAMAR HERRAMIENTAS**. Ante posibles errores de micrófono sobre un tema reciente (ej. "torta Corona" tras hablar de "torta cubana", "salad burrito" = asada, "muleta" = mulita, "driver" = Drive-Thru), interpreta con naturalidad el platillo correcto.
+   - Medidas reales de bebidas y quesos aparecen en el CATÁLOGO y Base de Conocimiento (ej. Champurrado y Café individual = **vaso térmico de 16 onzas**, Caja Champurrado = **96 onzas** [6×16 oz / 8 vasitos de 12 oz]; Aguas Frescas: **Horchata, Jamaica, Piña y Tamarindo** en 22 oz / 32 oz / 128 oz; Tortas = **Queso Fresco**, NUNCA crema ni queso fundido). Diferencia Regular vs Super: Quesadilla/Mulita Super añade guacamole y crema; Burrito Super añade queso Monterey Jack, guacamole y crema; Torta Cubana = milanesa de res, jamón y salchicha.
+   - No vendemos menudo, birria, pozole, suadero, tripa (descontinuada) ni alcohol/cerveza; ante estos o temas ajenos (música, deportes, chistes), declina con amabilidad y **NUNCA** llames \`flag_unanswered_question\`.
 3. **Charolas Fiesta Platters**:
-   - Recomienda el paquete según el número de invitados usando los precios oficiales de arriba (si son exactamente 30 personas, menciona el de 25 a 30 y el de 30 a 40; si son más de 40 personas, llama a \`get_fiesta_platter_packages\` para dar la combinación y total exacto). Indica que se piden en tacosgavilan.com con mínimo 1 hora de anticipación.
+   - Usa la sección CHAROLAS de tu contexto (si ya calculó \`CÁLCULO EXACTO\` para >40 personas, responde directo sin tool call).
 4. **Pedidos por Teléfono**:
    - Explica amablemente que por políticas de Tacos Gavilan no tomamos pedidos por teléfono, e invítalo a ordenar en línea en tacosgavilan.com para pasar a recoger${store.has_drive_thru ? ' o pedir directamente en caja o por el Drive-Thru' : ' o pedir directamente en caja'}.
 5. **Repartidores de Delivery (DoorDash, Uber Eats, Grubhub)**:
@@ -2886,13 +3276,19 @@ MAPA DE EJECUCIÓN DE ESCENARIOS Y REGLAS ESTRICTAS DE DIÁLOGO:
    - Si aún NO ha dado su nombre o su número de teléfono de 10 dígitos, pídeselos con empatía en una sola frase corta ANTES de llamar \`create_manager_callback\`.
    - Si ya enviaste la alerta en esta misma llamada, no la vuelvas a enviar salvo que agregue datos nuevos: confirma que el gerente ya la tiene.
 7. **Idioma y Agilidad Telefónica (REGLA CRÍTICA DE VELOCIDAD)**:
-   - Idioma detectado del cliente: ${turnLangGuess === 'en' ? 'Inglés' : 'Español'}. Responde SIEMPRE en el mismo idioma en que te habló el cliente en su último mensaje (si te habló en inglés aunque la tienda inició en español, contéstale en inglés natural; si te habló en español, contéstale en español mexicano cálido).
-   - Sé concisa y directa como una recepcionista real por teléfono: **12 a 28 palabras** (1 oración ágil o máximo 2 oraciones cortas; si el cliente pide explícitamente las direcciones de varias sucursales a la vez, ej. "de todas", proporciónale calle y ciudad de cada una de forma directa hasta ~75 palabras). NO agregues comerciales de relleno sobre tacosgavilan.com al final si el cliente solo preguntó precios, horarios o formas de pago. Sin viñetas, sin emojis ni markdown.
+   - Idioma detectado del cliente: ${turnLangGuess === 'en' ? 'Inglés' : 'Español'}. Responde SIEMPRE en el mismo idioma de su último mensaje (español mexicano cálido o inglés natural).
+   - Sé concisa y directa: **12 a 28 palabras** (1–2 oraciones ágiles). Excepciones autorizadas hasta **65–75 palabras**: (a) cuando pidan el **calendario de días festivos especiales en general**, DEBES resumir las **7 fechas reales** (cerrados Viernes Santo y Navidad 25 dic; cierre temprano 4 PM en Thanksgiving, Nochebuena 24 dic y Fin de Año 31 dic; apertura tarde 11 AM en Año Nuevo 1 ene y Black Friday); o (b) direcciones de varias sucursales a la vez. Sin comerciales de relleno, viñetas, emojis ni markdown.
 8. **Filtro Anti-Spam / Ventas Comerciales**:
    - Si llaman para vender servicios comerciales (SEO/Google, préstamos, paneles solares, garantías), declina con cortesía en una oración breve indicando que en sucursal no recibimos ofertas comerciales y NO ejecutes \`create_manager_callback\`.`
 
-  // Convertir historial de transcripción a contents de Gemini (empezando siempre por un turno del usuario)
-  const historyEntries = transcript.filter((t) => t.role === 'user' || t.role === 'assistant').slice(-8)
+  // Convertir historial de transcripción a contents de Gemini excluyendo fallbacks de error previos para no contaminar el modelo
+  const historyEntries = transcript
+    .filter(
+      (t) =>
+        (t.role === 'user' || t.role === 'assistant') &&
+        !/problema t[eé]cnico moment[aá]neo|brief technical issue/i.test(String(t.text || ''))
+    )
+    .slice(-10)
   while (historyEntries.length > 0 && historyEntries[0].role !== 'user') historyEntries.shift()
   const contents: any[] = historyEntries.map((t) => ({
     role: t.role === 'assistant' ? 'model' : 'user',
@@ -2930,6 +3326,7 @@ MAPA DE EJECUCIÓN DE ESCENARIOS Y REGLAS ESTRICTAS DE DIÁLOGO:
 
   let callbackCreated: any | null = null
   let callbackWasNew = false
+  let transferRequestedLive = false
   let unansweredFlagged: string | null = null
   let replyText = ''
   let geminiFailed = false
@@ -2944,7 +3341,8 @@ MAPA DE EJECUCIÓN DE ESCENARIOS Y REGLAS ESTRICTAS DE DIÁLOGO:
         phone: store.phone,
         hasDriveThru: store.has_drive_thru,
         acceptsEbt: config.accepts_ebt,
-        ...scheduleEval
+        ...scheduleEval,
+        upcomingHolidays: upcomingHolidays.slice(0, 7)
       }
     }
     if (toolName === 'search_menu_item_price') {
@@ -2961,20 +3359,6 @@ MAPA DE EJECUCIÓN DE ESCENARIOS Y REGLAS ESTRICTAS DE DIÁLOGO:
         allActiveStores.length > 0 ? Promise.resolve(allActiveStores) : loadAllActiveStoresDirectory(),
         loadAllSpecialHoursCached()
       ])
-      const REGION_STORE_IDS: Record<string, number[]> = {
-        'east la': [11, 13],
-        'este de los angeles': [11, 13],
-        'south la': [5, 6, 7],
-        'sur de los angeles': [5, 6, 7],
-        'downtown': [5, 6],
-        'southeast la': [11, 12, 13, 14, 15, 16],
-        'orange county': [9],
-        'condado de orange': [9],
-        'inland empire': [1],
-        'san bernardino': [1],
-        'san gabriel': [3, 4, 10],
-        'sgv': [3, 4, 10]
-      }
       const filterNorm = normalizeSearchText(toolArgs?.search_city_or_filter || '')
       const matchedRegionIds = Object.entries(REGION_STORE_IDS).find(([alias]) => filterNorm.includes(alias))?.[1] || null
       const isScheduleComparisonFilter =
@@ -3027,18 +3411,11 @@ MAPA DE EJECUCIÓN DE ESCENARIOS Y REGLAS ESTRICTAS DE DIÁLOGO:
       const ensuredCall = await ensureCallRecord()
       const reasonSummary = String(toolArgs?.reason_summary || userText).trim()
       const argPhoneRaw = String(toolArgs?.caller_phone || '').trim()
-      const isFakePhone = (rawDigits: string) => {
-        const d = rawDigits.length === 11 && rawDigits.startsWith('1') ? rawDigits.slice(1) : rawDigits
-        if (d.length !== 10) return true
-        if (/^(\d)\1{9}$/.test(d)) return true
-        if (d.endsWith('0000') && d.startsWith('000')) return true
-        if (d.slice(3, 6) === '555' && /^01\d\d$/.test(d.slice(6))) return false // reservado test solo si simulador; en Twilio rechazar abajo
-        return /^000|111|999/.test(d) || d.slice(3) === '0000000'
-      }
-      const parsedArg = normalizeUsPhoneE164(argPhoneRaw)
+      const allowDev555 = source === 'simulator' && /^TEST_SMOKE_/i.test(callSid)
+      const parsedArg = argPhoneRaw.toUpperCase() === 'CALLER_ID' ? { valid: false, normalized: null, tenDigits: null } : normalizeUsPhoneE164(argPhoneRaw)
       const parsedCaller = source === 'twilio' && callerNumber ? normalizeUsPhoneE164(callerNumber) : { valid: false, normalized: null, tenDigits: null }
-      const argIsClean = parsedArg.valid && parsedArg.tenDigits && !isFakePhone(parsedArg.tenDigits) && !(source === 'twilio' && parsedArg.tenDigits.slice(3, 6) === '555')
-      const callerIsClean = parsedCaller.valid && parsedCaller.tenDigits && !isFakePhone(parsedCaller.tenDigits)
+      const argIsClean = parsedArg.valid && parsedArg.tenDigits && !isFictitiousNanpPhone(parsedArg.tenDigits, allowDev555)
+      const callerIsClean = parsedCaller.valid && parsedCaller.tenDigits && !isFictitiousNanpPhone(parsedCaller.tenDigits, false)
       const cleanCallbackPhone = argIsClean
         ? parsedArg.normalized!
         : callerIsClean
@@ -3124,16 +3501,38 @@ MAPA DE EJECUCIÓN DE ESCENARIOS Y REGLAS ESTRICTAS DE DIÁLOGO:
         ticketOrOrderNumber: toolArgs?.ticket_or_order_number ? String(toolArgs.ticket_or_order_number) : null
       })
       callbackWasNew = true
+      const explicitTransfer =
+        Boolean(toolArgs?.transfer_now) ||
+        /\b(transfer|transfiere|comunicame|pasa con|connect me|speak live|hablar ahorita)\b/i.test(normUser)
+      if (explicitTransfer && liveTransferCandidatePhone) {
+        transferRequestedLive = true
+      }
       return {
         success: true,
         storeOpenNow: scheduleEval.isOpenNow,
-        willTransferLive: Boolean(liveTransferCandidatePhone),
+        willTransferLive: Boolean(transferRequestedLive && liveTransferCandidatePhone),
         callbackId: callbackCreated.id,
-        message: liveTransferCandidatePhone
+        message: transferRequestedLive && liveTransferCandidatePhone
           ? `Alerta registrada y transferencia en vivo ACTIVA: infórmale que ya registraste su aviso y que en este momento le transfieres la llamada con el gerente en turno de ${store.name} (NO te despidas).`
           : scheduleEval.isOpenNow
             ? `Alerta enviada en vivo a la pantalla del Manager de ${store.name}.`
             : `Recado prioritario registrado para el Manager de ${store.name}. IMPORTANTE: La sucursal está CERRADA ahora (${scheduleEval.statusMessageEs}); informa al cliente que el gerente le devolverá la llamada al reabrir.`
+      }
+    }
+    if (toolName === 'transfer_to_store_phone') {
+      if (!scheduleEval.isOpenNow || !config.allow_live_transfer || !liveTransferCandidatePhone) {
+        return {
+          canTransferLive: false,
+          storeOpenNow: scheduleEval.isOpenNow,
+          message:
+            'Transferencia en vivo no disponible en este momento (sucursal cerrada o sin celular configurado); pídele nombre y teléfono de 10 dígitos para registrar recado prioritario con `create_manager_callback`.'
+        }
+      }
+      transferRequestedLive = true
+      return {
+        canTransferLive: true,
+        transferPhone: liveTransferCandidatePhone,
+        message: `Transferencia en vivo confirmada con el gerente de ${store.name}. Indícale brevemente que lo comunicas en este instante.`
       }
     }
     if (toolName === 'flag_unanswered_question') {
@@ -3217,7 +3616,7 @@ MAPA DE EJECUCIÓN DE ESCENARIOS Y REGLAS ESTRICTAS DE DIÁLOGO:
     contents.push({ role: 'user', parts: responseParts })
   }
 
-  const shouldTransferToPhone = callbackWasNew && liveTransferCandidatePhone ? liveTransferCandidatePhone : null
+  const shouldTransferToPhone = transferRequestedLive && liveTransferCandidatePhone ? liveTransferCandidatePhone : null
 
   if (!replyText) {
     if (callbackCreated) {
@@ -3238,10 +3637,32 @@ MAPA DE EJECUCIÓN DE ESCENARIOS Y REGLAS ESTRICTAS DE DIÁLOGO:
             : `Tu recado ya está en la pantalla del gerente de ${store.name} y se comunicará contigo lo antes posible. ¿Te puedo ayudar con algo más?`
       }
     } else if (geminiFailed) {
-      replyText =
-        turnLangGuess === 'en'
-          ? 'Sorry, I had a brief technical issue. Could you please repeat your question?'
-          : 'Disculpa, tuve un problema técnico momentáneo. ¿Me puedes repetir tu pregunta, por favor?'
+      // Respaldo determinista en memoria si Gemini agotó presupuesto o cuota para no colgar en error genérico
+      if (/\b(drive|ventanilla)\b/i.test(normUser) && allActiveStores.length > 0) {
+        const dtNames = allActiveStores.filter((s) => s.has_drive_thru).map((s) => s.name)
+        replyText =
+          turnLangGuess === 'en'
+            ? `Our six locations with Drive-Thru are ${dtNames.join(', ')}. Would you like the hours or address for any of them?`
+            : `Las seis sucursales con Drive-Thru son ${dtNames.join(', ')}. ¿Te doy el horario o dirección de alguna?`
+      } else if (wantsFiestaContext && detectedGuestCount) {
+        replyText = turnLangGuess === 'en' ? platterInfo.recommendationEn : platterInfo.recommendationEs
+      } else if (preFetchedMenu.length > 0 && /\b(precio|cuesta|cuanto|price|cost|how much)\b/i.test(normUser)) {
+        const top = preFetchedMenu.slice(0, 3).map((m) => `${m.name} (${m.priceFormatted})`)
+        replyText =
+          turnLangGuess === 'en'
+            ? `In ${store.name}, ${top.join(', ')}. Can I check anything else?`
+            : `En ${store.name}, ${top.join(', ')}. ¿Te ayudo con algo más?`
+      } else if (/\b(hora|horario|abierto|abiertos|cerrado|abren|cierran|open|close|hours|direccion|ubicacion|address)\b/i.test(normUser)) {
+        replyText =
+          turnLangGuess === 'en'
+            ? `${scheduleEval.statusMessageEn} Our address is ${spokenStoreAddress}.`
+            : `${scheduleEval.statusMessageEs} Nuestra dirección es ${spokenStoreAddress}.`
+      } else {
+        replyText =
+          turnLangGuess === 'en'
+            ? 'Sorry, I had a brief technical issue. Could you please repeat your question?'
+            : 'Disculpa, tuve un problema técnico momentáneo. ¿Me puedes repetir tu pregunta, por favor?'
+      }
     } else {
       replyText =
         turnLangGuess === 'en'
@@ -3250,7 +3671,7 @@ MAPA DE EJECUCIÓN DE ESCENARIOS Y REGLAS ESTRICTAS DE DIÁLOGO:
     }
   }
 
-  const meta = inferCallMetadata(userText, toolsUsed, Boolean(callbackCreated))
+  const meta = inferCallMetadata(normalizedUserForMatch, toolsUsed, Boolean(callbackCreated))
 
   // Idioma FINAL = idioma real del texto generado (se detecta antes de acentuar topónimos como "Los Ángeles")
   const finalLang: PhoneLang = detectPhoneTextLanguage(replyText, turnLangGuess)
@@ -3264,16 +3685,23 @@ MAPA DE EJECUCIÓN DE ESCENARIOS Y REGLAS ESTRICTAS DE DIÁLOGO:
   })
 
   const normEnd = normalizeSearchText(userText)
+  const prevAssistantText =
+    transcript
+      .slice(0, -1)
+      .filter((t) => t.role === 'assistant')
+      .slice(-1)[0]?.text || ''
+  const offeredEnding = /algo m[aá]s|anything else|else i can help/i.test(prevAssistantText)
   const continuesAsking =
     /[?¿]/.test(userText) ||
-    /\b(mejor dime|espera|una pregunta|otra pregunta|y cuanto|a que hora|one more|wait|actually)\b/i.test(normEnd)
+    /\b(mejor dime|espera|una pregunta|otra pregunta|y cuanto|a que hora|tambien|también|one more|wait|actually)\b/i.test(normEnd)
   const shouldHangup =
     !shouldTransferToPhone &&
     (meta.primaryIntent === 'spam' ||
       (!continuesAsking &&
-        /\b(gracias es todo|eso es todo|nada mas gracias|seria todo gracias|bye|goodbye|thank you that is all|thats all|adios|nos vemos)\b/i.test(
+        (/\b(gracias es todo|eso es todo|solo era eso|seria todo|nada mas|bye|goodbye|thank you that is all|thats all|that will be all|nothing else|no thank you|no thanks|hasta luego|adios|nos vemos)\b/i.test(
           normEnd
-        )))
+        ) ||
+          (offeredEnding && /^(?:no\s+)?(?:muchas\s+)?gracias\.?$/i.test(normEnd.trim())))))
 
   const finalCallRecord = await ensureCallRecord()
   const startedAtMs = finalCallRecord.started_at ? new Date(finalCallRecord.started_at).getTime() : Date.now()
@@ -3291,18 +3719,53 @@ MAPA DE EJECUCIÓN DE ESCENARIOS Y REGLAS ESTRICTAS DE DIÁLOGO:
         ? 'completed'
         : 'in_progress'
 
+  const INTENT_PRIORITY: Record<string, number> = {
+    employee_callout: 100,
+    complaint_missing_item: 95,
+    lost_and_found: 90,
+    vendor_service: 85,
+    delivery_driver: 75,
+    fiesta_platters: 65,
+    order_by_phone: 60,
+    payment_ebt: 50,
+    menu_prices: 40,
+    location_drivethru: 35,
+    hours: 30,
+    spam: 25,
+    general: 10
+  }
+  const prevIntent = String(finalCallRecord.primary_intent || 'general')
+  const prevPrio = INTENT_PRIORITY[prevIntent] ?? 10
+  const nextPrio = INTENT_PRIORITY[meta.primaryIntent] ?? 10
+  const resolvedIntent = nextPrio >= prevPrio && meta.primaryIntent !== 'general' ? meta.primaryIntent : prevIntent !== 'general' ? prevIntent : meta.primaryIntent
+
+  // Respaldo: capturar unanswered_question si la IA admite falta de dato oficial de negocio sin haber invocado la herramienta
+  if (
+    !unansweredFlagged &&
+    /\b(no cuento con informaci[oó]n oficial|no tengo ese dato oficial|don't have official information|do not have that policy)\b/i.test(
+      replyText
+    ) &&
+    !/\b(chiste|joke|cancion|song|banda|rock|heroes del silencio|futbol|soccer|nfl|nba|clima|weather|menudo|birria|pozole|suadero|tripa|cerveza)\b/i.test(
+      normUser
+    )
+  ) {
+    unansweredFlagged = userText.slice(0, 300)
+  }
+
   const updatePayload: Record<string, any> = {
     language: finalLang,
     caller_category:
       finalCallRecord.caller_category && finalCallRecord.caller_category !== 'customer' && meta.callerCategory === 'customer'
         ? finalCallRecord.caller_category
         : meta.callerCategory,
-    primary_intent:
-      finalCallRecord.primary_intent && finalCallRecord.primary_intent !== 'general'
-        ? finalCallRecord.primary_intent
-        : meta.primaryIntent,
+    primary_intent: resolvedIntent,
     status: nextStatus,
-    resolved_by_ai: wasTransferred || callbackEverRequested ? false : meta.resolvedByAi,
+    resolved_by_ai:
+      wasTransferred ||
+      callbackEverRequested ||
+      ['complaint_missing_item', 'lost_and_found', 'employee_callout'].includes(resolvedIntent)
+        ? false
+        : meta.resolvedByAi,
     duration_seconds: durationSeconds,
     turns_count: Number(finalCallRecord.turns_count || 0) + 1,
     summary: `${userText.slice(0, 120)} -> ${replyText.slice(0, 140)}`,
@@ -3410,34 +3873,36 @@ export function verifyPhoneTtsSignature(text: string, lang: string, voice: strin
 }
 
 const TWILIO_GATHER_HINTS =
-  'Tacos Gavilan, asada, pastor, pollo, cabeza, lengua, buche, chorizo, carnitas, mulita, super mulita, vampiro, torta cubana, super burrito, quesadilla, super quesadilla, taco plate, combo, horchata, jamaica, pina, champurrado, fiesta platter, charola, drive thru, EBT, CalFresh, West Covina, Lynwood, South Gate, Downey, Norwalk, La Puente, Huntington Park, Santa Ana, Rialto, Azusa, Bell, Hollywood, Slauson, Central, Broadway, gerente, manager'
+  'Tacos Gavilan, asada, pastor, pollo, cabeza, lengua, buche, chorizo, carnitas, mulita, super mulita, torta cubana, torta milanesa, super burrito, burrito vegetariano, quesadilla, super quesadilla, sope, taco plate, super nachos, flan, cheesecake, horchata, jamaica, pina, tamarindo, champurrado, aguas frescas, huevos rancheros, huevos con chorizo, Monterey Jack, queso fresco, cotija, fiesta platter, charola, drive thru, EBT, CalFresh, West Covina, Lynwood, South Gate, Downey, Norwalk, La Puente, Huntington Park, Santa Ana, Rialto, Azusa, Bell, Hollywood, Slauson, Central, Broadway, gerente, manager'
 
 /**
  * Genera los atributos estándar optimizados de Twilio `<Gather input="speech dtmf">`
- * con `speechTimeout="1"`, `speechModel="phone_call"`, `enhanced="true"` y `hints` de Tacos Gavilan.
+ * con `speechTimeout="1"`, `timeout="4"`, `actionOnEmptyResult="true"`, `speechModel="phone_call"`, `enhanced="true"` y `hints`.
  */
 export function buildTwilioGatherAttrs(lang: PhoneLang, actionUrl: string): string {
   const speechLang = lang === 'en' ? 'en-US' : 'es-US'
-  return `input="speech dtmf" numDigits="1" language="${speechLang}" speechTimeout="1" speechModel="phone_call" enhanced="true" hints="${escapeXml(TWILIO_GATHER_HINTS)}" action="${escapeXml(actionUrl)}" method="POST"`
+  return `input="speech dtmf" numDigits="1" language="${speechLang}" speechTimeout="1" timeout="4" actionOnEmptyResult="true" speechModel="phone_call" enhanced="true" hints="${escapeXml(TWILIO_GATHER_HINTS)}" action="${escapeXml(actionUrl)}" method="POST"`
 }
 
 /**
- * Construye la URL firmada de audio telefónico (`/api/phone/tts?lang&voice&text&sig[&rate=8000]`).
- * Para llamadas telefónicas reales de Twilio (baseUrl presente), solicita 8 kHz PSTN (`&rate=8000`, -66% peso)
- * mientras conserva 24 kHz HD cuando `rate = 24000` o `baseUrl = ''` (Simulador Web).
+ * Construye la URL firmada de audio telefónico (`/api/phone/tts?lang&voice&text&sig[&rate=8000][&dyn=1]`).
+ * Cuando `dynamic = true` (respuestas dinámicas de `respond`), añade `&dyn=1` para omitir búsquedas/subidas lentas en Storage.
  */
 export function buildPhoneTtsUrl(
   baseUrl: string,
   text: string,
   lang: PhoneLang,
   voice: string = 'Kore',
-  rate?: 8000 | 24000
+  rateOrOpts?: 8000 | 24000 | { rate?: 8000 | 24000; dynamic?: boolean }
 ): string {
   const cleanText = String(text || '').trim()
   const sig = signPhoneTtsParams(cleanText, lang, voice)
-  const effectiveRate = rate ?? (baseUrl ? 8000 : 24000)
+  const rateOpt = typeof rateOrOpts === 'number' ? rateOrOpts : rateOrOpts?.rate
+  const isDynamic = typeof rateOrOpts === 'object' ? Boolean(rateOrOpts?.dynamic) : false
+  const effectiveRate = rateOpt ?? (baseUrl ? 8000 : 24000)
   const rateParam = effectiveRate === 8000 ? '&rate=8000' : ''
-  return `${baseUrl}/api/phone/tts?lang=${lang}&voice=${encodeURIComponent(voice)}&text=${encodeURIComponent(cleanText)}&sig=${sig}${rateParam}`
+  const dynParam = isDynamic ? '&dyn=1' : ''
+  return `${baseUrl}/api/phone/tts?lang=${lang}&voice=${encodeURIComponent(voice)}&text=${encodeURIComponent(cleanText)}&sig=${sig}${rateParam}${dynParam}`
 }
 
 /**

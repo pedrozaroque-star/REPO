@@ -398,7 +398,21 @@ export const dictionaries: Record<Language, Dictionary> = {
             calls_modal_play_tts: 'Escuchar voz',
             calls_role_user: 'Persona que llama',
             calls_role_assistant: 'Asistente Virtual Tacos Gavilan',
-            calls_role_tool: 'Herramienta Ejecutada'
+            calls_role_tool: 'Herramienta Ejecutada',
+            sim_synthesizing_voice: 'Generando voz Kore...',
+            sim_mute_voice: 'Silenciar voz',
+            sim_unmute_voice: 'Activar voz',
+            stores_unsaved_badge: 'Sin guardar',
+            stores_save_and_verify: 'Guardar y verificar desvío',
+            twilio_panel_title: 'Conexión Twilio & Webhook Global',
+            twilio_panel_desc: 'Configura estos webhooks en Twilio Console (Voice & Fax -> A Call Comes In). Con 1 solo número piloto compartido, la IA identifica automáticamente cuál de las 15 tiendas desvió la llamada por ForwardedFrom.',
+            twilio_webhook_incoming: 'Webhook Entrante (Incoming POST)',
+            twilio_webhook_status: 'Webhook Estado (Status Callback POST)',
+            twilio_token_ready: 'TWILIO_AUTH_TOKEN activo en servidor',
+            twilio_token_missing: 'Falta TWILIO_AUTH_TOKEN en variables de entorno',
+            holidays_invalid_range: 'La hora de apertura y cierre especial no pueden ser iguales.',
+            banner_elapsed_min: 'hace {m} min',
+            banner_elapsed_now: 'ahora mismo'
         },
         // HOME HUB (/inicio)
         home_hub: {
@@ -3784,6 +3798,7 @@ export const dictionaries: Record<Language, Dictionary> = {
             th_total_reimbursed: 'Total Reembolsado',
             th_delivery_status: 'Estado',
             status_sent: 'Enviado con Éxito',
+            status_test_sent: 'Prueba Enviada',
             status_failed: 'Error de Envío',
             // Settings Tab
             rate_title: 'Tarifa Oficial por Milla',
@@ -8893,7 +8908,21 @@ export const dictionaries: Record<Language, Dictionary> = {
             calls_modal_play_tts: 'Play voice',
             calls_role_user: 'Caller',
             calls_role_assistant: 'Tacos Gavilan Virtual Assistant',
-            calls_role_tool: 'Tool Executed'
+            calls_role_tool: 'Tool Executed',
+            sim_synthesizing_voice: 'Generating Kore voice...',
+            sim_mute_voice: 'Mute voice',
+            sim_unmute_voice: 'Unmute voice',
+            stores_unsaved_badge: 'Unsaved',
+            stores_save_and_verify: 'Save & verify forwarding',
+            twilio_panel_title: 'Twilio Connection & Global Webhook',
+            twilio_panel_desc: 'Configure these webhooks in Twilio Console (Voice & Fax -> A Call Comes In). On a 1-number shared pilot, the AI automatically identifies which of the 15 locations forwarded the call via ForwardedFrom.',
+            twilio_webhook_incoming: 'Incoming Webhook (POST)',
+            twilio_webhook_status: 'Status Callback Webhook (POST)',
+            twilio_token_ready: 'TWILIO_AUTH_TOKEN active on server',
+            twilio_token_missing: 'TWILIO_AUTH_TOKEN missing in env vars',
+            holidays_invalid_range: 'Special opening and closing times cannot be the same.',
+            banner_elapsed_min: '{m}m ago',
+            banner_elapsed_now: 'just now'
         },
         // HOME HUB (/inicio)
         home_hub: {
@@ -12279,6 +12308,7 @@ export const dictionaries: Record<Language, Dictionary> = {
             th_total_reimbursed: 'Total Reimbursed',
             th_delivery_status: 'Status',
             status_sent: 'Successfully Sent',
+            status_test_sent: 'Test Sent',
             status_failed: 'Delivery Failed',
             // Settings Tab
             rate_title: 'Official Rate per Mile',

@@ -30,19 +30,33 @@ import { authorizePhoneModuleRequest } from '@/lib/phone-agent-access'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 30
+export const preferredRegion = 'sfo1'
 
 const MAX_TTS_ROUTE_CHARS = Math.max(1400, MAX_PHONE_TTS_CHARS)
 
-async function renderWav(text: string, lang: 'en' | 'es', voice: VoiceId, rate: 8000 | 24000 = 24000, signal?: AbortSignal) {
+async function renderWav(
+  text: string,
+  lang: 'en' | 'es',
+  voice: VoiceId,
+  rate: 8000 | 24000 = 24000,
+  isDynamic = false,
+  signal?: AbortSignal
+) {
   const safeText = text.length > MAX_TTS_ROUTE_CHARS ? normalizePhoneTtsInput(text, lang, MAX_TTS_ROUTE_CHARS) : text
-  const rawWav = await getPhoneAgentSpeech(safeText, lang, voice, false, { signal })
+  const rawWav = await getPhoneAgentSpeech(safeText, lang, voice, false, {
+    skipStorageLookup: isDynamic,
+    skipStoragePersist: isDynamic,
+    skipSseAttempt: isDynamic,
+    maxTotalMs: rate === 8000 || isDynamic ? 8200 : undefined,
+    signal
+  })
   const wav = rate === 8000 ? downsampleWav24kTo8k(rawWav) : rawWav
   return new Response(new Uint8Array(wav), {
     status: 200,
     headers: {
       'Content-Type': 'audio/wav',
       'Content-Length': String(wav.length),
-      'Cache-Control': 'public, max-age=86400, s-maxage=86400'
+      'Cache-Control': isDynamic ? 'no-store' : 'public, max-age=86400, s-maxage=86400'
     }
   })
 }
@@ -55,6 +69,7 @@ export async function GET(request: NextRequest) {
   const rawVoice = searchParams.get('voice') || 'Kore'
   const voice: VoiceId = resolvePhoneFemaleVoice(rawVoice)
   const rate: 8000 | 24000 = searchParams.get('rate') === '8000' ? 8000 : 24000
+  const isDynamic = searchParams.get('dyn') === '1'
 
   if (!text) {
     return NextResponse.json({ error: 'Parámetro text requerido' }, { status: 400 })
@@ -66,7 +81,7 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    return await renderWav(text, lang, voice, rate, request.signal)
+    return await renderWav(text, lang, voice, rate, isDynamic, request.signal)
   } catch (err: any) {
     console.error('[api/phone/tts] Error:', err?.message)
     return NextResponse.json({ error: err?.message || 'Error al generar audio telefónico' }, { status: 502 })
@@ -86,12 +101,13 @@ export async function POST(request: NextRequest) {
     const rawVoice = body?.voice || 'Kore'
     const voice: VoiceId = resolvePhoneFemaleVoice(rawVoice)
     const rate: 8000 | 24000 = body?.rate === 8000 || body?.rate === '8000' ? 8000 : 24000
+    const isDynamic = Boolean(body?.dynamic)
 
     if (!text) {
       return NextResponse.json({ error: 'Parámetro text requerido' }, { status: 400 })
     }
 
-    return await renderWav(text, lang, voice, rate, request.signal)
+    return await renderWav(text, lang, voice, rate, isDynamic, request.signal)
   } catch (err: any) {
     console.error('[api/phone/tts] POST Error:', err?.message)
     return NextResponse.json({ error: err?.message || 'Error al generar audio telefónico' }, { status: 502 })

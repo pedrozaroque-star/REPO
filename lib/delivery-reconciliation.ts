@@ -84,6 +84,7 @@
  *   * Persistencia real de cobertura y errores de sincronización por tienda/plataforma en `integrations.delivery_sync_status` y normalización `PlatformOrderInput` en cuarentena `store_id=0`.
  *   * Uber Eats `getNetSalesByOrder` + `workflowUUID::orderId` (`COMPLETED` + `REFUND` merge) como fuente primaria de órdenes liquidadas (evita `HTTP 429` `getHistoricOrders.rate_limited` y preserva cuadre exacto `$0.00` con payouts), más ventana 00:00–06:00 AM PT (`America/Los_Angeles`) vía `getHistoricOrders` para rollover operativo post-corte y backoff exponencial con jitter en `HTTP 429`.
  * - Fix 2026-11-13 (Vercel NFT Bundle Guard <4MB): omitido CHROME_DEVTOOLS_PORT_FILE dinámico y cortocircuito en process.env.VERCEL en lectores locales de DevToolsActivePort para evitar que Turbopack/@vercel/nft empaquete todo el repositorio (>250 MB) en funciones serverless.
+ * - Audit Fix 2026-11-16 (Paridad de Cifrado Cloud/Local & Visibilidad Estricta de Errores S2S): `buildStorePlatformCoverageMatrix` marca `FAILED` siempre que exista `doordashSyncError` o `uberSyncError` (sin enmascarar fallas de descifrado o red detrás de órdenes previas en la ventana), conserva `store_name` y el último `last_sync_at` exitoso ante errores, y persiste `lastSyncErrors` en `integrations.delivery_sync_status`.
  */
 
 import crypto from 'crypto'
@@ -5793,7 +5794,7 @@ export function buildStorePlatformCoverageMatrix(params: {
         continue
       }
 
-      if (plat === 'DOORDASH' && doordashSyncError && (doordashSyncError.includes('401') || doordashSyncError.includes('403') || realPlatOrders.length === 0)) {
+      if (plat === 'DOORDASH' && doordashSyncError) {
         pushCoverageItem({
           store_id: storeId,
           store_name: storeName,
@@ -5804,13 +5805,13 @@ export function buildStorePlatformCoverageMatrix(params: {
           last_sync_at: lastSyncAt,
           orders_count: realPlatOrders.length,
           payouts_count: storePlatPayouts.length,
-          next_action_es: 'Reconectar sesión de DoorDash Merchant o importar reporte oficial CSV/JSON.',
-          next_action_en: 'Reconnect DoorDash Merchant session or import an official CSV/JSON report.',
+          next_action_es: 'Verificar variable INTEGRATION_ENCRYPTION_KEY o reconectar sesión de DoorDash Merchant.',
+          next_action_en: 'Verify INTEGRATION_ENCRYPTION_KEY or reconnect DoorDash Merchant session.',
         })
         continue
       }
 
-      if (plat === 'UBER_EATS' && uberSyncError && (uberSyncError.includes('401') || uberSyncError.includes('403') || realPlatOrders.length === 0)) {
+      if (plat === 'UBER_EATS' && uberSyncError) {
         pushCoverageItem({
           store_id: storeId,
           store_name: storeName,
@@ -5821,8 +5822,8 @@ export function buildStorePlatformCoverageMatrix(params: {
           last_sync_at: lastSyncAt,
           orders_count: realPlatOrders.length,
           payouts_count: storePlatPayouts.length,
-          next_action_es: 'Reconectar sesión de Uber Eats Manager o importar reporte oficial CSV/JSON.',
-          next_action_en: 'Reconnect Uber Eats Manager session or import an official CSV/JSON report.',
+          next_action_es: 'Verificar variable INTEGRATION_ENCRYPTION_KEY o reconectar sesión de Uber Eats Manager.',
+          next_action_en: 'Verify INTEGRATION_ENCRYPTION_KEY or reconnect Uber Eats Manager session.',
         })
         continue
       }
@@ -7028,6 +7029,22 @@ export async function reconcileAndPersistDeliveryData(params: {
     timestamp: syncCompletedIso,
   })
 
+  const syncErrorsSet = new Set<string>()
+  if (encryptionKeyMissing) {
+    syncErrorsSet.add('INTEGRATION_ENCRYPTION_KEY no está configurada en el servidor para sesiones DD/Uber.')
+  }
+  if ((targetPlatform === 'ALL' || targetPlatform === 'DOORDASH') && doordashSyncError) {
+    syncErrorsSet.add(doordashSyncError)
+  }
+  if ((targetPlatform === 'ALL' || targetPlatform === 'UBER_EATS') && uberSyncError) {
+    syncErrorsSet.add(uberSyncError)
+  }
+  if (doordashPartialReason) syncErrorsSet.add(doordashPartialReason)
+  if (uberPartialReason) syncErrorsSet.add(uberPartialReason)
+  for (const [, ghErr] of grubhubErrorsByStore.entries()) {
+    if (ghErr) syncErrorsSet.add(ghErr)
+  }
+
   // Persistir historial limpio de cobertura y última sincronización real en `integrations.delivery_sync_status`
   try {
     const nextByStorePlatform: Record<string, any> = {
@@ -7037,8 +7054,11 @@ export async function reconcileAndPersistDeliveryData(params: {
       if (targetPlatform !== 'ALL' && item.platform !== targetPlatform) continue
       if (item.status === 'NOT_SYNCED_IN_RANGE' && !syncedPlatformsList.includes(item.platform)) continue
       const key = `${item.store_id}:${item.platform}`
+      const prevSyncAt = existingState.byStorePlatform?.[key]?.last_sync_at || null
+      const didFail = item.status === 'FAILED' || item.status === 'NOT_CONNECTED'
       nextByStorePlatform[key] = {
         store_id: item.store_id,
+        store_name: item.store_name,
         platform: item.platform,
         status: item.status,
         cause_es: item.cause_es || item.cause,
@@ -7047,7 +7067,8 @@ export async function reconcileAndPersistDeliveryData(params: {
         next_action_en: item.next_action_en || item.next_action,
         orders_count: item.orders_count,
         payouts_count: item.payouts_count,
-        last_sync_at: syncCompletedIso,
+        last_sync_at: didFail ? prevSyncAt : syncCompletedIso,
+        ...(didFail ? { last_error_at: syncCompletedIso } : {}),
       }
     }
     const nextPlatformLastSync: Record<string, string | null> = {
@@ -7069,6 +7090,7 @@ export async function reconcileAndPersistDeliveryData(params: {
     const serializedState = JSON.stringify({
       updatedAt: syncCompletedIso,
       platformLastSync: nextPlatformLastSync,
+      lastSyncErrors: Array.from(syncErrorsSet),
       byStorePlatform: nextByStorePlatform,
     })
     if (syncStateRowId) {
@@ -7091,22 +7113,6 @@ export async function reconcileAndPersistDeliveryData(params: {
     }
   } catch (stateErr) {
     console.warn('Warning persisting delivery_sync_status:', stateErr)
-  }
-
-  const syncErrorsSet = new Set<string>()
-  if (encryptionKeyMissing) {
-    syncErrorsSet.add('INTEGRATION_ENCRYPTION_KEY no está configurada en el servidor para sesiones DD/Uber.')
-  }
-  if ((targetPlatform === 'ALL' || targetPlatform === 'DOORDASH') && doordashSyncError) {
-    syncErrorsSet.add(doordashSyncError)
-  }
-  if ((targetPlatform === 'ALL' || targetPlatform === 'UBER_EATS') && uberSyncError) {
-    syncErrorsSet.add(uberSyncError)
-  }
-  if (doordashPartialReason) syncErrorsSet.add(doordashPartialReason)
-  if (uberPartialReason) syncErrorsSet.add(uberPartialReason)
-  for (const [, ghErr] of grubhubErrorsByStore.entries()) {
-    if (ghErr) syncErrorsSet.add(ghErr)
   }
 
   return {

@@ -35,6 +35,7 @@ import {
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 30
+export const preferredRegion = 'sfo1'
 
 const STREAM_HEADERS = {
   'Content-Type': 'application/x-ndjson; charset=utf-8',
@@ -175,10 +176,12 @@ export async function POST(request: NextRequest) {
 
               let firstAudioMs = -1
               let fromCache = false
+              let emittedAudioChunks = 0
               if (voiceMode !== 'instant_local') {
                 for await (const chunk of streamPhoneAgentSpeechPcm(greetingText, lang, voiceId, {
                   signal: request.signal
                 })) {
+                  emittedAudioChunks++
                   if (firstAudioMs === -1) {
                     firstAudioMs = Date.now() - reqStart
                     fromCache = chunk.fromCache
@@ -189,6 +192,9 @@ export async function POST(request: NextRequest) {
                     sampleRate: chunk.sampleRate,
                     fromCache: chunk.fromCache
                   })
+                }
+                if (emittedAudioChunks === 0) {
+                  send({ type: 'tts_fallback_required', text: greetingText, language: lang })
                 }
               }
 
@@ -351,7 +357,7 @@ export async function POST(request: NextRequest) {
             .from('phone_calls')
             .update({
               language: switchedLang,
-              turns_count: Number(existing.turns_count || 0) + 1,
+              turns_count: Number(existing.turns_count || 0),
               transcript: nextTranscript
             })
             .eq('id', existing.id)
@@ -369,7 +375,7 @@ export async function POST(request: NextRequest) {
               language: switchedLang,
               status: 'in_progress',
               resolved_by_ai: false,
-              turns_count: 1,
+              turns_count: 0,
               summary: `Cambio de idioma (Tecla 9) en simulador (${ctx.store.name})`,
               transcript: nextTranscript,
               business_date: getCaliforniaBusinessDate(),
@@ -408,10 +414,12 @@ export async function POST(request: NextRequest) {
 
               let firstAudioMs = -1
               let fromCache = false
+              let emittedAudioChunks = 0
               if (voiceMode !== 'instant_local') {
                 for await (const chunk of streamPhoneAgentSpeechPcm(switchedReply, switchedLang, voiceId, {
                   signal: request.signal
                 })) {
+                  emittedAudioChunks++
                   if (firstAudioMs === -1) {
                     firstAudioMs = Date.now() - reqStart
                     fromCache = chunk.fromCache
@@ -422,6 +430,9 @@ export async function POST(request: NextRequest) {
                     sampleRate: chunk.sampleRate,
                     fromCache: chunk.fromCache
                   })
+                }
+                if (emittedAudioChunks === 0) {
+                  send({ type: 'tts_fallback_required', text: switchedReply, language: switchedLang })
                 }
               }
 
@@ -522,10 +533,13 @@ export async function POST(request: NextRequest) {
 
             let firstAudioMs = -1
             let fromCache = false
+            let emittedAudioChunks = 0
             if (voiceMode !== 'instant_local') {
               for await (const chunk of streamPhoneAgentSpeechPcm(turn.replyText, turn.language, turn.voiceId, {
-                signal: request.signal
+                signal: request.signal,
+                skipStorageLookup: true
               })) {
+                emittedAudioChunks++
                 if (firstAudioMs === -1) {
                   firstAudioMs = Date.now() - reqStart
                   fromCache = chunk.fromCache
@@ -536,6 +550,9 @@ export async function POST(request: NextRequest) {
                   sampleRate: chunk.sampleRate,
                   fromCache: chunk.fromCache
                 })
+              }
+              if (emittedAudioChunks === 0) {
+                send({ type: 'tts_fallback_required', text: turn.replyText, language: turn.language })
               }
             }
 

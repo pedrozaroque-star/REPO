@@ -31,8 +31,6 @@ import puppeteer, { type Page } from 'puppeteer';
 import sharp from 'sharp';
 
 const TARGET_URL = 'https://tacosgavilan.vercel.app/clientes';
-const QR_DISPLAY_URL = 'tacosgavilan.vercel.app/clientes';
-const WEBSITE_URL = 'tacosgavilan.com';
 
 interface BrandAssets {
   gothamUltraDataUri: string;
@@ -51,7 +49,7 @@ function fileToBase64DataUri(filePath: string, mimeType: string): string {
 
 /**
  * Generates an exact QR matrix using Python ReportLab at Error Correction Level Q,
- * builds a crisp vector SVG with a 3-module white quiet zone and merged horizontal runs
+ * builds a crisp vector SVG with a 4-module white quiet zone and merged horizontal runs
  * to avoid sub-pixel seam lines in PDF/PNG rendering.
  */
 function buildOfficialQrSvg(url: string): { svg: string; moduleCount: number } {
@@ -207,11 +205,6 @@ function buildStarsRowHtml(starSizePx: number): string {
 }
 
 function buildQrCardHtml(assets: BrandAssets, variant: 'horizontal' | 'vertical'): string {
-  const footerCopy =
-    variant === 'horizontal'
-      ? 'ENCUESTA RÁPIDA &bull; 30 SEG'
-      : 'ENCUESTA RÁPIDA &bull; QUICK SURVEY';
-
   return `
     <aside class="qr-card qr-card-${variant}">
       <div class="qr-card-header">
@@ -220,17 +213,10 @@ function buildQrCardHtml(assets: BrandAssets, variant: 'horizontal' | 'vertical'
         <span class="qr-hd-en">SCAN HERE</span>
       </div>
       <div class="qr-card-body">
-        <div class="qr-frame">
-          <span class="corner tl" aria-hidden="true"></span>
-          <span class="corner tr" aria-hidden="true"></span>
-          <span class="corner bl" aria-hidden="true"></span>
-          <span class="corner br" aria-hidden="true"></span>
-          <div class="qr-svg-wrap">
-            ${assets.qrSvg}
-          </div>
+        <div class="qr-svg-wrap">
+          ${assets.qrSvg}
         </div>
       </div>
-      <div class="qr-card-footer">${footerCopy}</div>
     </aside>
   `;
 }
@@ -242,16 +228,13 @@ function buildHorizontalStickerInnerHtml(assets: BrandAssets): string {
         <div class="header-lockup-h">
           ${assets.brandLockupSvg}
         </div>
-        <div class="header-pill">
-          <span>${WEBSITE_URL}</span>
-        </div>
       </header>
 
       <section class="canvas-zone canvas-zone-h">
         ${buildQrCardHtml(assets, 'horizontal')}
 
         <div class="copy-col-h">
-          ${buildStarsRowHtml(23)}
+          ${buildStarsRowHtml(27)}
           <h1 class="headline-es-h">
             <span class="hl-white">¡CUÉNTANOS TU</span>
             <span class="hl-gold">EXPERIENCIA!</span>
@@ -261,17 +244,8 @@ function buildHorizontalStickerInnerHtml(assets: BrandAssets): string {
             <span>TELL US ABOUT</span>
             <span>YOUR EXPERIENCE</span>
           </p>
-          <div class="instruction-pill instruction-pill-h">
-            <div class="inst-es">Apunta la cámara de tu celular al código QR</div>
-            <div class="inst-en">Point your phone camera at the QR code</div>
-          </div>
         </div>
       </section>
-
-      <footer class="sticker-footer sticker-footer-h">
-        <div class="footer-pillars">SERVICIO &bull; ENTREGA &bull; CALIDAD &bull; LIMPIEZA</div>
-        <div class="footer-link">${QR_DISPLAY_URL}</div>
-      </footer>
     </main>
   `;
 }
@@ -286,28 +260,18 @@ function buildVerticalStickerInnerHtml(assets: BrandAssets): string {
       </header>
 
       <section class="canvas-zone canvas-zone-v">
-        ${buildStarsRowHtml(22)}
-
         <div class="headline-stack-v">
+          ${buildStarsRowHtml(27)}
           <h1 class="headline-es-v">
             <span class="hl-white">¡CUÉNTANOS TU</span>
             <span class="hl-gold">EXPERIENCIA!</span>
           </h1>
+          <div class="gold-rule gold-rule-v" aria-hidden="true"></div>
           <p class="headline-en-v">TELL US ABOUT YOUR EXPERIENCE</p>
         </div>
 
         ${buildQrCardHtml(assets, 'vertical')}
-
-        <div class="instruction-pill instruction-pill-v">
-          <div class="inst-es">Apunta la cámara de tu celular al código QR</div>
-          <div class="inst-en">Point your phone camera at the QR code</div>
-        </div>
       </section>
-
-      <footer class="sticker-footer sticker-footer-v">
-        <div class="footer-pillars">SERVICIO &bull; ENTREGA &bull; CALIDAD &bull; LIMPIEZA</div>
-        <div class="footer-link">${QR_DISPLAY_URL}</div>
-      </footer>
     </main>
   `;
 }
@@ -370,24 +334,6 @@ function buildSharedBrandCss(assets: BrandAssets): string {
       filter: drop-shadow(0 3px 8px rgba(0, 0, 0, 0.72));
     }
 
-    .header-pill {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      background: #DA291C;
-      border: 1.5px solid #FFC72C;
-      border-radius: 999px;
-      padding: 6px 14px 5px 14px;
-      color: #FFFFFF;
-      font-family: 'Gotham Ultra', 'Arial Black', sans-serif;
-      font-size: 12px;
-      letter-spacing: 0.04em;
-      text-transform: lowercase;
-      white-space: nowrap;
-      box-shadow: 0 3px 10px rgba(0, 0, 0, 0.45);
-      flex-shrink: 0;
-    }
-
     /* ================= QR ARCHITECTURAL CARD ================= */
     .qr-card {
       background: #FFFFFF;
@@ -401,7 +347,7 @@ function buildSharedBrandCss(assets: BrandAssets): string {
     }
 
     .qr-card-header {
-      height: 38px;
+      height: 42px;
       background: #141414;
       border-bottom: 3px solid #DA291C;
       display: flex;
@@ -410,7 +356,7 @@ function buildSharedBrandCss(assets: BrandAssets): string {
       gap: 7px;
       padding: 0 10px;
       font-family: 'Gotham Ultra', 'Arial Black', sans-serif;
-      font-size: 11.5px;
+      font-size: 12.5px;
       letter-spacing: 0.05em;
       white-space: nowrap;
       flex-shrink: 0;
@@ -426,45 +372,7 @@ function buildSharedBrandCss(assets: BrandAssets): string {
       display: flex;
       align-items: center;
       justify-content: center;
-      padding: 6px 10px 2px 10px;
-    }
-
-    .qr-frame {
-      position: relative;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      padding: 7px;
-    }
-
-    .qr-frame .corner {
-      position: absolute;
-      width: 14px;
-      height: 14px;
-      border-color: #DA291C;
-      border-style: solid;
-      pointer-events: none;
-    }
-
-    .qr-frame .corner.tl {
-      top: 0; left: 0;
-      border-width: 3px 0 0 3px;
-      border-top-left-radius: 5px;
-    }
-    .qr-frame .corner.tr {
-      top: 0; right: 0;
-      border-width: 3px 3px 0 0;
-      border-top-right-radius: 5px;
-    }
-    .qr-frame .corner.bl {
-      bottom: 0; left: 0;
-      border-width: 0 0 3px 3px;
-      border-bottom-left-radius: 5px;
-    }
-    .qr-frame .corner.br {
-      bottom: 0; right: 0;
-      border-width: 0 3px 3px 0;
-      border-bottom-right-radius: 5px;
+      padding: 10px;
     }
 
     .qr-svg-wrap {
@@ -479,28 +387,11 @@ function buildSharedBrandCss(assets: BrandAssets): string {
       height: 100%;
     }
 
-    .qr-card-footer {
-      height: 28px;
-      background: #FFFFFF;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      padding: 0 10px 4px 10px;
-      font-family: 'Segoe UI', Arial, Helvetica, sans-serif;
-      font-size: 10px;
-      font-weight: 800;
-      letter-spacing: 0.08em;
-      color: #334155;
-      text-transform: uppercase;
-      white-space: nowrap;
-      flex-shrink: 0;
-    }
-
-    /* ================= STARS, HEADLINES & PILL ================= */
+    /* ================= STARS & HEADLINES ================= */
     .stars-row {
       display: inline-flex;
       align-items: center;
-      gap: 6px;
+      gap: 7px;
     }
 
     .gold-star {
@@ -521,66 +412,11 @@ function buildSharedBrandCss(assets: BrandAssets): string {
     }
 
     .gold-rule {
-      width: 78px;
-      height: 3px;
+      width: 88px;
+      height: 4px;
       background: #FFC72C;
       border-radius: 2px;
       box-shadow: 0 2px 4px rgba(0, 0, 0, 0.35);
-    }
-
-    .instruction-pill {
-      background: rgba(10, 10, 10, 0.46);
-      border: 1.5px solid rgba(255, 199, 44, 0.78);
-      border-radius: 10px;
-      padding: 8px 13px;
-      box-shadow: 0 4px 10px rgba(0, 0, 0, 0.25);
-    }
-
-    .inst-es {
-      font-family: 'Segoe UI', Arial, Helvetica, sans-serif;
-      font-size: 12px;
-      font-weight: 800;
-      line-height: 1.2;
-      color: #FFE49E;
-    }
-
-    .inst-en {
-      font-family: 'Segoe UI', Arial, Helvetica, sans-serif;
-      font-size: 11px;
-      font-weight: 700;
-      line-height: 1.2;
-      color: #FFFFFF;
-      margin-top: 2px;
-    }
-
-    /* ================= FOOTER ================= */
-    .sticker-footer {
-      width: 100%;
-      background: rgba(10, 10, 10, 0.36);
-      border-top: 1.5px solid rgba(255, 199, 44, 0.42);
-      flex-shrink: 0;
-      position: relative;
-      z-index: 2;
-    }
-
-    .footer-pillars {
-      font-family: 'Gotham Ultra', 'Arial Black', sans-serif;
-      font-size: 10px;
-      line-height: 1.1;
-      letter-spacing: 0.08em;
-      color: #FFC72C;
-      text-transform: uppercase;
-      white-space: nowrap;
-    }
-
-    .footer-link {
-      font-family: 'Segoe UI', Arial, Helvetica, sans-serif;
-      font-size: 11px;
-      font-weight: 700;
-      line-height: 1.1;
-      color: #FFFFFF;
-      letter-spacing: 0.02em;
-      white-space: nowrap;
     }
 
     /* ================= HORIZONTAL 7.0" x 5.0" VARIANT ================= */
@@ -590,35 +426,34 @@ function buildSharedBrandCss(assets: BrandAssets): string {
     }
 
     .brand-header-h {
-      height: 106px;
+      height: 114px;
       padding: 0 28px;
       display: flex;
       align-items: center;
-      justify-content: space-between;
-      gap: 16px;
+      justify-content: center;
     }
 
     .header-lockup-h .brand-lockup-svg {
-      height: 76px;
+      height: 82px;
     }
 
     .canvas-zone-h {
-      height: 348px;
+      height: 386px;
       width: 100%;
-      padding: 18px 28px 16px 28px;
+      padding: 26px 34px;
       display: flex;
       align-items: center;
-      gap: 24px;
+      gap: 30px;
     }
 
     .qr-card-horizontal {
-      width: 258px;
-      height: 306px;
+      width: 276px;
+      height: 322px;
     }
 
     .qr-card-horizontal .qr-svg-wrap {
-      width: 210px;
-      height: 210px;
+      width: 242px;
+      height: 242px;
     }
 
     .copy-col-h {
@@ -631,30 +466,30 @@ function buildSharedBrandCss(assets: BrandAssets): string {
     }
 
     .headline-es-h {
-      margin-top: 8px;
+      margin-top: 12px;
       font-family: 'Gotham Ultra', 'Arial Black', sans-serif;
       text-transform: uppercase;
-      line-height: 1.12;
+      line-height: 1.10;
       letter-spacing: 0.01em;
       padding: 2px 0;
     }
 
     .headline-es-h .hl-white {
-      font-size: 33px;
+      font-size: 35px;
     }
 
     .headline-es-h .hl-gold {
-      font-size: 37px;
+      font-size: 40px;
     }
 
     .copy-col-h .gold-rule {
-      margin: 8px 0;
+      margin: 14px 0;
     }
 
     .headline-en-h {
       font-family: 'Gotham Ultra', 'Arial Black', sans-serif;
-      font-size: 22px;
-      line-height: 1.14;
+      font-size: 25px;
+      line-height: 1.12;
       letter-spacing: 0.015em;
       color: #FFFFFF;
       text-transform: uppercase;
@@ -664,20 +499,6 @@ function buildSharedBrandCss(assets: BrandAssets): string {
       padding: 2px 0;
     }
 
-    .instruction-pill-h {
-      margin-top: 10px;
-      width: 100%;
-    }
-
-    .sticker-footer-h {
-      height: 46px;
-      padding: 0 28px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 12px;
-    }
-
     /* ================= VERTICAL 5.0" x 7.0" VARIANT ================= */
     .sticker-vertical {
       width: 500px;
@@ -685,7 +506,7 @@ function buildSharedBrandCss(assets: BrandAssets): string {
     }
 
     .brand-header-v {
-      height: 112px;
+      height: 116px;
       padding: 0 24px;
       display: flex;
       align-items: center;
@@ -693,13 +514,13 @@ function buildSharedBrandCss(assets: BrandAssets): string {
     }
 
     .header-lockup-v .brand-lockup-svg {
-      height: 75px;
+      height: 78px;
     }
 
     .canvas-zone-v {
-      height: 540px;
+      height: 584px;
       width: 100%;
-      padding: 14px 28px 14px 28px;
+      padding: 20px 32px 24px 32px;
       display: flex;
       flex-direction: column;
       align-items: center;
@@ -714,26 +535,35 @@ function buildSharedBrandCss(assets: BrandAssets): string {
       align-items: center;
     }
 
+    .headline-stack-v .stars-row {
+      margin-bottom: 10px;
+    }
+
     .headline-es-v {
       font-family: 'Gotham Ultra', 'Arial Black', sans-serif;
       text-transform: uppercase;
-      line-height: 1.12;
+      line-height: 1.10;
       letter-spacing: 0.01em;
       padding: 2px 0;
     }
 
     .headline-es-v .hl-white {
-      font-size: 30px;
+      font-size: 34px;
     }
 
     .headline-es-v .hl-gold {
-      font-size: 36px;
+      font-size: 41px;
+    }
+
+    .gold-rule-v {
+      width: 84px;
+      height: 3.5px;
+      margin: 10px auto;
     }
 
     .headline-en-v {
-      margin-top: 4px;
       font-family: 'Gotham Ultra', 'Arial Black', sans-serif;
-      font-size: 16.5px;
+      font-size: 18px;
       line-height: 1.14;
       letter-spacing: 0.015em;
       color: #FFFFFF;
@@ -744,28 +574,18 @@ function buildSharedBrandCss(assets: BrandAssets): string {
     }
 
     .qr-card-vertical {
-      width: 286px;
-      height: 308px;
+      width: 310px;
+      height: 342px;
+    }
+
+    .qr-card-vertical .qr-card-header {
+      height: 44px;
+      font-size: 13px;
     }
 
     .qr-card-vertical .qr-svg-wrap {
-      width: 220px;
-      height: 220px;
-    }
-
-    .instruction-pill-v {
-      width: 100%;
-      text-align: center;
-    }
-
-    .sticker-footer-v {
-      height: 48px;
-      padding: 5px 24px;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      gap: 3px;
+      width: 264px;
+      height: 264px;
     }
   `;
 }
@@ -905,18 +725,12 @@ async function assertLayoutFits(
       '.sticker',
       '.brand-header',
       '.canvas-zone',
-      '.sticker-footer',
       '.qr-card',
       '.qr-card-header',
-      '.qr-card-footer',
       '.headline-es-h',
       '.headline-en-h',
       '.headline-es-v',
       '.headline-en-v',
-      '.instruction-pill',
-      '.footer-pillars',
-      '.footer-link',
-      '.header-pill',
     ];
 
     const elementChecks = checkSelectors.flatMap((sel) =>
@@ -1003,7 +817,8 @@ async function main(): Promise<void> {
     await assertLayoutFits(page, 700, 500, 'Horizontal 7x5');
 
     const hRawPng = (await page.screenshot({ type: 'png' })) as Buffer;
-    await sharp(hRawPng).withMetadata({ density: 300 }).png().toFile(hPngPath);
+    const hFinalPng = await sharp(hRawPng).withMetadata({ density: 300 }).png().toBuffer();
+    fs.writeFileSync(hPngPath, hFinalPng);
     await page.pdf({
       path: hPdfPath,
       width: '7in',
@@ -1022,7 +837,8 @@ async function main(): Promise<void> {
     await assertLayoutFits(page, 500, 700, 'Vertical 5x7');
 
     const vRawPng = (await page.screenshot({ type: 'png' })) as Buffer;
-    await sharp(vRawPng).withMetadata({ density: 300 }).png().toFile(vPngPath);
+    const vFinalPng = await sharp(vRawPng).withMetadata({ density: 300 }).png().toBuffer();
+    fs.writeFileSync(vPngPath, vFinalPng);
     await page.pdf({
       path: vPdfPath,
       width: '5in',

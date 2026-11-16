@@ -485,7 +485,7 @@ export function getOfficialStoreHolidaySchedule(targetDate: string): OfficialSto
  */
 export function getUpcomingOfficialStoreHolidays(fromDateStr: string, daysAhead: number = 150): OfficialStoreHolidayRule[] {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(fromDateStr)) return []
-    const safeDays = Number.isFinite(daysAhead) ? Math.max(1, Math.trunc(daysAhead)) : 120
+    const safeDays = Number.isFinite(daysAhead) ? Math.max(1, Math.trunc(daysAhead)) : 150
     const startUtc = new Date(`${fromDateStr}T12:00:00Z`)
     if (Number.isNaN(startUtc.getTime())) return []
     const endUtc = new Date(startUtc.getTime())
@@ -501,10 +501,22 @@ export function getUpcomingOfficialStoreHolidays(fromDateStr: string, daysAhead:
     return combined.filter((r) => r.event_date >= fromDateStr && r.event_date <= endDateStr)
 }
 
+function findMatchingHolidayRows(targetDate: string): HolidayMapping[] {
+    return HOLIDAY_CALENDAR.filter((row) => matchesHolidayRow(row, targetDate))
+}
+
+const IMPACT_RANK: Record<HolidayMapping['impact'], number> = {
+    CLOSED: 4,
+    HIGH: 3,
+    LOW: 2,
+    NEUTRAL: 1,
+}
+
 export function getComparativeDates(targetDate: string): string[] | null {
-    const h = HOLIDAY_CALENDAR.find((row) => matchesHolidayRow(row, targetDate))
-    if (h) {
-        const peers = [h.date2028, h.date2027, h.date2026, h.date2025, h.date2024, h.date2023]
+    const matches = findMatchingHolidayRows(targetDate)
+    if (matches.length > 0) {
+        const primary = [...matches].sort((a, b) => IMPACT_RANK[b.impact] - IMPACT_RANK[a.impact])[0]
+        const peers = [primary.date2028, primary.date2027, primary.date2026, primary.date2025, primary.date2024, primary.date2023]
             .filter((date): date is string => Boolean(date && date < targetDate))
             .sort((a, b) => b.localeCompare(a))
         return peers
@@ -513,15 +525,17 @@ export function getComparativeDates(targetDate: string): string[] | null {
 }
 
 export function getHolidayName(targetDate: string): string | null {
-    const h = HOLIDAY_CALENDAR.find((row) => matchesHolidayRow(row, targetDate))
-    if (h) return h.name
+    const matches = findMatchingHolidayRows(targetDate)
+    if (matches.length > 0) return matches.map((m) => m.name).join(' / ')
     const dynamicRule = getOfficialStoreHolidaySchedule(targetDate)
     return dynamicRule ? dynamicRule.holiday_name_en : null
 }
 
 export function getHolidayImpact(targetDate: string): string | null {
-    const h = HOLIDAY_CALENDAR.find((row) => matchesHolidayRow(row, targetDate))
-    if (h) return h.impact
+    const matches = findMatchingHolidayRows(targetDate)
+    if (matches.length > 0) {
+        return [...matches].sort((a, b) => IMPACT_RANK[b.impact] - IMPACT_RANK[a.impact])[0].impact
+    }
     const dynamicRule = getOfficialStoreHolidaySchedule(targetDate)
     if (!dynamicRule) return null
     if (dynamicRule.is_closed) return 'CLOSED'
@@ -530,8 +544,9 @@ export function getHolidayImpact(targetDate: string): string | null {
 }
 
 export function getHolidayEarlyClose(targetDate: string): number | null {
-    const h = HOLIDAY_CALENDAR.find((row) => matchesHolidayRow(row, targetDate))
-    if (h && h.earlyCloseHour !== null && h.earlyCloseHour !== undefined) return h.earlyCloseHour
+    const matches = findMatchingHolidayRows(targetDate)
+    const matchWithEarly = matches.find((h) => h.earlyCloseHour !== null && h.earlyCloseHour !== undefined)
+    if (matchWithEarly) return matchWithEarly.earlyCloseHour!
     const dynamicRule = getOfficialStoreHolidaySchedule(targetDate)
     if (dynamicRule?.close_time) {
         const parsed = Number(dynamicRule.close_time.split(':')[0])
@@ -541,8 +556,9 @@ export function getHolidayEarlyClose(targetDate: string): number | null {
 }
 
 export function getHolidayLateOpen(targetDate: string): number | null {
-    const h = HOLIDAY_CALENDAR.find((row) => matchesHolidayRow(row, targetDate))
-    if (h && h.lateOpenHour !== null && h.lateOpenHour !== undefined) return h.lateOpenHour
+    const matches = findMatchingHolidayRows(targetDate)
+    const matchWithLate = matches.find((h) => h.lateOpenHour !== null && h.lateOpenHour !== undefined)
+    if (matchWithLate) return matchWithLate.lateOpenHour!
     const dynamicRule = getOfficialStoreHolidaySchedule(targetDate)
     if (dynamicRule?.open_time) {
         const parsed = Number(dynamicRule.open_time.split(':')[0])

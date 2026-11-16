@@ -40,6 +40,7 @@ import { getPhoneAgentSpeech, resolvePhoneFemaleVoice, splitPhoneReplyForStreami
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 30
+export const preferredRegion = 'sfo1'
 
 function scheduleBackgroundTask(task: () => Promise<any>) {
   try {
@@ -153,8 +154,13 @@ export async function POST(request: Request) {
     if (isDialFallback) {
       const dialStatus = (params.DialCallStatus || '').trim().toLowerCase()
       const dialDuration = Number(params.DialCallDuration || 0)
+      const answeredBy = (params.AnsweredBy || '').trim().toLowerCase()
 
-      const answeredLive = (dialStatus === 'completed' || dialStatus === 'answered') && dialDuration >= 5
+      const answeredLive =
+        (dialStatus === 'completed' || dialStatus === 'answered') &&
+        dialDuration >= 12 &&
+        !answeredBy.includes('machine') &&
+        !answeredBy.includes('fax')
       if (answeredLive) {
         const nowIso = new Date().toISOString()
         const { data: callRow } = await supabaseAdmin
@@ -297,7 +303,7 @@ export async function POST(request: Request) {
             .from('phone_calls')
             .update({
               language: switchedLang,
-              turns_count: Number(existingCall.turns_count || 0) + 1,
+              turns_count: Number(existingCall.turns_count || 0),
               transcript: [
                 ...prevTr,
                 { role: 'user', text: '9', timestamp: new Date().toISOString() },
@@ -414,19 +420,31 @@ export async function POST(request: Request) {
     })
 
     const { firstChunk, restChunk } = splitPhoneReplyForStreaming(turn.replyText)
-    // NO sintetizar firstChunk aquí (Twilio solicita /api/phone/tts para firstChunk ~50ms después: evitar doble llamada TTS).
-    // En background: guardar el turno en DB y pre-generar + subir restChunk si la respuesta tiene 2 partes.
+    // Pre-iniciar inflight TTS dinámico antes de emitir TwiML (Twilio comparte el mismo Promise ~50ms después vía &dyn=1)
+    void getPhoneAgentSpeech(firstChunk, turn.language, turn.voiceId, false, {
+      skipStorageLookup: true,
+      skipStoragePersist: true,
+      maxTotalMs: 8200
+    }).catch(() => null)
+    if (restChunk) {
+      void getPhoneAgentSpeech(restChunk, turn.language, turn.voiceId, false, {
+        skipStorageLookup: true,
+        skipStoragePersist: true,
+        maxTotalMs: 8200
+      }).catch(() => null)
+    }
+
     scheduleBackgroundTask(async () => {
-      await Promise.all([
-        turn.flushDbPromise || Promise.resolve(),
-        restChunk
-          ? getPhoneAgentSpeech(restChunk, turn.language, turn.voiceId, false, { awaitStoragePersist: true })
-          : Promise.resolve(null)
-      ])
+      await (turn.flushDbPromise || Promise.resolve())
     })
 
-    const firstAudioUrl = buildPhoneTtsUrl(baseUrl, firstChunk, turn.language, turn.voiceId)
-    const restAudioUrl = restChunk ? buildPhoneTtsUrl(baseUrl, restChunk, turn.language, turn.voiceId) : null
+    const firstAudioUrl = buildPhoneTtsUrl(baseUrl, firstChunk, turn.language, turn.voiceId, {
+      rate: 8000,
+      dynamic: true
+    })
+    const restAudioUrl = restChunk
+      ? buildPhoneTtsUrl(baseUrl, restChunk, turn.language, turn.voiceId, { rate: 8000, dynamic: true })
+      : null
     const playTags = restAudioUrl
       ? `    <Play>${escapeXml(firstAudioUrl)}</Play>\n    <Play>${escapeXml(restAudioUrl)}</Play>`
       : `    <Play>${escapeXml(firstAudioUrl)}</Play>`

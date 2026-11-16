@@ -159,6 +159,27 @@ export function normalizeUsPhoneE164(raw: string | null | undefined): {
 }
 
 /**
+ * Detecta teléfonos ficticios o reservables de prueba NANP (555-XXXX, dígitos repetidos, prefijos 000/111/999)
+ * o códigos de tarificación especial prohibidos para evitar guardar recados o desvíos no enrutables en producción.
+ */
+export function isFictitiousNanpPhone(rawPhoneOrDigits: string | null | undefined, allowDevTest555 = false): boolean {
+  const digits = extractPhoneDigits(rawPhoneOrDigits)
+  const d = digits.length === 11 && digits.startsWith('1') ? digits.slice(1) : digits
+  if (d.length !== 10) return true
+  if (!/^[2-9]\d{2}[2-9]\d{6}$/.test(d)) return true
+  if (/^(\d)\1{9}$/.test(d)) return true
+  if (d.endsWith('0000') && d.startsWith('000')) return true
+  if (/^(?:000|111|999)/.test(d) || d.slice(3) === '0000000') return true
+  const areaCode = d.slice(0, 3)
+  if (BLOCKED_NANP_AREA_CODES.has(areaCode)) return true
+  if (d.slice(3, 6) === '555') {
+    if (allowDevTest555 && /^01\d\d$/.test(d.slice(6))) return false
+    return true
+  }
+  return false
+}
+
+/**
  * Verifica que el teléfono de transferencia en vivo del gerente NO coincida con ningún teléfono
  * público de sucursal ni con ningún número de Twilio asignado, evitando un bucle infinito de desvío.
  */
@@ -397,7 +418,11 @@ export async function authorizePhoneModuleRequest(
     if (Array.isArray(userRow.store_scope)) {
       const scopeNorm = new Set(userRow.store_scope.map(normalizeStoreToken).filter(Boolean))
       for (const s of activeStores) {
-        if (scopeNorm.has(normalizeStoreToken(s.code)) || scopeNorm.has(normalizeStoreToken(s.name))) {
+        if (
+          scopeNorm.has(normalizeStoreToken(s.code)) ||
+          scopeNorm.has(normalizeStoreToken(s.name)) ||
+          scopeNorm.has(normalizeStoreToken(String(s.id)))
+        ) {
           allowedSet.add(s.id)
         }
       }

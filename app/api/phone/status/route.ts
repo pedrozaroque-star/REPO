@@ -23,6 +23,7 @@ import { verifyTwilioWebhookSignature } from '@/lib/phone-agent'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 15
+export const preferredRegion = 'sfo1'
 
 const NON_TERMINAL_TWILIO_STATUSES = new Set(['queued', 'initiated', 'ringing', 'in-progress'])
 

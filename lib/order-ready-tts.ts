@@ -55,8 +55,8 @@ const DEFAULT_VOICE: VoiceId = 'Kore'
 const DEFAULT_PHONE_VOICE: PhoneFemaleVoiceId = 'Kore'
 const CACHE_VERSION = 'v4'
 const MODELS = [
-  'gemini-3.8-flash-tts',
   'gemini-3.8-flash-lite-tts',
+  'gemini-3.8-flash-tts',
   'gemini-3.1-flash-tts-preview',
   'gemini-2.5-flash-preview-tts',
   'gemini-2.5-pro-preview-tts'
@@ -66,6 +66,7 @@ export type TtsLang = 'en' | 'es'
 
 let bucketReady = false
 const inflight = new Map<string, Promise<Buffer>>()
+const uploadInflight = new Map<string, Promise<void>>()
 const memoryPhoneAudioCache = new Map<string, Buffer>()
 const MAX_MEMORY_PHONE_CLIPS = 300
 let poolIndex = 3
@@ -443,8 +444,8 @@ function ensureWav(data: Buffer, sampleRate = 24000, channels = 1, bitDepth = 16
 }
 
 /**
- * Convierte un WAV PCM mono de 24 kHz a 8 kHz (3:1 con filtro anti-aliasing [1,2,1]/4) para reproducción
- * ultrarrápida en la red PSTN de Twilio (3x menor tamaño de transferencia, < 1 ms CPU).
+ * Convierte un WAV PCM mono de 24 kHz a 8 kHz (diezmado 3:1 con filtro FIR pasabajos de 9 taps ~3.55 kHz)
+ * para evitar aliasing de sibilantes en la red PSTN de Twilio (3x menor tamaño, < 1.5 ms CPU).
  */
 export function downsampleWav24kTo8k(wav24k: Buffer): Buffer {
   const cleanWav = ensureWav(wav24k)
@@ -457,14 +458,20 @@ export function downsampleWav24kTo8k(wav24k: Buffer): Buffer {
   const dstSamples = Math.floor(srcSamples / 3)
   if (dstSamples <= 0) return cleanWav
 
+  const taps = [-0.015, 0.0, 0.085, 0.24, 0.38, 0.24, 0.085, 0.0, -0.015]
   const outPcm = Buffer.allocUnsafe(dstSamples * 2)
+  const lastIdx = srcSamples - 1
   for (let i = 0; i < dstSamples; i++) {
-    const base = i * 3
-    const s0 = pcm.readInt16LE(base * 2)
-    const s1 = pcm.readInt16LE((base + 1) * 2)
-    const s2 = pcm.readInt16LE((base + 2) * 2)
-    const avg = Math.round((s0 + 2 * s1 + s2) / 4)
-    const clamped = avg > 32767 ? 32767 : avg < -32768 ? -32768 : avg
+    const center = i * 3 + 1
+    let acc = 0
+    for (let k = 0; k < 9; k++) {
+      let sIdx = center + k - 4
+      if (sIdx < 0) sIdx = 0
+      else if (sIdx > lastIdx) sIdx = lastIdx
+      acc += pcm.readInt16LE(sIdx * 2) * taps[k]
+    }
+    const sample = Math.round(acc)
+    const clamped = sample > 32767 ? 32767 : sample < -32768 ? -32768 : sample
     outPcm.writeInt16LE(clamped, i * 2)
   }
   return pcmToWav(outPcm, 8000, 1, 16)
@@ -925,11 +932,11 @@ export function splitPhoneReplyForStreaming(text: string): {
   restChunk: string | null
 } {
   const clean = text.replace(/\s+/g, ' ').trim()
-  if (clean.length <= 135) {
+  if (clean.length <= 78) {
     return { firstChunk: clean, restChunk: null }
   }
 
-  // Buscar el final real de la primera oración (. ! ? o ;) entre los caracteres 28 y 165, ignorando abreviaturas e iniciales
+  // Buscar el final real de la primera oración (. ! ? o ;) entre los caracteres 24 y 88, ignorando abreviaturas e iniciales
   const sentenceRegex = /(?:[.!?]+|;)(?=\s|$)/g
   const abbrevBeforePeriod =
     /(?:\b(?:N|S|E|W|NE|NW|SE|SW|Ave|Blvd|Rd|St|Dr|Hwy|Pkwy|Fwy|Ln|Ct|Cir|Pl|Ste|Apt|No|Jr|Inc|Sr|Sra|Srta|Dr|Dra|Mr|Mrs|Ms|etc|ej|aprox|ext|tel)|\b[ap]\.m|[\s,(][A-ZÁÉÍÓÚÑ])\.$/i
@@ -942,26 +949,26 @@ export function splitPhoneReplyForStreaming(text: string): {
     if (abbrevBeforePeriod.test(prefix)) {
       continue
     }
-    if (endPos >= 28 && endPos <= 165) {
+    if (endPos >= 24 && endPos <= 88) {
       splitIdx = endPos
       break
     }
-    if (endPos > 165) {
+    if (endPos > 88) {
       break
     }
   }
 
-  // Si es una sola oración muy larga (> 165 caracteres), partir en conector natural para no retrasar el primer <Play>
-  if (splitIdx === -1 && clean.length > 165) {
-    const clauseRegex = /,\s+(?=(?:y|pero|mientras|además|o|and|but|while|plus|or)\b)/gi
+  // Si la primera oración supera ~82 chars, dividir en conector o dos puntos natural para acelerar el primer <Play> (~650 ms)
+  if (splitIdx === -1 && clean.length > 82) {
+    const clauseRegex = /(?:,\s+(?=(?:y|pero|mientras|además|o|así que|and|but|while|plus|or|so)\b)|:\s+)/gi
     let clauseMatch: RegExpExecArray | null
     while ((clauseMatch = clauseRegex.exec(clean)) !== null) {
       const candidateIdx = clauseMatch.index + clauseMatch[0].length
-      if (candidateIdx >= 55 && candidateIdx <= 160 && clean.length - candidateIdx >= 25) {
+      if (candidateIdx >= 26 && candidateIdx <= 88 && clean.length - candidateIdx >= 20) {
         splitIdx = candidateIdx
         break
       }
-      if (candidateIdx > 160) break
+      if (candidateIdx > 88) break
     }
   }
 
@@ -978,8 +985,8 @@ export function splitPhoneReplyForStreaming(text: string): {
 }
 
 const PHONE_STREAM_TTS_MODELS = [
-  'gemini-3.8-flash-tts',
   'gemini-3.8-flash-lite-tts',
+  'gemini-3.8-flash-tts',
   'gemini-3.1-flash-tts-preview'
 ] as const
 const PRE_VERIFY_PCM_BYTES = 38400 // 0.80 s a 24 kHz 16-bit mono (~53 tramas YIN, >6x el mínimo de 8 tramas vocales): acelera el TTFA del Simulador ~400 ms
@@ -1012,7 +1019,10 @@ function extractPcmFromWav(wav: Buffer): Buffer {
 }
 
 function persistPhoneWavToStorage(path: string, wav: Buffer, forceRegenerate = false): Promise<void> {
-  return (async () => {
+  const existing = uploadInflight.get(path)
+  if (existing && !forceRegenerate) return existing
+  let job!: Promise<void>
+  job = (async () => {
     try {
       await ensureBucket()
       if (forceRegenerate) {
@@ -1025,8 +1035,14 @@ function persistPhoneWavToStorage(path: string, wav: Buffer, forceRegenerate = f
       })
     } catch (e) {
       console.warn('[order-ready-tts] no se pudo cachear audio telefónico en Storage:', e)
+    } finally {
+      if (uploadInflight.get(path) === job) {
+        uploadInflight.delete(path)
+      }
     }
   })()
+  uploadInflight.set(path, job)
+  return job
 }
 
 /**
@@ -1043,6 +1059,7 @@ export async function* streamPhoneAgentSpeechPcm(
   voice: VoiceId = DEFAULT_VOICE,
   options?: {
     skipStorageLookup?: boolean
+    skipInflightLookup?: boolean
     signal?: AbortSignal
     allowBlockFallback?: boolean
     onStreamCompleted?: (completedCleanly: boolean) => void
@@ -1071,6 +1088,25 @@ export async function* streamPhoneAgentSpeechPcm(
       return
     }
     memoryPhoneAudioCache.delete(path)
+  }
+
+  // 1b. Si hay una generación en vuelo para esta frase exacta (ej. prewarm), esperar sin duplicar llamada TTS
+  const pendingInflight = !options?.skipInflightLookup ? inflight.get(path) : undefined
+  if (pendingInflight) {
+    try {
+      const pendingWav = await pendingInflight
+      const pcm = extractPcmFromWav(pendingWav)
+      if (pcm.length > 0) {
+        const frameBytes = 19200
+        for (let off = 0; off < pcm.length; off += frameBytes) {
+          yield { pcmChunk: pcm.subarray(off, Math.min(off + frameBytes, pcm.length)), sampleRate: 24000, fromCache: true }
+        }
+        options?.onStreamCompleted?.(true)
+        return
+      }
+    } catch {
+      // continuar si el inflight previo falló
+    }
   }
 
   // 2. Caché persistente en Supabase Storage (~80-120 ms si ya existe, 0 ms CPU)
@@ -1365,11 +1401,14 @@ export async function* streamPhoneAgentSpeechPcm(
     }
   }
 
-  // 4. Respaldo final: si SSE no estuvo disponible, usar `getPhoneAgentSpeech` directo (sin volver a entrar a SSE)
+  // 4. Respaldo final: si SSE no estuvo disponible, usar `getPhoneAgentSpeech` directo con tope estricto (< 6.5 s)
   if (!options?.signal?.aborted && options?.allowBlockFallback !== false) {
     const fallbackWav = await getPhoneAgentSpeech(clean, lang, selectedVoice, false, {
-      ...options,
-      skipSseAttempt: true
+      skipStorageLookup: true,
+      skipStoragePersist: false,
+      skipSseAttempt: true,
+      maxTotalMs: 6500,
+      signal: options?.signal
     })
     const pcm = extractPcmFromWav(fallbackWav)
     if (pcm.length > 0) {
@@ -1396,8 +1435,10 @@ export async function getPhoneAgentSpeech(
   forceRegenerate = false,
   options?: {
     skipStorageLookup?: boolean
+    skipStoragePersist?: boolean
     awaitStoragePersist?: boolean
     skipSseAttempt?: boolean
+    maxTotalMs?: number
     signal?: AbortSignal
   }
 ): Promise<Buffer> {
@@ -1408,15 +1449,43 @@ export async function getPhoneAgentSpeech(
   const hash = createHash('md5').update(`${PHONE_CACHE_PREFIX}:${selectedVoice}:${lang}:${clean.toLowerCase()}`).digest('hex')
   const path = `${PHONE_STORAGE_DIR}/${selectedVoice}/${lang}/${hash}.wav`
 
+  const finalizePersist = async (wav: Buffer, fromStorageHit: boolean) => {
+    if (!fromStorageHit && !options?.skipStoragePersist) {
+      const p = persistPhoneWavToStorage(path, wav, forceRegenerate)
+      if (options?.awaitStoragePersist) await p
+    }
+    return wav
+  }
+
   // 1. Caché ultrarrápido en RAM (0 ms — phone_v6 ya está verificado con F0 >= 155 Hz)
   if (!forceRegenerate) {
     const memHit = memoryPhoneAudioCache.get(path)
-    if (memHit && memHit.length > 44) return memHit
+    if (memHit && memHit.length > 44) {
+      if (options?.awaitStoragePersist && !options?.skipStoragePersist) {
+        await persistPhoneWavToStorage(path, memHit, false)
+      }
+      return memHit
+    }
     if (memHit) memoryPhoneAudioCache.delete(path)
   }
 
   const existing = inflight.get(path)
-  if (existing && !forceRegenerate) return existing
+  if (existing && !forceRegenerate) {
+    const wav = await existing
+    if (options?.awaitStoragePersist && !options?.skipStoragePersist) {
+      await persistPhoneWavToStorage(path, wav, false)
+    }
+    return wav
+  }
+
+  const budgetSignal =
+    typeof options?.maxTotalMs === 'number' && options.maxTotalMs > 0
+      ? options?.signal
+        ? AbortSignal.any([options.signal, AbortSignal.timeout(options.maxTotalMs)])
+        : AbortSignal.timeout(options.maxTotalMs)
+      : options?.signal
+
+  let loadedFromStorage = false
 
   const job = (async () => {
     try {
@@ -1427,6 +1496,7 @@ export async function getPhoneAgentSpeech(
           if (hit.data) {
             const wav = ensureWav(Buffer.from(await hit.data.arrayBuffer()))
             if (wav.length > 44) {
+              loadedFromStorage = true
               setMemoryPhoneCache(path, wav)
               return wav
             }
@@ -1437,14 +1507,15 @@ export async function getPhoneAgentSpeech(
         }
       }
 
-      // 3. Colectar vía stream SSE únicamente si concluye 100% limpio (omitido si ya venimos de un fallo SSE)
+      // 3. Colectar vía stream SSE únicamente si concluye 100% limpio (omitido si ya venimos de un fallo SSE o si el llamador pide síntesis rápida directa)
       const pcmParts: Buffer[] = []
       let completedCleanly = false
-      if (!forceRegenerate && !options?.skipSseAttempt && !options?.signal?.aborted) {
+      if (!forceRegenerate && !options?.skipSseAttempt && !budgetSignal?.aborted) {
         for await (const part of streamPhoneAgentSpeechPcm(clean, lang, selectedVoice, {
           skipStorageLookup: true,
+          skipInflightLookup: true,
           allowBlockFallback: false,
-          signal: options?.signal,
+          signal: budgetSignal,
           onStreamCompleted: (ok) => {
             completedCleanly = ok
           }
@@ -1455,31 +1526,34 @@ export async function getPhoneAgentSpeech(
       if (completedCleanly && pcmParts.length > 0) {
         const cachedWav = memoryPhoneAudioCache.get(path)
         if (cachedWav && cachedWav.length > 44) {
-          if (options?.awaitStoragePersist) {
-            await persistPhoneWavToStorage(path, cachedWav, false)
-          }
           return cachedWav
         }
         const wav = pcmToWav(Buffer.concat(pcmParts), 24000, 1, 16)
         if (isVerifiedFemalePitch(wav, 24000).ok) {
           setMemoryPhoneCache(path, wav)
-          const uploadP = persistPhoneWavToStorage(path, wav, false)
-          if (options?.awaitStoragePersist) await uploadP
+          if (!options?.skipStoragePersist) {
+            void persistPhoneWavToStorage(path, wav, false)
+          }
           return wav
         }
       }
 
-      // 4. Síntesis en bloque rápida para telefonía (sin esperas de 22.5s, máx 2 intentos/modelo, 6.5s por intento)
+      // 4. Síntesis en bloque rápida acotada al presupuesto telefónico (nunca espera a Storage antes de liberar `inflight`)
       const stylePrompt = getPhoneStylePrompt(lang)
+      const attemptTimeoutMs =
+        typeof options?.maxTotalMs === 'number' && options.maxTotalMs > 0
+          ? Math.min(4200, Math.max(1800, Math.floor(options.maxTotalMs / 2)))
+          : 5500
       const wav = await generateTextWithGemini(clean, lang, selectedVoice, stylePrompt, {
         skipRpmWait: true,
-        attemptTimeoutMs: 6500,
+        attemptTimeoutMs,
         maxAttemptsPerModel: 2,
-        signal: options?.signal
+        signal: budgetSignal
       })
       setMemoryPhoneCache(path, wav)
-      const uploadP = persistPhoneWavToStorage(path, wav, forceRegenerate)
-      if (options?.awaitStoragePersist) await uploadP
+      if (!options?.skipStoragePersist) {
+        void persistPhoneWavToStorage(path, wav, forceRegenerate)
+      }
       return wav
     } catch (genErr) {
       if (selectedVoice !== DEFAULT_PHONE_VOICE) {
@@ -1491,6 +1565,7 @@ export async function getPhoneAgentSpeech(
         if (koreHit.data) {
           const wav = ensureWav(Buffer.from(await koreHit.data.arrayBuffer()))
           if (wav.length > 44) {
+            loadedFromStorage = true
             setMemoryPhoneCache(korePath, wav)
             return wav
           }
@@ -1502,8 +1577,11 @@ export async function getPhoneAgentSpeech(
 
   inflight.set(path, job)
   try {
-    return await job
+    const wav = await job
+    return await finalizePersist(wav, loadedFromStorage)
   } finally {
-    inflight.delete(path)
+    if (inflight.get(path) === job) {
+      inflight.delete(path)
+    }
   }
 }

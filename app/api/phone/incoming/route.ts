@@ -36,43 +36,13 @@ import {
   getStorePhoneContext,
   invalidateStorePhoneContextCache,
   PhoneLang,
+  resolveStoreFromIncomingCall,
   verifyTwilioWebhookSignature
 } from '@/lib/phone-agent'
 
 export const dynamic = 'force-dynamic'
-export const maxDuration = 30
-
-interface RoutingDirectoryCacheEntry {
-  fetchedAt: number
-  configs: Array<{ store_id: number; twilio_phone_number: string | null }>
-  activeStores: Array<{ id: number; phone: string | null; is_active: boolean | null }>
-}
-
-const ROUTING_DIR_TTL_MS = 60_000
-let routingDirectoryCache: RoutingDirectoryCacheEntry | null = null
-
-async function getRoutingDirectory(): Promise<RoutingDirectoryCacheEntry> {
-  const now = Date.now()
-  if (routingDirectoryCache && now - routingDirectoryCache.fetchedAt < ROUTING_DIR_TTL_MS) {
-    return routingDirectoryCache
-  }
-  const [{ data: configs, error: cfgErr }, { data: stores, error: storeErr }] = await Promise.all([
-    supabaseAdmin.from('phone_agent_config').select('store_id, twilio_phone_number'),
-    supabaseAdmin.from('stores').select('id, phone, is_active')
-  ])
-  if ((cfgErr || storeErr) && routingDirectoryCache) {
-    return routingDirectoryCache
-  }
-  const entry: RoutingDirectoryCacheEntry = {
-    fetchedAt: now,
-    configs: (configs || []) as Array<{ store_id: number; twilio_phone_number: string | null }>,
-    activeStores: ((stores || []) as Array<{ id: number; phone: string | null; is_active: boolean | null }>).filter(
-      (s) => s.is_active !== false
-    )
-  }
-  routingDirectoryCache = entry
-  return entry
-}
+export const maxDuration = 20
+export const preferredRegion = 'sfo1'
 
 function normalizeDigits10(phone: string | null | undefined): string {
   const digits = String(phone || '').replace(/\D/g, '')
@@ -87,44 +57,6 @@ function scheduleBackgroundTask(task: () => Promise<any>) {
   } catch {
     void task().catch(() => null)
   }
-}
-
-async function resolveStoreFromCall(
-  queryStoreId: string | null,
-  toNumber: string,
-  forwardedFrom: string
-): Promise<{ storeId: number | null; matchedStorePhone: string | null }> {
-  const { configs, activeStores } = await getRoutingDirectory()
-  const storeById = new Map<number, any>(activeStores.map((s: any) => [Number(s.id), s]))
-
-  if (queryStoreId && Number.isFinite(Number(queryStoreId))) {
-    const candidate = Number(queryStoreId)
-    const found = storeById.get(candidate)
-    if (found) {
-      return { storeId: candidate, matchedStorePhone: found.phone || null }
-    }
-  }
-
-  const toDigits = normalizeDigits10(toNumber)
-  if (toDigits && configs) {
-    const matchByTwilio = configs.find(
-      (c: any) => c.twilio_phone_number && normalizeDigits10(c.twilio_phone_number) === toDigits
-    )
-    if (matchByTwilio && storeById.has(Number(matchByTwilio.store_id))) {
-      const s = storeById.get(Number(matchByTwilio.store_id))
-      return { storeId: Number(matchByTwilio.store_id), matchedStorePhone: s?.phone || null }
-    }
-  }
-
-  const fwdDigits = normalizeDigits10(forwardedFrom)
-  if (fwdDigits) {
-    const matchByForwarded = activeStores.find((s: any) => s.phone && normalizeDigits10(s.phone) === fwdDigits)
-    if (matchByForwarded) {
-      return { storeId: Number(matchByForwarded.id), matchedStorePhone: matchByForwarded.phone || null }
-    }
-  }
-
-  return { storeId: null, matchedStorePhone: null }
 }
 
 export async function POST(request: Request) {
@@ -154,11 +86,11 @@ export async function POST(request: Request) {
     const toNumber = (params.To || '').trim()
     const forwardedFrom = (params.ForwardedFrom || '').trim()
 
-    const { storeId, matchedStorePhone } = await resolveStoreFromCall(
-      reqUrl.searchParams.get('storeId'),
+    const { storeId, matchedStorePhone } = await resolveStoreFromIncomingCall({
+      queryStoreId: reqUrl.searchParams.get('storeId'),
       toNumber,
       forwardedFrom
-    )
+    })
 
     // Si el número receptor de Twilio todavía no está vinculado a ninguna de las 15 tiendas, contestar sin suplantar otra tienda
     if (!storeId) {
@@ -181,23 +113,13 @@ export async function POST(request: Request) {
     const lang: PhoneLang = (config.default_language === 'en' ? 'en' : 'es') as PhoneLang
     const voice = resolvePhoneFemaleVoice(config.voice_id)
 
-    // Marcar desvío como verificado ÚNICAMENTE cuando `ForwardedFrom` coincide con el teléfono de esta sucursal (o venía explícito)
+    // Verificar si `ForwardedFrom` coincide con el teléfono real de esta sucursal para marcar desvío sin frenar el TwiML inicial
     const fwdDigits = normalizeDigits10(forwardedFrom)
     const storePhoneDigits = normalizeDigits10(matchedStorePhone || store.phone)
-    if (
+    const shouldVerifyForwarding =
       fwdDigits.length === 10 &&
       config.forwarding_status !== 'verified' &&
       (!storePhoneDigits || fwdDigits === storePhoneDigits)
-    ) {
-      await supabaseAdmin
-        .from('phone_agent_config')
-        .update({
-          forwarding_status: 'verified',
-          forwarding_verified_at: new Date().toISOString()
-        })
-        .eq('store_id', store.id)
-      invalidateStorePhoneContextCache(store.id)
-    }
 
     if (!config.is_enabled) {
       const spokenStoreName = cleanPhoneStoreName(store.name) || store.name
@@ -260,11 +182,26 @@ export async function POST(request: Request) {
     )
     const questionOnlyText = getPostDisclosurePrompt(lang, scheduleEval)
 
-    // Pre-calentar en paralelo los dos clips de bienvenida (persistiendo en Storage) y registrar la llamada en `after()` sin frenar el primer <Play>
+    // Disparar pre-carga en memoria de ambos clips antes de emitir TwiML y diferir persistencia/DB a after()
+    void getPhoneAgentSpeech(disclosureOnlyText, lang, voice).catch(() => null)
+    void getPhoneAgentSpeech(questionOnlyText, lang, voice).catch(() => null)
+
     scheduleBackgroundTask(async () => {
       await Promise.all([
         getPhoneAgentSpeech(disclosureOnlyText, lang, voice, false, { awaitStoragePersist: true }),
         getPhoneAgentSpeech(questionOnlyText, lang, voice, false, { awaitStoragePersist: true }),
+        shouldVerifyForwarding
+          ? supabaseAdmin
+              .from('phone_agent_config')
+              .update({
+                forwarding_status: 'verified',
+                forwarding_verified_at: new Date().toISOString()
+              })
+              .eq('store_id', store.id)
+              .then(() => {
+                invalidateStorePhoneContextCache(store.id)
+              })
+          : Promise.resolve(),
         supabaseAdmin.from('phone_calls').upsert(
           {
             call_sid: callSid,
@@ -293,18 +230,14 @@ export async function POST(request: Request) {
     })
 
     // REGLA CIPA CALIFORNIA (§§ 631, 632 y 632.7 — "Before Interception Rule"):
-    // El aviso legal de IA + grabación/transcripción DEBE reproducirse completo SIN activar `input="speech"` (solo `dtmf`
-    // por si oprimen 9 para cambiar de idioma). Recién al concluir el aviso legal se abre `<Gather input="speech dtmf">`.
+    // Reproducir aviso legal CIPA completo sin captura de voz (<Play> directo) seguido de 0 ms de pausa al abrir <Gather input="speech dtmf">.
     const disclosureAudioUrl = buildPhoneTtsUrl(baseUrl, disclosureOnlyText, lang, voice)
     const questionAudioUrl = buildPhoneTtsUrl(baseUrl, questionOnlyText, lang, voice)
-    const preconsentUrl = `${baseUrl}/api/phone/respond?storeId=${store.id}&lang=${lang}&preconsent=1`
     const respondUrl = `${baseUrl}/api/phone/respond?storeId=${store.id}&lang=${lang}`
 
     const twiml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Gather input="dtmf" numDigits="1" timeout="1" action="${escapeXml(preconsentUrl)}" method="POST">
-    <Play>${escapeXml(disclosureAudioUrl)}</Play>
-  </Gather>
+  <Play>${escapeXml(disclosureAudioUrl)}</Play>
   <Gather ${buildTwilioGatherAttrs(lang, respondUrl)}>
     <Play>${escapeXml(questionAudioUrl)}</Play>
   </Gather>

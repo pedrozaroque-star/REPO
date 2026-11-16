@@ -1,0 +1,57 @@
+===============================================================================
+TACOS GAVILAN — GUIA DE IMPRESION / PRINT SHOP SPECIFICATION SHEET
+CAMPAÑA 5: CARTELES DE VENTANA (2x3 FT) + MOSTRADOR (SIGN HOLDER)
+===============================================================================
+
+REGLA DE MARCA / BRAND RULE:
+- Logo exclusivo / Exclusive logo: Pure Circular Icon ONLY (NO surrounding "Tacos Gavilan" text).
+- Colores Pantone Oficiales:
+  * Red: Pantone 485 (#DA291C | CMYK 0 / 95 / 100 / 0)
+  * Orange: Pantone 021 (#FE5000 | CMYK 0 / 65 / 100 / 0)
+  * Yellow: Pantone 123 (#FFC72C | CMYK 0 / 19 / 89 / 0)
+  * Black: Rich Black (#0B0908 | CMYK 60 / 40 / 40 / 100)
+
+-------------------------------------------------------------------------------
+1. CARTELES DE VENTANA 2x3 FT (24.0" x 36.0" VERTICAL / PEGADO INTERIOR)
+   Archivos: *_Ventana_24x36in_* (3600 x 5400 px @ 150 DPI + *_1to1.pdf)
+-------------------------------------------------------------------------------
+PROPOSITO: Se colocan por el lado INTERIOR del vidrio mirando hacia AFUERA (Exterior).
+
+- METODO A (Vinil adhesivo frontal / Static Cling frontal / Poster en marco o cinta):
+  Usar archivo "*_PRINT_READY.png" o "*_PRINT_READY.jpg" o "*_1to1.pdf" (Lectura Normal / Right-Reading).
+  La cara impresa queda mirando hacia la calle a traves del cristal.
+
+- METODO B (Vinil transparente pegado por dentro en reverso / Second-Surface Vinyl):
+  Usar archivo "*_MODO_ESPEJO_OPCIONAL.png" (Mirror / Reverso).
+  La imprenta imprime en espejo sobre vinil claro + Fondeo de Tinta Blanca OPACA (White Flood Coat / Blockout)
+  al 100% detras del diseno para bloquear la luz solar y que el rojo y negro se vean solidos desde afuera.
+
+Nota de Correccion Aplicada:
+* En "Los Tacos Ventana" original el diseno estaba en 9.5x12" a 72 DPI y faltaba "+ TAX".
+  Ahora esta corregido a 24" x 36" exactos (150 DPI + PDF vectorial 1:1) con "$2.29 ea + TAX".
+
+-------------------------------------------------------------------------------
+2. CARTELES DE MOSTRADOR / SIGN HOLDER (IMPRESION LASER / FOTOGRAFICA 300 DPI)
+   Archivos:
+   - Mostrador 9.5" x 12.0" (2850 x 3600 px @ 300 DPI + PDF 1:1) -> Margen Seguro 4 lados: 1.10" Arr/Izq/Der, 1.35" Abajo
+   - Escritorio 9.3" x 12.5" (2790 x 3750 px @ 300 DPI + PDF 1:1) -> Margen Seguro 4 lados: 1.10" Arr, 1.08" Izq/Der, 1.55" Abajo
+   - Carta / US Letter 8.5" x 11.0" (2550 x 3300 px @ 300 DPI + PDF 1:1) -> Margen Seguro 4 lados: 1.00" Arr/Izq/Der, 1.25" Abajo
+-------------------------------------------------------------------------------
+SUSTRATO Y REGLAS DE CORTE / IMPRESION:
+- Cartulina satinada / Couche Semi-Gloss 14pt-16pt (o papel fotografico mate/semi-matte 260-300 gsm)
+  para evitar reflejos excesivos bajo las lamparas del mostrador.
+- IMPRIMIR AL 100% ESCALA REAL (Actual Size / NO usar "Fit to Page") para respetar el margen del Sign Holder.
+- TODOS los archivos de mostrador llevan FONDO A SANGRE COMPLETA (Full Bleed #0B0908 / #DA291C) hasta
+  el borde del papel y MARGEN PERIMETRAL COMPLETO en los 4 lados (arriba, abajo, izquierda y derecha)
+  para que los bordes del Sign Holder NUNCA tapen precios, logo, comida ni "Ya esta.".
+
+-------------------------------------------------------------------------------
+3. DOS SERIES INCLUIDAS PARA ESCOGER CON DIRECCION
+-------------------------------------------------------------------------------
+- Serie A (Brand Standards / Recomendada): Fidelidad directa perfeccionada (Champurrado sobre
+  Rich Black + Los Tacos sobre Pantone 485 Red), recorte sin halos grises, vapor calido real y
+  jerarquia Gotham Ultra de alto impacto.
+- Serie B (Alto Impacto QSR): Mismo producto y precios exactos con cintillo superior tricolor,
+  placa enmarcada de alto contraste en el precio y banda inferior solida ("WE DELIVER / ORDER ONLINE"
+  y "Ya esta.").
+===============================================================================

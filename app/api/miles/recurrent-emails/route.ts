@@ -5,10 +5,17 @@
  * - Returns email addresses sorted by use_count DESC so the most frequently used contacts appear first.
  * - Allows admins/supervisors to add or save new recurrent contact labels.
  * @dataFlow Client GET/POST request -> Supabase ('mileage_recurrent_emails') -> Response JSON.
+ * @notes
+ * - Resolves alias `roque@tacosgavilan.com` canonically to `carlos@tacosgavilan.com` so test/HR dispatches never list or target the login-only alias.
  */
 
 import { NextRequest, NextResponse } from 'next/server'
 import { getSupabaseAdminClient } from '@/lib/supabase'
+
+function normalizeMilesMailbox(email: string): string {
+  const clean = email.toLowerCase().trim()
+  return clean === 'roque@tacosgavilan.com' ? 'carlos@tacosgavilan.com' : clean
+}
 
 export async function GET() {
   try {
@@ -26,13 +33,38 @@ export async function GET() {
       return NextResponse.json({
         success: true,
         emails: [
-          { id: '1', email: 'roque@tacosgavilan.com', label: 'Roque (Administración)', use_count: 10 },
+          { id: '1', email: 'carlos@tacosgavilan.com', label: 'Carlos Roque (Administración)', use_count: 10 },
           { id: '2', email: 'roberto@tacosgavilan.com', label: 'Roberto Velázquez (Dirección / Nómina)', use_count: 8 }
         ]
       })
     }
 
-    return NextResponse.json({ success: true, emails: emails || [] })
+    const dedupMap = new Map<string, any>()
+    for (const item of emails || []) {
+      const normalized = normalizeMilesMailbox(item.email || '')
+      if (!normalized) continue
+      const existing = dedupMap.get(normalized)
+      if (existing) {
+        existing.use_count = (existing.use_count || 0) + (item.use_count || 0)
+        if ((item.last_used_at || '') > (existing.last_used_at || '')) {
+          existing.last_used_at = item.last_used_at
+        }
+      } else {
+        dedupMap.set(normalized, {
+          ...item,
+          email: normalized,
+          label: normalized === 'carlos@tacosgavilan.com' && item.email?.toLowerCase().trim() === 'roque@tacosgavilan.com'
+            ? 'Carlos Roque (Administración)'
+            : item.label
+        })
+      }
+    }
+
+    const normalizedList = Array.from(dedupMap.values()).sort(
+      (a, b) => (b.use_count || 0) - (a.use_count || 0)
+    )
+
+    return NextResponse.json({ success: true, emails: normalizedList })
   } catch (err: any) {
     console.error('Error in GET /api/miles/recurrent-emails:', err)
     return NextResponse.json({ error: err.message || 'Internal Server Error' }, { status: 500 })
@@ -48,7 +80,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'El correo electrónico es requerido' }, { status: 400 })
     }
 
-    const cleanEmail = email.toLowerCase().trim()
+    const cleanEmail = normalizeMilesMailbox(email)
     const supabase = await getSupabaseAdminClient()
 
     const { data: existing } = await supabase

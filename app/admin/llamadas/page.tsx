@@ -43,6 +43,7 @@ import {
   Mic,
   MicOff,
   Volume2,
+  VolumeX,
   Send,
   BookOpen,
   Store,
@@ -587,13 +588,19 @@ export default function ContestadoraIaPage() {
     evaluatedCallsCount: 0,
     resolvedByAiCount: 0,
     realResolvedByAiCount: 0,
-    resolvedByAiPct: 100,
+    resolvedByAiPct: 0,
     pendingCallbacksCount: 0,
     pendingSimulatorCallbacksCount: 0,
     estimatedCashierMinutesSaved: 0,
     activeStoresCount: 15,
     verifiedForwardingCount: 0
   })
+  const [twilioIntegration, setTwilioIntegration] = useState<{
+    authTokenConfigured: boolean
+    accountSidConfigured: boolean
+    defaultPilotStoreId: number | null
+    sharedPilotAllowed: boolean
+  } | null>(null)
 
   const [feedbackBanner, setFeedbackBanner] = useState<{
     kind: 'ok' | 'err'
@@ -606,7 +613,11 @@ export default function ContestadoraIaPage() {
   const [simActive, setSimActive] = useState(false)
   const [simCallSid, setSimCallSid] = useState<string | null>(null)
   const [simBusy, setSimBusy] = useState(false)
+  const [simSynthesizingAudio, setSimSynthesizingAudio] = useState(false)
   const [simSpeaking, setSimSpeaking] = useState(false)
+  const [simMuted, setSimMuted] = useState(false)
+  const simMutedRef = useRef(false)
+  simMutedRef.current = simMuted
   const [simListening, setSimListening] = useState(false)
   const [simInput, setSimInput] = useState('')
   const [simScenarioGroup, setSimScenarioGroup] = useState<string>('all')
@@ -634,8 +645,11 @@ export default function ContestadoraIaPage() {
   const scheduledSourcesRef = useRef<AudioBufferSourceNode[]>([])
   const nextPlayTimeRef = useRef<number>(0)
   const streamAbortRef = useRef<AbortController | null>(null)
+  const replayAbortRef = useRef<AbortController | null>(null)
+  const simReqIdRef = useRef(0)
   const recognitionRef = useRef<any>(null)
   const transcriptContainerRef = useRef<HTMLDivElement | null>(null)
+  const ruleEditorRef = useRef<HTMLDivElement | null>(null)
   const fetchSeqRef = useRef(0)
   const dirtyStoreIdsRef = useRef<Set<number>>(new Set())
   const simStoreIdRef = useRef<number>(simStoreId)
@@ -766,6 +780,9 @@ export default function ContestadoraIaPage() {
         setCalls(data.calls || [])
         setCallbacks(data.callbacks || [])
         setUnansweredQuestions(data.unansweredQuestions || [])
+        if (data.twilioIntegration) {
+          setTwilioIntegration(data.twilioIntegration)
+        }
         if (data.kpis) {
           setKpis((prev) => ({ ...prev, ...data.kpis }))
         }
@@ -865,9 +882,30 @@ export default function ContestadoraIaPage() {
     }
   }, [ensureUnlockedAudioCtx])
 
-  const speakWithFemaleBrowserVoice = useCallback((text: string, lang: 'es' | 'en') => {
-    if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
+  useEffect(() => {
+    if (typeof window === 'undefined' || !('speechSynthesis' in window)) return
+    const warmVoices = () => {
+      try {
+        window.speechSynthesis.getVoices()
+      } catch {}
+    }
+    warmVoices()
+    window.speechSynthesis.addEventListener?.('voiceschanged', warmVoices)
+    return () => {
+      window.speechSynthesis.removeEventListener?.('voiceschanged', warmVoices)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (editingRule && ruleEditorRef.current) {
+      ruleEditorRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }
+  }, [editingRule])
+
+  const speakWithFemaleBrowserVoice = useCallback((text: string, lang: 'es' | 'en', onDone?: () => void) => {
+    if (simMutedRef.current || typeof window === 'undefined' || !('speechSynthesis' in window)) {
       setSimSpeaking(false)
+      onDone?.()
       return
     }
     window.speechSynthesis.cancel()
@@ -877,6 +915,7 @@ export default function ContestadoraIaPage() {
     // usaría por defecto `Microsoft David` (masculina).
     if (!preferredFemale) {
       setSimSpeaking(false)
+      onDone?.()
       return
     }
     const utter = new SpeechSynthesisUtterance(normalizeTextForPhoneSpeech(text, lang))
@@ -884,8 +923,12 @@ export default function ContestadoraIaPage() {
     utter.rate = 1.04
     utter.voice = preferredFemale
     setSimSpeaking(true)
-    utter.onend = () => setSimSpeaking(false)
-    utter.onerror = () => setSimSpeaking(false)
+    const finishSpeech = () => {
+      setSimSpeaking(false)
+      onDone?.()
+    }
+    utter.onend = finishSpeech
+    utter.onerror = finishSpeech
     window.speechSynthesis.speak(utter)
   }, [])
 
@@ -924,14 +967,16 @@ export default function ContestadoraIaPage() {
       window.speechSynthesis.cancel()
     }
     setSimSpeaking(false)
+    setSimSynthesizingAudio(false)
   }, [])
 
   // Limpiar audio y micrófono al desmontar la página o cambiar de pestaña
   useEffect(() => {
     if (activeTab !== 'simulator') {
       stopMicrophone()
+      stopAllSimAudio(true)
     }
-  }, [activeTab, stopMicrophone])
+  }, [activeTab, stopMicrophone, stopAllSimAudio])
 
   useEffect(() => {
     return () => {
@@ -973,7 +1018,7 @@ export default function ContestadoraIaPage() {
       }
 
       const pushPcmBase64 = (pcmBase64: string, sampleRate = 24000) => {
-        if (!ctx || !pcmBase64) return
+        if (simMutedRef.current || !ctx || !pcmBase64) return
         if (ctx.state === 'suspended') {
           ctx.resume().catch(() => {})
         }
@@ -1074,6 +1119,11 @@ export default function ContestadoraIaPage() {
       nextAudioUrl?: string | null,
       onComplete?: () => void
     ) => {
+      if (simMutedRef.current) {
+        stopAllSimAudio(false)
+        onComplete?.()
+        return
+      }
       try {
         stopAllSimAudio(false)
         setSimSpeaking(true)
@@ -1083,13 +1133,13 @@ export default function ContestadoraIaPage() {
           if (!ctx) return null
           for (let attempt = 0; attempt < 2; attempt++) {
             try {
-              const res = await fetch(src)
+              const res = await fetch(src, { signal: AbortSignal.timeout(4500) })
               if (!res.ok) throw new Error(`HTTP ${res.status}`)
               const arrayBuf = await res.arrayBuffer()
               if (arrayBuf.byteLength <= 44) throw new Error('Empty WAV')
               return await ctx.decodeAudioData(arrayBuf.slice(0))
             } catch {
-              if (attempt === 0) await new Promise((r) => setTimeout(r, 250))
+              if (attempt === 0) await new Promise((r) => setTimeout(r, 120))
             }
           }
           if (retryViaAuthPost && fallbackText && !src.startsWith('blob:')) {
@@ -1097,6 +1147,7 @@ export default function ContestadoraIaPage() {
               const postRes = await fetch('/api/phone/tts', {
                 method: 'POST',
                 headers: getAuthHeaders(),
+                signal: AbortSignal.timeout(4500),
                 body: JSON.stringify({ text: fallbackText, lang, voice: 'Kore' })
               })
               if (postRes.ok) {
@@ -1175,12 +1226,10 @@ export default function ContestadoraIaPage() {
             }
           }
           audio.onerror = () => {
-            speakWithFemaleBrowserVoice(fallbackText, lang)
-            finish()
+            speakWithFemaleBrowserVoice(fallbackText, lang, finish)
           }
           audio.play().catch(() => {
-            speakWithFemaleBrowserVoice(fallbackText, lang)
-            finish()
+            speakWithFemaleBrowserVoice(fallbackText, lang, finish)
           })
         })
       } catch {
@@ -1192,6 +1241,7 @@ export default function ContestadoraIaPage() {
   )
 
   const handleStartSimCall = async () => {
+    const reqId = ++simReqIdRef.current
     ensureUnlockedAudioCtx()
     stopMicrophone()
     stopAllSimAudio(true)
@@ -1199,6 +1249,7 @@ export default function ContestadoraIaPage() {
     setSimAutoEndedNotice(false)
     setSimTransferPhone(null)
     setSimBusy(true)
+    setSimSynthesizingAudio(false)
     setSimLastTools([])
     setSimLastCallback(null)
 
@@ -1234,22 +1285,25 @@ export default function ContestadoraIaPage() {
       let ndjsonBuf = ''
       let startMeta: any = null
       let clientFirstAudioMs: number | undefined
+      let handledFallbackSpeech = false
 
       while (true) {
         const { done, value } = await reader.read()
-        if (done) break
+        if (done || reqId !== simReqIdRef.current) break
         ndjsonBuf += decoder.decode(value, { stream: true })
         const lines = ndjsonBuf.split('\n')
         ndjsonBuf = lines.pop() || ''
 
         for (const line of lines) {
           if (!line.trim()) continue
+          if (reqId !== simReqIdRef.current) break
           const evt = JSON.parse(line)
           if (evt.type === 'start_meta') {
             startMeta = evt
             setSimCallSid(evt.callSid)
             setSimActive(true)
             setSimBusy(false)
+            if (!simMutedRef.current) setSimSynthesizingAudio(true)
             setSimTranscript([
               {
                 role: 'assistant',
@@ -1260,11 +1314,17 @@ export default function ContestadoraIaPage() {
               }
             ])
           } else if (evt.type === 'audio_pcm') {
+            setSimSynthesizingAudio(false)
             if (clientFirstAudioMs === undefined) {
               clientFirstAudioMs = Math.round(performance.now() - clickStart)
             }
             pcmPlayer.pushPcmBase64(evt.pcmBase64, evt.sampleRate || 24000)
+          } else if (evt.type === 'tts_fallback_required') {
+            setSimSynthesizingAudio(false)
+            handledFallbackSpeech = true
+            speakWithFemaleBrowserVoice(evt.text || startMeta?.greetingText || '', evt.language === 'en' ? 'en' : 'es')
           } else if (evt.type === 'done') {
+            setSimSynthesizingAudio(false)
             const finalAudioMs = evt.totalFirstAudioMs > 0 ? evt.totalFirstAudioMs : clientFirstAudioMs
             setSimTranscript((prev) =>
               prev.map((m, idx) =>
@@ -1277,17 +1337,24 @@ export default function ContestadoraIaPage() {
         }
       }
 
+      if (reqId !== simReqIdRef.current) {
+        pcmPlayer.finish()
+        return
+      }
       pcmPlayer.finish()
-      if (startMeta && !pcmPlayer.hasPlayedAny() && startMeta.audioUrl) {
+      if (startMeta && !pcmPlayer.hasPlayedAny() && !handledFallbackSpeech && startMeta.audioUrl) {
         void playVoiceUrl(startMeta.audioUrl, startMeta.greetingText, startMeta.language, null)
       }
       void fetchDashboard(true)
     } catch (e: any) {
-      if (e?.name !== 'AbortError') {
+      if (reqId === simReqIdRef.current && e?.name !== 'AbortError') {
         setSimErrorBanner(e.message || t('phone_agent.sim_error_start'))
       }
     } finally {
-      setSimBusy(false)
+      if (reqId === simReqIdRef.current) {
+        setSimBusy(false)
+        setSimSynthesizingAudio(false)
+      }
     }
   }
 
@@ -1315,6 +1382,7 @@ export default function ContestadoraIaPage() {
     const message = (textOverride ?? simInput).trim()
     if (!message || simBusy) return
 
+    const reqId = ++simReqIdRef.current
     ensureUnlockedAudioCtx()
     stopMicrophone()
     stopAllSimAudio(true)
@@ -1322,7 +1390,9 @@ export default function ContestadoraIaPage() {
     setSimAutoEndedNotice(false)
     setSimInput('')
     setSimBusy(true)
+    setSimSynthesizingAudio(false)
 
+    const startingFreshFromScenario = !simActive && simTranscript.length === 0
     let activeSid = simCallSid
     if (!simActive || !activeSid) {
       activeSid = `SIM_${simStoreId}_${Date.now()}`
@@ -1330,10 +1400,21 @@ export default function ContestadoraIaPage() {
       setSimActive(true)
     }
 
-    setSimTranscript((prev) => [
-      ...prev,
-      { role: 'user', text: message, timestamp: new Date().toISOString() }
-    ])
+    setSimTranscript((prev) => {
+      if (startingFreshFromScenario && prev.length === 0) {
+        const storeLabel = stores.find((s) => s.id === simStoreId)?.name || `#${simStoreId}`
+        const syntheticGreeting =
+          simLang === 'en'
+            ? `Hello, thank you for calling Tacos Gavilan ${storeLabel}. How can I help you today?`
+            : `Hola, gracias por llamar a Tacos Gavilan sucursal ${storeLabel}. ¿En qué te puedo ayudar hoy?`
+        const nowIso = new Date().toISOString()
+        return [
+          { role: 'assistant', text: syntheticGreeting, timestamp: nowIso, lang: simLang },
+          { role: 'user', text: message, timestamp: nowIso }
+        ]
+      }
+      return [...prev, { role: 'user', text: message, timestamp: new Date().toISOString() }]
+    })
 
     const abortCtrl = new AbortController()
     streamAbortRef.current = abortCtrl
@@ -1377,15 +1458,18 @@ export default function ContestadoraIaPage() {
       let assistantMsgTimestamp = ''
       let clientFirstAudioMs: number | undefined
 
+      let handledFallbackSpeech = false
+
       while (true) {
         const { done, value } = await reader.read()
-        if (done) break
+        if (done || reqId !== simReqIdRef.current) break
         ndjsonBuf += decoder.decode(value, { stream: true })
         const lines = ndjsonBuf.split('\n')
         ndjsonBuf = lines.pop() || ''
 
         for (const line of lines) {
           if (!line.trim()) continue
+          if (reqId !== simReqIdRef.current) break
           const evt = JSON.parse(line)
 
           if (evt.type === 'turn_meta') {
@@ -1393,6 +1477,7 @@ export default function ContestadoraIaPage() {
             shouldAutoHangup = Boolean(evt.shouldHangup || evt.shouldTransferToPhone)
             assistantMsgTimestamp = new Date().toISOString()
             setSimBusy(false)
+            if (!simMutedRef.current) setSimSynthesizingAudio(true)
             if (evt.language === 'en' || evt.language === 'es') {
               setSimLang(evt.language)
             }
@@ -1414,11 +1499,21 @@ export default function ContestadoraIaPage() {
               }
             ])
           } else if (evt.type === 'audio_pcm') {
+            setSimSynthesizingAudio(false)
             if (clientFirstAudioMs === undefined) {
               clientFirstAudioMs = Math.round(performance.now() - turnStart)
             }
             pcmPlayer.pushPcmBase64(evt.pcmBase64, evt.sampleRate || 24000)
+          } else if (evt.type === 'tts_fallback_required') {
+            setSimSynthesizingAudio(false)
+            handledFallbackSpeech = true
+            speakWithFemaleBrowserVoice(
+              evt.text || turnMeta?.replyText || '',
+              evt.language === 'en' ? 'en' : 'es',
+              finalizeAutoHangupIfNeeded
+            )
           } else if (evt.type === 'done') {
+            setSimSynthesizingAudio(false)
             const finalAudioMs = evt.totalFirstAudioMs > 0 ? evt.totalFirstAudioMs : clientFirstAudioMs
             if (assistantMsgTimestamp) {
               setSimTranscript((prev) =>
@@ -1435,8 +1530,12 @@ export default function ContestadoraIaPage() {
         }
       }
 
+      if (reqId !== simReqIdRef.current) {
+        pcmPlayer.finish()
+        return
+      }
       pcmPlayer.finish()
-      if (turnMeta && !pcmPlayer.hasPlayedAny()) {
+      if (turnMeta && !pcmPlayer.hasPlayedAny() && !handledFallbackSpeech) {
         if (turnMeta.audioUrl) {
           void playVoiceUrl(
             turnMeta.audioUrl,
@@ -1451,11 +1550,14 @@ export default function ContestadoraIaPage() {
       }
       void fetchDashboard(true)
     } catch (e: any) {
-      if (e?.name !== 'AbortError') {
+      if (reqId === simReqIdRef.current && e?.name !== 'AbortError') {
         setSimErrorBanner(e.message || t('phone_agent.sim_error_turn'))
       }
     } finally {
-      setSimBusy(false)
+      if (reqId === simReqIdRef.current) {
+        setSimBusy(false)
+        setSimSynthesizingAudio(false)
+      }
     }
   }
 
@@ -1481,7 +1583,7 @@ export default function ContestadoraIaPage() {
 
     const rec = new SpeechRec()
     rec.lang = simLang === 'en' ? 'en-US' : 'es-MX'
-    rec.interimResults = false
+    rec.interimResults = true
     rec.maxAlternatives = 1
 
     rec.onstart = () => setSimListening(true)
@@ -1496,9 +1598,20 @@ export default function ContestadoraIaPage() {
       }
     }
     rec.onresult = (event: any) => {
-      const transcriptText = event?.results?.[0]?.[0]?.transcript
-      if (transcriptText) {
-        void handleSendSimTurn(transcriptText)
+      let interim = ''
+      let finalTxt = ''
+      for (let i = event.resultIndex || 0; i < (event.results?.length || 0); i++) {
+        const r = event.results[i]
+        const part = r?.[0]?.transcript || ''
+        if (r?.isFinal) finalTxt += part
+        else interim += part
+      }
+      if (interim) {
+        setSimInput(interim.trim())
+      }
+      if (finalTxt.trim()) {
+        setSimInput('')
+        void handleSendSimTurn(finalTxt.trim())
       }
     }
 
@@ -1527,12 +1640,16 @@ export default function ContestadoraIaPage() {
           ? 'en'
           : callLang
     const storeVoice = stores.find((s) => s.id === storeId)?.config.voice_id || 'Kore'
+    replayAbortRef.current?.abort()
+    const replayCtrl = new AbortController()
+    replayAbortRef.current = replayCtrl
     let blobUrl: string | null = null
     try {
       ensureUnlockedAudioCtx()
       const res = await fetch('/api/phone/tts', {
         method: 'POST',
         headers: getAuthHeaders(),
+        signal: replayCtrl.signal,
         body: JSON.stringify({
           text,
           lang: msgLang,
@@ -1543,8 +1660,10 @@ export default function ContestadoraIaPage() {
       const blob = await res.blob()
       blobUrl = URL.createObjectURL(blob)
       await playVoiceUrl(blobUrl, text, msgLang, null)
-    } catch {
-      speakWithFemaleBrowserVoice(text, msgLang)
+    } catch (err: any) {
+      if (err?.name !== 'AbortError') {
+        speakWithFemaleBrowserVoice(text, msgLang)
+      }
     } finally {
       if (blobUrl) URL.revokeObjectURL(blobUrl)
       setReplayingMsgIdx(null)
@@ -1664,6 +1783,15 @@ export default function ContestadoraIaPage() {
 
   const handleSaveHoliday = async () => {
     if (!newHoliday.event_date || !newHoliday.holiday_name.trim()) return
+    if (
+      newHoliday.mode === 'custom' &&
+      newHoliday.open_time &&
+      newHoliday.close_time &&
+      newHoliday.open_time === newHoliday.close_time
+    ) {
+      showFeedback('err', t('phone_agent.holidays_invalid_range'))
+      return
+    }
     const isClosed = newHoliday.mode === 'closed'
     const openTime =
       newHoliday.mode === 'late_open' || newHoliday.mode === 'custom' ? newHoliday.open_time : null
@@ -2402,12 +2530,38 @@ export default function ContestadoraIaPage() {
                   </div>
                 </div>
 
-                {simSpeaking && (
-                  <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/20 border border-emerald-400/40 text-emerald-300 text-xs font-bold">
-                    <Volume2 size={14} className="animate-bounce" />
-                    {currentSimStore?.config.voice_id || 'Kore'} • {t('phone_agent.sim_speaking_badge')}
-                  </span>
-                )}
+                <div className="flex items-center gap-2">
+                  {simSynthesizingAudio && !simSpeaking && !simMuted && (
+                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-sky-500/20 border border-sky-400/40 text-sky-200 text-xs font-bold">
+                      <RefreshCw size={12} className="animate-spin" />
+                      {t('phone_agent.sim_synthesizing_voice')}
+                    </span>
+                  )}
+                  {simSpeaking && !simMuted && (
+                    <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/20 border border-emerald-400/40 text-emerald-300 text-xs font-bold">
+                      <Volume2 size={14} className="animate-bounce" />
+                      {currentSimStore?.config.voice_id || 'Kore'} • {t('phone_agent.sim_speaking_badge')}
+                    </span>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setSimMuted((m) => {
+                        const next = !m
+                        if (next) stopAllSimAudio(false)
+                        return next
+                      })
+                    }
+                    title={simMuted ? t('phone_agent.sim_unmute_voice') : t('phone_agent.sim_mute_voice')}
+                    className={`p-2 rounded-xl border text-xs font-bold transition ${
+                      simMuted
+                        ? 'bg-rose-500/20 border-rose-400/50 text-rose-200 hover:bg-rose-500/30'
+                        : 'bg-slate-800 border-slate-700 text-slate-200 hover:bg-slate-700'
+                    }`}
+                  >
+                    {simMuted ? <VolumeX size={15} /> : <Volume2 size={15} />}
+                  </button>
+                </div>
               </div>
 
               {/* Messages Container */}
@@ -2575,8 +2729,19 @@ export default function ContestadoraIaPage() {
                       className="bg-white dark:bg-slate-900 rounded-xl p-3.5 border border-amber-200 dark:border-amber-800/60 flex items-center justify-between gap-3"
                     >
                       <div className="min-w-0">
-                        <div className="text-xs font-bold text-slate-500">
-                          {uq.storeName} • {new Date(uq.startedAt).toLocaleString()}
+                        <div className="text-xs font-bold text-slate-500 flex items-center gap-2 flex-wrap">
+                          <span>{uq.storeName} • {new Date(uq.startedAt).toLocaleString()}</span>
+                          <span
+                            className={`px-1.5 py-0.5 rounded text-[10px] font-black ${
+                              uq.source === 'simulator'
+                                ? 'bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-300'
+                                : 'bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300'
+                            }`}
+                          >
+                            {uq.source === 'simulator'
+                              ? t('phone_agent.calls_badge_simulator')
+                              : t('phone_agent.calls_badge_twilio')}
+                          </span>
                         </div>
                         <div className="text-sm font-bold text-slate-900 dark:text-white mt-0.5 break-words">
                           “{uq.question}”
@@ -2664,7 +2829,10 @@ export default function ContestadoraIaPage() {
 
               {/* Rule Editor Form */}
               {editingRule && (
-                <div className="rounded-2xl bg-slate-50 dark:bg-slate-800/70 border-2 border-emerald-500 p-4 space-y-3">
+                <div
+                  ref={ruleEditorRef}
+                  className="rounded-2xl bg-slate-50 dark:bg-slate-800/70 border-2 border-emerald-500 p-4 space-y-3"
+                >
                   <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
                     <div>
                       <label className="block text-xs font-bold text-slate-600 dark:text-slate-300 mb-1">
@@ -3092,6 +3260,72 @@ export default function ContestadoraIaPage() {
         {/* ================================================================= */}
         {activeTab === 'stores' && isGlobalAdmin && (
           <div className="space-y-4">
+            {/* Twilio Connection & Global Webhook Setup */}
+            <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-5 space-y-3 shadow-sm">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <h3 className="text-sm font-black text-slate-900 dark:text-white flex items-center gap-2">
+                    <ShieldCheck size={17} className="text-emerald-600" />
+                    {t('phone_agent.twilio_panel_title')}
+                  </h3>
+                  <p className="text-xs text-slate-500 mt-0.5">{t('phone_agent.twilio_panel_desc')}</p>
+                </div>
+                <span
+                  className={`px-2.5 py-1 rounded-full text-[11px] font-black ${
+                    twilioIntegration?.authTokenConfigured
+                      ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
+                      : 'bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-200'
+                  }`}
+                >
+                  {twilioIntegration?.authTokenConfigured
+                    ? `✓ ${t('phone_agent.twilio_token_ready')}`
+                    : `⚠️ ${t('phone_agent.twilio_token_missing')}`}
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {[
+                  {
+                    label: t('phone_agent.twilio_webhook_incoming'),
+                    url:
+                      typeof window !== 'undefined'
+                        ? `${window.location.origin}/api/phone/incoming`
+                        : 'https://tacosgavilan.com/api/phone/incoming'
+                  },
+                  {
+                    label: t('phone_agent.twilio_webhook_status'),
+                    url:
+                      typeof window !== 'undefined'
+                        ? `${window.location.origin}/api/phone/status`
+                        : 'https://tacosgavilan.com/api/phone/status'
+                  }
+                ].map((wh) => (
+                  <div
+                    key={wh.url}
+                    className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-between gap-2"
+                  >
+                    <div className="min-w-0">
+                      <div className="text-[10px] font-bold uppercase text-slate-500">{wh.label}</div>
+                      <div className="text-xs font-mono font-bold text-slate-800 dark:text-slate-200 truncate">
+                        {wh.url}
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => copyToClipboard(wh.url)}
+                      className="p-2 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shrink-0"
+                    >
+                      {copiedCode === wh.url ? (
+                        <Check size={14} className="text-emerald-600" />
+                      ) : (
+                        <Copy size={14} />
+                      )}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
               {stores.map((s) => {
                 const isVerified = s.config.forwarding_status === 'verified'
@@ -3129,6 +3363,11 @@ export default function ContestadoraIaPage() {
                               ? `✓ ${t('phone_agent.stores_forwarding_verified')}`
                               : `⏳ ${t('phone_agent.stores_forwarding_pending')}`}
                           </span>
+                          {dirtyStoreIdsRef.current.has(s.id) && (
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-200">
+                              ● {t('phone_agent.stores_unsaved_badge')}
+                            </span>
+                          )}
                         </div>
                         <div className="text-xs text-slate-500 mt-0.5">
                           📞 {s.phone} •{' '}
@@ -3404,7 +3643,7 @@ export default function ContestadoraIaPage() {
 
             {/* Forwarding Instructions Modal (computed live from draft config) */}
             {selectedStoreForForwarding && liveForwardingGuide && (
-              <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
+              <div className="fixed inset-0 z-[120] bg-black/60 flex items-center justify-center p-4">
                 <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-xl w-full p-6 space-y-4 border border-slate-200 dark:border-slate-800 shadow-2xl max-h-[90vh] overflow-y-auto">
                   <div className="flex items-start justify-between gap-3">
                     <div>
@@ -3428,9 +3667,34 @@ export default function ContestadoraIaPage() {
                   </div>
 
                   {!liveForwardingGuide.hasValidTwilioNumber && (
-                    <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-300 dark:border-rose-800 text-xs font-bold text-rose-800 dark:text-rose-200 flex items-start gap-2">
-                      <AlertTriangle size={15} className="shrink-0 mt-0.5" />
-                      <span>{t('phone_agent.stores_missing_twilio_warn')}</span>
+                    <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-300 dark:border-rose-800 text-xs font-bold text-rose-800 dark:text-rose-200 space-y-2">
+                      <div className="flex items-start gap-2">
+                        <AlertTriangle size={15} className="shrink-0 mt-0.5" />
+                        <span>{t('phone_agent.stores_missing_twilio_warn')}</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="text"
+                          value={selectedStoreForForwarding.config.twilio_phone_number || ''}
+                          onChange={(e) =>
+                            updateLocalStoreConfig(
+                              selectedStoreForForwarding.id,
+                              'twilio_phone_number',
+                              e.target.value
+                            )
+                          }
+                          placeholder={t('phone_agent.stores_twilio_placeholder')}
+                          className="flex-1 rounded-lg border border-rose-300 dark:border-rose-700 bg-white dark:bg-slate-900 px-2.5 py-1.5 text-xs font-bold text-slate-900 dark:text-white"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => void handleSaveStoreConfig(selectedStoreForForwarding)}
+                          disabled={savingStoreId === selectedStoreForForwarding.id}
+                          className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black shrink-0"
+                        >
+                          {t('phone_agent.stores_save_config')}
+                        </button>
+                      </div>
                     </div>
                   )}
 
@@ -3447,8 +3711,9 @@ export default function ContestadoraIaPage() {
                       </div>
                       <button
                         type="button"
+                        disabled={!liveForwardingGuide.hasValidTwilioNumber}
                         onClick={() => copyToClipboard(liveForwardingGuide.activateNoAnswerCode)}
-                        className="p-2 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shrink-0"
+                        className="p-2 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
                       >
                         {copiedCode === liveForwardingGuide.activateNoAnswerCode ? (
                           <Check size={14} className="text-emerald-600" />
@@ -3469,8 +3734,9 @@ export default function ContestadoraIaPage() {
                       </div>
                       <button
                         type="button"
+                        disabled={!liveForwardingGuide.hasValidTwilioNumber}
                         onClick={() => copyToClipboard(liveForwardingGuide.activateBusyCode)}
-                        className="p-2 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shrink-0"
+                        className="p-2 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
                       >
                         {copiedCode === liveForwardingGuide.activateBusyCode ? (
                           <Check size={14} className="text-emerald-600" />
@@ -3492,10 +3758,11 @@ export default function ContestadoraIaPage() {
                         </div>
                         <button
                           type="button"
+                          disabled={!liveForwardingGuide.hasValidTwilioNumber}
                           onClick={() =>
                             copyToClipboard(liveForwardingGuide.activateUnreachableCode!)
                           }
-                          className="p-2 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shrink-0"
+                          className="p-2 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
                         >
                           {copiedCode === liveForwardingGuide.activateUnreachableCode ? (
                             <Check size={14} className="text-emerald-600" />
@@ -3682,7 +3949,17 @@ export default function ContestadoraIaPage() {
                               </span>
                             </div>
                             <div className="text-sm font-black text-slate-900 dark:text-white">
-                              {cb.caller_name} — 📞 {cb.caller_phone}
+                              {cb.caller_name} — 📞{' '}
+                              {cb.caller_phone ? (
+                                <a
+                                  href={`tel:${cb.caller_phone.replace(/[^+\d]/g, '')}`}
+                                  className="text-emerald-700 dark:text-emerald-400 hover:underline"
+                                >
+                                  {cb.caller_phone}
+                                </a>
+                              ) : (
+                                '—'
+                              )}
                             </div>
                           </div>
 
@@ -3886,7 +4163,7 @@ export default function ContestadoraIaPage() {
 
             {/* Call Transcript Modal with Voice Replay */}
             {selectedCallDetail && (
-              <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
+              <div className="fixed inset-0 z-[120] bg-black/60 flex items-center justify-center p-4">
                 <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-2xl w-full p-6 space-y-4 border border-slate-200 dark:border-slate-800 max-h-[85vh] flex flex-col">
                   <div className="flex items-start justify-between gap-3">
                     <div>
@@ -3906,6 +4183,8 @@ export default function ContestadoraIaPage() {
                     <button
                       type="button"
                       onClick={() => {
+                        replayAbortRef.current?.abort()
+                        setReplayingMsgIdx(null)
                         stopAllSimAudio(false)
                         setSelectedCallDetail(null)
                       }}

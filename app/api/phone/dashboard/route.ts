@@ -32,6 +32,7 @@ import { resolvePhoneFemaleVoice } from '@/lib/order-ready-tts'
 import {
   authorizePhoneModuleRequest,
   extractPhoneDigits,
+  isFictitiousNanpPhone,
   normalizeUsPhoneE164,
   validateNoForwardingLoop
 } from '@/lib/phone-agent-access'
@@ -40,10 +41,12 @@ import {
   cleanPhoneStoreName,
   evaluateStoreSchedulePure,
   getCarrierForwardingInstructions,
+  invalidatePhoneRoutingDirectoryCache,
   invalidateStorePhoneContextCache
 } from '@/lib/phone-agent'
 
 export const dynamic = 'force-dynamic'
+export const preferredRegion = 'sfo1'
 
 function sanitizeNestedStore<T extends Record<string, any>>(row: T): T {
   if (!row || typeof row !== 'object') return row
@@ -122,7 +125,21 @@ export async function GET(request: NextRequest) {
 
       const { data: callbacks, error: cbErr } = await cbQuery
       if (cbErr) throw cbErr
-      return NextResponse.json({ callbacks: (callbacks || []).map(sanitizeNestedStore) })
+      const urgencyRank = (u: string | null | undefined) => (u === 'critical' || u === 'urgent' ? 0 : u === 'high' ? 1 : 2)
+      const sortedCallbacks = (callbacks || [])
+        .map(sanitizeNestedStore)
+        .sort((a: any, b: any) => {
+          const aPend = a.status === 'pending' ? 0 : 1
+          const bPend = b.status === 'pending' ? 0 : 1
+          if (aPend !== bPend) return aPend - bPend
+          if (aPend === 0) {
+            const ua = urgencyRank(a.urgency)
+            const ub = urgencyRank(b.urgency)
+            if (ua !== ub) return ua - ub
+          }
+          return new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime()
+        })
+      return NextResponse.json({ callbacks: sortedCallbacks })
     }
 
     // Filtros independientes de la pestaña Bitácora (Tab 4): no alteran los KPIs globales ni las preguntas de Tab 2
@@ -176,6 +193,7 @@ export async function GET(request: NextRequest) {
       callbacksRes,
       unansweredRes,
       realCallsCountRes,
+      realEvaluatedCallsCountRes,
       simCallsCountRes,
       evaluatedCallsCountRes,
       resolvedCallsCountRes,
@@ -243,6 +261,10 @@ export async function GET(request: NextRequest) {
       })(),
       applyStoreScope(
         supabaseAdmin.from('phone_calls').select('id', { count: 'exact', head: true }).eq('source', 'twilio'),
+        null
+      ),
+      applyStoreScope(
+        supabaseAdmin.from('phone_calls').select('id', { count: 'exact', head: true }).eq('source', 'twilio').gt('turns_count', 0),
         null
       ),
       applyStoreScope(
@@ -359,17 +381,20 @@ export async function GET(request: NextRequest) {
       })
 
     const realCallsCount = Number(realCallsCountRes.count || 0)
+    const realEvaluatedCallsCount = Number(realEvaluatedCallsCountRes.count || 0)
     const simulatorCallsCount = Number(simCallsCountRes.count || 0)
     const totalCalls = realCallsCount + simulatorCallsCount
     const evaluatedCallsCount = Number(evaluatedCallsCountRes.count || 0)
     const resolvedByAiCount = Number(resolvedCallsCountRes.count || 0)
     const realResolvedByAiCount = Number(realResolvedCallsCountRes.count || 0)
     const resolvedByAiPct =
-      realCallsCount > 0
-        ? Math.round((realResolvedByAiCount / realCallsCount) * 1000) / 10
-        : evaluatedCallsCount > 0
-          ? Math.round((resolvedByAiCount / evaluatedCallsCount) * 1000) / 10
-          : 0
+      realEvaluatedCallsCount > 0
+        ? Math.round((realResolvedByAiCount / realEvaluatedCallsCount) * 1000) / 10
+        : realCallsCount > 0
+          ? 0
+          : evaluatedCallsCount > 0
+            ? Math.round((resolvedByAiCount / evaluatedCallsCount) * 1000) / 10
+            : 0
     const pendingCallbacksCount = Number(pendingRealCbCountRes.count || 0)
     const pendingSimulatorCallbacksCount = Number(pendingSimCbCountRes.count || 0)
     const estimatedCashierMinutesSaved = Math.round(
@@ -412,9 +437,16 @@ export async function GET(request: NextRequest) {
       calls,
       callbacks,
       unansweredQuestions,
+      twilioIntegration: {
+        authTokenConfigured: Boolean(process.env.TWILIO_AUTH_TOKEN?.trim()),
+        accountSidConfigured: Boolean(process.env.TWILIO_ACCOUNT_SID?.trim()),
+        defaultPilotStoreId: process.env.TWILIO_DEFAULT_STORE_ID ? Number(process.env.TWILIO_DEFAULT_STORE_ID) : null,
+        sharedPilotAllowed: true
+      },
       kpis: {
         totalCalls,
         realCallsCount,
+        realEvaluatedCallsCount,
         simulatorCallsCount,
         evaluatedCallsCount,
         resolvedByAiCount,
@@ -495,7 +527,7 @@ export async function POST(request: NextRequest) {
       if (error) throw error
       invalidateStorePhoneContextCache()
 
-      if (body?.resolveCallId) {
+      if (body?.resolveCallId && UUID_RE.test(String(body.resolveCallId))) {
         await supabaseAdmin
           .from('phone_calls')
           .update({ unanswered_question: null })
@@ -734,6 +766,12 @@ export async function PATCH(request: NextRequest) {
         if (!parsedTw.valid) {
           return NextResponse.json({ error: `Número Twilio inválido: ${parsedTw.error}` }, { status: 400 })
         }
+        if (parsedTw.tenDigits && isFictitiousNanpPhone(parsedTw.tenDigits, false)) {
+          return NextResponse.json(
+            { error: 'El número Twilio no puede ser ficticio (ej. 555-xxxx o dígitos repetidos).' },
+            { status: 400 }
+          )
+        }
         if (parsedTw.tenDigits) {
           const storeConflict = (allStores || []).find(
             (s: any) => s.phone && extractPhoneDigits(s.phone).slice(-10) === parsedTw.tenDigits
@@ -746,16 +784,18 @@ export async function PATCH(request: NextRequest) {
               { status: 400 }
             )
           }
-          const duplicateCfg = (allConfigs || []).find(
+          const effectiveRoutingMode = updates.routing_mode || prevCfg?.routing_mode || 'conditional_forward'
+          const duplicateDirectCfg = (allConfigs || []).find(
             (c: any) =>
               Number(c.store_id) !== storeId &&
               c.twilio_phone_number &&
-              extractPhoneDigits(c.twilio_phone_number).slice(-10) === parsedTw.tenDigits
+              extractPhoneDigits(c.twilio_phone_number).slice(-10) === parsedTw.tenDigits &&
+              (effectiveRoutingMode === 'direct_twilio' || c.routing_mode === 'direct_twilio')
           )
-          if (duplicateCfg) {
+          if (duplicateDirectCfg) {
             return NextResponse.json(
               {
-                error: `Ese número Twilio ya está asignado a la sucursal #${duplicateCfg.store_id}. Cada tienda debe tener su propio número receptor.`
+                error: `Ese número Twilio ya está en modo directo en la sucursal #${duplicateDirectCfg.store_id}. Para compartir un número piloto usa modo Desvío Condicional (ForwardedFrom).`
               },
               { status: 400 }
             )
@@ -794,6 +834,12 @@ export async function PATCH(request: NextRequest) {
         const parsedMgr = normalizeUsPhoneE164(body.manager_transfer_phone)
         if (!parsedMgr.valid) {
           return NextResponse.json({ error: `Teléfono del gerente inválido: ${parsedMgr.error}` }, { status: 400 })
+        }
+        if (parsedMgr.tenDigits && isFictitiousNanpPhone(parsedMgr.tenDigits, false)) {
+          return NextResponse.json(
+            { error: 'El celular del gerente no puede ser un número ficticio (ej. 555-xxxx).' },
+            { status: 400 }
+          )
         }
         if (parsedMgr.normalized) {
           const simulatedConfigs = (allConfigs || []).map((c: any) =>
@@ -842,6 +888,7 @@ export async function PATCH(request: NextRequest) {
 
       if (error) throw error
       invalidateStorePhoneContextCache(storeId)
+      invalidatePhoneRoutingDirectoryCache()
       return NextResponse.json({ ok: true, config: updated })
     }
 
@@ -859,6 +906,10 @@ export async function PATCH(request: NextRequest) {
           const n = Number(body.store_id)
           if (!Number.isFinite(n) || n <= 0 || Math.trunc(n) !== n) {
             return NextResponse.json({ error: 'store_id inválido' }, { status: 400 })
+          }
+          const { data: stExists } = await supabaseAdmin.from('stores').select('id').eq('id', n).maybeSingle()
+          if (!stExists) {
+            return NextResponse.json({ error: `Sucursal #${n} no existe` }, { status: 404 })
           }
           updates.store_id = n
         }
@@ -928,6 +979,10 @@ export async function PATCH(request: NextRequest) {
           const n = Number(body.store_id)
           if (!Number.isFinite(n) || n <= 0 || Math.trunc(n) !== n) {
             return NextResponse.json({ error: 'store_id inválido' }, { status: 400 })
+          }
+          const { data: stExists } = await supabaseAdmin.from('stores').select('id').eq('id', n).maybeSingle()
+          if (!stExists) {
+            return NextResponse.json({ error: `Sucursal #${n} no existe` }, { status: 404 })
           }
           updates.store_id = n
         }

@@ -3,10 +3,13 @@
  * @description API endpoint to dispatch supervisor mileage payroll summaries directly to HR via email.
  * @businessRules
  * - Uses active logged-in user session credentials as the sender profile.
- * - Saves or updates recipient emails into the 'mileage_recurrent_emails' catalog for easy 1-click reuse.
+ * - Resolves corporate mailbox from `users.google_email_connected` and maps login alias `roque@tacosgavilan.com` to `carlos@tacosgavilan.com`.
+ * - Saves or updates recipient emails into the 'mileage_recurrent_emails' catalog for easy 1-click reuse (excluding `is_test` runs).
  * - Updates trip statuses to 'submitted_hr' and records submission in 'mileage_hr_submissions'.
  * - Generates structured HTML email with per-supervisor breakdowns, miles, rate, parking, tolls, and reimbursement totals.
  * @dataFlow Client POST request -> DB update -> Nodemailer dispatch -> JSON response.
+ * @notes
+ * - Carlos signs in with User ID 47 (`roque@tacosgavilan.com`), whose connected Google Workspace mailbox is `carlos@tacosgavilan.com`. Resolution guarantees replyTo, submission logs, and test emails always use `carlos@tacosgavilan.com`.
  */
 
 import { NextRequest, NextResponse } from 'next/server'
@@ -14,6 +17,11 @@ import { verifyStaffAuth } from '@/lib/auth-server'
 import { getSupabaseAdminClient } from '@/lib/supabase'
 import nodemailer from 'nodemailer'
 import { generateSupervisorMileagePdf, formatUsaDate } from '@/lib/miles-pdf'
+
+function normalizeMilesMailbox(raw?: string | null): string {
+  const clean = (raw || '').toLowerCase().trim()
+  return clean === 'roque@tacosgavilan.com' ? 'carlos@tacosgavilan.com' : clean
+}
 
 export async function POST(req: NextRequest) {
   const auth = await verifyStaffAuth(req)
@@ -41,34 +49,55 @@ export async function POST(req: NextRequest) {
 
     const supabase = await getSupabaseAdminClient()
 
-    // 1. Save or increment recurrent recipient email in DB
-    try {
-      const { data: existingRec } = await supabase
-        .from('mileage_recurrent_emails')
-        .select('*')
-        .eq('email', recipient_email.toLowerCase().trim())
-        .single()
+    // Resolve canonical sender & recipient mailboxes (`roque@tacosgavilan.com` -> `carlos@tacosgavilan.com`)
+    let resolvedSenderEmail = normalizeMilesMailbox(sender_email)
+    const numericSenderId = Number(sender_id)
+    if (sender_id && String(sender_id).trim() !== '' && Number.isInteger(numericSenderId) && numericSenderId > 0) {
+      const { data: uData } = await supabase
+        .from('users')
+        .select('google_email_connected, email')
+        .eq('id', numericSenderId)
+        .maybeSingle()
 
-      if (existingRec) {
-        await supabase
+      resolvedSenderEmail =
+        normalizeMilesMailbox(uData?.google_email_connected || resolvedSenderEmail || uData?.email) ||
+        'carlos@tacosgavilan.com'
+    } else if (!resolvedSenderEmail) {
+      resolvedSenderEmail = 'carlos@tacosgavilan.com'
+    }
+
+    const resolvedRecipientEmail = normalizeMilesMailbox(recipient_email)
+
+    // 1. Save or increment recurrent recipient email in DB (skip on test dispatches)
+    if (!is_test) {
+      try {
+        const { data: existingRec } = await supabase
           .from('mileage_recurrent_emails')
-          .update({
-            use_count: (existingRec.use_count || 1) + 1,
-            last_used_at: new Date().toISOString()
-          })
-          .eq('id', existingRec.id)
-      } else {
-        await supabase
-          .from('mileage_recurrent_emails')
-          .insert({
-            email: recipient_email.toLowerCase().trim(),
-            label: 'Recursos Humanos / Nómina',
-            use_count: 1,
-            created_by: sender_id || null
-          })
+          .select('*')
+          .eq('email', resolvedRecipientEmail)
+          .single()
+
+        if (existingRec) {
+          await supabase
+            .from('mileage_recurrent_emails')
+            .update({
+              use_count: (existingRec.use_count || 1) + 1,
+              last_used_at: new Date().toISOString()
+            })
+            .eq('id', existingRec.id)
+        } else {
+          await supabase
+            .from('mileage_recurrent_emails')
+            .insert({
+              email: resolvedRecipientEmail,
+              label: 'Recursos Humanos / Nómina',
+              use_count: 1,
+              created_by: sender_id || null
+            })
+        }
+      } catch (e: any) {
+        console.warn('Recurrent email update non-fatal error:', e.message)
       }
-    } catch (e: any) {
-      console.warn('Recurrent email update non-fatal error:', e.message)
     }
 
     // 2. Query target trips
@@ -362,7 +391,7 @@ export async function POST(req: NextRequest) {
           </table>
 
           <div style="margin-top: 24px; padding-top: 16px; border-top: 1px solid #e2e8f0; font-size: 12px; color: #64748b;">
-            <p style="margin: 0;"><strong>Enviado por:</strong> ${sender_name} (${sender_email})</p>
+            <p style="margin: 0;"><strong>Enviado por:</strong> ${sender_name} (${resolvedSenderEmail})</p>
             <p style="margin: 4px 0 0 0;"><strong>Fecha de Envío:</strong> ${new Date().toLocaleString('es-MX', { timeZone: 'America/Los_Angeles' })} PST</p>
           </div>
         </div>
@@ -389,8 +418,8 @@ export async function POST(req: NextRequest) {
       const testPrefix = is_test ? '[PRUEBA] ' : ''
       await transporter.sendMail({
         from: `"${sender_name} via Tacos Gavilan" <${process.env.SMTP_EMAIL || 'carlos@tacosgavilan.com'}>`,
-        replyTo: sender_email,
-        to: recipient_email,
+        replyTo: resolvedSenderEmail,
+        to: resolvedRecipientEmail,
         subject: `${testPrefix}🚗 MilesIQ Reporte de Millas Supervisores (${formatUsaDate(period_start)} - ${formatUsaDate(period_end)}) - $${globalReimbursement.toFixed(2)} USD`,
         html: emailHtml,
         attachments
@@ -409,9 +438,9 @@ export async function POST(req: NextRequest) {
         period_start,
         period_end,
         submitted_by_id: sender_id || '00000000-0000-0000-0000-000000000000',
-        sender_email,
+        sender_email: resolvedSenderEmail,
         sender_name,
-        recipient_email,
+        recipient_email: resolvedRecipientEmail,
         total_supervisors: supervisorCount,
         total_miles: globalMiles,
         total_reimbursement: globalReimbursement,

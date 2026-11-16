@@ -3745,8 +3745,8 @@ async function queryPhoneAgentStatusTool(args: any): Promise<string> {
 
     const urgentOrCritical = filteredCallbacks.filter((cb: any) => cb.urgency === 'critical' || cb.urgency === 'urgent').length;
     let out = `📞 **Contestadora IA Multi-Sucursal (15 Tiendas) — Tacos Gavilan (/admin/llamadas)**\n`;
-    out += `• **Voz Neuronal Activa**: Kore 3.8 (Gemini Neural TTS caché \`phone_v6\`, PCM 24kHz simulador / WAV 8kHz telefonía)\n`;
-    out += `• **Sucursales Consultadas**: ${rows.length} (Cadena: 4 líneas fijas Spectrum Business y 11 celulares Android AT&T)\n`;
+    out += `• **Voz y Arquitectura Baja Latencia**: Kore 3.8 (\`gemini-3.8-flash-lite-tts\` #1, región \`sfo1\`, caché \`phone_v6\`, filtro FIR 9-taps WAV \`8kHz\` telefonía + \`&dyn=1\` / PCM \`24kHz\` simulador)\n`;
+    out += `• **Sucursales Consultadas**: ${rows.length} (Cadena: 4 líneas fijas Spectrum Business y 11 celulares Android AT&T; soporta piloto Twilio de 1 número vía \`ForwardedFrom\`)\n`;
     out += `• **Reglas Activas en Base de Conocimiento**: ${filteredKb.length}\n`;
     out += `• **Próximos Horarios Festivos / Especiales (150 días)**: ${mergedHolidays.length}\n`;
     out += `• **Llamadas Reales Recientes (Twilio)**: ${realCalls.length} (${realPct}% resueltas por la IA en llamadas con conversación) | **Pruebas en Simulador**: ${simCalls.length}\n`;

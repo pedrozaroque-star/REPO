@@ -11,7 +11,9 @@
  * - Admins can review, approve, reject, mark as paid, and configure distance matrices & rates.
  * @dataFlow
  * - Client (React) <-> REST API (/api/miles/*) <-> Supabase DB tables.
- * @notes 100% bilingual i18n support using useLanguage().
+ * @notes
+ * - 100% bilingual i18n support using useLanguage().
+ * - Maps login alias `roque@tacosgavilan.com` to real corporate mailbox `carlos@tacosgavilan.com` in HR Payroll Dispatch & active sender identity.
  */
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react'
@@ -132,6 +134,14 @@ function formatMinutesToTime(totalMinutes: number): string {
   return `${hourStr}:${minStr} ${ampm}`
 }
 
+function resolveMilesEmail(rawEmail?: string | null): string {
+  const clean = (rawEmail || '').trim()
+  if (!clean) return ''
+  return clean.toLowerCase() === 'roque@tacosgavilan.com'
+    ? 'carlos@tacosgavilan.com'
+    : clean
+}
+
 export default function MilesIQPage() {
   return (
     <ProtectedRoute allowedRoles={['admin', 'supervisor']}>
@@ -147,7 +157,7 @@ function MilesIQContent() {
   const currentUser = useMemo(() => ({
     id: String(user?.id || '00000000-0000-0000-0000-000000000000'),
     name: user?.name || 'Supervisor',
-    email: user?.email || 'supervisor@tacosgavilan.com'
+    email: resolveMilesEmail(user?.email) || 'supervisor@tacosgavilan.com'
   }), [user])
 
   const isAdmin = user?.role === 'admin'
@@ -179,7 +189,7 @@ function MilesIQContent() {
   })
 
   // HR Dispatch state
-  const [selectedRecipientEmail, setSelectedRecipientEmail] = useState<string>('roque@tacosgavilan.com')
+  const [selectedRecipientEmail, setSelectedRecipientEmail] = useState<string>('carlos@tacosgavilan.com')
   const [customEmailInput, setCustomEmailInput] = useState<string>('')
   const [sendingHr, setSendingHr] = useState<boolean>(false)
   const [syncingInspections, setSyncingInspections] = useState<boolean>(false)
@@ -357,8 +367,26 @@ function MilesIQContent() {
       const resEmails = await fetch('/api/miles/recurrent-emails')
       const jsonEmails = await resEmails.json()
       if (jsonEmails.success && jsonEmails.emails?.length > 0) {
-        setRecurrentEmails(jsonEmails.emails)
-        setSelectedRecipientEmail(jsonEmails.emails[0].email)
+        const dedupedMap = new Map<string, RecurrentEmail>()
+        for (const rec of jsonEmails.emails as RecurrentEmail[]) {
+          const cleanEmail = resolveMilesEmail(rec.email).toLowerCase()
+          if (!cleanEmail) continue
+          const existing = dedupedMap.get(cleanEmail)
+          if (existing) {
+            existing.use_count = (existing.use_count || 0) + (rec.use_count || 0)
+          } else {
+            dedupedMap.set(cleanEmail, { ...rec, email: cleanEmail })
+          }
+        }
+        const normalizedEmails = Array.from(dedupedMap.values())
+        setRecurrentEmails(normalizedEmails)
+        if (normalizedEmails.length > 0) {
+          setSelectedRecipientEmail(prev =>
+            normalizedEmails.some(e => e.email === resolveMilesEmail(prev).toLowerCase())
+              ? resolveMilesEmail(prev).toLowerCase()
+              : normalizedEmails[0].email
+          )
+        }
       }
 
       // 5. Fetch Settings & Distance Matrix
@@ -624,7 +652,7 @@ function MilesIQContent() {
   // Helper to check if a trip belongs to the current user
   const isOwnTrip = useCallback((t: TripRecord) => {
     if (String(t.supervisor_id) === String(currentUser.id)) return true
-    if (t.supervisor_email && currentUser.email && t.supervisor_email.toLowerCase() === currentUser.email.toLowerCase()) return true
+    if (t.supervisor_email && currentUser.email && resolveMilesEmail(t.supervisor_email).toLowerCase() === currentUser.email.toLowerCase()) return true
     if (t.supervisor_name && currentUser.name && t.supervisor_name.toLowerCase() === currentUser.name.toLowerCase()) return true
     return false
   }, [currentUser])
@@ -1775,6 +1803,7 @@ function MilesIQContent() {
                       <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
                         {submissions.map((sub: any) => {
                           const isSent = sub.email_status === 'sent'
+                          const isTestSent = sub.email_status === 'test_sent'
                           const dateFormatted = sub.created_at
                             ? new Date(sub.created_at).toLocaleString('es-MX', {
                                 dateStyle: 'medium',
@@ -1798,12 +1827,12 @@ function MilesIQContent() {
                               </td>
                               <td className="py-3.5 px-4">
                                 <div className="font-medium text-slate-800 dark:text-slate-200">{sub.sender_name}</div>
-                                <div className="text-[10px] text-slate-400 truncate max-w-xs">{sub.sender_email}</div>
+                                <div className="text-[10px] text-slate-400 truncate max-w-xs">{resolveMilesEmail(sub.sender_email)}</div>
                               </td>
                               <td className="py-3.5 px-4">
                                 <div className="flex items-center gap-1.5 text-slate-700 dark:text-slate-300">
                                   <Mail size={12} className="text-blue-500 shrink-0" />
-                                  <span className="font-semibold truncate max-w-xs">{sub.recipient_email}</span>
+                                  <span className="font-semibold truncate max-w-xs">{resolveMilesEmail(sub.recipient_email)}</span>
                                 </div>
                               </td>
                               <td className="py-3.5 px-4 text-center">
@@ -1822,6 +1851,11 @@ function MilesIQContent() {
                                   <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[10px] font-bold bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800">
                                     <CheckCircle2 size={11} />
                                     {t('miles.status_sent')}
+                                  </span>
+                                ) : isTestSent ? (
+                                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[10px] font-bold bg-blue-100 text-blue-700 dark:bg-blue-950/60 dark:text-blue-400 border border-blue-200 dark:border-blue-800">
+                                    <Mail size={11} />
+                                    {t('miles.status_test_sent')}
                                   </span>
                                 ) : (
                                   <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[10px] font-bold bg-red-100 text-red-700 dark:bg-red-950/60 dark:text-red-400 border border-red-200 dark:border-red-800" title={sub.email_status}>
@@ -1842,6 +1876,7 @@ function MilesIQContent() {
                 <div className="md:hidden space-y-3">
                   {submissions.map((sub: any) => {
                     const isSent = sub.email_status === 'sent'
+                    const isTestSent = sub.email_status === 'test_sent'
                     const dateFormatted = sub.created_at
                       ? new Date(sub.created_at).toLocaleDateString('es-MX', {
                           month: 'short',
@@ -1862,6 +1897,10 @@ function MilesIQContent() {
                             <span className="px-2 py-0.5 rounded-md text-[9px] font-bold bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-400">
                               {t('miles.status_sent')}
                             </span>
+                          ) : isTestSent ? (
+                            <span className="px-2 py-0.5 rounded-md text-[9px] font-bold bg-blue-100 text-blue-700 dark:bg-blue-950/60 dark:text-blue-400">
+                              {t('miles.status_test_sent')}
+                            </span>
                           ) : (
                             <span className="px-2 py-0.5 rounded-md text-[9px] font-bold bg-red-100 text-red-700 dark:bg-red-950/60 dark:text-red-400">
                               {t('miles.status_failed')}
@@ -1881,7 +1920,7 @@ function MilesIQContent() {
                         <div className="flex items-center justify-between text-xs pt-1">
                           <span className="text-slate-500 truncate max-w-[55%] flex items-center gap-1">
                             <Mail size={11} className="text-blue-500 shrink-0" />
-                            {sub.recipient_email}
+                            {resolveMilesEmail(sub.recipient_email)}
                           </span>
                           <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 text-blue-700 dark:bg-blue-950/60 dark:text-blue-400">
                             {sub.total_supervisors} {t('miles.supervisors_unit')}

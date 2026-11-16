@@ -20,20 +20,36 @@ export interface VersionMilestone {
 }
 
 export const SYSTEM_VERSION = {
-    version: 'v2.27.1',
-    versionNumber: '2.27.1',
+    version: 'v2.28.0',
+    versionNumber: '2.28.0',
     releaseMonthEs: 'Noviembre 2026',
     releaseMonthEn: 'November 2026',
     stage: 'Producción',
     stageEn: 'Production',
     year: '2026',
-    labelEs: 'Noviembre 2026 • SM TEG v2.27.1',
-    labelEn: 'November 2026 • SM TEG v2.27.1',
+    labelEs: 'Noviembre 2026 • SM TEG v2.28.0',
+    labelEn: 'November 2026 • SM TEG v2.28.0',
     brand: 'SM TEG',
-    lastUpdated: '2026-11-13'
+    lastUpdated: '2026-11-16'
 } as const;
 
 export const VERSION_HISTORY: readonly VersionMilestone[] = [
+    {
+        version: 'v2.28.0',
+        date: '16-Nov-2026',
+        titleEs: 'Contestadora Telefónica IA phone_v7 Baja Latencia (sfo1 + Flash-Lite-TTS), Conciliar Delivery Blindaje Cobertura Cloud, MilesIQ Buzón carlos@tacosgavilan.com, Planificador Impresión AM/PM y Suite Campaña 5, Salsa Bar & Stickers QR 5"×7"',
+        titleEn: 'Low-Latency AI Phone Receptionist phone_v7 (sfo1 + Flash-Lite-TTS), Cloud Delivery Coverage Guardrail, MilesIQ carlos@tacosgavilan.com Mailbox, Planner Print AM/PM & Campaign 5, Salsa Bar & 5"×7" QR Stickers Suite',
+        highlightsEs: [
+            'Contestadora Telefónica IA Multi-Sucursal phone_v7 (/admin/llamadas, lib/phone-agent.ts, lib/order-ready-tts.ts, lib/holidays.ts y /api/phone/*): optimización de respuesta rápida en vida real (preferredRegion = sfo1, prioridad gemini-3.8-flash-lite-tts #1 con filtro FIR antialiasing de 9 etapas a 8 kHz, segmentación de 24–88 caracteres, pre-síntesis dinámica &dyn=1 y deduplicación inflight sin bloqueo de Storage); piloto de 1 número con resolución vía ForwardedFrom, reproducción 0 ms post-CIPA, protección anti-buzón en <Dial> (>= 12s y !AnsweredBy machine/fax), actualización en vivo de phone_knowledge_base en Supabase y nuevo panel de conexión Twilio en Tab 3',
+            'Conciliar Delivery Blindaje de Cobertura Cloud (/admin/conciliar-delivery y lib/delivery-reconciliation.ts), MilesIQ (/miles, /api/miles/*) y Planificador Impresión AM vs PM (/planificador/imprimir, commit b107d704): carga de llaves cifradas en Vercel con re-cifrado dual cloud/local en Supabase, endurecimiento de buildStorePlatformCoverageMatrix y delivery_sync_status, sincronización 0 errores en las 15 sucursales ($100,089.89 Uber Eats, $8,105.48 Grubhub y 4,715 órdenes DoorDash), resolución automática del alias roque@ hacia carlos@tacosgavilan.com + badge test_sent en MilesIQ, y clasificación AM vs PM por mayor traslape de horas respecto a las 5:00 PM',
+            'Suite Oficial de Campaña 5, Salsa Bar y Calcomanías QR 5"×7" Lista para Imprenta (docs/carteles-campana-5/*, docs/letreros-salsa-bar/* y exports/*): reconstrucción en alta resolución de los 16 carteles de Campaña 5 (Champurrado y Los Tacos en Ventanas 2×3 ft y Mostrador Sign Holder con zona segura perimetral en los 4 lados), 4 propuestas transparentes 15"×4" a 600 DPI para Salsa Bar con Logo Puro 9×9, y suite limpia de calcomanías QR 5"×7" / 7"×5" para Experiencia del Cliente V2 (/clientes), Evaluación del Personal (STAFF Glossy) y Registro de Proveedores y Mantenimiento (/mantenimiento/registro), con 74.0 horas consolidadas en Noviembre 2026'
+        ],
+        highlightsEn: [
+            'Multi-Store AI Phone Receptionist phone_v7 (/admin/llamadas, lib/phone-agent.ts, lib/order-ready-tts.ts, lib/holidays.ts & /api/phone/*): real-world low-latency telephony upgrades (preferredRegion = sfo1, primary gemini-3.8-flash-lite-tts with 9-tap 8 kHz FIR anti-aliasing filter, 24–88 char clause splitting, dynamic &dyn=1 pre-synthesis, and inflight deduplication decoupled from Storage uploads); 1-number pilot resolution via ForwardedFrom, 0ms post-CIPA playback, <Dial> voicemail guard (>= 12s and !AnsweredBy machine/fax), live Supabase phone_knowledge_base updates, and Tab 3 Twilio Connection & Webhook panel',
+            'Delivery Reconciliation Cloud Coverage Guardrail (/admin/conciliar-delivery & lib/delivery-reconciliation.ts), MilesIQ (/miles, /api/miles/*) & Overlap-Hours Planner Print AM/PM (/planificador/imprimir, commit b107d704): provisioned Vercel encryption secrets with dual cloud/local session re-encryption in Supabase, hardened buildStorePlatformCoverageMatrix and delivery_sync_status, verified 0-error 15-store sync ($100,089.89 Uber Eats, $8,105.48 Grubhub, and 4,715 DoorDash orders), mapped roque@ login alias to carlos@tacosgavilan.com + blue test_sent badge in MilesIQ, and fixed printable AM vs PM assignment by comparing hours worked before vs after 5:00 PM',
+            'Official Print-Ready Campaign 5, Salsa Bar & 5"×7" QR Stickers Suite (docs/carteles-campana-5/*, docs/letreros-salsa-bar/* & exports/*): reconstructed all 16 high-resolution Campaign 5 posters (Champurrado & Los Tacos for 2×3 ft Windows and Counter Sign Holders with 4-sided perimeter safe zones), 4 transparent 15"×4" 600 DPI Salsa Bar options featuring the pure 9×9 circular mascot logo, and clean 5"×7" / 7"×5" QR stickers for Customer Experience V2 (/clientes), Glossy STAFF Evaluation, and Vendor/Maintenance Check-In (/mantenimiento/registro), with 74.0 consolidated hours in November 2026'
+        ]
+    },
     {
         version: 'v2.27.1',
         date: '13-Nov-2026',
