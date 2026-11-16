@@ -877,6 +877,7 @@ function InicioHubContent() {
             <Link
                 key={`${groupId}-${item.id}`}
                 href={item.path}
+                prefetch={false}
                 target={item.openInNewTab ? '_blank' : undefined}
                 rel={item.openInNewTab ? 'noopener noreferrer' : undefined}
                 onClick={handleModuleClick}

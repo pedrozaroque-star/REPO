@@ -1089,6 +1089,7 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
                                         <Link
                                             key={sub.path}
                                             href={sub.path}
+                                            prefetch={false}
                                             target={sub.openInNewTab ? '_blank' : undefined}
                                             rel={sub.openInNewTab ? 'noopener noreferrer' : undefined}
                                             onClick={() => {
@@ -1133,6 +1134,7 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
             <Link
                 key={item.path}
                 href={item.path}
+                prefetch={false}
                 data-active-nav-item={isActive ? 'true' : undefined}
                 target={item.openInNewTab ? '_blank' : undefined}
                 rel={item.openInNewTab ? 'noopener noreferrer' : undefined}

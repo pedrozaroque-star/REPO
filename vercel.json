@@ -30,7 +30,7 @@
         },
         {
             "path": "/api/cron/sync-food-cost-today",
-            "schedule": "*/5 * * * *"
+            "schedule": "*/20 * * * *"
         },
         {
             "path": "/api/cron/report-breaks",
@@ -78,7 +78,7 @@
         },
         {
             "path": "/api/cron/sync-sales-today",
-            "schedule": "*/5 * * * *"
+            "schedule": "*/10 * * * *"
         },
         {
             "path": "/api/cron/sync-mobile-menu",
@@ -86,11 +86,11 @@
         },
         {
             "path": "/api/cron/sync-drive-thru",
-            "schedule": "*/5 * * * *"
+            "schedule": "*/10 * * * *"
         },
         {
             "path": "/api/basecamp/sync",
-            "schedule": "*/5 * * * *"
+            "schedule": "*/15 * * * *"
         },
         {
             "path": "/api/cron/sync-supplier-prices",

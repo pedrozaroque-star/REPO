@@ -526,7 +526,7 @@ export default function PreparadorPage() {
 
         fetchManualScheduleRef.current = fetchManualSchedule
         fetchManualSchedule()
-        const interval = setInterval(() => fetchManualSchedule(), 10000)
+        const interval = setInterval(() => fetchManualSchedule(), 180000)
         return () => clearInterval(interval)
     }, [storeId, businessDow, selectedDate])
 

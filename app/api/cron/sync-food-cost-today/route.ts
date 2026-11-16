@@ -37,11 +37,12 @@ export async function GET(request: Request) {
         
         const currentHour = laNow.getHours()
 
-        // Restricción de horario: Correr entre las 6 AM y las 4:59 AM del día siguiente.
-        // Omitimos únicamente las 5 AM (cierre/transición de jornada).
-        if (currentHour === 5) {
-            console.log(`⏳ [CRON FC TODAY] Ejecución omitida. Fuera de horario operativo (5:00am-5:59am). Hora actual LA: ${currentHour}:00`)
-            return NextResponse.json({ success: true, message: 'Skipped: Outside operating hours (5 AM rollover)' })
+        // Restricción de horario: Omitimos la ventana muerta real sin ventas (4:15 AM - 6:59 AM LA),
+        // dejando una última barrida de cierre nocturno a las 4:00 AM tras las últimas órdenes de las 3 AM.
+        const currentMinute = laNow.getMinutes()
+        if ((currentHour === 4 && currentMinute >= 15) || currentHour === 5 || currentHour === 6) {
+            console.log(`⏳ [CRON FC TODAY] Ejecución omitida en ventana sin ventas (4:15am-6:59am). Hora actual LA: ${currentHour}:${String(currentMinute).padStart(2, '0')}`)
+            return NextResponse.json({ success: true, message: 'Skipped: Dead hours (4:15 AM - 6:59 AM LA)' })
         }
 
         // Regla de las 6 AM: si es antes de las 6 AM, sigue siendo el "hoy" operativo del día anterior

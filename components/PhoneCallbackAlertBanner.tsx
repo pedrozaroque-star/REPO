@@ -14,7 +14,7 @@
  * - Permite al gerente agregar una nota opcional de seguimiento y marcar el recado como "Atendido" validando `res.ok`.
  *
  * @dataFlow
- * - Polling autenticado cada 6s (`GET /api/phone/dashboard?callbacksOnly=true&storeId=X&status=pending`) con soporte
+ * - Polling autenticado cada 15s (`GET /api/phone/dashboard?callbacksOnly=true&storeId=X&status=pending`) con soporte
  *   tanto de JWT (`teg_token`) como de cookie 24/7 (`teg_order_ready_session`), más listeners `visibilitychange` y `online`
  *   -> Renderiza banner -> `PATCH /api/phone/dashboard` (`entity: 'callback_request'`, `status: 'resolved'`).
  *
@@ -62,7 +62,7 @@ interface CallbackAlert {
   created_at: string
 }
 
-const POLL_INTERVAL_MS = 6000
+const POLL_INTERVAL_MS = 15000
 
 export default function PhoneCallbackAlertBanner({
   storeCode,
