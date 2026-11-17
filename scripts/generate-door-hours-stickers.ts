@@ -12,12 +12,19 @@
  *   - Weekly schedule queries live Supabase `stores.weekly_hours` for all 15 active locations.
  * @dataFlow
  *   Supabase `stores` (read-only) + local brand assets (`public/tacosgavilan-web/`) -> HTML/CSS template
- *   -> Puppeteer headless Chrome (`5400x1650` PNG & `18in x 5.5in` PDF) -> `exports/door-stickers-2026/`.
+ *   -> Puppeteer headless Chrome + `sharp` (`5400x1650` 300 DPI PNG & `18in x 5.5in` PDF) -> `exports/door-stickers-2026/`.
  * @notes
  *   - Uses the official GAVILAN-LOGO-STANDARD vector lockup extracted from `gavilan-logo-hor.svg`
  *     (`TACOS` tucked in the G–i crevice per Brand Standards p.4 & p.14, excluding "Ya está.") in
- *     high-contrast White (#FFFFFF) on the black header, with `BUSINESS HOURS` centered at ~900px
- *     and store details on `.header-right` (01_Central / 03_Broadway omit "LA " per owner sign-off).
+ *     high-contrast White (#FFFFFF) on the header, with `BUSINESS HOURS` centered at ~900px
+ *     and store details on `.header-right`.
+ *   - Customer-facing city names on the 3 Los Angeles locations (`LACENTRAL`, `LABROADWY`, `SLAUSON`)
+ *     display `'LOS ANGELES'` + their cross streets (`Central & Washington`, `Vernon & Broadway`,
+ *     `Slauson & Broadway`), while keeping `fileStem` (`01_Central`, `03_Broadway`, `05_Slauson`)
+ *     intact for internal store kitting.
+ *   - `.brand-header` and `.day-header` use 100% flat matte black (`#111111`) with zero yellow radial
+ *     fade and zero halftone emboss (`blackPatternDataUri` removed from header), plus explicit `300 DPI`
+ *     PNG metadata embedded via `sharp` (`withMetadata({ density: 300 })`).
  *   - Overrides the raw SVG viewBox of `ya_esta-home-hor.svg` cleanly so zero glyphs are clipped.
  *   - Verifies in-DOM layout dimensions (`scrollWidth <= 1800`, `scrollHeight <= 550`, zero card overflow,
  *     and >= 36px horizontal clearance between header zones across all 15 stores) plus zero ":" or "00" in clocks.
@@ -30,6 +37,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import dotenv from 'dotenv';
 import puppeteer from 'puppeteer';
+import sharp from 'sharp';
 import { createClient } from '@supabase/supabase-js';
 
 dotenv.config({ path: path.resolve(process.cwd(), '.env.local'), quiet: true });
@@ -75,7 +83,7 @@ const STORE_PRESENTATION: Record<string, StorePresentationMeta> = {
     rank: 1,
     slug: 'central',
     fileStem: '01_Central',
-    displayName: 'CENTRAL',
+    displayName: 'LOS ANGELES',
     crossStreets: 'Central & Washington',
   },
   LYNWOOD: {
@@ -89,7 +97,7 @@ const STORE_PRESENTATION: Record<string, StorePresentationMeta> = {
     rank: 3,
     slug: 'broadway',
     fileStem: '03_Broadway',
-    displayName: 'BROADWAY',
+    displayName: 'LOS ANGELES',
     crossStreets: 'Vernon & Broadway',
   },
   NORWALK: {
@@ -103,7 +111,7 @@ const STORE_PRESENTATION: Record<string, StorePresentationMeta> = {
     rank: 5,
     slug: 'slauson',
     fileStem: '05_Slauson',
-    displayName: 'SLAUSON',
+    displayName: 'LOS ANGELES',
     crossStreets: 'Slauson & Broadway',
   },
   WCOVINA: {
@@ -313,7 +321,6 @@ function loadOfficialHeaderLogoSvgInline(svgPath: string, wordmarkColor: string)
 interface BrandAssets {
   gothamUltraDataUri: string;
   headerLogoSvg: string;
-  blackPatternDataUri: string;
   redPatternDataUri: string;
   yaEstaSvg: string;
 }
@@ -328,10 +335,6 @@ function loadBrandAssets(wordmarkColor = '#FFFFFF'): BrandAssets {
     headerLogoSvg: loadOfficialHeaderLogoSvgInline(
       path.join(webRoot, 'img', 'gavilan-logo-hor.svg'),
       wordmarkColor
-    ),
-    blackPatternDataUri: fileToBase64DataUri(
-      path.join(webRoot, 'img', 'patterns', 'black-text-1000.png'),
-      'image/png'
     ),
     redPatternDataUri: fileToBase64DataUri(
       path.join(webRoot, 'img', 'patterns', 'red-text-1000.png'),
@@ -467,13 +470,7 @@ function buildStickerHtml(
     .brand-header {
       height: 144px;
       width: 100%;
-      background-color: #0A0A0A;
-      background-image:
-        radial-gradient(ellipse at 50% 50%, rgba(255, 199, 44, 0.14) 0%, rgba(10, 10, 10, 0) 48%),
-        linear-gradient(180deg, rgba(10, 10, 10, 0.55) 0%, rgba(5, 5, 5, 0.85) 100%),
-        url('${assets.blackPatternDataUri}');
-      background-size: 100% 100%, 100% 100%, 360px 360px;
-      background-repeat: no-repeat, no-repeat, repeat;
+      background: #111111;
       border-bottom: 5px solid #FFC72C;
       box-shadow: 0 5px 14px rgba(0, 0, 0, 0.42);
       padding: 0 36px;
@@ -496,7 +493,6 @@ function buildStickerHtml(
       height: 108px;
       width: auto;
       display: block;
-      filter: drop-shadow(0 4px 10px rgba(0, 0, 0, 0.85));
     }
 
     .header-center {
@@ -625,7 +621,7 @@ function buildStickerHtml(
 
     .day-header {
       height: 58px;
-      background: #141414;
+      background: #111111;
       border-bottom: 3px solid #DA291C;
       display: flex;
       flex-direction: column;
@@ -1041,7 +1037,11 @@ async function main(): Promise<void> {
       const pngPath = path.join(pngDir, pngFile);
       const pdfPath = path.join(pdfDir, pdfFile);
 
-      await page.screenshot({ path: pngPath, type: 'png' });
+      const rawScreenshot = await page.screenshot({ type: 'png' });
+      await sharp(Buffer.from(rawScreenshot))
+        .withMetadata({ density: 300 })
+        .png()
+        .toFile(pngPath);
       await page.pdf({
         path: pdfPath,
         width: '18in',
@@ -1069,7 +1069,7 @@ async function main(): Promise<void> {
       });
 
       console.log(
-        `[${String(meta.rank).padStart(2, '0')}/15] Rendered ${meta.displayName} (${meta.crossStreets}) -> ${pdfFile} + ${pngFile}`
+        `[${String(meta.rank).padStart(2, '0')}/15] Rendered ${meta.displayName} (${meta.crossStreets}) [gaps: L=${Math.round(layoutMetrics.gapLeft)}px, R=${Math.round(layoutMetrics.gapRight)}px] -> ${pdfFile} + ${pngFile}`
       );
     }
   } finally {

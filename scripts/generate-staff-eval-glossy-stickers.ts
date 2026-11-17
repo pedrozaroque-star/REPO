@@ -21,6 +21,8 @@
  *   - Uses `sharp(...).toBuffer()` + `fs.writeFileSync()` instead of `sharp.toFile()` to avoid Windows
  *     libvips overwrite locks.
  *   - Enforces Puppeteer in-DOM assertions (`assertLayoutFits`) ensuring zero text wrapping/clipping.
+ *   - Top `.brand-header` and `.qr-card-header` use uniform flat matte black (`#111111`) with zero
+ *     yellow radial glow, zero gradient sheen, and zero pattern overlay.
  */
 
 import assert from 'node:assert/strict';
@@ -297,16 +299,10 @@ function buildSharedBrandCss(assets: BrandAssets): string {
       overflow: hidden;
     }
 
-    /* ================= TOP BRAND HEADER ================= */
+    /* ================= TOP BRAND HEADER (FLAT MATTE BLACK) ================= */
     .brand-header {
       width: 100%;
-      background-color: #0A0A0A;
-      background-image:
-        radial-gradient(ellipse at 20% 50%, rgba(255, 199, 44, 0.16) 0%, rgba(10, 10, 10, 0) 54%),
-        linear-gradient(180deg, rgba(10, 10, 10, 0.50) 0%, rgba(5, 5, 5, 0.86) 100%),
-        url('${assets.blackPatternDataUri}');
-      background-size: 100% 100%, 100% 100%, 340px 340px;
-      background-repeat: no-repeat, no-repeat, repeat;
+      background: #111111;
       border-bottom: 4px solid #FFC72C;
       box-shadow: 0 5px 14px rgba(0, 0, 0, 0.42);
       position: relative;
@@ -317,7 +313,6 @@ function buildSharedBrandCss(assets: BrandAssets): string {
     .brand-lockup-svg {
       display: block;
       width: auto;
-      filter: drop-shadow(0 3px 8px rgba(0, 0, 0, 0.72));
     }
 
     .staff-badge {
@@ -346,7 +341,7 @@ function buildSharedBrandCss(assets: BrandAssets): string {
     }
 
     .qr-card-header {
-      background: #141414;
+      background: #111111;
       border-bottom: 3px solid #DA291C;
       display: flex;
       align-items: center;

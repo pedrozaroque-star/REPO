@@ -1,0 +1,84 @@
+================================================================================
+TACOS GAVILAN — INSTRUCCIONES DE TALLER PARA ON GRAPHICS (OSCAR NERI)
+RESUMEN DE ORDEN: 575 PIEZAS TOTALES | 15 SUCURSALES (EMPAQUE POR TIENDA)
+================================================================================
+
+1. ORIENTACION DE TODOS LOS ARCHIVOS (MUY IMPORTANTE):
+   - Los 32 archivos PNG vienen en LECTURA NORMAL DE FRENTE (Right-Reading).
+   - Favor de aplicar espejo (Mirror) en su RIP UNICAMENTE para los GRUPOS 1 y 2
+     (que van pegados por DENTRO del vidrio mirando hacia AFUERA).
+   - Los GRUPOS 4, 5 y 6 se imprimen de frente (adhesivo normal en la parte trasera).
+
+2. RESUMEN DE LOS 6 GRUPOS DE PRODUCCION (CARPETAS NUMERADAS):
+
+   [GRUPO 1] PUERTAS Y VENTANA 2 DRIVE-THRU — ADHESIVO FRONTAL (INTERIOR) -> 171 pzas
+   * Material: Pegado por DENTRO del cristal viendo hacia AFUERA
+     (Mirror en RIP + Fondeo Blanco Opaco 100% / White Blockout).
+   * Incluye:
+     - Pets / Service Dogs (5.5" x 7.0" Vertical, esquinas redondeadas): 33 pzas
+     - Holidays Hours (5.5" x 7.0" Vertical, esquinas redondeadas): 33 pzas
+     - Logo Gavilan Puro (9.0" x 9.0", CIRCULO BLANCO SOLIDO COMPLETO tal como
+       viene en el PNG + CORTE CIRCULAR REDONDO AL RAS, sin esquinas cuadradas): 66 pzas
+     - Horarios (18.0" x 5.5" Horizontal, 15 ARCHIVOS DISTINTOS por tienda en la
+       subcarpeta 04_Horarios, cada archivo indica cuantas piezas imprimir; incluye
+       +1 pza extra para Ventana 2 en las 6 tiendas con Drive-Thru): 39 pzas
+       * OJO EMPAQUE 3 TIENDAS LOS ANGELES: En el sticker impreso de estas 3
+         sucursales el titulo principal dice "LOS ANGELES" y se distinguen por
+         sus entrecalles debajo del titulo:
+         - 03_BROADWAY_LA -> "Vernon & Broadway" (2 pzas)
+         - 04_CENTRAL_LA  -> "Central & Washington" + DRIVE-THRU (3 pzas)
+         - 13_SLAUSON_LA  -> "Slauson & Broadway" (2 pzas)
+
+   [GRUPO 2] VENTANAS 2x3 FT (24" x 36") — INTERIOR DE VIDRIO -> 68 pzas
+   * Material: Adhesivo frontal / interior de ventana viendo hacia afuera (opaco).
+   * Incluye:
+     - Champurrado Ventana (24.0" x 36.0" Vertical, negro puro #000000): 34 pzas
+     - Los Tacos Ventana (24.0" x 36.0" Vertical, WE DELIVER / tacosgavilan.com): 34 pzas
+
+   [GRUPO 3] MOSTRADOR (SIGN HOLDER) — PAPEL RIGIDO SIN ADHESIVO -> 45 pzas
+   * Material: Papel / cartulina satinada rigida SIN ADHESIVO (igual que en
+     campañas anteriores).
+   * IMPORTANTE: Imprimir al 100% ESCALA REAL (9.3" x 12.5" exactos, NO activar
+     "Fit to Page"), ya tienen incluido el margen perimetral para el marco.
+   * Incluye:
+     - Champurrado Mostrador (9.3" x 12.5" Vertical): 15 pzas
+     - Los Tacos Mostrador (9.3" x 12.5" Vertical): 15 pzas
+     - Delivery Drivers Opt. A (9.3" x 12.5" Vertical): 15 pzas
+
+   [GRUPO 4] CODIGOS QR — VINIL BLANCO OPACO + LAMINADO MATE -> 66 pzas
+   * Material: Vinil BLANCO OPACO con adhesivo TRASERO estandar + Laminado MATE
+     (sin brillo para facilitar escaneo de QR con camara de celular).
+   * Incluye:
+     - Encuestas Clientes (7.0" x 5.0" HORIZONTAL): 36 pzas (2 por tienda + 1 extra
+       para Ventana 2 en las 6 sucursales con Drive-Thru: Central, La Puente,
+       Lynwood, Norwalk, South Gate y West Covina)
+     - Encuestas STAFF (5.0" x 7.0" VERTICAL): 30 pzas (2 por tienda)
+
+   [GRUPO 5] SALSA BAR — VINIL TRANSPARENTE (CLEAR VINYL) + SPOT WHITE -> 90 pzas
+   * Ubicacion: Se pegan POR FUERA del vidrio protector del Salsa Bar.
+   * Material CRITICO: Clear Vinyl transparente (adhesivo TRASERO normal) +
+     Cama Selectiva de Tinta Blanca Opaca al 100% (Spot White Ink Underbase)
+     UNICAMENTE debajo de los graficos, logos, cintillos y bordes blancos,
+     dejando todo el fondo Alpha=0 en 0% tinta (cristal transparente) + Laminado UV.
+   * Incluye:
+     - SalsaBar 100% Naturales (15.0" x 4.0" Horizontal): 30 pzas (2 por tienda)
+     - Salsa Verde Medium 2/4 (4.5" x 2.0" Horizontal): 30 pzas (2 por tienda)
+     - Salsa Roja Hot 3/4 (4.5" x 2.0" Horizontal): 30 pzas (2 por tienda)
+
+   [GRUPO 6] AGUAS FRESCAS CRATHCO (5.0" x 2.0") — VINIL BLANCO IMPERMEABLE -> 135 pzas
+   * Ubicacion: Adhesivo TRASERO sobre paneles frontales de acero inoxidable de
+     dispensadores de agua fresca Crathco.
+   * Material: Vinil BLANCO OPACO IMPERMEABLE de alta adherencia + Laminado MATE
+     lavable + esquinas redondeadas (R=0.18"), Seleccion: Opcion B.
+   * Incluye:
+     - Horchata (5.0" x 2.0" Horizontal — 3 por tienda): 45 pzas
+     - Jamaica (5.0" x 2.0" Horizontal — 2 por tienda): 30 pzas
+     - Pina (5.0" x 2.0" Horizontal — 2 por tienda): 30 pzas
+     - Tamarindo (5.0" x 2.0" Horizontal — 2 por tienda): 30 pzas
+
+3. ENTREGA Y SEPARACION POR SUCURSAL (15 PAQUETES):
+   - Favor de entregar separado y etiquetado en 15 paquetes (uno por cada fila
+     del Excel: 01 - ASUZA a 15 - WEST COVINA), cuidando que cada paquete lleve
+     el sticker de Horarios correspondiente a esa sucursal.
+   - Enviar la orden completa a la sucursal de Tacos Gavilan - Lynwood.
+================================================================================

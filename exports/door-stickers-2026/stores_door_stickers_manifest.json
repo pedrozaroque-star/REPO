@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-14T06:15:02.291Z",
+  "generatedAt": "2026-11-17T04:04:29.995Z",
   "dimensionsInches": {
     "width": 18,
     "height": 5.5
@@ -10,7 +10,7 @@
       "id": 6,
       "code": "LACENTRAL",
       "name": "LA Central",
-      "displayName": "CENTRAL",
+      "displayName": "LOS ANGELES",
       "crossStreets": "Central & Washington",
       "address": "1900 S. Central Ave., Los Angeles, CA 90011",
       "city": "Los Angeles",
@@ -144,7 +144,7 @@
       "id": 5,
       "code": "LABROADWY",
       "name": "LA Broadway",
-      "displayName": "BROADWAY",
+      "displayName": "LOS ANGELES",
       "crossStreets": "Vernon & Broadway",
       "address": "4380 S. Broadway, Los Angeles, CA 90037",
       "city": "Los Angeles",
@@ -278,7 +278,7 @@
       "id": 7,
       "code": "SLAUSON",
       "name": "Slauson",
-      "displayName": "SLAUSON",
+      "displayName": "LOS ANGELES",
       "crossStreets": "Slauson & Broadway",
       "address": "5833 S. Broadway, Los Angeles, CA 90003",
       "city": "Los Angeles",

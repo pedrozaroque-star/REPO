@@ -20,20 +20,34 @@ export interface VersionMilestone {
 }
 
 export const SYSTEM_VERSION = {
-    version: 'v2.29.0',
-    versionNumber: '2.29.0',
+    version: 'v2.29.1',
+    versionNumber: '2.29.1',
     releaseMonthEs: 'Noviembre 2026',
     releaseMonthEn: 'November 2026',
     stage: 'Producción',
     stageEn: 'Production',
     year: '2026',
-    labelEs: 'Noviembre 2026 • SM TEG v2.29.0',
-    labelEn: 'November 2026 • SM TEG v2.29.0',
+    labelEs: 'Noviembre 2026 • SM TEG v2.29.1',
+    labelEn: 'November 2026 • SM TEG v2.29.1',
     brand: 'SM TEG',
-    lastUpdated: '2026-11-16'
+    lastUpdated: '2026-11-17'
 } as const;
 
 export const VERSION_HISTORY: readonly VersionMilestone[] = [
+    {
+        version: 'v2.29.1',
+        date: '17-Nov-2026',
+        titleEs: 'Orden Maestra de Producción Imprenta ON Graphics (575 Piezas / 6 Grupos / 15 Sucursales), Etiquetas Aguas Frescas Crathco 5"×2", Cartel Delivery Drivers 9.3"×12.5" y Calibración Negro Mate + LOS ANGELES en Horarios',
+        titleEn: 'ON Graphics Master Print Production Order (575 Pieces / 6 Groups / 15 Branches), Crathco 5"×2" Aguas Frescas Labels, 9.3"×12.5" Delivery Drivers Sign & Matte Black + LOS ANGELES Door Hours Calibration',
+        highlightsEs: [
+            'Orden Maestra de Producción de Imprenta para las 15 Sucursales (575 piezas en 6 grupos / 18 productos en docs/orden-imprenta-oscar-neri/*): Excel Maestro (Orden_Impresion_OscarNeri_TacosGavilan_575pzas.xlsx), Orden Visual PDF 17"×11" de 2 páginas (Orden_Produccion_Visual_ON_Graphics_575pzas.pdf) y auditoría matemática píxel por píxel sobre los 32/32 artes maestros certificando 0% pérdida de resolución/DPI (0.00/255 en Clear Vinyl 600 DPI y preprensa JPG 4:4:4 PSNR ~47 dB)',
+            'Nuevas Suites de Aguas Frescas Crathco 5"×2" a 600 DPI (Horchata, Jamaica, Piña y Tamarindo en docs/stickers-aguas-frescas/*, 135 piezas) y Cartel de Mostrador 9.3"×12.5" Delivery Drivers con zona segura perimetral para Sign Holder (docs/carteles-delivery-drivers/*), más calibración de negro mate sólido (#000000 / #0A0A0A) y actualización de los 15 stickers de puerta 18"×5.5" con LOS ANGELES + entrecalles y dominio oficial tacosgavilan.com, alcanzando 84.5 horas consolidadas en Noviembre 2026'
+        ],
+        highlightsEn: [
+            '15-Store Master Print Production Order (575 pieces across 6 groups / 18 products in docs/orden-imprenta-oscar-neri/*): Master Excel (Orden_Impresion_OscarNeri_TacosGavilan_575pzas.xlsx), 2-page 17"×11" Visual Job Ticket PDF (Orden_Produccion_Visual_ON_Graphics_575pzas.pdf), and mathematical pixel-by-pixel verification across all 32/32 master artworks certifying 0% resolution/DPI loss (0.00/255 on 600 DPI Clear Vinyl and ~47 dB PSNR 4:4:4 prepress JPGs)',
+            'New 600 DPI 5"×2" Crathco Aguas Frescas Waterproof Labels (Horchata, Jamaica, Piña, and Tamarindo in docs/stickers-aguas-frescas/*, 135 pieces) and 300 DPI 9.3"×12.5" Delivery Drivers Sign Holder Posters with perimeter safe zones (docs/carteles-delivery-drivers/*), plus pure matte black (#000000 / #0A0A0A) calibration and updated 18"×5.5" door stickers featuring LOS ANGELES + cross-streets and official tacosgavilan.com ordering domain, reaching 84.5 consolidated hours in November 2026'
+        ]
+    },
     {
         version: 'v2.29.0',
         date: '16-Nov-2026',

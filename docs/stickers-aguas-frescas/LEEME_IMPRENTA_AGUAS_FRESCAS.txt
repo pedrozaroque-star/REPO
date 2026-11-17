@@ -1,0 +1,21 @@
+================================================================================
+TACOS GAVILAN — ESPECIFICACION DE IMPRENTA: STICKERS AGUAS FRESCAS (MAQUINAS CRATHCO)
+================================================================================
+- Medida Individual Exacta: 5.0" ancho x 2.0" alto (Horizontal) @ 600 DPI (3000 x 1200 px)
+- Sabores Oficiales Incluidos (4):
+  1) HORCHATA  (Rice & Cinnamon)
+  2) JAMAICA   (Hibiscus)
+  3) PIÑA      (Pineapple)
+  4) TAMARINDO (Tamarind)
+- Ubicacion Fisica: Frente metalico de acero inoxidable de las maquinas Crathco
+  (justo debajo de cada palanca/llave despachadora).
+- Material / Sustrato Requerido:
+  * Vinil BLANCO OPACO impermeable lavable (Adhesivo TRASERO permanente para acero inoxidable).
+  * Laminado MATE lavable (resistente a humedad, condensacion y trapo con sanitizante, cero reflejos).
+  * Corte (Die-Cut): Rectangulo 5.0" x 2.0" con Esquinas Redondeadas (radio 0.18") para evitar
+    que las puntas se levanten al limpiar la maquina.
+- Reglas de Color y Marca:
+  * Logo Puro Circular de Tacos Gavilan (sin letras alrededor).
+  * Negro Mate Plano (#111111 — cero texturas, cero relieves y cero desvanecidos).
+  * Pantone 485 Red (#DA291C), Pantone 021 Orange (#FE5000), Pantone 123 Gold (#FFC72C).
+================================================================================
