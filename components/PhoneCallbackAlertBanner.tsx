@@ -8,7 +8,8 @@
  *   (cliente reportando comida faltante, objeto olvidado, empleado reportando retardo/falta o proveedor en puerta),
  *   este componente muestra una alerta visual inmediata con aviso acústico suave en la PC del Manager de esa sucursal.
  * - Las pruebas realizadas desde el Simulador Web (`source = 'simulator'`) quedan estrictamente aisladas en el backend
- *   y NUNCA activan alertas rojas en la pantalla operativa de la tienda.
+ *   para las PCs operativas de sucursal; únicamente cuando un `Admin` activa la **Vista Previa Admin** (`includeSimulator = true`,
+ *   validado con `isGlobalAdmin` en el servidor) se visualizan aquí etiquetadas claramente como `SIMULADOR (VISTA PREVIA ADMIN)`.
  * - Espera a `ready === true` antes de consultar al servidor para evitar fugas fugaces de tienda por defecto antes de
  *   resolver `/api/order-ready/my-stores`.
  * - Permite al gerente agregar una nota opcional de seguimiento y marcar el recado como "Atendido" validando `res.ok`.
@@ -69,10 +70,12 @@ const POLL_INTERVAL_MS = 15000
 
 export default function PhoneCallbackAlertBanner({
   storeCode,
-  ready = true
+  ready = true,
+  includeSimulator = false
 }: {
   storeCode: string
   ready?: boolean
+  includeSimulator?: boolean
 }) {
   const { t } = useLanguage()
   const normalizedCode = String(storeCode || '').trim().toUpperCase()
@@ -102,6 +105,8 @@ export default function PhoneCallbackAlertBanner({
   pendingCountRef.current = pendingCallbacks.length
   const activeStoreIdRef = useRef<number | null>(storeId)
   activeStoreIdRef.current = storeId
+  const activeIncludeSimRef = useRef<boolean>(includeSimulator)
+  activeIncludeSimRef.current = includeSimulator
 
   const getAuthHeaders = useCallback((): Record<string, string> => {
     const token = typeof window !== 'undefined' ? localStorage.getItem('teg_token') : null
@@ -175,6 +180,7 @@ export default function PhoneCallbackAlertBanner({
 
   const fetchPending = useCallback(async () => {
     const targetStoreId = storeId
+    const targetIncludeSim = includeSimulator
     if (!ready || !targetStoreId) return
     if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
 
@@ -184,10 +190,11 @@ export default function PhoneCallbackAlertBanner({
     const ctrl = new AbortController()
     fetchAbortRef.current = ctrl
     const seq = ++fetchSeqRef.current
+    const simQuery = targetIncludeSim ? '&includeSimulator=true' : ''
 
     try {
       const res = await fetch(
-        `/api/phone/dashboard?callbacksOnly=true&storeId=${targetStoreId}&status=pending`,
+        `/api/phone/dashboard?callbacksOnly=true&storeId=${targetStoreId}&status=pending${simQuery}`,
         {
           headers: getAuthHeaders(),
           credentials: 'same-origin',
@@ -197,7 +204,13 @@ export default function PhoneCallbackAlertBanner({
       )
       if (!res.ok) return
       const data = await res.json()
-      if (activeStoreIdRef.current !== targetStoreId || seq !== fetchSeqRef.current) return
+      if (
+        activeStoreIdRef.current !== targetStoreId ||
+        activeIncludeSimRef.current !== targetIncludeSim ||
+        seq !== fetchSeqRef.current
+      ) {
+        return
+      }
 
       const list: CallbackAlert[] = Array.isArray(data.callbacks) ? data.callbacks : []
 
@@ -223,9 +236,9 @@ export default function PhoneCallbackAlertBanner({
       if (err?.name === 'AbortError') return
       // Ignorar intermitencias de red temporales
     }
-  }, [ready, storeId, getAuthHeaders, playCallbackChime])
+  }, [ready, storeId, includeSimulator, getAuthHeaders, playCallbackChime])
 
-  // Limpiar estado y abortar polling previo al cambiar de tienda o mientras `ready` sea falso
+  // Limpiar estado y abortar polling previo al cambiar de tienda, modo Vista Previa Admin o mientras `ready` sea falso
   useEffect(() => {
     if (fetchAbortRef.current) {
       fetchAbortRef.current.abort()
@@ -244,7 +257,7 @@ export default function PhoneCallbackAlertBanner({
         fetchAbortRef.current = null
       }
     }
-  }, [storeId, ready])
+  }, [storeId, ready, includeSimulator])
 
   // Polling autenticado cada 15s + recarga inmediata al volver a la pestaña o recuperar red
   useEffect(() => {
@@ -392,6 +405,11 @@ export default function PhoneCallbackAlertBanner({
                 <span className="px-1.5 py-0.5 rounded bg-white/20 text-[10px] font-black uppercase mr-2">
                   {getCallerTypeLabel(cb.caller_type)} • {getUrgencyLabel(cb.urgency)}
                 </span>
+                {cb.source === 'simulator' && (
+                  <span className="px-1.5 py-0.5 rounded bg-amber-300 text-amber-950 text-[10px] font-black uppercase mr-2 shadow-sm">
+                    {t('phone_agent.banner_sim_preview_badge')}
+                  </span>
+                )}
                 <span className="font-extrabold inline-flex items-center gap-1.5 flex-wrap">
                   <span>{cb.caller_name}</span>
                   {cb.caller_phone ? (

@@ -109,9 +109,39 @@
  *   2) `reconcileCallWithTerminalTombstone` conserva el tombstone intacto si falla el `UPDATE` de `phone_calls`, omite `duration_seconds`
  *   cuando el tombstone no trae duración autoritativa (nunca pisa una duración válida con `NULL` ni `0`), jamás reabre llamadas terminadas y propaga errores de DB.
  *   3) `fetchScopedCriticalPendingCallbacksWithCap` detecta explícitamente truncamiento (`pageSize + 1` sobre el tope de 10,000) para nunca mostrar listas parciales como completas.
+ * - FIX 2026-11-17 (Ronda 4 — Reconciliación Transaccional ante StatusCallback Simultáneos):
+ *   1) `upsertPhoneCallStatusTombstone` y `reconcileCallWithTerminalTombstone` operan bajo candado transaccional por `CallSid`
+ *   (`pg_advisory_xact_lock` + `FOR UPDATE`) en PostgreSQL (`upsert_phone_call_status_tombstone_atomic` y `reconcile_phone_call_with_tombstone_atomic`).
+ *   2) La lectura del tombstone, actualización de `phone_calls` y borrado condicional (`WHERE revision = v_tomb.revision`) ocurren en una
+ *   sola transacción ACID: conserva siempre la duración final más reciente, respeta `SequenceNumber` / `Timestamp` cuando Twilio los envía,
+ *   jamás reabre llamadas terminadas y jamás borra un cierre que no se haya aplicado.
+ * - FIX 2026-11-17 (Moneda Exclusiva EE. UU. Dólares/Centavos y Postres Oficiales Sin Pasteles de Cumpleaños):
+ *   1) Prohibición absoluta de `"pesos"` / `"MXN"` en `systemInstruction`, `buildLiveMenuCatalogText` y sanitización determinista en
+ *   `sanitizePhoneReplyText` (todos los precios se expresan exclusivamente en dólares y centavos estadounidenses USD).
+ *   2) Tacos Gavilan NO maneja pasteles de cumpleaños, pasteles enteros ni churros (solo Flan y Cheesecake individuales); ante políticas
+ *   administrativas no registradas jamás se envía al cliente a buscar políticas o productos inexistentes en `tacosgavilan.com`.
+ * - FIX 2026-11-17 (Regla Global Sucursales de Los Ángeles #5, #6 y #7 con Entrecalles para Clientes):
+ *   Todas las locuciones, saludos, prompts y comparativas de cara al cliente usan `lib/customer-store-names.ts` para referirse
+ *   a #5, #6 y #7 como `Los Ángeles` con sus entrecalles oficiales (`Vernon y Broadway`, `Central y Washington`, `Slauson y Broadway`),
+ *   conservando `cleanPhoneStoreName` intacta para el panel administrativo interno (`/api/phone/dashboard`).
+ * - FIX 2026-11-18 (Blindaje Fail-Closed de Config, Retención Segura de Tombstones >24h y Veracidad de Transcripción):
+ *   1) `getStorePhoneContext` verifica explícitamente `configRes.error` y lanza error sin fabricar jamás `is_enabled: true`
+ *      ante fallos de DB ni contaminar el caché SWR; incluso si no existe fila en `phone_agent_config`, el fallback es `is_enabled: false`.
+ *   2) `cleanupOrReconcileExpiredTombstones` reemplaza la purga ciega >24h: comprueba en `phone_calls` que el cierre ya quedó
+ *      aplicado (estado terminal + `ended_at` + `duration_seconds`), intenta reconciliar los pendientes y conserva intactos
+ *      los tombstones si la llamada aún no existe o si falla la base de datos.
+ *   3) El saludo bilingüe informa con exactitud que la llamada es transcrita ("en una llamada transcrita para atenderte" /
+ *      "on a transcribed line") sin afirmar grabación de audio mientras no exista grabación real.
  */
 
 import twilio from 'twilio'
+import {
+  formatCustomerGreetingTarget,
+  formatCustomerStoreName,
+  getCustomerStoreCrossStreets,
+  resolveCustomerStoreMeta,
+  sanitizeCustomerStoreReferencesInText
+} from '@/lib/customer-store-names'
 import { createHmac, timingSafeEqual } from 'node:crypto'
 import { supabaseAdmin } from '@/lib/supabase'
 import { getCaliforniaBusinessDate, getCaliforniaShift } from '@/lib/business-date'
@@ -708,6 +738,16 @@ export function evaluateStoreSchedulePure(params: {
 }): StoreOpenEvaluation {
   const { storeId, specialHours = [], now = new Date() } = params
   const storeName = cleanPhoneStoreName(params.storeName)
+  const custStoreMeta = resolveCustomerStoreMeta({ id: storeId, name: params.storeName })
+  const branchNounEs = custStoreMeta?.isLosAngelesCrossStreetStore
+    ? `sucursal de Los Ángeles en la esquina de ${custStoreMeta.crossStreetsEs}`
+    : `sucursal ${storeName}`
+  const ourLocCapEn = custStoreMeta?.isLosAngelesCrossStreetStore
+    ? `Our Los Angeles location at ${custStoreMeta.spokenCrossStreetsEn}`
+    : `Our ${storeName} location`
+  const ourLocLowEn = custStoreMeta?.isLosAngelesCrossStreetStore
+    ? `our Los Angeles location at ${custStoreMeta.spokenCrossStreetsEn}`
+    : `our ${storeName} location`
   const pt = getPacificDateParts(now)
   const wh = normalizeWeeklyHours(params.weeklyHours)
 
@@ -807,8 +847,8 @@ export function evaluateStoreSchedulePure(params: {
         isAfterMidnightSpillover: true,
         isSpecialHolidaySchedule: yesterdaySched.isSpecial || todayCalSched.isSpecial,
         specialHolidayName: todayCalSched.holidayName || yesterdaySched.holidayName,
-        statusMessageEs: `La sucursal ${storeName} está ABIERTA en este momento; nuestro turno nocturno de ${dayEs} cierra hoy ${atTimeEs(closeEs)}${closedDayNoteEs}.`,
-        statusMessageEn: `Our ${storeName} location is OPEN right now; our ${dayEn} late-night shift closes at ${closeEn}${closedDayNoteEn}.`,
+        statusMessageEs: `La ${branchNounEs} está ABIERTA en este momento; nuestro turno nocturno de ${dayEs} cierra hoy ${atTimeEs(closeEs)}${closedDayNoteEs}.`,
+        statusMessageEn: `${ourLocCapEn} is OPEN right now; our ${dayEn} late-night shift closes at ${closeEn}${closedDayNoteEn}.`,
         closedGreetingPromptEs: null,
         closedGreetingPromptEn: null,
         weeklySummaryEs: buildWeeklySummary(wh, 'es'),
@@ -864,8 +904,8 @@ export function evaluateStoreSchedulePure(params: {
       isAfterMidnightSpillover: false,
       isSpecialHolidaySchedule: true,
       specialHolidayName: todaySched.holidayName,
-      statusMessageEs: `Hoy (${formatHolidayForParenhEs(todaySched.holidayName) || dayEs}) la sucursal ${storeName} permanece cerrada todo el día por día festivo.${reopenTailEs}`,
-      statusMessageEn: `Today (${formatHolidayForParenEn(todaySched.holidayNameEn) || dayEn}) our ${storeName} location is closed all day for the holiday.${reopenTailEn}`,
+      statusMessageEs: `Hoy (${formatHolidayForParenhEs(todaySched.holidayName) || dayEs}) la ${branchNounEs} permanece cerrada todo el día por día festivo.${reopenTailEs}`,
+      statusMessageEn: `Today (${formatHolidayForParenEn(todaySched.holidayNameEn) || dayEn}) ${ourLocLowEn} is closed all day for the holiday.${reopenTailEn}`,
       closedGreetingPromptEs: `En este momento nuestra sucursal está cerrada; hoy permanecemos cerrados todo el día por ${spokenHolEs}${reopenSpokenEs}. ¿En qué te puedo ayudar?`,
       closedGreetingPromptEn: `Our location is currently closed all day for ${spokenHolEn}${reopenSpokenEn}. How can I help you?`,
       weeklySummaryEs: buildWeeklySummary(wh, 'es'),
@@ -893,11 +933,11 @@ export function evaluateStoreSchedulePure(params: {
     if (todaySched.isSpecial && todaySched.holidayName) {
       const hEs = formatHolidayForParenhEs(todaySched.holidayName)
       const hEn = formatHolidayForParenEn(todaySched.holidayNameEn || todaySched.holidayName)
-      statusMessageEs = `La sucursal ${storeName} está ABIERTA en este momento. Hoy ${dayEs} (${hEs}) tenemos horario especial de ${openEs} a ${closeEs}.`
-      statusMessageEn = `Our ${storeName} location is OPEN right now. Today (${dayEn}, ${hEn}) our special holiday hours are ${openEn} to ${closeEn}.`
+      statusMessageEs = `La ${branchNounEs} está ABIERTA en este momento. Hoy ${dayEs} (${hEs}) tenemos horario especial de ${openEs} a ${closeEs}.`
+      statusMessageEn = `${ourLocCapEn} is OPEN right now. Today (${dayEn}, ${hEn}) our special holiday hours are ${openEn} to ${closeEn}.`
     } else {
-      statusMessageEs = `La sucursal ${storeName} está ABIERTA en este momento. Hoy ${dayEs} nuestro horario es de ${openEs} a ${closeEs}.`
-      statusMessageEn = `Our ${storeName} location is OPEN right now. Today (${dayEn}) our hours are ${openEn} to ${closeEn}.`
+      statusMessageEs = `La ${branchNounEs} está ABIERTA en este momento. Hoy ${dayEs} nuestro horario es de ${openEs} a ${closeEs}.`
+      statusMessageEn = `${ourLocCapEn} is OPEN right now. Today (${dayEn}) our hours are ${openEn} to ${closeEn}.`
     }
   } else if (pt.currentMinutes < openMin) {
     if (todaySched.isSpecial && todaySched.holidayName) {
@@ -905,13 +945,13 @@ export function evaluateStoreSchedulePure(params: {
       const spokenHolEn = expandHolidayMonthsEn(cleanSpokenHoliday(todaySched.holidayNameEn || todaySched.holidayName))
       const hEs = formatHolidayForParenhEs(todaySched.holidayName)
       const hEn = formatHolidayForParenEn(todaySched.holidayNameEn || todaySched.holidayName)
-      statusMessageEs = `En este momento la sucursal ${storeName} está cerrada. Hoy ${dayEs} (${hEs}) abrimos en horario especial ${atTimeEs(openEs)} y cerramos ${atTimeEs(closeEs)}.`
-      statusMessageEn = `Our ${storeName} location is currently closed. Today (${dayEn}, ${hEn}) we open at ${openEn} (special holiday hours) and close at ${closeEn}.`
+      statusMessageEs = `En este momento la ${branchNounEs} está cerrada. Hoy ${dayEs} (${hEs}) abrimos en horario especial ${atTimeEs(openEs)} y cerramos ${atTimeEs(closeEs)}.`
+      statusMessageEn = `${ourLocCapEn} is currently closed. Today (${dayEn}, ${hEn}) we open at ${openEn} (special holiday hours) and close at ${closeEn}.`
       closedGreetingPromptEs = `En este momento nuestra sucursal aún está cerrada; hoy por ${spokenHolEs} abrimos en horario especial ${atTimeEs(openEs)} y cerramos ${atTimeEs(closeEs)}. ¿En qué te puedo ayudar?`
       closedGreetingPromptEn = `Our location is currently closed; today for ${spokenHolEn} we open at ${openEn} and close at ${closeEn}. How can I help you?`
     } else {
-      statusMessageEs = `En este momento la sucursal ${storeName} está cerrada. Hoy ${dayEs} abrimos ${atTimeEs(openEs)} y cerramos ${atTimeEs(closeEs)}.`
-      statusMessageEn = `Our ${storeName} location is currently closed. Today (${dayEn}) we open at ${openEn} and close at ${closeEn}.`
+      statusMessageEs = `En este momento la ${branchNounEs} está cerrada. Hoy ${dayEs} abrimos ${atTimeEs(openEs)} y cerramos ${atTimeEs(closeEs)}.`
+      statusMessageEn = `${ourLocCapEn} is currently closed. Today (${dayEn}) we open at ${openEn} and close at ${closeEn}.`
       closedGreetingPromptEs = `En este momento nuestra sucursal aún está cerrada; hoy ${dayEs.toLowerCase()} abrimos ${atTimeEs(openEs)} y cerramos ${atTimeEs(closeEs)}. ¿En qué te puedo ayudar?`
       closedGreetingPromptEn = `Our location is currently closed; today, ${dayEn}, we open at ${openEn} and close at ${closeEn}. How can I help you?`
     }
@@ -959,8 +999,8 @@ export function evaluateStoreSchedulePure(params: {
         ? `, and we reopen ${DAY_NAMES_EN[nextOpen.dow]} at ${nextOpenEn}`
         : ''
 
-      statusMessageEs = `En este momento la sucursal ${storeName} ya cerró por hoy (cerró ${atTimeEs(closeEs)}${closedReasonEs}). Mañana permanecemos cerrados${tomorrowSched.holidayName ? ` por ${formatHolidayForParenhEs(tomorrowSched.holidayName)}` : ''}${reopenNextEs}.`
-      statusMessageEn = `Our ${storeName} location is closed for the day (closed at ${closeEn}${closedReasonEn}). We will be closed tomorrow${tomorrowSched.holidayNameEn || tomorrowSched.holidayName ? ` for ${formatHolidayForParenEn(tomorrowSched.holidayNameEn || tomorrowSched.holidayName)}` : ''}${reopenNextEn}.`
+      statusMessageEs = `En este momento la ${branchNounEs} ya cerró por hoy (cerró ${atTimeEs(closeEs)}${closedReasonEs}). Mañana permanecemos cerrados${tomorrowSched.holidayName ? ` por ${formatHolidayForParenhEs(tomorrowSched.holidayName)}` : ''}${reopenNextEs}.`
+      statusMessageEn = `${ourLocCapEn} is closed for the day (closed at ${closeEn}${closedReasonEn}). We will be closed tomorrow${tomorrowSched.holidayNameEn || tomorrowSched.holidayName ? ` for ${formatHolidayForParenEn(tomorrowSched.holidayNameEn || tomorrowSched.holidayName)}` : ''}${reopenNextEn}.`
       closedGreetingPromptEs = `En este momento nuestra sucursal ya está cerrada; ${todayClosedPartEs}, mañana permanecemos cerrados${spokenTomHolEs ? ` por ${spokenTomHolEs}` : ''}${reopenNextEs}. ¿En qué te puedo ayudar?`
       closedGreetingPromptEn = `Our location is currently closed; ${todayClosedPartEn}, we remain closed tomorrow${spokenTomHolEn ? ` for ${spokenTomHolEn}` : ''}${reopenSpokenNextEn}. How can I help you?`
     } else {
@@ -975,8 +1015,8 @@ export function evaluateStoreSchedulePure(params: {
           ? ` (${formatHolidayForParenEn(tomorrowSched.holidayNameEn || tomorrowSched.holidayName)} special hours${tomCloseNoteEn})`
           : ''
 
-      statusMessageEs = `En este momento la sucursal ${storeName} ya cerró por hoy (cerró ${atTimeEs(closeEs)}${closedReasonEs}). Mañana abrimos ${atTimeEs(tomOpenEs)}${tomorrowSpecialEs}.`
-      statusMessageEn = `Our ${storeName} location is closed for the day (closed at ${closeEn}${closedReasonEn}). We reopen tomorrow at ${tomOpenEn}${tomorrowSpecialEn}.`
+      statusMessageEs = `En este momento la ${branchNounEs} ya cerró por hoy (cerró ${atTimeEs(closeEs)}${closedReasonEs}). Mañana abrimos ${atTimeEs(tomOpenEs)}${tomorrowSpecialEs}.`
+      statusMessageEn = `${ourLocCapEn} is closed for the day (closed at ${closeEn}${closedReasonEn}). We reopen tomorrow at ${tomOpenEn}${tomorrowSpecialEn}.`
       closedGreetingPromptEs = `En este momento nuestra sucursal ya está cerrada; ${todayClosedPartEs} y mañana ${DAY_NAMES_ES[tomorrowDow].toLowerCase()} abrimos ${atTimeEs(tomOpenEs)}. ¿En qué te puedo ayudar?`
       closedGreetingPromptEn = `Our location is currently closed; ${todayClosedPartEn}, and we reopen tomorrow, ${DAY_NAMES_EN[tomorrowDow]}, at ${tomOpenEn}. How can I help you?`
     }
@@ -1134,12 +1174,12 @@ export function buildCrossStoreHoursComparison(
       const wh = normalizeWeeklyHours(s.weekly_hours)
       return {
         id,
-        name: cleanPhoneStoreName(s.name),
+        name: formatCustomerStoreName({ id, name: s.name }, lang, { style: 'spoken_compact' }),
         wh,
         calToday: getCalendarTodaySchedule(id, wh),
         ev: evaluateStoreSchedulePure({
           storeId: id,
-          storeName: cleanPhoneStoreName(s.name),
+          storeName: s.name,
           weeklyHours: s.weekly_hours,
           specialHours,
           now
@@ -1231,7 +1271,7 @@ export function buildCrossStoreHoursComparison(
 
     return {
       count: subset.length,
-      names: subset.map((s) => cleanPhoneStoreName(s.name)),
+      names: subset.map((s) => formatCustomerStoreName({ id: s.id, name: s.name }, lang, { style: 'spoken_compact' })),
       spilloverNoteStr,
       todayLabel,
       todayLatestStr,
@@ -1777,9 +1817,9 @@ export function buildLiveMenuCatalogText(
     '- Bebidas Físicas y Sabores Oficiales (cita SIEMPRE los precios en vivo listados arriba en Medium Drinks, Large Drinks y Misc. Drinks; nunca inventes precios): Mediana = vaso de 22 oz, Grande = vaso de 32 oz, Galón Agua Fresca = 128 oz (~5 vasos medianos). Sabores Agua Fresca: Horchata, Jamaica, Piña y Tamarindo (NO Pepino). Champurrado individual = vaso térmico de 16 oz; Caja Champurrado To-Go = 96 oz (rinde 6×16 oz e incluye 8 vasos de cortesía de 12 oz). Café = vaso térmico de 16 oz.'
   )
   lines.push(
-    '- Quesos y Desayunos Oficiales (cita SIEMPRE los precios en vivo listados arriba en Breakfast y cada categoría): Tortas (Cubana, Milanesa, etc.) = Queso Fresco en rebanada (NUNCA crema ni queso fundido; sí mayonesa y aguacate). Quesadillas/Mulitas/Super Burritos = Queso blanco Monterey Jack fundido. Sopes/Platos/Taco Plate/Desayunos = Queso Cotija (Sope Queso añade Queso Fresco). Super Nachos = Queso Amarillo caliente Nacho Cheese. Breakfast: Burrito de Huevo incluye arroz y frijol; Plato de Huevos incluye arroz, frijol c/cotija, ensalada y tortillas; Torta de Huevo se sirve en pan telera.'
+    '- Quesos, Desayunos y Postres Oficiales (cita SIEMPRE los precios en vivo en DÓLARES USD listados arriba; JAMÁS digas pesos): Tortas (Cubana, Milanesa, etc.) = Queso Fresco en rebanada (NUNCA crema ni queso fundido; sí mayonesa y aguacate). Quesadillas/Mulitas/Super Burritos = Queso blanco Monterey Jack fundido. Sopes/Platos/Taco Plate/Desayunos = Queso Cotija (Sope Queso añade Queso Fresco). Super Nachos = Queso Amarillo caliente Nacho Cheese. Breakfast: Burrito de Huevo incluye arroz y frijol; Plato de Huevos incluye arroz, frijol c/cotija, ensalada y tortillas; Torta de Huevo se sirve en pan telera. Postres (Desserts): ÚNICAMENTE Flan y Cheesecake individuales (NO manejamos ni vendemos pasteles de cumpleaños, pasteles enteros ni churros).'
   )
-  return `CATÁLOGO EN VIVO DE ${storeName.toUpperCase()} (Toast POS; "Large"=Grande, "Medium"=Mediana):\n${lines.join('\n')}`
+  return `CATÁLOGO EN VIVO DE ${storeName.toUpperCase()} (Toast POS — TODOS los precios son en DÓLARES ESTADOUNIDENSES USD, JAMÁS pesos; "Large"=Grande, "Medium"=Mediana):\n${lines.join('\n')}`
 }
 
 /**
@@ -1829,6 +1869,9 @@ export function rankMenuItemsForPrompt(items: any[], query: string, limit: numbe
     limonada: ['lemonade'], helado: ['iced', 'tea'], te: ['tea', 'iced'],
     refresco: ['coke', 'sprite', 'fanta'], soda: ['coke', 'sprite', 'fanta'],
     postre: ['flan', 'cheesecake'], postres: ['flan', 'cheesecake'],
+    dessert: ['flan', 'cheesecake'], desserts: ['flan', 'cheesecake'],
+    pastel: ['flan', 'cheesecake'], pasteles: ['flan', 'cheesecake'],
+    cake: ['cheesecake', 'flan'], cakes: ['cheesecake', 'flan'],
     desayuno: ['huevos', 'breakfast'], huevo: ['huevos', 'breakfast'],
     milanesa: ['breaded', 'milanesa'], breaded: ['milanesa'],
     jamon: ['ham', 'jamon'], ham: ['jamon'],
@@ -2137,10 +2180,16 @@ export async function resolveStoreFromIncomingCall(params: {
 /**
  * Obtiene el contexto completo de una sucursal (`stores`, `phone_agent_config`, `phone_special_hours`, `phone_knowledge_base`)
  * usando caché en RAM SWR (12s fresco / 120s stale) y compartiendo catálogos globales entre las 15 sucursales.
+ * Falla en cerrado (`fail-closed`) si falla la lectura de `phone_agent_config` para nunca activar una tienda que podría estar apagada.
  */
-export async function getStorePhoneContext(storeId: number) {
+export async function getStorePhoneContext(
+  storeId: number,
+  opts?: { supabaseClient?: any; bypassRamCache?: boolean }
+) {
+  const db = opts?.supabaseClient || supabaseAdmin
+  const useRamCache = !opts?.supabaseClient && !opts?.bypassRamCache
   const now = Date.now()
-  const cached = storeContextRamCache.get(storeId)
+  const cached = useRamCache ? storeContextRamCache.get(storeId) : undefined
   if (cached && now - cached.fetchedAt < 12 * 1000) {
     const freshEval = evaluateStoreSchedulePure({
       storeId: cached.data.store.id,
@@ -2155,24 +2204,34 @@ export async function getStorePhoneContext(storeId: number) {
   }
 
   const refreshContext = async () => {
-    const inFlight = storeContextInFlight.get(storeId)
+    const inFlight = useRamCache ? storeContextInFlight.get(storeId) : undefined
     if (inFlight) return inFlight
     const job = (async () => {
       const [allStores, configRes, allSpecialHours, allKb] = await Promise.all([
         loadAllActiveStoresDirectory(),
-        supabaseAdmin.from('phone_agent_config').select('*').eq('store_id', storeId).maybeSingle(),
+        db.from('phone_agent_config').select('*').eq('store_id', storeId).maybeSingle(),
         loadAllSpecialHoursCached(),
         loadAllActiveKnowledgeBaseCached()
       ])
 
+      if (configRes.error) {
+        throw new Error(
+          `Error al leer phone_agent_config para sucursal #${storeId}: ${configRes.error.message || String(configRes.error)}`
+        )
+      }
+
       let store = allStores.find((s) => Number(s.id) === Number(storeId)) || null
       if (!store) {
-        const { data: rawStore } = await supabaseAdmin
+        const { data: rawStore, error: rawStoreErr } = await db
           .from('stores')
           .select('id, name, address, phone, has_drive_thru, weekly_hours')
           .eq('id', storeId)
           .single()
-        if (!rawStore) throw new Error(`Sucursal #${storeId} no encontrada`)
+        if (rawStoreErr || !rawStore) {
+          throw new Error(
+            `Sucursal #${storeId} no encontrada${rawStoreErr?.message ? `: ${rawStoreErr.message}` : ''}`
+          )
+        }
         store = {
           id: Number(rawStore.id),
           name: cleanPhoneStoreName(rawStore.name),
@@ -2192,9 +2251,11 @@ export async function getStorePhoneContext(storeId: number) {
         (k: any) => k.store_id === null || Number(k.store_id) === Number(storeId)
       )
 
+      // Si una sucursal todavía no tiene registro en phone_agent_config (error === null && data === null),
+      // mantener fail-closed (is_enabled: false) para jamás activarla por error.
       const config = configRes.data || {
         store_id: store.id,
-        is_enabled: true,
+        is_enabled: false,
         routing_mode: 'conditional_forward',
         carrier_type: [1, 8, 14, 16].includes(store.id) ? 'spectrum_landline' : 'att_wireless',
         twilio_phone_number: null,
@@ -2227,12 +2288,18 @@ export async function getStorePhoneContext(storeId: number) {
         knowledgeBase: storeKb,
         onlineOrderUrl: OFFICIAL_STORE_URLS[store.id] || OFFICIAL_ORDER_FALLBACK_URL
       }
-      storeContextRamCache.set(storeId, { data: result, fetchedAt: Date.now() })
+      if (useRamCache) {
+        storeContextRamCache.set(storeId, { data: result, fetchedAt: Date.now() })
+      }
       return result
     })().finally(() => {
-      storeContextInFlight.delete(storeId)
+      if (useRamCache) {
+        storeContextInFlight.delete(storeId)
+      }
     })
-    storeContextInFlight.set(storeId, job)
+    if (useRamCache) {
+      storeContextInFlight.set(storeId, job)
+    }
     return job
   }
 
@@ -2344,30 +2411,28 @@ export async function createManagerCallbackRequest(params: {
 }
 
 /**
- * Devuelve la frase hablada posterior al aviso legal CIPA:
- * - Si la sucursal está ABIERTA: "¿En qué te puedo ayudar?" / "How can I help you?"
+ * Devuelve la frase hablada posterior al aviso de apertura:
+ * - Si la sucursal está ABIERTA: "¿En qué te ayudo hoy?" / "How can I help you today?"
  * - Si la sucursal está CERRADA (ej. Thanksgiving 6:00 PM, Navidad, Viernes Santo o madrugada): anuncia primero
  *   con claridad que ya está cerrada + el motivo/hora y la reapertura, y luego ofrece ayudar en lo que necesite.
  */
 export function getPostDisclosurePrompt(lang: PhoneLang, scheduleEval?: StoreOpenEvaluation | null): string {
   if (scheduleEval && !scheduleEval.isOpenNow) {
     if (lang === 'en') {
-      return scheduleEval.closedGreetingPromptEn || `${scheduleEval.statusMessageEn} How can I help you?`
+      return scheduleEval.closedGreetingPromptEn || `${scheduleEval.statusMessageEn} How can I help you today?`
     }
-    return scheduleEval.closedGreetingPromptEs || `${scheduleEval.statusMessageEs} ¿En qué te puedo ayudar?`
+    return scheduleEval.closedGreetingPromptEs || `${scheduleEval.statusMessageEs} ¿En qué te ayudo hoy?`
   }
-  return lang === 'en' ? 'How can I help you?' : '¿En qué te puedo ayudar?'
+  return lang === 'en' ? 'How can I help you today?' : '¿En qué te ayudo hoy?'
 }
 
 /**
- * Construye el saludo oficial de apertura de llamada cumpliendo con:
- * - California AB 2905 (Public Utilities Code § 2874) & SB 1001 (BPC § 17941): identificación explícita como Inteligencia Artificial.
- * - California Invasion of Privacy Act (CIPA — Penal Code §§ 631, 632 y 632.7): aviso previo de grabación y transcripción
- *   con proveedores/tecnología de IA y consentimiento explícito al permanecer en la línea.
- * - Si la sucursal se encuentra CERRADA al momento de la llamada (`scheduleEval.isOpenNow === false`), anuncia primero
- *   que está cerrada (con motivo festivo y hora de reapertura) antes de preguntar "¿En qué te puedo ayudar?".
- * - Aun cuando se configure `custom_greeting_es` / `custom_greeting_en`, garantiza SIEMPRE el aviso legal CIPA + IA y la tecla 9,
- *   funcionando de forma idéntica tanto en Twilio (`omitTrailingQuestion: true`) como en el Simulador Web.
+ * Construye el saludo oficial conciso de apertura de llamada (sin repetir "IA" / "inteligencia artificial"):
+ * - Español (entrada principal con tecla 9):
+ *   `"¡Gracias por llamar a Tacos Gavilan Lynwood! For English, press nine. Hablas con nuestra asistente virtual en una llamada transcrita para atenderte. ¿En qué te ayudo hoy?"`
+ * - Inglés (al presionar tecla 9, `includeLanguageSwitchHint: false`):
+ *   `"Thanks for calling Tacos Gavilan in Los Angeles, at the corner of Slauson and Broadway! You're speaking with our virtual assistant on a transcribed line. How can I help you today?"`
+ * - Cumple con California AB 2905 / CIPA informando con exactitud que atiende nuestra asistente virtual y que la llamada es transcrita (el sistema no graba audio).
  */
 export function buildInitialGreeting(
   storeName: string,
@@ -2380,30 +2445,32 @@ export function buildInitialGreeting(
     scheduleEval?: StoreOpenEvaluation | null
   }
 ): string {
-  const cleanName = cleanPhoneStoreName(storeName)
-  // Por defecto SIEMPRE incluye la opción de tecla 9 tanto en Twilio como en el Simulador Web
+  const greetingTarget = formatCustomerGreetingTarget(storeName, lang)
+  // Por defecto incluye la opción de tecla 9 en la entrada principal; al cambiar con tecla 9 se pasa includeLanguageSwitchHint: false
   const includeHint = options?.includeLanguageSwitchHint !== false
   const postPrompt = options?.omitTrailingQuestion ? '' : ` ${getPostDisclosurePrompt(lang, options?.scheduleEval)}`
 
   if (lang === 'en') {
     const switchEs = includeHint ? ' Para español, oprima el nueve.' : ''
     if (customEn && customEn.trim()) {
-      let baseEn = customEn
-        .trim()
-        .replace(/\bTacos\s+El\s+Gavil[aá]n\b/gi, 'Tacos Gavilan')
-        .replace(/\bLA\s+(Broadway|Central)\b/g, '$1')
+      let baseEn = sanitizeCustomerStoreReferencesInText(
+        customEn.trim().replace(/\bTacos\s+El\s+Gavil[aá]n\b/gi, 'Tacos Gavilan'),
+        'en'
+      )
+        .replace(/\brecorded\s+and\s+(?=transcrib)/gi, '')
+        .replace(/\s+and\s+recorded\b/gi, '')
+        .replace(/\brecorded\s+line\b/gi, 'transcribed line')
         .replace(/\s*how can i (help|assist) you( today)?\??\s*$/i, '')
         .trim()
       if (!/[.!?]$/.test(baseEn)) baseEn += '.'
-      const hasAiAndRecordConsent =
-        /\b(ai|artificial intelligence|virtual assistant)\b/i.test(baseEn) &&
-        /\b(record|transcrib)\w*/i.test(baseEn)
-      if (!hasAiAndRecordConsent) {
-        baseEn +=
-          ' You are speaking with our AI assistant. This call may be recorded and transcribed using AI technology to assist you; by continuing, you consent.'
-      }
       if (includeHint && !/\b(oprim[ae]|marqu[ae]|presiona|press)\b[^.!?]{0,25}\b(nueve|nine|9)\b/i.test(baseEn)) {
         baseEn += switchEs
+      }
+      const hasVirtualAndTranscribe =
+        /\b(ai|artificial intelligence|virtual assistant)\b/i.test(baseEn) &&
+        /\btranscrib\w*/i.test(baseEn)
+      if (!hasVirtualAndTranscribe) {
+        baseEn += " You're speaking with our virtual assistant on a transcribed line."
       }
       if (options?.omitTrailingQuestion) {
         return baseEn.trim()
@@ -2413,28 +2480,30 @@ export function buildInitialGreeting(
       }
       return `${baseEn}${postPrompt}`.trim()
     }
-    return `Thank you for calling Tacos Gavilan in ${cleanName}! You are speaking with our AI assistant. This call may be recorded and transcribed using AI technology to assist you; by continuing, you consent.${switchEs}${postPrompt}`
+    return `Thanks for calling Tacos Gavilan ${greetingTarget}!${switchEs} You're speaking with our virtual assistant on a transcribed line.${postPrompt}`
   }
 
   // "nine" escrito en letra para que la voz en español lo pronuncie en inglés puro ("press nine" y no "press nueve")
   const switchEn = includeHint ? ' For English, press nine.' : ''
   if (customEs && customEs.trim()) {
-    let baseEs = customEs
-      .trim()
-      .replace(/\bTacos\s+El\s+Gavil[aá]n\b/gi, 'Tacos Gavilan')
-      .replace(/\bLA\s+(Broadway|Central)\b/g, '$1')
-      .replace(/\s*¿?en qu[eé] te puedo ayudar( hoy)?\??\s*$/i, '')
+    let baseEs = sanitizeCustomerStoreReferencesInText(
+      customEs.trim().replace(/\bTacos\s+El\s+Gavil[aá]n\b/gi, 'Tacos Gavilan'),
+      'es'
+    )
+      .replace(/\bgrabad[oa]s?\s+y\s+(?=transcrit)/gi, '')
+      .replace(/\s+y\s+grabad[oa]s?\b/gi, '')
+      .replace(/\b(llamada|l[ií]nea)\s+grabad[oa]\b/gi, '$1 transcrita')
+      .replace(/\s*¿?en qu[eé] te (?:puedo ayudar|ayudo)( hoy)?\??\s*$/i, '')
       .trim()
     if (!/[.!?]$/.test(baseEs)) baseEs += '.'
-    const hasAiAndRecordConsent =
-      /\b(inteligencia artificial|asistente virtual|asistente de ia)\b/i.test(baseEs) &&
-      /\b(grabad|transcrit)\w*/i.test(baseEs)
-    if (!hasAiAndRecordConsent) {
-      baseEs +=
-        ' Te atiende nuestra asistente de inteligencia artificial. Esta llamada puede ser grabada y transcrita con tecnología de IA para atenderte; al continuar aceptas este uso.'
-    }
     if (includeHint && !/\b(press|oprim[ae]|marqu[ae]|presiona)\b[^.!?]{0,25}\b(nine|nueve|9)\b/i.test(baseEs)) {
       baseEs += switchEn
+    }
+    const hasVirtualAndTranscribe =
+      /\b(inteligencia artificial|asistente virtual|asistente de ia)\b/i.test(baseEs) &&
+      /\b(transcrit|transcrib)\w*/i.test(baseEs)
+    if (!hasVirtualAndTranscribe) {
+      baseEs += ' Hablas con nuestra asistente virtual en una llamada transcrita para atenderte.'
     }
     if (options?.omitTrailingQuestion) {
       return baseEs.trim()
@@ -2444,7 +2513,7 @@ export function buildInitialGreeting(
     }
     return `${baseEs}${postPrompt}`.trim()
   }
-  return `¡Gracias por llamar a Tacos Gavilan sucursal ${cleanName}! Te atiende nuestra asistente de inteligencia artificial. Esta llamada puede ser grabada y transcrita con tecnología de IA para atenderte; al continuar aceptas este uso.${switchEn}${postPrompt}`
+  return `¡Gracias por llamar a Tacos Gavilan ${greetingTarget}!${switchEn} Hablas con nuestra asistente virtual en una llamada transcrita para atenderte.${postPrompt}`
 }
 
 const REGION_STORE_IDS: Record<string, number[]> = {
@@ -2452,7 +2521,13 @@ const REGION_STORE_IDS: Record<string, number[]> = {
   'este de los angeles': [11, 13],
   'south la': [5, 6, 7],
   'sur de los angeles': [5, 6, 7],
+  'centro de los angeles': [5, 6],
   'downtown': [5, 6],
+  'los angeles': [5, 6, 7, 8],
+  'broadway': [5, 7],
+  'vernon': [5],
+  'washington': [6],
+  'slauson': [7],
   'southeast la': [11, 12, 13, 14, 15, 16],
   'gateway cities': [11, 12, 13, 14, 15, 16],
   'orange county': [9],
@@ -2582,11 +2657,40 @@ const PHONE_AGENT_TOOLS = [
  * accidental a "Tacos El Gavilan", y evita mutilar "la central" en español (reemplaza solo "LA " mayúscula).
  */
 export function sanitizePhoneReplyText(rawText: string, lang: PhoneLang = 'es'): string {
-  const preCleaned = rawText
-    .replace(/[*#_`~]/g, '')
-    .replace(/\bTacos\s+El\s+Gavil[aá]n\b/gi, 'Tacos Gavilan')
-    .replace(/\bLA\s+(Broadway|Central)\b/g, '$1')
-    .replace(/\b(Central|Broadway)\s*\(\s*L\.?A\.?\s*\)/gi, '$1')
+  const formatDisplayUsd = (amtRaw: string): string => {
+    const cleanNum = Number(String(amtRaw).replace(/,/g, ''))
+    if (lang === 'en') return `$${amtRaw}`
+    if (Number.isFinite(cleanNum) && cleanNum > 0 && cleanNum < 1) {
+      return `$${amtRaw}`
+    }
+    return `$${amtRaw} ${cleanNum === 1 ? 'dólar' : 'dólares'}`
+  }
+
+  const preCleaned = sanitizeCustomerStoreReferencesInText(
+    rawText
+      .replace(/[*#_`~]/g, '')
+      .replace(/\bTacos\s+El\s+Gavil[aá]n\b/gi, 'Tacos Gavilan'),
+    lang
+  )
+    // Moneda exclusiva EE. UU. (dólares y centavos USD — jamás pesos ni MXN)
+    .replace(
+      /\$\s*(\d{1,3}(?:,\d{3})*(?:\.\d{1,2})?)\s*(?:pesos?(?:\s+mexicanos?)?|mxn)\b/gi,
+      (_m, amt: string) => formatDisplayUsd(amt)
+    )
+    .replace(
+      /\b(d[oó]lares?)\s+(?:con|y)\s+(\d{1,2})\s+pesos?\b/gi,
+      (_m, dw: string, cStr: string) => `${dw} con ${Number(cStr)} ${Number(cStr) === 1 ? 'centavo' : 'centavos'}`
+    )
+    .replace(
+      /(^|[^\w$])(\d{1,3}(?:,\d{3})*(?:\.\d{1,2})?)\s*(?:pesos?(?:\s+mexicanos?)?|mxn)\b/gi,
+      (_m, lead: string, amt: string) => `${lead}${formatDisplayUsd(amt)}`
+    )
+    .replace(/\b(un|uno)\s+peso(?:\s+mexicano)?\b/gi, lang === 'en' ? 'one dollar' : 'un dólar')
+    .replace(
+      /\b(dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|once|doce|trece|catorce|quince|veinte|treinta|cuarenta|cincuenta|cien|ciento)\s+pesos(?:\s+mexicanos)?\b/gi,
+      (_m, word: string) => (lang === 'en' ? `${word} dollars` : `${word} dólares`)
+    )
+    .replace(/\ben\s+pesos(?:\s+mexicanos?)?\b/gi, lang === 'en' ? 'in US dollars' : 'en dólares')
     .replace(/\s+/g, ' ')
     .trim()
   const base = expandStreetAbbreviationsInText(preCleaned, lang, { stripZipAfterState: false })
@@ -3137,12 +3241,15 @@ export interface PhoneCallTombstoneInput {
   toNumber?: string | null
   forwardedFrom?: string | null
   endedAt?: string
+  sequenceNumber?: number | null
+  eventTimestamp?: string | null
 }
 
 /**
  * Registra de forma atómica un cierre anticipado o repetido en `public.phone_call_status_tombstones`.
- * Garantiza que un evento sin `CallDuration` (`authoritativeDuration === null`) JAMÁS reemplace
- * una `duration_seconds` válida previamente almacenada con `NULL`.
+ * Garantiza bajo candado transaccional por `CallSid` (`pg_advisory_xact_lock`) que:
+ * - Un evento sin `CallDuration` (`authoritativeDuration === null`) JAMÁS reemplace una `duration_seconds` válida con `NULL`.
+ * - Se incremente `revision` monotónicamente y se respete `SequenceNumber` / `Timestamp` cuando estén presentes.
  */
 export async function upsertPhoneCallStatusTombstone(
   input: PhoneCallTombstoneInput,
@@ -3167,6 +3274,22 @@ export async function upsertPhoneCallStatusTombstone(
   const cleanTo = String(input.toNumber || '').trim() || null
   const cleanForwarded = String(input.forwardedFrom || '').trim() || null
 
+  const hasSeq =
+    input.sequenceNumber !== null &&
+    input.sequenceNumber !== undefined &&
+    String(input.sequenceNumber).trim() !== '' &&
+    Number.isFinite(Number(input.sequenceNumber)) &&
+    Number(input.sequenceNumber) >= 0
+  const safeSequenceNumber = hasSeq ? Math.trunc(Number(input.sequenceNumber)) : null
+
+  let safeEventTimestamp: string | null = null
+  if (input.eventTimestamp && String(input.eventTimestamp).trim() !== '') {
+    const parsedTs = new Date(String(input.eventTimestamp).trim())
+    if (!Number.isNaN(parsedTs.getTime())) {
+      safeEventTimestamp = parsedTs.toISOString()
+    }
+  }
+
   if (typeof db.rpc === 'function') {
     const { data, error } = await db.rpc('upsert_phone_call_status_tombstone_atomic', {
       p_call_sid: cleanSid,
@@ -3175,13 +3298,15 @@ export async function upsertPhoneCallStatusTombstone(
       p_caller_number: cleanCaller,
       p_to_number: cleanTo,
       p_forwarded_from: cleanForwarded,
-      p_ended_at: endedIso
+      p_ended_at: endedIso,
+      p_sequence_number: safeSequenceNumber,
+      p_event_timestamp: safeEventTimestamp
     })
     if (error) throw error
     return data
   }
 
-  // Fallback transaccional para clientes de prueba sin .rpc: preserva siempre duration_seconds no nula previa
+  // Fallback para clientes de prueba sin .rpc: preserva duration_seconds no nula previa y lleva revisión monotónica
   const { data: existingTomb, error: readErr } = await db
     .from('phone_call_status_tombstones')
     .select('*')
@@ -3196,8 +3321,16 @@ export async function upsertPhoneCallStatusTombstone(
     Number.isFinite(Number(existingTomb.duration_seconds)) &&
     Number(existingTomb.duration_seconds) >= 0
 
-  const mergedDuration =
-    safeDuration !== null
+  const isStaleBySeq =
+    prevHasValidDur &&
+    existingTomb.sequence_number !== null &&
+    existingTomb.sequence_number !== undefined &&
+    safeSequenceNumber !== null &&
+    safeSequenceNumber < Number(existingTomb.sequence_number)
+
+  const mergedDuration = isStaleBySeq
+    ? Math.min(7200, Math.max(0, Math.round(Number(existingTomb.duration_seconds))))
+    : safeDuration !== null
       ? safeDuration
       : prevHasValidDur
         ? Math.min(7200, Math.max(0, Math.round(Number(existingTomb.duration_seconds))))
@@ -3205,18 +3338,29 @@ export async function upsertPhoneCallStatusTombstone(
 
   const mergedPayload: Record<string, any> = {
     call_sid: cleanSid,
-    terminal_status:
-      safeDuration !== null
+    terminal_status: isStaleBySeq
+      ? existingTomb.terminal_status || cleanStatus
+      : safeDuration !== null
         ? cleanStatus
         : existingTomb?.terminal_status || cleanStatus,
     duration_seconds: mergedDuration,
+    sequence_number:
+      safeDuration === null || isStaleBySeq
+        ? existingTomb?.sequence_number ?? null
+        : safeSequenceNumber ?? existingTomb?.sequence_number ?? null,
+    event_timestamp:
+      safeDuration === null || isStaleBySeq
+        ? existingTomb?.event_timestamp ?? null
+        : safeEventTimestamp ?? existingTomb?.event_timestamp ?? null,
     caller_number: cleanCaller || existingTomb?.caller_number || null,
     to_number: cleanTo || existingTomb?.to_number || null,
     forwarded_from: cleanForwarded || existingTomb?.forwarded_from || null,
     ended_at:
       existingTomb?.ended_at && new Date(existingTomb.ended_at).getTime() <= new Date(endedIso).getTime()
         ? existingTomb.ended_at
-        : endedIso
+        : endedIso,
+    revision: Number(existingTomb?.revision || 0) + 1,
+    updated_at: new Date().toISOString()
   }
 
   const { data: upserted, error: upErr } = await db
@@ -3229,22 +3373,35 @@ export async function upsertPhoneCallStatusTombstone(
 }
 
 /**
- * Reconcilia de forma atómica e idempotente una llamada en `public.phone_calls` contra un cierre pendiente
- * en `public.phone_call_status_tombstones`:
- * - Si `phone_calls` aún no existe, conserva el tombstone y devuelve `null`.
+ * Reconcilia de forma transaccional, segura ante concurrencia e idempotente una llamada en `public.phone_calls`
+ * contra un cierre pendiente en `public.phone_call_status_tombstones` (`reconcile_phone_call_with_tombstone_atomic`):
+ * - Ejecuta lectura (`FOR UPDATE`), actualización de `phone_calls` y borrado condicional (`WHERE revision = v_tomb.revision`)
+ *   en una sola transacción PostgreSQL bajo candado por `CallSid` (`pg_advisory_xact_lock`).
+ * - Si llegan dos `StatusCallback` simultáneos con duraciones distintas, conserva siempre la duración final más reciente.
+ * - Si `phone_calls` aún no existe, conserva el tombstone intacto y devuelve `null`.
  * - Si falla el `UPDATE` de `phone_calls`, conserva intacto el tombstone para reintentar y lanza el error.
- * - Si el tombstone no contiene `CallDuration` (`duration_seconds === null`), omite `duration_seconds` del `UPDATE`
- *   para jamás reemplazar una duración válida existente con `NULL` ni con `0`.
- * - Jamás reabre una llamada ya terminada (`ended_at IS NOT NULL` o estado terminal).
+ * - Jamás reemplaza una duración válida existente con `NULL` ni con `0`, y jamás reabre una llamada ya terminada.
  */
 export async function reconcileCallWithTerminalTombstone(
   callSid: string,
-  opts?: { db?: any }
+  opts?: { db?: any; forceClientFallback?: boolean }
 ): Promise<any | null> {
   const db = opts?.db || supabaseAdmin
   const cleanSid = String(callSid || '').trim()
   if (!cleanSid) return null
 
+  if (!opts?.forceClientFallback && typeof db.rpc === 'function') {
+    const { data: rpcRows, error: rpcErr } = await db.rpc('reconcile_phone_call_with_tombstone_atomic', {
+      p_call_sid: cleanSid
+    })
+    if (rpcErr) throw rpcErr
+    if (Array.isArray(rpcRows)) {
+      return rpcRows.length > 0 ? rpcRows[0] : null
+    }
+    return rpcRows || null
+  }
+
+  // Fallback para dobles de prueba sin .rpc (o con forceClientFallback explícito)
   const { data: tombstone, error: tombErr } = await db
     .from('phone_call_status_tombstones')
     .select('*')
@@ -3252,7 +3409,22 @@ export async function reconcileCallWithTerminalTombstone(
     .maybeSingle()
 
   if (tombErr) throw tombErr
-  if (!tombstone) return null
+  if (!tombstone) {
+    const { data: existingClosed, error: closedErr } = await db
+      .from('phone_calls')
+      .select('*')
+      .eq('call_sid', cleanSid)
+      .maybeSingle()
+    if (closedErr) throw closedErr
+    if (
+      existingClosed &&
+      (Boolean(existingClosed.ended_at) ||
+        TOMBSTONE_TERMINAL_ENDED_STATUSES.has(String(existingClosed.status || '').trim().toLowerCase()))
+    ) {
+      return existingClosed
+    }
+    return null
+  }
 
   const { data: callRow, error: callErr } = await db
     .from('phone_calls')
@@ -3262,6 +3434,19 @@ export async function reconcileCallWithTerminalTombstone(
 
   if (callErr) throw callErr
   if (!callRow) return null
+
+  // En el fallback sin .rpc, revalidar que la revisión del tombstone no haya sido superada ni consumida antes de escribir
+  if (tombstone.revision !== undefined && tombstone.revision !== null) {
+    const { data: liveTomb, error: liveTombErr } = await db
+      .from('phone_call_status_tombstones')
+      .select('revision')
+      .eq('call_sid', cleanSid)
+      .maybeSingle()
+    if (liveTombErr) throw liveTombErr
+    if (!liveTomb || Number(liveTomb.revision) !== Number(tombstone.revision)) {
+      return await reconcileCallWithTerminalTombstone(cleanSid, opts)
+    }
+  }
 
   const currentStatusNorm = String(callRow.status || '').trim().toLowerCase()
   const isAlreadyTerminated =
@@ -3373,16 +3558,170 @@ export async function reconcileCallWithTerminalTombstone(
     updated = updRow
   }
 
-  // Solo eliminar el tombstone DESPUÉS de que el UPDATE en phone_calls se haya confirmado exitosamente
-  const { error: delErr } = await db
+  // Solo eliminar la revisión exacta del tombstone DESPUÉS de que el UPDATE en phone_calls se haya confirmado exitosamente
+  let deleteQuery = db
     .from('phone_call_status_tombstones')
     .delete()
     .eq('call_sid', cleanSid)
+  if (tombstone.revision !== undefined && tombstone.revision !== null) {
+    deleteQuery = deleteQuery.eq('revision', tombstone.revision)
+  }
+  const { error: delErr } = await deleteQuery
   if (delErr) {
     throw delErr
   }
 
+  // Si en el fallback sin .rpc entró una revisión más nueva mientras se escribía phone_calls, reconciliarla antes de retornar
+  if (tombstone.revision !== undefined && tombstone.revision !== null) {
+    const { data: newerTomb, error: newerErr } = await db
+      .from('phone_call_status_tombstones')
+      .select('revision')
+      .eq('call_sid', cleanSid)
+      .maybeSingle()
+    if (newerErr) throw newerErr
+    if (newerTomb && Number(newerTomb.revision) > Number(tombstone.revision)) {
+      return await reconcileCallWithTerminalTombstone(cleanSid, opts)
+    }
+  }
+
   return updated
+}
+
+/**
+ * Evalúa tombstones antiguos (>24h por defecto) sin borrar cierres pendientes:
+ * - Solo elimina un tombstone si comprueba en `phone_calls` que su estado terminal, `ended_at` y `duration_seconds`
+ *   (salvo evento más reciente por secuencia/timestamp) ya quedaron aplicados, borrando únicamente su `revision`.
+ * - Si la fila de `phone_calls` existe pero el cierre aún no se aplicó, intenta reconciliarla transaccionalmente.
+ * - Si `phone_calls` aún no existe o la base de datos falla, conserva intacto el tombstone para reintentos futuros.
+ */
+export async function cleanupOrReconcileExpiredTombstones(opts?: {
+  olderThanIso?: string
+  limit?: number
+  supabaseClient?: any
+  forceClientFallback?: boolean
+}): Promise<{
+  scanned: number
+  deletedAlreadyApplied: number
+  reconciledAndDeleted: number
+  preservedPending: number
+}> {
+  const db = opts?.supabaseClient || supabaseAdmin
+  const cutoffIso = opts?.olderThanIso || new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
+  const batchLimit = Math.min(500, Math.max(1, opts?.limit ?? 100))
+
+  const { data: expiredTombstones, error: tombReadErr } = await db
+    .from('phone_call_status_tombstones')
+    .select(
+      'call_sid, revision, terminal_status, duration_seconds, ended_at, sequence_number, event_timestamp, created_at'
+    )
+    .lt('created_at', cutoffIso)
+    .order('created_at', { ascending: true })
+    .limit(batchLimit)
+
+  if (tombReadErr) {
+    throw tombReadErr
+  }
+
+  const rows = Array.isArray(expiredTombstones) ? expiredTombstones : []
+  let deletedAlreadyApplied = 0
+  let reconciledAndDeleted = 0
+  let preservedPending = 0
+
+  for (const t of rows) {
+    const cleanSid = String(t?.call_sid || '').trim()
+    if (!cleanSid) {
+      preservedPending++
+      continue
+    }
+
+    const { data: callRow, error: callErr } = await db
+      .from('phone_calls')
+      .select('id, call_sid, status, ended_at, duration_seconds, last_status_sequence, last_status_event_at')
+      .eq('call_sid', cleanSid)
+      .maybeSingle()
+
+    if (callErr || !callRow) {
+      preservedPending++
+      continue
+    }
+
+    const statusNorm = String(callRow.status || '').trim().toLowerCase()
+    const tombStatusNorm = String(t.terminal_status || 'completed').trim().toLowerCase() || 'completed'
+    const hasEndedAt = Boolean(callRow.ended_at)
+    const statusMatchesApplied =
+      statusNorm === tombStatusNorm ||
+      statusNorm === 'callback_requested' ||
+      statusNorm === 'transferred' ||
+      (TOMBSTONE_TERMINAL_ENDED_STATUSES.has(statusNorm) && hasEndedAt)
+
+    const tombHasDur =
+      t.duration_seconds !== null &&
+      t.duration_seconds !== undefined &&
+      String(t.duration_seconds).trim() !== '' &&
+      Number.isFinite(Number(t.duration_seconds)) &&
+      Number(t.duration_seconds) >= 0
+    const expectedDur = tombHasDur ? Math.min(7200, Math.max(0, Math.round(Number(t.duration_seconds)))) : null
+
+    const callHasDur =
+      callRow.duration_seconds !== null &&
+      callRow.duration_seconds !== undefined &&
+      String(callRow.duration_seconds).trim() !== '' &&
+      Number.isFinite(Number(callRow.duration_seconds)) &&
+      Number(callRow.duration_seconds) >= 0
+
+    const tombIsOlderBySeqOrTs =
+      (callRow.last_status_sequence !== null &&
+        callRow.last_status_sequence !== undefined &&
+        t.sequence_number !== null &&
+        t.sequence_number !== undefined &&
+        Number(t.sequence_number) < Number(callRow.last_status_sequence)) ||
+      ((callRow.last_status_sequence === null ||
+        callRow.last_status_sequence === undefined ||
+        t.sequence_number === null ||
+        t.sequence_number === undefined) &&
+        Boolean(callRow.last_status_event_at) &&
+        Boolean(t.event_timestamp) &&
+        new Date(t.event_timestamp).getTime() < new Date(callRow.last_status_event_at).getTime())
+
+    const durAlreadyApplied =
+      !tombHasDur ||
+      (callHasDur && (Math.round(Number(callRow.duration_seconds)) === expectedDur || tombIsOlderBySeqOrTs))
+
+    if (hasEndedAt && statusMatchesApplied && durAlreadyApplied) {
+      let delQ = db.from('phone_call_status_tombstones').delete().eq('call_sid', cleanSid)
+      if (t.revision !== undefined && t.revision !== null) {
+        delQ = delQ.eq('revision', t.revision)
+      }
+      const { error: delErr } = await delQ
+      if (delErr) {
+        preservedPending++
+      } else {
+        deletedAlreadyApplied++
+      }
+      continue
+    }
+
+    try {
+      const rec = await reconcileCallWithTerminalTombstone(cleanSid, {
+        db,
+        forceClientFallback: opts?.forceClientFallback
+      })
+      if (rec && rec.ended_at) {
+        reconciledAndDeleted++
+      } else {
+        preservedPending++
+      }
+    } catch {
+      preservedPending++
+    }
+  }
+
+  return {
+    scanned: rows.length,
+    deletedAlreadyApplied,
+    reconciledAndDeleted,
+    preservedPending
+  }
 }
 
 export const CRITICAL_CALLBACKS_PAGE_SIZE = 250
@@ -3660,7 +3999,7 @@ export async function processPhoneAgentTurn(params: {
     )
   const wantsMenuCatalogContext =
     preFetchedMenu.length > 0 ||
-    /\b(precio|precios|cuesta|cuanto|menu|comer|platillo|taco|burrito|mulita|quesadilla|torta|plato|sope|nacho|bebida|agua|soda|coca|sprite|fanta|champurrado|cafe|coffee|flan|cheesecake|postre|desayuno|huevo|carne|asada|pastor|pollo|lengua|cabeza|buche|chorizo|carnitas|queso|crema|guacamole|ingredient|lleva|diferencia|regular|super|vegetar|alerg|frijol|arroz|oz|onza|galon)\b/i.test(
+    /\b(precio|precios|cuesta|cuanto|menu|comer|platillo|taco|burrito|mulita|quesadilla|torta|plato|sope|nacho|bebida|agua|soda|coca|sprite|fanta|champurrado|cafe|coffee|flan|cheesecake|postre|postres|dessert|desserts|pastel|pasteles|cake|cakes|churro|churros|desayuno|huevo|carne|asada|pastor|pollo|lengua|cabeza|buche|chorizo|carnitas|queso|crema|guacamole|ingredient|lleva|diferencia|regular|super|vegetar|alerg|frijol|arroz|oz|onza|galon)\b/i.test(
       normCombinedForScope
     )
 
@@ -3789,10 +4128,16 @@ export async function processPhoneAgentTurn(params: {
     : scheduleEval.isSpecialHolidaySchedule && scheduleEval.specialHolidayName
       ? `hoy ${scheduleEval.activeDayLabelEs.toLowerCase()} por ${scheduleEval.specialHolidayName} cerramos en horario especial ${atTimePromptEs(scheduleEval.todayCloseFormattedEs)}`
       : `hoy ${scheduleEval.activeDayLabelEs.toLowerCase()} cerramos ${atTimePromptEs(scheduleEval.todayCloseFormattedEs)}`
+  const customerBranchDisplay = formatCustomerStoreName(store, turnLangGuess, { style: 'display' })
+  const customerBranchSpoken = formatCustomerStoreName(store, turnLangGuess, { style: 'spoken' })
+  const customerBranchCrossStreets = getCustomerStoreCrossStreets(store, turnLangGuess)
+  const hoursExampleBranchEs = resolveCustomerStoreMeta(store)?.isLosAngelesCrossStreetStore
+    ? `la ${formatCustomerStoreName(store, 'es', { style: 'spoken' }).replace(/^Los Ángeles,\s*/i, 'sucursal de Los Ángeles ')}`
+    : `la sucursal ${store.name}`
   const hoursExampleEs = scheduleEval.isOpenNow
     ? store.has_drive_thru
-      ? `"En este momento estamos abiertos aquí en la sucursal ${store.name}, contamos con servicio de Drive-Thru y ${closingPhraseEs}. ¿Te puedo ayudar con algo más?"`
-      : `"En este momento estamos abiertos aquí en la sucursal ${store.name} y ${closingPhraseEs}; en esta ubicación no contamos con Drive-Thru, pero te atendemos con gusto en comedor y para llevar."`
+      ? `"En este momento estamos abiertos aquí en ${hoursExampleBranchEs}, contamos con servicio de Drive-Thru y ${closingPhraseEs}. ¿Te puedo ayudar con algo más?"`
+      : `"En este momento estamos abiertos aquí en ${hoursExampleBranchEs} y ${closingPhraseEs}; en esta ubicación no contamos con Drive-Thru, pero te atendemos con gusto en comedor y para llevar."`
     : `Usa exactamente el "Estado actual en vivo" de arriba (la sucursal está CERRADA en este momento) y menciona si hay Drive-Thru o no en la misma oración.`
 
   const parkingNotesBlock = [
@@ -3823,34 +4168,42 @@ export async function processPhoneAgentTurn(params: {
       ? `\nCOINCIDENCIAS REGIONALES PRE-CALCULADAS (RESPONDE DIRECTO SIN TOOL): ` +
         allActiveStores
           .filter((s) => regionalMatchIds.includes(Number(s.id)))
-          .map((s) => `#${s.id} ${s.name} (${formatStoreAddressForAgent(s.address, turnLangGuess, { includeZip: false })}, Tel: ${s.phone}, ${s.has_drive_thru ? 'CON Drive-Thru' : 'Sin Drive-Thru'})`)
+          .map((s) => {
+            const custLabel = formatCustomerStoreName(s, turnLangGuess, { style: 'display' })
+            const cross = getCustomerStoreCrossStreets(s, turnLangGuess)
+            return `#${s.id} ${custLabel}${cross ? ` [Esquina: ${cross}]` : ''} (${formatStoreAddressForAgent(s.address, turnLangGuess, { includeZip: false })}, Tel: ${s.phone}, ${s.has_drive_thru ? 'CON Drive-Thru' : 'Sin Drive-Thru'})`
+          })
           .join(' | ')
       : ''
   const storesDirectoryBlock =
     wantsMultiStoreContext && allActiveStores.length > 0
-      ? `\nDIRECTORIO OFICIAL VERIFICADO DE LAS 15 SUCURSALES (USA ESTOS DATOS REALES; NUNCA INVENTES CALLES):\n` +
+      ? `\nDIRECTORIO OFICIAL VERIFICADO DE LAS 15 SUCURSALES (USA ESTOS NOMBRES DE CLIENTE Y ENTRECALLES REALES; NUNCA INVENTES CALLES):\n` +
         allActiveStores
-          .map(
-            (s) =>
-              `- #${s.id} ${s.name}: ${formatStoreAddressForAgent(s.address, turnLangGuess, { includeZip: false })} | Tel: ${s.phone} | ${s.has_drive_thru ? 'CON Drive-Thru' : 'Sin Drive-Thru'} | Horario: ${turnLangGuess === 'en' ? s.compactHoursEn : s.compactHoursEs}`
-          )
+          .map((s) => {
+            const custLabel = formatCustomerStoreName(s, turnLangGuess, { style: 'display' })
+            const cross = getCustomerStoreCrossStreets(s, turnLangGuess)
+            return `- #${s.id} ${custLabel}${cross ? ` (Esquina: ${cross})` : ''}: ${formatStoreAddressForAgent(s.address, turnLangGuess, { includeZip: false })} | Tel: ${s.phone} | ${s.has_drive_thru ? 'CON Drive-Thru' : 'Sin Drive-Thru'} | Horario: ${turnLangGuess === 'en' ? s.compactHoursEn : s.compactHoursEs}`
+          })
           .join('\n') +
         (crossStoreComparison ? `\n\n${crossStoreComparison}` : '') +
         regionalPreContext
       : ''
 
-  const systemInstruction = `Eres la recepcionista telefónica virtual oficial de **Tacos Gavilan** en la sucursal **${store.name}** (Sucursal #${store.id}).
-El nombre oficial de la marca es estrictamente **Tacos Gavilan** (NUNCA digas "Tacos El Gavilan", ni escribas "(LA)" junto a Central o Broadway).
+  const systemInstruction = `Eres la recepcionista telefónica virtual oficial de **Tacos Gavilan** en **${customerBranchSpoken}** (Sucursal #${store.id}${customerBranchCrossStreets ? `, entrecalles oficiales: ${customerBranchCrossStreets}` : ''}).
+El nombre oficial de la marca es estrictamente **Tacos Gavilan** (NUNCA digas "Tacos El Gavilan").
+**REGLA OBLIGATORIA SUCURSALES DE LOS ÁNGELES (#5, #6 y #7)**: Frente al cliente **PROHIBIDO** llamar a estas tres tiendas únicamente "Broadway", "Central", "Slauson", "LA Broadway" o "LA Central". **SIEMPRE** nómbralas como **Los Ángeles** indicando sus entrecalles (esquinas): #5 = **Los Ángeles, en la esquina de Vernon y Broadway** (4380 South Broadway); #6 = **Los Ángeles, en la esquina de Central y Washington** (1900 South Central Avenue, con Drive-Thru); #7 = **Los Ángeles, en la esquina de Slauson y Broadway** (5833 South Broadway).
+Operamos exclusivamente en California, EE. UU.: **TODOS los precios son en dólares y centavos estadounidenses (USD)**. **QUEDA TERMINANTEMENTE PROHIBIDO** decir o escribir "pesos", "peso" o "MXN" (ejemplo correcto: "Cada taco cuesta $2.29 dólares").
 
-DATOS EN VIVO DE ESTA SUCURSAL (${store.name}):
+DATOS EN VIVO DE ESTA SUCURSAL (${customerBranchDisplay}):
 ${calendarDateLine}
 - Estado actual en vivo (Zona Horaria Pacífico): ${turnLangGuess === 'en' ? scheduleEval.statusMessageEn : scheduleEval.statusMessageEs}
 - Horario de la semana: ${turnLangGuess === 'en' ? scheduleEval.weeklySummaryEn : scheduleEval.weeklySummaryEs}
-${holidaysContextLine ? holidaysContextLine + '\n' : ''}- Dirección exacta para decir por teléfono (SIN abreviaturas): ${spokenStoreAddress}${storeZipCode ? ` (Código postal solo si lo piden: ${storeZipCode})` : ''}
+${holidaysContextLine ? holidaysContextLine + '\n' : ''}- Dirección exacta para decir por teléfono (SIN abreviaturas): ${spokenStoreAddress}${customerBranchCrossStreets ? ` (Entrecalles / esquina: ${customerBranchCrossStreets})` : ''}${storeZipCode ? ` (Código postal solo si lo piden: ${storeZipCode})` : ''}
 - Teléfono: ${store.phone}
-- Drive-Thru: ${store.has_drive_thru ? 'Esta sucursal SÍ tiene Drive-Thru.' : 'Esta sucursal NO tiene Drive-Thru (solo Comedor y Para Llevar).'} Las únicas 6 sucursales con Drive-Thru son Central, West Covina, La Puente, Norwalk, Lynwood y South Gate.
+- Drive-Thru: ${store.has_drive_thru ? 'Esta sucursal SÍ tiene Drive-Thru.' : 'Esta sucursal NO tiene Drive-Thru (solo Comedor y Para Llevar).'} Las únicas 6 sucursales con Drive-Thru son Los Ángeles (esquina de Central y Washington), West Covina, La Puente, Norwalk, Lynwood y South Gate.
 - Pagos / EBT: ${config.accepts_ebt ? 'Aceptamos EBT CalFresh RMP en caja, efectivo, tarjetas y Apple Pay/Google Pay.' : 'NO aceptamos EBT CalFresh aquí; sí efectivo, tarjetas y Apple Pay/Google Pay.'}
-- Web / Ordenar en línea: tacosgavilan.com (NUNCA dictes URLs largas ni IDs numéricos)${source === 'twilio' && callerNumber ? `\n- Caller ID Twilio entrante: ${callerNumber} (solo úsalo si piden marcar a este mismo número)` : ''}
+- Web / Ordenar en línea: tacosgavilan.com (NUNCA dictes URLs largas ni IDs numéricos)
+- Privacidad de la llamada: El sistema NO graba audio de las llamadas; únicamente guarda la transcripción escrita de la conversación para atenderte mejor.${source === 'twilio' && callerNumber ? `\n- Caller ID Twilio entrante: ${callerNumber} (solo úsalo si piden marcar a este mismo número)` : ''}
 ${parkingNotesBlock}${priorCallbackNote}
 ${storesDirectoryBlock}
 
@@ -3862,16 +4215,17 @@ BASE DE CONOCIMIENTO OFICIAL EDITABLE (REGLAS VIGENTES, TIENEN PRIORIDAD SOBRE C
 ${kbFormatted}
 
 MAPA DE EJECUCIÓN DE ESCENARIOS Y REGLAS ESTRICTAS DE DIÁLOGO:
-0. **CERO DATOS INVENTADOS Y PRONUNCIACIÓN VIAL NATURAL (REGLA CRÍTICA)**:
-   - Usa ÚNICAMENTE la información de este contexto. NUNCA inventes platillos, carnes, ingredientes, precios, promociones, horarios de entrevistas ni procesos que no aparezcan arriba. Si no tienes el dato, dilo con honestidad, ofrece tacosgavilan.com o dejar recado al gerente, y llama a \`flag_unanswered_question\`.
+0. **CERO DATOS INVENTADOS, MONEDA DÓLARES/CENTAVOS Y PRONUNCIACIÓN VIAL NATURAL (REGLA CRÍTICA)**:
+   - Usa ÚNICAMENTE la información de este contexto. NUNCA inventes platillos, carnes, ingredientes, pasteles, precios, promociones, horarios de entrevistas ni procesos que no aparezcan arriba. Ante una política administrativa o operativa legítima no registrada en este contexto (ej. convenios escolares o permisos especiales), indica con honestidad que no cuentas con esa política oficial confirmada, ofrece dejar un recado al gerente de la sucursal y llama a \`flag_unanswered_question\` (**PROHIBIDO** inventar que esos detalles o productos que no manejamos aparecen en \`tacosgavilan.com\`).
+   - Todos los importes se expresan únicamente en **dólares y centavos** (\`$2.29 dólares\`, jamás \`pesos\`).
    - Al decir cualquier domicilio o calle, dilo SIEMPRE completo y sin abreviaturas (ej. \`101 South Azusa Avenue, en West Covina, California\`, \`115 East Baseline Road\`, \`1258 East Seventeenth Street\`, \`3220 East Imperial Highway\`, \`Boulevard\`). NUNCA escribas \`S.\`, \`E.\`, \`N.\`, \`W.\`, \`Ave.\`, \`Rd.\`, \`Blvd.\`, \`St.\`, \`Hwy.\` ni \`CA\`, y no menciones el código postal a menos que el cliente lo pida.
 1. **CERO MULETILLAS Y CERO REPETICIÓN DE "¡SÍ!"**:
    - **PROHIBIDO** empezar tus respuestas con "¡Sí!", "¡Claro que sí!", "¡Claro!", "¡Por supuesto!", "¡Hola!" o "Yes!".
    - Cuando el cliente hace varias preguntas a la vez (ej. "¿Están abiertos, a qué hora cierran y tienen Drive-Thru?"), **NUNCA** digas "Sí" dos veces. Integra todo en una sola oración fluida. Ejemplo para este momento: ${hoursExampleEs}
-2. **Menú, STT Fonético, Bebidas, Quesos, Regular vs Super y No Manejados**:
+2. **Menú, STT Fonético, Bebidas, Quesos, Postres, Regular vs Super y No Manejados**:
    - Si el precio/ingrediente YA está en tu contexto, **RESPONDE DIRECTO SIN LLAMAR HERRAMIENTAS**. Ante posibles errores de micrófono sobre un tema reciente (ej. "torta Corona" tras hablar de "torta cubana", "salad burrito" = asada, "muleta" = mulita, "driver" = Drive-Thru), interpreta con naturalidad el platillo correcto.
-   - Medidas reales de bebidas y quesos aparecen en el CATÁLOGO y Base de Conocimiento (ej. Champurrado y Café individual = **vaso térmico de 16 onzas**, Caja Champurrado = **96 onzas** [6×16 oz / 8 vasitos de 12 oz]; Aguas Frescas: **Horchata, Jamaica, Piña y Tamarindo** en 22 oz / 32 oz / 128 oz; Tortas = **Queso Fresco**, NUNCA crema ni queso fundido). Diferencia Regular vs Super: Quesadilla/Mulita Super añade guacamole y crema; Burrito Super añade queso Monterey Jack, guacamole y crema; Torta Cubana = milanesa de res, jamón y salchicha.
-   - No vendemos menudo, birria, pozole, suadero, tripa (descontinuada) ni alcohol/cerveza; ante estos o temas ajenos (música, deportes, chistes), declina con amabilidad y **NUNCA** llames \`flag_unanswered_question\`.
+   - Medidas reales de bebidas, quesos y postres aparecen en el CATÁLOGO y Base de Conocimiento (ej. Champurrado y Café individual = **vaso térmico de 16 onzas**, Caja Champurrado = **96 onzas** [6×16 oz / 8 vasitos de 12 oz]; Aguas Frescas: **Horchata, Jamaica, Piña y Tamarindo** en 22 oz / 32 oz / 128 oz; Tortas = **Queso Fresco**, NUNCA crema ni queso fundido; Postres = **SOLO Flan y Cheesecake individuales**). Diferencia Regular vs Super: Quesadilla/Mulita Super añade guacamole y crema; Burrito Super añade queso Monterey Jack, guacamole y crema; Torta Cubana = milanesa de res, jamón y salchicha.
+   - **NO vendemos ni manejamos pasteles de cumpleaños**, pasteles enteros, churros, menudo, birria, pozole, suadero, tripa (descontinuada) ni alcohol/cerveza; si preguntan si tenemos alguno de estos productos o temas ajenos (música, deportes, chistes), acláralo con amabilidad (indicando que de postre solo ofrecemos Flan y Cheesecake individuales si preguntaron por pastel/postre), **NUNCA** digas que los busquen en \`tacosgavilan.com\` y **NUNCA** llames \`flag_unanswered_question\` por productos que no vendemos.
 3. **Charolas Fiesta Platters**:
    - Usa la sección CHAROLAS de tu contexto (si ya calculó \`CÁLCULO EXACTO\` para >40 personas, responde directo sin tool call).
 4. **Pedidos por Teléfono**:
@@ -3885,7 +4239,7 @@ MAPA DE EJECUCIÓN DE ESCENARIOS Y REGLAS ESTRICTAS DE DIÁLOGO:
    - Si aún NO ha dado su nombre o teléfono real de 10 dígitos, aclara que no transferimos a celulares personales y pídeselos con empatía en una sola frase corta ANTES de intentar registrar el recado.
    - Si ya enviaste la alerta en esta misma llamada, no la dupliques salvo que agregue datos nuevos: confirma que el gerente ya la tiene en su pantalla.
 7. **Idioma y Agilidad Telefónica (REGLA CRÍTICA DE VELOCIDAD)**:
-   - Idioma detectado del cliente: ${turnLangGuess === 'en' ? 'Inglés' : 'Español'}. Responde SIEMPRE en el mismo idioma de su último mensaje (español mexicano cálido o inglés natural).
+   - Idioma detectado del cliente: ${turnLangGuess === 'en' ? 'Inglés' : 'Español'}. Responde SIEMPRE en el mismo idioma de su último mensaje (español cálido y natural del Sur de California con precios SIEMPRE en dólares y centavos, o inglés natural).
    - Sé concisa y directa: **12 a 28 palabras** (1–2 oraciones ágiles). Excepciones autorizadas hasta **65–75 palabras**: (a) cuando pidan el **calendario de días festivos especiales en general**, DEBES resumir las **7 fechas reales** (cerrados Viernes Santo y Navidad 25 dic; cierre temprano 4 PM en Thanksgiving, Nochebuena 24 dic y Fin de Año 31 dic; apertura tarde 11 AM en Año Nuevo 1 ene y Black Friday); o (b) direcciones de varias sucursales a la vez. Sin comerciales de relleno, viñetas, emojis ni markdown.
 8. **Filtro Anti-Spam / Ventas Comerciales**:
    - Si llaman para vender servicios comerciales (SEO/Google, préstamos, paneles solares, garantías), declina con cortesía en una oración breve indicando que en sucursal no recibimos ofertas comerciales y NO ejecutes \`create_manager_callback\`.`
@@ -3984,7 +4338,9 @@ MAPA DE EJECUCIÓN DE ESCENARIOS Y REGLAS ESTRICTAS DE DIÁLOGO:
         if (filterNorm.includes('drive')) return Boolean(s.has_drive_thru)
         if (isScheduleComparisonFilter) return true
         if (matchedRegionIds) return matchedRegionIds.includes(Number(s.id))
-        return normalizeSearchText(`${s.name} ${cleanPhoneStoreName(s.name)} ${s.address}`).includes(filterNorm)
+        const meta = resolveCustomerStoreMeta(s)
+        const extraKeys = meta ? `${meta.displayEs} ${meta.displayEn} ${meta.searchKeywords}` : ''
+        return normalizeSearchText(`${s.name} ${cleanPhoneStoreName(s.name)} ${s.address} ${extraKeys}`).includes(filterNorm)
       })
       const targetStores = matchedStores.length > 0 ? matchedStores : activeStores
       const comparisonSummary = buildCrossStoreHoursComparison(activeStores, turnLangGuess, allSpecialHours || [])
@@ -3998,7 +4354,9 @@ MAPA DE EJECUCIÓN DE ESCENARIOS Y REGLAS ESTRICTAS DE DIÁLOGO:
         })
         return {
           id: s.id,
-          name: cleanPhoneStoreName(s.name),
+          name: formatCustomerStoreName(s, turnLangGuess, { style: 'display' }),
+          spoken_name: formatCustomerStoreName(s, turnLangGuess, { style: 'spoken' }),
+          cross_streets: getCustomerStoreCrossStreets(s, turnLangGuess),
           address: formatStoreAddressForAgent(s.address, turnLangGuess, { includeZip: false }),
           zip_code: extractZipCodeFromAddress(s.address),
           phone: s.phone,
@@ -4301,21 +4659,24 @@ MAPA DE EJECUCIÓN DE ESCENARIOS Y REGLAS ESTRICTAS DE DIÁLOGO:
 
   if (!replyText) {
     if (callbackCreated) {
+      const custSpokenCompact = formatCustomerStoreName(store, turnLangGuess, { style: 'spoken_compact' })
       if (!scheduleEval.isOpenNow) {
         replyText =
           turnLangGuess === 'en'
-            ? `Since our ${store.name} location is currently closed, your priority message has been saved so the manager can call you back as soon as we reopen. Is there anything else I can help you with?`
-            : `Como nuestra sucursal ${store.name} está cerrada en este momento, dejé tu recado prioritario registrado para que el gerente te devuelva la llamada en cuanto abramos. ¿Te puedo ayudar con algo más?`
+            ? `Since our ${custSpokenCompact} location is currently closed, your priority message has been saved so the manager can call you back as soon as we reopen. Is there anything else I can help you with?`
+            : `Como nuestra sucursal de ${custSpokenCompact} está cerrada en este momento, dejé tu recado prioritario registrado para que el gerente te devuelva la llamada en cuanto abramos. ¿Te puedo ayudar con algo más?`
       } else {
         replyText =
           turnLangGuess === 'en'
-            ? `Your message is already on the ${store.name} manager's screen, and they will call you back as soon as possible. Is there anything else I can help you with?`
-            : `Tu recado ya está en la pantalla del gerente de ${store.name} y se comunicará contigo lo antes posible. ¿Te puedo ayudar con algo más?`
+            ? `Your message is already on the ${custSpokenCompact} manager's screen, and they will call you back as soon as possible. Is there anything else I can help you with?`
+            : `Tu recado ya está en la pantalla del gerente de ${custSpokenCompact} y se comunicará contigo lo antes posible. ¿Te puedo ayudar con algo más?`
       }
     } else if (geminiFailed) {
       // Respaldo determinista en memoria si Gemini agotó presupuesto o cuota para no colgar en error genérico
       if (/\b(drive|ventanilla)\b/i.test(normUser) && allActiveStores.length > 0) {
-        const dtNames = allActiveStores.filter((s) => s.has_drive_thru).map((s) => s.name)
+        const dtNames = allActiveStores
+          .filter((s) => s.has_drive_thru)
+          .map((s) => formatCustomerStoreName(s, turnLangGuess, { style: 'spoken_compact' }))
         replyText =
           turnLangGuess === 'en'
             ? `Our six locations with Drive-Thru are ${dtNames.join(', ')}. Would you like the hours or address for any of them?`
@@ -4324,10 +4685,11 @@ MAPA DE EJECUCIÓN DE ESCENARIOS Y REGLAS ESTRICTAS DE DIÁLOGO:
         replyText = turnLangGuess === 'en' ? platterInfo.recommendationEn : platterInfo.recommendationEs
       } else if (preFetchedMenu.length > 0 && /\b(precio|cuesta|cuanto|price|cost|how much)\b/i.test(normUser)) {
         const top = preFetchedMenu.slice(0, 3).map((m) => `${m.name} (${m.priceFormatted})`)
+        const custSpokenCompact = formatCustomerStoreName(store, turnLangGuess, { style: 'spoken_compact' })
         replyText =
           turnLangGuess === 'en'
-            ? `In ${store.name}, ${top.join(', ')}. Can I check anything else?`
-            : `En ${store.name}, ${top.join(', ')}. ¿Te ayudo con algo más?`
+            ? `In ${custSpokenCompact}, ${top.join(', ')}. Can I check anything else?`
+            : `En ${custSpokenCompact}, ${top.join(', ')}. ¿Te ayudo con algo más?`
       } else if (/\b(hora|horario|abierto|abiertos|cerrado|abren|cierran|open|close|hours|direccion|ubicacion|address)\b/i.test(normUser)) {
         replyText =
           turnLangGuess === 'en'
@@ -4424,10 +4786,10 @@ MAPA DE EJECUCIÓN DE ESCENARIOS Y REGLAS ESTRICTAS DE DIÁLOGO:
   // Respaldo: capturar unanswered_question si la IA admite falta de dato oficial de negocio sin haber invocado la herramienta
   if (
     !unansweredFlagged &&
-    /\b(no cuento con informaci[oó]n oficial|no tengo ese dato oficial|don't have official information|do not have that policy)\b/i.test(
+    /\b(no cuento con (?:esa )?(?:informaci[oó]n|pol[ií]tica) oficial|no contamos con (?:una )?(?:informaci[oó]n|pol[ií]tica) oficial|no tengo ese dato oficial|don't have (?:an? )?official (?:information|policy)|do not have (?:that|an? official) policy)\b/i.test(
       replyText
     ) &&
-    !/\b(chiste|joke|cancion|song|banda|rock|heroes del silencio|futbol|soccer|nfl|nba|clima|weather|menudo|birria|pozole|suadero|tripa|cerveza)\b/i.test(
+    !/\b(chiste|joke|cancion|song|banda|rock|heroes del silencio|futbol|soccer|nfl|nba|clima|weather|menudo|birria|pozole|suadero|tripa|cerveza|pastel|birthday\s*cake|churro)\b/i.test(
       normUser
     )
   ) {
@@ -4633,7 +4995,7 @@ export function verifyPhoneTtsSignature(text: string, lang: string, voice: strin
 }
 
 const TWILIO_GATHER_HINTS =
-  'Tacos Gavilan, asada, pastor, pollo, cabeza, lengua, buche, chorizo, carnitas, mulita, super mulita, torta cubana, torta milanesa, super burrito, burrito vegetariano, quesadilla, super quesadilla, sope, taco plate, super nachos, flan, cheesecake, horchata, jamaica, pina, tamarindo, champurrado, aguas frescas, huevos rancheros, huevos con chorizo, Monterey Jack, queso fresco, cotija, fiesta platter, charola, drive thru, EBT, CalFresh, West Covina, Lynwood, South Gate, Downey, Norwalk, La Puente, Huntington Park, Santa Ana, Rialto, Azusa, Bell, Hollywood, Slauson, Central, Broadway, gerente, manager'
+  'Tacos Gavilan, asada, pastor, pollo, cabeza, lengua, buche, chorizo, carnitas, mulita, super mulita, torta cubana, torta milanesa, super burrito, burrito vegetariano, quesadilla, super quesadilla, sope, taco plate, super nachos, flan, cheesecake, horchata, jamaica, pina, tamarindo, champurrado, aguas frescas, huevos rancheros, huevos con chorizo, Monterey Jack, queso fresco, cotija, fiesta platter, charola, drive thru, EBT, CalFresh, West Covina, Lynwood, South Gate, Downey, Norwalk, La Puente, Huntington Park, Santa Ana, Rialto, Azusa, Bell, Hollywood, Los Angeles, Vernon, Washington, Slauson, Central, Broadway, gerente, manager'
 
 /**
  * Genera los atributos estándar optimizados de Twilio `<Gather input="speech dtmf">`

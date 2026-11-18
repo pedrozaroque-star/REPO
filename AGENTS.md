@@ -84,8 +84,18 @@ Cada vez que se cree, modifique, elimine o actualice una característica, lógic
   2. Si se agregaron/modificaron features o endpoints, actualizar el prompt y herramientas del Asistente IA (`app/api/support-chat/route.ts` y `lib/chat-tools.ts`).
   3. **PROHIBIDO**: En chats de desarrollo, NO tocar reportes ni horas (`scripts/*_full_data.json` o `lib/reports-data.ts`). Dicha labor está estrictamente asignada al Chat de Pendientes.
 
-### 📌 REGLA OBLIGATORIA: Nombre Oficial de la Marca
-El nombre oficial de la empresa y marca es estrictamente **Tacos Gavilan** (NUNCA "Tacos El Gavilan"). Todos los correos electrónicos, comunicaciones corporativas, títulos, documentación, prompts de IA y respuestas deben usar exclusivamente **Tacos Gavilan**.
+### 📌 REGLA OBLIGATORIA: Nombre Oficial de la Marca y Moneda
+- El nombre oficial de la empresa y marca es estrictamente **Tacos Gavilan** (NUNCA "Tacos El Gavilan"). Todos los correos electrónicos, comunicaciones corporativas, títulos, documentación, prompts de IA y respuestas deben usar exclusivamente **Tacos Gavilan**.
+- Operamos exclusivamente en California, EE. UU.: **todos los precios son en dólares y centavos estadounidenses (`USD`)** (jamás usar `"pesos"` ni `"MXN"`). No vendemos pasteles de cumpleaños (como postre solo ofrecemos `Flan` y `Cheesecake` individuales).
+
+### 📌 REGLA OBLIGATORIA GLOBAL: Sucursales de Los Ángeles (#5, #6 y #7) — Clientes vs. Uso Interno (`lib/customer-store-names.ts`)
+- **Uso Interno Operativo / Administrativo** (`public.stores.name`, paneles gerenciales, inventarios, horarios, contabilidad): se mantienen los nombres cortos internos `#5 LA Broadway` (`Broadway`), `#6 LA Central` (`Central`) y `#7 Slauson`.
+- **Uso de Cara al Cliente (*Customer-Facing*: Contestadora IA / Voz `Kore`, Web Pública `tacosgavilan.com`, App Móvil, Cotizaciones, Encuestas QR `/clientes` y `/feedback-publico`, DoorDash Storefront, Recibos de Cliente, Modo TV Comedor, Correos/SMS a Clientes)**:
+  * **PROHIBIDO** llamar a las sucursales #5, #6 o #7 únicamente `"Broadway"`, `"Central"`, `"Slauson"`, `"LA Broadway"`, `"LA Central"` o `"LA Slauson"` frente al cliente.
+  * **SIEMPRE** deben nombrarse como **Los Ángeles** (`Los Angeles` en inglés) especificando sus **entrecalles (esquinas)** oficiales usando `lib/customer-store-names.ts`:
+    1. **#5 (`LA Broadway` interno, `4380 S. Broadway`)**: **`Los Ángeles (Vernon y Broadway)`** / **`Los Angeles (Vernon & Broadway)`** *(hablado: `"Los Ángeles, en la esquina de Vernon y Broadway"` / `"Los Angeles, at the corner of Vernon and Broadway"`)*.
+    2. **#6 (`LA Central` interno, `1900 S. Central Ave.`, con Drive-Thru)**: **`Los Ángeles (Central y Washington)`** / **`Los Angeles (Central & Washington)`** *(hablado: `"Los Ángeles, en la esquina de Central y Washington"` / `"Los Angeles, at the corner of Central and Washington"`)*.
+    3. **#7 (`Slauson` interno, `5833 S. Broadway`)**: **`Los Ángeles (Slauson y Broadway)`** / **`Los Angeles (Slauson & Broadway)`** *(hablado: `"Los Ángeles, en la esquina de Slauson y Broadway"` / `"Los Angeles, at the corner of Slauson and Broadway"`)*.
 
 ---
 

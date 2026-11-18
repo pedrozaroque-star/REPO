@@ -115,7 +115,7 @@ export const DOORDASH_STORES_BY_ID: Record<number, DoorDashStoreMapping> = {
   },
   5: {
     storeId: 5,
-    storeName: 'LA Broadway',
+    storeName: 'Los Angeles (Vernon & Broadway)',
     doorDashStoreId: '260769',
     storefrontSlug: 'tacos-gavilan-los-angeles-260769',
     storefrontBaseUrl: 'https://order.online/store/tacos-gavilan-los-angeles-260769',
@@ -127,7 +127,7 @@ export const DOORDASH_STORES_BY_ID: Record<number, DoorDashStoreMapping> = {
   },
   6: {
     storeId: 6,
-    storeName: 'LA Central',
+    storeName: 'Los Angeles (Central & Washington)',
     doorDashStoreId: '260847',
     storefrontSlug: 'tacos-gavilan-los-angeles-260847',
     storefrontBaseUrl: 'https://order.online/store/tacos-gavilan-los-angeles-260847',
@@ -139,7 +139,7 @@ export const DOORDASH_STORES_BY_ID: Record<number, DoorDashStoreMapping> = {
   },
   7: {
     storeId: 7,
-    storeName: 'Slauson',
+    storeName: 'Los Angeles (Slauson & Broadway)',
     doorDashStoreId: '23989119',
     storefrontSlug: 'tacos-gavilan-slauson-broadway-23989119',
     storefrontBaseUrl: 'https://order.online/store/tacos-gavilan-slauson-broadway-23989119',

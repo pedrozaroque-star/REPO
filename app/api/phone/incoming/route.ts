@@ -27,6 +27,7 @@ import { after } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 import { getCaliforniaBusinessDate, getCaliforniaShift } from '@/lib/business-date'
 import { getPhoneAgentSpeech, resolvePhoneFemaleVoice } from '@/lib/order-ready-tts'
+import { formatCustomerGreetingTarget } from '@/lib/customer-store-names'
 import {
   buildInitialGreeting,
   buildPhoneTtsUrl,
@@ -197,10 +198,11 @@ export async function POST(request: Request) {
 
     if (!config.is_enabled) {
       const spokenStoreName = cleanPhoneStoreName(store.name) || store.name
+      const greetingTarget = formatCustomerGreetingTarget(store, lang)
       const disabledMsg =
         lang === 'en'
-          ? `Thank you for calling Tacos Gavilan ${spokenStoreName}. ${scheduleEval.statusMessageEn} You can also order online at tacosgavilan.com.`
-          : `Gracias por llamar a Tacos Gavilan sucursal ${spokenStoreName}. ${scheduleEval.statusMessageEs} También puedes ordenar en línea en tacosgavilan.com.`
+          ? `Thank you for calling Tacos Gavilan ${greetingTarget}. ${scheduleEval.statusMessageEn} You can also order online at tacosgavilan.com.`
+          : `Gracias por llamar a Tacos Gavilan ${greetingTarget}. ${scheduleEval.statusMessageEs} También puedes ordenar en línea en tacosgavilan.com.`
       const ttsUrl = buildPhoneTtsUrl(baseUrl, disabledMsg, lang, voice)
       scheduleBackgroundTask(async () => {
         await Promise.all([
@@ -293,12 +295,15 @@ export async function POST(request: Request) {
     })
 
     // REGLA CIPA CALIFORNIA (§§ 631, 632 y 632.7 — "Before Interception Rule"):
-    // Reproducir aviso legal CIPA completo sin captura de voz seguido de 0 ms de pausa al abrir <Gather input="speech dtmf"> con &turn0=1.
+    // El primer <Gather input="dtmf" timeout="0"> escucha ÚNICAMENTE tonos de teclado (tecla 9 tras "For English, press nine.")
+    // con CERO captura de voz (0 speech), pasando en 0 ms a <Gather input="speech dtmf"> al concluir el aviso de llamada transcrita.
     const respondUrl = `${baseUrl}/api/phone/respond?storeId=${store.id}&lang=${lang}&turn0=1`
 
     const twiml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  ${disclosureTag}
+  <Gather input="dtmf" numDigits="1" timeout="0" action="${escapeXml(respondUrl)}&amp;preconsent=1" method="POST">
+    ${disclosureTag}
+  </Gather>
   <Gather ${buildTwilioGatherAttrs(lang, respondUrl)}>
     ${questionTag}
   </Gather>

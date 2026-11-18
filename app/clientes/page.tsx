@@ -21,6 +21,7 @@ import { motion } from 'framer-motion'
 import { useSearchParams } from 'next/navigation'
 
 import { formatStoreName } from '@/lib/supabase'
+import { formatCustomerStoreName, getCustomerStoreCrossStreets } from '@/lib/customer-store-names'
 type Language = 'es' | 'en'
 
 interface Store {
@@ -481,7 +482,7 @@ function ClientesFeedbackContent() {
             >
               <option value="">{t.storePlaceholder}</option>
               {stores.map(s => (
-                <option key={s.id} value={s.id}>{formatStoreName(s.name)}</option>
+                <option key={s.id} value={s.id}>{formatCustomerStoreName(s, lang) || formatStoreName(s.name)}</option>
               ))}
             </select>
 
@@ -490,7 +491,11 @@ function ClientesFeedbackContent() {
                 <span className="text-base">📍</span>
                 <div className="text-xs text-blue-700 leading-relaxed">
                   <span className="block font-bold text-blue-800">{t.areYouHere}</span>
-                  {currentStoreInfo.address}<br />
+                  {currentStoreInfo.address}
+                  {getCustomerStoreCrossStreets(currentStoreInfo, lang)
+                    ? ` (${getCustomerStoreCrossStreets(currentStoreInfo, lang)})`
+                    : ''}
+                  <br />
                   {currentStoreInfo.city}
                 </div>
               </div>

@@ -113,7 +113,8 @@ import {
   RotateCcw,
   Bot,
   Hand,
-  BarChart3
+  BarChart3,
+  PhoneCall
 } from 'lucide-react'
 import { useLanguage } from '@/lib/i18n'
 import { createClient } from '@supabase/supabase-js'
@@ -121,6 +122,7 @@ import ProtectedRoute from '@/components/ProtectedRoute'
 import { AVAILABLE_VOICES, VoiceId, isValidVoice, isForbiddenRaulVoice } from '@/lib/order-ready-tts'
 import { getCaliforniaBusinessDate, getCaliforniaShift } from '@/lib/business-date'
 import { STORE_GUID_BY_CODE } from '@/lib/toast-stores'
+import { formatCustomerStoreName } from '@/lib/customer-store-names'
 import { isDrinkOrDessertOnlyOrder, compareOrdersKdsFifo } from '@/lib/order-ready-filter'
 import {
   AutoCallMode,
@@ -235,6 +237,10 @@ function OrderReadyBoardContent() {
   const [access, setAccess] = useState<{ all: boolean; codes: string[] } | null>(null)
   const accessLoaded = access !== null
   const isAdmin = !!access?.all
+  const [adminSimPreview, setAdminSimPreview] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false
+    return window.localStorage.getItem('teg_orb_admin_sim_preview_opt_in') === 'true'
+  })
   const visibleStores = access
     ? access.all
       ? STORES_LIST
@@ -3162,7 +3168,11 @@ function OrderReadyBoardContent() {
 
       {/* Banner de Recados Telefónicos Prioritarios (Contestadora IA — Oculto en Modo TV/F11 de clientes para proteger PII) */}
       {!isFullscreen && !isKioskTvQuery && !isWindowKioskFullscreen && (
-        <PhoneCallbackAlertBanner storeCode={selectedStore} ready={storeOk} />
+        <PhoneCallbackAlertBanner
+          storeCode={selectedStore}
+          ready={storeOk}
+          includeSimulator={isAdmin && adminSimPreview}
+        />
       )}
 
       {/* Top Header / Barra Superior */}
@@ -3196,7 +3206,9 @@ function OrderReadyBoardContent() {
                 >
                   {visibleStores.map((s) => (
                     <option key={s.code} value={s.code} className={isDark ? 'bg-slate-900 text-white' : 'bg-white text-slate-900'}>
-                      {s.name}
+                      {isFullscreen || isKioskTvQuery || isWindowKioskFullscreen
+                        ? formatCustomerStoreName({ code: s.code, name: s.name }, language === 'en' ? 'en' : 'es')
+                        : s.name}
                     </option>
                   ))}
                 </select>
@@ -3373,6 +3385,41 @@ function OrderReadyBoardContent() {
                 </span>
               )}
             </div>
+          )}
+
+          {/* Vista Previa Admin de Alertas Telefónicas del Simulador (Exclusivo Admin) */}
+          {isAdmin && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation()
+                setAdminSimPreview((prev) => {
+                  const next = !prev
+                  try {
+                    window.localStorage.setItem('teg_orb_admin_sim_preview_opt_in', String(next))
+                  } catch {}
+                  return next
+                })
+              }}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-semibold transition cursor-pointer ${
+                adminSimPreview
+                  ? isDark
+                    ? 'bg-amber-950/50 hover:bg-amber-900/50 text-amber-200 border-amber-700/70'
+                    : 'bg-amber-50 hover:bg-amber-100 text-amber-900 border-amber-300'
+                  : isDark
+                    ? 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
+                    : 'bg-white hover:bg-slate-50 text-slate-600 border-slate-200'
+              }`}
+              title={
+                adminSimPreview
+                  ? t('orderReadyBoard.admin_sim_preview_tooltip_on')
+                  : t('orderReadyBoard.admin_sim_preview_tooltip_off')
+              }
+            >
+              <span className={`w-2 h-2 rounded-full ${adminSimPreview ? 'bg-amber-500 animate-pulse' : 'bg-slate-400'}`} />
+              <PhoneCall className={`w-3.5 h-3.5 ${adminSimPreview ? 'text-amber-600 dark:text-amber-400' : 'text-slate-400'}`} />
+              <span className="hidden xl:inline">{t('orderReadyBoard.admin_sim_preview_btn')}</span>
+            </button>
           )}
 
           {/* Botón de Auditoría en Vivo (Uso de Tabletas de Cocina & Estado de Bocinas AI) */}

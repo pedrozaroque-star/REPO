@@ -47,8 +47,7 @@ async function renderWav(
     skipStorageLookup: isDynamic,
     skipStoragePersist: false,
     skipSseAttempt: isDynamic,
-    maxTotalMs: rate === 8000 || isDynamic ? 7800 : undefined,
-    signal
+    maxTotalMs: rate === 8000 || isDynamic ? 8500 : 16000
   })
   const wav = rate === 8000 ? downsampleWav24kTo8k(rawWav) : rawWav
   return new Response(new Uint8Array(wav), {

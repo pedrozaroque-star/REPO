@@ -39,6 +39,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react'
 import ProtectedRoute from '@/components/ProtectedRoute'
 import { useLanguage } from '@/lib/i18n'
 import { normalizeTextForPhoneSpeech, pickStrictFemaleBrowserVoice } from '@/lib/phone-speech-format'
+import { formatCustomerGreetingTarget } from '@/lib/customer-store-names'
 import {
   Phone,
   PhoneCall,
@@ -464,10 +465,10 @@ const QUICK_SCENARIOS: Array<{
   {
     id: 'unavailable_item',
     group: 'menu',
-    labelEs: '🚫 Platillos que NO vendemos: ¿Tienen menudo, birria o cerveza?',
-    labelEn: '🚫 Items we DO NOT sell: Do you have menudo, birria, or beer?',
-    textEs: 'Oye, una pregunta rápida: ¿venden menudo los domingos, birria o cerveza michelada en esta sucursal?',
-    textEn: 'Quick question: do you guys sell menudo on Sundays, birria, or beer and micheladas at this location?'
+    labelEs: '🚫 Productos que NO manejamos: ¿Pastel de cumpleaños, menudo o cerveza?',
+    labelEn: '🚫 Items we DO NOT carry: Birthday cakes, menudo, or beer?',
+    textEs: 'Oye, una pregunta rápida: ¿venden pasteles de cumpleaños, menudo los domingos o cerveza en esta sucursal?',
+    textEn: 'Quick question: do you guys sell birthday cakes, menudo on Sundays, or beer at this location?'
   },
   {
     id: 'platters_small',
@@ -618,8 +619,8 @@ const QUICK_SCENARIOS: Array<{
     group: 'staff',
     labelEs: '❓ Pregunta no registrada (Prueba detector de Nuevas Preguntas)',
     labelEn: '❓ Unregistered policy question (Tests Unanswered Detector)',
-    textEs: 'Oigan, ¿permiten llevar nuestro propio pastel de cumpleaños al comedor o tienen convenio de descuento para escuelas?',
-    textEn: 'Hey, do you allow bringing our own birthday cake into the dining room, or do you offer school discount partnerships?'
+    textEs: 'Oigan, ¿manejan convenios de descuento para escuelas locales o patrocinios para eventos escolares?',
+    textEn: 'Hey, do you offer discount partnerships for local schools or sponsorships for school events?'
   }
 ]
 
@@ -742,6 +743,11 @@ export default function ContestadoraIaPage() {
   const realPendingCbCountRef = useRef(0)
   const simSpeakingRef = useRef(false)
   simSpeakingRef.current = simSpeaking
+  const simActiveRef = useRef(false)
+  simActiveRef.current = simActive
+  const simBusyRef = useRef(false)
+  simBusyRef.current = simBusy
+  const handleSendSimTurnRef = useRef<(textOverride?: string) => Promise<void>>(async () => {})
   const simStoreIdRef = useRef<number>(simStoreId)
   simStoreIdRef.current = simStoreId
   const simCallSidRef = useRef<string | null>(simCallSid)
@@ -971,7 +977,8 @@ export default function ContestadoraIaPage() {
       if (!audioCtxRef.current || audioCtxRef.current.state === 'closed') {
         audioCtxRef.current = new AudioCtx()
       }
-      if (audioCtxRef.current.state === 'suspended') {
+      const ctxState = String(audioCtxRef.current.state || '')
+      if (ctxState === 'suspended' || ctxState === 'interrupted') {
         audioCtxRef.current.resume().catch(() => {})
       }
       return audioCtxRef.current
@@ -982,7 +989,7 @@ export default function ContestadoraIaPage() {
 
   const playPendingCallbackChime = useCallback(async () => {
     try {
-      if (typeof window === 'undefined' || simSpeakingRef.current) return
+      if (typeof window === 'undefined' || simSpeakingRef.current || simActiveRef.current || simBusyRef.current) return
       const ctx = ensureUnlockedAudioCtx()
       if (!ctx) return
       if (ctx.state === 'suspended') {
@@ -1093,7 +1100,10 @@ export default function ContestadoraIaPage() {
       onDone?.()
       return
     }
-    window.speechSynthesis.cancel()
+    const mySeq = ++voicePlaySeqRef.current
+    try {
+      window.speechSynthesis.cancel()
+    } catch {}
     const preferredFemale = pickStrictFemaleBrowserVoice(window.speechSynthesis.getVoices(), lang)
     // PROHIBICIÓN ABSOLUTA DE VOZ MASCULINA: si el sistema operativo (ej. Windows sin voz femenina en español)
     // no tiene una voz femenina explícitamente verificada, NO invocar `speechSynthesis.speak`, ya que Windows
@@ -1103,23 +1113,44 @@ export default function ContestadoraIaPage() {
       onDone?.()
       return
     }
-    const utter = new SpeechSynthesisUtterance(normalizeTextForPhoneSpeech(text, lang))
-    utter.lang = preferredFemale.lang || (lang === 'en' ? 'en-US' : 'es-MX')
-    utter.rate = 1.04
-    utter.voice = preferredFemale
-    setSimSpeaking(true)
-    const finishSpeech = () => {
+    const normalized = normalizeTextForPhoneSpeech(text, lang)
+    const sentences = (normalized.match(/[^.!?]+[.!?]*/g) || [normalized])
+      .map((s) => s.trim())
+      .filter(Boolean)
+    if (sentences.length === 0) {
       setSimSpeaking(false)
       onDone?.()
+      return
     }
-    utter.onend = finishSpeech
-    utter.onerror = finishSpeech
-    window.speechSynthesis.speak(utter)
+    setSimSpeaking(true)
+    let idx = 0
+    const speakNext = () => {
+      if (mySeq !== voicePlaySeqRef.current || simMutedRef.current) {
+        if (mySeq === voicePlaySeqRef.current) setSimSpeaking(false)
+        return
+      }
+      if (idx >= sentences.length) {
+        setSimSpeaking(false)
+        onDone?.()
+        return
+      }
+      const utter = new SpeechSynthesisUtterance(sentences[idx++])
+      utter.lang = preferredFemale.lang || (lang === 'en' ? 'en-US' : 'es-MX')
+      utter.rate = 1.04
+      utter.voice = preferredFemale
+      utter.onend = () => speakNext()
+      utter.onerror = () => speakNext()
+      window.speechSynthesis.speak(utter)
+    }
+    setTimeout(speakNext, 45)
   }, [])
 
   const stopAllSimAudio = useCallback((abortStream = false) => {
-    // Invalidar cualquier continuación asíncrona de playVoiceUrl y abortar descargas HTTP de audio en vuelo
+    // Invalidar cualquier continuación asíncrona de playVoiceUrl y, si abortStream=true, cualquier lector NDJSON previo
     voicePlaySeqRef.current += 1
+    if (abortStream) {
+      simReqIdRef.current += 1
+    }
     if (voicePlayAbortRef.current) {
       try {
         voicePlayAbortRef.current.abort()
@@ -1243,42 +1274,25 @@ export default function ContestadoraIaPage() {
         }
       }
 
-      const pushPcmBase64 = (pcmBase64: string, sampleRate = 24000) => {
-        if (simMutedRef.current || !ctx || !pcmBase64) return
-        if (ctx.state === 'suspended') {
-          ctx.resume().catch(() => {})
-        }
-        const binary = window.atob(pcmBase64)
-        const byteLen = binary.length - (binary.length % 2)
-        if (byteLen < 2) return
-
-        const bytes = new Uint8Array(byteLen)
-        for (let i = 0; i < byteLen; i++) {
-          bytes[i] = binary.charCodeAt(i)
-        }
-        const view = new DataView(bytes.buffer)
-        const sampleCount = byteLen / 2
-        const floats = new Float32Array(sampleCount)
-        for (let i = 0; i < sampleCount; i++) {
-          floats[i] = view.getInt16(i * 2, true) / 32768
-        }
-
-        if (isFirstChunk) {
+      const scheduleDecodedFloats = (floats: Float32Array, sampleRate: number) => {
+        if (simMutedRef.current || !ctx) return
+        const hadUnderrun = nextPlayTimeRef.current < ctx.currentTime + 0.005
+        if (isFirstChunk || hadUnderrun) {
           isFirstChunk = false
-          const fadeSamples = Math.min(64, sampleCount)
+          const fadeSamples = Math.min(64, floats.length)
           for (let i = 0; i < fadeSamples; i++) {
             floats[i] *= i / fadeSamples
           }
         }
 
-        const audioBuf = ctx.createBuffer(1, sampleCount, sampleRate)
+        const audioBuf = ctx.createBuffer(1, floats.length, sampleRate)
         audioBuf.getChannelData(0).set(floats)
 
         const source = ctx.createBufferSource()
         source.buffer = audioBuf
         source.connect(ctx.destination)
 
-        const startAt = Math.max(ctx.currentTime + 0.035, nextPlayTimeRef.current)
+        const startAt = Math.max(ctx.currentTime + 0.085, nextPlayTimeRef.current)
         nextPlayTimeRef.current = startAt + audioBuf.duration
 
         scheduledSourcesRef.current.push(source)
@@ -1302,6 +1316,38 @@ export default function ContestadoraIaPage() {
         source.start(startAt)
       }
 
+      const pushPcmBase64 = (pcmBase64: string, sampleRate = 24000) => {
+        if (simMutedRef.current || !ctx || !pcmBase64) return
+        const binary = window.atob(pcmBase64)
+        const byteLen = binary.length - (binary.length % 2)
+        if (byteLen < 2) return
+
+        const bytes = new Uint8Array(byteLen)
+        for (let i = 0; i < byteLen; i++) {
+          bytes[i] = binary.charCodeAt(i)
+        }
+        const view = new DataView(bytes.buffer)
+        const sampleCount = byteLen / 2
+        const floats = new Float32Array(sampleCount)
+        for (let i = 0; i < sampleCount; i++) {
+          floats[i] = view.getInt16(i * 2, true) / 32768
+        }
+
+        const st = String(ctx.state || '')
+        if (st === 'suspended' || st === 'interrupted') {
+          void ctx
+            .resume()
+            .then(() => {
+              if (!simMutedRef.current && String(ctx.state || '') === 'running') {
+                scheduleDecodedFloats(floats, sampleRate)
+              }
+            })
+            .catch(() => {})
+          return
+        }
+        scheduleDecodedFloats(floats, sampleRate)
+      }
+
       const finish = () => {
         streamFinished = true
         if (!playedAny || scheduledSourcesRef.current.length === 0) {
@@ -1319,23 +1365,28 @@ export default function ContestadoraIaPage() {
     [ensureUnlockedAudioCtx, stopAllSimAudio]
   )
 
-  // Pre-calentar en RAM el contexto, menú en vivo y saludo al cambiar de tienda o idioma
+  // Pre-calentar en RAM el contexto, menú en vivo y saludo SOLO antes de iniciar llamada (jamás competir con una llamada activa)
   const hasSimStoreLoaded = stores.some((s) => s.id === simStoreId)
   useEffect(() => {
-    if (loading || activeTab !== 'simulator' || !hasSimStoreLoaded) return
+    if (loading || activeTab !== 'simulator' || !hasSimStoreLoaded || simActive) return
     const ctrl = new AbortController()
-    fetch('/api/phone/simulate', {
-      method: 'POST',
-      headers: getAuthHeaders(),
-      signal: ctrl.signal,
-      body: JSON.stringify({
-        action: 'prewarm',
-        storeId: simStoreId,
-        lang: simLang
-      })
-    }).catch(() => null)
-    return () => ctrl.abort()
-  }, [loading, activeTab, simStoreId, simLang, hasSimStoreLoaded, getAuthHeaders])
+    const timer = window.setTimeout(() => {
+      fetch('/api/phone/simulate', {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        signal: ctrl.signal,
+        body: JSON.stringify({
+          action: 'prewarm',
+          storeId: simStoreId,
+          lang: simLang
+        })
+      }).catch(() => null)
+    }, 250)
+    return () => {
+      window.clearTimeout(timer)
+      ctrl.abort()
+    }
+  }, [loading, activeTab, simStoreId, simLang, simActive, hasSimStoreLoaded, getAuthHeaders])
 
   const playVoiceUrl = useCallback(
     async (
@@ -1373,7 +1424,7 @@ export default function ContestadoraIaPage() {
           for (let attempt = 0; attempt < 2; attempt++) {
             if (isInterrupted()) return null
             try {
-              const res = await fetch(src, { signal: buildFetchSignal(4500) })
+              const res = await fetch(src, { signal: buildFetchSignal(11500) })
               if (!res.ok) throw new Error(`HTTP ${res.status}`)
               const arrayBuf = await res.arrayBuffer()
               if (isInterrupted()) return null
@@ -1389,7 +1440,7 @@ export default function ContestadoraIaPage() {
               const postRes = await fetch('/api/phone/tts', {
                 method: 'POST',
                 headers: getAuthHeaders(),
-                signal: buildFetchSignal(4500),
+                signal: buildFetchSignal(11500),
                 body: JSON.stringify({ text: fallbackText, lang, voice: 'Kore' })
               })
               if (postRes.ok && !isInterrupted()) {
@@ -1406,17 +1457,18 @@ export default function ContestadoraIaPage() {
         }
 
         if (ctx) {
-          if (ctx.state === 'suspended') {
+          const ctxSt = String(ctx.state || '')
+          if (ctxSt === 'suspended' || ctxSt === 'interrupted') {
             await ctx.resume().catch(() => {})
           }
           if (isInterrupted()) {
-            setSimSpeaking(false)
+            if (myPlaySeq === voicePlaySeqRef.current) setSimSpeaking(false)
             return
           }
           const nextBufferPromise = nextAudioUrl ? fetchAndDecode(nextAudioUrl, false) : Promise.resolve(null)
           const firstBuffer = await fetchAndDecode(primarySrc, true)
           if (isInterrupted()) {
-            setSimSpeaking(false)
+            if (myPlaySeq === voicePlaySeqRef.current) setSimSpeaking(false)
             return
           }
 
@@ -1455,19 +1507,19 @@ export default function ContestadoraIaPage() {
 
             await playBuffer(firstBuffer)
             if (isInterrupted()) {
-              setSimSpeaking(false)
+              if (myPlaySeq === voicePlaySeqRef.current) setSimSpeaking(false)
               return
             }
             const nextBuffer = await nextBufferPromise
             if (isInterrupted()) {
-              setSimSpeaking(false)
+              if (myPlaySeq === voicePlaySeqRef.current) setSimSpeaking(false)
               return
             }
             if (nextBuffer) {
               await playBuffer(nextBuffer)
             }
             if (!isInterrupted()) {
-              setSimSpeaking(false)
+              if (myPlaySeq === voicePlaySeqRef.current) setSimSpeaking(false)
               onComplete?.()
             }
             return
@@ -1475,7 +1527,7 @@ export default function ContestadoraIaPage() {
         }
 
         if (isInterrupted()) {
-          setSimSpeaking(false)
+          if (myPlaySeq === voicePlaySeqRef.current) setSimSpeaking(false)
           return
         }
 
@@ -1489,7 +1541,7 @@ export default function ContestadoraIaPage() {
             if (done) return
             done = true
             playCtrl.signal.removeEventListener('abort', onAbortHtml)
-            setSimSpeaking(false)
+            if (myPlaySeq === voicePlaySeqRef.current) setSimSpeaking(false)
             if (!isInterrupted()) {
               onComplete?.()
             }
@@ -1530,10 +1582,10 @@ export default function ContestadoraIaPage() {
   )
 
   const handleStartSimCall = async () => {
-    const reqId = ++simReqIdRef.current
     ensureUnlockedAudioCtx()
     stopMicrophone()
     stopAllSimAudio(true)
+    const reqId = ++simReqIdRef.current
     setSimErrorBanner(null)
     setSimAutoEndedNotice(false)
     setSimTransferPhone(null)
@@ -1577,61 +1629,98 @@ export default function ContestadoraIaPage() {
       let clientFirstAudioMs: number | undefined
       let handledFallbackSpeech = false
 
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done || reqId !== simReqIdRef.current) break
-        ndjsonBuf += decoder.decode(value, { stream: true })
-        const lines = ndjsonBuf.split('\n')
-        ndjsonBuf = lines.pop() || ''
-
-        for (const line of lines) {
-          if (!line.trim()) continue
-          if (reqId !== simReqIdRef.current) break
-          const evt = JSON.parse(line)
-          if (evt.type === 'start_meta') {
-            startMeta = evt
-            setSimCallSid(evt.callSid)
-            setSimActive(true)
-            setSimBusy(false)
-            if (!simMutedRef.current) setSimSynthesizingAudio(true)
-            setSimTranscript([
-              {
-                role: 'assistant',
-                text: evt.greetingText,
-                timestamp: new Date().toISOString(),
-                audioUrl: evt.audioUrl,
-                lang: evt.language
-              }
-            ])
-          } else if (evt.type === 'audio_pcm') {
-            setSimSynthesizingAudio(false)
-            if (clientFirstAudioMs === undefined) {
-              clientFirstAudioMs = Math.round(performance.now() - clickStart)
+      const handleStartEvent = (evt: any) => {
+        if (evt.type === 'start_meta') {
+          startMeta = evt
+          setSimCallSid(evt.callSid)
+          setSimActive(true)
+          setSimBusy(false)
+          if (!simMutedRef.current) setSimSynthesizingAudio(true)
+          setSimTranscript([
+            {
+              role: 'assistant',
+              text: evt.greetingText,
+              timestamp: new Date().toISOString(),
+              audioUrl: evt.audioUrl,
+              lang: evt.language
             }
-            pcmPlayer.pushPcmBase64(evt.pcmBase64, evt.sampleRate || 24000)
-          } else if (evt.type === 'tts_fallback_required') {
-            setSimSynthesizingAudio(false)
-            handledFallbackSpeech = true
-            speakWithFemaleBrowserVoice(evt.text || startMeta?.greetingText || '', evt.language === 'en' ? 'en' : 'es')
-          } else if (evt.type === 'done') {
-            setSimSynthesizingAudio(false)
-            const finalAudioMs = evt.totalFirstAudioMs > 0 ? evt.totalFirstAudioMs : clientFirstAudioMs
-            setSimTranscript((prev) =>
-              prev.map((m, idx) =>
-                idx === 0 ? { ...m, firstAudioMs: finalAudioMs, fromCache: Boolean(evt.fromCache) } : m
-              )
-            )
-          } else if (evt.type === 'error') {
-            throw new Error(evt.error || t('phone_agent.sim_error_start'))
+          ])
+        } else if (evt.type === 'audio_pcm') {
+          setSimSynthesizingAudio(false)
+          if (clientFirstAudioMs === undefined) {
+            clientFirstAudioMs = Math.round(performance.now() - clickStart)
           }
+          pcmPlayer.pushPcmBase64(evt.pcmBase64, evt.sampleRate || 24000)
+        } else if (evt.type === 'tts_fallback_required') {
+          setSimSynthesizingAudio(false)
+          handledFallbackSpeech = true
+          if (startMeta?.audioUrl) {
+            void playVoiceUrl(
+              startMeta.audioUrl,
+              evt.text || startMeta.greetingText || '',
+              evt.language === 'en' ? 'en' : 'es',
+              null
+            )
+          } else {
+            speakWithFemaleBrowserVoice(evt.text || startMeta?.greetingText || '', evt.language === 'en' ? 'en' : 'es')
+          }
+        } else if (evt.type === 'done') {
+          setSimSynthesizingAudio(false)
+          const finalAudioMs = evt.totalFirstAudioMs > 0 ? evt.totalFirstAudioMs : clientFirstAudioMs
+          setSimTranscript((prev) =>
+            prev.map((m, idx) =>
+              idx === 0 ? { ...m, firstAudioMs: finalAudioMs, fromCache: Boolean(evt.fromCache) } : m
+            )
+          )
+        } else if (evt.type === 'error') {
+          throw new Error(evt.error || t('phone_agent.sim_error_start'))
+        }
+      }
+
+      try {
+        while (true) {
+          const { done, value } = await reader.read()
+          if (reqId !== simReqIdRef.current) break
+          if (done) {
+            ndjsonBuf += decoder.decode()
+            for (const remLine of ndjsonBuf.split('\n')) {
+              if (!remLine.trim()) continue
+              let evt: any = null
+              try {
+                evt = JSON.parse(remLine)
+              } catch {
+                continue
+              }
+              if (evt) handleStartEvent(evt)
+            }
+            break
+          }
+          ndjsonBuf += decoder.decode(value, { stream: true })
+          const lines = ndjsonBuf.split('\n')
+          ndjsonBuf = lines.pop() || ''
+
+          for (const line of lines) {
+            if (!line.trim()) continue
+            if (reqId !== simReqIdRef.current) break
+            let evt: any = null
+            try {
+              evt = JSON.parse(line)
+            } catch {
+              continue
+            }
+            if (evt) handleStartEvent(evt)
+          }
+        }
+      } finally {
+        pcmPlayer.finish()
+        if (activeStreamReaderRef.current === reader) {
+          activeStreamReaderRef.current = null
         }
       }
 
       if (reqId !== simReqIdRef.current) {
-        pcmPlayer.finish()
         return
       }
-      pcmPlayer.finish()
       if (startMeta && !pcmPlayer.hasPlayedAny() && !handledFallbackSpeech && startMeta.audioUrl) {
         void playVoiceUrl(startMeta.audioUrl, startMeta.greetingText, startMeta.language, null)
       }
@@ -1641,9 +1730,6 @@ export default function ContestadoraIaPage() {
         setSimErrorBanner(e.message || t('phone_agent.sim_error_start'))
       }
     } finally {
-      if (activeStreamReaderRef.current) {
-        activeStreamReaderRef.current = null
-      }
       if (reqId === simReqIdRef.current) {
         setSimBusy(false)
         setSimSynthesizingAudio(false)
@@ -1673,12 +1759,13 @@ export default function ContestadoraIaPage() {
 
   const handleSendSimTurn = async (textOverride?: string) => {
     const message = (textOverride ?? simInput).trim()
-    if (!message || simBusy) return
+    if (!message || simBusyRef.current) return
 
-    const reqId = ++simReqIdRef.current
     ensureUnlockedAudioCtx()
     stopMicrophone()
     stopAllSimAudio(true)
+    const reqId = ++simReqIdRef.current
+    simBusyRef.current = true
     setSimErrorBanner(null)
     setSimAutoEndedNotice(false)
     setSimInput('')
@@ -1695,11 +1782,12 @@ export default function ContestadoraIaPage() {
 
     setSimTranscript((prev) => {
       if (startingFreshFromScenario && prev.length === 0) {
-        const storeLabel = stores.find((s) => s.id === simStoreId)?.name || `#${simStoreId}`
+        const storeObj = stores.find((s) => s.id === simStoreId)
+        const greetingTarget = formatCustomerGreetingTarget({ id: simStoreId, name: storeObj?.name || `#${simStoreId}` }, simLang)
         const syntheticGreeting =
           simLang === 'en'
-            ? `Hello, thank you for calling Tacos Gavilan ${storeLabel}. How can I help you today?`
-            : `Hola, gracias por llamar a Tacos Gavilan sucursal ${storeLabel}. ¿En qué te puedo ayudar hoy?`
+            ? `Thanks for calling Tacos Gavilan ${greetingTarget}! How can I help you today?`
+            : `¡Gracias por llamar a Tacos Gavilan ${greetingTarget}! ¿En qué te ayudo hoy?`
         const nowIso = new Date().toISOString()
         return [
           { role: 'assistant', text: syntheticGreeting, timestamp: nowIso, lang: simLang },
@@ -1754,81 +1842,119 @@ export default function ContestadoraIaPage() {
 
       let handledFallbackSpeech = false
 
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done || reqId !== simReqIdRef.current) break
-        ndjsonBuf += decoder.decode(value, { stream: true })
-        const lines = ndjsonBuf.split('\n')
-        ndjsonBuf = lines.pop() || ''
-
-        for (const line of lines) {
-          if (!line.trim()) continue
-          if (reqId !== simReqIdRef.current) break
-          const evt = JSON.parse(line)
-
-          if (evt.type === 'turn_meta') {
-            turnMeta = evt
-            shouldAutoHangup = Boolean(evt.shouldHangup || evt.shouldTransferToPhone)
-            assistantMsgTimestamp = new Date().toISOString()
-            setSimBusy(false)
-            if (!simMutedRef.current) setSimSynthesizingAudio(true)
-            if (evt.language === 'en' || evt.language === 'es') {
-              setSimLang(evt.language)
+      const handleTurnEvent = (evt: any) => {
+        if (evt.type === 'turn_meta') {
+          turnMeta = evt
+          shouldAutoHangup = Boolean(evt.shouldHangup || evt.shouldTransferToPhone)
+          assistantMsgTimestamp = new Date().toISOString()
+          simBusyRef.current = false
+          setSimBusy(false)
+          if (!simMutedRef.current) setSimSynthesizingAudio(true)
+          if (evt.language === 'en' || evt.language === 'es') {
+            setSimLang(evt.language)
+          }
+          setSimLastTools(evt.toolsUsed || [])
+          if (evt.callbackCreated) {
+            setSimLastCallback(evt.callbackCreated)
+          }
+          if (evt.shouldTransferToPhone) {
+            setSimTransferPhone(evt.shouldTransferToPhone)
+          }
+          setSimTranscript((prev) => [
+            ...prev,
+            {
+              role: 'assistant',
+              text: evt.replyText,
+              timestamp: assistantMsgTimestamp,
+              audioUrl: evt.audioUrl,
+              lang: evt.language
             }
-            setSimLastTools(evt.toolsUsed || [])
-            if (evt.callbackCreated) {
-              setSimLastCallback(evt.callbackCreated)
-            }
-            if (evt.shouldTransferToPhone) {
-              setSimTransferPhone(evt.shouldTransferToPhone)
-            }
-            setSimTranscript((prev) => [
-              ...prev,
-              {
-                role: 'assistant',
-                text: evt.replyText,
-                timestamp: assistantMsgTimestamp,
-                audioUrl: evt.audioUrl,
-                lang: evt.language
-              }
-            ])
-          } else if (evt.type === 'audio_pcm') {
-            setSimSynthesizingAudio(false)
-            if (clientFirstAudioMs === undefined) {
-              clientFirstAudioMs = Math.round(performance.now() - turnStart)
-            }
-            pcmPlayer.pushPcmBase64(evt.pcmBase64, evt.sampleRate || 24000)
-          } else if (evt.type === 'tts_fallback_required') {
-            setSimSynthesizingAudio(false)
-            handledFallbackSpeech = true
+          ])
+        } else if (evt.type === 'audio_pcm') {
+          setSimSynthesizingAudio(false)
+          if (clientFirstAudioMs === undefined) {
+            clientFirstAudioMs = Math.round(performance.now() - turnStart)
+          }
+          pcmPlayer.pushPcmBase64(evt.pcmBase64, evt.sampleRate || 24000)
+        } else if (evt.type === 'tts_fallback_required') {
+          setSimSynthesizingAudio(false)
+          handledFallbackSpeech = true
+          if (turnMeta?.audioUrl) {
+            void playVoiceUrl(
+              turnMeta.audioUrl,
+              evt.text || turnMeta.replyText || '',
+              evt.language === 'en' ? 'en' : 'es',
+              null,
+              finalizeAutoHangupIfNeeded
+            )
+          } else {
             speakWithFemaleBrowserVoice(
               evt.text || turnMeta?.replyText || '',
               evt.language === 'en' ? 'en' : 'es',
               finalizeAutoHangupIfNeeded
             )
-          } else if (evt.type === 'done') {
-            setSimSynthesizingAudio(false)
-            const finalAudioMs = evt.totalFirstAudioMs > 0 ? evt.totalFirstAudioMs : clientFirstAudioMs
-            if (assistantMsgTimestamp) {
-              setSimTranscript((prev) =>
-                prev.map((m) =>
-                  m.timestamp === assistantMsgTimestamp
-                    ? { ...m, firstAudioMs: finalAudioMs, fromCache: Boolean(evt.fromCache) }
-                    : m
-                )
-              )
-            }
-          } else if (evt.type === 'error') {
-            throw new Error(evt.error || t('phone_agent.sim_error_turn'))
           }
+        } else if (evt.type === 'done') {
+          setSimSynthesizingAudio(false)
+          const finalAudioMs = evt.totalFirstAudioMs > 0 ? evt.totalFirstAudioMs : clientFirstAudioMs
+          if (assistantMsgTimestamp) {
+            setSimTranscript((prev) =>
+              prev.map((m) =>
+                m.timestamp === assistantMsgTimestamp
+                  ? { ...m, firstAudioMs: finalAudioMs, fromCache: Boolean(evt.fromCache) }
+                  : m
+              )
+            )
+          }
+        } else if (evt.type === 'error') {
+          throw new Error(evt.error || t('phone_agent.sim_error_turn'))
+        }
+      }
+
+      try {
+        while (true) {
+          const { done, value } = await reader.read()
+          if (reqId !== simReqIdRef.current) break
+          if (done) {
+            ndjsonBuf += decoder.decode()
+            for (const remLine of ndjsonBuf.split('\n')) {
+              if (!remLine.trim()) continue
+              let evt: any = null
+              try {
+                evt = JSON.parse(remLine)
+              } catch {
+                continue
+              }
+              if (evt) handleTurnEvent(evt)
+            }
+            break
+          }
+          ndjsonBuf += decoder.decode(value, { stream: true })
+          const lines = ndjsonBuf.split('\n')
+          ndjsonBuf = lines.pop() || ''
+
+          for (const line of lines) {
+            if (!line.trim()) continue
+            if (reqId !== simReqIdRef.current) break
+            let evt: any = null
+            try {
+              evt = JSON.parse(line)
+            } catch {
+              continue
+            }
+            if (evt) handleTurnEvent(evt)
+          }
+        }
+      } finally {
+        pcmPlayer.finish()
+        if (activeStreamReaderRef.current === reader) {
+          activeStreamReaderRef.current = null
         }
       }
 
       if (reqId !== simReqIdRef.current) {
-        pcmPlayer.finish()
         return
       }
-      pcmPlayer.finish()
       if (turnMeta && !pcmPlayer.hasPlayedAny() && !handledFallbackSpeech) {
         if (turnMeta.audioUrl) {
           void playVoiceUrl(
@@ -1848,17 +1974,17 @@ export default function ContestadoraIaPage() {
         setSimErrorBanner(e.message || t('phone_agent.sim_error_turn'))
       }
     } finally {
-      if (activeStreamReaderRef.current) {
-        activeStreamReaderRef.current = null
-      }
       if (reqId === simReqIdRef.current) {
+        simBusyRef.current = false
         setSimBusy(false)
         setSimSynthesizingAudio(false)
       }
     }
   }
+  handleSendSimTurnRef.current = handleSendSimTurn
 
   const toggleMicrophone = () => {
+    ensureUnlockedAudioCtx()
     if (simListening && recognitionRef.current) {
       stopMicrophone()
       return
@@ -1908,7 +2034,8 @@ export default function ContestadoraIaPage() {
       }
       if (finalTxt.trim()) {
         setSimInput('')
-        void handleSendSimTurn(finalTxt.trim())
+        stopMicrophone()
+        void handleSendSimTurnRef.current(finalTxt.trim())
       }
     }
 
@@ -2927,13 +3054,12 @@ export default function ContestadoraIaPage() {
                   )}
                   <button
                     type="button"
-                    onClick={() =>
-                      setSimMuted((m) => {
-                        const next = !m
-                        if (next) stopAllSimAudio(true)
-                        return next
-                      })
-                    }
+                    onClick={() => {
+                      const next = !simMutedRef.current
+                      simMutedRef.current = next
+                      if (next) stopAllSimAudio(true)
+                      setSimMuted(next)
+                    }}
                     title={simMuted ? t('phone_agent.sim_unmute_voice') : t('phone_agent.sim_mute_voice')}
                     className={`p-2 rounded-xl border text-xs font-bold transition ${
                       simMuted

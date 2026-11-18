@@ -29,6 +29,7 @@ import { supabaseAdmin } from '@/lib/supabase'
 import { corsResponse, jsonOk, getAuthUser, isAuthSuccess, corsHeaders } from '../../_helpers'
 import { checkRateLimit, getClientIp } from '@/lib/storefront/rate-limit'
 import { calculateToastPrices } from '@/lib/toast/prices-client'
+import { formatCustomerStoreName, getCustomerStoreCrossStreets } from '@/lib/customer-store-names'
 import {
   UUID_REGEX,
   validateCartLineAgainstMenuV3,
@@ -329,7 +330,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       const entry = menuItemMap.get(reqItem.guid)
       if (!entry) {
         return quoteError(
-          `El artículo ${reqItem.guid} no existe en el menú de ${store.name}`,
+          `El artículo ${reqItem.guid} no existe en el menú de ${formatCustomerStoreName(store, 'es')}`,
           400,
           'VALIDATION_ERROR',
           { retryable: false }
@@ -420,7 +421,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         toastStatus: toastPricesResp.blocked,
         store: {
           id: store.id,
-          name: store.name,
+          name: formatCustomerStoreName(store, 'en'),
+          crossStreets: getCustomerStoreCrossStreets(store, 'en'),
           address: store.address,
           phone: store.phone,
         },
@@ -535,7 +537,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       retryable: false,
       store: {
         id: store.id,
-        name: store.name,
+        name: formatCustomerStoreName(store, 'en'),
+        crossStreets: getCustomerStoreCrossStreets(store, 'en'),
         address: store.address,
         phone: store.phone,
       },

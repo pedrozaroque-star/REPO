@@ -28,6 +28,7 @@
 
 import React, { useState, useEffect, useMemo } from 'react'
 import { useLanguage } from '@/lib/i18n'
+import { formatCustomerStoreName } from '@/lib/customer-store-names'
 import CashierRegister, { type AppliedDiscount } from '@/components/gavilan-pos/CashierRegister'
 import {
     lineTotal,
@@ -4315,7 +4316,7 @@ export default function GavilanPosEcosystemPage() {
                                         {receiptConfig.showLogo && (
                                             <div className="text-center border-b border-dashed border-slate-300 pb-2">
                                                 <p className="text-sm font-black tracking-tight">🦅 TACOS GAVILAN</p>
-                                                <p className="text-[10px] text-slate-600">Sucursal #{activeStore?.storeNumber || 14} {activeStore?.name || 'Lynwood'} • (310) 555-0192</p>
+                                                <p className="text-[10px] text-slate-600">Sucursal #{activeStore?.storeNumber || 14} {formatCustomerStoreName({ id: activeStore?.storeNumber || 14, name: activeStore?.name || 'Lynwood' }, 'es')} • (424) 785-5535</p>
                                             </div>
                                         )}
                                         {receiptConfig.giantOrderNumber && (

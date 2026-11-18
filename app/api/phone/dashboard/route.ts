@@ -10,7 +10,8 @@
  *     consultar reglas y resolver recados telefónicos (`callback_request`).
  * - **Aislamiento de Pruebas (`source = 'twilio'` vs `'simulator'`)**:
  *   * `GET ?callbacksOnly=true` filtra por defecto `source = 'twilio'` para que las pruebas del simulador jamás disparen banners rojos
- *     en `/order-ready-board`.
+ *     en las PCs operativas de tienda (`/order-ready-board`). Solo usuarios `isGlobalAdmin` (`Admin`/`Supervisor`) pueden pasar
+ *     `?includeSimulator=true` para activar la Vista Previa Admin en `/order-ready-board`.
  * - **KPIs Exactos en Base de Datos**: Calcula conteos reales directamente en PostgreSQL (`count: 'exact'`) sin truncarse al límite
  *   de paginación de la tabla visual, y calcula `resolvedByAiPct` únicamente sobre llamadas con `turns_count > 0`.
  * - **Cero Desvío a Celulares de Gerentes (`allow_live_transfer = false`)**: Por política de Tacos Gavilan, jamás se desvían
@@ -30,6 +31,9 @@
  *   sobre `idx_phone_callbacks_pending_critical_scoped` con tope de seguridad (10,000 registros) y detección explícita de truncamiento
  *   (`callbacksPagination.criticalPendingTruncated` / `pendingTruncated`) para nunca presentar una lista truncada como completa;
  *   y propagación explícita HTTP 500 en el panel.
+ * - Blindaje 2026-11-18: el barrido en segundo plano jamás borra tombstones >24h a ciegas; primero reconcilia sesiones colgadas
+ *   con tombstones pendientes y depura únicamente los tombstones >24h cuyo cierre ya quedó comprobado en `phone_calls`
+ *   (`cleanupOrReconcileExpiredTombstones`), mientras el fallback visual de configuración ausente usa `is_enabled: false`.
  */
 
 import { NextRequest, NextResponse } from 'next/server'
@@ -43,13 +47,15 @@ import {
 } from '@/lib/phone-agent-access'
 import {
   CarrierType,
+  cleanupOrReconcileExpiredTombstones,
   CRITICAL_CALLBACKS_MAX_ROWS,
   cleanPhoneStoreName,
   evaluateStoreSchedulePure,
   fetchScopedCriticalPendingCallbacksWithCap,
   getCarrierForwardingInstructions,
   invalidatePhoneRoutingDirectoryCache,
-  invalidateStorePhoneContextCache
+  invalidateStorePhoneContextCache,
+  reconcileCallWithTerminalTombstone
 } from '@/lib/phone-agent'
 
 export const dynamic = 'force-dynamic'
@@ -197,7 +203,7 @@ export async function GET(request: NextRequest) {
       }
 
       const cbViewer = auth.user
-      const includeSim = searchParams.get('includeSimulator') === 'true'
+      const includeSim = searchParams.get('includeSimulator') === 'true' && cbViewer.isGlobalAdmin
       const statusFilter = searchParams.get('status')
 
       const applyCbScope = (q: any) => {
@@ -314,23 +320,37 @@ export async function GET(request: NextRequest) {
       return q
     }
 
-    // Cerrar automáticamente sesiones huérfanas (> 25 min en `in_progress`) con throttle cada 5 min para no mutar en cada polling de 12 s
+    // Cerrar automáticamente sesiones huérfanas (> 25 min en `in_progress`) con throttle cada 5 min sin perder cierres pendientes
     const sweepNow = Date.now()
     if (sweepNow - lastStaleSweepAt >= STALE_SWEEP_INTERVAL_MS) {
       lastStaleSweepAt = sweepNow
       const staleCutoffIso = new Date(sweepNow - 25 * 60 * 1000).toISOString()
       const oldTombstoneCutoffIso = new Date(sweepNow - 24 * 60 * 60 * 1000).toISOString()
-      void supabaseAdmin
-        .from('phone_calls')
-        .update({ status: 'completed', ended_at: new Date(sweepNow).toISOString() })
-        .eq('status', 'in_progress')
-        .lt('started_at', staleCutoffIso)
-        .then(() => null, () => null)
-      void supabaseAdmin
-        .from('phone_call_status_tombstones')
-        .delete()
-        .lt('created_at', oldTombstoneCutoffIso)
-        .then(() => null, () => null)
+      void (async () => {
+        try {
+          const { data: staleCalls } = await supabaseAdmin
+            .from('phone_calls')
+            .select('call_sid')
+            .eq('status', 'in_progress')
+            .lt('started_at', staleCutoffIso)
+            .limit(100)
+          if (Array.isArray(staleCalls) && staleCalls.length > 0) {
+            for (const sc of staleCalls) {
+              if (sc?.call_sid) {
+                await reconcileCallWithTerminalTombstone(sc.call_sid).catch(() => null)
+              }
+            }
+          }
+          await supabaseAdmin
+            .from('phone_calls')
+            .update({ status: 'completed', ended_at: new Date(sweepNow).toISOString() })
+            .eq('status', 'in_progress')
+            .lt('started_at', staleCutoffIso)
+          await cleanupOrReconcileExpiredTombstones({ olderThanIso: oldTombstoneCutoffIso })
+        } catch {
+          // Ignorar errores transitorios en barrido de mantenimiento; todo tombstone pendiente permanece intacto
+        }
+      })()
     }
 
     const [
@@ -551,7 +571,7 @@ export async function GET(request: NextRequest) {
       const cleanName = cleanPhoneStoreName(s.name)
       const cfg = configByStore.get(s.id) || {
         store_id: s.id,
-        is_enabled: true,
+        is_enabled: false,
         routing_mode: 'conditional_forward',
         carrier_type: [1, 8, 14, 16].includes(s.id) ? 'spectrum_landline' : 'att_wireless',
         twilio_phone_number: null,

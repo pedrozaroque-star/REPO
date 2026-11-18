@@ -2342,11 +2342,17 @@ document.addEventListener('DOMContentLoaded', () => {
                     }
 
                     if (nearest && nearestInfo && nearestText) {
-                        const conciseNameMap = {
-                            'la-central': 'LA Central',
-                            'la-broadway': 'LA Broadway',
-                            'slauson': 'LA Slauson'
-                        };
+                        const conciseNameMap = currentLang === 'es'
+                            ? {
+                                'la-central': 'Los Ángeles (Central y Washington)',
+                                'la-broadway': 'Los Ángeles (Vernon y Broadway)',
+                                'slauson': 'Los Ángeles (Slauson y Broadway)'
+                            }
+                            : {
+                                'la-central': 'Los Angeles (Central & Washington)',
+                                'la-broadway': 'Los Angeles (Vernon & Broadway)',
+                                'slauson': 'Los Angeles (Slauson & Broadway)'
+                            };
                         const shortLabel = conciseNameMap[nearest.slug] || nearest.city || nearest.name;
                         nearestText.textContent = currentLang === 'es'
                             ? `Más cercano: ${shortLabel} (${minDist.toFixed(1)} mi)`

@@ -23,7 +23,13 @@ import { after, NextRequest, NextResponse } from 'next/server'
 import { authorizePhoneModuleRequest } from '@/lib/phone-agent-access'
 import { supabaseAdmin } from '@/lib/supabase'
 import { getCaliforniaBusinessDate, getCaliforniaShift } from '@/lib/business-date'
-import { getPhoneAgentSpeech, resolvePhoneFemaleVoice, streamPhoneAgentSpeechPcm, VoiceId } from '@/lib/order-ready-tts'
+import {
+  getPhoneAgentSpeech,
+  resolvePhoneFemaleVoice,
+  streamPhoneAgentSpeechPcm,
+  VoiceId,
+  warmPhoneSpeechFromStorageOnly
+} from '@/lib/order-ready-tts'
 import {
   buildInitialGreeting,
   buildPhoneTtsUrl,
@@ -88,11 +94,19 @@ export async function POST(request: NextRequest) {
       const conciseSwitch =
         switchedLang === 'en'
           ? 'Of course, we can continue in English! How can I help you today?'
-          : 'Con gusto continuamos en español. ¿En qué te puedo ayudar?'
+          : 'Con gusto continuamos en español. ¿En qué te ayudo hoy?'
+      const key9Greeting = buildInitialGreeting(
+        ctx.store.name,
+        switchedLang,
+        ctx.config.custom_greeting_es,
+        ctx.config.custom_greeting_en,
+        { includeLanguageSwitchHint: false, scheduleEval: ctx.scheduleEval }
+      )
       const prewarmTask = async () => {
         await Promise.all([
-          getPhoneAgentSpeech(greetingText, lang, voiceId, false, { awaitStoragePersist: true }),
-          getPhoneAgentSpeech(conciseSwitch, switchedLang, voiceId, false, { awaitStoragePersist: true })
+          warmPhoneSpeechFromStorageOnly(greetingText, lang, voiceId),
+          warmPhoneSpeechFromStorageOnly(key9Greeting, switchedLang, voiceId),
+          warmPhoneSpeechFromStorageOnly(conciseSwitch, switchedLang, voiceId)
         ])
       }
       try {
@@ -177,24 +191,35 @@ export async function POST(request: NextRequest) {
               let firstAudioMs = -1
               let fromCache = false
               let emittedAudioChunks = 0
+              let streamCompletedCleanly = false
               if (voiceMode !== 'instant_local') {
-                for await (const chunk of streamPhoneAgentSpeechPcm(greetingText, lang, voiceId, {
-                  signal: request.signal
-                })) {
-                  emittedAudioChunks++
-                  if (firstAudioMs === -1) {
-                    firstAudioMs = Date.now() - reqStart
-                    fromCache = chunk.fromCache
+                try {
+                  for await (const chunk of streamPhoneAgentSpeechPcm(greetingText, lang, voiceId, {
+                    signal: request.signal,
+                    skipStorageLookup: false,
+                    onStreamCompleted: (ok) => {
+                      streamCompletedCleanly = ok
+                    }
+                  })) {
+                    emittedAudioChunks++
+                    if (firstAudioMs === -1) {
+                      firstAudioMs = Date.now() - reqStart
+                      fromCache = chunk.fromCache
+                    }
+                    send({
+                      type: 'audio_pcm',
+                      pcmBase64: chunk.pcmChunk.toString('base64'),
+                      sampleRate: chunk.sampleRate,
+                      fromCache: chunk.fromCache
+                    })
                   }
-                  send({
-                    type: 'audio_pcm',
-                    pcmBase64: chunk.pcmChunk.toString('base64'),
-                    sampleRate: chunk.sampleRate,
-                    fromCache: chunk.fromCache
-                  })
+                } catch (ttsErr: any) {
+                  console.warn('[api/phone/simulate start] TTS warning:', ttsErr?.message || ttsErr)
                 }
-                if (emittedAudioChunks === 0) {
+                if (emittedAudioChunks === 0 && !request.signal.aborted) {
                   send({ type: 'tts_fallback_required', text: greetingText, language: lang })
+                } else if (emittedAudioChunks > 0 && !streamCompletedCleanly && !request.signal.aborted) {
+                  send({ type: 'audio_stream_truncated', text: greetingText, language: lang })
                 }
               }
 
@@ -350,7 +375,7 @@ export async function POST(request: NextRequest) {
       const switchedReply = isMidCall
         ? switchedLang === 'en'
           ? 'Of course, we can continue in English! How can I help you today?'
-          : 'Con gusto continuamos en español. ¿En qué te puedo ayudar?'
+          : 'Con gusto continuamos en español. ¿En qué te ayudo hoy?'
         : buildInitialGreeting(
             ctx.store.name,
             switchedLang,
@@ -436,24 +461,35 @@ export async function POST(request: NextRequest) {
               let firstAudioMs = -1
               let fromCache = false
               let emittedAudioChunks = 0
+              let streamCompletedCleanly = false
               if (voiceMode !== 'instant_local') {
-                for await (const chunk of streamPhoneAgentSpeechPcm(switchedReply, switchedLang, voiceId, {
-                  signal: request.signal
-                })) {
-                  emittedAudioChunks++
-                  if (firstAudioMs === -1) {
-                    firstAudioMs = Date.now() - reqStart
-                    fromCache = chunk.fromCache
+                try {
+                  for await (const chunk of streamPhoneAgentSpeechPcm(switchedReply, switchedLang, voiceId, {
+                    signal: request.signal,
+                    skipStorageLookup: false,
+                    onStreamCompleted: (ok) => {
+                      streamCompletedCleanly = ok
+                    }
+                  })) {
+                    emittedAudioChunks++
+                    if (firstAudioMs === -1) {
+                      firstAudioMs = Date.now() - reqStart
+                      fromCache = chunk.fromCache
+                    }
+                    send({
+                      type: 'audio_pcm',
+                      pcmBase64: chunk.pcmChunk.toString('base64'),
+                      sampleRate: chunk.sampleRate,
+                      fromCache: chunk.fromCache
+                    })
                   }
-                  send({
-                    type: 'audio_pcm',
-                    pcmBase64: chunk.pcmChunk.toString('base64'),
-                    sampleRate: chunk.sampleRate,
-                    fromCache: chunk.fromCache
-                  })
+                } catch (ttsErr: any) {
+                  console.warn('[api/phone/simulate key9] TTS warning:', ttsErr?.message || ttsErr)
                 }
-                if (emittedAudioChunks === 0) {
+                if (emittedAudioChunks === 0 && !request.signal.aborted) {
                   send({ type: 'tts_fallback_required', text: switchedReply, language: switchedLang })
+                } else if (emittedAudioChunks > 0 && !streamCompletedCleanly && !request.signal.aborted) {
+                  send({ type: 'audio_stream_truncated', text: switchedReply, language: switchedLang })
                 }
               }
 
@@ -555,25 +591,35 @@ export async function POST(request: NextRequest) {
             let firstAudioMs = -1
             let fromCache = false
             let emittedAudioChunks = 0
+            let streamCompletedCleanly = false
             if (voiceMode !== 'instant_local') {
-              for await (const chunk of streamPhoneAgentSpeechPcm(turn.replyText, turn.language, turn.voiceId, {
-                signal: request.signal,
-                skipStorageLookup: true
-              })) {
-                emittedAudioChunks++
-                if (firstAudioMs === -1) {
-                  firstAudioMs = Date.now() - reqStart
-                  fromCache = chunk.fromCache
+              try {
+                for await (const chunk of streamPhoneAgentSpeechPcm(turn.replyText, turn.language, turn.voiceId, {
+                  signal: request.signal,
+                  skipStorageLookup: false,
+                  onStreamCompleted: (ok) => {
+                    streamCompletedCleanly = ok
+                  }
+                })) {
+                  emittedAudioChunks++
+                  if (firstAudioMs === -1) {
+                    firstAudioMs = Date.now() - reqStart
+                    fromCache = chunk.fromCache
+                  }
+                  send({
+                    type: 'audio_pcm',
+                    pcmBase64: chunk.pcmChunk.toString('base64'),
+                    sampleRate: chunk.sampleRate,
+                    fromCache: chunk.fromCache
+                  })
                 }
-                send({
-                  type: 'audio_pcm',
-                  pcmBase64: chunk.pcmChunk.toString('base64'),
-                  sampleRate: chunk.sampleRate,
-                  fromCache: chunk.fromCache
-                })
+              } catch (ttsErr: any) {
+                console.warn('[api/phone/simulate turn] TTS warning:', ttsErr?.message || ttsErr)
               }
-              if (emittedAudioChunks === 0) {
+              if (emittedAudioChunks === 0 && !request.signal.aborted) {
                 send({ type: 'tts_fallback_required', text: turn.replyText, language: turn.language })
+              } else if (emittedAudioChunks > 0 && !streamCompletedCleanly && !request.signal.aborted) {
+                send({ type: 'audio_stream_truncated', text: turn.replyText, language: turn.language })
               }
             }
 

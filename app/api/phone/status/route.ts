@@ -17,8 +17,12 @@
  *   previa (ej. `shouldHangup` o sucursal apagada) sin reabrir jamás llamadas ya terminadas.
  * - Un evento sin `CallDuration` (`authoritativeDuration === null`) jamás reemplaza una duración válida existente con `NULL` ni `0`
  *   (ni en `phone_call_status_tombstones` ni en `phone_calls`).
- * - Integridad transaccional estricta: si falla cualquier operación necesaria de base de datos (incluyendo `UPDATE` de `phone_calls`),
- *   el tombstone permanece intacto en `phone_call_status_tombstones` para reintento y el endpoint responde HTTP 500 (`{ ok: false }`).
+ * - Integridad transaccional estricta y seguridad ante concurrencia: `upsertPhoneCallStatusTombstone` y
+ *   `reconcileCallWithTerminalTombstone` se serializan por `CallSid` en PostgreSQL (`pg_advisory_xact_lock` + `FOR UPDATE`
+ *   + borrado condicional por `revision`). Cuando llegan dos `StatusCallback` simultáneos con duraciones distintas,
+ *   se conserva siempre la duración final más reciente (respetando `SequenceNumber` / `Timestamp` si Twilio los provee),
+ *   jamás se reabre una llamada terminada y jamás se borra un tombstone que no se haya aplicado en `phone_calls`.
+ *   Si falla cualquier operación necesaria de base de datos, el tombstone permanece intacto y el endpoint responde HTTP 500 (`{ ok: false }`).
  */
 
 import { NextResponse } from 'next/server'
@@ -70,7 +74,15 @@ export async function POST(request: Request) {
     const terminalStatus = callStatus === 'completed' ? 'completed' : callStatus || 'completed'
     const endedIso = new Date().toISOString()
 
-    // 1. Persistir primero el tombstone terminal de forma atómica (nunca reemplaza duration_seconds válida con NULL)
+    const rawSeq =
+      params.SequenceNumber !== undefined && params.SequenceNumber !== null
+        ? String(params.SequenceNumber).trim()
+        : ''
+    const parsedSeq = rawSeq !== '' ? Number(rawSeq) : NaN
+    const sequenceNumber = Number.isFinite(parsedSeq) && parsedSeq >= 0 ? Math.trunc(parsedSeq) : null
+    const eventTimestamp = (params.Timestamp || '').trim() || null
+
+    // 1. Persistir primero el tombstone terminal de forma atómica bajo candado por CallSid
     const savedTombstone = await upsertPhoneCallStatusTombstone({
       callSid,
       terminalStatus,
@@ -78,19 +90,16 @@ export async function POST(request: Request) {
       callerNumber: (params.From || '').trim() || null,
       toNumber: (params.To || '').trim() || null,
       forwardedFrom: (params.ForwardedFrom || '').trim() || null,
-      endedAt: endedIso
+      endedAt: endedIso,
+      sequenceNumber,
+      eventTimestamp
     })
 
-    // 2. Buscar fila existente en phone_calls (o crearla si store_id ya es identificable)
-    let { data: existing, error: lookupErr } = await supabaseAdmin
-      .from('phone_calls')
-      .select('id, status, turns_count, duration_seconds, resolved_by_ai, ended_at')
-      .eq('call_sid', callSid)
-      .maybeSingle()
+    // 2. Intentar reconciliación transaccional directa en PostgreSQL (FOR UPDATE sobre tombstone + phone_calls)
+    let reconciled = await reconcileCallWithTerminalTombstone(callSid)
 
-    if (lookupErr) throw lookupErr
-
-    if (!existing) {
+    // 3. Si phone_calls aún no existe (cierre anticipado antes de que /api/phone/incoming inserte la llamada):
+    if (!reconciled) {
       const reqUrl = new URL(request.url)
       const queryStoreId = reqUrl.searchParams.get('storeId')
       const routingDir = await getPhoneRoutingDirectory()
@@ -133,29 +142,28 @@ export async function POST(request: Request) {
         if (preInsertErr) throw preInsertErr
       }
 
-      // Re-lectura simétrica tras guardar tombstone (por si incoming insertó justo en paralelo)
-      const secondLookup = await supabaseAdmin
-        .from('phone_calls')
-        .select('id, status, turns_count, duration_seconds, resolved_by_ai, ended_at')
-        .eq('call_sid', callSid)
-        .maybeSingle()
-      if (secondLookup.error) throw secondLookup.error
-      existing = secondLookup.data
+      // Reintentar reconciliación transaccional (cubre tanto el pre-insert como un insert en paralelo de /api/phone/incoming)
+      reconciled = await reconcileCallWithTerminalTombstone(callSid)
 
-      if (!existing) {
-        // La sucursal aún no es identificable e incoming aún no inserta phone_calls:
-        // el tombstone ya quedó persistido y reconciliará status + CallDuration apenas se cree la llamada.
-        return NextResponse.json({ ok: true, deferredViaTombstone: true })
+      if (!reconciled) {
+        // Confirmar si phone_calls realmente sigue sin existir (cierre diferido válido cuando store_id aún no es identificable)
+        const { data: verifyExisting, error: verifyErr } = await supabaseAdmin
+          .from('phone_calls')
+          .select('id')
+          .eq('call_sid', callSid)
+          .maybeSingle()
+        if (verifyErr) throw verifyErr
+
+        if (!verifyExisting) {
+          return NextResponse.json({ ok: true, deferredViaTombstone: true })
+        }
+
+        // Si phone_calls apareció justo entre medias, una última reconciliación transaccional aplica el tombstone
+        reconciled = await reconcileCallWithTerminalTombstone(callSid)
+        if (!reconciled) {
+          throw new Error(`No se pudo reconciliar el cierre de phone_calls para CallSid=${callSid}`)
+        }
       }
-    }
-
-    // 3. Reconciliar atómicamente phone_calls desde el tombstone:
-    //    - Si el UPDATE de phone_calls falla, reconcileCallWithTerminalTombstone conserva el tombstone y lanza error -> HTTP 500
-    //    - Si no llegó CallDuration, preserva intacta cualquier duration_seconds válida previa
-    //    - Jamás reabre llamadas terminadas
-    const reconciled = await reconcileCallWithTerminalTombstone(callSid)
-    if (!reconciled) {
-      throw new Error(`No se pudo reconciliar el cierre de phone_calls para CallSid=${callSid}`)
     }
 
     return NextResponse.json({ ok: true })

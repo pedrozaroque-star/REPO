@@ -29,7 +29,17 @@
  *   `splitPhoneReplyForStreaming` parta el audio en dos clips a mitad de una dirección.
  * - Incluye también el filtro isomórfico anti-voces masculinas (`isForbiddenMaleBrowserVoice` / `pickStrictFemaleBrowserVoice`)
  *   para el respaldo `speechSynthesis` del navegador en Windows/macOS/Chrome/Edge.
+ * - FIX 2026-11-17 (Moneda Estricta EE. UU. y Locución Exacta de Horarios AM/PM sin Inversión a PM):
+ *   1) Convierte todo precio a dólares y centavos (`$2.29` / `$2.29 dólares` / `$2.29 pesos` -> `2 dólares con 29 centavos`; `$0.75` -> `75 centavos`),
+ *   consumiendo sufijos redundantes para jamás duplicar `"dólares"` ni pronunciar `"pesos"` o `"0 dólares"`.
+ *   2) Convierte todas las horas `AM`/`PM` (`11:00 AM a 3:00 AM`, `10:00 AM a 1:00 AM`, `4:00 PM`, `12:00 AM`) a locución natural explícita
+ *   (`de 11 de la mañana a 3 de la mañana`, `4 de la tarde`, `12 de la medianoche` en ES; `3 in the morning` / `12 midnight` en EN) para evitar
+ *   que el modelo neuronal Gemini TTS invierta el segundo `"AM"` en `"pe eme"` (`3 PM`) en cierres después de medianoche.
+ *   3) Aplica `sanitizeCustomerStoreReferencesInText` y convierte `&` -> `"y"` / `"and"` para que las 3 sucursales de Los Ángeles (#5, #6 y #7)
+ *   siempre se pronuncien como `Los Ángeles` con sus entrecalles (`Vernon y Broadway`, `Central y Washington`, `Slauson y Broadway`).
  */
+
+import { sanitizeCustomerStoreReferencesInText } from '@/lib/customer-store-names'
 
 export type SpeechLang = 'es' | 'en'
 
@@ -200,8 +210,8 @@ export function expandStreetAbbreviationsInText(
   if (!input) return ''
   let out = String(input)
 
-  // 1. Limpiar sufijo redundante "(LA)" pegado a Central o Broadway
-  out = out.replace(/\b(Central|Broadway)\s*\(\s*L\.?A\.?\s*\)/gi, '$1')
+  // 1. Convertir referencias internas a las sucursales de Los Ángeles (#5, #6 y #7) al formato de cliente con entrecalles
+  out = sanitizeCustomerStoreReferencesInText(out, lang)
 
   // 2. Expandir puntos cardinales después de un número de inmueble (ej. "101 S. Azusa", "115 E Baseline", "3220 E. Imperial")
   out = out.replace(
@@ -349,9 +359,10 @@ export function formatPhoneForSpeech(rawPhone: string | null | undefined, lang: 
  */
 export function normalizeTextForPhoneSpeech(rawText: string, lang: SpeechLang): string {
   if (!rawText) return ''
-  let text = String(rawText)
-    .replace(/\bTacos\s+El\s+Gavil[aá]n\b/gi, 'Tacos Gavilan')
-    .replace(/\bLA\s+(Broadway|Central)\b/g, '$1')
+  let text = sanitizeCustomerStoreReferencesInText(
+    String(rawText).replace(/\bTacos\s+El\s+Gavil[aá]n\b/gi, 'Tacos Gavilan'),
+    lang
+  ).replace(/(\w)\s*&\s*(\w)/g, lang === 'es' ? '$1 y $2' : '$1 and $2')
 
   // 1. Expandir todas las abreviaturas viales, ordinales de calles, `, CA` y `Los Ángeles`
   text = expandStreetAbbreviationsInText(text, lang, { stripZipAfterState: false })
@@ -390,22 +401,111 @@ export function normalizeTextForPhoneSpeech(rawText: string, lang: SpeechLang): 
   )
   text = text.replace(/(?:https?:\/\/)?(?:www\.)?tacosgavilan\.com\b/gi, spokenDomain)
 
-  // 5. En español, convertir precios con `$` a dólares hablados naturales para que jamás diga "pesos"
+  // 5. Normalizar precios exclusivamente a dólares y centavos estadounidenses (USD) — jamás "pesos"
   if (lang === 'es') {
-    let priceIndex = 0
-    text = text.replace(/\$(\d{1,3}(?:,\d{3})+|\d{1,5})(?:\.(\d{2}))?\b/g, (_m, dollarsStr: string, centsStr?: string) => {
-      priceIndex++
+    const formatSpokenUsdEs = (dollarsStr: string, centsStr?: string): string => {
       const dollars = Number(dollarsStr.replace(/,/g, ''))
+      const normalizedCentsStr = centsStr ? (centsStr.length === 1 ? `${centsStr}0` : centsStr) : ''
+      const cents = normalizedCentsStr ? Number(normalizedCentsStr) : 0
+      if (dollars === 0 && cents > 0) {
+        return `${cents} ${cents === 1 ? 'centavo' : 'centavos'}`
+      }
       const dollarWord = dollars === 1 ? 'dólar' : 'dólares'
-      if (!centsStr || centsStr === '00') {
+      if (!normalizedCentsStr || cents === 0) {
         return `${dollars} ${dollarWord}`
       }
-      const cents = Number(centsStr)
-      if (priceIndex === 1 || (cents > 0 && cents < 10)) {
-        return `${dollars} ${dollarWord} con ${cents} centavos`
+      const centWord = cents === 1 ? 'centavo' : 'centavos'
+      return `${dollars} ${dollarWord} con ${cents} ${centWord}`
+    }
+
+    text = text.replace(
+      /\$\s*(\d{1,3}(?:,\d{3})+|\d{1,5})(?:\.(\d{1,2}))?(?:\s*(?:d[oó]lares?(?:\s+estadounidenses?)?|usd|pesos?(?:\s+mexicanos?)?|mxn|centavos?))?\b/gi,
+      (_m, dollarsStr: string, centsStr?: string) => formatSpokenUsdEs(dollarsStr, centsStr)
+    )
+    text = text.replace(
+      /(^|[^\w$.])(\d{1,3}(?:,\d{3})*)\.(\d{2})\s*(?:d[oó]lares?(?:\s+estadounidenses?)?|usd|pesos?(?:\s+mexicanos?)?|mxn)\b/gi,
+      (_m, lead: string, dollarsStr: string, centsStr: string) => `${lead}${formatSpokenUsdEs(dollarsStr, centsStr)}`
+    )
+    text = text.replace(
+      /\b(d[oó]lares?)\s+(?:con|y)\s+(\d{1,2})\s+pesos?\b/gi,
+      (_m, dw: string, cStr: string) => {
+        const c = Number(cStr)
+        return `${dw} con ${c} ${c === 1 ? 'centavo' : 'centavos'}`
       }
-      return `${dollars} con ${cents}`
+    )
+    text = text.replace(
+      /(^|[^\w$.])(\d{1,5})\s*(?:pesos?(?:\s+mexicanos?)?|mxn)\b/gi,
+      (_m, lead: string, dollarsStr: string) => `${lead}${formatSpokenUsdEs(dollarsStr)}`
+    )
+    text = text.replace(/\ben\s+pesos(?:\s+mexicanos?)?\b/gi, 'en dólares')
+  } else {
+    text = text.replace(
+      /\$\s*(\d{1,3}(?:,\d{3})*(?:\.\d{1,2})?)\s*(?:pesos?(?:\s+mexicanos?)?|mxn)\b/gi,
+      (_m, amt: string) => `$${amt}`
+    )
+    text = text.replace(
+      /(^|[^\w$.])(\d{1,3}(?:,\d{3})*(?:\.\d{1,2})?)\s*(?:pesos?(?:\s+mexicanos?)?|mxn)\b/gi,
+      (_m, lead: string, amt: string) => `${lead}$${amt}`
+    )
+    text = text.replace(/\$\s*0\.(\d{2})(?:\s*cents?)?\b/gi, (_m, centsStr: string) => {
+      const c = Number(centsStr)
+      return c > 0 ? `${c} ${c === 1 ? 'cent' : 'cents'}` : '$0.00'
     })
+  }
+
+  // 5b. Convertir horarios de 12 horas (`11:00 AM a 3:00 AM`, `10:00 AM-1:00 AM`, `4:00 PM`, `12:00 AM`) a locución hablada
+  //     100% explícita para impedir que Gemini TTS invierta el segundo `"AM"` en `"pe eme"` (`3 PM`) en cierres nocturnos.
+  const MERIDIEM_TOKEN = String.raw`(?:([AaPp])\.[Mm]\.(?=\s+[a-záéíóúñ]|\s*[,;:])|([AaPp])\.[Mm](?=\.)|([AaPp])\s*[Mm]\b)`
+  text = text.replace(
+    new RegExp(String.raw`(\b(?:1[0-2]|0?[1-9])(?::[0-5]\d)?\s*(?:[AaPp]\.[Mm]\.?|[AaPp]\s*[Mm]\b))\s*[-–]\s*(?=(?:1[0-2]|0?[1-9])(?::[0-5]\d)?\s*[AaPp])`, 'g'),
+    lang === 'es' ? '$1 a ' : '$1 to '
+  )
+  if (lang === 'es') {
+    text = text.replace(
+      new RegExp(
+        String.raw`\b(1[0-2]|0?[1-9])(?::([0-5]\d))?\s*` +
+          MERIDIEM_TOKEN +
+          String.raw`(?:\s+de\s+la\s+(?:mañana|madrugada|tarde|noche|medianoche)|\s+del\s+mediod[ií]a)?`,
+        'g'
+      ),
+      (_m, hourStr: string, minStr: string | undefined, m1?: string, m2?: string, m3?: string) => {
+        const h = Number(hourStr)
+        const m = minStr ? Number(minStr) : 0
+        const merChar = m1 || m2 || m3 || 'a'
+        const isPm = merChar.toLowerCase() === 'p'
+        const minPhrase = m === 0 ? '' : m === 30 ? ' y media' : ` con ${m}`
+        let period: string
+        if (!isPm) {
+          period = h === 12 ? (m === 0 ? 'de la medianoche' : 'de la madrugada') : 'de la mañana'
+        } else {
+          period = h === 12 ? (m === 0 ? 'del mediodía' : 'de la tarde') : h <= 6 ? 'de la tarde' : 'de la noche'
+        }
+        return `${h}${minPhrase} ${period}`
+      }
+    )
+  } else {
+    text = text.replace(
+      new RegExp(
+        String.raw`\b(1[0-2]|0?[1-9])(?::([0-5]\d))?\s*` +
+          MERIDIEM_TOKEN +
+          String.raw`(?!\s+(?:in\s+the\s+(?:morning|afternoon|evening)|at\s+night|midnight|noon))`,
+        'g'
+      ),
+      (_m, hourStr: string, minStr: string | undefined, m1?: string, m2?: string, m3?: string) => {
+        const h = Number(hourStr)
+        const m = minStr ? Number(minStr) : 0
+        const merChar = m1 || m2 || m3 || 'a'
+        const isPm = merChar.toLowerCase() === 'p'
+        const minPart = m === 0 ? '' : `:${String(m).padStart(2, '0')}`
+        if (!isPm) {
+          if (h === 12 && m === 0) return '12 midnight'
+          if (h === 12 || (h >= 1 && h <= 4)) return `${h}${minPart} in the morning`
+          return `${h}${minPart} A M`
+        }
+        if (h === 12 && m === 0) return '12 noon'
+        return `${h}${minPart} P M`
+      }
+    )
   }
 
   // 6. Expandir unidades de peso/medida y símbolo `#` antes de dígitos

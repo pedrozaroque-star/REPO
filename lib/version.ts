@@ -20,20 +20,34 @@ export interface VersionMilestone {
 }
 
 export const SYSTEM_VERSION = {
-    version: 'v2.29.2',
-    versionNumber: '2.29.2',
+    version: 'v2.29.3',
+    versionNumber: '2.29.3',
     releaseMonthEs: 'Noviembre 2026',
     releaseMonthEn: 'November 2026',
     stage: 'Producción',
     stageEn: 'Production',
     year: '2026',
-    labelEs: 'Noviembre 2026 • SM TEG v2.29.2',
-    labelEn: 'November 2026 • SM TEG v2.29.2',
+    labelEs: 'Noviembre 2026 • SM TEG v2.29.3',
+    labelEn: 'November 2026 • SM TEG v2.29.3',
     brand: 'SM TEG',
-    lastUpdated: '2026-11-17'
+    lastUpdated: '2026-11-18'
 } as const;
 
 export const VERSION_HISTORY: readonly VersionMilestone[] = [
+    {
+        version: 'v2.29.3',
+        date: '18-Nov-2026',
+        titleEs: 'Regla Global Los Ángeles + Entrecalles para Clientes, Contestadora IA Transaccional y Fail-Closed, y Sensibilidad Táctil MESWAO B3 en Preparador',
+        titleEn: 'Global Los Angeles + Cross-Streets Customer Naming Rule, Transactional & Fail-Closed AI Receptionist, and MESWAO B3 Touch Sensitivity in Preparador',
+        highlightsEs: [
+            'Regla global para clientes (lib/customer-store-names.ts): las sucursales #5, #6 y #7 se muestran como Los Ángeles + entrecalles en encuestas QR, cotizaciones móviles, DoorDash Storefront, Contestadora IA y tacosgavilan.com, conservando los nombres internos en paneles administrativos',
+            'Contestadora IA: reconciliación de tombstones segura ante StatusCallback simultáneos (migración 20261117170500), base de conocimiento sin pasteles de cumpleaños y solo en dólares (20261117185500), lectura de configuración fail-closed que nunca activa una tienda apagada y saludo oficial con voz Kore 3.8; más sensibilidad táctil MESWAO B3 15.6" en Preparador (commit 3779da11), Vista Previa Admin de alertas en Order Ready Board y 93.9 horas consolidadas en Noviembre 2026'
+        ],
+        highlightsEn: [
+            'Global customer naming rule (lib/customer-store-names.ts): branches #5, #6 and #7 display as Los Angeles + cross-streets on QR surveys, mobile quotes, DoorDash Storefront, the AI receptionist and tacosgavilan.com, while admin panels keep internal names',
+            'AI receptionist: tombstone reconciliation safe against simultaneous StatusCallbacks (migration 20261117170500), knowledge base with no birthday cakes and USD-only pricing (20261117185500), fail-closed config reads that never activate a disabled store, and official Kore 3.8 greeting; plus 15.6" MESWAO B3 touch sensitivity in Preparador (commit 3779da11), Admin Preview alerts on Order Ready Board, and 93.9 consolidated hours in November 2026'
+        ]
+    },
     {
         version: 'v2.29.2',
         date: '17-Nov-2026',

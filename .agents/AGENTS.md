@@ -3,7 +3,8 @@
 > Nota: Las reglas completas de negocio, auditoría, seguridad y protocolos del proyecto residen en el archivo raíz [`AGENTS.md`](../AGENTS.md). Este archivo resume los identificadores oficiales para sesiones locales y **Google Antigravity Remote Agents** (sin depender del PC).
 
 ## 🔑 Identificadores Canónicos (No Secretos)
-- **Marca Oficial**: `Tacos Gavilan`
+- **Marca Oficial**: `Tacos Gavilan` (moneda exclusiva: `USD` dólares y centavos; sin pasteles de cumpleaños, solo `Flan` y `Cheesecake` individuales).
+- **Nomenclatura Sucursales Los Ángeles para Clientes (`lib/customer-store-names.ts`)**: Internamente se usan `LA Broadway` (#5), `LA Central` (#6) y `Slauson` (#7); **frente al cliente SIEMPRE decir `Los Ángeles` + entrecalles**: `#5 Los Ángeles (Vernon y Broadway)`, `#6 Los Ángeles (Central y Washington)` y `#7 Los Ángeles (Slauson y Broadway)`.
 - **Repositorio GitHub**: `pedrozaroque-star/REPO` (rama de producción: `main`)
 - **Proyecto Supabase Producción**: `teg-tacos-gavilan`
   - `project_id`: `ywwwdcvgfculqmcfkihq`

@@ -24,6 +24,7 @@
  */
 
 import { after } from 'next/server'
+import { formatCustomerStoreName } from '@/lib/customer-store-names'
 import {
   buildInitialGreeting,
   buildPhoneTtsUrl,
@@ -84,14 +85,18 @@ async function loadSafeStoreContext(rawStoreId: number | null, callSid?: string)
     }
   }
   if (callSid) {
-    const { data: callRow } = await supabaseAdmin
-      .from('phone_calls')
-      .select('store_id')
-      .eq('call_sid', callSid)
-      .maybeSingle()
-    const realStoreId = Number(callRow?.store_id)
-    if (Number.isFinite(realStoreId) && realStoreId > 0) {
-      return await getStorePhoneContext(realStoreId)
+    try {
+      const { data: callRow } = await supabaseAdmin
+        .from('phone_calls')
+        .select('store_id')
+        .eq('call_sid', callSid)
+        .maybeSingle()
+      const realStoreId = Number(callRow?.store_id)
+      if (Number.isFinite(realStoreId) && realStoreId > 0) {
+        return await getStorePhoneContext(realStoreId)
+      }
+    } catch {
+      return null
     }
   }
   return null
@@ -122,6 +127,7 @@ export async function POST(request: Request) {
     const currentLang = (reqUrl.searchParams.get('lang') === 'en' ? 'en' : 'es') as PhoneLang
     const isRetry = reqUrl.searchParams.get('retry') === '1'
     const isTurn0 = reqUrl.searchParams.get('turn0') === '1'
+    const isPreconsent = reqUrl.searchParams.get('preconsent') === '1'
     const isDialFallback = reqUrl.searchParams.get('dialFallback') === '1'
 
     const callSid = (params.CallSid || `TWILIO_${Date.now()}`).trim()
@@ -194,7 +200,7 @@ export async function POST(request: Request) {
         })
       }
 
-      const spokenStore = cleanPhoneStoreName(ctx.store.name) || ctx.store.name
+      const spokenStore = formatCustomerStoreName(ctx.store, currentLang, { style: 'spoken_compact' }) || cleanPhoneStoreName(ctx.store.name) || ctx.store.name
       const fallbackMsg =
         currentLang === 'en'
           ? `Our ${spokenStore} manager is assisting guests at the counter right now, so your priority alert is saved on their screen to call you back very shortly. Thank you for calling Tacos Gavilan!`
@@ -292,7 +298,7 @@ export async function POST(request: Request) {
       const conciseSwitchReply =
         switchedLang === 'en'
           ? 'Of course, we can continue in English! How can I help you today?'
-          : 'Con gusto continuamos en español. ¿En qué te puedo ayudar?'
+          : 'Con gusto continuamos en español. ¿En qué te ayudo hoy?'
 
       let switchTag: string
       try {
@@ -331,6 +337,43 @@ export async function POST(request: Request) {
     ${switchTag}
   </Gather>
   <Redirect method="POST">${escapeXml(nextUrl)}&amp;silence=1</Redirect>
+</Response>`,
+        { status: 200, headers: { 'Content-Type': 'text/xml; charset=utf-8' } }
+      )
+    }
+
+    // Si el usuario oprimió una tecla distinta de 9 durante el aviso inicial (`preconsent=1`),
+    // reproducir sin interrupción la frase legal de transcripción antes de abrir captura de voz (`input="speech"`).
+    if (isPreconsent && digits && digits !== '9') {
+      const mandatoryCipaSentence =
+        currentLang === 'en'
+          ? "You're speaking with our virtual assistant on a transcribed line."
+          : 'Hablas con nuestra asistente virtual en una llamada transcrita para atenderte.'
+      const postQ = getPostDisclosurePrompt(currentLang, ctx.scheduleEval)
+      const nextUrlAfterConsent = `${baseUrl}/api/phone/respond?storeId=${storeId}&lang=${currentLang}`
+      const cipaSayVoice = currentLang === 'en' ? 'Polly.Joanna-Neural' : 'Polly.Mia-Neural'
+      const cipaSayLang = currentLang === 'en' ? 'en-US' : 'es-MX'
+      let cipaPlayTag: string
+      let qPlayTag: string
+      try {
+        await Promise.all([
+          getPhoneAgentSpeech(mandatoryCipaSentence, currentLang, voice, false, { skipSseAttempt: true, maxTotalMs: 3200 }),
+          getPhoneAgentSpeech(postQ, currentLang, voice, false, { skipSseAttempt: true, maxTotalMs: 3200 })
+        ])
+        cipaPlayTag = `<Play>${escapeXml(buildPhoneTtsUrl(baseUrl, mandatoryCipaSentence, currentLang, voice))}</Play>`
+        qPlayTag = `<Play>${escapeXml(buildPhoneTtsUrl(baseUrl, postQ, currentLang, voice))}</Play>`
+      } catch {
+        cipaPlayTag = `<Say voice="${cipaSayVoice}" language="${cipaSayLang}">${escapeXml(mandatoryCipaSentence)}</Say>`
+        qPlayTag = `<Say voice="${cipaSayVoice}" language="${cipaSayLang}">${escapeXml(postQ)}</Say>`
+      }
+      return new Response(
+        `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  ${cipaPlayTag}
+  <Gather ${buildTwilioGatherAttrs(currentLang, nextUrlAfterConsent)}>
+    ${qPlayTag}
+  </Gather>
+  <Redirect method="POST">${escapeXml(nextUrlAfterConsent)}&amp;silence=1</Redirect>
 </Response>`,
         { status: 200, headers: { 'Content-Type': 'text/xml; charset=utf-8' } }
       )

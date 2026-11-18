@@ -588,7 +588,17 @@ async function dispatchContactEmails({ supabaseUrl, supabaseKey, name, email, ph
         const safeEmail = escapeHtml(email);
         const safePhone = escapeHtml(phone || 'N/A');
         const safeReason = escapeHtml(rawReason);
+        const resolvedCustomerStoreId = rawStore ? resolveStoreId(rawStore) : null;
+        const CUSTOMER_STORE_LABELS = {
+            5: 'Los Angeles (Vernon & Broadway)',
+            6: 'Los Angeles (Central & Washington)',
+            7: 'Los Angeles (Slauson & Broadway)'
+        };
+        const customerFacingStoreLabel = (resolvedCustomerStoreId && CUSTOMER_STORE_LABELS[resolvedCustomerStoreId])
+            ? CUSTOMER_STORE_LABELS[resolvedCustomerStoreId]
+            : (rawStore || 'Corporate / General');
         const safeStore = escapeHtml(rawStore || 'Corporate / General');
+        const safeCustomerStore = escapeHtml(customerFacingStoreLabel);
         const safeMessage = escapeHtml(message);
 
         // 1. Internal notification to support@tacosgavilan.com (BCC executive copy)
@@ -638,7 +648,7 @@ async function dispatchContactEmails({ supabaseUrl, supabaseKey, name, email, ph
     <p>We have received your message at <strong>Tacos Gavilan</strong> and our team will review it shortly.</p>
     <div style="margin: 18px 0; padding: 14px 16px; background: rgba(255,255,255,0.06); border-left: 4px solid #FFC72C; border-radius: 6px;">
       <div><strong style="color: #FFC72C;">Topic:</strong> ${safeReason}</div>
-      <div><strong style="color: #FFC72C;">Store:</strong> ${safeStore}</div>
+      <div><strong style="color: #FFC72C;">Store:</strong> ${safeCustomerStore}</div>
       <div><strong style="color: #FFC72C;">Reference ID:</strong> ${referenceId}</div>
     </div>
     <p style="font-size: 12px; color: #9ca3af;">If you need additional assistance, please email us at <a href="mailto:support@tacosgavilan.com" style="color: #FFC72C;">support@tacosgavilan.com</a>.</p>
