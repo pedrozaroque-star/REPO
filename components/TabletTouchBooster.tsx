@@ -44,10 +44,23 @@ const INTERACTIVE_SELECTOR = [
 const NATIVE_FORM_INPUT_SELECTOR =
   'input:not([type="checkbox"]):not([type="radio"]):not([type="button"]):not([type="submit"]), textarea, select, [contenteditable="true"]'
 
-const MAX_TOUCH_SLOP_PX = 32
-const MAX_TAP_DURATION_MS = 700
-const MAX_SCROLL_DRIFT_PX = 18
+const MAX_TOUCH_SLOP_PX = 44
+const MAX_TAP_DURATION_MS = 1200
+const MAX_SCROLL_DRIFT_PX = 22
 const RESCUE_DELAY_MS = 26
+
+interface ActiveTouch {
+  pointerId: number
+  startX: number
+  startY: number
+  startTime: number
+  targetEl: HTMLElement
+  tagName: string
+  scrollParent: HTMLElement | null
+  startScrollTop: number
+  startScrollLeft: number
+  visualOnly: boolean
+}
 
 function findScrollParent(el: HTMLElement | null): HTMLElement | null {
   let curr = el?.parentElement || null
@@ -69,17 +82,7 @@ function findScrollParent(el: HTMLElement | null): HTMLElement | null {
 
 export default function TabletTouchBooster() {
   useEffect(() => {
-    let activeTouch: {
-      pointerId: number
-      startX: number
-      startY: number
-      startTime: number
-      targetEl: HTMLElement
-      tagName: string
-      scrollParent: HTMLElement | null
-      startScrollTop: number
-      startScrollLeft: number
-    } | null = null
+    const activeTouches = new Map<number, ActiveTouch>()
 
     let lastClickTimestamp = 0
     let lastSyntheticClickTimestamp = 0
@@ -100,51 +103,64 @@ export default function TabletTouchBooster() {
       const rawTarget = e.target as HTMLElement | null
       if (!rawTarget || typeof rawTarget.closest !== 'function') return
 
+      // Prune stale touches (e.g., water drops / palm rests whose pointerup was lost on large 15.6" panels)
+      const nowPerf = performance.now()
+      if (activeTouches.size > 0) {
+        for (const [pid, entry] of activeTouches.entries()) {
+          if (nowPerf - entry.startTime > 5000) {
+            clearPressingAttr(entry.targetEl)
+            activeTouches.delete(pid)
+          }
+        }
+      }
+
       // Leave text inputs, selects, and textareas to native browser handling
       if (rawTarget.closest(NATIVE_FORM_INPUT_SELECTOR)) {
-        activeTouch = null
         return
       }
 
       const interactiveEl = rawTarget.closest(INTERACTIVE_SELECTOR) as HTMLElement | null
       if (!interactiveEl) {
-        activeTouch = null
         return
       }
 
       if ((interactiveEl as HTMLButtonElement).disabled || interactiveEl.getAttribute('aria-disabled') === 'true') {
-        activeTouch = null
         return
       }
 
       const scrollParent = findScrollParent(interactiveEl)
       interactiveEl.setAttribute('data-touch-pressing', 'true')
+      const isUltraTapHandled =
+        interactiveEl.hasAttribute('data-order-tap-id') || interactiveEl.hasAttribute('data-ultra-tap')
 
-      activeTouch = {
+      activeTouches.set(e.pointerId, {
         pointerId: e.pointerId,
         startX: e.clientX,
         startY: e.clientY,
-        startTime: performance.now(),
+        startTime: nowPerf,
         targetEl: interactiveEl,
         tagName: interactiveEl.tagName,
         scrollParent,
         startScrollTop: scrollParent ? scrollParent.scrollTop : 0,
         startScrollLeft: scrollParent ? scrollParent.scrollLeft : 0,
-      }
+        visualOnly: isUltraTapHandled,
+      })
     }
 
-    const onPointerCancel = () => {
-      if (activeTouch) {
-        clearPressingAttr(activeTouch.targetEl)
-        activeTouch = null
+    const onPointerCancel = (e: PointerEvent) => {
+      const entry = activeTouches.get(e.pointerId)
+      if (entry) {
+        clearPressingAttr(entry.targetEl)
+        activeTouches.delete(e.pointerId)
       }
     }
 
     const onPointerUp = (e: PointerEvent) => {
-      if (!activeTouch || e.pointerId !== activeTouch.pointerId) return
-      const snapshot = activeTouch
-      activeTouch = null
+      const snapshot = activeTouches.get(e.pointerId)
+      if (!snapshot) return
+      activeTouches.delete(e.pointerId)
       clearPressingAttr(snapshot.targetEl)
+      if (snapshot.visualOnly) return
 
       const now = performance.now()
       const elapsed = now - snapshot.startTime
@@ -213,6 +229,11 @@ export default function TabletTouchBooster() {
 
     const onClickCapture = (e: MouseEvent) => {
       const now = performance.now()
+      const clickEl = e.target as HTMLElement | null
+      if (clickEl?.closest?.('[data-order-tap-id], [data-ultra-tap="true"]')) {
+        lastClickTimestamp = now
+        return
+      }
       if (isDispatchingSynthetic) {
         lastClickTimestamp = now
         return
@@ -239,6 +260,7 @@ export default function TabletTouchBooster() {
     document.addEventListener('click', onClickCapture, { capture: true })
 
     return () => {
+      activeTouches.clear()
       document.removeEventListener('pointerdown', onPointerDown, { capture: true })
       document.removeEventListener('pointerup', onPointerUp, { capture: true })
       document.removeEventListener('pointercancel', onPointerCancel, { capture: true })

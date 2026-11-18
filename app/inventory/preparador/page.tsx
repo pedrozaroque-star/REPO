@@ -60,6 +60,10 @@
  *     En tiendas con modo `'smart'` activo en `order_ready_settings.auto_call_timer_config` (piloto exclusivo en `SLAUSON`; las otras 14 tiendas permanecen en `'manual'`),
  *     muestra la cuenta regresiva adaptativa por orden sin necesidad de tocar la pantalla y actúa como respaldo atómico (`+2.5s`) hacia `/api/order-ready/call` (`autoTimerOnlyIfUnannounced: true`),
  *     conservando el toque manual en todo momento para adelantar o repetir un llamado.
+ *   - BLINDAJE TÁCTIL MESWAO B3 / PANTALLA GRANDE 15.6" (2026-11-17):
+ *     1) Tick acústico sintetizado en memoria vía Web Audio API + vibración háptica (`0ms`, sin archivo MP3 404).
+ *     2) Radar de proximidad multi-toque (`40px`, prioridad `changedTouches` ante gotas/palma en bordes y caché de geometría sin reflows).
+ *     3) Tarjetas adaptativas gigantes cuando hay 1-4 órdenes activas, `overscroll-y-contain` anti Pull-to-Refresh y pausa de re-renders durante contacto activo.
  */
 'use client'
 
@@ -571,6 +575,24 @@ export default function PreparadorPage() {
     const realtimeChannelRef = useRef<any>(null)
     const [hideDrinks, setHideDrinks] = useState(true)
     const [hideCookingPanel, setHideCookingPanel] = useState(false)
+    const isPrepTouchActiveRef = useRef<boolean>(false)
+    const prepTouchActiveAtRef = useRef<number>(0)
+    const pendingReadyOrdersRef = useRef<any[] | null>(null)
+    const tabletTickCtxRef = useRef<AudioContext | null>(null)
+    const cardRectsCacheRef = useRef<{ at: number; items: Array<{ tapId: string; rect: DOMRect }> } | null>(null)
+
+    const markPrepTouchActive = (active: boolean) => {
+        isPrepTouchActiveRef.current = active
+        if (active) {
+            prepTouchActiveAtRef.current = Date.now()
+            return
+        }
+        const deferred = pendingReadyOrdersRef.current
+        if (deferred) {
+            pendingReadyOrdersRef.current = null
+            setReadyOrdersList((prev) => (areOrdersListsEqual(prev, deferred) ? prev : deferred))
+        }
+    }
 
     // Timer Inteligente Manos Libres por sucursal (piloto activo exclusivamente en SLAUSON; las otras 14 tiendas permanecen en 'manual')
     const [autoCallConfig, setAutoCallConfig] = useState<AutoCallTimerConfig>(() => {
@@ -729,31 +751,35 @@ export default function PreparadorPage() {
         return uniqueRecent.sort(compareOrdersKdsFifo)
     }
 
-    // Actualiza readyOrdersList SOLO si realmente cambió el listado o posición FIFO de órdenes (evita re-renderizar los botones cada 5s mientras el cocinero toca la pantalla)
-    const applyReadyOrdersIfChanged = (nextOrders: any[]) => {
-        setReadyOrdersList((prev) => {
-            if (prev.length === nextOrders.length) {
-                let identical = true
-                for (let i = 0; i < prev.length; i++) {
-                    const a = prev[i]
-                    const b = nextOrders[i]
-                    if (
-                        String(a?.id) !== String(b?.id) ||
-                        String(a?.order_number) !== String(b?.order_number) ||
-                        String(a?.status) !== String(b?.status) ||
-                        String(a?.dining_option) !== String(b?.dining_option) ||
-                        String(a?.created_at) !== String(b?.created_at) ||
-                        String(a?.announced_at || '') !== String(b?.announced_at || '') ||
-                        String(a?.items_summary || '') !== String(b?.items_summary || '')
-                    ) {
-                        identical = false
-                        break
-                    }
-                }
-                if (identical) return prev
+    // Actualiza readyOrdersList SOLO si realmente cambió el listado o posición FIFO de órdenes (evita re-renderizar los botones mientras el cocinero toca la pantalla)
+    const areOrdersListsEqual = (prev: any[], nextOrders: any[]) => {
+        if (prev.length !== nextOrders.length) return false
+        for (let i = 0; i < prev.length; i++) {
+            const a = prev[i]
+            const b = nextOrders[i]
+            if (
+                String(a?.id) !== String(b?.id) ||
+                String(a?.order_number) !== String(b?.order_number) ||
+                String(a?.status) !== String(b?.status) ||
+                String(a?.dining_option) !== String(b?.dining_option) ||
+                String(a?.created_at) !== String(b?.created_at) ||
+                String(a?.announced_at || '') !== String(b?.announced_at || '') ||
+                String(a?.items_summary || '') !== String(b?.items_summary || '')
+            ) {
+                return false
             }
-            return nextOrders
-        })
+        }
+        return true
+    }
+
+    const applyReadyOrdersIfChanged = (nextOrders: any[]) => {
+        cardRectsCacheRef.current = null
+        if (isPrepTouchActiveRef.current && Date.now() - prepTouchActiveAtRef.current < 2000) {
+            pendingReadyOrdersRef.current = nextOrders
+            return
+        }
+        pendingReadyOrdersRef.current = null
+        setReadyOrdersList((prev) => (areOrdersListsEqual(prev, nextOrders) ? prev : nextOrders))
     }
 
     // Consulta de órdenes en preparación de la sucursal actual (status = IN_PROGRESS / SEND)
@@ -974,6 +1000,7 @@ export default function PreparadorPage() {
         if (!isSmartAutoVoiceStore || readyOrdersList.length === 0) return
         setSmartNowMs(Date.now())
         const tick = setInterval(() => {
+            if (isPrepTouchActiveRef.current && Date.now() - prepTouchActiveAtRef.current < 2000) return
             setSmartNowMs(Date.now())
         }, 1000)
         return () => clearInterval(tick)
@@ -1062,29 +1089,71 @@ export default function PreparadorPage() {
         }
     }, [isSmartAutoVoiceStore, currentStoreCode, readyOrdersList, autoCallConfig, smartNowMs, stores, storeId])
 
-    // Sonido sutil de clic/tick en la tableta para confirmación táctil del toque (sin emitir voz)
+    // Sonido sutil de clic/tick sintetizado en memoria (Web Audio API, 0ms y cero 404) + pulso háptico en Android
     const playTabletTick = () => {
         try {
-            const el = document.getElementById('audio-tick') as HTMLAudioElement | null
-            if (el) {
-                el.currentTime = 0
-                el.play().catch(() => {})
+            if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
+                navigator.vibrate(16)
             }
         } catch {}
+        try {
+            if (typeof window === 'undefined') return
+            const AudioCtx = window.AudioContext || (window as any).webkitAudioContext
+            if (!AudioCtx) return
+            if (!tabletTickCtxRef.current) {
+                tabletTickCtxRef.current = new AudioCtx()
+            }
+            const ctx = tabletTickCtxRef.current
+            if (ctx.state === 'suspended') {
+                void ctx.resume().catch(() => {})
+            }
+            const t0 = ctx.currentTime
+            const osc = ctx.createOscillator()
+            const gain = ctx.createGain()
+            osc.type = 'triangle'
+            osc.frequency.setValueAtTime(920, t0)
+            osc.frequency.exponentialRampToValueAtTime(1380, t0 + 0.032)
+            gain.gain.setValueAtTime(0.18, t0)
+            gain.gain.exponentialRampToValueAtTime(0.001, t0 + 0.045)
+            osc.connect(gain)
+            gain.connect(ctx.destination)
+            osc.start(t0)
+            osc.stop(t0 + 0.048)
+        } catch {}
     }
+
+    // Seguridad global para liberar isPrepTouchActiveRef si el dedo abandona un botón o la ventana
+    useEffect(() => {
+        const onGlobalRelease = () => markPrepTouchActive(false)
+        window.addEventListener('pointerup', onGlobalRelease, { passive: true })
+        window.addEventListener('pointercancel', onGlobalRelease, { passive: true })
+        window.addEventListener('touchend', onGlobalRelease, { passive: true })
+        window.addEventListener('touchcancel', onGlobalRelease, { passive: true })
+        return () => {
+            window.removeEventListener('pointerup', onGlobalRelease)
+            window.removeEventListener('pointercancel', onGlobalRelease)
+            window.removeEventListener('touchend', onGlobalRelease)
+            window.removeEventListener('touchcancel', onGlobalRelease)
+        }
+    }, [])
 
     const prepPointerStartRef = useRef<{ x: number; y: number; maxDist: number; key: string; at: number; firedOnDown: boolean } | null>(null)
     const prepLastTouchAtRef = useRef<number>(0)
     const prepLastTouchKeyRef = useRef<string>('')
     const prepLastTouchByKeyRef = useRef<Map<string, number>>(new Map())
-    const activeOrderGestureRef = useRef<{
-        key: string
-        startedAt: number
-        fired: boolean
-        endedAt?: number
-        source?: 'touch' | 'mouse' | 'unknown'
-    } | null>(null)
-    const lastTouchSignalAtRef = useRef<number>(0)
+    const activeOrderGesturesRef = useRef<
+        Map<
+            string,
+            {
+                key: string
+                startedAt: number
+                fired: boolean
+                endedAt?: number
+                source?: 'touch' | 'mouse' | 'unknown'
+            }
+        >
+    >(new Map())
+    const lastTouchSignalByKeyRef = useRef<Map<string, number>>(new Map())
 
     const triggerPrepDedupedAction = (key: string, action: () => void, dedupeMs = 340) => {
         const now = Date.now()
@@ -1096,10 +1165,9 @@ export default function PreparadorPage() {
         action()
     }
 
-    // 🛡️ Escudo 1 (Single-Gesture Lock): Garantiza que UN toque físico con guante (dure 0.05s o 8s)
-    // dispare la acción UNA SOLA VEZ en 0ms al primer contacto, bloqueando repeticiones al mantener
-    // presionado (`move`), soltar (`up`/`cancel`) o evento sintético posterior (`click`/`mousedown`),
-    // sin perder el rescate si un guante seco solo logra disparar en `up` o `click`.
+    // 🛡️ Escudo 1 (Single-Gesture Lock Multi-Tarjeta): Garantiza que UN toque físico por tarjeta (dure 0.05s o 8s)
+    // dispare UNA SOLA VEZ en 0ms al primer contacto (`down`/`move`), bloqueando repeticiones al mantener o soltar
+    // (`up`/`cancel`/`click`/`mousedown`), sin perder rescate para guante/dedo seco ni bloquear otras tarjetas en multi-toque.
     const triggerGestureSafeTap = (
         key: string,
         phase: 'down' | 'move' | 'up' | 'cancel' | 'click',
@@ -1108,17 +1176,32 @@ export default function PreparadorPage() {
         source: 'touch' | 'mouse' | 'unknown' = 'unknown'
     ) => {
         const now = Date.now()
-        if (source === 'touch') {
-            lastTouchSignalAtRef.current = now
-        } else if (source === 'mouse' && phase === 'down' && now - lastTouchSignalAtRef.current < 1500) {
-            // Bloquear `mousedown` de compatibilidad sintetizado por Chromium tras soltar toque táctil
-            return
+        if (phase === 'down' || phase === 'move') {
+            markPrepTouchActive(true)
+        } else {
+            markPrepTouchActive(false)
         }
 
-        const active = activeOrderGestureRef.current
+        if (source === 'touch') {
+            lastTouchSignalByKeyRef.current.set(key, now)
+        } else if (source === 'mouse' && phase === 'down') {
+            const lastTouchForKey = lastTouchSignalByKeyRef.current.get(key) || 0
+            if (now - lastTouchForKey < 1500) {
+                // Bloquear `mousedown` de compatibilidad sintetizado por Chromium tras soltar toque táctil
+                return
+            }
+        }
+
+        const gestures = activeOrderGesturesRef.current
+        if (gestures.size > 40) {
+            for (const [k, g] of gestures.entries()) {
+                if (now - g.startedAt > 20000) gestures.delete(k)
+            }
+        }
+        const active = gestures.get(key) || null
 
         if (phase === 'down') {
-            if (active && active.key === key) {
+            if (active) {
                 if (active.endedAt === undefined && active.fired && now - active.startedAt < 450) {
                     return
                 }
@@ -1126,25 +1209,25 @@ export default function PreparadorPage() {
                     return
                 }
             }
-            activeOrderGestureRef.current = { key, startedAt: now, fired: true, source }
+            gestures.set(key, { key, startedAt: now, fired: true, source })
             triggerPrepDedupedAction(key, action, dedupeMs)
             return
         }
 
         if (phase === 'move') {
-            if (active && active.key === key) {
+            if (active) {
                 if (active.fired || active.endedAt !== undefined) return
                 active.fired = true
                 triggerPrepDedupedAction(key, action, dedupeMs)
                 return
             }
-            activeOrderGestureRef.current = { key, startedAt: now, fired: true, source }
+            gestures.set(key, { key, startedAt: now, fired: true, source })
             triggerPrepDedupedAction(key, action, dedupeMs)
             return
         }
 
         if (phase === 'up' || phase === 'cancel') {
-            if (active && active.key === key) {
+            if (active) {
                 if (active.endedAt === undefined) {
                     active.endedAt = now
                 }
@@ -1154,14 +1237,14 @@ export default function PreparadorPage() {
                 return
             }
             if (phase === 'up') {
-                activeOrderGestureRef.current = { key, startedAt: now, endedAt: now, fired: true, source }
+                gestures.set(key, { key, startedAt: now, endedAt: now, fired: true, source })
                 triggerPrepDedupedAction(key, action, dedupeMs)
             }
             return
         }
 
         // phase === 'click'
-        if (active && active.key === key && active.fired) {
+        if (active && active.fired) {
             if (active.endedAt === undefined) {
                 active.endedAt = now
                 return
@@ -1170,7 +1253,7 @@ export default function PreparadorPage() {
                 return
             }
         }
-        activeOrderGestureRef.current = { key, startedAt: now, endedAt: now, fired: true, source }
+        gestures.set(key, { key, startedAt: now, endedAt: now, fired: true, source })
         triggerPrepDedupedAction(key, action, dedupeMs)
     }
 
@@ -1312,63 +1395,104 @@ export default function PreparadorPage() {
         }
     })
 
-    // Radar de proximidad capacitiva: si el cocinero con guante presiona sobre el borde exterior o entre dos cuadros
-    // (hasta 24px afuera del borde del cuadro), detecta el cuadro más cercano y dispara el llamado en 0ms
+    // Radar de proximidad capacitiva multi-toque (hasta 40px alrededor del borde en pantallas de 15.6" como MESWAO B3)
+    // Con caché de geometría en 'move' para evitar layout thrashing en Android MediaTek y exclusión estricta de cabecera
     const handleOrdersProximityRadar = (
         clientX: number,
         clientY: number,
         containerEl: HTMLElement | null,
-        phase: 'down' | 'move' = 'down',
-        source: 'touch' | 'mouse' = 'touch'
-    ) => {
-        if (!containerEl || !Number.isFinite(clientX) || !Number.isFinite(clientY)) return
-        const cards = containerEl.querySelectorAll<HTMLButtonElement>('button[data-order-tap-id]')
-        let closestBtn: HTMLButtonElement | null = null
-        let minDistance = 24 // 24px de halo magnético alrededor de todo el cuadro
+        phase: 'down' | 'move' | 'up' = 'down',
+        source: 'touch' | 'mouse' = 'touch',
+        eventTarget?: EventTarget | null
+    ): boolean => {
+        if (!containerEl || !Number.isFinite(clientX) || !Number.isFinite(clientY)) return false
+        const targetEl = eventTarget as HTMLElement | null
+        if (targetEl?.closest?.('[data-no-proximity="true"], button:not([data-order-tap-id]), a, select, input, textarea')) {
+            return false
+        }
 
-        cards.forEach((btn) => {
-            const rect = btn.getBoundingClientRect()
+        const nowMs = Date.now()
+        let items = cardRectsCacheRef.current?.items || null
+        if (phase === 'down' || !items || !cardRectsCacheRef.current || nowMs - cardRectsCacheRef.current.at > 160) {
+            const cards = containerEl.querySelectorAll<HTMLButtonElement>('button[data-order-tap-id]')
+            const nextItems: Array<{ tapId: string; rect: DOMRect }> = []
+            cards.forEach((btn) => {
+                const tapId = btn.getAttribute('data-order-tap-id') || ''
+                if (tapId) {
+                    nextItems.push({ tapId, rect: btn.getBoundingClientRect() })
+                }
+            })
+            items = nextItems
+            cardRectsCacheRef.current = { at: nowMs, items }
+        }
+
+        let closestTapId = ''
+        let minDistance = 40 // 40px de halo magnético adecuado para pantalla grande de 15.6"
+
+        for (let i = 0; i < items.length; i++) {
+            const { tapId, rect } = items[i]
+            if (rect.width <= 0 || rect.height <= 0) continue
             const dx = Math.max(rect.left - clientX, 0, clientX - rect.right)
             const dy = Math.max(rect.top - clientY, 0, clientY - rect.bottom)
             const dist = Math.hypot(dx, dy)
             if (dist <= minDistance) {
                 minDistance = dist
-                closestBtn = btn
+                closestTapId = tapId
+                if (dist === 0) break
             }
-        })
+        }
 
-        if (closestBtn) {
-            const tapId = (closestBtn as HTMLButtonElement).getAttribute('data-order-tap-id') || ''
-            if (tapId.startsWith('ord:')) {
-                const ordId = tapId.slice(4)
-                const foundOrder = readyOrdersList.find((o) => String(o.id) === ordId)
-                if (foundOrder) {
-                    triggerGestureSafeTap(tapId, phase, () => handleCallOrderImpulse(foundOrder), 450, source)
-                }
-            } else if (tapId === 'bev:bev-cafe') {
-                triggerGestureSafeTap(tapId, phase, () => handleCallOrderImpulse({
-                    id: 'bev-cafe',
-                    order_number: 'CAFE',
-                    dining_option: 'TOGO',
-                    label: t('prep.callCafeBtn'),
-                    speech: t('prep.cafeReadySpeech')
-                }), 450, source)
-            } else if (tapId === 'bev:bev-champurrado') {
-                triggerGestureSafeTap(tapId, phase, () => handleCallOrderImpulse({
-                    id: 'bev-champurrado',
-                    order_number: 'CHAMPURRADO',
-                    dining_option: 'TOGO',
-                    label: t('prep.callChampurradoBtn'),
-                    speech: t('prep.champurradoReadySpeech')
-                }), 450, source)
-            } else if (tapId === 'bev:bev-orden-pendiente') {
-                triggerGestureSafeTap(tapId, phase, () => handleCallOrderImpulse({
-                    id: 'bev-orden-pendiente',
-                    order_number: 'ORDEN_PENDIENTE',
-                    dining_option: 'TOGO',
-                    label: t('prep.callOrdenPendienteBtn'),
-                    speech: t('prep.ordenPendienteReadySpeech')
-                }), 450, source)
+        if (!closestTapId) return false
+
+        if (closestTapId.startsWith('ord:')) {
+            const ordId = closestTapId.slice(4)
+            const foundOrder = readyOrdersList.find((o) => String(o.id) === ordId)
+            if (foundOrder) {
+                triggerGestureSafeTap(closestTapId, phase, () => handleCallOrderImpulse(foundOrder), 450, source)
+                return true
+            }
+        } else if (closestTapId === 'bev:bev-cafe') {
+            triggerGestureSafeTap(closestTapId, phase, () => handleCallOrderImpulse({
+                id: 'bev-cafe',
+                order_number: 'CAFE',
+                dining_option: 'TOGO',
+                label: t('prep.callCafeBtn'),
+                speech: t('prep.cafeReadySpeech')
+            }), 450, source)
+            return true
+        } else if (closestTapId === 'bev:bev-champurrado') {
+            triggerGestureSafeTap(closestTapId, phase, () => handleCallOrderImpulse({
+                id: 'bev-champurrado',
+                order_number: 'CHAMPURRADO',
+                dining_option: 'TOGO',
+                label: t('prep.callChampurradoBtn'),
+                speech: t('prep.champurradoReadySpeech')
+            }), 450, source)
+            return true
+        } else if (closestTapId === 'bev:bev-orden-pendiente') {
+            triggerGestureSafeTap(closestTapId, phase, () => handleCallOrderImpulse({
+                id: 'bev-orden-pendiente',
+                order_number: 'ORDEN_PENDIENTE',
+                dining_option: 'TOGO',
+                label: t('prep.callOrdenPendienteBtn'),
+                speech: t('prep.ordenPendienteReadySpeech')
+            }), 450, source)
+            return true
+        }
+        return false
+    }
+
+    // Prioriza siempre e.changedTouches (dedo nuevo/movido) para que una gota de agua o palma en la esquina no secuestre e.touches[0]
+    const handleOrdersProximityTouchEvent = (
+        e: React.TouchEvent<HTMLElement>,
+        phase: 'down' | 'move' | 'up'
+    ) => {
+        const list = e.changedTouches && e.changedTouches.length > 0 ? e.changedTouches : e.touches
+        if (!list || list.length === 0) return
+        for (let i = 0; i < list.length; i++) {
+            const pt = list[i]
+            if (handleOrdersProximityRadar(pt.clientX, pt.clientY, e.currentTarget, phase, 'touch', e.target)) {
+                return
             }
         }
     }
@@ -1376,8 +1500,15 @@ export default function PreparadorPage() {
     // Acción de llamado de orden (impulso táctil enviado a la PC del Manager; la voz suena EXCLUSIVAMENTE en la PC)
     const handleCallOrderImpulse = async (order: any) => {
         if (!order || !order.id) return
-        if (callingIdsRef.current.has(order.id)) return
-        // Reproducir el tick táctil solo después de validar el candado para evitar doble confirmación sonora
+        if (callingIdsRef.current.has(order.id)) {
+            try {
+                if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
+                    navigator.vibrate(10)
+                }
+            } catch {}
+            return
+        }
+        // Reproducir el tick táctil sintetizado solo después de validar el candado para evitar doble confirmación sonora
         playTabletTick()
 
         callingIdsRef.current.add(order.id)
@@ -2941,30 +3072,13 @@ export default function PreparadorPage() {
                     ) : (
                         /* VISTA DE ÓRDENES EN PREPARACIÓN (ENVIADAS POR CAJERA) */
                         <div
-                            className={`flex-1 flex flex-col overflow-hidden p-2 sm:p-4 ${hideCookingPanel ? 'lg:pl-7' : ''}`}
-                            onPointerDownCapture={(e) => {
-                                if (e.pointerType === 'mouse' && e.button !== 0) return
-                                handleOrdersProximityRadar(e.clientX, e.clientY, e.currentTarget, 'down', e.pointerType === 'mouse' ? 'mouse' : 'touch')
-                            }}
-                            onTouchStartCapture={(e) => {
-                                const t0 = e.touches?.[0] || e.changedTouches?.[0]
-                                if (t0) handleOrdersProximityRadar(t0.clientX, t0.clientY, e.currentTarget, 'down', 'touch')
-                            }}
-                            onPointerDown={(e) => {
-                                if (e.pointerType === 'mouse' && e.button !== 0) return
-                                handleOrdersProximityRadar(e.clientX, e.clientY, e.currentTarget, 'down', e.pointerType === 'mouse' ? 'mouse' : 'touch')
-                            }}
-                            onTouchStart={(e) => {
-                                const t0 = e.touches?.[0] || e.changedTouches?.[0]
-                                if (t0) handleOrdersProximityRadar(t0.clientX, t0.clientY, e.currentTarget, 'down', 'touch')
-                            }}
-                            onTouchMove={(e) => {
-                                const t0 = e.touches?.[0] || e.changedTouches?.[0]
-                                if (t0) handleOrdersProximityRadar(t0.clientX, t0.clientY, e.currentTarget, 'move', 'touch')
-                            }}
+                            className={`flex-1 flex flex-col overflow-hidden overscroll-y-contain p-2 sm:p-4 ${hideCookingPanel ? 'lg:pl-7' : ''}`}
                         >
-                            {/* Cabecera del Panel de Órdenes */}
-                            <div className="flex flex-wrap items-center justify-between gap-2 pb-2.5 mb-2.5 border-b border-slate-200 dark:border-slate-800 shrink-0">
+                            {/* Cabecera del Panel de Órdenes (excluida del radar de proximidad) */}
+                            <div
+                                data-no-proximity="true"
+                                className="flex flex-wrap items-center justify-between gap-2 pb-2.5 mb-2.5 border-b border-slate-200 dark:border-slate-800 shrink-0"
+                            >
                                 <div>
                                     <div className="flex flex-wrap items-center gap-2">
                                         <h3 className="text-sm sm:text-lg font-black text-slate-800 dark:text-white uppercase tracking-tight">
@@ -3013,6 +3127,33 @@ export default function PreparadorPage() {
                                 </div>
                             </div>
 
+                            {/* Zona interactiva exclusiva para tarjetas de Voz y Órdenes (sin cabecera ni pulls de Chrome) */}
+                            <div
+                                data-orders-hit-zone="true"
+                                className="flex-1 flex flex-col min-h-0 overflow-hidden overscroll-y-contain"
+                                onPointerDownCapture={(e) => {
+                                    if (e.pointerType === 'mouse' && e.button !== 0) return
+                                    handleOrdersProximityRadar(e.clientX, e.clientY, e.currentTarget, 'down', e.pointerType === 'mouse' ? 'mouse' : 'touch', e.target)
+                                }}
+                                onTouchStartCapture={(e) => {
+                                    handleOrdersProximityTouchEvent(e, 'down')
+                                }}
+                                onPointerMoveCapture={(e) => {
+                                    if (e.pointerType === 'touch' || e.pointerType === 'pen' || e.buttons > 0) {
+                                        handleOrdersProximityRadar(e.clientX, e.clientY, e.currentTarget, 'move', e.pointerType === 'mouse' ? 'mouse' : 'touch', e.target)
+                                    }
+                                }}
+                                onTouchMoveCapture={(e) => {
+                                    handleOrdersProximityTouchEvent(e, 'move')
+                                }}
+                                onPointerUpCapture={(e) => {
+                                    if (e.pointerType === 'mouse' && e.button !== 0) return
+                                    handleOrdersProximityRadar(e.clientX, e.clientY, e.currentTarget, 'up', e.pointerType === 'mouse' ? 'mouse' : 'touch', e.target)
+                                }}
+                                onTouchEndCapture={(e) => {
+                                    handleOrdersProximityTouchEvent(e, 'up')
+                                }}
+                            >
                             {/* Botones de Anuncio por Voz (Café, Champurrado y Orden Pendiente) junto a las órdenes */}
                             <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 sm:gap-3 pb-3 mb-3 border-b border-slate-200 dark:border-slate-800 shrink-0">
                                 {[
@@ -3057,6 +3198,7 @@ export default function PreparadorPage() {
                                             key={bev.id}
                                             type="button"
                                             data-order-tap-id={`bev:${bev.id}`}
+                                            data-ultra-tap="true"
                                             aria-busy={isCalling}
                                             style={{
                                                 touchAction: 'none',
@@ -3065,7 +3207,7 @@ export default function PreparadorPage() {
                                                 userSelect: 'none'
                                             }}
                                             {...bindOrderCardUltraTap(`bev:${bev.id}`, () => handleCallOrderImpulse(bev))}
-                                            className={`group relative rounded-2xl px-3.5 sm:px-4 py-3 sm:py-3.5 text-left transition-all active:scale-[0.97] cursor-pointer flex flex-col justify-between select-none touch-none shadow-sm hover:shadow-md border-2 [&_*]:pointer-events-none before:content-[''] before:absolute before:-inset-2.5 before:rounded-3xl ${
+                                            className={`group relative rounded-2xl px-3.5 sm:px-4 py-3 sm:py-3.5 text-left transition-[transform,border-color,background-color] duration-75 will-change-transform active:scale-[0.96] active:brightness-95 cursor-pointer flex flex-col justify-between select-none touch-none shadow-sm hover:shadow-md border-2 border-b-[5px] [&_*]:pointer-events-none before:content-[''] before:absolute before:-inset-2.5 before:rounded-3xl ${
                                                 isCalling
                                                     ? 'ring-4 ring-emerald-500 scale-[0.98] border-emerald-500 bg-emerald-50 dark:bg-emerald-950/80 shadow-lg'
                                                     : isSuccess
@@ -3123,7 +3265,13 @@ export default function PreparadorPage() {
                             </div>
 
                             {/* Contenedor con scroll para las tarjetas de órdenes */}
-                            <div className="flex-1 overflow-y-auto pb-16 lg:pb-2">
+                            <div
+                                className="flex-1 overflow-y-auto pb-16 lg:pb-2 overscroll-y-contain"
+                                style={{ touchAction: 'pan-y' }}
+                                onScroll={() => {
+                                    cardRectsCacheRef.current = null
+                                }}
+                            >
                                 {readyOrdersList.length === 0 ? (
                                     <div className="h-64 sm:h-80 flex flex-col items-center justify-center text-center p-6 bg-white dark:bg-slate-900 rounded-2xl border-2 border-dashed border-slate-200 dark:border-slate-800">
                                         <div className="w-14 h-14 rounded-full bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-200 dark:border-emerald-800 flex items-center justify-center mb-3 text-emerald-600">
@@ -3138,7 +3286,11 @@ export default function PreparadorPage() {
                                     </div>
                                 ) : (
                                     <div className={`grid gap-3 sm:gap-4 ${
-                                        hideCookingPanel
+                                        readyOrdersList.length === 1
+                                            ? 'grid-cols-1'
+                                            : readyOrdersList.length <= 4
+                                            ? 'grid-cols-1 sm:grid-cols-2'
+                                            : hideCookingPanel
                                             ? 'grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5'
                                             : 'grid-cols-1 sm:grid-cols-2 md:grid-cols-2 lg:grid-cols-2 xl:grid-cols-2 2xl:grid-cols-3'
                                     }`}>
@@ -3146,6 +3298,8 @@ export default function PreparadorPage() {
                                             const isCalling = callingOrderIds.has(order.id)
                                             const isSuccess = callSuccessOrderIds.has(order.id)
                                             const isAlreadyAnnounced = Boolean(order.announced_at)
+                                            const isSingleOrder = readyOrdersList.length === 1
+                                            const shouldUseScrollSafeOrderTouch = readyOrdersList.length > (hideCookingPanel ? 12 : 8)
                                             const smartPlan = isSmartAutoVoiceStore
                                                 ? computeSmartOrderAutoCallPlan(order, queueIdx, autoCallConfig, smartNowMs)
                                                 : null
@@ -3163,10 +3317,14 @@ export default function PreparadorPage() {
                                                 ? t('prep.justNow')
                                                 : t('prep.agoMinutes').replace('{m}', String(elapsedMin))
 
-                                            // Dimensionamiento inteligente según longitud de dígitos para que nunca se desborde
+                                            // Dimensionamiento inteligente según longitud de dígitos y cantidad de órdenes activas
                                             const orderNumStr = String(order.order_number || '').trim()
                                             const numLen = orderNumStr.length
-                                            const numSizeClass = numLen <= 2
+                                            const numSizeClass = isSingleOrder
+                                                ? numLen <= 4
+                                                    ? 'text-7xl sm:text-8xl'
+                                                    : 'text-5xl sm:text-6xl'
+                                                : numLen <= 2
                                                 ? 'text-6xl sm:text-7xl'
                                                 : numLen === 3
                                                 ? 'text-5xl sm:text-6xl'
@@ -3179,15 +3337,20 @@ export default function PreparadorPage() {
                                                     key={order.id}
                                                     type="button"
                                                     data-order-tap-id={`ord:${order.id}`}
+                                                    data-ultra-tap="true"
                                                     aria-busy={isCalling}
                                                     style={{
-                                                        touchAction: 'none',
+                                                        touchAction: shouldUseScrollSafeOrderTouch ? 'pan-y' : 'none',
                                                         WebkitTapHighlightColor: 'transparent',
                                                         WebkitTouchCallout: 'none',
                                                         userSelect: 'none'
                                                     }}
                                                     {...bindOrderCardUltraTap(`ord:${order.id}`, () => handleCallOrderImpulse(order))}
-                                                    className={`group relative rounded-2xl sm:rounded-3xl px-3.5 sm:px-4 py-3 sm:py-4 text-left transition-all active:scale-[0.97] active:bg-emerald-100 dark:active:bg-emerald-950/90 active:border-emerald-500 cursor-pointer flex flex-col justify-between min-h-[180px] sm:min-h-[205px] select-none touch-none shadow-sm hover:shadow-lg border-2 sm:border-3 [&_*]:pointer-events-none before:content-[''] before:absolute before:-inset-2.5 before:rounded-3xl ${
+                                                    className={`group relative rounded-2xl sm:rounded-3xl px-4 sm:px-5 py-3.5 sm:py-4 text-left transition-[transform,border-color,background-color] duration-75 will-change-transform active:scale-[0.97] active:translate-y-[2px] active:bg-emerald-100 dark:active:bg-emerald-950/90 active:border-emerald-500 cursor-pointer flex flex-col justify-between select-none shadow-sm hover:shadow-lg border-2 sm:border-3 border-b-[6px] [&_*]:pointer-events-none before:content-[''] before:absolute before:-inset-3 before:rounded-3xl ${
+                                                        isSingleOrder ? 'min-h-[250px] sm:min-h-[295px]' : 'min-h-[185px] sm:min-h-[210px]'
+                                                    } ${
+                                                        shouldUseScrollSafeOrderTouch ? 'touch-pan-y' : 'touch-none'
+                                                    } ${
                                                         isCalling
                                                             ? 'ring-4 ring-emerald-500 scale-[0.98] border-emerald-500 bg-emerald-50 dark:bg-emerald-950/80 shadow-lg'
                                                             : isSuccess
@@ -3263,7 +3426,9 @@ export default function PreparadorPage() {
                                                     </div>
 
                                                     {/* Botón de Acción Táctil Inferior */}
-                                                    <div className={`w-full py-2.5 sm:py-3 px-3 rounded-xl sm:rounded-2xl flex items-center justify-center gap-2 font-black text-xs sm:text-sm tracking-wide transition-all shadow-sm ${
+                                                    <div className={`w-full px-3 rounded-xl sm:rounded-2xl flex items-center justify-center gap-2 font-black tracking-wide transition-colors shadow-sm ${
+                                                        isSingleOrder ? 'py-3.5 sm:py-4 text-base sm:text-xl' : 'py-2.5 sm:py-3 text-xs sm:text-sm'
+                                                    } ${
                                                         isCalling
                                                             ? 'bg-emerald-600 text-white animate-pulse shadow-md'
                                                             : isSuccess
@@ -3310,6 +3475,7 @@ export default function PreparadorPage() {
                                         })}
                                     </div>
                                 )}
+                            </div>
                             </div>
                         </div>
                     )}
@@ -3991,7 +4157,7 @@ export default function PreparadorPage() {
                 )}
             </AnimatePresence>
 
-            <audio id="audio-tick" src="/sounds/tick.mp3" preload="auto" />
+            {/* Tactile click audio synthesized in memory via Web Audio API (no external MP3 required) */}
 
             {/* Info Modal */}
             <AnimatePresence>
